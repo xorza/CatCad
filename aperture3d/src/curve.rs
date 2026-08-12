@@ -29,6 +29,18 @@ pub struct Curve {
     /// with, without moving where it lands on screen and without letting it
     /// show through anything genuinely in front.
     pub z_offset: i32,
+    /// The plane this curve lies in, as a unit normal, when it lies in one.
+    ///
+    /// A stroke is widened in screen space, so its depth is its centreline's
+    /// held flat across the whole width — while the surface beneath it is not
+    /// flat at all. Seen at an angle the surface rises through the stroke and
+    /// the depth test eats whichever half it rises into, costing up to half
+    /// the stroke's width. Naming the plane lets the widened corners take the
+    /// surface's own depth instead, which is exact and needs no bias.
+    ///
+    /// `None` for a curve that is not planar, or is not drawn on anything.
+    /// Those keep the centreline's depth.
+    pub plane_normal: Option<Vec3>,
 }
 
 impl Curve {
@@ -40,6 +52,7 @@ impl Curve {
             color: Vec3::ONE,
             width: DEFAULT_WIDTH,
             z_offset: 0,
+            plane_normal: None,
         }
     }
 
@@ -69,6 +82,12 @@ impl Curve {
     /// Set the depth-test bias. See [`Curve::z_offset`].
     pub fn z_offset(mut self, z_offset: i32) -> Self {
         self.z_offset = z_offset;
+        self
+    }
+
+    /// Declare the plane the curve lies in. See [`Curve::plane_normal`].
+    pub fn in_plane(mut self, normal: Vec3) -> Self {
+        self.plane_normal = Some(normal.normalize());
         self
     }
 

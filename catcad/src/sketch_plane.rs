@@ -64,6 +64,12 @@ impl SketchPlane {
         self.origin + self.x * point.x as f32 + self.y * point.y as f32
     }
 
+    /// The plane's unit normal. Which face it points out of follows from the
+    /// order of the axes and doesn't matter to anything that uses it.
+    pub(crate) fn normal(&self) -> Vec3 {
+        self.x.cross(self.y).normalize()
+    }
+
     /// The sketch as drawable curves: an edge per segment, a tessellated
     /// circle per circle, and a marker per point — a square where the solver
     /// may not move it, a cross where it may. All of it biased clear of the
@@ -86,10 +92,13 @@ impl SketchPlane {
                 curves.extend(self.cross(position, marker));
             }
         }
-        // Lifted here rather than at each constructor: the drawing rides above
-        // the solids as one thing, and nothing in it outranks the rest.
+        // Applied here rather than at each constructor: the drawing rides on
+        // one plane and above the solids as one thing, and nothing in it
+        // outranks the rest.
+        let normal = self.normal();
         for curve in &mut curves {
             curve.z_offset = SKETCH_LIFT;
+            curve.plane_normal = Some(normal);
         }
         curves
     }
@@ -196,6 +205,16 @@ mod tests {
         // Every last stroke rides in front of the solids — a marker left
         // behind would sink into the face its edge floats over.
         assert!(curves.iter().all(|curve| curve.z_offset == SKETCH_LIFT));
+
+        // And every one names the plane it lies in, so the renderer can take
+        // the stroke's depth off the surface rather than off its centreline.
+        // The ground plane's axes are +X and −Z, which face +Y.
+        assert!(
+            curves
+                .iter()
+                .all(|curve| curve.plane_normal == Some(Vec3::Y)),
+            "the ground plane faces +Y"
+        );
 
         let edge = &curves[0];
         assert_eq!(edge.points, [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)]);

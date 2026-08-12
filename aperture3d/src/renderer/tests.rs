@@ -124,6 +124,9 @@ fn flatten_curves_expands_each_segment_into_a_quad() {
     // The bias is the whole quad's, not one corner's: a ribbon tilted in
     // depth against itself would z-fight along its own length.
     assert!(data.vertices.iter().all(|v| v.params[2] == 64.0));
+    // No plane named, so the shader gets all-zero and falls back to reading
+    // depth off the centreline.
+    assert!(data.vertices.iter().all(|v| v.plane == [0.0; 3]));
 
     // The two triangles cover the quad rather than overlapping: together
     // they use each corner, and the shared edge runs 1–2.
@@ -132,6 +135,25 @@ fn flatten_curves_expands_each_segment_into_a_quad() {
     assert_eq!(data.indices[6..], [4, 5, 6, 6, 5, 7]);
     assert_eq!(data.vertices[4].position, b.to_array());
     assert_eq!(data.vertices[4].other, c.to_array());
+}
+
+#[test]
+fn flatten_curves_normalizes_and_spreads_a_named_plane() {
+    let mut scene = Scene::default();
+    // Deliberately not unit length: the shader tests `dot(n, n) > 0.5` to
+    // decide a plane was named at all, so a stray magnitude would both skew
+    // the gradient and risk reading as "no plane".
+    scene.curves.push(
+        Curve::segment(Vec3::ZERO, Vec3::X)
+            .in_plane(Vec3::new(0.0, 5.0, 0.0))
+            .z_offset(32),
+    );
+    let data = Renderer::new(scene).flatten_curves();
+
+    assert_eq!(data.vertices.len(), 4);
+    for vertex in &data.vertices {
+        assert_eq!(vertex.plane, [0.0, 1.0, 0.0], "{vertex:?}");
+    }
 }
 
 #[test]

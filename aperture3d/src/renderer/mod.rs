@@ -6,7 +6,7 @@ use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::object::Object;
 use crate::scene::Scene;
-use glam::{Mat3, UVec2};
+use glam::{Mat3, UVec2, Vec3};
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
 use wgpu::util::DeviceExt;
 
@@ -68,6 +68,10 @@ struct CurveVertex {
     /// Side of the segment (`±1`), half the stroke width in logical px, then
     /// the depth bias in resolution steps.
     params: [f32; 3],
+    /// Unit normal of the plane the curve lies in, or all-zero for a curve
+    /// that named none — which is what the shader tests to decide whether it
+    /// can read depth off the surface instead of off the centreline.
+    plane: [f32; 3],
 }
 
 /// The whole scene flattened on the CPU, before upload.
@@ -279,7 +283,8 @@ impl Gpu {
                     array_stride: std::mem::size_of::<CurveVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![
-                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x3
+                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3,
+                        3 => Float32x3, 4 => Float32x3
                     ],
                 })],
             },
@@ -425,6 +430,7 @@ impl Renderer {
         for curve in &self.scene.curves {
             let color = curve.color.to_array();
             let half_width = curve.width * 0.5;
+            let plane = curve.plane_normal.unwrap_or(Vec3::ZERO).to_array();
             for (a, b) in curve.segments() {
                 let base = data.vertices.len() as u32;
                 // The far end comes along, so the shader can take the
@@ -439,6 +445,7 @@ impl Renderer {
                         other: other.to_array(),
                         color,
                         params: [side, half_width, curve.z_offset as f32],
+                        plane,
                     });
                 }
                 data.indices.extend_from_slice(&[

@@ -91,6 +91,7 @@ fn curve_vs(
     @location(1) other: vec3<f32>,
     @location(2) color: vec3<f32>,
     @location(3) params: vec3<f32>,
+    @location(4) plane: vec3<f32>,
 ) -> CurveVsOut {
     let here = u.view_proj * vec4<f32>(position, 1.0);
     let there = u.view_proj * vec4<f32>(other, 1.0);
@@ -113,31 +114,68 @@ fn curve_vs(
     // instead of leaving a notch between them.
     let offset_px = (across * side - along) * half_width;
 
-    // That step back leaves the corner half a width beyond its own end while
-    // still carrying that end's depth. On a segment running away from the
-    // camera those are not the same depth, and the cap dips below the surface
-    // the stroke was drawn on — which the depth test then eats, one gap per
-    // segment. NDC depth is linear in screen space, so reading the segment's
-    // own ramp half a width further back is the depth the corner should have.
+    // Widening moves the corner off its own centreline — half a width sideways
+    // and, from the cap, half a width past its own end — while the depth it
+    // arrived with belongs to the centreline. On anything but a head-on
+    // surface those are different depths, so the corner dips below the surface
+    // the stroke lies on and the depth test eats it: gaps at every join where
+    // the segment recedes, and up to half the stroke's width where the surface
+    // rises across it.
     //
-    // Only the along-segment step is corrected. The across step would need the
-    // depth of a surface this shader knows nothing about; what covers that is
-    // the constant bias below.
-    //
-    // Both ends have to be in front of the eye for the ramp to mean anything.
-    // Across the near plane one end's depth is nonsense, and extrapolating
-    // from it would throw the whole quad out of the clip volume instead of
-    // merely distorting it — so that case keeps the flat depth it had before.
-    var ramp = 0.0;
-    if (length_px > DEGENERATE && here.w > DEGENERATE && there.w > DEGENERATE) {
+    // A curve that named its plane can be given the surface's own depth
+    // instead. Under a projective transform a world plane stays a plane, so
+    // NDC depth over it is an exact affine function of screen position: sample
+    // it at two more points of the plane, solve for its gradient, and read off
+    // the depth wherever the corner actually landed.
+    let offset_ndc = offset_px * 2.0 / u.viewport;
+    var depth_ndc = here.z / max(here.w, DEGENERATE);
+    var placed = false;
+
+    if (dot(plane, plane) > 0.5 && here.w > DEGENERATE) {
+        // Any two in-plane directions will do. Sampling a quarter of the view
+        // distance away keeps the two probes far enough apart on screen that
+        // differencing their depths doesn't cancel down to noise.
+        var seed = vec3<f32>(1.0, 0.0, 0.0);
+        if (abs(plane.x) > 0.9) {
+            seed = vec3<f32>(0.0, 1.0, 0.0);
+        }
+        let e1 = normalize(cross(plane, seed));
+        let e2 = cross(plane, e1);
+        let reach = here.w * 0.25;
+        let p1 = u.view_proj * vec4<f32>(position + e1 * reach, 1.0);
+        let p2 = u.view_proj * vec4<f32>(position + e2 * reach, 1.0);
+
+        if (p1.w > DEGENERATE && p2.w > DEGENERATE) {
+            let origin = here.xyz / here.w;
+            let a1 = p1.xyz / p1.w - origin;
+            let a2 = p2.xyz / p2.w - origin;
+            let det = a1.x * a2.y - a1.y * a2.x;
+            // Zero determinant is the plane seen exactly edge-on, where it
+            // covers no screen area and has no gradient to read.
+            if (abs(det) > DEGENERATE) {
+                let dzdx = (a1.z * a2.y - a1.y * a2.z) / det;
+                let dzdy = (a1.x * a2.z - a1.z * a2.x) / det;
+                depth_ndc = origin.z + dzdx * offset_ndc.x + dzdy * offset_ndc.y;
+                placed = true;
+            }
+        }
+    }
+
+    // Without a plane only the along-segment half of the error is recoverable:
+    // the segment's own depth ramp says what the cap should have, and the
+    // sideways half is left to the constant bias. Both ends must be in front
+    // of the eye — across the near plane one end's depth is nonsense, and
+    // extrapolating from it would throw the quad out of the clip volume
+    // instead of merely distorting it.
+    if (!placed && length_px > DEGENERATE && here.w > DEGENERATE && there.w > DEGENERATE) {
         let rise = there.z / there.w - here.z / here.w;
-        ramp = -rise * half_width / length_px;
+        depth_ndc = depth_ndc - rise * half_width / length_px;
     }
 
     var out: CurveVsOut;
     let widened = vec4<f32>(
-        here.xy + offset_px * 2.0 / u.viewport * here.w,
-        here.z + ramp * here.w,
+        here.xy + offset_ndc * here.w,
+        depth_ndc * here.w,
         here.w,
     );
     out.clip = lift(widened, params.z);
