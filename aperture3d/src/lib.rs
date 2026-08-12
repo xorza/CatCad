@@ -41,6 +41,7 @@ pub(crate) mod camera;
 pub(crate) mod curve;
 pub(crate) mod mesh;
 pub(crate) mod object;
+pub(crate) mod ray;
 pub(crate) mod renderer;
 pub(crate) mod scene;
 
@@ -49,5 +50,6 @@ pub use camera::{Camera, Projection};
 pub use curve::Curve;
 pub use mesh::{Mesh, Vertex};
 pub use object::Object;
+pub use ray::Ray;
 pub use renderer::Renderer;
 pub use scene::Scene;
