@@ -1,0 +1,18 @@
+[env]
+# `libraw-rs-sys` compiles LibRaw's own C++ sources statically, but its build.rs
+# never defines LIBRAW_NODLL. On MSVC, libraw.h auto-defines
+# LIBRAW_WIN32_DLLDEFS (gated on `_MSC_VER`), which makes `DllDef` expand to
+# `__declspec(dllimport)` — so every definition in the vendored sources is
+# marked dllimport and cl.exe rejects it with C2491. The macro is Windows-only,
+# so this stays scoped to the MSVC target and other platforms are untouched.
+CXXFLAGS_x86_64_pc_windows_msvc = "-DLIBRAW_NODLL"
+
+# Palantir stores colour, corners, spacing and shadow geometry as f16. Without
+# F16C enabled statically, each conversion takes a runtime feature check into a
+# `#[target_feature]` fn that can't inline — a spill and a call each time, worth
+# -5 to -8% on the frame bench. Floor becomes Ivy Bridge (2012), which this
+# app's wgpu requirement already exceeds. `cfg`-scoped rather than `[build]` so
+# non-x86 targets aren't handed a feature they don't have; palantir keeps its
+# runtime fallback and still builds standalone without this.
+[target.'cfg(target_arch = "x86_64")']
+rustflags = ["-C", "target-feature=+f16c"]
