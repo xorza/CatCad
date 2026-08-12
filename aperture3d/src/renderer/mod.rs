@@ -52,9 +52,6 @@ struct GpuVertex {
     position: [f32; 3],
     normal: [f32; 3],
     color: [f32; 3],
-    /// Depth bias in resolution steps, widened from the count the API is
-    /// authored in because the shader scales by it.
-    z_offset: f32,
 }
 
 /// One corner of a stroked segment. The ribbon is widened in the vertex
@@ -219,9 +216,25 @@ struct Gpu {
 
 impl Gpu {
     fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+        // One module out of four files. WGSL has no include, so the choice is
+        // this or a copy of `lift` and `plane_depth_shift` in each — and the
+        // whole point of those is that there is one of each. Every pipeline
+        // still names an entry point in the same module, so the split costs a
+        // string join at startup and nothing after it.
+        //
+        // The catch: naga reports errors as offsets into the joined text, so a
+        // line number from it belongs to no file on disk. Count from the top of
+        // `common.wgsl` in the order below.
+        let source = [
+            include_str!("shader/common.wgsl"),
+            include_str!("shader/mesh.wgsl"),
+            include_str!("shader/curve.wgsl"),
+            include_str!("shader/point.wgsl"),
+        ]
+        .concat();
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aperture.shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("shader.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(source.into()),
         });
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("aperture.uniforms"),
@@ -282,7 +295,7 @@ impl Gpu {
                     array_stride: std::mem::size_of::<GpuVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![
-                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32
+                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3
                     ],
                 })],
             },
@@ -497,7 +510,6 @@ impl Renderer {
                         .normalize_or_zero()
                         .to_array(),
                     color,
-                    z_offset: object.z_offset as f32,
                 });
             }
             data.indices

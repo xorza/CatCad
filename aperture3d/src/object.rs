@@ -12,10 +12,6 @@ pub struct Object {
     pub transform: Mat4,
     /// Linear-RGB base colour.
     pub color: Vec3,
-    /// Depth-test bias in steps of depth-buffer resolution, positive toward
-    /// the viewer. Zero for anything modelled: what wants a bias is an overlay
-    /// that has to win against the surface it lies on.
-    pub z_offset: i32,
     /// What a pick that lands here reports, and nothing else.
     ///
     /// Opaque on purpose: whatever the caller models — a body, a face, a
@@ -36,7 +32,6 @@ impl Object {
             mesh,
             transform: Mat4::IDENTITY,
             color: Vec3::splat(0.7),
-            z_offset: 0,
             tag: None,
         }
     }
@@ -50,12 +45,6 @@ impl Object {
     /// Set the base colour.
     pub fn colored(mut self, color: Vec3) -> Self {
         self.color = color;
-        self
-    }
-
-    /// Set the depth-test bias. See [`Object::z_offset`].
-    pub fn z_offset(mut self, z_offset: i32) -> Self {
-        self.z_offset = z_offset;
         self
     }
 
@@ -82,9 +71,8 @@ mod tests {
         let tagged = Object::new(Mesh::cube(1.0))
             .tagged(7)
             .at(Vec3::X)
-            .colored(Vec3::Y)
-            .z_offset(3);
+            .colored(Vec3::Y);
         assert_eq!(tagged.tag, Some(7));
-        assert_eq!(tagged.z_offset, 3);
+        assert_eq!(tagged.color, Vec3::Y);
     }
 }

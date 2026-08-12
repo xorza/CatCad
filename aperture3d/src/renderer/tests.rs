@@ -9,8 +9,7 @@ fn flatten_bakes_transforms_into_world_space() {
     scene.objects.push(
         Object::new(Mesh::cube(2.0))
             .at(Vec3::new(10.0, 0.0, 0.0))
-            .colored(Vec3::new(1.0, 0.0, 0.0))
-            .z_offset(64),
+            .colored(Vec3::new(1.0, 0.0, 0.0)),
     );
     let data = Renderer::new(scene).flatten();
 
@@ -25,16 +24,14 @@ fn flatten_bakes_transforms_into_world_space() {
     assert_eq!(data.indices[36], data.indices[0] + 24);
 
     // Corners of a size-2 cube are (±1, ±1, ±1), shifted 10 along x for
-    // the second, and the colour and depth bias ride along per vertex.
+    // the second, and the colour rides along per vertex.
     for vertex in &data.vertices[..24] {
         assert_eq!(vertex.position.map(f32::abs), [1.0, 1.0, 1.0]);
         assert_eq!(vertex.color, [0.7, 0.7, 0.7]);
-        assert_eq!(vertex.z_offset, 0.0, "unbiased unless asked for");
     }
     for vertex in &data.vertices[24..] {
         assert!((vertex.position[0] - 10.0).abs() == 1.0, "{vertex:?}");
         assert_eq!(vertex.color, [1.0, 0.0, 0.0]);
-        assert_eq!(vertex.z_offset, 64.0);
     }
 
     // Translation leaves normals alone.
@@ -61,7 +58,6 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
         mesh,
         transform: Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0)),
         color: Vec3::ZERO,
-        z_offset: 0,
         tag: None,
     });
     let data = Renderer::new(scene).flatten();
