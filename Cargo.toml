@@ -1,0 +1,52 @@
+[workspace]
+resolver = "3"
+members = ["catcad", "palantir", "palantir/anim-derive"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+authors = ["xxorza <xxorza@gmail.com>"]
+license = "GPL-3.0-or-later"
+repository = "https://github.com/xorza/CatCad"
+
+[workspace.dependencies]
+palantir = { path = "palantir", version = "0.3" }
+
+[workspace.lints.rust]
+missing_debug_implementations = "deny"
+unreachable_pub = "deny"
+
+[workspace.lints.rustdoc]
+broken_intra_doc_links = "deny"
+private_intra_doc_links = "deny"
+
+# Profiles only take effect at the workspace root, so palantir's own tuning is
+# restated here — its renderer and shaper are unusable at opt-level 0.
+[profile.bench]
+debug = true
+opt-level = 3
+strip = "none"
+split-debuginfo = "off"
+lto = "fat"
+codegen-units = 1
+
+[profile.release]
+debug = true
+opt-level = 3
+strip = "none"
+split-debuginfo = "off"
+
+[profile.release-max]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "symbols"
+debug = false
+incremental = false
+
+# `"*"` is every package that isn't a workspace member, so workspace code keeps
+# its debug build while the dependency graph stays optimized.
+[profile.dev.package."*"]
+opt-level = 3
