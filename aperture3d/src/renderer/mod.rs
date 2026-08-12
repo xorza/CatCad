@@ -12,6 +12,11 @@ use wgpu::util::DeviceExt;
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
+/// Samples per pixel. Ribbons a pixel and a half wide are most of what this
+/// draws, and their edges are what multisampling is for. WebGPU guarantees 4×
+/// on every renderable format, so there is no fallback path to carry.
+const SAMPLES: u32 = 4;
+
 /// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU
 /// encodes on write.
 const BACKGROUND: wgpu::Color = wgpu::Color {
@@ -111,33 +116,49 @@ impl Batch {
     }
 }
 
-/// The depth attachment, kept in step with the target's size.
+/// The multisampled attachments the pass draws into, kept in step with the
+/// target's size.
+///
+/// Palantir's target is single-sampled, so it can't be drawn to directly at
+/// this sample count — the colour buffer here resolves into it as the pass
+/// ends, and neither buffer's samples are read again.
 #[derive(Debug)]
-struct Depth {
-    view: wgpu::TextureView,
+struct Attachments {
+    color: wgpu::TextureView,
+    depth: wgpu::TextureView,
     size: UVec2,
 }
 
-impl Depth {
-    fn new(device: &wgpu::Device, size: UVec2) -> Self {
+impl Attachments {
+    fn new(device: &wgpu::Device, size: UVec2, target_format: wgpu::TextureFormat) -> Self {
+        Self {
+            color: Self::view(device, "aperture.msaa", size, target_format),
+            depth: Self::view(device, "aperture.depth", size, DEPTH_FORMAT),
+            size,
+        }
+    }
+
+    fn view(
+        device: &wgpu::Device,
+        label: &str,
+        size: UVec2,
+        format: wgpu::TextureFormat,
+    ) -> wgpu::TextureView {
         let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("aperture.depth"),
+            label: Some(label),
             size: wgpu::Extent3d {
                 width: size.x,
                 height: size.y,
                 depth_or_array_layers: 1,
             },
             mip_level_count: 1,
-            sample_count: 1,
+            sample_count: SAMPLES,
             dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
+            format,
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             view_formats: &[],
         });
-        Self {
-            view: texture.create_view(&wgpu::TextureViewDescriptor::default()),
-            size,
-        }
+        texture.create_view(&wgpu::TextureViewDescriptor::default())
     }
 }
 
@@ -150,7 +171,10 @@ struct Gpu {
     bind_group: wgpu::BindGroup,
     meshes: Option<Batch>,
     curves: Option<Batch>,
-    depth: Option<Depth>,
+    attachments: Option<Attachments>,
+    /// Kept from init: the multisampled colour buffer has to match what it
+    /// resolves into, and that isn't known until the first frame's size is.
+    target_format: wgpu::TextureFormat,
 }
 
 impl Gpu {
@@ -198,6 +222,13 @@ impl Gpu {
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         };
+        let multisample = wgpu::MultisampleState {
+            count: SAMPLES,
+            mask: !0,
+            // Every fragment here is opaque, so coverage has nothing to take
+            // from alpha.
+            alpha_to_coverage_enabled: false,
+        };
         let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("aperture.mesh_pipeline"),
             layout: Some(&layout),
@@ -229,7 +260,7 @@ impl Gpu {
                 ..Default::default()
             },
             depth_stencil: Some(depth_stencil.clone()),
-            multisample: wgpu::MultisampleState::default(),
+            multisample,
             multiview_mask: None,
             cache: None,
         });
@@ -267,7 +298,7 @@ impl Gpu {
                 ..Default::default()
             },
             depth_stencil: Some(depth_stencil),
-            multisample: wgpu::MultisampleState::default(),
+            multisample,
             multiview_mask: None,
             cache: None,
         });
@@ -278,7 +309,8 @@ impl Gpu {
             bind_group,
             meshes: None,
             curves: None,
-            depth: None,
+            attachments: None,
+            target_format,
         }
     }
 }
@@ -457,26 +489,28 @@ impl GpuPaint for Renderer {
             );
             self.dirty = false;
         }
-        if gpu.depth.as_ref().map(|depth| depth.size) != Some(size) {
-            gpu.depth = Some(Depth::new(ctx.device, size));
+        if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
+            gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
         }
-        let depth = gpu.depth.as_ref().expect("depth just ensured");
+        let attachments = gpu.attachments.as_ref().expect("attachments just ensured");
         ctx.queue
             .write_buffer(&gpu.uniforms, 0, bytemuck::bytes_of(&uniforms));
 
         let mut pass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("aperture.pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: ctx.target,
-                resolve_target: None,
+                view: &attachments.color,
+                // The resolve is the only thing palantir composites, so the
+                // samples behind it are discarded rather than stored.
+                resolve_target: Some(ctx.target),
                 depth_slice: None,
                 ops: wgpu::Operations {
                     load: wgpu::LoadOp::Clear(BACKGROUND),
-                    store: wgpu::StoreOp::Store,
+                    store: wgpu::StoreOp::Discard,
                 },
             })],
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &depth.view,
+                view: &attachments.depth,
                 depth_ops: Some(wgpu::Operations {
                     load: wgpu::LoadOp::Clear(1.0),
                     store: wgpu::StoreOp::Discard,
