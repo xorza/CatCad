@@ -9,7 +9,7 @@
 use std::path::Path;
 use std::sync::mpsc;
 
-use aperture::Camera;
+use aperture::{Camera, Projection};
 use glam::{DVec2, UVec2};
 use palantir::{HeadlessGpu, OffscreenHost, wgpu};
 use silverpoint::Solver;
@@ -34,6 +34,14 @@ impl Frame {
     fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
         let base = ((y * self.size.x + x) * 4) as usize;
         self.rgba[base..base + 4].try_into().expect("four channels")
+    }
+
+    /// Whether a pixel is scene rather than background. Everything drawn is
+    /// lit well clear of this; the clear colour is near black, so the gap is
+    /// wide enough that the threshold never has to be tuned.
+    fn lit(&self, x: u32, y: u32) -> bool {
+        let [r, g, b, _] = self.pixel(x, y);
+        (u32::from(r) + u32::from(g) + u32::from(b)) / 3 > 90
     }
 
     /// Dump for eyeballing. Binary PPM because it costs no dependency and
@@ -209,6 +217,34 @@ fn edge_on(pitch: f32) -> impl FnOnce(&mut Camera) {
     }
 }
 
+/// How wide anything lit is in `row`, in pixels.
+///
+/// The ground slab is the only thing that reaches either end of a row it
+/// crosses — the cubes and the drawing sit inside its footprint — so this is
+/// the slab's silhouette however it is decorated.
+fn lit_span(frame: &Frame, row: u32) -> u32 {
+    let mut first = None;
+    let mut last = 0;
+    for x in 0..frame.size.x {
+        if frame.lit(x, row) {
+            first.get_or_insert(x);
+            last = x;
+        }
+    }
+    first.map_or(0, |first| last - first + 1)
+}
+
+/// [`edge_on`] pulled back until the slab stays inside the frame at every
+/// depth under either projection — so the only thing that differs between two
+/// frames taken through this is the projection.
+fn slab_in_frame(projection: Projection) -> impl FnOnce(&mut Camera) {
+    move |camera| {
+        edge_on(0.9)(camera);
+        camera.distance = 20.0;
+        camera.projection = projection;
+    }
+}
+
 /// The pane draws whatever the solver leaves behind, so what the demo is
 /// worth showing rests on it landing exactly on the rectangle it asks
 /// for — and on the report agreeing that nothing is left free.
@@ -303,6 +339,41 @@ fn solids_still_hide_the_strokes_behind_them() {
     );
 }
 
+/// What the projection toggle is worth: a rectangle in the world measures the
+/// same wherever it sits on screen.
+///
+/// Both rows cross the ground slab, one well beyond the orbit target and one
+/// well in front of it. Under parallel rays the slab's silhouette is still a
+/// rectangle, so the two rows measure alike; perspective spreads the near end
+/// of the same face by a fifth.
+#[test]
+fn orthographic_holds_the_slab_to_one_width() {
+    const FAR_ROW: u32 = 220;
+    const NEAR_ROW: u32 = 410;
+
+    let flat = render(
+        UVec2::new(800, 628),
+        slab_in_frame(Projection::Orthographic),
+    );
+    let (far, near) = (lit_span(&flat, FAR_ROW), lit_span(&flat, NEAR_ROW));
+    assert!(
+        far > 300 && near > 300,
+        "the slab should cross both rows, got {far} and {near}"
+    );
+    assert!(
+        near.abs_diff(far) <= 2,
+        "orthographic widened the slab from {far} to {near} across the view"
+    );
+
+    let solid = render(UVec2::new(800, 628), slab_in_frame(Projection::Perspective));
+    let (far, near) = (lit_span(&solid, FAR_ROW), lit_span(&solid, NEAR_ROW));
+    assert!(
+        near > far + 50,
+        "perspective should spread the near end of the slab, but {FAR_ROW} \
+         measured {far} and {NEAR_ROW} measured {near}"
+    );
+}
+
 /// Geometry that reaches past the camera still has to draw the part in front
 /// of it.
 ///
@@ -324,15 +395,13 @@ fn a_surface_reaching_behind_the_camera_still_draws() {
         camera.target = glam::Vec3::new(4.0, 0.0, -2.5);
     });
 
-    // The slab is lit mid-grey; the cleared background is near-black. Sample
-    // across the lower half, which the slab should cover completely.
+    // Sample across the lower half, which the slab should cover completely.
     let mut lit = 0;
     let mut total = 0;
     for y in (frame.size.y / 2..frame.size.y).step_by(8) {
         for x in (0..frame.size.x).step_by(8) {
-            let [r, g, b, _] = frame.pixel(x, y);
             total += 1;
-            if (u32::from(r) + u32::from(g) + u32::from(b)) / 3 > 90 {
+            if frame.lit(x, y) {
                 lit += 1;
             }
         }

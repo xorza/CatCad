@@ -5,11 +5,11 @@ mod sketch_plane;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Mesh, Object, Renderer, Scene};
+use aperture::{Mesh, Object, Projection, Renderer, Scene};
 use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{
-    App, Configure, GpuPaint, GpuView, HostHandle, Panel, Sense, Sizing, Text, Ui, WindowToken,
-    WinitHost, WinitHostError,
+    Align, App, Background, Button, Configure, GpuPaint, GpuView, HostHandle, Panel, Sense, Sizing,
+    Text, Ui, WindowToken, WinitHost, WinitHostError,
 };
 use silverpoint::{Constraint, Sketch, SolveReport, Solver};
 
@@ -132,20 +132,51 @@ impl CatCad {
                 .dolly(ZOOM_RATE.powf(-notches));
         }
     }
+
+    /// What floats over the viewport, pinned to its top-left corner.
+    fn overlay(&mut self, ui: &mut Ui) {
+        Panel::vstack()
+            .auto_id()
+            // Chrome would put a slab of theme colour over the drawing; the
+            // overlay is meant to sit *on* the view, not box it off.
+            .background(Background::NONE)
+            .size((Sizing::HUG, Sizing::HUG))
+            .align(Align::TOP_LEFT)
+            .padding(12.0)
+            .gap(8.0)
+            .show(ui, |ui| {
+                self.projection_toggle(ui);
+                Text::new(self.solve_summary()).auto_id().show(ui);
+            });
+    }
+
+    /// Flips the camera between the two projections.
+    ///
+    /// Labelled with the projection it is on rather than the one it would
+    /// switch to: the button has to answer "which am I looking at?" every
+    /// frame, and only answers "what happens if I press this?" once.
+    fn projection_toggle(&mut self, ui: &mut Ui) {
+        let projection = self.view.borrow().camera().projection;
+        let label = match projection {
+            Projection::Perspective => "Perspective",
+            Projection::Orthographic => "Orthographic",
+        };
+        if Button::new().auto_id().label(label).show(ui).left.clicked() {
+            self.view.borrow_mut().camera_mut().projection = projection.toggled();
+        }
+    }
 }
 
 impl App for CatCad {
     fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
-        // One view of one scene, with the solve's verdict laid over it.
+        // One view of one scene, with the controls and the solve's verdict
+        // laid over it.
         Panel::zstack()
             .auto_id()
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
                 self.viewport(ui);
-                Text::new(self.solve_summary())
-                    .auto_id()
-                    .padding(12.0)
-                    .show(ui);
+                self.overlay(ui);
             });
     }
 }

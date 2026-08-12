@@ -45,7 +45,7 @@ pub(crate) mod renderer;
 pub(crate) mod scene;
 
 pub use bounds::Bounds;
-pub use camera::Camera;
+pub use camera::{Camera, Projection};
 pub use curve::Curve;
 pub use mesh::{Mesh, Vertex};
 pub use object::Object;

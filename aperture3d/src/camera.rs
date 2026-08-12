@@ -13,6 +13,45 @@ const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 1e-3;
 /// distance, so nothing else depends on how close the eye may come.
 const MIN_DISTANCE: f32 = 1e-3;
 
+/// How far, in orbit distances, the orthographic depth slab reaches either side
+/// of the eye.
+///
+/// Parallel rays have no perspective divide to play float precision against, so
+/// there is no infinite far plane to be had here: the slab ends somewhere, and
+/// every unit of it is paid for in resolution. Sizing it by the orbit distance
+/// makes that a fixed *relative* cost — the same bargain the near ratio strikes
+/// — so zoom tightens the slab rather than leaving the range spent on space no
+/// longer being looked at. Framing puts a whole scene within two orbit
+/// distances of the eye, so this leaves room to orbit and dolly around one
+/// before anything clips, at about `distance × 2⁻¹⁷` of resolution.
+///
+/// It reaches as far behind the eye as in front, which is what makes
+/// orthographic zoom a pure rescale: with no vanishing point there is nothing
+/// to justify clipping what the eye has passed, and clipping it would slice the
+/// model open as you dolly in.
+const ORTHO_SLAB: f32 = 64.0;
+
+/// How the view volume flattens onto the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Projection {
+    /// Foreshortening with depth, the way an eye or a lens sees.
+    #[default]
+    Perspective,
+    /// Parallel rays: equal lengths measure equal on screen wherever they
+    /// sit, and parallel edges stay parallel. What makes a view scalable.
+    Orthographic,
+}
+
+impl Projection {
+    /// The other one.
+    pub fn toggled(self) -> Self {
+        match self {
+            Self::Perspective => Self::Orthographic,
+            Self::Orthographic => Self::Perspective,
+        }
+    }
+}
+
 /// A right-handed, Y-up orbit camera: the eye is derived from a target point,
 /// a distance, and two angles, so every gesture is a change to one scalar.
 ///
@@ -20,6 +59,8 @@ const MIN_DISTANCE: f32 = 1e-3;
 /// pitch lifts the eye toward +Y.
 #[derive(Debug, Clone, Copy)]
 pub struct Camera {
+    /// Whether the view foreshortens.
+    pub projection: Projection,
     /// The point the eye looks at and orbits around.
     pub target: Vec3,
     /// Eye-to-target distance in world units.
@@ -29,8 +70,15 @@ pub struct Camera {
     /// Elevation above the XZ plane, in radians.
     pub pitch: f32,
     /// Vertical field of view, in radians.
+    ///
+    /// Parallel rays subtend nothing, so the orthographic view has no field of
+    /// view of its own and reads this one as the extent it spans at the orbit
+    /// distance instead. Switching projections then leaves whatever is being
+    /// looked at exactly the size it was, and changes only the foreshortening
+    /// around it.
     pub fov_y: f32,
-    /// Near clip distance, as a fraction of the orbit distance.
+    /// Near clip distance, as a fraction of the orbit distance. Perspective
+    /// only.
     ///
     /// A ratio rather than a distance because an absolute near plane is a
     /// second number that has to stay in step with how close the eye may come,
@@ -46,6 +94,7 @@ pub struct Camera {
 impl Default for Camera {
     fn default() -> Self {
         Self {
+            projection: Projection::Perspective,
             target: Vec3::ZERO,
             distance: 6.0,
             yaw: 0.6,
@@ -68,7 +117,9 @@ impl Camera {
         self.target + offset * self.distance
     }
 
-    /// Where the near plane currently sits, in world units.
+    /// Where the near plane currently sits, in world units. Perspective only:
+    /// the orthographic slab is centred on the eye and clips nothing in front
+    /// of it.
     pub fn z_near(&self) -> f32 {
         debug_assert!(
             self.near_ratio > 0.0 && self.near_ratio < 1.0,
@@ -78,22 +129,71 @@ impl Camera {
         self.distance * self.near_ratio
     }
 
+    /// Half the world height the viewport covers at the orbit target, which is
+    /// the extent the orthographic view is built on. See [`Camera::fov_y`].
+    fn half_extent(&self) -> f32 {
+        self.distance * (self.fov_y * 0.5).tan()
+    }
+
+    /// How far to step from a vertex when sampling the depth gradient of the
+    /// surface it lies on, scaled by that vertex's clip `w` and by the length
+    /// of the basis the shader reads the gradient against — so an upper bound
+    /// on the world distance rather than the distance itself.
+    ///
+    /// A share of the viewport rather than a fixed distance, or the probes land
+    /// close enough together on screen that differencing their depths cancels
+    /// down to noise. Perspective `w` is the view depth, so a fraction of it is
+    /// that share wherever the vertex sits; orthographic `w` is always 1 and
+    /// says nothing about scale, so the orbit distance stands in for it.
+    pub(crate) fn probe_reach(&self) -> f32 {
+        // A quarter of the way to what is being looked at, which at the fovs a
+        // camera is given works out to a useful fraction of the viewport.
+        const SHARE: f32 = 0.25;
+
+        match self.projection {
+            Projection::Perspective => SHARE,
+            Projection::Orthographic => SHARE * self.distance,
+        }
+    }
+
     /// Combined view-projection for a viewport of the given width/height
     /// ratio.
     ///
-    /// Depth is **reversed**: the near plane maps to 1 and distance falls away
-    /// toward 0, so the depth test runs `Greater` against a buffer cleared to
-    /// 0. Float precision crowds near zero and the perspective divide crowds
-    /// its own near the eye; aiming those at opposite ends is what makes them
-    /// cancel, leaving roughly constant *relative* resolution — about
-    /// `distance × 2⁻²⁴` — in place of resolution that decays with the square
-    /// of distance.
+    /// Depth is **reversed** either way: the near plane maps to 1 and distance
+    /// falls away toward 0, so the depth test runs `Greater` against a buffer
+    /// cleared to 0. Under perspective that is what buys the resolution. Float
+    /// precision crowds near zero and the perspective divide crowds its own
+    /// near the eye; aiming those at opposite ends is what makes them cancel,
+    /// leaving roughly constant *relative* resolution — about `distance × 2⁻²⁴`
+    /// — in place of resolution that decays with the square of distance. Linear
+    /// orthographic depth has nothing to cancel and gains nothing; it is
+    /// reversed because the pipeline reads one way round.
     ///
-    /// The far plane is at infinity. Nothing is clipped for being too far off,
-    /// and since depth resolution is no longer bought at the far plane's
-    /// expense, giving it up costs nothing.
+    /// The perspective far plane is at infinity. Nothing is clipped for being
+    /// too far off, and since depth resolution is no longer bought at the far
+    /// plane's expense, giving it up costs nothing. Orthographic has no such
+    /// option — see [`ORTHO_SLAB`].
     pub fn view_proj(&self, aspect: f32) -> Mat4 {
-        let proj = directx::perspective_infinite_reverse(self.fov_y, aspect, self.z_near());
+        let proj = match self.projection {
+            Projection::Perspective => {
+                directx::perspective_infinite_reverse(self.fov_y, aspect, self.z_near())
+            }
+            Projection::Orthographic => {
+                let half_height = self.half_extent();
+                let half_width = half_height * aspect;
+                let reach = ORTHO_SLAB * self.distance;
+                // Near and far handed over swapped, which is what reverses a
+                // depth glam would otherwise run 0 at the near plane to 1.
+                directx::orthographic(
+                    -half_width,
+                    half_width,
+                    -half_height,
+                    half_height,
+                    reach,
+                    -reach,
+                )
+            }
+        };
         proj * view::look_at_mat4(self.eye(), self.target, Vec3::Y)
     }
 
@@ -132,6 +232,7 @@ mod tests {
     /// `1 / distance`.
     fn unit_camera() -> Camera {
         Camera {
+            projection: Projection::Perspective,
             target: Vec3::ZERO,
             distance: 5.0,
             yaw: 0.0,
@@ -239,6 +340,68 @@ mod tests {
     }
 
     #[test]
+    fn orthographic_drops_the_foreshortening_and_keeps_the_target_plane() {
+        let camera = Camera {
+            projection: Projection::Orthographic,
+            ..unit_camera()
+        };
+        let view_proj = camera.view_proj(1.0);
+
+        // The extent is what the 90° fov spans at the 5-unit orbit distance,
+        // 5 × tan(45°) = 5 — the same half-height perspective has *there*. So
+        // the target plane measures identically under either, and the toggle
+        // doesn't jump: (5, 0, 0) is on the right edge here as it is above.
+        let right = view_proj.project_point3(Vec3::new(5.0, 0.0, 0.0));
+        assert!((right.x - 1.0).abs() < 1e-5, "{right:?}");
+        let top = view_proj.project_point3(Vec3::new(0.0, 5.0, 0.0));
+        assert!((top.y - 1.0).abs() < 1e-5, "{top:?}");
+
+        // Ten units further out, perspective pulls that same point in to a
+        // third of the width. Parallel rays don't move it at all — which is
+        // the whole difference between the two.
+        let deeper = Vec3::new(5.0, 0.0, -10.0);
+        let parallel = view_proj.project_point3(deeper);
+        assert!((parallel.x - 1.0).abs() < 1e-5, "{parallel:?}");
+        let foreshortened = unit_camera().view_proj(1.0).project_point3(deeper);
+        assert!(
+            (foreshortened.x - 1.0 / 3.0).abs() < 1e-5,
+            "{foreshortened:?}"
+        );
+
+        // Depth is the 64-orbit-distance slab either side of the eye, run
+        // backwards so nearer is greater. The eye plane halves it, and the
+        // target one distance in front of it lands a 128th further down:
+        // (64 - 1) / 128.
+        let eye_plane = view_proj.project_point3(Vec3::new(0.0, 0.0, 5.0));
+        assert!((eye_plane.z - 0.5).abs() < 1e-6, "{eye_plane:?}");
+        let centre = view_proj.project_point3(Vec3::ZERO);
+        assert!((centre.z - 63.0 / 128.0).abs() < 1e-6, "{centre:?}");
+
+        // Both ends of the slab, 320 units out either way. The near one is
+        // *behind* the eye — which is the point: with nothing clipped in front
+        // of it, dollying in to zoom can't slice the model open.
+        let far = view_proj.project_point3(Vec3::new(0.0, 0.0, -315.0));
+        assert!(far.z.abs() < 1e-6, "{far:?}");
+        let behind = view_proj.project_point3(Vec3::new(0.0, 0.0, 325.0));
+        assert!((behind.z - 1.0).abs() < 1e-6, "{behind:?}");
+        assert!(behind.z > eye_plane.z && eye_plane.z > centre.z && centre.z > far.z);
+
+        // A wider viewport spreads the extent, same as perspective.
+        let wide = camera
+            .view_proj(2.0)
+            .project_point3(Vec3::new(5.0, 0.0, 0.0));
+        assert!((wide.x - 0.5).abs() < 1e-5, "{wide:?}");
+
+        // Orthographic clip `w` is always 1 and carries no scale, so the plane
+        // probes take theirs from the orbit distance instead.
+        assert_eq!(camera.probe_reach(), 0.25 * 5.0);
+        assert_eq!(unit_camera().probe_reach(), 0.25);
+
+        assert_eq!(camera.projection.toggled(), Projection::Perspective);
+        assert_eq!(Projection::Perspective.toggled(), camera.projection);
+    }
+
+    #[test]
     fn orbit_accumulates_yaw_and_clamps_pitch() {
         let mut camera = unit_camera();
         camera.orbit(0.25, 0.1);
@@ -280,22 +443,38 @@ mod tests {
 
         // Which is exactly enough: every corner of the box projects inside
         // NDC, and the sphere's silhouette touches the top and bottom edges.
-        let view_proj = camera.view_proj(1.0);
-        for corner in [
-            Vec3::new(2.0, 2.0, 2.0),
-            Vec3::new(6.0, 2.0, 2.0),
-            Vec3::new(2.0, 6.0, 2.0),
-            Vec3::new(2.0, 2.0, 6.0),
-            Vec3::new(6.0, 6.0, 2.0),
-            Vec3::new(6.0, 2.0, 6.0),
-            Vec3::new(2.0, 6.0, 6.0),
-            Vec3::new(6.0, 6.0, 6.0),
-        ] {
-            let ndc = view_proj.project_point3(corner);
-            assert!(
-                ndc.x.abs() <= 1.0 && ndc.y.abs() <= 1.0,
-                "{corner:?} projects out of frame at {ndc:?}"
-            );
+        //
+        // Under either projection — framing picks a distance from the fov, and
+        // the orthographic extent comes from the same two numbers, so one fit
+        // serves both. It has room to spare there: the extent is what the fov
+        // spans at the target rather than at the near face of the sphere, which
+        // is radius / cos(45°) against a radius that has to fit.
+        for projection in [Projection::Perspective, Projection::Orthographic] {
+            let view_proj = Camera {
+                projection,
+                ..camera
+            }
+            .view_proj(1.0);
+            for corner in [
+                Vec3::new(2.0, 2.0, 2.0),
+                Vec3::new(6.0, 2.0, 2.0),
+                Vec3::new(2.0, 6.0, 2.0),
+                Vec3::new(2.0, 2.0, 6.0),
+                Vec3::new(6.0, 6.0, 2.0),
+                Vec3::new(6.0, 2.0, 6.0),
+                Vec3::new(2.0, 6.0, 6.0),
+                Vec3::new(6.0, 6.0, 6.0),
+            ] {
+                let ndc = view_proj.project_point3(corner);
+                assert!(
+                    ndc.x.abs() <= 1.0 && ndc.y.abs() <= 1.0,
+                    "{corner:?} projects out of frame at {ndc:?} under {projection:?}"
+                );
+                assert!(
+                    ndc.z > 0.0 && ndc.z < 1.0,
+                    "{corner:?} clips in depth at {ndc:?} under {projection:?}"
+                );
+            }
         }
 
         // A single point has no extent to fit, so the distance floors rather

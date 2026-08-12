@@ -26,9 +26,9 @@ const BACKGROUND: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
-/// What both pipelines read. Laid out to match the WGSL `Uniforms`, which
-/// rounds to 80 bytes: the trailing pad is what makes that explicit rather
-/// than implied.
+/// What both pipelines read. Laid out to match the WGSL `Uniforms`: four
+/// floats trailing the matrix, which is exactly the 80 bytes the layout rounds
+/// to.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
@@ -38,7 +38,8 @@ struct Uniforms {
     /// Physical pixels per logical pixel, which is what turns a curve's
     /// authored width into the width it is drawn at.
     raster_scale: f32,
-    _pad: f32,
+    /// See [`Camera::probe_reach`].
+    probe_reach: f32,
 }
 
 /// A vertex as the GPU sees it: world space, with the owning object's colour
@@ -483,7 +484,7 @@ impl GpuPaint for Renderer {
                 .to_cols_array(),
             viewport: [size.x as f32, size.y as f32],
             raster_scale: ctx.raster_scale,
-            _pad: 0.0,
+            probe_reach: self.scene.camera.probe_reach(),
         };
         let batches = self.dirty.then(|| (self.flatten(), self.flatten_curves()));
 

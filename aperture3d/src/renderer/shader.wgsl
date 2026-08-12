@@ -4,7 +4,9 @@ struct Uniforms {
     // worth. Only the curve pass reads them.
     viewport: vec2<f32>,
     raster_scale: f32,
-    _pad: f32,
+    // World distance per unit of clip w to step when probing the plane a curve
+    // lies on. The projection sets it — see `Camera::probe_reach`.
+    probe_reach: f32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -83,9 +85,11 @@ struct CurveVsOut {
     @location(0) color: vec3<f32>,
 };
 
-// Below this the two ends of a segment land on the same pixel and no
-// direction can be recovered from them; any direction will do, since the
-// ribbon it widens is sub-pixel anyway.
+// The floor under every quantity this shader divides by: a segment's screen
+// length, a clip `w`, the determinant of a two-by-two. Each means something
+// different, and they share a constant only because the answer to all three is
+// the same — below this there is no information left to recover, so take the
+// fallback rather than the noise.
 const DEGENERATE: f32 = 1e-6;
 
 // A vertex arrives knowing both ends of its segment, which side of it to sit
@@ -107,11 +111,11 @@ fn curve_vs(
 ) -> CurveVsOut {
     let here = u.view_proj * vec4<f32>(position, 1.0);
     let there = u.view_proj * vec4<f32>(other, 1.0);
+    let here_ndc = here.xyz / max(here.w, DEGENERATE);
+    let there_ndc = there.xyz / max(there.w, DEGENERATE);
 
     // NDC spans two units over the whole target, hence the halved viewport.
-    let here_px = here.xy / max(here.w, DEGENERATE) * u.viewport * 0.5;
-    let there_px = there.xy / max(there.w, DEGENERATE) * u.viewport * 0.5;
-    let travel = there_px - here_px;
+    let travel = (there_ndc.xy - here_ndc.xy) * u.viewport * 0.5;
     let length_px = length(travel);
     var along = vec2<f32>(1.0, 0.0);
     if (length_px > DEGENERATE) {
@@ -138,37 +142,48 @@ fn curve_vs(
     // instead. Under a projective transform a world plane stays a plane, so
     // NDC depth over it is an exact affine function of screen position: sample
     // it at two more points of the plane, solve for its gradient, and read off
-    // the depth wherever the corner actually landed.
+    // how far the depth moves over the offset the corner actually took.
+    //
+    // Carried as a *shift* from the centreline rather than a depth in its own
+    // right, so that leaving it at zero passes `here.z` through untouched.
+    // Recomputing the absolute value instead would divide by `w` and multiply
+    // it straight back, which is a rounding step on every vertex and outright
+    // nonsense on one behind the eye, where `w` is negative and the clamp below
+    // is all that stands between the divide and infinity. Those vertices exist
+    // to be clipped against, and the clip reads the `z` they carry.
     let offset_ndc = offset_px * 2.0 / u.viewport;
-    var depth_ndc = here.z / max(here.w, DEGENERATE);
-    var placed = false;
+    var depth_shift = 0.0;
+    var from_plane = false;
 
     if (dot(plane, plane) > 0.5 && here.w > DEGENERATE) {
-        // Any two in-plane directions will do. Sampling a quarter of the view
-        // distance away keeps the two probes far enough apart on screen that
-        // differencing their depths doesn't cancel down to noise.
+        // Two in-plane directions, neither unit nor orthogonal on purpose: the
+        // gradient that falls out belongs to the plane, not to the basis it
+        // was read against, so normalizing would cost an inverse square root
+        // to arrive at the same answer. They need only be independent, and far
+        // enough apart on screen that differencing their depths doesn't cancel
+        // down to noise — hence a reach scaled to the viewing distance, which
+        // under a parallel projection has to come from the uniform because `w`
+        // is then a constant 1 that knows nothing about it.
         var seed = vec3<f32>(1.0, 0.0, 0.0);
         if (abs(plane.x) > 0.9) {
             seed = vec3<f32>(0.0, 1.0, 0.0);
         }
-        let e1 = normalize(cross(plane, seed));
+        let e1 = cross(plane, seed) * (here.w * u.probe_reach);
         let e2 = cross(plane, e1);
-        let reach = here.w * 0.25;
-        let p1 = u.view_proj * vec4<f32>(position + e1 * reach, 1.0);
-        let p2 = u.view_proj * vec4<f32>(position + e2 * reach, 1.0);
+        let p1 = u.view_proj * vec4<f32>(position + e1, 1.0);
+        let p2 = u.view_proj * vec4<f32>(position + e2, 1.0);
 
         if (p1.w > DEGENERATE && p2.w > DEGENERATE) {
-            let origin = here.xyz / here.w;
-            let a1 = p1.xyz / p1.w - origin;
-            let a2 = p2.xyz / p2.w - origin;
+            let a1 = p1.xyz / p1.w - here_ndc;
+            let a2 = p2.xyz / p2.w - here_ndc;
             let det = a1.x * a2.y - a1.y * a2.x;
             // Zero determinant is the plane seen exactly edge-on, where it
             // covers no screen area and has no gradient to read.
             if (abs(det) > DEGENERATE) {
                 let dzdx = (a1.z * a2.y - a1.y * a2.z) / det;
                 let dzdy = (a1.x * a2.z - a1.z * a2.x) / det;
-                depth_ndc = origin.z + dzdx * offset_ndc.x + dzdy * offset_ndc.y;
-                placed = true;
+                depth_shift = dzdx * offset_ndc.x + dzdy * offset_ndc.y;
+                from_plane = true;
             }
         }
     }
@@ -179,15 +194,14 @@ fn curve_vs(
     // of the eye — across the near plane one end's depth is nonsense, and
     // extrapolating from it would throw the quad out of the clip volume
     // instead of merely distorting it.
-    if (!placed && length_px > DEGENERATE && here.w > DEGENERATE && there.w > DEGENERATE) {
-        let rise = there.z / there.w - here.z / here.w;
-        depth_ndc = depth_ndc - rise * half_width / length_px;
+    if (!from_plane && length_px > DEGENERATE && here.w > DEGENERATE && there.w > DEGENERATE) {
+        depth_shift = -(there_ndc.z - here_ndc.z) * half_width / length_px;
     }
 
     var out: CurveVsOut;
     let widened = vec4<f32>(
         here.xy + offset_ndc * here.w,
-        depth_ndc * here.w,
+        here.z + depth_shift * here.w,
         here.w,
     );
     out.clip = lift(widened, params.z);
