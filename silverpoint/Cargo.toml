@@ -1,0 +1,16 @@
+[package]
+name = "silverpoint"
+description = "2D geometric constraint solving for sketches"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# `f64` for DVec2: constraint residuals near a degenerate configuration don't
+# survive single precision.
+glam = { workspace = true, features = ["f64"] }
+
+[lints]
+workspace = true

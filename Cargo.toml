@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["aperture3d", "catcad", "palantir", "palantir/anim-derive"]
+members = ["aperture3d", "catcad", "palantir", "palantir/anim-derive", "silverpoint"]
 
 [workspace.package]
 version = "0.1.0"
