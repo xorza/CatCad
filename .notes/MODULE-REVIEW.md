@@ -4,24 +4,6 @@ Findings only; nothing here proposes a fix. **Delete an item once it is
 addressed** — this file lists what is still open, and an item left ticked is
 just noise for the next reader.
 
-## The screen-space convention is written out four times, in two languages
-
-The mapping between pixels, NDC and clip space is a single convention, but no
-single place states it. It has already gone wrong once — the y-flip is the kind
-of error that still looks plausible on screen until something is dragged.
-
-- [ ] Pixel → NDC lives in `Camera::ray_through`; NDC → pixel lives in
-      `scene::to_screen`; the same NDC → pixel conversion appears again in
-      `curve.wgsl` and in `point.wgsl` as `* u.viewport * 0.5`. Four encodings
-      of one convention, two of them in WGSL where the Rust tests cannot reach
-      them.
-- [ ] "Behind the eye" is a clip-`w` threshold named `BEHIND` in `scene.rs` and
-      `DEGENERATE` in `common.wgsl`, at the same value, for the same reason.
-      Picking and drawing can disagree about what is visible if either moves.
-- [ ] `DEGENERATE` in `common.wgsl` guards three unrelated quantities — a screen
-      length, a clip `w`, and a 2×2 determinant — and its own doc comment says
-      so. One constant standing in for three different scales.
-
 ## The solver's parameter layout is restated everywhere it is used
 
 `Sketch` documents the layout once ("two entries per point in insertion order,

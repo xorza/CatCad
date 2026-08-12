@@ -6,11 +6,17 @@ use crate::curve::Curve;
 use crate::hit::{Hit, HitAt};
 use crate::object::Object;
 use crate::point::Point;
-use glam::{Mat4, UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
+use crate::viewport::Viewport;
+use glam::{Mat4, Vec2, Vec3, Vec4};
 
-/// Clip `w` below which a vertex is level with the eye or behind it, and its
-/// screen position means nothing.
-const BEHIND: f32 = 1e-6;
+/// Squared screen length below which a projected segment lands on a single
+/// pixel and has no direction to project a cursor onto. A thousandth of a
+/// pixel, squared — the floor `MIN_PX` holds in the shaders.
+const MIN_RUN_PX2: f32 = 1e-6;
+
+/// Floor under the sum of reciprocal depths that undoes the perspective
+/// squeeze. Only a segment with both ends astronomically far off gets near it.
+const MIN_RECIP_W: f32 = 1e-6;
 
 /// The whole of the drawable world: shaded meshes, stroked curves, and the
 /// camera viewing them. Flat for now — hierarchy, if it earns its place, goes
@@ -56,9 +62,8 @@ impl Scene {
 
     /// Everything within `radius` of `cursor` on screen, nearest first.
     ///
-    /// `cursor`, `viewport` and `radius` need only agree with each other —
-    /// logical or physical pixels, whichever, so long as all three are the
-    /// same. `cursor` counts down from the top-left corner.
+    /// `cursor` and `radius` are in the units the [`Viewport`] was built in,
+    /// and `cursor` counts down from the top-left corner.
     ///
     /// Tested in screen space rather than against the world, because that is
     /// where the aim happened: a stroke is a pixel and a half wide however far
@@ -76,13 +81,8 @@ impl Scene {
     /// Ordered by [`HitAt::rank`], then by distance from the cursor, then by
     /// distance from the eye. Untagged primitives are scenery and never
     /// appear.
-    pub fn pick(&self, cursor: Vec2, viewport: UVec2, radius: f32) -> Vec<Hit> {
-        debug_assert!(
-            viewport.x > 0 && viewport.y > 0,
-            "nothing to pick in a {viewport:?} viewport"
-        );
-        let extent = viewport.as_vec2();
-        let view_proj = self.camera.view_proj(extent.x / extent.y);
+    pub fn pick(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Vec<Hit> {
+        let view_proj = self.camera.view_proj(viewport.aspect());
         let ray = self.camera.ray_through(cursor, viewport);
         let along = |world: Vec3| (world - ray.origin).dot(ray.direction);
 
@@ -90,10 +90,12 @@ impl Scene {
         for point in &self.points {
             let Some(tag) = point.tag else { continue };
             let clip = view_proj * point.position.extend(1.0);
-            if clip.w <= BEHIND {
+            // The marker's quad takes its depth from the anchor, so the anchor
+            // clipping is the whole glyph clipping.
+            if !Inside::of(clip).drawn() {
                 continue;
             }
-            let screen = cursor.distance(to_screen(clip, extent));
+            let screen = cursor.distance(viewport.pixel_from_clip(clip));
             // A marker you can see is a marker you can hit, even where the
             // glyph outgrows the tolerance asked for.
             if screen <= radius.max(point.size * 0.5) {
@@ -112,7 +114,7 @@ impl Scene {
             let reach = radius.max(curve.width * 0.5);
             let mut best: Option<Hit> = None;
             for (index, (a, b)) in curve.segments().enumerate() {
-                let Some(near) = nearest_on_segment(a, b, view_proj, extent, cursor) else {
+                let Some(near) = nearest_on_segment(a, b, view_proj, viewport, cursor) else {
                     continue;
                 };
                 if near.screen > reach {
@@ -152,47 +154,102 @@ struct Nearest {
     screen: f32,
 }
 
-/// Clip position to a pixel. The framebuffer counts y down from the top; NDC
-/// counts it up from the centre.
-fn to_screen(clip: Vec4, extent: Vec2) -> Vec2 {
-    let ndc = clip.xy() / clip.w;
-    (ndc * Vec2::new(1.0, -1.0) * 0.5 + 0.5) * extent
+/// How far into the view volume a clip position sits, along each of the two
+/// planes that can cut it: the near plane, and the far end of an orthographic
+/// slab.
+///
+/// Reversed depth puts the near plane at `z == w` and the slab's far end at
+/// `z == 0`, so both read as "non-negative is inside". These are the
+/// half-spaces the hardware clips against, which is what makes what can be
+/// picked the same as what was drawn. Perspective writes a constant positive
+/// `clip.z` and has no far plane, so there the first is `w >= z_near` and the
+/// second never fires.
+#[derive(Debug, Clone, Copy)]
+struct Inside {
+    near: f32,
+    far: f32,
+}
+
+impl Inside {
+    fn of(clip: Vec4) -> Self {
+        Self {
+            near: clip.w - clip.z,
+            far: clip.z,
+        }
+    }
+
+    /// Whether the position survived both planes, and so is drawn.
+    fn drawn(&self) -> bool {
+        self.near >= 0.0 && self.far >= 0.0
+    }
+}
+
+/// The stretch of a segment left after clipping, as fractions of the whole.
+#[derive(Debug, Clone, Copy)]
+struct Span {
+    start: f32,
+    end: f32,
+}
+
+impl Span {
+    fn whole() -> Self {
+        Self {
+            start: 0.0,
+            end: 1.0,
+        }
+    }
+
+    /// Trim to where a quantity that is affine along the segment — given by
+    /// its value at each end — is non-negative. `None` once nothing is left.
+    ///
+    /// Clip space is affine in the world parameter, so a crossing sits at the
+    /// same fraction of the world segment as of the clip one and the surviving
+    /// stretch can be picked on as itself.
+    fn clip(self, at_start: f32, at_end: f32) -> Option<Self> {
+        let Self { start, end } = match (at_start >= 0.0, at_end >= 0.0) {
+            (true, true) => self,
+            (false, false) => return None,
+            (true, false) => Self {
+                end: self.end.min(at_start / (at_start - at_end)),
+                ..self
+            },
+            (false, true) => Self {
+                start: self.start.max(at_start / (at_start - at_end)),
+                ..self
+            },
+        };
+        (start <= end).then_some(Self { start, end })
+    }
 }
 
 /// The point of segment `a`–`b` nearest `cursor` on screen, or `None` if none
-/// of it is in front of the eye.
+/// of it is drawn.
 fn nearest_on_segment(
     a: Vec3,
     b: Vec3,
     view_proj: Mat4,
-    extent: Vec2,
+    viewport: Viewport,
     cursor: Vec2,
 ) -> Option<Nearest> {
-    let (mut near, mut far) = (view_proj * a.extend(1.0), view_proj * b.extend(1.0));
-    // Where the segment crosses the eye plane, in world terms. Clip space is
-    // linear in the world parameter — both are the same affine map of it — so
-    // the crossing sits at the same fraction of the world segment as of the
-    // clip one, and the visible remainder can be picked on as itself.
-    let (mut start, mut end) = (0.0f32, 1.0f32);
-    match (near.w > BEHIND, far.w > BEHIND) {
-        (false, false) => return None,
-        (true, false) => {
-            end = (BEHIND - near.w) / (far.w - near.w);
-            far = near.lerp(far, end);
-        }
-        (false, true) => {
-            start = (BEHIND - near.w) / (far.w - near.w);
-            near = near.lerp(far, start);
-        }
-        (true, true) => {}
-    }
+    let (a_clip, b_clip) = (view_proj * a.extend(1.0), view_proj * b.extend(1.0));
+    let (a_in, b_in) = (Inside::of(a_clip), Inside::of(b_clip));
+    let span = Span::whole()
+        .clip(a_in.near, b_in.near)?
+        .clip(a_in.far, b_in.far)?;
+    // Inside the near plane `w` is at least `z_near` under perspective and
+    // exactly 1 under parallel rays, so what survived can be divided by it.
+    let near = a_clip.lerp(b_clip, span.start);
+    let far = a_clip.lerp(b_clip, span.end);
 
-    let (from, to) = (to_screen(near, extent), to_screen(far, extent));
+    let (from, to) = (
+        viewport.pixel_from_clip(near),
+        viewport.pixel_from_clip(far),
+    );
     let run = to - from;
     let length = run.length_squared();
     // A segment that lands on one pixel has no direction to project onto, and
     // either end answers the same.
-    let on_screen = if length > BEHIND {
+    let on_screen = if length > MIN_RUN_PX2 {
         ((cursor - from).dot(run) / length).clamp(0.0, 1.0)
     } else {
         0.0
@@ -206,13 +263,13 @@ fn nearest_on_segment(
     // of it, which is the difference between snapping to a midpoint and
     // snapping near one.
     let recip = (1.0 - on_screen) / near.w + on_screen / far.w;
-    let in_span = if recip > BEHIND {
+    let in_span = if recip > MIN_RECIP_W {
         (on_screen / far.w) / recip
     } else {
         on_screen
     };
     Some(Nearest {
-        t: start + in_span * (end - start),
+        t: span.start + in_span * (span.end - span.start),
         screen,
     })
 }
@@ -222,6 +279,7 @@ mod tests {
     use super::*;
     use crate::camera::Projection;
     use crate::mesh::Mesh;
+    use glam::UVec2;
 
     /// Looking straight down −Z from 5 away with a 90° fov, so a 100×100
     /// viewport puts the origin dead centre and the world spans ±5 across it
@@ -241,8 +299,11 @@ mod tests {
         }
     }
 
-    const VIEWPORT: UVec2 = UVec2::new(100, 100);
     const CENTRE: Vec2 = Vec2::new(50.0, 50.0);
+
+    fn viewport() -> Viewport {
+        Viewport::new(UVec2::new(100, 100))
+    }
 
     #[test]
     fn a_marker_is_hit_within_its_own_glyph_or_the_asked_radius() {
@@ -252,7 +313,7 @@ mod tests {
             .push(Point::new(Vec3::ZERO).size(8.0).tagged(1));
 
         // Dead on.
-        let hits = scene.pick(CENTRE, VIEWPORT, 1.0);
+        let hits = scene.pick(CENTRE, viewport(), 1.0);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].tag, 1);
         assert_eq!(hits[0].at, HitAt::Point);
@@ -263,20 +324,20 @@ mod tests {
 
         // Three pixels off is inside the 8px glyph even at zero tolerance,
         // because what is drawn is grabbable.
-        let near = scene.pick(CENTRE + Vec2::new(3.0, 0.0), VIEWPORT, 0.0);
+        let near = scene.pick(CENTRE + Vec2::new(3.0, 0.0), viewport(), 0.0);
         assert_eq!(near.len(), 1);
         assert!((near[0].screen - 3.0).abs() < 1e-4);
 
         // Six is outside the glyph's four, and outside a one-pixel radius.
         assert!(
             scene
-                .pick(CENTRE + Vec2::new(6.0, 0.0), VIEWPORT, 1.0)
+                .pick(CENTRE + Vec2::new(6.0, 0.0), viewport(), 1.0)
                 .is_empty()
         );
         // But not outside a generous one.
         assert_eq!(
             scene
-                .pick(CENTRE + Vec2::new(6.0, 0.0), VIEWPORT, 8.0)
+                .pick(CENTRE + Vec2::new(6.0, 0.0), viewport(), 8.0)
                 .len(),
             1
         );
@@ -289,7 +350,7 @@ mod tests {
         scene
             .curves
             .push(Curve::segment(-Vec3::X, Vec3::X).width(2.0));
-        assert!(scene.pick(CENTRE, VIEWPORT, 20.0).is_empty());
+        assert!(scene.pick(CENTRE, viewport(), 20.0).is_empty());
     }
 
     #[test]
@@ -301,7 +362,7 @@ mod tests {
             .curves
             .push(Curve::segment(Vec3::new(-2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)).tagged(7));
 
-        let hits = scene.pick(CENTRE + Vec2::new(10.0, 0.0), VIEWPORT, 4.0);
+        let hits = scene.pick(CENTRE + Vec2::new(10.0, 0.0), viewport(), 4.0);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].tag, 7);
         // Ten pixels right of centre is world x = 1, which is three quarters
@@ -317,11 +378,15 @@ mod tests {
         // The far end is at world x = 2, which is pixel 70. Past it the
         // nearest point on the segment is the end itself, until the cursor
         // walks out of the radius entirely.
-        let beyond = scene.pick(Vec2::new(72.0, 50.0), VIEWPORT, 4.0);
+        let beyond = scene.pick(Vec2::new(72.0, 50.0), viewport(), 4.0);
         assert_eq!(beyond.len(), 1, "{beyond:?}");
         assert_eq!(beyond[0].at, HitAt::Segment { index: 0, t: 1.0 });
         assert!((beyond[0].screen - 2.0).abs() < 1e-4, "{beyond:?}");
-        assert!(scene.pick(Vec2::new(76.0, 50.0), VIEWPORT, 4.0).is_empty());
+        assert!(
+            scene
+                .pick(Vec2::new(76.0, 50.0), viewport(), 4.0)
+                .is_empty()
+        );
     }
 
     #[test]
@@ -337,7 +402,7 @@ mod tests {
 
         // With a 90° fov the projected y is −1/w, so the ends land at pixel
         // 100 and 50 + 50/21 = 52.38, and their midpoint is 76.19.
-        let hits = scene.pick(Vec2::new(50.0, 76.19), VIEWPORT, 4.0);
+        let hits = scene.pick(Vec2::new(50.0, 76.19), viewport(), 4.0);
         assert_eq!(hits.len(), 1, "{hits:?}");
         let HitAt::Segment { t, .. } = hits[0].at else {
             panic!("{hits:?}");
@@ -370,7 +435,7 @@ mod tests {
             .points
             .push(Point::new(Vec3::ZERO).size(6.0).tagged(12));
 
-        let hits = scene.pick(CENTRE, VIEWPORT, 3.0);
+        let hits = scene.pick(CENTRE, viewport(), 3.0);
         assert_eq!(hits.len(), 3);
         assert_eq!(hits[0].tag, 12, "the marker comes first: {hits:?}");
         assert_eq!(hits[0].at, HitAt::Point);
@@ -392,7 +457,7 @@ mod tests {
             .curves
             .push(Curve::segment(-Vec3::X, Vec3::X).width(1.0).tagged(21));
 
-        let hits = scene.pick(CENTRE, VIEWPORT, 10.0);
+        let hits = scene.pick(CENTRE, viewport(), 10.0);
         assert_eq!(hits.len(), 2);
         assert_eq!(hits[0].tag, 21, "aim beats depth: {hits:?}");
         assert!(hits[0].screen < hits[1].screen);
@@ -400,29 +465,77 @@ mod tests {
     }
 
     #[test]
-    fn what_is_behind_the_eye_cannot_be_picked_and_does_not_take_the_rest_with_it() {
+    fn only_what_survived_the_near_plane_can_be_picked() {
         let mut scene = head_on();
         // Wholly behind: the eye is at z = 5 looking down −Z.
         scene
             .points
             .push(Point::new(Vec3::new(0.0, 0.0, 9.0)).tagged(1));
-        assert!(scene.pick(CENTRE, VIEWPORT, 50.0).is_empty());
+        assert!(scene.pick(CENTRE, viewport(), 50.0).is_empty());
 
-        // Straddling. The visible half still picks, and reports a parameter
-        // on the *whole* segment rather than on the surviving piece.
+        // And a marker the near plane cut is no more pickable than one behind
+        // the eye — it is just as absent from the screen. The near plane is a
+        // fifth of the 5-unit orbit distance in front of the eye, at z = 4.
+        scene.points.clear();
+        scene
+            .points
+            .push(Point::new(Vec3::new(0.0, 0.0, 4.5)).tagged(1));
+        assert!(scene.pick(CENTRE, viewport(), 50.0).is_empty());
+
+        // Straddling. The visible half still picks, and reports a parameter on
+        // the *whole* segment rather than on the surviving piece. This one
+        // recedes straight down the view axis, so all of it lands on one
+        // pixel and the near end answers for the rest.
         scene.points.clear();
         scene
             .curves
             .push(Curve::segment(Vec3::new(0.0, 0.0, -3.0), Vec3::new(0.0, 0.0, 9.0)).tagged(2));
-        let hits = scene.pick(CENTRE, VIEWPORT, 20.0);
+        let hits = scene.pick(CENTRE, viewport(), 20.0);
         assert_eq!(hits.len(), 1, "{hits:?}");
         assert_eq!(hits[0].tag, 2);
+        assert_eq!(hits[0].at, HitAt::Segment { index: 0, t: 0.0 });
+        assert_eq!(hits[0].world, Vec3::new(0.0, 0.0, -3.0));
+
+        // Straddling *across* the view instead, so where the cut lands is
+        // visible on screen. From (−1, 0, 6) to (1, 0, 0): z = 4 is a third of
+        // the way along, at world x = −1/3, which at depth 1 under a 90° fov
+        // is NDC −1/3 and so pixel 33.3. The far end is at depth 5 and world
+        // x = 1, which is pixel 60.
+        scene.curves.clear();
+        scene.curves.push(
+            Curve::segment(Vec3::new(-1.0, 0.0, 6.0), Vec3::new(1.0, 0.0, 0.0))
+                .width(1.0)
+                .tagged(3),
+        );
+        let hits = scene.pick(Vec2::new(40.0, 50.0), viewport(), 1.0);
+        assert_eq!(hits.len(), 1, "inside the drawn stretch: {hits:?}");
+
+        // Thirteen pixels short of where the near plane cut it. What lies that
+        // way is the stretch between the near plane and the eye, which is
+        // drawn nowhere, so a tolerance smaller than the gap finds nothing.
+        assert!(
+            scene
+                .pick(Vec2::new(20.0, 50.0), viewport(), 4.0)
+                .is_empty(),
+            "picked a stretch the near plane cut"
+        );
+
+        // Widen the tolerance and the cut itself is what answers: a third
+        // along, at the near plane, and 13.3 pixels from the cursor.
+        let hits = scene.pick(Vec2::new(20.0, 50.0), viewport(), 20.0);
+        assert_eq!(hits.len(), 1, "{hits:?}");
         let HitAt::Segment { t, .. } = hits[0].at else {
             panic!("{hits:?}");
         };
-        // The near plane is 1 in front of an eye at z = 5, so the crossing is
-        // at z = 4 — two thirds of the way along a segment from −3 to 9.
-        assert!((0.0..=1.0).contains(&t), "{t}");
+        assert!((t - 1.0 / 3.0).abs() < 1e-5, "{t}");
+        assert!(
+            hits[0]
+                .world
+                .abs_diff_eq(Vec3::new(-1.0 / 3.0, 0.0, 4.0), 1e-4),
+            "{:?}",
+            hits[0].world
+        );
+        assert!((hits[0].screen - 13.333).abs() < 1e-2, "{hits:?}");
     }
 
     #[test]

@@ -26,14 +26,13 @@ fn curve_vs(
 ) -> CurveVsOut {
     let here = u.view_proj * vec4<f32>(position, 1.0);
     let there = u.view_proj * vec4<f32>(other, 1.0);
-    let here_ndc = here.xyz / max(here.w, DEGENERATE);
-    let there_ndc = there.xyz / max(there.w, DEGENERATE);
+    let here_ndc = here.xyz / max(here.w, MIN_W);
+    let there_ndc = there.xyz / max(there.w, MIN_W);
 
-    // NDC spans two units over the whole target, hence the halved viewport.
-    let travel = (there_ndc.xy - here_ndc.xy) * u.viewport * 0.5;
+    let travel = px_from_ndc_delta(there_ndc.xy - here_ndc.xy);
     let length_px = length(travel);
     var along = vec2<f32>(1.0, 0.0);
-    if (length_px > DEGENERATE) {
+    if (length_px > MIN_PX) {
         along = travel / length_px;
     }
     let across = vec2<f32>(-along.y, along.x);
@@ -65,7 +64,7 @@ fn curve_vs(
     // nonsense on one behind the eye, where `w` is negative and the clamp below
     // is all that stands between the divide and infinity. Those vertices exist
     // to be clipped against, and the clip reads the `z` they carry.
-    let offset_ndc = offset_px * 2.0 / u.viewport;
+    let offset_ndc = ndc_from_px_delta(offset_px);
     var depth_shift = 0.0;
     let plane_shift = plane_depth_shift(position, plane, here, here_ndc, offset_ndc);
     depth_shift = plane_shift.shift;
@@ -77,7 +76,7 @@ fn curve_vs(
     // of the eye — across the near plane one end's depth is nonsense, and
     // extrapolating from it would throw the quad out of the clip volume
     // instead of merely distorting it.
-    if (!from_plane && length_px > DEGENERATE && here.w > DEGENERATE && there.w > DEGENERATE) {
+    if (!from_plane && length_px > MIN_PX && here.w > MIN_W && there.w > MIN_W) {
         depth_shift = -(there_ndc.z - here_ndc.z) * half_px / length_px;
     }
 

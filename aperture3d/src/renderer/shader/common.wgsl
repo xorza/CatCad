@@ -5,7 +5,7 @@
 struct Uniforms {
     view_proj: mat4x4<f32>,
     // Target size in physical pixels, and how many of them a logical pixel is
-    // worth. Only the curve pass reads them.
+    // worth. Both overlay passes read them; the mesh pass needs neither.
     viewport: vec2<f32>,
     raster_scale: f32,
     // World distance per unit of clip w to step when probing the plane a curve
@@ -50,12 +50,44 @@ fn lift(clip: vec4<f32>, z_offset: f32) -> vec4<f32> {
     return vec4<f32>(clip.xy, clip.z * (1.0 + z_offset * DEPTH_STEP), clip.w);
 }
 
-// The floor under every quantity this shader divides by: a segment's screen
-// length, a clip `w`, the determinant of a two-by-two. Each means something
-// different, and they share a constant only because the answer to all three is
-// the same — below this there is no information left to recover, so take the
-// fallback rather than the noise.
-const DEGENERATE: f32 = 1e-6;
+// Screen length below which a segment lands on one pixel and has no direction
+// to widen across. A thousandth of a pixel — the floor `MIN_RUN_PX2` holds,
+// squared, on the picking side.
+const MIN_PX: f32 = 1e-3;
+
+// Clip `w` floor for the perspective divide.
+//
+// It decides nothing about visibility — the hardware's near-plane clip does
+// that, and everything this catches is on its way to being clipped anyway.
+// All it buys is a finite NDC to compute a widening from, so the quad handed
+// to the clipper is a quad rather than a page of infinities.
+const MIN_W: f32 = 1e-6;
+
+// Determinant floor for the two-by-two solved to read a plane's depth
+// gradient. Zero determinant is the plane seen exactly edge-on, where it
+// covers no screen area and has no gradient to read.
+const MIN_DET: f32 = 1e-6;
+
+// Floor under the width a marker's rim fades over. Only a disc covering most
+// of the target approaches it, and the fade is then a hard edge either way.
+const MIN_FADE: f32 = 1e-6;
+
+// NDC spans two units across the whole target, so one NDC unit is half the
+// viewport in pixels, and back the other way.
+//
+// These carry *differences* — never positions. The y-flip that separates a
+// framebuffer counting down from NDC counting up is deliberately not in them:
+// every shape widened here is symmetric in ±, so mirroring it only swaps which
+// corner is which, and paying for the flip would buy nothing. Handing either
+// of them a position would put it in the wrong half of the screen. Positions
+// are converted on the CPU, by `Viewport`.
+fn px_from_ndc_delta(delta: vec2<f32>) -> vec2<f32> {
+    return delta * u.viewport * 0.5;
+}
+
+fn ndc_from_px_delta(delta: vec2<f32>) -> vec2<f32> {
+    return delta * 2.0 / u.viewport;
+}
 
 /// How far the depth of a plane moves over a screen-space step away from a
 /// point on it, and whether that could be answered at all.
@@ -78,7 +110,7 @@ fn plane_depth_shift(
     var out: PlaneShift;
     out.shift = 0.0;
     out.found = false;
-    if (dot(plane, plane) <= 0.5 || here.w <= DEGENERATE) {
+    if (dot(plane, plane) <= 0.5 || here.w <= MIN_W) {
         return out;
     }
 
@@ -98,16 +130,14 @@ fn plane_depth_shift(
     let e2 = cross(plane, e1);
     let p1 = u.view_proj * vec4<f32>(position + e1, 1.0);
     let p2 = u.view_proj * vec4<f32>(position + e2, 1.0);
-    if (p1.w <= DEGENERATE || p2.w <= DEGENERATE) {
+    if (p1.w <= MIN_W || p2.w <= MIN_W) {
         return out;
     }
 
     let a1 = p1.xyz / p1.w - here_ndc;
     let a2 = p2.xyz / p2.w - here_ndc;
     let det = a1.x * a2.y - a1.y * a2.x;
-    // Zero determinant is the plane seen exactly edge-on, where it covers no
-    // screen area and has no gradient to read.
-    if (abs(det) <= DEGENERATE) {
+    if (abs(det) <= MIN_DET) {
         return out;
     }
 

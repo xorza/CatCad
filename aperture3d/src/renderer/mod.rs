@@ -7,6 +7,7 @@ use crate::curve::Curve;
 use crate::object::Object;
 use crate::point::Point;
 use crate::scene::Scene;
+use crate::viewport::Viewport;
 use glam::{Mat3, UVec2, Vec3};
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
 use wgpu::util::DeviceExt;
@@ -604,13 +605,14 @@ impl GpuPaint for Renderer {
 
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {
         let size = ctx.size_px.max(UVec2::ONE);
+        let viewport = Viewport::new(size);
         let uniforms = Uniforms {
             view_proj: self
                 .scene
                 .camera
-                .view_proj(size.x as f32 / size.y as f32)
+                .view_proj(viewport.aspect())
                 .to_cols_array(),
-            viewport: [size.x as f32, size.y as f32],
+            viewport: viewport.extent().to_array(),
             raster_scale: ctx.raster_scale,
             probe_reach: self.scene.camera.probe_reach(),
         };

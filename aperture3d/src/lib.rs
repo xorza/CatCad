@@ -68,7 +68,9 @@
 //! reads keeps hits answerable without that.
 //!
 //! `None` is scenery — grids, guides, anything there to be seen and not
-//! grabbed. Ask with [`Scene::pick`], which answers in [`Hit`]s.
+//! grabbed. Ask with [`Scene::pick`], which aims in pixels — [`Viewport`] is
+//! how those meet the coordinates a projection works in — and answers in
+//! [`Hit`]s.
 
 pub(crate) mod bounds;
 pub(crate) mod camera;
@@ -80,6 +82,7 @@ pub(crate) mod point;
 pub(crate) mod ray;
 pub(crate) mod renderer;
 pub(crate) mod scene;
+pub(crate) mod viewport;
 
 pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
@@ -91,3 +94,4 @@ pub use point::Point;
 pub use ray::Ray;
 pub use renderer::Renderer;
 pub use scene::Scene;
+pub use viewport::Viewport;

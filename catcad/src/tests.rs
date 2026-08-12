@@ -9,8 +9,8 @@
 use std::path::Path;
 use std::sync::mpsc;
 
-use aperture::{Camera, Projection};
-use glam::{DVec2, UVec2};
+use aperture::{Camera, Projection, Viewport};
+use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::{HeadlessGpu, OffscreenHost, wgpu};
 use silverpoint::Solver;
 
@@ -23,11 +23,13 @@ const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// row is padded and the padding is dropped on the way out.
 const COPY_ALIGN: u32 = 256;
 
-/// One rendered frame, 8-bit sRGB, row-major, no padding.
+/// One rendered frame, 8-bit sRGB, row-major, no padding, and the camera it
+/// was taken through.
 #[derive(Debug)]
 struct Frame {
     size: UVec2,
     rgba: Vec<u8>,
+    camera: Camera,
 }
 
 impl Frame {
@@ -42,6 +44,32 @@ impl Frame {
     fn lit(&self, x: u32, y: u32) -> bool {
         let [r, g, b, _] = self.pixel(x, y);
         (u32::from(r) + u32::from(g) + u32::from(b)) / 3 > 90
+    }
+
+    /// Where the pinned marker sits, as the centroid of the pixels carrying
+    /// its colour.
+    ///
+    /// It is the one red thing on screen. The free markers are orange, and a
+    /// shaded solid keeps whatever ratio its own colour has however the key
+    /// light falls on it — the orange cube's is nowhere near this red for how
+    /// little green it carries.
+    fn pinned_marker(&self) -> Vec2 {
+        let mut sum = Vec2::ZERO;
+        let mut count = 0u32;
+        for y in 0..self.size.y {
+            for x in 0..self.size.x {
+                let [r, g, b, _] = self.pixel(x, y);
+                let (r, g, b) = (f32::from(r), f32::from(g), f32::from(b));
+                if r > 120.0 && g < r * 0.55 && b < r * 0.45 {
+                    sum += Vec2::new(x as f32, y as f32);
+                    count += 1;
+                }
+            }
+        }
+        assert!(count > 8, "no pinned marker in the frame, only {count} px");
+        // Pixel `n` covers the half-open span starting at `n`, so its centre
+        // is half a pixel further on than its index.
+        sum / count as f32 + Vec2::splat(0.5)
     }
 
     /// Dump for eyeballing. Binary PPM because it costs no dependency and
@@ -67,6 +95,9 @@ fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
     let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
     let mut app = CatCad::build();
     aim(app.view.borrow_mut().camera_mut());
+    // Read back rather than rebuilt from `aim`, so a frame always carries the
+    // camera it was actually taken through.
+    let camera = *app.view.borrow().camera();
 
     let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("catcad.harness.target"),
@@ -141,7 +172,7 @@ fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
     }
     drop(mapped);
     readback.unmap();
-    Frame { size, rgba }
+    Frame { size, rgba, camera }
 }
 
 /// A sketch stroke crossing `column`, as the width it actually deposited.
@@ -371,6 +402,44 @@ fn orthographic_holds_the_slab_to_one_width() {
         near > far + 50,
         "perspective should spread the near end of the slab, but {FAR_ROW} \
          measured {far} and {NEAR_ROW} measured {near}"
+    );
+}
+
+/// The one convention two languages share: where a world position lands on
+/// screen.
+///
+/// Rust states it in `Viewport`, which is what picking aims with; the shaders
+/// place the same geometry themselves, in WGSL, out of reach of every unit
+/// test in either crate. Only a rendered frame can say whether the two agree,
+/// and the y-flip between them is the kind of error that still looks plausible
+/// on screen until something is dragged — the drawing would simply be upside
+/// down in a scene that is nearly symmetric about its own centre.
+#[test]
+fn the_gpu_draws_the_marker_where_the_projection_says_it_is() {
+    // Nearly overhead, so the drawing lies open across the frame and its
+    // corners are as far apart on screen as they get.
+    let frame = render(UVec2::new(800, 628), edge_on(1.4));
+    let viewport = Viewport::new(frame.size);
+
+    // The sketch's anchor is fixed at sketch (0, 0), which the ground plane
+    // puts at the world origin — the near-left corner of the rectangle, and
+    // the only corner the solver cannot move.
+    let clip = frame.camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0);
+    let expected = viewport.pixel_from_clip(clip);
+    let found = frame.pinned_marker();
+
+    assert!(
+        found.distance(expected) < 2.0,
+        "the projection puts the anchor at {expected:?}, the GPU drew it at \
+         {found:?} — a disagreement of {:.1} px",
+        found.distance(expected)
+    );
+    // Off-centre both ways, so neither axis could have passed by accident:
+    // mirroring either one moves the marker hundreds of pixels.
+    let centre = viewport.extent() * 0.5;
+    assert!(
+        (expected.x - centre.x).abs() > 100.0 && (expected.y - centre.y).abs() > 100.0,
+        "the anchor is too near the centre at {expected:?} to pin an axis"
     );
 }
 

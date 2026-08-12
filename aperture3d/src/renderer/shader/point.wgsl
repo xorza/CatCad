@@ -23,12 +23,12 @@ fn point_vs(
 ) -> PointVsOut {
     let anchor = u.view_proj * vec4<f32>(position, 1.0);
     let half_px = half_size * u.raster_scale;
-    let offset_ndc = corner * half_px * 2.0 / u.viewport;
+    let offset_ndc = ndc_from_px_delta(corner * half_px);
 
     // A glyph wide enough to see is wide enough for the surface under it to
     // rise through, so the disc follows the plane's depth exactly as a stroke
     // does. Without a plane it stays flat and leans on the bias alone.
-    let anchor_ndc = anchor.xyz / max(anchor.w, DEGENERATE);
+    let anchor_ndc = anchor.xyz / max(anchor.w, MIN_W);
     let plane_shift = plane_depth_shift(position, plane, anchor, anchor_ndc, offset_ndc);
 
     var out: PointVsOut;
@@ -62,6 +62,6 @@ fn point_fs(in: PointVsOut) -> @location(0) vec4<f32> {
     // across two, and at the handful of pixels a marker spans that is most of
     // the disc.
     let per_fragment = fwidth(radius);
-    let coverage = clamp((1.0 - radius) / max(per_fragment, DEGENERATE) + 0.5, 0.0, 1.0);
+    let coverage = clamp((1.0 - radius) / max(per_fragment, MIN_FADE) + 0.5, 0.0, 1.0);
     return vec4<f32>(in.color, coverage);
 }

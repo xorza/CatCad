@@ -2,8 +2,9 @@
 
 use crate::bounds::Bounds;
 use crate::ray::Ray;
+use crate::viewport::Viewport;
 use glam::camera::rh::{proj::directx, view};
-use glam::{Mat4, UVec2, Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 
 /// Pitch never reaches the pole: `look_at` degenerates when the eye-to-target
 /// direction is parallel to the up axis.
@@ -198,12 +199,9 @@ impl Camera {
         proj * view::look_at_mat4(self.eye(), self.target, Vec3::Y)
     }
 
-    /// The world-space ray through a point on the viewport.
-    ///
-    /// `cursor` and `viewport` need only agree with each other — logical or
-    /// physical pixels, whichever, so long as both are the same — since only
-    /// their ratio is read. `cursor` counts down from the top-left corner, the
-    /// way a pointer position arrives.
+    /// The world-space ray through a point on the viewport. `cursor` counts
+    /// down from the top-left corner, in the units the [`Viewport`] was built
+    /// in.
     ///
     /// The origin sits on the near plane and the direction runs into the
     /// scene, so everything drawn under that point lies at a non-negative
@@ -214,19 +212,9 @@ impl Camera {
     /// rebuilt from the camera's own parameters. A ray derived independently
     /// agrees with the picture only until someone changes the projection, and
     /// picking that disagrees with what is on screen is worse than none.
-    pub fn ray_through(&self, cursor: Vec2, viewport: UVec2) -> Ray {
-        debug_assert!(
-            viewport.x > 0 && viewport.y > 0,
-            "no ray through a {viewport:?} viewport — it has no pixel to point at"
-        );
-        let viewport = viewport.as_vec2();
-        // The framebuffer counts y down from the top; NDC counts it up from
-        // the centre.
-        let ndc = Vec2::new(
-            cursor.x / viewport.x * 2.0 - 1.0,
-            1.0 - cursor.y / viewport.y * 2.0,
-        );
-        let inverse = self.view_proj(viewport.x / viewport.y).inverse();
+    pub fn ray_through(&self, cursor: Vec2, viewport: Viewport) -> Ray {
+        let ndc = viewport.ndc_from_pixel(cursor);
+        let inverse = self.view_proj(viewport.aspect()).inverse();
 
         // Depth is reversed under both projections, so 1 is the near plane and
         // anything below it is further off. Half of it is a second point down
@@ -271,6 +259,7 @@ impl Camera {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use glam::UVec2;
 
     /// A camera whose projection has hand-checkable numbers: 90° vertical fov
     /// gives `1/tan(45°) == 1`, and a fifth of the 5-unit orbit distance puts
@@ -330,7 +319,7 @@ mod tests {
     #[test]
     fn a_ray_leaves_the_near_plane_through_the_pixel_it_was_asked_for() {
         let camera = unit_camera();
-        let viewport = UVec2::new(100, 100);
+        let viewport = Viewport::new(UVec2::new(100, 100));
 
         // Dead centre: the eye is at z = 5 looking down −Z, and the near plane
         // is 1 in front of it.
@@ -371,7 +360,7 @@ mod tests {
         // Twice as wide for the same fov, which is vertical, so the horizontal
         // edge reaches twice as far and the vertical edge does not move.
         let camera = unit_camera();
-        let wide = UVec2::new(200, 100);
+        let wide = Viewport::new(UVec2::new(200, 100));
         let right = camera.ray_through(Vec2::new(200.0, 50.0), wide);
         assert!(right.origin.abs_diff_eq(Vec3::new(2.0, 0.0, 4.0), 1e-5));
         let top = camera.ray_through(Vec2::new(100.0, 0.0), wide);
@@ -382,7 +371,7 @@ mod tests {
     fn parallel_rays_move_their_origin_instead_of_their_direction() {
         let mut camera = unit_camera();
         camera.projection = Projection::Orthographic;
-        let viewport = UVec2::new(100, 100);
+        let viewport = Viewport::new(UVec2::new(100, 100));
 
         let centre = camera.ray_through(Vec2::new(50.0, 50.0), viewport);
         let corner = camera.ray_through(Vec2::new(100.0, 0.0), viewport);
