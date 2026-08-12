@@ -1,6 +1,6 @@
 //! Where a sketch sits in the world, and what it looks like once it's there.
 
-use aperture::Curve;
+use aperture::{Curve, Point};
 use glam::{DVec2, Vec3};
 use silverpoint::Sketch;
 
@@ -8,11 +8,10 @@ use silverpoint::Sketch;
 /// isn't already straight, and this is what it costs to look round.
 const CIRCLE_SEGMENTS: usize = 96;
 
-/// Point marker size, as a share of the sketch's longest side.
-const MARKER_SHARE: f64 = 0.014;
-
-/// Marker size in sketch units for a sketch with no extent to take one from.
-const FALLBACK_MARKER: f64 = 0.1;
+/// Marker diameters in logical pixels. A pinned point reads larger because it
+/// is the one the drawing hangs off.
+const FIXED_MARKER: f32 = 9.0;
+const FREE_MARKER: f32 = 7.0;
 
 /// Linear-RGB, unlit — these reach the target as authored.
 const EDGE: Vec3 = Vec3::new(0.35, 0.55, 0.80);
@@ -21,9 +20,8 @@ const FIXED_POINT: Vec3 = Vec3::new(0.80, 0.14, 0.05);
 
 /// Logical pixels.
 const EDGE_WIDTH: f32 = 1.6;
-const MARKER_WIDTH: f32 = 1.3;
 
-/// How far the drawing rides in front of the solids, in steps of depth-buffer
+/// How far the strokes ride in front of the solids, in steps of depth-buffer
 /// resolution. A sketch is what a model is derived from, so where the two share
 /// a plane the drawing is the one that reads.
 ///
@@ -37,7 +35,20 @@ const MARKER_WIDTH: f32 = 1.3;
 /// model and shows through solids standing in front of it. Reversed depth is
 /// what opens that up to four decades — under the old convention the same two
 /// bounds sat barely two apart.
-const SKETCH_LIFT: i32 = 512;
+const STROKE_LIFT: i32 = 512;
+
+/// How far the markers ride in front of the strokes.
+///
+/// A point sits exactly on the end of every segment that meets it, so the two
+/// arrive at the same depth — and markers are drawn last, where an equal depth
+/// loses to whatever already wrote. Without a step between them a corner
+/// marker is cut by the very edges it terminates.
+///
+/// The step is what matters, not the height: the drawing stacks solids, then
+/// strokes, then the handles you grab. Doubling puts 512 steps of daylight
+/// between the layers, which is four hundred times the odd ULP two shaders
+/// disagree by and still three decades short of showing through the model.
+const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 
 /// The plane a [`Sketch`] is drawn on: an origin, and the world directions its
 /// two axes run along.
@@ -76,12 +87,10 @@ impl SketchPlane {
         self.x.cross(self.y).normalize()
     }
 
-    /// The sketch as drawable curves: an edge per segment, a tessellated
-    /// circle per circle, and a marker per point — a square where the solver
-    /// may not move it, a cross where it may. All of it biased clear of the
-    /// solids in depth, so the drawing reads over them.
+    /// The sketch's strokes: an edge per segment and a tessellated circle per
+    /// circle, biased clear of the solids in depth so the drawing reads over
+    /// them.
     pub(crate) fn curves(&self, sketch: &Sketch) -> Vec<Curve> {
-        let marker = marker_size(sketch);
         let mut curves = Vec::new();
         for segment in sketch.segments() {
             let a = self.point(sketch.point(segment.a));
@@ -91,22 +100,41 @@ impl SketchPlane {
         for circle in sketch.circles() {
             curves.push(self.circle(sketch.point(circle.center), circle.radius.abs()));
         }
-        for (id, position) in sketch.points() {
-            if sketch.is_fixed(id) {
-                curves.push(self.anchor(position, marker));
-            } else {
-                curves.extend(self.cross(position, marker));
-            }
-        }
         // Applied here rather than at each constructor: the drawing rides on
         // one plane and above the solids as one thing, and nothing in it
         // outranks the rest.
         let normal = self.normal();
         for curve in &mut curves {
-            curve.z_offset = SKETCH_LIFT;
+            curve.z_offset = STROKE_LIFT;
             curve.plane_normal = Some(normal);
         }
         curves
+    }
+
+    /// The sketch's points, one marker apiece — larger and pinned-coloured
+    /// where the solver may not move it.
+    ///
+    /// The plane comes along for the same reason a stroke's does: a disc is
+    /// flat in depth and the surface under it is not, so without it the glyph
+    /// is sliced wherever the plane is seen at an angle.
+    pub(crate) fn points(&self, sketch: &Sketch) -> Vec<Point> {
+        let normal = self.normal();
+        sketch
+            .points()
+            .map(|(id, position)| {
+                let fixed = sketch.is_fixed(id);
+                let (color, size) = if fixed {
+                    (FIXED_POINT, FIXED_MARKER)
+                } else {
+                    (FREE_POINT, FREE_MARKER)
+                };
+                Point::new(self.point(position))
+                    .colored(color)
+                    .size(size)
+                    .z_offset(MARKER_LIFT)
+                    .in_plane(normal)
+            })
+            .collect()
     }
 
     fn circle(&self, centre: DVec2, radius: f64) -> Curve {
@@ -118,51 +146,6 @@ impl SketchPlane {
             })
             .collect();
         Curve::new(points).closed().colored(EDGE).width(EDGE_WIDTH)
-    }
-
-    /// A free point: the cross a drawing marks a bare point with.
-    fn cross(&self, at: DVec2, size: f64) -> [Curve; 2] {
-        let corner = |x: f64, y: f64| self.point(at + DVec2::new(x, y) * size);
-        [
-            Curve::segment(corner(-1.0, -1.0), corner(1.0, 1.0)),
-            Curve::segment(corner(-1.0, 1.0), corner(1.0, -1.0)),
-        ]
-        .map(|curve| curve.colored(FREE_POINT).width(MARKER_WIDTH))
-    }
-
-    /// A pinned point. Squares read as anchors, and the colour agrees.
-    fn anchor(&self, at: DVec2, size: f64) -> Curve {
-        let corner = |x: f64, y: f64| self.point(at + DVec2::new(x, y) * size);
-        Curve::new(vec![
-            corner(-1.0, -1.0),
-            corner(1.0, -1.0),
-            corner(1.0, 1.0),
-            corner(-1.0, 1.0),
-        ])
-        .closed()
-        .colored(FIXED_POINT)
-        .width(MARKER_WIDTH)
-    }
-}
-
-/// Markers are model-space geometry, so a zoom magnifies them like everything
-/// else. Sizing them off the sketch is what keeps them proportionate to the
-/// drawing rather than to whatever units it happens to be in.
-fn marker_size(sketch: &Sketch) -> f64 {
-    let mut positions = sketch.points().map(|(_, position)| position);
-    let Some(first) = positions.next() else {
-        return FALLBACK_MARKER;
-    };
-    let (mut min, mut max) = (first, first);
-    for position in positions {
-        min = min.min(position);
-        max = max.max(position);
-    }
-    let extent = (max - min).max_element();
-    if extent > 0.0 {
-        extent * MARKER_SHARE
-    } else {
-        FALLBACK_MARKER
     }
 }
 
@@ -203,18 +186,15 @@ mod tests {
         sketch.add_segment(a, b);
         sketch.add_circle(b, 2.0);
 
-        // One edge, one circle, one square for the anchor, two strokes for
-        // the free point's cross.
+        // One edge and one circle. Markers are no longer strokes.
         let curves = SketchPlane::GROUND.curves(&sketch);
-        assert_eq!(curves.len(), 5);
+        assert_eq!(curves.len(), 2);
 
-        // Every last stroke rides in front of the solids — a marker left
-        // behind would sink into the face its edge floats over.
-        assert!(curves.iter().all(|curve| curve.z_offset == SKETCH_LIFT));
-
-        // And every one names the plane it lies in, so the renderer can take
-        // the stroke's depth off the surface rather than off its centreline.
-        // The ground plane's axes are +X and −Z, which face +Y.
+        // Every last stroke rides in front of the solids, and names the plane
+        // it lies in so the renderer can take its depth off the surface rather
+        // than off the centreline. The ground plane's axes are +X and −Z,
+        // which face +Y.
+        assert!(curves.iter().all(|curve| curve.z_offset == STROKE_LIFT));
         assert!(
             curves
                 .iter()
@@ -236,44 +216,57 @@ mod tests {
         }
         // It starts at angle zero and runs the way the sketch does.
         assert!(circle.points[0].abs_diff_eq(Vec3::new(12.0, 0.0, 0.0), 1e-5));
-
-        // The anchor is a closed square about the fixed point, sized off the
-        // sketch's 10-unit span: 10 × 0.014 to a side's half.
-        let anchor = &curves[2];
-        assert_eq!(anchor.color, FIXED_POINT);
-        assert!(anchor.closed);
-        assert_eq!(anchor.points.len(), 4);
-        let marker = 10.0 * MARKER_SHARE as f32;
-        assert!(anchor.points[0].abs_diff_eq(Vec3::new(-marker, 0.0, marker), 1e-6));
-        assert!(anchor.points[2].abs_diff_eq(Vec3::new(marker, 0.0, -marker), 1e-6));
-
-        // The free point's cross is two open strokes through it.
-        for stroke in &curves[3..] {
-            assert_eq!(stroke.color, FREE_POINT);
-            assert!(!stroke.closed);
-            assert_eq!(stroke.points.len(), 2);
-            let midpoint = (stroke.points[0] + stroke.points[1]) * 0.5;
-            assert!(midpoint.abs_diff_eq(Vec3::new(10.0, 0.0, 0.0), 1e-6));
-        }
     }
 
     #[test]
-    fn markers_scale_with_the_sketch() {
+    fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
+        let mut sketch = Sketch::default();
+        let a = sketch.add_point(DVec2::ZERO);
+        let b = sketch.add_point(DVec2::new(10.0, 0.0));
+        sketch.fix(a);
+
+        let points = SketchPlane::GROUND.points(&sketch);
+        assert_eq!(points.len(), 2);
+        // Above the strokes, not merely above the solids: a marker lands on
+        // the end of the segments meeting it, and is drawn after them.
+        assert!(points.iter().all(|point| point.z_offset == MARKER_LIFT));
+
+        // Pinned reads larger and in its own colour; free is the other way.
+        let anchor = &points[0];
+        assert_eq!(anchor.position, Vec3::ZERO);
+        assert_eq!(anchor.color, FIXED_POINT);
+        assert_eq!(anchor.size, FIXED_MARKER);
+
+        let free = &points[1];
+        assert_eq!(free.position, Vec3::new(10.0, 0.0, 0.0));
+        assert_eq!(free.color, FREE_POINT);
+        assert_eq!(free.size, FREE_MARKER);
+        assert!(free.size < anchor.size);
+
+        let _ = b;
+    }
+
+    #[test]
+    fn marker_size_ignores_how_big_the_drawing_is() {
+        // The whole point of sizing in pixels: a drawing a hundred times the
+        // size gets markers the same number of pixels across, where the old
+        // model-space square grew with it and swallowed the sketch.
         let mut small = Sketch::default();
         small.add_point(DVec2::ZERO);
         small.add_point(DVec2::new(1.0, 0.0));
-        assert!((marker_size(&small) - MARKER_SHARE).abs() < 1e-12);
 
-        // A hundred times the drawing, a hundred times the marker.
         let mut large = Sketch::default();
         large.add_point(DVec2::ZERO);
         large.add_point(DVec2::new(0.0, 100.0));
-        assert!((marker_size(&large) - MARKER_SHARE * 100.0).abs() < 1e-12);
 
-        // Nothing to measure falls back rather than vanishing.
-        assert_eq!(marker_size(&Sketch::default()), FALLBACK_MARKER);
-        let mut lone = Sketch::default();
-        lone.add_point(DVec2::new(4.0, 4.0));
-        assert_eq!(marker_size(&lone), FALLBACK_MARKER);
+        let sizes = |sketch: &Sketch| -> Vec<f32> {
+            SketchPlane::GROUND
+                .points(sketch)
+                .iter()
+                .map(|point| point.size)
+                .collect()
+        };
+        assert_eq!(sizes(&small), sizes(&large));
+        assert_eq!(sizes(&small), vec![FREE_MARKER; 2]);
     }
 }

@@ -115,16 +115,16 @@ fn flatten_curves_expands_each_segment_into_a_quad() {
     assert_eq!(quad[3].position, b.to_array());
     assert_eq!(quad[0].other, b.to_array());
     assert_eq!(quad[2].other, a.to_array());
-    assert_eq!(quad[0].params, [1.0, 1.5, 64.0]);
-    assert_eq!(quad[1].params, [-1.0, 1.5, 64.0]);
+    assert_eq!((quad[0].side, quad[0].half_width), (1.0, 1.5));
+    assert_eq!((quad[1].side, quad[1].half_width), (-1.0, 1.5));
     // The far end's direction runs backwards, so its sides invert to keep
     // each pair on one edge of the ribbon.
-    assert_eq!(quad[2].params, [-1.0, 1.5, 64.0]);
-    assert_eq!(quad[3].params, [1.0, 1.5, 64.0]);
+    assert_eq!((quad[2].side, quad[2].half_width), (-1.0, 1.5));
+    assert_eq!((quad[3].side, quad[3].half_width), (1.0, 1.5));
     assert!(quad.iter().all(|v| v.color == [0.25, 0.5, 0.75]));
     // The bias is the whole quad's, not one corner's: a ribbon tilted in
     // depth against itself would z-fight along its own length.
-    assert!(data.vertices.iter().all(|v| v.params[2] == 64.0));
+    assert!(data.vertices.iter().all(|v| v.z_offset == 64.0));
     // No plane named, so the shader gets all-zero and falls back to reading
     // depth off the centreline.
     assert!(data.vertices.iter().all(|v| v.plane == [0.0; 3]));

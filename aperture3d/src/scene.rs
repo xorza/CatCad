@@ -4,6 +4,7 @@ use crate::bounds::Bounds;
 use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::object::Object;
+use crate::point::Point;
 
 /// The whole of the drawable world: shaded meshes, stroked curves, and the
 /// camera viewing them. Flat for now — hierarchy, if it earns its place, goes
@@ -13,6 +14,7 @@ pub struct Scene {
     pub camera: Camera,
     pub objects: Vec<Object>,
     pub curves: Vec<Curve>,
+    pub points: Vec<Point>,
 }
 
 impl Scene {
@@ -37,6 +39,11 @@ impl Scene {
             for point in &curve.points {
                 include(*point);
             }
+        }
+        // A marker's glyph is screen-sized, so like a stroke's width it says
+        // nothing about where the world reaches — only its anchor counts.
+        for point in &self.points {
+            include(point.position);
         }
         bounds
     }

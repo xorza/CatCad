@@ -5,6 +5,7 @@
 use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::object::Object;
+use crate::point::Point;
 use crate::scene::Scene;
 use glam::{Mat3, UVec2, Vec3};
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
@@ -66,12 +67,33 @@ struct CurveVertex {
     /// The segment's other end.
     other: [f32; 3],
     color: [f32; 3],
-    /// Side of the segment (`±1`), half the stroke width in logical px, then
-    /// the depth bias in resolution steps.
-    params: [f32; 3],
+    /// Which side of the segment this corner sits on, `±1`.
+    side: f32,
+    /// Half the stroke width, in logical px.
+    half_width: f32,
+    /// Depth bias in resolution steps.
+    z_offset: f32,
     /// Unit normal of the plane the curve lies in, or all-zero for a curve
     /// that named none — which is what the shader tests to decide whether it
     /// can read depth off the surface instead of off the centreline.
+    plane: [f32; 3],
+}
+
+/// One corner of a marker's quad. The glyph is resolved in the fragment
+/// stage, so the corner carries only where in the disc it sits.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+struct PointVertex {
+    position: [f32; 3],
+    color: [f32; 3],
+    /// Which corner of the glyph's square, spanning `±1`.
+    corner: [f32; 2],
+    /// Half the glyph's diameter, in logical px.
+    half_size: f32,
+    /// Depth bias in resolution steps.
+    z_offset: f32,
+    /// Unit normal of the plane the marker sits on, or all-zero for one that
+    /// names none.
     plane: [f32; 3],
 }
 
@@ -86,6 +108,13 @@ struct BatchData {
 #[derive(Debug, Default)]
 struct CurveBatchData {
     vertices: Vec<CurveVertex>,
+    indices: Vec<u32>,
+}
+
+/// Every marker, expanded to the four corners of its quad.
+#[derive(Debug, Default)]
+struct PointBatchData {
+    vertices: Vec<PointVertex>,
     indices: Vec<u32>,
 }
 
@@ -176,10 +205,12 @@ impl Attachments {
 struct Gpu {
     mesh_pipeline: wgpu::RenderPipeline,
     curve_pipeline: wgpu::RenderPipeline,
+    point_pipeline: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     meshes: Option<Batch>,
     curves: Option<Batch>,
+    points: Option<Batch>,
     attachments: Option<Attachments>,
     /// Kept from init: the multisampled colour buffer has to match what it
     /// resolves into, and that isn't known until the first frame's size is.
@@ -287,7 +318,7 @@ impl Gpu {
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![
                         0 => Float32x3, 1 => Float32x3, 2 => Float32x3,
-                        3 => Float32x3, 4 => Float32x3
+                        3 => Float32, 4 => Float32, 5 => Float32, 6 => Float32x3
                     ],
                 })],
             },
@@ -309,18 +340,65 @@ impl Gpu {
                 cull_mode: None,
                 ..Default::default()
             },
-            depth_stencil: Some(depth_stencil),
+            depth_stencil: Some(depth_stencil.clone()),
             multisample,
+            multiview_mask: None,
+            cache: None,
+        });
+        let point_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("aperture.point_pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("point_vs"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<PointVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x3, 1 => Float32x3, 2 => Float32x2,
+                        3 => Float32, 4 => Float32, 5 => Float32x3
+                    ],
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("point_fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: target_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                // The quad is built in screen space, so its winding follows
+                // the viewport rather than the model.
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(depth_stencil),
+            multisample: wgpu::MultisampleState {
+                // The one pass whose fragments are not all opaque: a disc
+                // leaves the corners of its own quad uncovered, and this is
+                // what turns that into a sample mask. Blending would do it
+                // too, at the price of caring what order markers arrive in.
+                alpha_to_coverage_enabled: true,
+                ..multisample
+            },
             multiview_mask: None,
             cache: None,
         });
         Self {
             mesh_pipeline,
             curve_pipeline,
+            point_pipeline,
             uniforms,
             bind_group,
             meshes: None,
             curves: None,
+            points: None,
             attachments: None,
             target_format,
         }
@@ -375,6 +453,12 @@ impl Renderer {
     pub fn curves_mut(&mut self) -> &mut Vec<Curve> {
         self.dirty = true;
         &mut self.scene.curves
+    }
+
+    /// Edit the scene's markers, re-uploading the batch on the next paint.
+    pub fn points_mut(&mut self) -> &mut Vec<Point> {
+        self.dirty = true;
+        &mut self.scene.points
     }
 
     /// World-space triangle soup for the whole scene. Transforms are applied
@@ -447,7 +531,9 @@ impl Renderer {
                         position: position.to_array(),
                         other: other.to_array(),
                         color,
-                        params: [side, half_width, curve.z_offset as f32],
+                        side,
+                        half_width,
+                        z_offset: curve.z_offset as f32,
                         plane,
                     });
                 }
@@ -460,6 +546,43 @@ impl Renderer {
                     base + 3,
                 ]);
             }
+        }
+        data
+    }
+}
+
+impl Renderer {
+    /// Every marker as the quad the vertex shader will size: four corners of
+    /// the same world position, told apart only by which way they lean.
+    fn flatten_points(&self) -> PointBatchData {
+        let count = self.scene.points.len();
+        let mut data = PointBatchData {
+            vertices: Vec::with_capacity(count * 4),
+            indices: Vec::with_capacity(count * 6),
+        };
+        for point in &self.scene.points {
+            let base = data.vertices.len() as u32;
+            let half_size = point.size * 0.5;
+            let z_offset = point.z_offset as f32;
+            let plane = point.plane_normal.unwrap_or(Vec3::ZERO).to_array();
+            for corner in [[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]] {
+                data.vertices.push(PointVertex {
+                    position: point.position.to_array(),
+                    color: point.color.to_array(),
+                    corner,
+                    half_size,
+                    z_offset,
+                    plane,
+                });
+            }
+            data.indices.extend_from_slice(&[
+                base,
+                base + 1,
+                base + 2,
+                base + 2,
+                base + 1,
+                base + 3,
+            ]);
         }
         data
     }
@@ -486,10 +609,12 @@ impl GpuPaint for Renderer {
             raster_scale: ctx.raster_scale,
             probe_reach: self.scene.camera.probe_reach(),
         };
-        let batches = self.dirty.then(|| (self.flatten(), self.flatten_curves()));
+        let batches = self
+            .dirty
+            .then(|| (self.flatten(), self.flatten_curves(), self.flatten_points()));
 
         let gpu = self.gpu.as_mut().expect("init runs before paint");
-        if let Some((meshes, curves)) = batches {
+        if let Some((meshes, curves, points)) = batches {
             gpu.meshes = Batch::upload(
                 ctx.device,
                 "aperture.meshes",
@@ -501,6 +626,12 @@ impl GpuPaint for Renderer {
                 "aperture.curves",
                 &curves.vertices,
                 &curves.indices,
+            );
+            gpu.points = Batch::upload(
+                ctx.device,
+                "aperture.points",
+                &points.vertices,
+                &points.indices,
             );
             self.dirty = false;
         }
@@ -546,6 +677,7 @@ impl GpuPaint for Renderer {
         for (pipeline, batch) in [
             (&gpu.mesh_pipeline, &gpu.meshes),
             (&gpu.curve_pipeline, &gpu.curves),
+            (&gpu.point_pipeline, &gpu.points),
         ] {
             let Some(batch) = batch else {
                 continue;

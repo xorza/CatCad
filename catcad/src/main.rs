@@ -51,6 +51,7 @@ impl CatCad {
         let plane = SketchPlane::GROUND;
         let mut scene = Scene {
             curves: plane.curves(&sketch),
+            points: plane.points(&sketch),
             ..Default::default()
         };
         // The ground the drawing lies on, and the reason the drawing carries a

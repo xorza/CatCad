@@ -7,6 +7,3 @@
 - Circle tessellation is a fixed 96 segments (`CIRCLE_SEGMENTS`, `catcad/src/sketch_plane.rs`)
   regardless of radius or screen size, and the curve batch is not rebuilt on camera
   change. Faceting is visible once a circle exceeds roughly 1900 px radius on screen.
-
-- Sketch point markers are sized in model space from the sketch's bounding extent,
-  so they grow and shrink with zoom while stroke widths stay in pixels.
