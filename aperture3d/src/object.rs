@@ -12,16 +12,7 @@ pub struct Object {
     pub transform: Mat4,
     /// Linear-RGB base colour.
     pub color: Vec3,
-    /// What a pick that lands here reports, and nothing else.
-    ///
-    /// Opaque on purpose: whatever the caller models — a body, a face, a
-    /// history step — is the caller's own vocabulary, and a renderer that
-    /// learned it would be a renderer that had to be told about every kind of
-    /// thing there is. A number it carries and never reads keeps hits
-    /// answerable without that.
-    ///
-    /// `None` is scenery — grids, guides, anything there to be seen and not
-    /// grabbed.
+    /// What a pick that lands here reports. See [picking](crate#picking).
     pub tag: Option<u64>,
 }
 

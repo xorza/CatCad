@@ -7,11 +7,11 @@ const DEFAULT_SIZE: f32 = 8.0;
 
 /// A position worth marking — a sketch vertex, a handle, a snap.
 ///
-/// A disc facing the viewer, sized in *logical pixels* rather than world
-/// units, which is what separates a marker from geometry. A marker says
-/// "something is here"; how big it is says nothing about the model, so zooming
-/// must not inflate it. Modelled geometry is the other way round and belongs
-/// in a [`Mesh`](crate::Mesh) or a [`Curve`](crate::Curve).
+/// A disc facing the viewer, sized in logical pixels — an
+/// [overlay](crate#overlays). A marker says "something is here"; how big it is
+/// says nothing about the model, so zooming must not inflate it. Anything
+/// whose extent *is* the point belongs in a [`Mesh`](crate::Mesh) or a
+/// [`Curve`](crate::Curve).
 ///
 /// Round because a disc is the one glyph with no orientation to get wrong: it
 /// reads the same however the camera is turned, and its silhouette is its own
@@ -24,20 +24,13 @@ pub struct Point {
     /// Diameter in logical pixels.
     pub size: f32,
     /// Depth-test bias in steps of depth-buffer resolution, positive toward
-    /// the viewer. See [`Curve::z_offset`](crate::Curve::z_offset).
+    /// the viewer. See [overlays](crate#overlays).
     pub z_offset: i32,
-    /// What a pick that lands here reports. See
-    /// [`Curve::tag`](crate::Curve::tag).
+    /// What a pick that lands here reports. See [picking](crate#picking).
     pub tag: Option<u64>,
     /// The plane this marker sits on, as a unit normal, when it sits on one.
-    ///
-    /// A disc is flat in depth while the surface under it is not, so on a
-    /// plane seen at an angle the surface rises through the glyph and the
-    /// depth test eats whichever half it rises into — a marker sliced in two.
-    /// Naming the plane lets the disc take the surface's own depth across its
-    /// width, which is the same answer [`Curve::plane_normal`] gives a stroke.
-    ///
-    /// `None` for a marker floating free of any surface.
+    /// See [overlays](crate#overlays). `None` keeps the anchor's depth, flat
+    /// across the disc.
     pub plane_normal: Option<Vec3>,
 }
 

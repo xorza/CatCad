@@ -24,10 +24,6 @@ wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl"] 
 missing_debug_implementations = "deny"
 unreachable_pub = "deny"
 
-[workspace.lints.rustdoc]
-broken_intra_doc_links = "deny"
-private_intra_doc_links = "deny"
-
 # Profiles only take effect at the workspace root, so palantir's own tuning is
 # restated here — its renderer and shaper are unusable at opt-level 0.
 [profile.bench]

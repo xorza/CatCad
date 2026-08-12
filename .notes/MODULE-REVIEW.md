@@ -4,19 +4,6 @@ Findings only; nothing here proposes a fix. **Delete an item once it is
 addressed** — this file lists what is still open, and an item left ticked is
 just noise for the next reader.
 
-## Curve and Point restate the attributes they share
-
-Not three parallel worlds after all: meshes are modelled geometry, and curves
-and points are overlays — screen-sized, unlit, unculled, depth-biased,
-plane-aware, tagged. The mesh-versus-overlay differences are essential; what
-remains below is the curve-versus-point duplication.
-
-- [ ] `color`, `z_offset`, `plane_normal` and `tag` are declared on both, with
-      their doc comments restated rather than referred to. Merging the fields
-      was investigated and rejected — it buys four field declarations at the
-      cost of a nesting level on every read including the flatten path — but
-      the duplicated prose is not paying for itself.
-
 ## The screen-space convention is written out four times, in two languages
 
 The mapping between pixels, NDC and clip space is a single convention, but no

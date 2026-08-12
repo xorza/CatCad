@@ -36,7 +36,7 @@ impl HitAt {
 /// One primitive the cursor was near enough to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hit {
-    /// The [`tag`](crate::Curve::tag) the primitive was named with. Untagged
+    /// The [tag](crate#picking) the primitive was named with. Untagged
     /// primitives are scenery and never appear here.
     pub tag: u64,
     pub at: HitAt,

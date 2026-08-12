@@ -6,9 +6,8 @@ use glam::Vec3;
 const DEFAULT_WIDTH: f32 = 1.5;
 
 /// A polyline through world-space points, stroked at a constant width in
-/// *logical pixels* rather than world units — a sketch edge stays legible
-/// however far the camera pulls back, which is what tells drawn geometry
-/// apart from modelled geometry.
+/// logical pixels — an [overlay](crate#overlays), so a sketch edge stays
+/// legible however far the camera pulls back.
 ///
 /// Curves are unlit: they carry no normal, and their colour reaches the
 /// target unshaded.
@@ -25,32 +24,13 @@ pub struct Curve {
     /// Stroke width in logical pixels.
     pub width: f32,
     /// Depth-test bias in steps of depth-buffer resolution, positive toward
-    /// the viewer. Settles a tie against a surface the stroke shares a plane
-    /// with, without moving where it lands on screen and without letting it
-    /// show through anything genuinely in front.
+    /// the viewer. See [overlays](crate#overlays).
     pub z_offset: i32,
     /// The plane this curve lies in, as a unit normal, when it lies in one.
-    ///
-    /// A stroke is widened in screen space, so its depth is its centreline's
-    /// held flat across the whole width — while the surface beneath it is not
-    /// flat at all. Seen at an angle the surface rises through the stroke and
-    /// the depth test eats whichever half it rises into, costing up to half
-    /// the stroke's width. Naming the plane lets the widened corners take the
-    /// surface's own depth instead, which is exact and needs no bias.
-    ///
-    /// `None` for a curve that is not planar, or is not drawn on anything.
-    /// Those keep the centreline's depth.
+    /// See [overlays](crate#overlays). `None` keeps the centreline's depth.
     pub plane_normal: Option<Vec3>,
-    /// What a pick that lands on this stroke reports, and nothing else.
-    ///
-    /// Opaque on purpose: whatever the caller models — a sketch edge, a
-    /// constraint handle, a dimension line — is the caller's own vocabulary,
-    /// and a renderer that learned it would be a renderer that had to be told
-    /// about every kind of thing there is. A number it carries and never reads
-    /// keeps hits answerable without that.
-    ///
-    /// `None` is scenery — grids, guides, anything there to be seen and not
-    /// grabbed.
+    /// What a pick that lands on this stroke reports. See
+    /// [picking](crate#picking).
     pub tag: Option<u64>,
 }
 
