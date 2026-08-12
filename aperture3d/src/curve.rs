@@ -24,6 +24,11 @@ pub struct Curve {
     pub color: Vec3,
     /// Stroke width in logical pixels.
     pub width: f32,
+    /// Depth-test bias in steps of depth-buffer resolution, positive toward
+    /// the viewer. Settles a tie against a surface the stroke shares a plane
+    /// with, without moving where it lands on screen and without letting it
+    /// show through anything genuinely in front.
+    pub z_offset: i32,
 }
 
 impl Curve {
@@ -34,6 +39,7 @@ impl Curve {
             closed: false,
             color: Vec3::ONE,
             width: DEFAULT_WIDTH,
+            z_offset: 0,
         }
     }
 
@@ -57,6 +63,12 @@ impl Curve {
     /// Set the stroke width in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
+        self
+    }
+
+    /// Set the depth-test bias. See [`Curve::z_offset`].
+    pub fn z_offset(mut self, z_offset: i32) -> Self {
+        self.z_offset = z_offset;
         self
     }
 

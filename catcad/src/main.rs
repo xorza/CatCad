@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aperture::{Mesh, Object, Renderer, Scene};
-use glam::{DVec2, Vec2, Vec3};
+use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{
     App, Configure, GpuPaint, GpuView, HostHandle, Panel, Sense, Sizing, Text, Ui, WindowToken,
     WinitHost, WinitHostError,
@@ -46,6 +46,18 @@ impl CatCad {
             curves: plane.curves(&sketch),
             ..Default::default()
         };
+        // The ground the drawing lies on, and the reason the drawing carries a
+        // depth bias at all: the slab's top face *is* the sketch plane, so the
+        // two are exactly coplanar and something has to decide which reads.
+        scene.objects.push(Object {
+            mesh: Mesh::cube(1.0),
+            // A unit cube spans ±0.5, so dropping the slab by half its
+            // thickness after scaling lands its top face on y = 0.
+            transform: Mat4::from_translation(Vec3::new(4.0, -0.5, -2.5))
+                * Mat4::from_scale(Vec3::new(12.0, 1.0, 9.0)),
+            color: Vec3::new(0.30, 0.30, 0.34),
+            z_offset: 0,
+        });
         for (size, at, color) in [
             (2.0, DVec2::new(2.0, 3.6), Vec3::new(0.55, 0.58, 0.62)),
             (0.8, DVec2::new(6.2, 1.1), Vec3::new(0.85, 0.35, 0.20)),

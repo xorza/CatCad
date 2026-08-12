@@ -23,6 +23,16 @@ const FIXED_POINT: Vec3 = Vec3::new(0.80, 0.14, 0.05);
 const EDGE_WIDTH: f32 = 1.6;
 const MARKER_WIDTH: f32 = 1.3;
 
+/// How far the drawing rides in front of the solids, in steps of depth-buffer
+/// resolution. A sketch is what a model is derived from, so where the two share
+/// a plane the drawing is the one that reads.
+///
+/// Small on purpose. Enough steps to clear the rounding two differently-shaped
+/// primitives accumulate over the same plane, and nowhere near enough to lift
+/// the drawing out of a solid standing on it — a line running behind a face
+/// still goes behind it.
+const SKETCH_LIFT: i32 = 32;
+
 /// The plane a [`Sketch`] is drawn on: an origin, and the world directions its
 /// two axes run along.
 ///
@@ -56,7 +66,8 @@ impl SketchPlane {
 
     /// The sketch as drawable curves: an edge per segment, a tessellated
     /// circle per circle, and a marker per point — a square where the solver
-    /// may not move it, a cross where it may.
+    /// may not move it, a cross where it may. All of it biased clear of the
+    /// solids in depth, so the drawing reads over them.
     pub(crate) fn curves(&self, sketch: &Sketch) -> Vec<Curve> {
         let marker = marker_size(sketch);
         let mut curves = Vec::new();
@@ -74,6 +85,11 @@ impl SketchPlane {
             } else {
                 curves.extend(self.cross(position, marker));
             }
+        }
+        // Lifted here rather than at each constructor: the drawing rides above
+        // the solids as one thing, and nothing in it outranks the rest.
+        for curve in &mut curves {
+            curve.z_offset = SKETCH_LIFT;
         }
         curves
     }
@@ -176,6 +192,10 @@ mod tests {
         // the free point's cross.
         let curves = SketchPlane::GROUND.curves(&sketch);
         assert_eq!(curves.len(), 5);
+
+        // Every last stroke rides in front of the solids — a marker left
+        // behind would sink into the face its edge floats over.
+        assert!(curves.iter().all(|curve| curve.z_offset == SKETCH_LIFT));
 
         let edge = &curves[0];
         assert_eq!(edge.points, [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)]);

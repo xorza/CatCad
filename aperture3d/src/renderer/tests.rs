@@ -9,7 +9,8 @@ fn flatten_bakes_transforms_into_world_space() {
     scene.objects.push(
         Object::new(Mesh::cube(2.0))
             .at(Vec3::new(10.0, 0.0, 0.0))
-            .colored(Vec3::new(1.0, 0.0, 0.0)),
+            .colored(Vec3::new(1.0, 0.0, 0.0))
+            .z_offset(64),
     );
     let data = Renderer::new(scene).flatten();
 
@@ -24,14 +25,16 @@ fn flatten_bakes_transforms_into_world_space() {
     assert_eq!(data.indices[36], data.indices[0] + 24);
 
     // Corners of a size-2 cube are (±1, ±1, ±1), shifted 10 along x for
-    // the second, and the colour rides along per vertex.
+    // the second, and the colour and depth bias ride along per vertex.
     for vertex in &data.vertices[..24] {
         assert_eq!(vertex.position.map(f32::abs), [1.0, 1.0, 1.0]);
         assert_eq!(vertex.color, [0.7, 0.7, 0.7]);
+        assert_eq!(vertex.z_offset, 0.0, "unbiased unless asked for");
     }
     for vertex in &data.vertices[24..] {
         assert!((vertex.position[0] - 10.0).abs() == 1.0, "{vertex:?}");
         assert_eq!(vertex.color, [1.0, 0.0, 0.0]);
+        assert_eq!(vertex.z_offset, 64.0);
     }
 
     // Translation leaves normals alone.
@@ -58,6 +61,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
         mesh,
         transform: Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0)),
         color: Vec3::ZERO,
+        z_offset: 0,
     });
     let data = Renderer::new(scene).flatten();
 
@@ -92,7 +96,8 @@ fn flatten_curves_expands_each_segment_into_a_quad() {
     scene.curves.push(
         Curve::new(vec![a, b, c])
             .colored(Vec3::new(0.25, 0.5, 0.75))
-            .width(3.0),
+            .width(3.0)
+            .z_offset(64),
     );
     let data = Renderer::new(scene).flatten_curves();
 
@@ -109,13 +114,16 @@ fn flatten_curves_expands_each_segment_into_a_quad() {
     assert_eq!(quad[3].position, b.to_array());
     assert_eq!(quad[0].other, b.to_array());
     assert_eq!(quad[2].other, a.to_array());
-    assert_eq!(quad[0].params, [1.0, 1.5]);
-    assert_eq!(quad[1].params, [-1.0, 1.5]);
+    assert_eq!(quad[0].params, [1.0, 1.5, 64.0]);
+    assert_eq!(quad[1].params, [-1.0, 1.5, 64.0]);
     // The far end's direction runs backwards, so its sides invert to keep
     // each pair on one edge of the ribbon.
-    assert_eq!(quad[2].params, [-1.0, 1.5]);
-    assert_eq!(quad[3].params, [1.0, 1.5]);
+    assert_eq!(quad[2].params, [-1.0, 1.5, 64.0]);
+    assert_eq!(quad[3].params, [1.0, 1.5, 64.0]);
     assert!(quad.iter().all(|v| v.color == [0.25, 0.5, 0.75]));
+    // The bias is the whole quad's, not one corner's: a ribbon tilted in
+    // depth against itself would z-fight along its own length.
+    assert!(data.vertices.iter().all(|v| v.params[2] == 64.0));
 
     // The two triangles cover the quad rather than overlapping: together
     // they use each corner, and the shared edge runs 1–2.

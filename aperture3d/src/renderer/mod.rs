@@ -50,6 +50,9 @@ struct GpuVertex {
     position: [f32; 3],
     normal: [f32; 3],
     color: [f32; 3],
+    /// Depth bias in resolution steps, widened from the count the API is
+    /// authored in because the shader scales by it.
+    z_offset: f32,
 }
 
 /// One corner of a stroked segment. The ribbon is widened in the vertex
@@ -62,8 +65,9 @@ struct CurveVertex {
     /// The segment's other end.
     other: [f32; 3],
     color: [f32; 3],
-    /// Side of the segment (`±1`), then half the stroke width in logical px.
-    params: [f32; 2],
+    /// Side of the segment (`±1`), half the stroke width in logical px, then
+    /// the depth bias in resolution steps.
+    params: [f32; 3],
 }
 
 /// The whole scene flattened on the CPU, before upload.
@@ -240,7 +244,7 @@ impl Gpu {
                     array_stride: std::mem::size_of::<GpuVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![
-                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3
+                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32
                     ],
                 })],
             },
@@ -275,7 +279,7 @@ impl Gpu {
                     array_stride: std::mem::size_of::<CurveVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![
-                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x2
+                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x3
                     ],
                 })],
             },
@@ -401,6 +405,7 @@ impl Renderer {
                         .normalize_or_zero()
                         .to_array(),
                     color,
+                    z_offset: object.z_offset as f32,
                 });
             }
             data.indices
@@ -433,7 +438,7 @@ impl Renderer {
                         position: position.to_array(),
                         other: other.to_array(),
                         color,
-                        params: [side, half_width],
+                        params: [side, half_width, curve.z_offset as f32],
                     });
                 }
                 data.indices.extend_from_slice(&[

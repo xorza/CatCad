@@ -26,6 +26,12 @@
 //! call per pipeline per frame. Meshes are shaded; curves are unlit ribbons
 //! widened in screen space, so a stroke keeps its pixel width at any depth.
 //!
+//! Either kind carries a `z_offset`, a depth-test bias toward the viewer
+//! counted in steps of depth-buffer resolution. It settles which of two
+//! coplanar surfaces is drawn — a sketch over the face it was drawn on — and
+//! moves nothing on screen. It is deliberately not a way to draw over
+//! everything: a solid in front still hides what is behind it.
+//!
 //! Input is deliberately absent: palantir owns the pointer, so orbit and zoom
 //! are the host's job — drive [`Camera::orbit`] and [`Camera::dolly`] from the
 //! `GpuView`'s `Response`, and [`Camera::frame`] from [`Scene::bounds`].
