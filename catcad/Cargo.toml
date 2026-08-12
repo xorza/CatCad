@@ -8,8 +8,9 @@ repository.workspace = true
 
 [dependencies]
 aperture3d.workspace = true
-glam.workspace = true
+glam = { workspace = true, features = ["f64"] }
 palantir.workspace = true
+silverpoint.workspace = true
 
 [lints]
 workspace = true

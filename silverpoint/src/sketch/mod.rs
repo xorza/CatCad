@@ -106,12 +106,32 @@ impl Sketch {
         self.points[id.idx()]
     }
 
+    /// Every point in insertion order, each with the handle needed to ask
+    /// [`Self::is_fixed`] about it.
+    pub fn points(&self) -> impl Iterator<Item = (PointId, DVec2)> {
+        self.points
+            .iter()
+            .enumerate()
+            .map(|(index, position)| (PointId(index as u32), *position))
+    }
+
     pub fn segment(&self, id: SegmentId) -> Segment {
         self.segments[id.idx()]
     }
 
+    /// Every segment in insertion order. Each carries the handles of its own
+    /// endpoints, so nothing here needs a [`SegmentId`] to be usable.
+    pub fn segments(&self) -> &[Segment] {
+        &self.segments
+    }
+
     pub fn circle(&self, id: CircleId) -> Circle {
         self.circles[id.idx()]
+    }
+
+    /// Every circle in insertion order, each carrying its centre handle.
+    pub fn circles(&self) -> &[Circle] {
+        &self.circles
     }
 
     pub fn is_fixed(&self, id: PointId) -> bool {
@@ -159,5 +179,51 @@ impl Sketch {
         for (circle, radius) in self.circles.iter_mut().zip(radii) {
             circle.radius = *radius;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The iteration order is the parameter order, which is what lets a
+    /// handle index straight into the parameter vector.
+    #[test]
+    fn geometry_comes_back_in_insertion_order() {
+        let mut sketch = Sketch::default();
+        let a = sketch.add_point(DVec2::new(1.0, 2.0));
+        let b = sketch.add_point(DVec2::new(3.0, 4.0));
+        let c = sketch.add_point(DVec2::new(5.0, 6.0));
+        sketch.fix(b);
+        sketch.add_segment(a, b);
+        sketch.add_segment(b, c);
+        sketch.add_circle(c, 0.5);
+
+        let points: Vec<_> = sketch.points().collect();
+        assert_eq!(points.len(), 3);
+        assert_eq!(points[0], (a, DVec2::new(1.0, 2.0)));
+        assert_eq!(points[1], (b, DVec2::new(3.0, 4.0)));
+        assert_eq!(points[2], (c, DVec2::new(5.0, 6.0)));
+        // The handle the iterator hands back is the one `is_fixed` answers
+        // for — only the second point was pinned.
+        let fixed: Vec<bool> = points.iter().map(|&(id, _)| sketch.is_fixed(id)).collect();
+        assert_eq!(fixed, [false, true, false]);
+
+        let segments = sketch.segments();
+        assert_eq!(segments.len(), 2);
+        assert_eq!((segments[0].a, segments[0].b), (a, b));
+        assert_eq!((segments[1].a, segments[1].b), (b, c));
+
+        let circles = sketch.circles();
+        assert_eq!(circles.len(), 1);
+        assert_eq!(circles[0].center, c);
+        assert_eq!(circles[0].radius, 0.5);
+
+        // Solving rewrites positions through the same order, so the iterator
+        // reports what the solver left behind rather than the initial guess.
+        let mut params = sketch.params();
+        params[2] = 30.0;
+        sketch.set_params(&params);
+        assert_eq!(sketch.points().nth(1).unwrap().1, DVec2::new(30.0, 4.0));
     }
 }

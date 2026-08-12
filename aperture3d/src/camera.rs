@@ -1,5 +1,6 @@
 //! Where the scene is viewed from, and the matrix that follows from it.
 
+use crate::bounds::Bounds;
 use glam::camera::rh::{proj::directx, view};
 use glam::{Mat4, Vec3};
 
@@ -73,6 +74,19 @@ impl Camera {
     /// Scale the orbit distance — `factor` below 1 moves the eye in.
     pub fn dolly(&mut self, factor: f32) {
         self.distance = (self.distance * factor).max(MIN_DISTANCE);
+    }
+
+    /// Look at `bounds` from the current angles, far enough back that all of
+    /// it is in frame.
+    ///
+    /// The fit is against the *vertical* field of view, so a viewport wider
+    /// than it is tall has room to spare and a taller one crops. What is
+    /// fitted is the bounding sphere rather than the box, which is why
+    /// orbiting afterwards never swings a corner out of view.
+    pub fn frame(&mut self, bounds: Bounds) {
+        self.target = bounds.centre();
+        let radius = bounds.radius();
+        self.distance = (radius / (self.fov_y * 0.5).sin()).max(MIN_DISTANCE);
     }
 }
 
@@ -165,6 +179,53 @@ mod tests {
         camera.yaw = 0.0;
         camera.orbit(-3.0, 0.0);
         assert!((camera.yaw + 3.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn frame_pulls_back_until_the_bounds_fit() {
+        let mut camera = unit_camera();
+        camera.orbit(0.7, 0.3);
+        let (yaw, pitch) = (camera.yaw, camera.pitch);
+
+        let mut bounds = Bounds::point(Vec3::new(2.0, 2.0, 2.0));
+        bounds.include(Vec3::new(6.0, 6.0, 6.0));
+        camera.frame(bounds);
+
+        // The centre is what the eye now orbits, and the angles are untouched
+        // — framing chooses a distance, not a viewpoint.
+        assert_eq!(camera.target, Vec3::splat(4.0));
+        assert_eq!((camera.yaw, camera.pitch), (yaw, pitch));
+
+        // Radius is half the 4×4×4 box's diagonal, √48/2, and the 90° fov
+        // needs distance = radius / sin(45°) = radius × √2.
+        let radius = 48f32.sqrt() * 0.5;
+        assert!((camera.distance - radius * std::f32::consts::SQRT_2).abs() < 1e-5);
+
+        // Which is exactly enough: every corner of the box projects inside
+        // NDC, and the sphere's silhouette touches the top and bottom edges.
+        let view_proj = camera.view_proj(1.0);
+        for corner in [
+            Vec3::new(2.0, 2.0, 2.0),
+            Vec3::new(6.0, 2.0, 2.0),
+            Vec3::new(2.0, 6.0, 2.0),
+            Vec3::new(2.0, 2.0, 6.0),
+            Vec3::new(6.0, 6.0, 2.0),
+            Vec3::new(6.0, 2.0, 6.0),
+            Vec3::new(2.0, 6.0, 6.0),
+            Vec3::new(6.0, 6.0, 6.0),
+        ] {
+            let ndc = view_proj.project_point3(corner);
+            assert!(
+                ndc.x.abs() <= 1.0 && ndc.y.abs() <= 1.0,
+                "{corner:?} projects out of frame at {ndc:?}"
+            );
+        }
+
+        // A single point has no extent to fit, so the distance floors rather
+        // than collapsing onto it.
+        camera.frame(Bounds::point(Vec3::ZERO));
+        assert_eq!(camera.target, Vec3::ZERO);
+        assert_eq!(camera.distance, MIN_DISTANCE);
     }
 
     #[test]

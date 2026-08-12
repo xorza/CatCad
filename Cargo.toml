@@ -1,6 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["aperture3d", "catcad", "palantir", "palantir/anim-derive", "silverpoint"]
+default-members = ["catcad"]
 
 [workspace.package]
 version = "0.1.0"
@@ -12,6 +13,7 @@ repository = "https://github.com/xorza/CatCad"
 [workspace.dependencies]
 aperture3d = { path = "aperture3d", version = "0.1" }
 palantir = { path = "palantir", version = "0.3" }
+silverpoint = { path = "silverpoint", version = "0.1" }
 # Pinned to palantir's versions: `GpuInitCtx` hands out a `wgpu::Device`, so a
 # second semver-incompatible wgpu would make that a foreign type.
 bytemuck = { version = "1.25", features = ["derive"] }

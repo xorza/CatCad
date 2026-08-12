@@ -1,7 +1,9 @@
-//! The wgpu half: flattens a scene into one world-space triangle batch and
-//! draws it into the off-screen target palantir hands over each frame.
+//! The wgpu half: flattens a scene into one world-space triangle batch and one
+//! ribbon batch, and draws them into the off-screen target palantir hands over
+//! each frame.
 
 use crate::camera::Camera;
+use crate::curve::Curve;
 use crate::object::Object;
 use crate::scene::Scene;
 use glam::{Mat3, UVec2};
@@ -19,6 +21,21 @@ const BACKGROUND: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
+/// What both pipelines read. Laid out to match the WGSL `Uniforms`, which
+/// rounds to 80 bytes: the trailing pad is what makes that explicit rather
+/// than implied.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+struct Uniforms {
+    view_proj: [f32; 16],
+    /// Target size in physical pixels.
+    viewport: [f32; 2],
+    /// Physical pixels per logical pixel, which is what turns a curve's
+    /// authored width into the width it is drawn at.
+    raster_scale: f32,
+    _pad: f32,
+}
+
 /// A vertex as the GPU sees it: world space, with the owning object's colour
 /// baked in. Flat arrays rather than `Vec3` so the layout is `Pod` without
 /// depending on how glam is configured.
@@ -30,6 +47,20 @@ struct GpuVertex {
     color: [f32; 3],
 }
 
+/// One corner of a stroked segment. The ribbon is widened in the vertex
+/// shader, so each corner carries the segment's far end to take its direction
+/// from, and which side of it to sit on.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+struct CurveVertex {
+    position: [f32; 3],
+    /// The segment's other end.
+    other: [f32; 3],
+    color: [f32; 3],
+    /// Side of the segment (`±1`), then half the stroke width in logical px.
+    params: [f32; 2],
+}
+
 /// The whole scene flattened on the CPU, before upload.
 #[derive(Debug, Default)]
 struct BatchData {
@@ -37,7 +68,14 @@ struct BatchData {
     indices: Vec<u32>,
 }
 
-/// The uploaded batch. Absent while the scene has no triangles.
+/// Every curve's segments, expanded to four corners apiece.
+#[derive(Debug, Default)]
+struct CurveBatchData {
+    vertices: Vec<CurveVertex>,
+    indices: Vec<u32>,
+}
+
+/// An uploaded batch. Absent while there is nothing to draw.
 #[derive(Debug)]
 struct Batch {
     vertices: wgpu::Buffer,
@@ -46,24 +84,29 @@ struct Batch {
 }
 
 impl Batch {
-    /// Upload `data`, or `None` if there is nothing to draw — wgpu rejects
-    /// zero-sized buffers.
-    fn upload(device: &wgpu::Device, data: &BatchData) -> Option<Self> {
-        if data.indices.is_empty() {
+    /// Upload `vertices` and `indices`, or `None` if there is nothing to draw
+    /// — wgpu rejects zero-sized buffers.
+    fn upload<V: bytemuck::Pod>(
+        device: &wgpu::Device,
+        label: &str,
+        vertices: &[V],
+        indices: &[u32],
+    ) -> Option<Self> {
+        if indices.is_empty() {
             return None;
         }
         Some(Self {
             vertices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("aperture.vertices"),
-                contents: bytemuck::cast_slice(&data.vertices),
+                label: Some(label),
+                contents: bytemuck::cast_slice(vertices),
                 usage: wgpu::BufferUsages::VERTEX,
             }),
             indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("aperture.indices"),
-                contents: bytemuck::cast_slice(&data.indices),
+                label: Some(label),
+                contents: bytemuck::cast_slice(indices),
                 usage: wgpu::BufferUsages::INDEX,
             }),
-            index_count: data.indices.len() as u32,
+            index_count: indices.len() as u32,
         })
     }
 }
@@ -101,10 +144,12 @@ impl Depth {
 /// Everything that can't exist before the device does.
 #[derive(Debug)]
 struct Gpu {
-    pipeline: wgpu::RenderPipeline,
+    mesh_pipeline: wgpu::RenderPipeline,
+    curve_pipeline: wgpu::RenderPipeline,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
-    batch: Option<Batch>,
+    meshes: Option<Batch>,
+    curves: Option<Batch>,
     depth: Option<Depth>,
 }
 
@@ -116,7 +161,7 @@ impl Gpu {
         });
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("aperture.uniforms"),
-            size: std::mem::size_of::<[f32; 16]>() as u64,
+            size: std::mem::size_of::<Uniforms>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -146,8 +191,15 @@ impl Gpu {
             bind_group_layouts: &[Some(&bgl)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("aperture.pipeline"),
+        let depth_stencil = wgpu::DepthStencilState {
+            format: DEPTH_FORMAT,
+            depth_write_enabled: Some(true),
+            depth_compare: Some(wgpu::CompareFunction::Less),
+            stencil: wgpu::StencilState::default(),
+            bias: wgpu::DepthBiasState::default(),
+        };
+        let mesh_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("aperture.mesh_pipeline"),
             layout: Some(&layout),
             vertex: wgpu::VertexState {
                 module: &shader,
@@ -176,30 +228,65 @@ impl Gpu {
                 cull_mode: Some(wgpu::Face::Back),
                 ..Default::default()
             },
-            depth_stencil: Some(wgpu::DepthStencilState {
-                format: DEPTH_FORMAT,
-                depth_write_enabled: Some(true),
-                depth_compare: Some(wgpu::CompareFunction::Less),
-                stencil: wgpu::StencilState::default(),
-                bias: wgpu::DepthBiasState::default(),
+            depth_stencil: Some(depth_stencil.clone()),
+            multisample: wgpu::MultisampleState::default(),
+            multiview_mask: None,
+            cache: None,
+        });
+        let curve_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("aperture.curve_pipeline"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("curve_vs"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<CurveVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x2
+                    ],
+                })],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("curve_fs"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: target_format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
             }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                // A ribbon is widened after projection, so which way its
+                // corners wind depends on where the camera is. Culling would
+                // drop half of them.
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(depth_stencil),
             multisample: wgpu::MultisampleState::default(),
             multiview_mask: None,
             cache: None,
         });
         Self {
-            pipeline,
+            mesh_pipeline,
+            curve_pipeline,
             uniforms,
             bind_group,
-            batch: None,
+            meshes: None,
+            curves: None,
             depth: None,
         }
     }
 }
 
 /// Draws a [`Scene`] into a palantir `GpuView`. Hand the same instance to the
-/// widget every frame: it owns the pipeline and the uploaded geometry, and
-/// re-uploads only after [`Renderer::objects_mut`] hands out a mutable borrow.
+/// widget every frame: it owns the pipelines and the uploaded geometry, and
+/// re-uploads only after [`Renderer::objects_mut`] or [`Renderer::curves_mut`]
+/// hands out a mutable borrow.
 #[derive(Debug)]
 pub struct Renderer {
     scene: Scene,
@@ -238,6 +325,12 @@ impl Renderer {
     pub fn objects_mut(&mut self) -> &mut Vec<Object> {
         self.dirty = true;
         &mut self.scene.objects
+    }
+
+    /// Edit the scene's curves, re-uploading the batch on the next paint.
+    pub fn curves_mut(&mut self) -> &mut Vec<Curve> {
+        self.dirty = true;
+        &mut self.scene.curves
     }
 
     /// World-space triangle soup for the whole scene. Transforms are applied
@@ -283,12 +376,52 @@ impl Renderer {
         }
         data
     }
+
+    /// Every curve segment as a quad the vertex shader will widen: two corners
+    /// at each end, one either side of the line.
+    fn flatten_curves(&self) -> CurveBatchData {
+        let segments: usize = self.scene.curves.iter().map(Curve::segment_count).sum();
+        let mut data = CurveBatchData {
+            vertices: Vec::with_capacity(segments * 4),
+            indices: Vec::with_capacity(segments * 6),
+        };
+        for curve in &self.scene.curves {
+            let color = curve.color.to_array();
+            let half_width = curve.width * 0.5;
+            for (a, b) in curve.segments() {
+                let base = data.vertices.len() as u32;
+                // The far end comes along, so the shader can take the
+                // direction from it. A corner at `b` sits on the opposite
+                // side to keep the pair on one edge of the ribbon, because
+                // its direction runs the other way.
+                for (position, other, side) in
+                    [(a, b, 1.0), (a, b, -1.0), (b, a, -1.0), (b, a, 1.0)]
+                {
+                    data.vertices.push(CurveVertex {
+                        position: position.to_array(),
+                        other: other.to_array(),
+                        color,
+                        params: [side, half_width],
+                    });
+                }
+                data.indices.extend_from_slice(&[
+                    base,
+                    base + 1,
+                    base + 2,
+                    base + 2,
+                    base + 1,
+                    base + 3,
+                ]);
+            }
+        }
+        data
+    }
 }
 
 impl GpuPaint for Renderer {
     fn init(&mut self, ctx: &GpuInitCtx<'_>) {
-        // Re-runs whenever palantir reclaims the view's target. The pipeline
-        // and the uploaded batch both outlive that, so build once.
+        // Re-runs whenever palantir reclaims the view's target. The pipelines
+        // and the uploaded batches both outlive that, so build once.
         if self.gpu.is_none() {
             self.gpu = Some(Gpu::new(ctx.device, ctx.target_format));
         }
@@ -296,16 +429,32 @@ impl GpuPaint for Renderer {
 
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {
         let size = ctx.size_px.max(UVec2::ONE);
-        let view_proj = self
-            .scene
-            .camera
-            .view_proj(size.x as f32 / size.y as f32)
-            .to_cols_array();
-        let batch = self.dirty.then(|| self.flatten());
+        let uniforms = Uniforms {
+            view_proj: self
+                .scene
+                .camera
+                .view_proj(size.x as f32 / size.y as f32)
+                .to_cols_array(),
+            viewport: [size.x as f32, size.y as f32],
+            raster_scale: ctx.raster_scale,
+            _pad: 0.0,
+        };
+        let batches = self.dirty.then(|| (self.flatten(), self.flatten_curves()));
 
         let gpu = self.gpu.as_mut().expect("init runs before paint");
-        if let Some(data) = batch {
-            gpu.batch = Batch::upload(ctx.device, &data);
+        if let Some((meshes, curves)) = batches {
+            gpu.meshes = Batch::upload(
+                ctx.device,
+                "aperture.meshes",
+                &meshes.vertices,
+                &meshes.indices,
+            );
+            gpu.curves = Batch::upload(
+                ctx.device,
+                "aperture.curves",
+                &curves.vertices,
+                &curves.indices,
+            );
             self.dirty = false;
         }
         if gpu.depth.as_ref().map(|depth| depth.size) != Some(size) {
@@ -313,7 +462,7 @@ impl GpuPaint for Renderer {
         }
         let depth = gpu.depth.as_ref().expect("depth just ensured");
         ctx.queue
-            .write_buffer(&gpu.uniforms, 0, bytemuck::cast_slice(&view_proj));
+            .write_buffer(&gpu.uniforms, 0, bytemuck::bytes_of(&uniforms));
 
         let mut pass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("aperture.pass"),
@@ -338,101 +487,26 @@ impl GpuPaint for Renderer {
             occlusion_query_set: None,
             multiview_mask: None,
         });
-        let Some(batch) = &gpu.batch else {
-            // Nothing to draw, but the pass still clears the target.
-            return;
-        };
         pass.set_viewport(0.0, 0.0, size.x as f32, size.y as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, size.x, size.y);
-        pass.set_pipeline(&gpu.pipeline);
         pass.set_bind_group(0, &gpu.bind_group, &[]);
-        pass.set_vertex_buffer(0, batch.vertices.slice(..));
-        pass.set_index_buffer(batch.indices.slice(..), wgpu::IndexFormat::Uint32);
-        pass.draw_indexed(0..batch.index_count, 0, 0..1);
+        // Curves after meshes: both write depth, so what hides what is the
+        // depth test's answer either way, and this order keeps the pipeline
+        // switch to one per frame.
+        for (pipeline, batch) in [
+            (&gpu.mesh_pipeline, &gpu.meshes),
+            (&gpu.curve_pipeline, &gpu.curves),
+        ] {
+            let Some(batch) = batch else {
+                continue;
+            };
+            pass.set_pipeline(pipeline);
+            pass.set_vertex_buffer(0, batch.vertices.slice(..));
+            pass.set_index_buffer(batch.indices.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..batch.index_count, 0, 0..1);
+        }
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::mesh::{Mesh, Vertex};
-    use glam::{Mat4, Vec3};
-
-    #[test]
-    fn flatten_bakes_transforms_into_world_space() {
-        let mut scene = Scene::default();
-        scene.objects.push(Object::new(Mesh::cube(2.0)));
-        scene.objects.push(
-            Object::new(Mesh::cube(2.0))
-                .at(Vec3::new(10.0, 0.0, 0.0))
-                .colored(Vec3::new(1.0, 0.0, 0.0)),
-        );
-        let data = Renderer::new(scene).flatten();
-
-        // Two cubes: 24 corners and 36 indices each.
-        assert_eq!(data.vertices.len(), 48);
-        assert_eq!(data.indices.len(), 72);
-
-        // The second object's indices are rebased past the first's vertices,
-        // so the halves address disjoint ranges.
-        assert!(data.indices[..36].iter().all(|&i| i < 24));
-        assert!(data.indices[36..].iter().all(|&i| (24..48).contains(&i)));
-        assert_eq!(data.indices[36], data.indices[0] + 24);
-
-        // Corners of a size-2 cube are (±1, ±1, ±1), shifted 10 along x for
-        // the second, and the colour rides along per vertex.
-        for vertex in &data.vertices[..24] {
-            assert_eq!(vertex.position.map(f32::abs), [1.0, 1.0, 1.0]);
-            assert_eq!(vertex.color, [0.7, 0.7, 0.7]);
-        }
-        for vertex in &data.vertices[24..] {
-            assert!((vertex.position[0] - 10.0).abs() == 1.0, "{vertex:?}");
-            assert_eq!(vertex.color, [1.0, 0.0, 0.0]);
-        }
-
-        // Translation leaves normals alone.
-        assert_eq!(data.vertices[0].normal, data.vertices[24].normal);
-    }
-
-    #[test]
-    fn flatten_uses_the_inverse_transpose_for_normals() {
-        // One triangle whose normal points diagonally, so a non-uniform scale
-        // tells the two candidate transforms apart.
-        let diagonal = Vec3::new(1.0, 1.0, 0.0).normalize();
-        let mesh = Mesh {
-            vertices: vec![
-                Vertex {
-                    position: Vec3::ZERO,
-                    normal: diagonal,
-                };
-                3
-            ],
-            indices: vec![0, 1, 2],
-        };
-        let mut scene = Scene::default();
-        scene.objects.push(Object {
-            mesh,
-            transform: Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0)),
-            color: Vec3::ZERO,
-        });
-        let data = Renderer::new(scene).flatten();
-
-        // Scaling x by 2 flattens the surface toward the x axis, so its normal
-        // tips *away* from x: inverse transpose diag(0.5, 1, 1) sends
-        // (1, 1, 0)/√2 to (0.5, 1, 0)/√2, i.e. (1, 2, 0) normalized.
-        let expected = Vec3::new(1.0, 2.0, 0.0).normalize();
-        let actual = Vec3::from_array(data.vertices[0].normal);
-        assert!(actual.abs_diff_eq(expected, 1e-6), "{actual:?}");
-
-        // Transforming the normal directly would have tipped it the other way.
-        let naive = Vec3::new(2.0, 1.0, 0.0).normalize();
-        assert!(!actual.abs_diff_eq(naive, 1e-3));
-    }
-
-    #[test]
-    fn flatten_of_an_empty_scene_uploads_nothing() {
-        let data = Renderer::new(Scene::default()).flatten();
-        assert!(data.vertices.is_empty());
-        assert!(data.indices.is_empty());
-    }
-}
+mod tests;

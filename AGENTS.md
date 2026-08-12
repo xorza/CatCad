@@ -16,5 +16,5 @@ Cargo workspace, edition 2024, four members plus a submodule:
 | `catcad` | — (bin) | The application: palantir window, viewport, input. |
 | `palantir` | `palantir` | Git submodule (`github.com/xorza/palantir`) — the GUI framework. |
 
-Dependency direction is `catcad → {aperture3d, palantir}` and
+Dependency direction is `catcad → {aperture3d, silverpoint, palantir}` and
 `aperture3d → palantir`.

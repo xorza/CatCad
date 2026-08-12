@@ -1,14 +1,19 @@
 //! CatCad application entry point.
 
+mod sketch_plane;
+
 use std::cell::RefCell;
 use std::rc::Rc;
 
 use aperture::{Mesh, Object, Renderer, Scene};
-use glam::{Vec2, Vec3};
+use glam::{DVec2, Vec2, Vec3};
 use palantir::{
-    App, Configure, GpuPaint, GpuView, HostHandle, Sense, Sizing, Ui, WindowToken, WinitHost,
-    WinitHostError,
+    App, Configure, GpuPaint, GpuView, HostHandle, Panel, Sense, Sizing, Text, Ui, WindowToken,
+    WinitHost, WinitHostError,
 };
+use silverpoint::{Constraint, Sketch, SolveReport, Solver};
+
+use crate::sketch_plane::SketchPlane;
 
 /// Radians of orbit per logical pixel of drag.
 const ORBIT_RATE: f32 = 0.008;
@@ -22,34 +27,63 @@ struct CatCad {
     /// Drag deltas arrive as cumulative travel, so the previous total is
     /// subtracted to recover this frame's movement.
     drag_travel: Vec2,
+    /// What the startup solve made of the sketch now in the scene. Nothing
+    /// edits it yet, so re-solving per frame would only recompute the same
+    /// answer.
+    report: SolveReport,
 }
 
 impl CatCad {
     fn new(_ui: &mut Ui, _handle: HostHandle<Self>) -> Self {
-        let mut scene = Scene::default();
-        scene
-            .objects
-            .push(Object::new(Mesh::cube(2.0)).colored(Vec3::new(0.55, 0.58, 0.62)));
-        scene.objects.push(
-            Object::new(Mesh::cube(0.8))
-                .at(Vec3::new(1.8, -0.6, 0.4))
-                .colored(Vec3::new(0.85, 0.35, 0.20)),
-        );
-        scene.objects.push(
-            Object::new(Mesh::cube(1.2))
-                .at(Vec3::new(-1.6, 0.9, -0.8))
-                .colored(Vec3::new(0.25, 0.45, 0.75)),
-        );
+        let mut sketch = demo_sketch();
+        let report = Solver::default().solve(&mut sketch);
+
+        // The sketch and the solids share one world: the drawing lies on the
+        // ground plane and the boxes stand on it, so orbiting the view moves
+        // both together.
+        let plane = SketchPlane::GROUND;
+        let mut scene = Scene {
+            curves: plane.curves(&sketch),
+            ..Default::default()
+        };
+        for (size, at, color) in [
+            (2.0, DVec2::new(2.0, 3.6), Vec3::new(0.55, 0.58, 0.62)),
+            (0.8, DVec2::new(6.2, 1.1), Vec3::new(0.85, 0.35, 0.20)),
+            (1.2, DVec2::new(6.6, 3.9), Vec3::new(0.25, 0.45, 0.75)),
+        ] {
+            // Half a cube up puts it on the plane rather than through it.
+            let base = plane.point(at) + Vec3::Y * size * 0.5;
+            scene
+                .objects
+                .push(Object::new(Mesh::cube(size)).at(base).colored(color));
+        }
+        if let Some(bounds) = scene.bounds() {
+            scene.camera.frame(bounds);
+        }
 
         Self {
             view: Rc::new(RefCell::new(Renderer::new(scene))),
             drag_travel: Vec2::ZERO,
+            report,
         }
     }
-}
 
-impl App for CatCad {
-    fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
+    /// A sketch is only as useful as it is determined, so the report reads
+    /// over the drawing rather than into a log.
+    fn solve_summary(&self) -> String {
+        let state = if self.report.converged {
+            "solved"
+        } else {
+            "unsolved"
+        };
+        format!(
+            "{state} · {} dof · {} redundant · {} iterations",
+            self.report.degrees_of_freedom, self.report.redundant_equations, self.report.iterations,
+        )
+    }
+
+    /// The 3D viewport, orbited and zoomed by the pointer over it.
+    fn viewport(&mut self, ui: &mut Ui) {
         let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
         let response = GpuView::new(paint)
             .auto_id()
@@ -81,9 +115,126 @@ impl App for CatCad {
     }
 }
 
+impl App for CatCad {
+    fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
+        // One view of one scene, with the solve's verdict laid over it.
+        Panel::zstack()
+            .auto_id()
+            .size((Sizing::FILL, Sizing::FILL))
+            .show(ui, |ui| {
+                self.viewport(ui);
+                Text::new(self.solve_summary())
+                    .auto_id()
+                    .padding(12.0)
+                    .show(ui);
+            });
+    }
+}
+
+/// A rectangle anchored at the origin with a circle at its centre. Every
+/// position below is a guess deliberately off the answer: what puts the
+/// geometry where it belongs is the solve, not the coordinates.
+fn demo_sketch() -> Sketch {
+    const WIDTH: f64 = 8.0;
+    const HEIGHT: f64 = 5.0;
+
+    let mut sketch = Sketch::default();
+    let corner = [
+        sketch.add_point(DVec2::ZERO),
+        sketch.add_point(DVec2::new(7.4, 0.6)),
+        sketch.add_point(DVec2::new(8.6, 4.2)),
+        sketch.add_point(DVec2::new(-0.5, 5.3)),
+    ];
+    // Without an anchor the rectangle is still free to slide and turn, and
+    // the report would say so: three degrees of freedom left over.
+    sketch.fix(corner[0]);
+    for pair in [[0, 1], [1, 2], [2, 3], [3, 0]] {
+        sketch.add_segment(corner[pair[0]], corner[pair[1]]);
+    }
+    sketch.add_constraint(Constraint::Horizontal {
+        a: corner[0],
+        b: corner[1],
+    });
+    sketch.add_constraint(Constraint::Vertical {
+        a: corner[1],
+        b: corner[2],
+    });
+    sketch.add_constraint(Constraint::Horizontal {
+        a: corner[2],
+        b: corner[3],
+    });
+    sketch.add_constraint(Constraint::Vertical {
+        a: corner[3],
+        b: corner[0],
+    });
+    sketch.add_constraint(Constraint::Distance {
+        a: corner[0],
+        b: corner[1],
+        distance: WIDTH,
+    });
+    sketch.add_constraint(Constraint::Distance {
+        a: corner[1],
+        b: corner[2],
+        distance: HEIGHT,
+    });
+
+    let hub = sketch.add_point(DVec2::new(3.6, 2.1));
+    let hole = sketch.add_circle(hub, 0.9);
+    // Both bottom corners sit half a diagonal from the centre. That leaves a
+    // mirrored solution below the edge, which the guess above declines.
+    let to_centre = (WIDTH * WIDTH + HEIGHT * HEIGHT).sqrt() * 0.5;
+    sketch.add_constraint(Constraint::Distance {
+        a: corner[0],
+        b: hub,
+        distance: to_centre,
+    });
+    sketch.add_constraint(Constraint::Distance {
+        a: corner[1],
+        b: hub,
+        distance: to_centre,
+    });
+    sketch.add_constraint(Constraint::Radius {
+        circle: hole,
+        radius: 1.5,
+    });
+    sketch
+}
+
 fn main() -> Result<(), WinitHostError> {
     WinitHost::builder(WindowToken(0))
         .title("CatCad")
         .build(CatCad::new)?
         .run()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The pane draws whatever the solver leaves behind, so what the demo is
+    /// worth showing rests on it landing exactly on the rectangle it asks
+    /// for — and on the report agreeing that nothing is left free.
+    #[test]
+    fn the_demo_sketch_solves_to_a_determined_rectangle() {
+        let mut sketch = demo_sketch();
+        let report = Solver::default().solve(&mut sketch);
+
+        assert!(report.converged, "{report:?}");
+        assert_eq!(report.degrees_of_freedom, 0, "{report:?}");
+        assert_eq!(report.redundant_equations, 0, "{report:?}");
+
+        let corners: Vec<DVec2> = sketch.points().map(|(_, position)| position).collect();
+        let expected = [
+            DVec2::ZERO,
+            DVec2::new(8.0, 0.0),
+            DVec2::new(8.0, 5.0),
+            DVec2::new(0.0, 5.0),
+            // The circle's centre: mid-width, mid-height.
+            DVec2::new(4.0, 2.5),
+        ];
+        for (found, want) in corners.iter().zip(expected) {
+            assert!((*found - want).length() < 1e-9, "{found:?} vs {want:?}");
+        }
+        assert_eq!(sketch.circles()[0].radius, 1.5);
+    }
 }

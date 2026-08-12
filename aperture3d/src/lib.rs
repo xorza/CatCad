@@ -1,15 +1,17 @@
 //! A small retained 3D scene renderer for [`palantir`] viewports.
 //!
-//! Build a [`Scene`] out of [`Object`]s, hand it to a [`Renderer`], and give
-//! the renderer to a `GpuView` each frame:
+//! Build a [`Scene`] out of [`Object`]s and [`Curve`]s, hand it to a
+//! [`Renderer`], and give the renderer to a `GpuView` each frame:
 //!
 //! ```no_run
 //! # use std::{cell::RefCell, rc::Rc};
-//! # use aperture::{Mesh, Object, Renderer, Scene};
+//! # use aperture::{Curve, Mesh, Object, Renderer, Scene};
+//! # use glam::Vec3;
 //! # use palantir::{Configure, GpuPaint, GpuView, Sizing, Ui};
 //! # fn demo(ui: &mut Ui, renderer: &Rc<RefCell<Renderer>>) {
 //! let mut scene = Scene::default();
 //! scene.objects.push(Object::new(Mesh::cube(1.0)));
+//! scene.curves.push(Curve::segment(Vec3::ZERO, Vec3::X));
 //!
 //! let paint: Rc<RefCell<dyn GpuPaint>> = renderer.clone();
 //! GpuView::new(paint)
@@ -21,17 +23,24 @@
 //!
 //! The renderer owns its GPU resources and re-uploads geometry only after the
 //! scene is mutated, so a still scene costs one uniform write and one draw
-//! call per frame. Input is deliberately absent: palantir owns the pointer, so
-//! orbit and zoom are the host's job — drive [`Camera::orbit`] and
-//! [`Camera::dolly`] from the `GpuView`'s `Response`.
+//! call per pipeline per frame. Meshes are shaded; curves are unlit ribbons
+//! widened in screen space, so a stroke keeps its pixel width at any depth.
+//!
+//! Input is deliberately absent: palantir owns the pointer, so orbit and zoom
+//! are the host's job — drive [`Camera::orbit`] and [`Camera::dolly`] from the
+//! `GpuView`'s `Response`, and [`Camera::frame`] from [`Scene::bounds`].
 
+pub(crate) mod bounds;
 pub(crate) mod camera;
+pub(crate) mod curve;
 pub(crate) mod mesh;
 pub(crate) mod object;
 pub(crate) mod renderer;
 pub(crate) mod scene;
 
+pub use bounds::Bounds;
 pub use camera::Camera;
+pub use curve::Curve;
 pub use mesh::{Mesh, Vertex};
 pub use object::Object;
 pub use renderer::Renderer;
