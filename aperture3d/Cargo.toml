@@ -1,0 +1,22 @@
+[package]
+name = "aperture3d"
+description = "A small retained 3D scene renderer that draws into a palantir GpuView"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# The crates.io name carries the `3d` because `aperture` is taken; the library
+# itself is `aperture`, which is what call sites import.
+[lib]
+name = "aperture"
+
+[dependencies]
+palantir.workspace = true
+bytemuck.workspace = true
+glam.workspace = true
+wgpu.workspace = true
+
+[lints]
+workspace = true

@@ -161,6 +161,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "aperture3d"
+version = "0.1.0"
+dependencies = [
+ "bytemuck",
+ "glam",
+ "palantir",
+ "wgpu",
+]
+
+[[package]]
 name = "arboard"
 version = "3.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -350,6 +360,8 @@ checksum = "37b2a672a2cb129a2e41c10b1224bb368f9f37a2b16b612598138befd7b37eb5"
 name = "catcad"
 version = "0.1.0"
 dependencies = [
+ "aperture3d",
+ "glam",
  "palantir",
 ]
 

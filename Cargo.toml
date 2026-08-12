@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["catcad", "palantir", "palantir/anim-derive"]
+members = ["aperture3d", "catcad", "palantir", "palantir/anim-derive"]
 
 [workspace.package]
 version = "0.1.0"
@@ -10,7 +10,13 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/xorza/CatCad"
 
 [workspace.dependencies]
+aperture3d = { path = "aperture3d", version = "0.1" }
 palantir = { path = "palantir", version = "0.3" }
+# Pinned to palantir's versions: `GpuInitCtx` hands out a `wgpu::Device`, so a
+# second semver-incompatible wgpu would make that a foreign type.
+bytemuck = { version = "1.25", features = ["derive"] }
+glam = { version = "0.33", default-features = false, features = ["std"] }
+wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl"] }
 
 [workspace.lints.rust]
 missing_debug_implementations = "deny"
