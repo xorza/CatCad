@@ -39,6 +39,7 @@
 pub(crate) mod bounds;
 pub(crate) mod camera;
 pub(crate) mod curve;
+pub(crate) mod hit;
 pub(crate) mod mesh;
 pub(crate) mod object;
 pub(crate) mod point;
@@ -49,6 +50,7 @@ pub(crate) mod scene;
 pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;
+pub use hit::{Hit, HitAt};
 pub use mesh::{Mesh, Vertex};
 pub use object::Object;
 pub use point::Point;
