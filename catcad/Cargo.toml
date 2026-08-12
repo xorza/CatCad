@@ -12,5 +12,13 @@ glam = { workspace = true, features = ["f64"] }
 palantir.workspace = true
 silverpoint.workspace = true
 
+# The offscreen harness renders the real app to a texture and reads it back,
+# which needs palantir's headless device (`internals`) and the wgpu types to
+# hand it a target. Both are already in the graph; the feature only adds
+# `pollster`, which palantir already carries as an optional dependency.
+[dev-dependencies]
+palantir = { workspace = true, features = ["internals"] }
+wgpu.workspace = true
+
 [lints]
 workspace = true

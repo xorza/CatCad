@@ -226,7 +226,9 @@ impl Gpu {
         let depth_stencil = wgpu::DepthStencilState {
             format: DEPTH_FORMAT,
             depth_write_enabled: Some(true),
-            depth_compare: Some(wgpu::CompareFunction::Less),
+            // Reversed depth: the camera puts the near plane at 1, so nearer
+            // is greater. See [`Camera::view_proj`].
+            depth_compare: Some(wgpu::CompareFunction::Greater),
             stencil: wgpu::StencilState::default(),
             bias: wgpu::DepthBiasState::default(),
         };
@@ -524,7 +526,8 @@ impl GpuPaint for Renderer {
             depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
                 view: &attachments.depth,
                 depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(1.0),
+                    // Cleared to the far end, which reversed depth puts at 0.
+                    load: wgpu::LoadOp::Clear(0.0),
                     store: wgpu::StoreOp::Discard,
                 }),
                 stencil_ops: None,

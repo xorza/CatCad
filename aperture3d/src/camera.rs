@@ -41,8 +41,6 @@ pub struct Camera {
     ///
     /// Below 1, or the target sits behind the near plane.
     pub near_ratio: f32,
-    /// Far clip distance.
-    pub z_far: f32,
 }
 
 impl Default for Camera {
@@ -57,7 +55,6 @@ impl Default for Camera {
             // plane around a tenth of a unit, which is where a fixed one would
             // have been put by hand.
             near_ratio: 1.0 / 128.0,
-            z_far: 1000.0,
         }
     }
 }
@@ -82,9 +79,21 @@ impl Camera {
     }
 
     /// Combined view-projection for a viewport of the given width/height
-    /// ratio, mapping to wgpu's `[0, 1]` clip depth.
+    /// ratio.
+    ///
+    /// Depth is **reversed**: the near plane maps to 1 and distance falls away
+    /// toward 0, so the depth test runs `Greater` against a buffer cleared to
+    /// 0. Float precision crowds near zero and the perspective divide crowds
+    /// its own near the eye; aiming those at opposite ends is what makes them
+    /// cancel, leaving roughly constant *relative* resolution — about
+    /// `distance × 2⁻²⁴` — in place of resolution that decays with the square
+    /// of distance.
+    ///
+    /// The far plane is at infinity. Nothing is clipped for being too far off,
+    /// and since depth resolution is no longer bought at the far plane's
+    /// expense, giving it up costs nothing.
     pub fn view_proj(&self, aspect: f32) -> Mat4 {
-        let proj = directx::perspective(self.fov_y, aspect, self.z_near(), self.z_far);
+        let proj = directx::perspective_infinite_reverse(self.fov_y, aspect, self.z_near());
         proj * view::look_at_mat4(self.eye(), self.target, Vec3::Y)
     }
 
@@ -118,9 +127,9 @@ mod tests {
     use super::*;
 
     /// A camera whose projection has hand-checkable numbers: 90° vertical fov
-    /// gives `1/tan(45°) == 1`, and near/far of 1/101 make the depth term
-    /// `far / (near - far) == -1.01`. A fifth of the 5-unit orbit distance is
-    /// what puts the near plane on 1.
+    /// gives `1/tan(45°) == 1`, and a fifth of the 5-unit orbit distance puts
+    /// the near plane on 1 — which makes reversed depth read straight off as
+    /// `1 / distance`.
     fn unit_camera() -> Camera {
         Camera {
             target: Vec3::ZERO,
@@ -129,7 +138,6 @@ mod tests {
             pitch: 0.0,
             fov_y: std::f32::consts::FRAC_PI_2,
             near_ratio: 1.0 / 5.0,
-            z_far: 101.0,
         }
     }
 
@@ -192,11 +200,11 @@ mod tests {
         let camera = unit_camera();
         let view_proj = camera.view_proj(1.0);
 
-        // The target sits 5 units in front of the eye. With r = -1.01,
-        // ndc.z = r * (near - depth) / depth = -1.01 * (1 - 5) / 5 = 0.808.
+        // Reversed depth with the far plane at infinity is just near/depth.
+        // The target sits 5 units in front of the eye, so 1/5.
         let centre = view_proj.project_point3(Vec3::ZERO);
         assert!(
-            centre.abs_diff_eq(Vec3::new(0.0, 0.0, 0.808), 1e-5),
+            centre.abs_diff_eq(Vec3::new(0.0, 0.0, 0.2), 1e-6),
             "{centre:?}"
         );
 
@@ -208,11 +216,20 @@ mod tests {
         let top = view_proj.project_point3(Vec3::new(0.0, 5.0, 0.0));
         assert!((top.y - 1.0).abs() < 1e-5, "{top:?}");
 
-        // The near and far planes bracket [0, 1]: depth 1 and depth 101.
+        // Depth runs the other way now: the near plane is 1, not 0. The eye is
+        // at z = 5, so world z = 4 is exactly one unit in front of it.
         let near = view_proj.project_point3(Vec3::new(0.0, 0.0, 4.0));
-        assert!(near.z.abs() < 1e-5, "{near:?}");
+        assert!((near.z - 1.0).abs() < 1e-6, "{near:?}");
+
+        // And distance falls toward 0 without ever reaching it — the far
+        // plane is at infinity, so depth 101 is 1/101 rather than clipped.
         let far = view_proj.project_point3(Vec3::new(0.0, 0.0, -96.0));
-        assert!((far.z - 1.0).abs() < 1e-4, "{far:?}");
+        assert!((far.z - 1.0 / 101.0).abs() < 1e-6, "{far:?}");
+        let further = view_proj.project_point3(Vec3::new(0.0, 0.0, -999_995.0));
+        assert!(further.z > 0.0 && further.z < 1e-5, "{further:?}");
+
+        // Nearer is greater, which is what the `Greater` depth test reads.
+        assert!(near.z > centre.z && centre.z > far.z && far.z > further.z);
 
         // A wider viewport spreads the same world point over less NDC width.
         let wide = camera

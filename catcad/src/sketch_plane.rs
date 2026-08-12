@@ -27,11 +27,17 @@ const MARKER_WIDTH: f32 = 1.3;
 /// resolution. A sketch is what a model is derived from, so where the two share
 /// a plane the drawing is the one that reads.
 ///
-/// Small on purpose. Enough steps to clear the rounding two differently-shaped
-/// primitives accumulate over the same plane, and nowhere near enough to lift
-/// the drawing out of a solid standing on it — a line running behind a face
-/// still goes behind it.
-const SKETCH_LIFT: i32 = 32;
+/// Needed at all — however exactly the renderer places the stroke — because
+/// bit-identical results from two different vertex shaders are not something
+/// WGSL promises, so a coplanar tie cannot be left to arithmetic.
+///
+/// Both ends of the range this can take are measured, and both are pinned by
+/// tests. Under about 128 steps the tie starts going the wrong way and strokes
+/// come back thinned; over about three million the drawing lifts clear of the
+/// model and shows through solids standing in front of it. Reversed depth is
+/// what opens that up to four decades — under the old convention the same two
+/// bounds sat barely two apart.
+const SKETCH_LIFT: i32 = 512;
 
 /// The plane a [`Sketch`] is drawn on: an origin, and the world directions its
 /// two axes run along.

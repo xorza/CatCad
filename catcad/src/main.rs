@@ -34,7 +34,14 @@ struct CatCad {
 }
 
 impl CatCad {
+    /// What `WinitHost` calls. The host's arguments say nothing this app
+    /// needs, so the work is all in [`CatCad::build`] — which is also what
+    /// lets the offscreen harness raise the same app without a window.
     fn new(_ui: &mut Ui, _handle: HostHandle<Self>) -> Self {
+        Self::build()
+    }
+
+    fn build() -> Self {
         let mut sketch = demo_sketch();
         let report = Solver::default().solve(&mut sketch);
 
@@ -220,33 +227,4 @@ fn main() -> Result<(), WinitHostError> {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// The pane draws whatever the solver leaves behind, so what the demo is
-    /// worth showing rests on it landing exactly on the rectangle it asks
-    /// for — and on the report agreeing that nothing is left free.
-    #[test]
-    fn the_demo_sketch_solves_to_a_determined_rectangle() {
-        let mut sketch = demo_sketch();
-        let report = Solver::default().solve(&mut sketch);
-
-        assert!(report.converged, "{report:?}");
-        assert_eq!(report.degrees_of_freedom, 0, "{report:?}");
-        assert_eq!(report.redundant_equations, 0, "{report:?}");
-
-        let corners: Vec<DVec2> = sketch.points().map(|(_, position)| position).collect();
-        let expected = [
-            DVec2::ZERO,
-            DVec2::new(8.0, 0.0),
-            DVec2::new(8.0, 5.0),
-            DVec2::new(0.0, 5.0),
-            // The circle's centre: mid-width, mid-height.
-            DVec2::new(4.0, 2.5),
-        ];
-        for (found, want) in corners.iter().zip(expected) {
-            assert!((*found - want).length() < 1e-9, "{found:?} vs {want:?}");
-        }
-        assert_eq!(sketch.circles()[0].radius, 1.5);
-    }
-}
+mod tests;

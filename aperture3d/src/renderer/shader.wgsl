@@ -18,18 +18,30 @@ const DEPTH_STEP: f32 = 1.0 / 8388608.0;
 // Pull a clip position toward the viewer by `z_offset` steps of depth
 // resolution. Only z moves, so the geometry lands on exactly the same pixels.
 //
-// The step is relative rather than a flat amount of NDC because float
-// precision is relative: depth values crowd together as they approach the far
-// plane, and a bias that ignored that would be thousands of steps up close and
-// a fraction of one far away. Scaling moves the same number of representable
-// values at any distance — enough to settle which of two coplanar surfaces
-// wins, never enough to show through something genuinely in front.
+// Depth is reversed, so toward the viewer is *up*. The step is relative rather
+// than a flat amount of NDC because float precision is relative, and scaling
+// therefore moves the same number of representable values at whatever distance
+// the geometry sits — which under reversed depth with an infinite far plane is
+// exactly sliding the vertex along its view ray toward the eye by that
+// fraction of its distance.
 //
-// Scaling also keeps the result in the clip volume for free: depth runs 0 at
-// the near plane to 1 at the far one, and shrinking a non-negative z toward 0
-// cannot push it out the near side.
+// A bias is needed at all, however good the depth format gets, because
+// bit-exact agreement between two vertex shaders is not guaranteed: WGSL
+// permits `curve_vs` and `vs` to compute different values for the same
+// position, so a coplanar tie between a stroke and a face cannot be left to
+// arithmetic alone.
+//
+// Nothing here guards the near plane, and nothing should. Reversed, the near
+// plane is `z == w`, so a lift can push a vertex out through it — but the
+// hardware *clips* a primitive to the volume rather than dropping it, so the
+// part still in front is drawn either way and the lift simply saturates.
+// Clamping instead is actively wrong: this projection writes a constant
+// `clip.z`, so `min(z, w)` fires on every vertex nearer than the near plane,
+// behind-the-eye ones included, and rewriting their `z` moves where the clip
+// lands. A face large enough to reach past the camera then loses the part that
+// should have survived.
 fn lift(clip: vec4<f32>, z_offset: f32) -> vec4<f32> {
-    return vec4<f32>(clip.xy, clip.z * (1.0 - z_offset * DEPTH_STEP), clip.w);
+    return vec4<f32>(clip.xy, clip.z * (1.0 + z_offset * DEPTH_STEP), clip.w);
 }
 
 struct VsOut {
