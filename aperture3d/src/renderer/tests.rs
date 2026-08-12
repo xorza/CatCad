@@ -11,7 +11,7 @@ fn flatten_bakes_transforms_into_world_space() {
             .at(Vec3::new(10.0, 0.0, 0.0))
             .colored(Vec3::new(1.0, 0.0, 0.0)),
     );
-    let data = Renderer::new(scene).flatten();
+    let data = Renderer::new(scene).flatten_meshes();
 
     // Two cubes: 24 corners and 36 indices each.
     assert_eq!(data.vertices.len(), 48);
@@ -60,7 +60,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
         color: Vec3::ZERO,
         tag: None,
     });
-    let data = Renderer::new(scene).flatten();
+    let data = Renderer::new(scene).flatten_meshes();
 
     // Scaling x by 2 flattens the surface toward the x axis, so its normal
     // tips *away* from x: inverse transpose diag(0.5, 1, 1) sends
@@ -77,7 +77,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
 #[test]
 fn flatten_of_an_empty_scene_uploads_nothing() {
     let renderer = Renderer::new(Scene::default());
-    let data = renderer.flatten();
+    let data = renderer.flatten_meshes();
     assert!(data.vertices.is_empty());
     assert!(data.indices.is_empty());
 

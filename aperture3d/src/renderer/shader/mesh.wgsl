@@ -7,7 +7,7 @@ struct VsOut {
 };
 
 @vertex
-fn vs(
+fn mesh_vs(
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec3<f32>,
@@ -26,7 +26,7 @@ const SKY: vec3<f32> = vec3<f32>(0.22, 0.24, 0.30);
 const GROUND: vec3<f32> = vec3<f32>(0.06, 0.05, 0.05);
 
 @fragment
-fn fs(in: VsOut) -> @location(0) vec4<f32> {
+fn mesh_fs(in: VsOut) -> @location(0) vec4<f32> {
     let n = normalize(in.normal);
     let key = max(dot(n, normalize(KEY_DIR)), 0.0);
     let ambient = mix(GROUND, SKY, n.y * 0.5 + 0.5);
