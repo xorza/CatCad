@@ -11,8 +11,7 @@ use std::sync::mpsc;
 
 use aperture::Camera;
 use glam::{DVec2, UVec2};
-use palantir::OffscreenHost;
-use palantir::internals::headless_test_gpu;
+use palantir::{HeadlessGpu, OffscreenHost, wgpu};
 use silverpoint::Solver;
 
 use crate::{CatCad, demo_sketch};
@@ -52,7 +51,11 @@ impl Frame {
 /// Render one frame of the app at `size`, with `aim` applied to the camera
 /// after the scene has framed itself.
 fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
-    let gpu = headless_test_gpu();
+    let gpu = HeadlessGpu::new(
+        wgpu::PowerPreference::HighPerformance,
+        wgpu::Features::empty(),
+    )
+    .expect("headless gpu");
     let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
     let mut app = CatCad::build();
     aim(app.view.borrow_mut().camera_mut());

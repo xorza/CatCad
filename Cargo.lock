@@ -364,7 +364,6 @@ dependencies = [
  "glam",
  "palantir",
  "silverpoint",
- "wgpu",
 ]
 
 [[package]]
