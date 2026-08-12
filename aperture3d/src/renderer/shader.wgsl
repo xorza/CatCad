@@ -78,9 +78,9 @@ const DEGENERATE: f32 = 1e-6;
 
 // A vertex arrives knowing both ends of its segment, which side of it to sit
 // on, how wide the stroke is, and how far to lift it in depth. The widening
-// happens here rather than on the
-// CPU so it can be measured in pixels after the projection divide — that is
-// what keeps a stroke the same width near and far.
+// happens here rather than on the CPU so it can be measured in pixels after
+// the projection divide — that is what keeps a stroke the same width near and
+// far.
 //
 // A segment crossing the near plane has an end with no meaningful screen
 // position. Its ribbon distorts, but every fragment of it is clipped away, so
@@ -123,6 +123,7 @@ fn curve_vs(
     // Only the along-segment step is corrected. The across step would need the
     // depth of a surface this shader knows nothing about; what covers that is
     // the constant bias below.
+    //
     // Both ends have to be in front of the eye for the ramp to mean anything.
     // Across the near plane one end's depth is nonsense, and extrapolating
     // from it would throw the whole quad out of the clip volume instead of
