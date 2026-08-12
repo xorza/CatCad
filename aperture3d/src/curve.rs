@@ -41,6 +41,17 @@ pub struct Curve {
     /// `None` for a curve that is not planar, or is not drawn on anything.
     /// Those keep the centreline's depth.
     pub plane_normal: Option<Vec3>,
+    /// What a pick that lands on this stroke reports, and nothing else.
+    ///
+    /// Opaque on purpose: whatever the caller models — a sketch edge, a
+    /// constraint handle, a dimension line — is the caller's own vocabulary,
+    /// and a renderer that learned it would be a renderer that had to be told
+    /// about every kind of thing there is. A number it carries and never reads
+    /// keeps hits answerable without that.
+    ///
+    /// `None` is scenery — grids, guides, anything there to be seen and not
+    /// grabbed.
+    pub tag: Option<u64>,
 }
 
 impl Curve {
@@ -53,6 +64,7 @@ impl Curve {
             width: DEFAULT_WIDTH,
             z_offset: 0,
             plane_normal: None,
+            tag: None,
         }
     }
 
@@ -91,6 +103,13 @@ impl Curve {
         self
     }
 
+    /// Name this curve to whatever a pick will be reported to. See
+    /// [`Curve::tag`].
+    pub fn tagged(mut self, tag: u64) -> Self {
+        self.tag = Some(tag);
+        self
+    }
+
     /// How many segments this curve strokes.
     pub(crate) fn segment_count(&self) -> usize {
         let open = self.points.len().saturating_sub(1);
@@ -116,6 +135,23 @@ impl Curve {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_tag_survives_the_rest_of_the_chain() {
+        // Nothing is pickable until it is named.
+        assert_eq!(Curve::segment(Vec3::ZERO, Vec3::X).tag, None);
+
+        // Each builder returns the whole curve, so one that rebuilt a field
+        // instead of assigning it would drop whatever ran before it.
+        let tagged = Curve::segment(Vec3::ZERO, Vec3::X)
+            .tagged(9)
+            .colored(Vec3::Y)
+            .width(3.0)
+            .in_plane(Vec3::Y)
+            .closed();
+        assert_eq!(tagged.tag, Some(9));
+        assert_eq!(tagged.width, 3.0);
+    }
 
     #[test]
     fn segments_pair_up_neighbours_and_close_on_request() {

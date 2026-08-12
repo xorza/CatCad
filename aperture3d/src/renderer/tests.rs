@@ -62,6 +62,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
         transform: Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0)),
         color: Vec3::ZERO,
         z_offset: 0,
+        tag: None,
     });
     let data = Renderer::new(scene).flatten();
 

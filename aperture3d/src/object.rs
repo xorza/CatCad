@@ -16,6 +16,17 @@ pub struct Object {
     /// the viewer. Zero for anything modelled: what wants a bias is an overlay
     /// that has to win against the surface it lies on.
     pub z_offset: i32,
+    /// What a pick that lands here reports, and nothing else.
+    ///
+    /// Opaque on purpose: whatever the caller models — a body, a face, a
+    /// history step — is the caller's own vocabulary, and a renderer that
+    /// learned it would be a renderer that had to be told about every kind of
+    /// thing there is. A number it carries and never reads keeps hits
+    /// answerable without that.
+    ///
+    /// `None` is scenery — grids, guides, anything there to be seen and not
+    /// grabbed.
+    pub tag: Option<u64>,
 }
 
 impl Object {
@@ -26,6 +37,7 @@ impl Object {
             transform: Mat4::IDENTITY,
             color: Vec3::splat(0.7),
             z_offset: 0,
+            tag: None,
         }
     }
 
@@ -45,5 +57,34 @@ impl Object {
     pub fn z_offset(mut self, z_offset: i32) -> Self {
         self.z_offset = z_offset;
         self
+    }
+
+    /// Name this object to whatever a pick will be reported to. See
+    /// [`Object::tag`].
+    pub fn tagged(mut self, tag: u64) -> Self {
+        self.tag = Some(tag);
+        self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tag_survives_the_rest_of_the_chain() {
+        // Nothing is pickable until it is named.
+        assert_eq!(Object::new(Mesh::cube(1.0)).tag, None);
+
+        // Each builder returns the whole object, so one that rebuilt a field
+        // instead of assigning it would drop whatever ran before it — `at`
+        // replaces the transform outright, which is exactly that shape.
+        let tagged = Object::new(Mesh::cube(1.0))
+            .tagged(7)
+            .at(Vec3::X)
+            .colored(Vec3::Y)
+            .z_offset(3);
+        assert_eq!(tagged.tag, Some(7));
+        assert_eq!(tagged.z_offset, 3);
     }
 }

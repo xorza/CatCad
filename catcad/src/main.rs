@@ -64,6 +64,7 @@ impl CatCad {
                 * Mat4::from_scale(Vec3::new(12.0, 1.0, 9.0)),
             color: Vec3::new(0.30, 0.30, 0.34),
             z_offset: 0,
+            tag: None,
         });
         for (size, at, color) in [
             (2.0, DVec2::new(2.0, 3.6), Vec3::new(0.55, 0.58, 0.62)),
