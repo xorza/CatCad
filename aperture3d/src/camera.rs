@@ -8,8 +8,10 @@ use glam::{Mat4, Vec3};
 /// direction is parallel to the up axis.
 const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 1e-3;
 
-/// Distance floor, so a fast zoom-in can't put the target behind the eye.
-const MIN_DISTANCE: f32 = 1e-2;
+/// Distance floor. All it has to do is keep the eye off the target, where
+/// `look_at` has no direction to work with — the near plane rides with the
+/// distance, so nothing else depends on how close the eye may come.
+const MIN_DISTANCE: f32 = 1e-3;
 
 /// A right-handed, Y-up orbit camera: the eye is derived from a target point,
 /// a distance, and two angles, so every gesture is a change to one scalar.
@@ -28,9 +30,17 @@ pub struct Camera {
     pub pitch: f32,
     /// Vertical field of view, in radians.
     pub fov_y: f32,
-    /// Near clip distance. Keep it as large as the scene tolerates — depth
-    /// precision is spent here, not at the far plane.
-    pub z_near: f32,
+    /// Near clip distance, as a fraction of the orbit distance.
+    ///
+    /// A ratio rather than a distance because an absolute near plane is a
+    /// second number that has to stay in step with how close the eye may come,
+    /// and the two drift apart the moment either is touched. There is nothing
+    /// here to drift: the near plane is always this far along the way to what
+    /// you are looking at, so dollying in can never run the target through it
+    /// and zoom has no floor.
+    ///
+    /// Below 1, or the target sits behind the near plane.
+    pub near_ratio: f32,
     /// Far clip distance.
     pub z_far: f32,
 }
@@ -43,7 +53,10 @@ impl Default for Camera {
             yaw: 0.6,
             pitch: 0.4,
             fov_y: 45f32.to_radians(),
-            z_near: 0.1,
+            // At the distance a mid-sized scene frames to this lands the near
+            // plane around a tenth of a unit, which is where a fixed one would
+            // have been put by hand.
+            near_ratio: 1.0 / 128.0,
             z_far: 1000.0,
         }
     }
@@ -58,10 +71,20 @@ impl Camera {
         self.target + offset * self.distance
     }
 
+    /// Where the near plane currently sits, in world units.
+    pub fn z_near(&self) -> f32 {
+        debug_assert!(
+            self.near_ratio > 0.0 && self.near_ratio < 1.0,
+            "near_ratio {} puts the near plane on or past the orbit target",
+            self.near_ratio
+        );
+        self.distance * self.near_ratio
+    }
+
     /// Combined view-projection for a viewport of the given width/height
     /// ratio, mapping to wgpu's `[0, 1]` clip depth.
     pub fn view_proj(&self, aspect: f32) -> Mat4 {
-        let proj = directx::perspective(self.fov_y, aspect, self.z_near, self.z_far);
+        let proj = directx::perspective(self.fov_y, aspect, self.z_near(), self.z_far);
         proj * view::look_at_mat4(self.eye(), self.target, Vec3::Y)
     }
 
@@ -96,7 +119,8 @@ mod tests {
 
     /// A camera whose projection has hand-checkable numbers: 90° vertical fov
     /// gives `1/tan(45°) == 1`, and near/far of 1/101 make the depth term
-    /// `far / (near - far) == -1.01`.
+    /// `far / (near - far) == -1.01`. A fifth of the 5-unit orbit distance is
+    /// what puts the near plane on 1.
     fn unit_camera() -> Camera {
         Camera {
             target: Vec3::ZERO,
@@ -104,9 +128,45 @@ mod tests {
             yaw: 0.0,
             pitch: 0.0,
             fov_y: std::f32::consts::FRAC_PI_2,
-            z_near: 1.0,
+            near_ratio: 1.0 / 5.0,
             z_far: 101.0,
         }
+    }
+
+    #[test]
+    fn the_near_plane_rides_with_the_orbit_distance() {
+        let mut camera = unit_camera();
+        assert_eq!(camera.z_near(), 1.0);
+
+        // Halving the distance halves the near plane, so the target stays the
+        // same number of near planes away however far in you dolly. That is
+        // the property a fixed near distance could not hold: there is no floor
+        // to keep in step with, and no zoom depth at which the target crosses
+        // the plane.
+        for _ in 0..40 {
+            camera.dolly(0.5);
+            assert!(
+                camera.z_near() < camera.distance,
+                "target crossed the near plane at distance {}",
+                camera.distance
+            );
+            assert!(
+                (camera.z_near() - camera.distance / 5.0).abs() <= camera.distance * 1e-6,
+                "{camera:?}"
+            );
+        }
+        // Forty halvings is a 10^12 zoom; the floor is the only thing that
+        // stops it, and it stops distance, not visibility.
+        assert_eq!(camera.distance, MIN_DISTANCE);
+        assert!(camera.z_near() > 0.0);
+
+        // Framing re-derives the distance, and the near plane follows that too
+        // rather than staying wherever the last dolly left it.
+        let mut bounds = Bounds::point(Vec3::splat(-3.0));
+        bounds.include(Vec3::splat(3.0));
+        camera.frame(bounds);
+        assert!(camera.distance > 1.0, "{camera:?}");
+        assert!((camera.z_near() - camera.distance / 5.0).abs() < 1e-6);
     }
 
     #[test]
