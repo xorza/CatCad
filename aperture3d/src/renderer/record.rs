@@ -177,6 +177,11 @@ impl Instance for PointInstance {
 /// A record the renderer batches and uploads: one per vertex for modelled
 /// geometry, one per primitive for the overlays, which build their own
 /// corners.
+///
+/// Always reached through a concrete type. [`Self::LAYOUT_SPANS_STRUCT`] is
+/// evaluated per implementor, so putting records behind `dyn` to spare the
+/// renderer naming each kind would drop that check without a word — which is
+/// why `paint` names three and stops there.
 pub(crate) trait BatchRecord: bytemuck::Pod {
     /// Whether the buffer advances per vertex or per instance.
     const STEP_MODE: wgpu::VertexStepMode;

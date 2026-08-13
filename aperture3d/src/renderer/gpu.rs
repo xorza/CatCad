@@ -5,8 +5,18 @@ use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
 use crate::renderer::batch::{Batch, Rebuilt};
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{CurveInstance, GpuVertex, PointInstance, RingInstance};
-use crate::renderer::{DEPTH_FORMAT, SAMPLES, Uniforms};
+use crate::renderer::uniforms::Uniforms;
+use crate::renderer::{DEPTH_FORMAT, SAMPLES};
 use glam::UVec2;
+
+/// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU
+/// encodes on write.
+const BACKGROUND: wgpu::Color = wgpu::Color {
+    r: 0.02,
+    g: 0.02,
+    b: 0.025,
+    a: 1.0,
+};
 
 /// ends, and neither buffer's samples are read again.
 #[derive(Debug)]
@@ -27,6 +37,42 @@ impl Attachments {
             depth: Self::view(device, "aperture.depth", size, DEPTH_FORMAT),
             size,
         }
+    }
+
+    /// Open the one render pass a frame is drawn in, clearing both buffers.
+    ///
+    /// Here rather than at the call site because everything it decides is about
+    /// these two textures: that the resolve is all palantir composites, so the
+    /// samples behind it are discarded rather than stored, and that reversed
+    /// depth puts the far end at zero.
+    pub(super) fn begin<'pass>(
+        &self,
+        encoder: &'pass mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+    ) -> wgpu::RenderPass<'pass> {
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("aperture.pass"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: &self.color,
+                resolve_target: Some(target),
+                depth_slice: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(BACKGROUND),
+                    store: wgpu::StoreOp::Discard,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: &self.depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(0.0),
+                    store: wgpu::StoreOp::Discard,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        })
     }
 
     pub(super) fn view(

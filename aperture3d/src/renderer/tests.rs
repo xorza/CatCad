@@ -1,7 +1,9 @@
 use super::*;
+use crate::camera::Projection;
 use crate::highlight::Highlight;
 use crate::mesh::{Mesh, Vertex};
 use crate::renderer::band::QUAD_INDICES;
+use crate::renderer::uniforms::Uniforms;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Mat4, Vec3};
@@ -16,7 +18,7 @@ fn flatten_bakes_transforms_into_world_space() {
             .colored(Vec3::new(1.0, 0.0, 0.0)),
     );
     let mut renderer = Renderer::new(scene);
-    renderer.flatten_meshes();
+    renderer.batches.meshes.flatten(&renderer.scene.objects);
     let data = &renderer.batches.meshes;
 
     // Two cubes: 24 corners and 36 indices each.
@@ -67,7 +69,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
         tag: None,
     });
     let mut renderer = Renderer::new(scene);
-    renderer.flatten_meshes();
+    renderer.batches.meshes.flatten(&renderer.scene.objects);
     let data = &renderer.batches.meshes;
 
     // Scaling x by 2 flattens the surface toward the x axis, so its normal
@@ -85,7 +87,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
 #[test]
 fn flatten_of_an_empty_scene_uploads_nothing() {
     let mut renderer = Renderer::new(Scene::default());
-    renderer.flatten_meshes();
+    renderer.batches.meshes.flatten(&renderer.scene.objects);
     renderer.refresh_overlays(false);
 
     let batches = &renderer.batches;

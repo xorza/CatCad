@@ -9,41 +9,14 @@ production settles on.
 
 ---
 
-## The three overlay kinds have no shared abstraction, so every stage repeats
+## `paint` states its own sequence, and two constants sit where they fit nothing
 
-Addressed. `Overlay` states what the three share, `Batch<O>` holds one kind's
-CPU-side state, `GpuBatch` holds the two passes that draw it, and `Look` is the
-tail every record ends with. Three of the leftovers turned out not to survive
-investigation, and are recorded here rather than left to be found again:
-
-- `Scene::hits` walks the three collections in three chained `filter_map`s, and
-  should keep doing so. `Overlay` has no `pick` because picking is three
-  genuinely different algorithms — a trait method would move where they are
-  spelled without reducing them, and would have no generic caller.
-- `paint` uploads and draws through one mention per kind, which is the floor.
-  `Vec<CurveInstance>` and `Vec<RingInstance>` are different types, and erasing
-  them would drop `BatchRecord::LAYOUT_SPANS_STRUCT` — a const assertion
-  evaluated per concrete type that checks the attribute list spans the struct.
-- `z_offset` stays restated on all three primitives. It looks like `Styled`'s
-  obvious third member, but `Object` is styled too and a solid has no depth
-  bias; the alternatives are a second public trait for one setter, or a field on
-  solids that nothing reads.
-
-## `Renderer` is four responsibilities in one file, and `paint` is six jobs
-
-`renderer/mod.rs` is 532 lines and its `paint` is the longest function in the
-workspace.
-
-- [ ] One file declares the GPU uniform layout (`Uniforms`), the CPU-side
-      flattening buffers (`Batches`, `MeshData`, `Highlighted`), the change
-      tracking (`Dirty`), and the renderer that drives them.
-- [ ] `GpuPaint::paint` builds the uniforms, flattens up to five batches,
-      uploads seven, reallocates the attachments on resize, writes the uniform
-      buffer, opens the render pass, and issues the draws — with no seam between
-      any two of those.
-- [ ] `Uniforms::probe_reach` encodes a shading constant (`SHARE`) and a
-      projection-dependent rule in the renderer's own file, though its doc says
-      the value is a fact about `common.wgsl`.
+- [ ] `paint` still does the six steps in sequence rather than delegating the
+      sequence. The seams are visible now, but the order and the borrow split
+      between them are still stated inline.
+- [ ] `DEPTH_FORMAT`, `SAMPLES` and `OVERRIDES` sit in `renderer/mod.rs` because
+      `gpu.rs` and `pass.rs` both read them and it is their common parent.
+      Neither is where they belong.
 
 ## `Sketch` is both the model and the solver's view of the model
 

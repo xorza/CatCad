@@ -1,9 +1,14 @@
 //! One overlay kind's CPU-side batch, and what a refresh of it rewrote.
 
+use crate::curve::Curve;
 use crate::highlight::{Highlight, Lit};
+use crate::object::Object;
 use crate::overlay::Overlay;
-use crate::renderer::record::Instance;
+use crate::point::Point;
+use crate::renderer::record::{GpuVertex, Instance};
+use crate::ring::Ring;
 use crate::tag::Tag;
+use glam::Mat3;
 
 /// One overlay kind's whole CPU-side state: what it flattens to, what a
 /// highlight over it flattens to, and whether either needs rebuilding.
@@ -96,4 +101,111 @@ fn look_of(highlights: &[Lit], tag: Option<Tag>) -> Option<Highlight> {
     highlights
         .iter()
         .find_map(|lit| (lit.tag == tag).then_some(lit.look))
+}
+
+/// Everything the scene flattens to on the CPU, on its way to the GPU.
+#[derive(Debug, Default)]
+pub(super) struct Batches {
+    pub(super) meshes: MeshData,
+    pub(super) curves: Batch<Curve>,
+    pub(super) rings: Batch<Ring>,
+    pub(super) points: Batch<Point>,
+}
+
+/// The mesh batch flattened on the CPU, before upload. The overlays need no
+/// such thing — an instance is already what gets uploaded.
+#[derive(Debug, Default)]
+pub(super) struct MeshData {
+    pub(super) vertices: Vec<GpuVertex>,
+    pub(super) indices: Vec<u32>,
+}
+
+/// World-space triangle soup for the whole scene. Transforms are applied
+/// here rather than per draw call, so a still scene costs one draw and no
+/// per-object bindings.
+impl MeshData {
+    /// World-space triangle soup for every object handed in.
+    ///
+    /// Transforms are applied here rather than per draw call, so a still scene
+    /// costs one draw and no per-object bindings.
+    pub(super) fn flatten(&mut self, objects: &[Object]) {
+        let data = self;
+        data.clear();
+        data.reserve_exact(
+            objects.iter().map(|o| o.mesh.vertices.len()).sum(),
+            objects.iter().map(|o| o.mesh.indices.len()).sum(),
+        );
+        for object in objects {
+            // Normals survive non-uniform scale only under the inverse
+            // transpose; it's once per object, so the generality is free.
+            let normal_matrix = Mat3::from_mat4(object.transform).inverse().transpose();
+            let color = object.color.to_array();
+            let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
+                position: object
+                    .transform
+                    .transform_point3(vertex.position)
+                    .to_array(),
+                normal: (normal_matrix * vertex.normal)
+                    .normalize_or_zero()
+                    .to_array(),
+                color,
+            });
+            data.extend(vertices, &object.mesh.indices);
+        }
+    }
+
+    /// Empty it, keeping whatever room it has already grown to.
+    pub(super) fn clear(&mut self) {
+        self.vertices.clear();
+        self.indices.clear();
+    }
+
+    /// Make room for exactly this much, on a buffer just cleared.
+    ///
+    /// Exact rather than amortized because both counts are known in full
+    /// before anything is written, and a buffer that already has the room
+    /// does nothing here — which is the steady state after the first flatten.
+    pub(super) fn reserve_exact(&mut self, vertices: usize, indices: usize) {
+        self.vertices.reserve_exact(vertices);
+        self.indices.reserve_exact(indices);
+    }
+
+    /// Add vertices and the indices addressing them, rebased past whatever is
+    /// already here.
+    pub(super) fn extend(
+        &mut self,
+        vertices: impl IntoIterator<Item = GpuVertex>,
+        indices: &[u32],
+    ) {
+        let base = self.vertices.len() as u32;
+        self.vertices.extend(vertices);
+        self.indices
+            .extend(indices.iter().map(|index| index + base));
+    }
+}
+
+/// What has been edited since it was last uploaded, for the two things no
+/// [`Batch`] owns.
+///
+/// Per batch rather than one flag for the scene, because they are edited on
+/// completely different schedules: markers move as the solver runs while the
+/// solids they sit on never change, and a single flag would re-flatten and
+/// re-upload every triangle in the model to move one disc. Camera moves set
+/// none of these — the camera only feeds the per-frame uniform.
+#[derive(Debug, Clone, Copy, Default)]
+pub(super) struct Dirty {
+    pub(super) meshes: bool,
+    /// Set by a change of *which* primitives are highlighted, never by the
+    /// scene — which is what keeps hovering off the ordinary batches.
+    pub(super) highlights: bool,
+}
+
+impl Dirty {
+    /// Nothing has been uploaded yet, so everything is outstanding.
+    pub(super) fn all() -> Self {
+        Self {
+            meshes: true,
+            highlights: true,
+        }
+    }
 }

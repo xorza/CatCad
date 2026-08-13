@@ -12,6 +12,11 @@ use glam::Vec3;
 /// renderer and the scene do to all three alike — turn them into records, find
 /// the ones a caller has lit, and measure how far they reach — so that those
 /// are written once rather than once per kind.
+///
+/// Picking is deliberately absent, though [`Scene`](crate::Scene) does ask all
+/// three for it. It is three genuinely different algorithms, so a trait method
+/// would move where they are spelled without reducing them, and would have no
+/// generic caller to justify itself.
 pub(crate) trait Overlay {
     /// What one of these ships to the GPU as.
     type Record: Instance;

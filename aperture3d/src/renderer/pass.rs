@@ -1,8 +1,9 @@
 //! One pipeline, the buffers it draws from, and how one is built.
 
+use crate::renderer::batch::MeshData;
 use crate::renderer::record::BatchRecord;
 use crate::renderer::retained::Retained;
-use crate::renderer::{DEPTH_FORMAT, MeshData, OVERRIDES, SAMPLES};
+use crate::renderer::{DEPTH_FORMAT, OVERRIDES, SAMPLES};
 
 pub(super) struct PassSpec {
     /// Names the pipeline and both its entry points: `mesh` finds `mesh_vs`

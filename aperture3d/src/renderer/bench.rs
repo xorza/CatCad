@@ -255,7 +255,7 @@ pub fn alloc_bench() {
 
     // What a scene edit costs: every batch re-flattened from the scene.
     bench.step("flatten-batches", 0.0, || {
-        renderer.flatten_meshes();
+        renderer.batches.meshes.flatten(&renderer.scene.objects);
         renderer.batches.curves.dirty = true;
         renderer.batches.rings.dirty = true;
         renderer.batches.points.dirty = true;

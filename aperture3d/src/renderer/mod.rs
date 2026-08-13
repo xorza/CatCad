@@ -6,7 +6,7 @@
 //! shader builds its four corners, since the corners differed only in ways the
 //! index already says.
 
-use crate::camera::{Camera, Projection};
+use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::highlight::Lit;
 use crate::object::Object;
@@ -14,7 +14,7 @@ use crate::point::Point;
 use crate::ring::Ring;
 use crate::scene::{Overlays, Scene};
 use crate::viewport::Viewport;
-use glam::{Mat3, UVec2};
+use glam::UVec2;
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
 
 pub(crate) mod band;
@@ -25,10 +25,11 @@ pub(crate) mod gpu;
 pub(crate) mod pass;
 pub(crate) mod record;
 pub(crate) mod retained;
+pub(crate) mod uniforms;
 
-use crate::renderer::batch::{Batch, Refreshed};
+use crate::renderer::batch::{Batches, Dirty, Refreshed};
 use crate::renderer::gpu::{Attachments, Gpu};
-use crate::renderer::record::GpuVertex;
+use crate::renderer::uniforms::Uniforms;
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -37,105 +38,9 @@ const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 /// on every renderable format, so there is no fallback path to carry.
 const SAMPLES: u32 = 4;
 
-/// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU
-/// encodes on write.
-const BACKGROUND: wgpu::Color = wgpu::Color {
-    r: 0.02,
-    g: 0.02,
-    b: 0.025,
-    a: 1.0,
-};
-
 /// What every pipeline built from the shared module is told. Only the ring
 /// pass reads it, but the declaration is module-scope and so is this.
 const OVERRIDES: [(&str, f64); 1] = [("RING_STEPS", band::RING_STEPS as f64)];
-
-/// What both pipelines read. Laid out to match the WGSL `Uniforms`: four
-/// floats trailing the matrix, which is exactly the 80 bytes the layout rounds
-/// to.
-#[repr(C)]
-#[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-struct Uniforms {
-    view_proj: [f32; 16],
-    /// Target size in physical pixels.
-    viewport: [f32; 2],
-    /// Physical pixels per logical pixel, which is what turns a curve's
-    /// authored width into the width it is drawn at.
-    raster_scale: f32,
-    /// See [`Uniforms::probe_reach`].
-    probe_reach: f32,
-}
-
-impl Uniforms {
-    /// How far to step from a vertex when sampling the depth gradient of the
-    /// surface it lies on, scaled by that vertex's clip `w` and by the length
-    /// of the basis the shader reads the gradient against — so an upper bound
-    /// on the world distance rather than the distance itself.
-    ///
-    /// A share of the viewport rather than a fixed distance, or the probes land
-    /// close enough together on screen that differencing their depths cancels
-    /// down to noise. Perspective `w` is the view depth, so a fraction of it is
-    /// that share wherever the vertex sits; orthographic `w` is always 1 and
-    /// says nothing about scale, so the orbit distance stands in for it.
-    ///
-    /// Derived from the camera rather than asked of it: how far a shader steps
-    /// when differencing depths is a fact about `common.wgsl`, not about where
-    /// the scene is viewed from.
-    fn probe_reach(camera: &Camera) -> f32 {
-        // A quarter of the way to what is being looked at, which at the fovs a
-        // camera is given works out to a useful fraction of the viewport.
-        const SHARE: f32 = 0.25;
-
-        match camera.projection {
-            Projection::Perspective => SHARE,
-            Projection::Orthographic => SHARE * camera.distance,
-        }
-    }
-}
-
-/// Everything the scene flattens to on the CPU, on its way to the GPU.
-#[derive(Debug, Default)]
-struct Batches {
-    meshes: MeshData,
-    curves: Batch<Curve>,
-    rings: Batch<Ring>,
-    points: Batch<Point>,
-}
-
-/// The mesh batch flattened on the CPU, before upload. The overlays need no
-/// such thing — an instance is already what gets uploaded.
-#[derive(Debug, Default)]
-struct MeshData {
-    vertices: Vec<GpuVertex>,
-    indices: Vec<u32>,
-}
-
-impl MeshData {
-    /// Empty it, keeping whatever room it has already grown to.
-    fn clear(&mut self) {
-        self.vertices.clear();
-        self.indices.clear();
-    }
-
-    /// Make room for exactly this much, on a buffer just cleared.
-    ///
-    /// Exact rather than amortized because both counts are known in full
-    /// before anything is written, and a buffer that already has the room
-    /// does nothing here — which is the steady state after the first flatten.
-    fn reserve_exact(&mut self, vertices: usize, indices: usize) {
-        self.vertices.reserve_exact(vertices);
-        self.indices.reserve_exact(indices);
-    }
-
-    /// Add vertices and the indices addressing them, rebased past whatever is
-    /// already here.
-    fn extend(&mut self, vertices: impl IntoIterator<Item = GpuVertex>, indices: &[u32]) {
-        let base = self.vertices.len() as u32;
-        self.vertices.extend(vertices);
-        self.indices
-            .extend(indices.iter().map(|index| index + base));
-    }
-}
 
 /// A GPU buffer that outlives the data in it.
 ///
@@ -153,32 +58,6 @@ pub struct Renderer {
     batches: Batches,
     dirty: Dirty,
     gpu: Option<Gpu>,
-}
-
-/// What has been edited since it was last uploaded, for the two things no
-/// [`Batch`] owns.
-///
-/// Per batch rather than one flag for the scene, because they are edited on
-/// completely different schedules: markers move as the solver runs while the
-/// solids they sit on never change, and a single flag would re-flatten and
-/// re-upload every triangle in the model to move one disc. Camera moves set
-/// none of these — the camera only feeds the per-frame uniform.
-#[derive(Debug, Clone, Copy, Default)]
-struct Dirty {
-    meshes: bool,
-    /// Set by a change of *which* primitives are highlighted, never by the
-    /// scene — which is what keeps hovering off the ordinary batches.
-    highlights: bool,
-}
-
-impl Dirty {
-    /// Nothing has been uploaded yet, so everything is outstanding.
-    fn all() -> Self {
-        Self {
-            meshes: true,
-            highlights: true,
-        }
-    }
 }
 
 impl Renderer {
@@ -291,36 +170,6 @@ impl Renderer {
             points: batches.points.refresh(&scene.points, highlights, relight),
         }
     }
-
-    /// World-space triangle soup for the whole scene. Transforms are applied
-    /// here rather than per draw call, so a still scene costs one draw and no
-    /// per-object bindings.
-    fn flatten_meshes(&mut self) {
-        let objects = &self.scene.objects;
-        let data = &mut self.batches.meshes;
-        data.clear();
-        data.reserve_exact(
-            objects.iter().map(|o| o.mesh.vertices.len()).sum(),
-            objects.iter().map(|o| o.mesh.indices.len()).sum(),
-        );
-        for object in objects {
-            // Normals survive non-uniform scale only under the inverse
-            // transpose; it's once per object, so the generality is free.
-            let normal_matrix = Mat3::from_mat4(object.transform).inverse().transpose();
-            let color = object.color.to_array();
-            let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
-                position: object
-                    .transform
-                    .transform_point3(vertex.position)
-                    .to_array(),
-                normal: (normal_matrix * vertex.normal)
-                    .normalize_or_zero()
-                    .to_array(),
-                color,
-            });
-            data.extend(vertices, &object.mesh.indices);
-        }
-    }
 }
 
 impl GpuPaint for Renderer {
@@ -334,23 +183,13 @@ impl GpuPaint for Renderer {
 
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {
         let size = ctx.size_px.max(UVec2::ONE);
-        let viewport = Viewport::new(size);
-        let uniforms = Uniforms {
-            view_proj: self
-                .scene
-                .camera
-                .view_proj(viewport.aspect())
-                .to_cols_array(),
-            viewport: viewport.extent().to_array(),
-            raster_scale: ctx.raster_scale,
-            probe_reach: Uniforms::probe_reach(&self.scene.camera),
-        };
+        let uniforms = Uniforms::of(&self.scene.camera, Viewport::new(size), ctx.raster_scale);
         // Refilled before the GPU is borrowed, since both want `self`. Each
         // batch answers for itself, so a hover over a marker no longer rebuilds
         // the highlights of the strokes and rims it passed over.
         let dirty = std::mem::take(&mut self.dirty);
         if dirty.meshes {
-            self.flatten_meshes();
+            self.batches.meshes.flatten(&self.scene.objects);
         }
         let rebuilt = self.refresh_overlays(dirty.highlights);
 
@@ -375,32 +214,7 @@ impl GpuPaint for Renderer {
         ctx.queue
             .write_buffer(&gpu.uniforms, 0, bytemuck::bytes_of(&uniforms));
 
-        let mut pass = ctx.encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("aperture.pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &attachments.color,
-                // The resolve is the only thing palantir composites, so the
-                // samples behind it are discarded rather than stored.
-                resolve_target: Some(ctx.target),
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(BACKGROUND),
-                    store: wgpu::StoreOp::Discard,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &attachments.depth,
-                depth_ops: Some(wgpu::Operations {
-                    // Cleared to the far end, which reversed depth puts at 0.
-                    load: wgpu::LoadOp::Clear(0.0),
-                    store: wgpu::StoreOp::Discard,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
+        let mut pass = attachments.begin(ctx.encoder, ctx.target);
         pass.set_viewport(0.0, 0.0, size.x as f32, size.y as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, size.x, size.y);
         pass.set_bind_group(0, &gpu.bind_group, &[]);
