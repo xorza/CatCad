@@ -4,23 +4,6 @@ Findings only; nothing here proposes a fix. **Delete an item once it is
 addressed** — this file lists what is still open, and an item left ticked is
 just noise for the next reader.
 
-## The solver's parameter layout is restated everywhere it is used
-
-`Sketch` documents the layout once ("two entries per point in insertion order,
-then one radius per circle") and then re-derives it independently in six
-methods. Changing the layout means finding all of them.
-
-- [ ] `param_count`, `point_param`, `radius_param`, `param_is_free`, `params`
-      and `set_params` each independently encode "points first, two apiece,
-      then circles".
-- [ ] `param_is_free` recovers a point index by integer-dividing the parameter
-      index by two. It is correct only while points come first and occupy
-      exactly two slots each, and it fails silently rather than loudly if that
-      stops being true.
-- [ ] `Sketch::points` and `Sketch::fixed` are parallel `Vec`s that must stay
-      the same length, kept in step by hand in `add_point`. Nothing prevents a
-      future insertion path from updating one and not the other.
-
 ## Gaussian elimination is implemented twice in the solver
 
 - [ ] `solve_in_place` and `rank` each contain their own partial-pivot search,
