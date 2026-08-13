@@ -5,18 +5,25 @@ use palantir::{Align, Background, Button, Configure, InternedStr, Panel, Sizing,
 
 use crate::intent::{Intent, Intents};
 
-/// Show the controls and `status`, and put what they ask for in `intents`.
+/// Show the controls and `status`, putting anything a control asks for in
+/// `intents`.
 ///
-/// Asked for rather than done, exactly as the view is: a panel that turned the
-/// camera itself would be a panel that had to be handed one, and a control that
-/// answered its caller with a value instead would leave the caller to work out
-/// what had changed. The inbox is where a gesture goes, whichever raised it —
-/// which is what this is named for, rather than for the panel it emits.
+/// Shows, and is named for it: the panel is a readout with one button on it,
+/// where the view next door is a surface whose whole purpose is being pointed
+/// at. What the button asks for still leaves as an intent — a panel that turned
+/// the camera itself would be a panel that had to be handed one, and one that
+/// answered its caller with a value would leave the caller to work out what had
+/// changed.
 ///
 /// `status` arrives already in the pass's text arena, so nothing here copies
 /// it — and it has to be lowered in the pass that minted it, which is the
 /// same pass that is calling.
-pub(crate) fn ask(ui: &mut Ui, status: InternedStr, projection: Projection, intents: &mut Intents) {
+pub(crate) fn show(
+    ui: &mut Ui,
+    status: InternedStr,
+    projection: Projection,
+    intents: &mut Intents,
+) {
     Panel::vstack()
         .auto_id()
         // Chrome would put a slab of theme colour over the drawing; the

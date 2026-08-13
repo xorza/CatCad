@@ -166,12 +166,6 @@ impl SceneView {
         self.renderer.borrow().scene().bounds()
     }
 
-    /// The renderer being drawn, for a caller that wants to edit the scene or
-    /// move the camera without going through a pointer.
-    pub(crate) fn renderer(&self) -> &Rc<RefCell<Renderer>> {
-        &self.renderer
-    }
-
     /// The sketch entity under the pointer, if any.
     pub(crate) fn hovered(&self) -> Option<Named> {
         self.hovered
@@ -358,20 +352,44 @@ fn landing(response: &Response<'_>, document: &Document, held: Held) -> Option<V
     Some(held.motion.resolve(ray)? + held.offset)
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
-    use crate::named::Named;
     use crate::scene_view::SceneView;
-    use aperture::Tag;
+    use aperture::Renderer;
+    use std::cell::RefCell;
+    use std::rc::Rc;
 
     impl SceneView {
-        /// What `tag` stands for in the layout this view last made.
+        /// The renderer being drawn, for a harness that wants to edit the scene
+        /// or move the camera without going through a pointer.
         ///
-        /// For a test sweeping candidate cursors to find one that would grab
-        /// something — which asks what a press would find without a press to
-        /// ask it through.
-        pub(crate) fn named(&self, tag: Tag) -> Option<Named> {
-            self.names.get(tag)
+        /// Nothing in the application reaches for this: the view lays itself
+        /// out from the document and paints itself from what that left, so a
+        /// caller wanting the renderer is a caller standing outside the frame —
+        /// which is a harness, and only a harness.
+        pub(crate) fn renderer(&self) -> &Rc<RefCell<Renderer>> {
+            &self.renderer
+        }
+    }
+
+    /// The half of the reach-in that only this crate's own tests want, kept off
+    /// the feature so a build that turns `internals` on does not carry a method
+    /// nothing outside can call.
+    #[cfg(test)]
+    mod picking {
+        use crate::named::Named;
+        use crate::scene_view::SceneView;
+        use aperture::Tag;
+
+        impl SceneView {
+            /// What `tag` stands for in the layout this view last made.
+            ///
+            /// For a test sweeping candidate cursors to find one that would
+            /// grab something — which asks what a press would find without a
+            /// press to ask it through.
+            pub(crate) fn named(&self, tag: Tag) -> Option<Named> {
+                self.names.get(tag)
+            }
         }
     }
 }

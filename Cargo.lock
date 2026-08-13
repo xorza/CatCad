@@ -362,6 +362,7 @@ name = "catcad"
 version = "0.1.0"
 dependencies = [
  "aperture3d",
+ "catcad",
  "common",
  "glam",
  "image",

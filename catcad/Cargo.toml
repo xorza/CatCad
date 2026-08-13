@@ -16,8 +16,20 @@ common = { workspace = true, optional = true }
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
 palantir = { workspace = true, features = ["internals", "golden"] }
+# The crate on itself, to turn `internals` on for its own test targets and
+# nowhere else. An integration test links the library built normally — `cfg(test)`
+# is set only for the crate's own unit tests — so the reach-ins it needs have to
+# arrive as a feature. Dev-dependency features are resolved only when building
+# tests, which is what keeps them out of `cargo build` and out of what a host
+# linking this crate is given.
+catcad = { path = ".", features = ["internals"] }
 
 [features]
+# The reach-ins a harness needs and a program running the app does not: the
+# renderer behind the view, and the camera without a pointer to turn it with.
+# Off by default, so what the crate publishes is what a host actually calls.
+internals = []
+
 # Compiles the allocation-bench driver in `src/` and exposes the one call
 # `tests/alloc.rs` makes. Carries `palantir/internals` because the driver
 # raises the app through `UiHarness`, the same reach-in the tests use — the
@@ -36,7 +48,10 @@ harness = false
 required-features = ["bench"]
 
 # The frames the app actually draws, measured and compared against goldens.
-# Needs a GPU, so it is its own target rather than a unit test.
+# Needs a GPU, so it is its own target rather than a unit test. No
+# `required-features`: the `internals` it reaches through arrives from the
+# dev-dependency above, so a bare `cargo test` runs the goldens rather than
+# silently skipping them.
 [[test]]
 name = "visual"
 path = "tests/visual/main.rs"

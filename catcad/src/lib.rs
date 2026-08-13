@@ -21,11 +21,8 @@ mod scene_view;
 #[cfg(feature = "bench")]
 pub use bench::alloc_bench;
 
-use std::cell::RefCell;
 use std::fmt;
-use std::rc::Rc;
 
-use aperture::{Camera, Renderer};
 use palantir::{App, Configure, HostHandle, Panel, Shortcut, Sizing, Ui, WindowToken};
 use silverpoint::{SolveReport, Solver};
 
@@ -109,22 +106,6 @@ impl CatCad {
         }
     }
 
-    /// The renderer behind the view, so a harness can reach the scene without a
-    /// pointer to drive it with.
-    pub fn renderer(&self) -> &Rc<RefCell<Renderer>> {
-        self.view.renderer()
-    }
-
-    /// Where the document is looked at from, for a harness that wants to aim it
-    /// without a pointer.
-    ///
-    /// The document's own rather than the renderer's: the renderer is handed a
-    /// copy at the end of every frame, so anything written into that copy is
-    /// gone by the time a frame is drawn through it.
-    pub fn camera_mut(&mut self) -> &mut Camera {
-        self.document.camera_mut()
-    }
-
     /// Show everything this frame draws, and collect what it asks for.
     ///
     /// Reads the document and writes only the inbox. Three sources of intent —
@@ -146,7 +127,7 @@ impl CatCad {
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
         let status = ui.fmt(format_args!("{}", self.status()));
-        overlay::ask(
+        overlay::show(
             ui,
             status,
             self.document.camera().projection,
@@ -232,6 +213,42 @@ impl App for CatCad {
                     .apply(&mut self.document, &mut self.solver, &self.intents);
                 self.view.settle(&self.document);
             });
+    }
+}
+
+/// What a harness reaches past the app for.
+///
+/// Both of these are ways of standing outside a frame: the app itself never
+/// wants either, because everything it draws it draws from the document it has
+/// just written, through a view that lays itself out. A caller that wants to
+/// aim the camera or edit the scene by hand is one driving the app without a
+/// pointer, which is a test or a bench and nothing else — so neither is part of
+/// what this crate publishes to a program that merely runs it.
+#[cfg(any(test, feature = "internals"))]
+pub(crate) mod internals {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    use aperture::{Camera, Renderer};
+
+    use crate::CatCad;
+
+    impl CatCad {
+        /// The renderer behind the view, so a harness can reach the scene
+        /// without a pointer to drive it with.
+        pub fn renderer(&self) -> &Rc<RefCell<Renderer>> {
+            self.view.renderer()
+        }
+
+        /// Where the document is looked at from, for a harness that wants to
+        /// aim it without a pointer.
+        ///
+        /// The document's own rather than the renderer's: the renderer is
+        /// handed a copy at the end of every frame, so anything written into
+        /// that copy is gone by the time a frame is drawn through it.
+        pub fn camera_mut(&mut self) -> &mut Camera {
+            self.document.camera_mut()
+        }
     }
 }
 
