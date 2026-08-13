@@ -14,14 +14,18 @@
 
 use std::sync::mpsc;
 
-use aperture::{Camera, Curve, Projection, Ring, Viewport};
+use aperture::{Camera, Curve, Highlight, Projection, Ring, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use image::RgbaImage;
 use palantir::internals::headless_test_gpu;
-use palantir::{OffscreenHost, wgpu};
+use palantir::{App, Configure, GpuPaint, GpuView, OffscreenHost, Sizing, Ui, WindowToken, wgpu};
 
 mod goldens;
 
+use std::cell::RefCell;
+use std::rc::Rc;
+
+use aperture::Renderer;
 use catcad::CatCad;
 
 /// What palantir composites into, and so what comes back.
@@ -82,6 +86,42 @@ impl Frame {
     }
 }
 
+/// Anything the harness can paint and then ask which camera it painted with.
+trait Viewed {
+    fn view(&self) -> &Rc<RefCell<Renderer>>;
+}
+
+impl Viewed for CatCad {
+    fn view(&self) -> &Rc<RefCell<Renderer>> {
+        &self.view
+    }
+}
+
+impl Viewed for ScenePane {
+    fn view(&self) -> &Rc<RefCell<Renderer>> {
+        &self.view
+    }
+}
+
+/// A pane that draws one scene and does nothing else.
+///
+/// [`CatCad`] cannot stand in for this: its own hover owns the highlight list
+/// and clears it whenever the pointer is absent, which in a headless frame is
+/// always. This borrows the app's renderer and leaves the app behind.
+struct ScenePane {
+    view: Rc<RefCell<Renderer>>,
+}
+
+impl App for ScenePane {
+    fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
+        let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
+        GpuView::new(paint)
+            .auto_id()
+            .size((Sizing::FILL, Sizing::FILL))
+            .show(ui);
+    }
+}
+
 /// Render one frame of the app at `size`, with `aim` applied to the camera
 /// after the scene has framed itself.
 fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
@@ -95,12 +135,12 @@ fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
 /// Split out of [`render`] so a test can paint the same app twice. The
 /// renderer keeps its buffers across frames, and a second paint is the only
 /// thing that reaches the path where they are rewritten rather than built.
-fn capture(size: UVec2, app: &mut CatCad) -> Frame {
+fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
     let gpu = headless_test_gpu();
     let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
     // Read back rather than rebuilt from the caller's aim, so a frame always
     // carries the camera it was actually taken through.
-    let camera = *app.view.borrow().camera();
+    let camera = *app.view().borrow().camera();
 
     let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("catcad.harness.target"),
@@ -627,4 +667,57 @@ fn the_demo_scene_looks_the_way_it_did() {
 fn the_demo_scene_grazing_looks_the_way_it_did() {
     let frame = render(UVec2::new(800, 628), edge_on(0.22));
     goldens::assert_matches_golden("demo_scene_grazing", &frame.image);
+}
+
+/// A highlight is drawn over the primitive it names, and taking it away puts
+/// the frame back exactly as it was.
+///
+/// Driven through `highlights_mut` rather than the pointer, because a headless
+/// frame has no pointer to hover with — the wiring from one to the other is
+/// `CatCad::hover`, and what this pins is the drawing underneath it.
+#[test]
+fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
+    let size = UVec2::new(800, 628);
+    let app = CatCad::build();
+    edge_on(1.1)(app.view.borrow_mut().camera_mut());
+    let mut pane = ScenePane {
+        view: app.view.clone(),
+    };
+
+    // A colour nothing in the scene wears, so counting it counts the
+    // highlight and nothing else.
+    let look = Highlight::new(Vec3::new(1.0, 0.0, 1.0)).scale(4.0);
+    let magenta = |frame: &Frame| {
+        let mut count = 0;
+        for y in 0..frame.size.y {
+            for x in 0..frame.size.x {
+                let [r, g, b, _] = frame.pixel(UVec2::new(x, y));
+                if r > 150 && b > 150 && g < 90 {
+                    count += 1;
+                }
+            }
+        }
+        count
+    };
+
+    let plain = capture(size, &mut pane);
+    assert_eq!(magenta(&plain), 0, "nothing is that colour to begin with");
+
+    let edge = app.view.borrow().scene().curves[0]
+        .tag
+        .expect("the drawing tags its edges");
+    app.view.borrow_mut().highlights_mut().push((edge, look));
+    let lit = capture(size, &mut pane);
+    assert!(
+        magenta(&lit) > 200,
+        "the highlighted edge drew {} px",
+        magenta(&lit)
+    );
+
+    // And it is *drawn over*, not drawn instead: the rest of the frame is
+    // untouched, so clearing restores it pixel for pixel.
+    app.view.borrow_mut().highlights_mut().clear();
+    let cleared = capture(size, &mut pane);
+    assert_eq!(magenta(&cleared), 0);
+    assert_eq!(cleared.image, plain.image, "clearing left something behind");
 }

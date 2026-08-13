@@ -4,19 +4,21 @@
 //! of the app is reachable from a test — which is what lets the visual suite
 //! raise the real thing rather than a stand-in for it.
 
+pub mod named;
 pub mod sketch_plane;
 
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Mesh, Object, Projection, Renderer, Scene};
-use glam::{DVec2, Mat4, Vec2, Vec3};
+use aperture::{Highlight, Mesh, Object, Projection, Renderer, Scene, Viewport};
+use glam::{DVec2, Mat4, UVec2, Vec2, Vec3};
 use palantir::{
-    Align, App, Background, Button, Configure, GpuPaint, GpuView, HostHandle, Panel, Sense, Sizing,
-    Text, Ui, WindowToken,
+    Align, App, Background, Button, Configure, GpuPaint, GpuView, HostHandle, Panel, Response,
+    Sense, Sizing, Text, Ui, WindowToken,
 };
 use silverpoint::{Constraint, Sketch, SolveReport, Solver};
 
+use crate::named::{Named, Names};
 use crate::sketch_plane::SketchPlane;
 
 /// Radians of orbit per logical pixel of drag.
@@ -24,6 +26,23 @@ const ORBIT_RATE: f32 = 0.008;
 
 /// Distance multiplier per wheel notch.
 const ZOOM_RATE: f32 = 1.12;
+
+/// How far from the cursor a thing may be and still count as under it, in
+/// logical pixels. Wider than the strokes, because aiming is not precise and
+/// a stroke a pixel and a half wide is not a target.
+const HOVER_REACH: f32 = 6.0;
+
+/// What the thing under the cursor looks like. One step of lift above the
+/// markers, which are already the top of the drawing's own ladder.
+const HOVERED: Highlight = Highlight {
+    color: Vec3::new(1.0, 0.85, 0.25),
+    scale: 1.8,
+    lift: MARKER_LIFT_STEP,
+};
+
+/// Kept in step with `sketch_plane`'s ladder: the highlight has to beat the
+/// markers, which already beat the strokes.
+const MARKER_LIFT_STEP: i32 = 2048;
 
 #[derive(Debug)]
 pub struct CatCad {
@@ -35,6 +54,10 @@ pub struct CatCad {
     /// edits it yet, so re-solving per frame would only recompute the same
     /// answer.
     report: SolveReport,
+    /// What each drawn primitive's tag stands for, built with the drawing.
+    names: Names,
+    /// The sketch entity under the pointer, if any.
+    hovered: Option<Named>,
 }
 
 impl CatCad {
@@ -54,10 +77,13 @@ impl CatCad {
         // ground plane and the boxes stand on it, so orbiting the view moves
         // both together.
         let plane = SketchPlane::GROUND;
+        // Named in the order they are drawn, so a pick can say which sketch
+        // entity it landed on.
+        let mut names = Names::default();
         let mut scene = Scene {
-            curves: plane.curves(&sketch),
-            rings: plane.rings(&sketch),
-            points: plane.points(&sketch),
+            curves: plane.curves(&sketch, &mut names),
+            rings: plane.rings(&sketch, &mut names),
+            points: plane.points(&sketch, &mut names),
             ..Default::default()
         };
         // The ground the drawing lies on, and the reason the drawing carries a
@@ -91,6 +117,8 @@ impl CatCad {
             view: Rc::new(RefCell::new(Renderer::new(scene))),
             drag_travel: Vec2::ZERO,
             report,
+            names,
+            hovered: None,
         }
     }
 
@@ -102,8 +130,14 @@ impl CatCad {
         } else {
             "unsolved"
         };
+        let under = match self.hovered {
+            Some(Named::Point(_)) => " · point",
+            Some(Named::Segment(_)) => " · edge",
+            Some(Named::Circle(_)) => " · circle",
+            None => "",
+        };
         format!(
-            "{state} · {} dof · {} redundant · {} iterations",
+            "{state} · {} dof · {} redundant · {} iterations{under}",
             self.report.degrees_of_freedom, self.report.redundant_equations, self.report.iterations,
         )
     }
@@ -131,12 +165,49 @@ impl CatCad {
             None => self.drag_travel = Vec2::ZERO,
         }
 
+        self.hover(&response);
+
         let notches = response.scroll.lines.y;
         if notches != 0.0 {
             self.view
                 .borrow_mut()
                 .camera_mut()
                 .dolly(ZOOM_RATE.powf(-notches));
+        }
+    }
+
+    /// Light whatever the pointer is over.
+    ///
+    /// `pointer_local` is already what [`Scene::pick`] asks for — logical
+    /// pixels from the widget's own top-left — so nothing is converted here.
+    /// It is measured against `layout_rect` rather than the visible `rect`,
+    /// and the viewport has to be built from the same one or the two would
+    /// disagree the moment anything clipped the view.
+    ///
+    /// Only the nearest hit lights: a marker sits on the end of every edge
+    /// that meets it, and lighting all of them would answer a question nobody
+    /// asked. `pick` has already put the most specific first.
+    fn hover(&mut self, response: &Response<'_>) {
+        let under = response
+            .pointer_local
+            .zip(response.layout_rect)
+            .and_then(|(cursor, rect)| {
+                let viewport = Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32));
+                let view = self.view.borrow();
+                let hit = view.scene().pick(cursor, viewport, HOVER_REACH);
+                hit.first().map(|hit| hit.tag)
+            });
+
+        self.hovered = under.and_then(|tag| self.names.get(tag));
+
+        let mut view = self.view.borrow_mut();
+        let lit = view.highlights_mut();
+        // Rewritten only when it changes, so a still pointer never dirties the
+        // highlight batch.
+        let already = lit.first().map(|(tag, _)| *tag);
+        if already != under {
+            lit.clear();
+            lit.extend(under.map(|tag| (tag, HOVERED)));
         }
     }
 

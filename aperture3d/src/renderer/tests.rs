@@ -1,5 +1,6 @@
 use super::*;
 use crate::mesh::{Mesh, Vertex};
+use crate::renderer::band::QUAD_INDICES;
 use glam::{Mat4, Vec3};
 
 #[test]
@@ -197,4 +198,64 @@ fn flatten_curves_strokes_the_closing_segment_too() {
     let mut scene = Scene::default();
     scene.curves.push(Curve::new(corners));
     assert_eq!(Renderer::new(scene).flatten_curves().len(), 3);
+}
+
+/// A highlight doubles the primitive it names — same geometry, different look
+/// — and touches nothing else.
+#[test]
+fn a_highlight_repeats_only_what_its_tag_names() {
+    use crate::highlight::Highlight;
+    use crate::ring::Ring;
+
+    let mut scene = Scene::default();
+    scene.curves.push(
+        Curve::new(vec![Vec3::ZERO, Vec3::X, Vec3::Y])
+            .width(2.0)
+            .z_offset(10)
+            .tagged(1),
+    );
+    scene
+        .curves
+        .push(Curve::segment(Vec3::ZERO, Vec3::Z).tagged(2));
+    scene
+        .rings
+        .push(Ring::new(Vec3::ZERO, 1.0, Vec3::Y).width(3.0).tagged(1));
+    scene.points.push(Point::new(Vec3::X).tagged(2));
+    let mut renderer = Renderer::new(scene);
+
+    // Nothing named, nothing doubled.
+    let lit = renderer.flatten_highlights();
+    assert!(lit.curves.is_empty() && lit.rings.is_empty() && lit.points.is_empty());
+
+    let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0).lift(64);
+    renderer.highlights_mut().push((1, look));
+    let lit = renderer.flatten_highlights();
+
+    // Tag 1 is the three-point curve and the ring: two segments and one rim.
+    // The curve tagged 2 and the marker tagged 2 are left alone.
+    assert_eq!(lit.curves.len(), 2);
+    assert_eq!(lit.rings.len(), 1);
+    assert!(lit.points.is_empty());
+
+    // The look replaces the colour, multiplies the width, and adds to the
+    // bias rather than replacing it — a highlight has to clear the lift the
+    // primitive already carried.
+    assert!(lit.curves.iter().all(|i| i.color == [1.0, 0.0, 0.0]));
+    assert!(lit.curves.iter().all(|i| i.half_width == 3.0)); // 2.0/2 × 3
+    assert!(lit.curves.iter().all(|i| i.z_offset == 74.0)); // 10 + 64
+    assert_eq!(lit.rings[0].half_width, 4.5); // 3.0/2 × 3
+    assert_eq!(lit.rings[0].z_offset, 64.0);
+
+    // The geometry is the primitive's own, untouched.
+    let plain = renderer.flatten_curves();
+    assert_eq!(lit.curves[0].start, plain[0].start);
+    assert_eq!(lit.curves[0].end, plain[0].end);
+
+    // The last look for a tag wins, so a hover can read over a selection.
+    renderer
+        .highlights_mut()
+        .push((1, Highlight::new(Vec3::Y).scale(1.0).lift(0)));
+    let lit = renderer.flatten_highlights();
+    assert_eq!(lit.rings[0].half_width, 1.5);
+    assert_eq!(lit.rings[0].color, [0.0, 1.0, 0.0]);
 }
