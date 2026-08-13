@@ -7,6 +7,7 @@
 #[cfg(feature = "bench")]
 mod bench;
 mod demo;
+mod document;
 mod drawing;
 pub mod named;
 mod overlay;
@@ -22,12 +23,11 @@ use std::cell::RefCell;
 use std::fmt;
 use std::rc::Rc;
 
-use aperture::Renderer;
+use aperture::{Camera, Renderer};
 use palantir::{App, Configure, HostHandle, Panel, Sizing, Ui, WindowToken};
 use silverpoint::SolveReport;
 
-use crate::demo::Demo;
-use crate::drawing::Drawing;
+use crate::document::Document;
 use crate::named::Named;
 use crate::scene_view::SceneView;
 
@@ -35,9 +35,11 @@ use crate::scene_view::SceneView;
 /// it.
 #[derive(Debug)]
 pub struct CatCad {
-    /// The model: the sketch, where it lies, and the solver that keeps it
-    /// satisfied as the pointer edits it.
-    drawing: Drawing,
+    /// Everything a session would have to write down to be opened again: the
+    /// sketch, the solids beside it, and the camera looking at them.
+    document: Document,
+    /// What draws that, and what the pointer over it is in the middle of. Owns
+    /// nothing the document would be saved without.
     view: SceneView,
 }
 
@@ -51,24 +53,39 @@ impl CatCad {
 
     /// The app without a host, which is what the visual suite raises.
     pub fn build() -> Self {
-        let demo = Demo::build();
+        let mut document = demo::document();
+        // Raised before it is framed, because what has to fit on screen is what
+        // the document turns into and not the document itself.
+        let mut scene = document.raise();
+        document.frame(&scene);
+        scene.camera = document.camera();
         Self {
-            drawing: demo.drawing,
-            view: SceneView::new(demo.scene),
+            document,
+            view: SceneView::new(scene),
         }
     }
 
-    /// The renderer behind the view, so a harness can reach the scene and the
-    /// camera without a pointer to drive them with.
+    /// The renderer behind the view, so a harness can reach the scene without a
+    /// pointer to drive it with.
     pub fn renderer(&self) -> &Rc<RefCell<Renderer>> {
         self.view.renderer()
+    }
+
+    /// Where the document is looked at from, for a harness that wants to aim it
+    /// without a pointer.
+    ///
+    /// The document's own rather than the renderer's: the renderer is handed a
+    /// copy at the end of every frame, so anything written into that copy is
+    /// gone by the time a frame is drawn through it.
+    pub fn camera_mut(&mut self) -> &mut Camera {
+        self.document.camera_mut()
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
         Status {
-            report: self.drawing.report(),
+            report: self.document.drawing().report(),
             hovered: self.view.hovered(),
         }
     }
@@ -113,14 +130,17 @@ impl App for CatCad {
             .auto_id()
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
-                self.view.show(ui, &mut self.drawing);
+                self.view.show(ui, &mut self.document);
                 // Formatted straight into the pass's own text arena — no
                 // `String` is built on the way, and the handle is lowered by
                 // the same pass that minted it, which is the only pass it is
                 // good for.
                 let status = ui.fmt(format_args!("{}", self.status()));
-                let asked = overlay::show(ui, status, self.view.projection());
-                self.view.set_projection(asked);
+                let asked = overlay::show(ui, status, self.document.camera().projection);
+                self.document.camera_mut().projection = asked;
+                // Last, so the renderer paints through the camera every gesture
+                // this frame settled on rather than the one it started with.
+                self.view.aim(&self.document);
             });
     }
 }

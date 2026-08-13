@@ -3,12 +3,13 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Highlight, Lit, Motion, Projection, Renderer, Scene, Viewport};
+use aperture::{Highlight, Lit, Motion, Renderer, Scene, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
 };
 
+use crate::document::Document;
 use crate::drawing::{Drawing, Grip};
 use crate::named::Named;
 
@@ -131,17 +132,18 @@ impl SceneView {
         self.hovered
     }
 
-    pub(crate) fn projection(&self) -> Projection {
-        self.renderer.borrow().camera().projection
-    }
-
-    pub(crate) fn set_projection(&mut self, projection: Projection) {
-        self.renderer.borrow_mut().camera_mut().projection = projection;
+    /// Hand the renderer the camera `document` is being looked at through.
+    ///
+    /// Wholesale rather than on change: the document owns the camera and the
+    /// scene holds the copy the next paint reads, so overwriting it every frame
+    /// is what keeps the two from ever disagreeing.
+    pub(crate) fn aim(&self, document: &Document) {
+        document.aim(&mut self.renderer.borrow_mut());
     }
 
     /// Show the view, and let the pointer over it orbit, zoom, drag and light
     /// what it is aimed at.
-    pub(crate) fn show(&mut self, ui: &mut Ui, drawing: &mut Drawing) {
+    pub(crate) fn show(&mut self, ui: &mut Ui, document: &mut Document) {
         // A bare pointer move only wakes a frame for a widget that asked for
         // one: palantir skips a `PointerMoved` that crosses no boundary and
         // latches no press, and a viewport filling the window has no boundary
@@ -159,7 +161,7 @@ impl SceneView {
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
         if matches!(response.left.phase, ButtonPhase::Down { .. }) {
-            self.gesture = self.grab(&response, drawing);
+            self.gesture = self.grab(&response, document);
         }
         match (self.gesture, response.left.drag) {
             (Gesture::Orbit { travel: was }, Drag::Started { delta } | Drag::Active { delta }) => {
@@ -167,26 +169,22 @@ impl SceneView {
                 let step = delta - was;
                 // Dragging right turns the model right, which means orbiting
                 // the camera the other way.
-                self.renderer
-                    .borrow_mut()
+                document
                     .camera_mut()
                     .orbit(-step.x * ORBIT_RATE, step.y * ORBIT_RATE);
             }
             (Gesture::Move(held), Drag::Started { .. } | Drag::Active { .. }) => {
-                self.drag(&response, drawing, held);
+                self.drag(&response, document, held);
             }
             (_, Drag::Stopped) => self.gesture = Gesture::None,
             _ => {}
         }
 
-        self.hover(&response, drawing);
+        self.hover(&response, document.drawing());
 
         let notches = response.scroll.lines.y;
         if notches != 0.0 {
-            self.renderer
-                .borrow_mut()
-                .camera_mut()
-                .dolly(ZOOM_RATE.powf(-notches));
+            document.camera_mut().dolly(ZOOM_RATE.powf(-notches));
         }
     }
 
@@ -221,18 +219,18 @@ impl SceneView {
     /// else — empty space, a solid, a point the drawing pins — turns the
     /// camera. Grabbing nothing has to stay the way the view is orbited, or
     /// the pointer would lose its only way to look around.
-    fn grab(&self, response: &Response<'_>, drawing: &Drawing) -> Gesture {
+    fn grab(&self, response: &Response<'_>, document: &Document) -> Gesture {
         let Some(held) = Aimed::of(response)
             .filter(|_| response.hovered)
             .and_then(|aim| {
                 let renderer = self.renderer.borrow();
                 let scene = renderer.scene();
                 let hit = scene.nearest(aim.cursor, aim.viewport, HOVER_REACH)?;
-                let grip = drawing.grip(&hit)?;
-                let motion = drawing.motion();
+                let grip = document.drawing().grip(&hit)?;
+                let motion = document.drawing().motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
-                let ray = scene.camera.ray_through(aim.cursor, aim.viewport);
+                let ray = document.camera().ray_through(aim.cursor, aim.viewport);
                 Some(Held {
                     grip,
                     motion,
@@ -250,25 +248,23 @@ impl SceneView {
     /// A motion the cursor cannot resolve against — a plane gone edge-on —
     /// leaves everything where it was rather than jumping, which is what makes
     /// turning the view mid-drag survivable.
-    fn drag(&mut self, response: &Response<'_>, drawing: &mut Drawing, held: Held) {
+    fn drag(&mut self, response: &Response<'_>, document: &mut Document, held: Held) {
         // No `hovered` filter, unlike the two above: a drag that outruns the
         // view keeps hold of what it grabbed.
         let Some(landed) = Aimed::of(response).and_then(|aim| {
-            let ray = self
-                .renderer
-                .borrow()
-                .camera()
-                .ray_through(aim.cursor, aim.viewport);
+            let ray = document.camera().ray_through(aim.cursor, aim.viewport);
             held.motion.resolve(ray)
         }) else {
             return;
         };
-        drawing.drag_to(held.grip, landed + held.offset);
+        document
+            .drawing_mut()
+            .drag_to(held.grip, landed + held.offset);
 
         let mut renderer = self.renderer.borrow_mut();
         // Into the batches the renderer already holds, so a drag rewrites the
         // drawing every frame without asking the heap for anything.
-        drawing.write_into(renderer.overlays_mut());
+        document.drawing_mut().write_into(renderer.overlays_mut());
     }
 }
 

@@ -71,11 +71,6 @@ impl Drawing {
         self.report
     }
 
-    /// The plane it lies on.
-    pub(crate) fn plane(&self) -> SketchPlane {
-        self.plane
-    }
-
     /// What `tag` was drawn for, or `None` if it came from a drawing older
     /// than this one.
     pub(crate) fn resolve(&self, tag: Tag) -> Option<Named> {

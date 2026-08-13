@@ -3,7 +3,7 @@
 use glam::DVec2;
 use silverpoint::{Freedom, Freedoms, PointId, SolveReport, Solver};
 
-use crate::demo::Demo;
+use crate::demo;
 use crate::named::Named;
 use crate::{CatCad, Status};
 
@@ -18,7 +18,7 @@ use crate::{CatCad, Status};
 /// say and what a wrong Jacobian would break.
 #[test]
 fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
-    let mut sketch = Demo::sketch();
+    let mut sketch = demo::sketch();
     let report = Solver::default().solve(&mut sketch);
 
     assert!(report.converged, "{report:?}");
@@ -105,7 +105,7 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
 /// at it tells you which parts of it will answer a cursor.
 #[test]
 fn the_demo_shows_every_state_a_drawing_can_be_painted_in() {
-    let mut sketch = Demo::sketch();
+    let mut sketch = demo::sketch();
     let mut solver = Solver::default();
     assert!(solver.solve(&mut sketch).converged);
     let mut freedoms = Freedoms::default();
@@ -162,7 +162,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
 
     // A sketch entity under the pointer adds itself to the end, in the word a
     // draughtsman would use rather than the solver's.
-    let sketch = Demo::sketch();
+    let sketch = demo::sketch();
     let point = sketch.points().next().unwrap().0;
     let segment = sketch.segments().next().unwrap().0;
     let circle = sketch.circles().next().unwrap().0;

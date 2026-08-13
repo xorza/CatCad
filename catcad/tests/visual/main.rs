@@ -126,7 +126,7 @@ impl App for ScenePane {
 /// after the scene has framed itself.
 fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
     let mut app = CatCad::build();
-    aim(app.renderer().borrow_mut().camera_mut());
+    aim(app.camera_mut());
     capture(size, &mut app)
 }
 
@@ -138,9 +138,6 @@ fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
 fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
     let gpu = headless_test_gpu();
     let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    // Read back rather than rebuilt from the caller's aim, so a frame always
-    // carries the camera it was actually taken through.
-    let camera = *app.view().borrow().camera();
 
     let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("catcad.harness.target"),
@@ -159,6 +156,11 @@ fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
         view_formats: &[],
     });
     host.frame_offscreen(&target, 1.0, app);
+    // Read back after the record pass rather than before it, and rebuilt from
+    // nothing the caller said: the app hands its renderer a camera while
+    // recording, so this is the one moment the renderer holds the camera the
+    // frame was actually taken through.
+    let camera = *app.view().borrow().camera();
 
     let row = size.x * 4;
     let padded = row.div_ceil(COPY_ALIGN) * COPY_ALIGN;
@@ -386,7 +388,7 @@ fn slab_in_frame(projection: Projection) -> impl FnOnce(&mut Camera) {
 fn a_second_paint_replaces_the_geometry_the_first_left() {
     let size = UVec2::new(800, 628);
     let mut app = CatCad::build();
-    edge_on(1.4)(app.renderer().borrow_mut().camera_mut());
+    edge_on(1.4)(app.camera_mut());
 
     let first = capture(size, &mut app);
     assert!(
@@ -459,20 +461,22 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
                 .colored(Vec3::new(0.35, 0.55, 0.80))
                 .width(2.0),
         );
-
-        // Parallel, so no foreshortening enters the measurement. Zoomed until a
-        // world radius of 1 spans `RIM_PX`, and aimed at the rim rather than
-        // the centre — at that magnification the centre is far off the frame
-        // and only a shallow arc crosses it, which is exactly the arc a chord
-        // would visibly cut across.
-        let camera = view.camera_mut();
-        camera.projection = Projection::Orthographic;
-        camera.target = Vec3::X;
-        camera.yaw = 0.0;
-        camera.pitch = PITCH;
-        camera.distance = 4.0;
-        camera.fov_y = 2.0 * (size.y as f32 / 2.0 / RIM_PX / camera.distance).atan();
     }
+    // Parallel, so no foreshortening enters the measurement. Zoomed until a
+    // world radius of 1 spans `RIM_PX`, and aimed at the rim rather than the
+    // centre — at that magnification the centre is far off the frame and only a
+    // shallow arc crosses it, which is exactly the arc a chord would visibly cut
+    // across. Set on the document rather than the renderer, because the frame
+    // below is recorded through the app and the app aims its renderer from the
+    // document as it records.
+    let camera = app.camera_mut();
+    camera.projection = Projection::Orthographic;
+    camera.target = Vec3::X;
+    camera.yaw = 0.0;
+    camera.pitch = PITCH;
+    camera.distance = 4.0;
+    camera.fov_y = 2.0 * (size.y as f32 / 2.0 / RIM_PX / camera.distance).atan();
+
     let frame = capture(size, &mut app);
 
     let viewport = Viewport::new(frame.size);
@@ -729,6 +733,10 @@ fn the_demo_scene_grazing_looks_the_way_it_did() {
 fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     let size = UVec2::new(800, 628);
     let app = CatCad::build();
+    // The renderer's own camera rather than the document's, unlike everywhere
+    // else: what paints below is a `ScenePane` borrowing this renderer, and the
+    // app never records a frame — so nothing ever hands the document's camera
+    // over, and aiming it would aim at nothing.
     edge_on(1.1)(app.renderer().borrow_mut().camera_mut());
     let mut pane = ScenePane {
         view: app.renderer().clone(),

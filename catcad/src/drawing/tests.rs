@@ -41,7 +41,7 @@ impl Linkage {
 #[test]
 fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
     let mut linkage = Linkage::new();
-    let plane = linkage.drawing.plane();
+    let plane = linkage.drawing.plane;
 
     // Straight up the plane's own y, four along — a 3-4-5 away from where the
     // partner sits, so where it must swing to is hand-checkable.
@@ -66,7 +66,7 @@ fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
 #[test]
 fn a_drag_off_the_plane_lands_on_it() {
     let mut linkage = Linkage::new();
-    let plane = linkage.drawing.plane();
+    let plane = linkage.drawing.plane;
     let off = plane.point(DVec2::new(1.0, 3.0)) + plane.normal() * 5.0;
 
     linkage.drawing.drag_to(Grip::Point(linkage.grip), off);
@@ -140,8 +140,8 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let Motion::Plane { origin, normal } = drawing.motion() else {
         panic!("a sketch grip moves on the plane it was drawn on");
     };
-    assert_eq!(origin, drawing.plane().origin);
-    assert_eq!(normal, drawing.plane().normal());
+    assert_eq!(origin, drawing.plane.origin);
+    assert_eq!(normal, drawing.plane.normal());
 }
 
 /// Dragging an edge slides it whole: both ends travel by the same amount, and
@@ -149,7 +149,7 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
 #[test]
 fn dragging_a_segment_translates_both_of_its_ends() {
     let mut linkage = Linkage::new();
-    let plane = linkage.drawing.plane();
+    let plane = linkage.drawing.plane;
     let edge = linkage
         .drawing
         .sketch
@@ -192,7 +192,7 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let hub = sketch.add_point(DVec2::new(1.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     let mut drawing = Drawing::new(sketch, SketchPlane::GROUND);
-    let plane = drawing.plane();
+    let plane = drawing.plane;
 
     // Three across and four up from the centre is a radius of five.
     let sent = plane.point(DVec2::new(4.0, 6.0));
@@ -242,7 +242,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     assert!(before.iter().all(Option::is_some));
 
     // Move something, so the rewrite has different geometry to emit.
-    let plane = linkage.drawing.plane();
+    let plane = linkage.drawing.plane;
     linkage.drawing.drag_to(
         Grip::Point(linkage.grip),
         plane.point(DVec2::new(-3.0, 1.0)),

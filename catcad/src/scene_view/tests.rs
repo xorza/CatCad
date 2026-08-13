@@ -1,5 +1,5 @@
 use super::*;
-use crate::demo::Demo;
+use crate::demo;
 use palantir::internals::UiHarness;
 
 const SIZE: UVec2 = UVec2::new(800, 600);
@@ -7,28 +7,36 @@ const SIZE: UVec2 = UVec2::new(800, 600);
 /// The demo, as the application raises it.
 #[derive(Debug)]
 struct Raised {
-    drawing: Drawing,
+    document: Document,
     view: SceneView,
     harness: UiHarness,
 }
 
 impl Raised {
     fn new() -> Self {
-        let demo = Demo::build();
+        let mut document = demo::document();
+        let mut scene = document.raise();
+        document.frame(&scene);
+        scene.camera = document.camera();
         Self {
-            drawing: demo.drawing,
-            view: SceneView::new(demo.scene),
+            document,
+            view: SceneView::new(scene),
             harness: UiHarness::new(SIZE),
         }
     }
 
+    /// One frame, in the order the application records one: the view first, and
+    /// then the camera it settled on handed to the renderer.
     fn frame(&mut self) {
         let Self {
-            drawing,
+            document,
             view,
             harness,
         } = self;
-        harness.frame(|ui| view.show(ui, drawing));
+        harness.frame(|ui| {
+            view.show(ui, document);
+            view.aim(document);
+        });
     }
 
     /// A cursor position that lands on something the drawing will let go of.
@@ -63,12 +71,12 @@ impl Raised {
                 renderer
                     .scene()
                     .nearest(cursor, viewport, HOVER_REACH)
-                    .is_some_and(|hit| keep(self.drawing.grip(&hit)))
+                    .is_some_and(|hit| keep(self.document.drawing().grip(&hit)))
             })
     }
 
     fn camera(&self) -> aperture::Camera {
-        *self.view.renderer().borrow().camera()
+        self.document.camera()
     }
 
     /// Where a world position lands on screen — the cursor that aims at it.
@@ -200,7 +208,7 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
     raised.frame();
     let at_rest = raised.markers();
     assert!(
-        raised.drawing.report().converged,
+        raised.document.drawing().report().converged,
         "the demo has to open solved for this to mean anything"
     );
 
@@ -221,7 +229,7 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
         "a drag the constraints forbid deformed the drawing"
     );
     assert!(
-        raised.drawing.report().converged,
+        raised.document.drawing().report().converged,
         "a refused drag left the drawing unsolved"
     );
     raised.harness.release();
@@ -331,19 +339,4 @@ fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
 
     assert_ne!(raised.camera(), camera, "a press on scenery has to orbit");
     assert_eq!(raised.markers(), before, "a pinned point was dragged");
-}
-
-/// The projection is the view's to hold, and reading it back has to answer
-/// with what was set — the overlay's toggle is a round trip through these two.
-#[test]
-fn the_projection_round_trips_through_the_view() {
-    let mut raised = Raised::new();
-    let first = raised.view.projection();
-
-    raised.view.set_projection(first.toggled());
-    assert_eq!(raised.view.projection(), first.toggled());
-    assert_ne!(raised.view.projection(), first, "toggling changed nothing");
-
-    raised.view.set_projection(first);
-    assert_eq!(raised.view.projection(), first);
 }
