@@ -1,6 +1,10 @@
-//! The wgpu half: flattens a scene into one world-space triangle batch and one
-//! ribbon batch, and draws them into the off-screen target palantir hands over
-//! each frame.
+//! The wgpu half: flattens a scene into one world-space triangle batch and two
+//! instanced overlay batches, and draws them into the off-screen target
+//! palantir hands over each frame.
+//!
+//! Meshes ship a vertex apiece; a stroke or a marker ships once and the vertex
+//! shader builds its four corners, since the corners differed only in ways the
+//! index already says.
 
 use crate::camera::Camera;
 use crate::curve::Curve;
@@ -55,18 +59,18 @@ struct GpuVertex {
     color: [f32; 3],
 }
 
-/// One corner of a stroked segment. The ribbon is widened in the vertex
-/// shader, so each corner carries the segment's far end to take its direction
-/// from, and which side of it to sit on.
+/// One stroked segment, shipped once rather than four times.
+///
+/// The ribbon's corners are built in the vertex shader out of
+/// `@builtin(vertex_index)`: which end a corner sits at and which side of the
+/// line it leans to are the only things that differed between them, and both
+/// follow from the index. Everything below was identical across all four.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-struct CurveVertex {
-    position: [f32; 3],
-    /// The segment's other end.
-    other: [f32; 3],
+struct CurveInstance {
+    start: [f32; 3],
+    end: [f32; 3],
     color: [f32; 3],
-    /// Which side of the segment this corner sits on, `±1`.
-    side: f32,
     /// Half the stroke width, in logical px.
     half_width: f32,
     /// Depth bias in resolution steps.
@@ -77,15 +81,13 @@ struct CurveVertex {
     plane: [f32; 3],
 }
 
-/// One corner of a marker's quad. The glyph is resolved in the fragment
-/// stage, so the corner carries only where in the disc it sits.
+/// One marker, shipped once. Its quad spans `±1` either way, and the two low
+/// bits of `@builtin(vertex_index)` pick a corner, so none travels.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-struct PointVertex {
+struct PointInstance {
     position: [f32; 3],
     color: [f32; 3],
-    /// Which corner of the glyph's square, spanning `±1`.
-    corner: [f32; 2],
     /// Half the glyph's diameter, in logical px.
     half_size: f32,
     /// Depth bias in resolution steps.
@@ -95,42 +97,78 @@ struct PointVertex {
     plane: [f32; 3],
 }
 
-/// A vertex the renderer batches and uploads.
-///
-/// The attribute list belongs to the struct it describes because the two have
-/// to agree exactly and nothing checks that they do: a mismatch compiles, and
-/// shows up only as geometry drawn out of the wrong bytes.
-trait BatchVertex: bytemuck::Pod {
+/// A record the renderer batches and uploads: one per vertex for modelled
+/// geometry, one per primitive for the overlays, which build their own
+/// corners.
+trait BatchRecord: bytemuck::Pod {
+    /// Whether the buffer advances per vertex or per instance.
+    const STEP_MODE: wgpu::VertexStepMode;
+
+    /// The attribute list belongs to the struct it describes because the two
+    /// have to agree exactly: a mismatch compiles, and shows up only as
+    /// geometry drawn out of the wrong bytes.
     const ATTRIBUTES: &'static [wgpu::VertexAttribute];
+
+    /// Fails the build when the list stops spanning the struct.
+    ///
+    /// `vertex_attr_array!` lays its offsets out by accumulating its own
+    /// formats and never looks at the fields, so a field added, removed, or
+    /// retyped to a different width leaves struct and list silently
+    /// disagreeing, and geometry is drawn out of the wrong bytes. Comparing
+    /// the total is the whole of what can be checked from here: swapping two
+    /// fields of equal width still slips through, and so does the shader
+    /// reading them in the wrong order, since wgpu only checks the list
+    /// against the shader's declared types. Forced by [`Pipelines::build`],
+    /// the one place that pairs a struct with its list.
+    const LAYOUT_SPANS_STRUCT: () = {
+        let mut span = 0;
+        let mut attribute = 0;
+        while attribute < Self::ATTRIBUTES.len() {
+            span += Self::ATTRIBUTES[attribute].format.size();
+            attribute += 1;
+        }
+        assert!(
+            span == size_of::<Self>() as u64,
+            "the attribute list does not span the whole struct"
+        );
+    };
 }
 
-impl BatchVertex for GpuVertex {
+impl BatchRecord for GpuVertex {
+    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Vertex;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] =
         &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3];
 }
 
-impl BatchVertex for CurveVertex {
+impl BatchRecord for CurveInstance {
+    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32x3,
-        3 => Float32, 4 => Float32, 5 => Float32, 6 => Float32x3
-    ];
-}
-
-impl BatchVertex for PointVertex {
-    const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-        0 => Float32x3, 1 => Float32x3, 2 => Float32x2,
         3 => Float32, 4 => Float32, 5 => Float32x3
     ];
 }
 
-/// One kind of geometry flattened on the CPU, before upload.
+impl BatchRecord for PointInstance {
+    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
+    const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
+        0 => Float32x3, 1 => Float32x3, 2 => Float32, 3 => Float32, 4 => Float32x3
+    ];
+}
+
+/// The two triangles every overlay quad is drawn through, uploaded once and
+/// shared by both passes. Together they cover the quad rather than
+/// overlapping, sharing the edge between the middle pair.
+const QUAD_INDICES: [u32; 6] = [0, 1, 2, 2, 1, 3];
+
+/// The mesh batch flattened on the CPU, before upload. The overlays need no
+/// such thing — an instance is already what gets uploaded.
 #[derive(Debug)]
-struct BatchData<V> {
-    vertices: Vec<V>,
+struct MeshData {
+    vertices: Vec<GpuVertex>,
     indices: Vec<u32>,
 }
 
-impl<V> BatchData<V> {
+impl MeshData {
     fn with_capacity(vertices: usize, indices: usize) -> Self {
         Self {
             vertices: Vec::with_capacity(vertices),
@@ -140,56 +178,83 @@ impl<V> BatchData<V> {
 
     /// Add vertices and the indices addressing them, rebased past whatever is
     /// already here.
-    fn extend(&mut self, vertices: impl IntoIterator<Item = V>, indices: &[u32]) {
+    fn extend(&mut self, vertices: impl IntoIterator<Item = GpuVertex>, indices: &[u32]) {
         let base = self.vertices.len() as u32;
         self.vertices.extend(vertices);
         self.indices
             .extend(indices.iter().map(|index| index + base));
-    }
-
-    /// Four corners as two triangles. Together they cover the quad rather than
-    /// overlapping, sharing the edge between the middle pair — which is the
-    /// order both the ribbons and the markers hand their corners over in.
-    fn quad(&mut self, corners: [V; 4]) {
-        let base = self.vertices.len() as u32;
-        self.vertices.extend(corners);
-        self.indices
-            .extend_from_slice(&[base, base + 1, base + 2, base + 2, base + 1, base + 3]);
     }
 }
 
 /// An uploaded batch. Absent while there is nothing to draw.
 #[derive(Debug)]
 struct Batch {
-    vertices: wgpu::Buffer,
+    /// One record per vertex for meshes, one per primitive for the overlays.
+    records: wgpu::Buffer,
     indices: wgpu::Buffer,
     index_count: u32,
+    instances: u32,
 }
 
 impl Batch {
-    /// Upload a batch, or `None` if there is nothing to draw — wgpu rejects
-    /// zero-sized buffers.
-    fn upload<V: bytemuck::Pod>(
-        device: &wgpu::Device,
-        label: &str,
-        data: &BatchData<V>,
-    ) -> Option<Self> {
-        let (vertices, indices) = (&data.vertices, &data.indices);
-        if indices.is_empty() {
+    /// A mesh batch, drawn once through indices of its own. `None` if there is
+    /// nothing to draw — wgpu rejects zero-sized buffers.
+    fn indexed(device: &wgpu::Device, label: &str, data: &MeshData) -> Option<Self> {
+        if data.indices.is_empty() {
             return None;
         }
         Some(Self {
-            vertices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents: bytemuck::cast_slice(vertices),
-                usage: wgpu::BufferUsages::VERTEX,
-            }),
-            indices: device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some(label),
-                contents: bytemuck::cast_slice(indices),
-                usage: wgpu::BufferUsages::INDEX,
-            }),
-            index_count: indices.len() as u32,
+            records: Self::buffer(
+                device,
+                label,
+                bytemuck::cast_slice(&data.vertices),
+                wgpu::BufferUsages::VERTEX,
+            ),
+            indices: Self::buffer(
+                device,
+                label,
+                bytemuck::cast_slice(&data.indices),
+                wgpu::BufferUsages::INDEX,
+            ),
+            index_count: data.indices.len() as u32,
+            instances: 1,
+        })
+    }
+
+    /// An overlay batch: one record per primitive, every one of them drawn
+    /// through the same six shared indices.
+    fn instanced<R: BatchRecord>(
+        device: &wgpu::Device,
+        label: &str,
+        records: &[R],
+        quad: &wgpu::Buffer,
+    ) -> Option<Self> {
+        if records.is_empty() {
+            return None;
+        }
+        Some(Self {
+            records: Self::buffer(
+                device,
+                label,
+                bytemuck::cast_slice(records),
+                wgpu::BufferUsages::VERTEX,
+            ),
+            indices: quad.clone(),
+            index_count: QUAD_INDICES.len() as u32,
+            instances: records.len() as u32,
+        })
+    }
+
+    fn buffer(
+        device: &wgpu::Device,
+        label: &str,
+        contents: &[u8],
+        usage: wgpu::BufferUsages,
+    ) -> wgpu::Buffer {
+        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some(label),
+            contents,
+            usage,
         })
     }
 }
@@ -263,7 +328,8 @@ struct Pipelines<'a> {
 }
 
 impl Pipelines<'_> {
-    fn build<V: BatchVertex>(&self, spec: PassSpec) -> Pass {
+    fn build<R: BatchRecord>(&self, spec: PassSpec) -> Pass {
+        let () = R::LAYOUT_SPANS_STRUCT;
         let pipeline = self
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -274,9 +340,9 @@ impl Pipelines<'_> {
                     entry_point: Some(&format!("{}_vs", spec.name)),
                     compilation_options: Default::default(),
                     buffers: &[Some(wgpu::VertexBufferLayout {
-                        array_stride: std::mem::size_of::<V>() as u64,
-                        step_mode: wgpu::VertexStepMode::Vertex,
-                        attributes: V::ATTRIBUTES,
+                        array_stride: size_of::<R>() as u64,
+                        step_mode: R::STEP_MODE,
+                        attributes: R::ATTRIBUTES,
                     })],
                 },
                 fragment: Some(wgpu::FragmentState {
@@ -332,6 +398,8 @@ struct Gpu {
     meshes: Pass,
     curves: Pass,
     points: Pass,
+    /// The six indices both overlay passes draw every instance through.
+    quad: wgpu::Buffer,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     attachments: Option<Attachments>,
@@ -361,6 +429,11 @@ impl Gpu {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aperture.shader"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
+        });
+        let quad = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("aperture.quad"),
+            contents: bytemuck::cast_slice(&QUAD_INDICES),
+            usage: wgpu::BufferUsages::INDEX,
         });
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("aperture.uniforms"),
@@ -408,12 +481,12 @@ impl Gpu {
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
         });
-        let curves = pipelines.build::<CurveVertex>(PassSpec {
+        let curves = pipelines.build::<CurveInstance>(PassSpec {
             name: "curve",
             cull: None,
             alpha_to_coverage: false,
         });
-        let points = pipelines.build::<PointVertex>(PassSpec {
+        let points = pipelines.build::<PointInstance>(PassSpec {
             name: "point",
             cull: None,
             alpha_to_coverage: true,
@@ -422,6 +495,7 @@ impl Gpu {
             meshes,
             curves,
             points,
+            quad,
             uniforms,
             bind_group,
             attachments: None,
@@ -511,9 +585,9 @@ impl Renderer {
     /// World-space triangle soup for the whole scene. Transforms are applied
     /// here rather than per draw call, so a still scene costs one draw and no
     /// per-object bindings.
-    fn flatten_meshes(&self) -> BatchData<GpuVertex> {
+    fn flatten_meshes(&self) -> MeshData {
         let objects = &self.scene.objects;
-        let mut data = BatchData::with_capacity(
+        let mut data = MeshData::with_capacity(
             objects.iter().map(|o| o.mesh.vertices.len()).sum(),
             objects.iter().map(|o| o.mesh.indices.len()).sum(),
         );
@@ -537,60 +611,42 @@ impl Renderer {
         data
     }
 
-    /// Every curve segment as a quad the vertex shader will widen: two corners
-    /// at each end, one either side of the line.
-    fn flatten_curves(&self) -> BatchData<CurveVertex> {
+    /// Every curve segment as one instance. Both ends travel, since the shader
+    /// takes the ribbon's direction from the difference between them.
+    fn flatten_curves(&self) -> Vec<CurveInstance> {
         let segments: usize = self.scene.curves.iter().map(Curve::segment_count).sum();
-        let mut data = BatchData::with_capacity(segments * 4, segments * 6);
+        let mut instances = Vec::with_capacity(segments);
         for curve in &self.scene.curves {
             let color = curve.color.to_array();
             let half_width = curve.width * 0.5;
             let z_offset = curve.z_offset as f32;
             let plane = curve.plane_normal.unwrap_or(Vec3::ZERO).to_array();
-            for (a, b) in curve.segments() {
-                // The far end comes along, so the shader can take the
-                // direction from it. A corner at `b` sits on the opposite
-                // side to keep the pair on one edge of the ribbon, because
-                // its direction runs the other way.
-                data.quad([(a, b, 1.0), (a, b, -1.0), (b, a, -1.0), (b, a, 1.0)].map(
-                    |(position, other, side)| CurveVertex {
-                        position: position.to_array(),
-                        other: other.to_array(),
-                        color,
-                        side,
-                        half_width,
-                        z_offset,
-                        plane,
-                    },
-                ));
-            }
+            instances.extend(curve.segments().map(|(a, b)| CurveInstance {
+                start: a.to_array(),
+                end: b.to_array(),
+                color,
+                half_width,
+                z_offset,
+                plane,
+            }));
         }
-        data
+        instances
     }
 
-    /// Every marker as the quad the vertex shader will size: four corners of
-    /// the same world position, told apart only by which way they lean.
-    fn flatten_points(&self) -> BatchData<PointVertex> {
-        let points = &self.scene.points;
-        let mut data = BatchData::with_capacity(points.len() * 4, points.len() * 6);
-        for point in points {
-            let position = point.position.to_array();
-            let color = point.color.to_array();
-            let half_size = point.size * 0.5;
-            let z_offset = point.z_offset as f32;
-            let plane = point.plane_normal.unwrap_or(Vec3::ZERO).to_array();
-            data.quad(
-                [[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]].map(|corner| PointVertex {
-                    position,
-                    color,
-                    corner,
-                    half_size,
-                    z_offset,
-                    plane,
-                }),
-            );
-        }
-        data
+    /// Every marker as one instance. Only the anchor travels; the shader sizes
+    /// the quad around it.
+    fn flatten_points(&self) -> Vec<PointInstance> {
+        self.scene
+            .points
+            .iter()
+            .map(|point| PointInstance {
+                position: point.position.to_array(),
+                color: point.color.to_array(),
+                half_size: point.size * 0.5,
+                z_offset: point.z_offset as f32,
+                plane: point.plane_normal.unwrap_or(Vec3::ZERO).to_array(),
+            })
+            .collect()
     }
 }
 
@@ -624,13 +680,13 @@ impl GpuPaint for Renderer {
 
         let gpu = self.gpu.as_mut().expect("init runs before paint");
         if let Some(data) = meshes {
-            gpu.meshes.batch = Batch::upload(ctx.device, "aperture.meshes", &data);
+            gpu.meshes.batch = Batch::indexed(ctx.device, "aperture.meshes", &data);
         }
         if let Some(data) = curves {
-            gpu.curves.batch = Batch::upload(ctx.device, "aperture.curves", &data);
+            gpu.curves.batch = Batch::instanced(ctx.device, "aperture.curves", &data, &gpu.quad);
         }
         if let Some(data) = points {
-            gpu.points.batch = Batch::upload(ctx.device, "aperture.points", &data);
+            gpu.points.batch = Batch::instanced(ctx.device, "aperture.points", &data, &gpu.quad);
         }
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
@@ -676,9 +732,9 @@ impl GpuPaint for Renderer {
                 continue;
             };
             pass.set_pipeline(&layer.pipeline);
-            pass.set_vertex_buffer(0, batch.vertices.slice(..));
+            pass.set_vertex_buffer(0, batch.records.slice(..));
             pass.set_index_buffer(batch.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..batch.index_count, 0, 0..1);
+            pass.draw_indexed(0..batch.index_count, 0, 0..batch.instances);
         }
     }
 }

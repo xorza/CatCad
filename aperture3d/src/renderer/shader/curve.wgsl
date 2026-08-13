@@ -5,25 +5,35 @@ struct CurveVsOut {
     @location(0) color: vec3<f32>,
 };
 
-// A vertex arrives knowing both ends of its segment, which side of it to sit
-// on, how wide the stroke is, and how far to lift it in depth. The widening
-// happens here rather than on the CPU so it can be measured in pixels after
-// the projection divide — that is what keeps a stroke the same width near and
-// far.
+// One instance per segment: it arrives knowing both ends, how wide the stroke
+// is, and how far to lift it in depth. The widening happens here rather than
+// on the CPU so it can be measured in pixels after the projection divide —
+// that is what keeps a stroke the same width near and far.
+//
+// The four corners differ only in which end they sit at and which side they
+// lean to, so both come from the index rather than the buffer. Corners 0 and 1
+// sit at `start` facing `end`; 2 and 3 sit at `end` facing back, and their
+// sides invert because the direction they measure across runs the other way —
+// which is what keeps each pair on one edge of the ribbon.
 //
 // A segment crossing the near plane has an end with no meaningful screen
 // position. Its ribbon distorts, but every fragment of it is clipped away, so
 // only the visible remainder is drawn.
 @vertex
 fn curve_vs(
-    @location(0) position: vec3<f32>,
-    @location(1) other: vec3<f32>,
+    @builtin(vertex_index) corner: u32,
+    @location(0) start: vec3<f32>,
+    @location(1) end: vec3<f32>,
     @location(2) color: vec3<f32>,
-    @location(3) side: f32,
-    @location(4) half_width: f32,
-    @location(5) z_offset: f32,
-    @location(6) plane: vec3<f32>,
+    @location(3) half_width: f32,
+    @location(4) z_offset: f32,
+    @location(5) plane: vec3<f32>,
 ) -> CurveVsOut {
+    let at_end = corner >= 2u;
+    let position = select(start, end, at_end);
+    let other = select(end, start, at_end);
+    let side = select(1.0, -1.0, corner == 1u || corner == 2u);
+
     let here = u.view_proj * vec4<f32>(position, 1.0);
     let there = u.view_proj * vec4<f32>(other, 1.0);
     let here_ndc = here.xyz / max(here.w, MIN_W);

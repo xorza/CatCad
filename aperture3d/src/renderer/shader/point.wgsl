@@ -7,20 +7,28 @@ struct PointVsOut {
     @location(1) corner: vec2<f32>,
 };
 
-// A marker is a quad facing the screen, sized in pixels and hung off a world
-// position. Unlike a stroke it has no direction to widen across, so every
-// corner takes the anchor's depth: the glyph is a label on a point, not a
-// surface lying over one.
+// One instance per marker: a quad facing the screen, sized in pixels and hung
+// off a world position. Unlike a stroke it has no direction to widen across,
+// so every corner takes the anchor's depth: the glyph is a label on a point,
+// not a surface lying over one.
+//
+// The quad spans ±1 either way and nothing else tells its corners apart, so
+// the two low bits of the index are the whole of it — bit 0 picks x, bit 1
+// picks y.
 @vertex
 fn point_vs(
+    @builtin(vertex_index) index: u32,
     @location(0) position: vec3<f32>,
     @location(1) color: vec3<f32>,
-    @location(2) corner: vec2<f32>,
     // Half the diameter in logical px, then the depth bias.
-    @location(3) half_size: f32,
-    @location(4) z_offset: f32,
-    @location(5) plane: vec3<f32>,
+    @location(2) half_size: f32,
+    @location(3) z_offset: f32,
+    @location(4) plane: vec3<f32>,
 ) -> PointVsOut {
+    let corner = vec2<f32>(
+        select(-1.0, 1.0, (index & 1u) != 0u),
+        select(-1.0, 1.0, (index & 2u) != 0u),
+    );
     let anchor = u.view_proj * vec4<f32>(position, 1.0);
     let half_px = half_size * u.raster_scale;
     let offset_ndc = ndc_from_px_delta(corner * half_px);

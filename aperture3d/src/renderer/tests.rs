@@ -81,13 +81,12 @@ fn flatten_of_an_empty_scene_uploads_nothing() {
     assert!(data.vertices.is_empty());
     assert!(data.indices.is_empty());
 
-    let curves = renderer.flatten_curves();
-    assert!(curves.vertices.is_empty());
-    assert!(curves.indices.is_empty());
+    assert!(renderer.flatten_curves().is_empty());
+    assert!(renderer.flatten_points().is_empty());
 }
 
 #[test]
-fn flatten_curves_expands_each_segment_into_a_quad() {
+fn flatten_curves_ships_one_instance_per_segment() {
     let (a, b, c) = (Vec3::ZERO, Vec3::X, Vec3::new(1.0, 1.0, 0.0));
     let mut scene = Scene::default();
     scene.curves.push(
@@ -98,40 +97,67 @@ fn flatten_curves_expands_each_segment_into_a_quad() {
     );
     let data = Renderer::new(scene).flatten_curves();
 
-    // Two segments, four corners and six indices apiece.
-    assert_eq!(data.vertices.len(), 8);
-    assert_eq!(data.indices.len(), 12);
+    // Three points, two segments, one record each — the four corners are the
+    // shader's business now.
+    assert_eq!(data.len(), 2);
 
-    // The first segment's corners: two at `a` looking towards `b`, two at
-    // `b` looking back. Half of the authored width travels with each.
-    let quad = &data.vertices[..4];
-    assert_eq!(quad[0].position, a.to_array());
-    assert_eq!(quad[1].position, a.to_array());
-    assert_eq!(quad[2].position, b.to_array());
-    assert_eq!(quad[3].position, b.to_array());
-    assert_eq!(quad[0].other, b.to_array());
-    assert_eq!(quad[2].other, a.to_array());
-    assert_eq!((quad[0].side, quad[0].half_width), (1.0, 1.5));
-    assert_eq!((quad[1].side, quad[1].half_width), (-1.0, 1.5));
-    // The far end's direction runs backwards, so its sides invert to keep
-    // each pair on one edge of the ribbon.
-    assert_eq!((quad[2].side, quad[2].half_width), (-1.0, 1.5));
-    assert_eq!((quad[3].side, quad[3].half_width), (1.0, 1.5));
-    assert!(quad.iter().all(|v| v.color == [0.25, 0.5, 0.75]));
-    // The bias is the whole quad's, not one corner's: a ribbon tilted in
-    // depth against itself would z-fight along its own length.
-    assert!(data.vertices.iter().all(|v| v.z_offset == 64.0));
+    // Both ends travel so the shader can take the ribbon's direction from
+    // their difference, and half the authored width rides along.
+    assert_eq!(data[0].start, a.to_array());
+    assert_eq!(data[0].end, b.to_array());
+    assert_eq!(data[1].start, b.to_array());
+    assert_eq!(data[1].end, c.to_array());
+    assert!(data.iter().all(|i| i.half_width == 1.5));
+    assert!(data.iter().all(|i| i.color == [0.25, 0.5, 0.75]));
+    // The bias is the segment's, not a corner's: a ribbon tilted in depth
+    // against itself would z-fight along its own length.
+    assert!(data.iter().all(|i| i.z_offset == 64.0));
     // No plane named, so the shader gets all-zero and falls back to reading
     // depth off the centreline.
-    assert!(data.vertices.iter().all(|v| v.plane == [0.0; 3]));
+    assert!(data.iter().all(|i| i.plane == [0.0; 3]));
+}
 
-    // The two triangles cover the quad rather than overlapping: together
-    // they use each corner, and the shared edge runs 1–2.
-    assert_eq!(data.indices[..6], [0, 1, 2, 2, 1, 3]);
-    // The second segment is rebased past the first's corners.
-    assert_eq!(data.indices[6..], [4, 5, 6, 6, 5, 7]);
-    assert_eq!(data.vertices[4].position, b.to_array());
-    assert_eq!(data.vertices[4].other, c.to_array());
+/// The corner layout the shaders reconstruct, kept honest from the Rust side:
+/// `QUAD_INDICES` is what `@builtin(vertex_index)` delivers, and each shader
+/// derives its corner from that number alone.
+#[test]
+fn the_shared_quad_covers_itself_without_overlapping() {
+    assert_eq!(QUAD_INDICES, [0, 1, 2, 2, 1, 3]);
+    // Two triangles, each corner used, and the shared edge running 1–2.
+    let mut used = QUAD_INDICES.to_vec();
+    used.sort_unstable();
+    used.dedup();
+    assert_eq!(used, [0, 1, 2, 3]);
+
+    // `point_vs` reads x off bit 0 and y off bit 1, which has to reproduce
+    // the ±1 square the markers used to carry per corner.
+    let corners: Vec<[f32; 2]> = (0..4u32)
+        .map(|index| {
+            [
+                if index & 1 != 0 { 1.0 } else { -1.0 },
+                if index & 2 != 0 { 1.0 } else { -1.0 },
+            ]
+        })
+        .collect();
+    assert_eq!(
+        corners,
+        [[-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0], [1.0, 1.0]]
+    );
+
+    // `curve_vs` puts corners 0 and 1 at `start` and 2 and 3 at `end`, with
+    // the sides inverting across the middle so each pair holds one edge.
+    let sides: Vec<(bool, f32)> = (0..4u32)
+        .map(|index| {
+            (
+                index >= 2,
+                if index == 1 || index == 2 { -1.0 } else { 1.0 },
+            )
+        })
+        .collect();
+    assert_eq!(
+        sides,
+        [(false, 1.0), (false, -1.0), (true, -1.0), (true, 1.0)]
+    );
 }
 
 #[test]
@@ -147,10 +173,8 @@ fn flatten_curves_normalizes_and_spreads_a_named_plane() {
     );
     let data = Renderer::new(scene).flatten_curves();
 
-    assert_eq!(data.vertices.len(), 4);
-    for vertex in &data.vertices {
-        assert_eq!(vertex.plane, [0.0, 1.0, 0.0], "{vertex:?}");
-    }
+    assert_eq!(data.len(), 1);
+    assert_eq!(data[0].plane, [0.0, 1.0, 0.0], "{data:?}");
 }
 
 #[test]
@@ -165,9 +189,12 @@ fn flatten_curves_strokes_the_closing_segment_too() {
     scene.curves.push(Curve::new(corners.clone()).closed());
     let closed = Renderer::new(scene).flatten_curves();
     // Four corners closed is four segments; open would be three.
-    assert_eq!(closed.vertices.len(), 16);
+    assert_eq!(closed.len(), 4);
+    // The closing segment runs from the last point back to the first.
+    assert_eq!(closed[3].start, corners[3].to_array());
+    assert_eq!(closed[3].end, corners[0].to_array());
 
     let mut scene = Scene::default();
     scene.curves.push(Curve::new(corners));
-    assert_eq!(Renderer::new(scene).flatten_curves().vertices.len(), 12);
+    assert_eq!(Renderer::new(scene).flatten_curves().len(), 3);
 }

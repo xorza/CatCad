@@ -6,12 +6,16 @@ just noise for the next reader.
 
 ## Geometry is reallocated and re-uploaded wholesale on every edit
 
-- [ ] Each `flatten*` allocates fresh `Vec`s per dirty paint rather than
-      refilling retained scratch, so every geometry edit costs three
-      allocations proportional to the whole scene.
-- [ ] `Batch::upload` creates new `wgpu::Buffer`s each time rather than writing
-      into existing ones, so a one-vertex change discards and reallocates every
-      vertex and index buffer.
+Nothing calls `objects_mut`, `curves_mut` or `points_mut` anywhere, so the
+scene is built once and the re-upload path below is unreachable today. It is
+what editing will cost, not what the app costs now.
+
+- [ ] Each `flatten*` allocates a fresh `Vec` per dirty paint rather than
+      refilling retained scratch — two for meshes, one for each overlay — sized
+      to the whole of the batch that was dirtied.
+- [ ] `Batch::indexed` and `Batch::instanced` create new `wgpu::Buffer`s each
+      time rather than writing into existing ones, so a one-vertex change
+      discards and reallocates that batch's buffers.
 
 ## Constraint arms repeat their scaffolding around the part that differs
 
