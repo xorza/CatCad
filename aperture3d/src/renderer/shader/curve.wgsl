@@ -36,8 +36,8 @@ fn curve_vs(
 
     let here = u.view_proj * vec4<f32>(position, 1.0);
     let there = u.view_proj * vec4<f32>(other, 1.0);
-    let here_ndc = here.xyz / max(here.w, MIN_W);
-    let there_ndc = there.xyz / max(there.w, MIN_W);
+    let here_ndc = ndc_from_clip(here);
+    let there_ndc = ndc_from_clip(there);
 
     let travel = px_from_ndc_delta(there_ndc.xy - here_ndc.xy);
     let length_px = length(travel);

@@ -91,6 +91,14 @@ fn px_from_ndc_delta(delta: vec2<f32>) -> vec2<f32> {
     return delta * u.viewport * 0.5;
 }
 
+// The perspective divide, floored so a position at or behind the eye answers
+// with something finite rather than an infinity to widen a quad from. What
+// comes back is meaningless there, and is meant to be: those vertices exist to
+// be clipped against, and the clip reads the `z` they carry.
+fn ndc_from_clip(clip: vec4<f32>) -> vec3<f32> {
+    return clip.xyz / max(clip.w, MIN_W);
+}
+
 fn ndc_from_px_delta(delta: vec2<f32>) -> vec2<f32> {
     return delta * 2.0 / u.viewport;
 }

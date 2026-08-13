@@ -4,7 +4,12 @@
 // depends on it: raise it and the band narrows, lower it and more fragments
 // are shaded and thrown away. It never decides how round the circle is, which
 // is the whole point of drawing one this way.
-const RING_STEPS: u32 = 32u;
+//
+// Handed over by the pipeline rather than written here, because the index
+// buffer walking these same angles is built on the Rust side and the two
+// drifting apart is invisible: one way round draws the ring twice over, the
+// other draws half of it. There is one of them, and this is not it.
+override RING_STEPS: u32;
 
 // How far along the radius to step when asking what a pixel is worth there.
 // A sixteenth is short enough that the projection barely bends over it and
@@ -14,10 +19,9 @@ const RING_PROBE: f32 = 0.0625;
 // Pixels between two world positions. Both are divided by their own `w`, so a
 // position behind the eye answers with the floor rather than an infinity.
 fn pixels_between(start: vec3<f32>, end: vec3<f32>) -> f32 {
-    let a = u.view_proj * vec4<f32>(start, 1.0);
-    let b = u.view_proj * vec4<f32>(end, 1.0);
-    let apart = b.xy / max(b.w, MIN_W) - a.xy / max(a.w, MIN_W);
-    return length(px_from_ndc_delta(apart));
+    let a = ndc_from_clip(u.view_proj * vec4<f32>(start, 1.0));
+    let b = ndc_from_clip(u.view_proj * vec4<f32>(end, 1.0));
+    return length(px_from_ndc_delta(b.xy - a.xy));
 }
 
 struct RingVsOut {
@@ -53,7 +57,8 @@ fn ring_vs(
 ) -> RingVsOut {
     let angle = f32(vertex / 2u) / f32(RING_STEPS) * TAU;
     let outward = (vertex & 1u) != 0u;
-    let along = cos(angle) * x_axis + sin(angle) * y_axis;
+    let turn = vec2<f32>(cos(angle), sin(angle));
+    let along = turn.x * x_axis + turn.y * y_axis;
 
     // What a pixel is worth in world units here — the worst it is worth, in
     // any direction along the plane.
@@ -65,7 +70,7 @@ fn ring_vs(
     // edge starts cutting the stroke off. Two square probes bracket the worst
     // direction to within a factor of root two, which is what pays for the
     // `SQRT_2` below.
-    let tangent = -sin(angle) * x_axis + cos(angle) * y_axis;
+    let tangent = -turn.y * x_axis + turn.x * y_axis;
     let rim = center + along * radius;
     let step = radius * RING_PROBE;
     let spread = min(
@@ -74,12 +79,17 @@ fn ring_vs(
     );
     let world_per_px = step / max(spread, MIN_PX);
 
-    // The chord between two steps dips this far inside the arc. That is a fact
-    // about the circle rather than about the view, so it needs no projecting.
-    let sagitta = radius * (1.0 - cos(PI / f32(RING_STEPS)));
+    // How far past the rim the stroke reaches, in the plane. One pixel more
+    // than half a width covers the edge the fragment stage fades over.
     let half_px = half_width * u.raster_scale;
-    // One pixel past the stroke covers the edge the fragment stage fades over.
-    let reach = (half_px + 1.0) * world_per_px * SQRT_2 + sagitta;
+    let cover = (half_px + 1.0) * world_per_px * SQRT_2;
+    // The band's outer edge is a chord, not an arc, so it dips inside the
+    // circle it was built on by the time it reaches the midpoint between two
+    // steps. Pushing the corners out by exactly that ratio puts the midpoint
+    // where the stroke needs it — which is what leaves `RING_STEPS` free to be
+    // anything at all, rather than only large enough for the shortfall not to
+    // show.
+    let reach = (radius + cover) / cos(PI / f32(RING_STEPS)) - radius;
     let offset = select(-reach, reach, outward);
     let out_radius = radius + offset;
 
@@ -89,7 +99,7 @@ fn ring_vs(
         z_offset,
     );
     out.color = color;
-    out.plane = vec2<f32>(cos(angle), sin(angle)) * out_radius;
+    out.plane = turn * out_radius;
     out.radius = radius;
     out.half_px = half_px;
     return out;

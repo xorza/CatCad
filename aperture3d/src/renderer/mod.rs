@@ -182,9 +182,14 @@ impl BatchRecord for RingInstance {
     ];
 }
 
-/// Vertex pairs the ring band is built from, which has to match `RING_STEPS`
-/// in `ring.wgsl` — the shader walks the same angles this indexes.
+/// Vertex pairs the ring band is built from. Stated here alone: `ring.wgsl`
+/// declares it `override` and is handed this at pipeline creation, so the
+/// indices below and the angles the shader walks cannot come apart.
 const RING_STEPS: usize = 32;
+
+/// What every pipeline built from the shared module is told. Only the ring
+/// pass reads it, but the declaration is module-scope and so is this.
+const OVERRIDES: [(&str, f64); 1] = [("RING_STEPS", RING_STEPS as f64)];
 
 /// The band's triangles: a quad per step, wrapping at the last back to the
 /// first. Inner and outer alternate, so step `s` owns vertices `2s` and
@@ -399,6 +404,10 @@ struct Pipelines<'a> {
 impl Pipelines<'_> {
     fn build<R: BatchRecord>(&self, spec: PassSpec) -> Pass {
         let () = R::LAYOUT_SPANS_STRUCT;
+        let compilation_options = wgpu::PipelineCompilationOptions {
+            constants: &OVERRIDES,
+            ..Default::default()
+        };
         let pipeline = self
             .device
             .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
@@ -407,7 +416,7 @@ impl Pipelines<'_> {
                 vertex: wgpu::VertexState {
                     module: self.shader,
                     entry_point: Some(&format!("{}_vs", spec.name)),
-                    compilation_options: Default::default(),
+                    compilation_options: compilation_options.clone(),
                     buffers: &[Some(wgpu::VertexBufferLayout {
                         array_stride: size_of::<R>() as u64,
                         step_mode: R::STEP_MODE,
@@ -417,7 +426,7 @@ impl Pipelines<'_> {
                 fragment: Some(wgpu::FragmentState {
                     module: self.shader,
                     entry_point: Some(&format!("{}_fs", spec.name)),
-                    compilation_options: Default::default(),
+                    compilation_options,
                     targets: &[Some(wgpu::ColorTargetState {
                         format: self.target_format,
                         blend: None,

@@ -36,7 +36,7 @@ fn point_vs(
     // A glyph wide enough to see is wide enough for the surface under it to
     // rise through, so the disc follows the plane's depth exactly as a stroke
     // does. Without a plane it stays flat and leans on the bias alone.
-    let anchor_ndc = anchor.xyz / max(anchor.w, MIN_W);
+    let anchor_ndc = ndc_from_clip(anchor);
     let plane_shift = plane_depth_shift(position, plane, anchor, anchor_ndc, offset_ndc);
 
     var out: PointVsOut;
