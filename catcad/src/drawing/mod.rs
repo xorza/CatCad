@@ -68,6 +68,18 @@ impl Drawing {
         self.revision = self.revision.next();
     }
 
+    /// Move the geometry with `edit`, `held` pinned for the length of it, and
+    /// take everything the solve that follows decides.
+    ///
+    /// Where the solver's shape meets the drawing's, so that neither shows at a
+    /// grip. [`Solver::edit_holding`] wants an edit to run between the snapshot
+    /// it takes and the solve it judges; [`Drawing::settled`] wants a solve to
+    /// run between the fields it writes. Nesting the two is what every grip
+    /// below would otherwise be spelling out for itself.
+    fn dragged(&mut self, solver: &mut Solver, held: &[PointId], edit: impl FnOnce(&mut Sketch)) {
+        self.settled(|sketch, freedoms| solver.edit_holding(sketch, held, freedoms, edit));
+    }
+
     /// What the last solve made of it.
     pub(crate) fn report(&self) -> SolveReport {
         self.report
@@ -201,9 +213,7 @@ impl Drawing {
     pub(crate) fn drag_to(&mut self, solver: &mut Solver, grip: Grip, world: Vec3) {
         let at = self.plane.flatten(world.as_dvec3());
         match grip {
-            Grip::Point(id) => self.settled(|sketch, freedoms| {
-                solver.edit_holding(sketch, &[id], freedoms, |sketch| sketch.set_point(id, at))
-            }),
+            Grip::Point(id) => self.dragged(solver, &[id], |sketch| sketch.set_point(id, at)),
             Grip::Segment { id, t } => {
                 // Both ends travel by whatever it takes to put the spot that
                 // was grabbed under the cursor. Measured against where that
@@ -212,23 +222,17 @@ impl Drawing {
                 let edge = self.sketch.segment(id);
                 let (a, b) = (self.sketch.point(edge.a), self.sketch.point(edge.b));
                 let shift = at - a.lerp(b, t);
-                self.settled(|sketch, freedoms| {
-                    solver.edit_holding(sketch, &[edge.a, edge.b], freedoms, |sketch| {
-                        sketch.set_point(edge.a, a + shift);
-                        sketch.set_point(edge.b, b + shift);
-                    })
+                self.dragged(solver, &[edge.a, edge.b], |sketch| {
+                    sketch.set_point(edge.a, a + shift);
+                    sketch.set_point(edge.b, b + shift);
                 });
             }
             Grip::Rim(id) => {
                 // A rim drives the radius rather than moving the circle, so
                 // the centre is held: growing a circle should not walk it.
-                let circle = self.sketch.circle(id);
-                let radius = (at - self.sketch.point(circle.center)).length();
-                self.settled(|sketch, freedoms| {
-                    solver.edit_holding(sketch, &[circle.center], freedoms, |sketch| {
-                        sketch.set_radius(id, radius)
-                    })
-                });
+                let center = self.sketch.circle(id).center;
+                let radius = (at - self.sketch.point(center)).length();
+                self.dragged(solver, &[center], |sketch| sketch.set_radius(id, radius));
             }
         }
     }
