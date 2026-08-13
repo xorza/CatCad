@@ -19,14 +19,17 @@ struct Raised {
 impl Raised {
     fn new() -> Self {
         let mut document = demo::document();
-        let mut scene = document.raise();
+        let mut names = Names::default();
+        let mut scene = document.raise(&mut names);
         document.frame(&scene);
         scene.camera = document.camera();
+        let mut view = SceneView::new(scene, names);
+        view.settle(&document);
         Self {
             document,
             history: History::default(),
             intents: Intents::default(),
-            view: SceneView::new(scene),
+            view,
             harness: UiHarness::new(SIZE),
         }
     }
@@ -47,8 +50,8 @@ impl Raised {
         harness.frame(|ui| {
             intents.clear();
             view.show(ui, document, intents);
-            let moved = history.apply(document, intents);
-            view.settle(document, moved);
+            history.apply(document, intents);
+            view.settle(document);
         });
     }
 
@@ -74,9 +77,9 @@ impl Raised {
 
     /// Where the *document* says its markers are, which is not the same
     /// question as where the scene the renderer holds still shows them.
-    fn asked_for(&mut self) -> Vec<Vec3> {
+    fn asked_for(&self) -> Vec<Vec3> {
         self.document
-            .raise()
+            .raise(&mut Names::default())
             .points
             .iter()
             .map(|point| point.position)
@@ -115,7 +118,10 @@ impl Raised {
                 renderer
                     .scene()
                     .nearest(cursor, viewport, HOVER_REACH)
-                    .is_some_and(|hit| keep(self.document.drawing().grip(&hit)))
+                    .is_some_and(|hit| {
+                        let named = self.view.named(hit.tag);
+                        keep(named.and_then(|named| self.document.drawing().grip(named, hit.at)))
+                    })
             })
     }
 
@@ -375,9 +381,15 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
         "the view edited the drawing on its way past"
     );
 
-    // Applying is what moves it, and what says the drawing is owed a redraw.
-    let moved = raised.history.apply(&mut raised.document, &raised.intents);
-    assert!(moved, "a drag left the drawing to be laid out as it was");
+    // Applying is what moves it, and what marks the drawing as needing to be
+    // laid out again — which the drawing says of itself rather than being told.
+    let unlaid = raised.document.drawing().revision();
+    raised.history.apply(&mut raised.document, &raised.intents);
+    assert_ne!(
+        raised.document.drawing().revision(),
+        unlaid,
+        "a drag left the drawing looking exactly as laid out as before"
+    );
     assert_ne!(raised.asked_for(), before, "the applied drag moved nothing");
 
     // And the same of the camera: an orbit off the drawing is asked for, not
@@ -404,8 +416,11 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     // which drives whole frames — an orbit is a delta against what the last
     // pass already took, so how far this one turns depends on which pass is
     // being read, and only the whole frame has a stable answer.
-    assert!(
-        !raised.history.apply(&mut raised.document, &raised.intents),
+    let unlaid = raised.document.drawing().revision();
+    raised.history.apply(&mut raised.document, &raised.intents);
+    assert_eq!(
+        raised.document.drawing().revision(),
+        unlaid,
         "an orbit asked the drawing to be laid out again"
     );
 }

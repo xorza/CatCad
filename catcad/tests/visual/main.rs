@@ -462,6 +462,11 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
                 .width(2.0),
         );
     }
+    // The substituted ring survives the frame below because nothing in it
+    // touches the drawing: the view lays the drawing out again only when the
+    // document says it has moved on, and recording a frame that edits nothing
+    // leaves the overlays exactly as they were set above.
+    //
     // Parallel, so no foreshortening enters the measurement. Zoomed until a
     // world radius of 1 spans `RIM_PX`, and aimed at the rim rather than the
     // centre — at that magnification the centre is far off the frame and only a

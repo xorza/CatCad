@@ -2,6 +2,13 @@ use super::*;
 use crate::demo;
 use aperture::Projection;
 
+/// Raising a document needs somewhere to put the names of what it draws. Every
+/// test here wants the scene rather than the names, so they go in a fresh one
+/// and are dropped with it.
+fn raise(document: &Document) -> Scene {
+    document.raise(&mut Names::default())
+}
+
 /// Raising a document lays out everything it holds: the solids as they were
 /// given, and the drawing as the strokes, rims and markers it turns into.
 ///
@@ -9,8 +16,8 @@ use aperture::Projection;
 /// document does not say, which is the whole reason saving one is enough.
 #[test]
 fn raising_a_document_lays_out_its_solids_and_its_drawing() {
-    let mut document = demo::document();
-    let scene = document.raise();
+    let document = demo::document();
+    let scene = raise(&document);
 
     // The slab and the three boxes standing on it.
     assert_eq!(scene.objects.len(), 4);
@@ -23,7 +30,7 @@ fn raising_a_document_lays_out_its_solids_and_its_drawing() {
 
     // Raising it again says the same thing: the document is unchanged by being
     // looked at, which is what makes it the thing worth saving.
-    let again = document.raise();
+    let again = raise(&document);
     assert_eq!(again.objects.len(), scene.objects.len());
     assert_eq!(again.points.len(), scene.points.len());
     assert_eq!(again.camera, scene.camera);
@@ -34,7 +41,7 @@ fn raising_a_document_lays_out_its_solids_and_its_drawing() {
 #[test]
 fn framing_a_document_points_its_camera_at_what_it_draws() {
     let mut document = demo::document();
-    let scene = document.raise();
+    let scene = raise(&document);
     let unframed = document.camera();
 
     document.frame(&scene);
@@ -66,7 +73,7 @@ fn framing_a_document_points_its_camera_at_what_it_draws() {
 #[test]
 fn the_renderer_is_aimed_through_the_documents_own_camera() {
     let mut document = demo::document();
-    let scene = document.raise();
+    let scene = raise(&document);
     document.frame(&scene);
     let mut renderer = Renderer::new(scene);
 

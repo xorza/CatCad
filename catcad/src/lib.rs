@@ -32,7 +32,7 @@ use silverpoint::SolveReport;
 use crate::document::Document;
 use crate::history::History;
 use crate::intent::{Intent, Intents};
-use crate::named::Named;
+use crate::named::{Named, Names};
 use crate::scene_view::SceneView;
 
 /// Take back the last step, and put it back.
@@ -76,14 +76,22 @@ impl CatCad {
         let mut document = demo::document();
         // Raised before it is framed, because what has to fit on screen is what
         // the document turns into and not the document itself.
-        let mut scene = document.raise();
+        let mut names = Names::default();
+        let mut scene = document.raise(&mut names);
         document.frame(&scene);
         scene.camera = document.camera();
+        let mut view = SceneView::new(scene, names);
+        // Settled once here, so the view's account of what it has drawn agrees
+        // with the scene it was handed. Without it the view would be holding a
+        // laid-out drawing while believing it had laid nothing out, and would
+        // lay it out again on the first frame — harmless, but it would mean the
+        // app was never quite consistent until it had drawn once.
+        view.settle(&document);
         Self {
             document,
             history: History::default(),
             intents: Intents::default(),
-            view: SceneView::new(scene),
+            view,
         }
     }
 
@@ -183,8 +191,8 @@ impl App for CatCad {
                 }
                 // Everything above only asked. This is where a frame's asking
                 // becomes a change, and where what that changed is drawn.
-                let moved = self.history.apply(&mut self.document, &self.intents);
-                self.view.settle(&mut self.document, moved);
+                self.history.apply(&mut self.document, &self.intents);
+                self.view.settle(&self.document);
             });
     }
 }

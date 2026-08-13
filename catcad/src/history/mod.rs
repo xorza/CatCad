@@ -46,23 +46,19 @@ pub(crate) struct History {
 impl History {
     /// Land everything a frame asked for, recording whatever moved the drawing.
     ///
-    /// Answers whether the drawing has to be laid out again — true for a drag
-    /// that went somewhere and for an undo or redo that had something to do,
-    /// false for a camera that merely turned.
-    pub(crate) fn apply(&mut self, document: &mut Document, intents: &Intents) -> bool {
-        let mut moved = false;
+    /// Says nothing about what it did. Whether the drawing moved is a fact
+    /// about the drawing, and anything that needs it reads
+    /// [`Drawing::revision`](crate::drawing::Drawing::revision) — which cannot
+    /// be forgotten to pass on, or passed on wrongly.
+    pub(crate) fn apply(&mut self, document: &mut Document, intents: &Intents) {
         for intent in intents.iter() {
-            moved |= match intent {
+            match intent {
                 Intent::Undo => self.undo(document),
                 Intent::Redo => self.redo(document),
-                Intent::Release => {
-                    self.close();
-                    false
-                }
+                Intent::Release => self.close(),
                 edit => self.step(document, edit),
-            };
+            }
         }
-        moved
     }
 
     /// Whether there is anything to take back.
@@ -85,7 +81,7 @@ impl History {
     /// refuse records nothing, because
     /// [`Solver::edit_holding`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
-    fn step(&mut self, document: &mut Document, intent: Intent) -> bool {
+    fn step(&mut self, document: &mut Document, intent: Intent) {
         let extending = self.open && intent.coalesces();
         if !extending {
             self.close();
@@ -99,13 +95,12 @@ impl History {
             // lasting a second rewrites one buffer sixty times rather than
             // leaving sixty steps to take back one at a time.
             let open = self.edits.last_mut().expect("an open step is on the stack");
-            let moved = self.after.moved_from(&open.after);
             open.after.clone_from(&self.after);
-            return moved;
+            return;
         }
 
         if !self.after.moved_from(&self.before) {
-            return false;
+            return;
         }
         // Anything undone and not yet put back is gone the moment something
         // else is done — there is no longer a history in which it happened.
@@ -117,33 +112,30 @@ impl History {
         self.applied = self.edits.len();
         self.open = intent.coalesces();
         self.forget_the_oldest();
-        true
     }
 
-    /// Take back the last step. Answers whether there was one.
-    fn undo(&mut self, document: &mut Document) -> bool {
+    /// Take back the last step, if there is one.
+    fn undo(&mut self, document: &mut Document) {
         self.close();
         if !self.can_undo() {
-            return false;
+            return;
         }
         self.applied -= 1;
         document
             .drawing_mut()
             .restore(&self.edits[self.applied].before);
-        true
     }
 
-    /// Put back the last step taken away. Answers whether there was one.
-    fn redo(&mut self, document: &mut Document) -> bool {
+    /// Put back the last step taken away, if there is one.
+    fn redo(&mut self, document: &mut Document) {
         self.close();
         if !self.can_redo() {
-            return false;
+            return;
         }
         document
             .drawing_mut()
             .restore(&self.edits[self.applied].after);
         self.applied += 1;
-        true
     }
 
     /// Finish the step a gesture has been extending.

@@ -93,38 +93,22 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let hub = sketch.add_point(DVec2::new(2.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     sketch.fix(pinned);
-    let mut drawing = Drawing::new(sketch, SketchPlane::GROUND);
+    let drawing = Drawing::new(sketch, SketchPlane::GROUND);
 
-    // Naming everything, so the tags below stand for what they say.
-    let mut scene = Scene::default();
-    drawing.write_into(scene.overlays_mut());
-    let tag_of = |entity: Named| -> Tag {
-        let found = (0..64)
-            .map(Tag::new)
-            .find(|&tag| drawing.resolve(tag) == Some(entity));
-        found.expect("the drawing names everything it draws")
-    };
-
-    let free_point = hit(tag_of(Named::Point(free)), HitAt::Point);
-    assert_eq!(drawing.grip(&free_point), Some(Grip::Point(free)));
+    assert_eq!(
+        drawing.grip(Named::Point(free), HitAt::Point),
+        Some(Grip::Point(free))
+    );
 
     // `fix` is the user saying where it goes, and a drag is not an argument.
-    let pinned_point = hit(tag_of(Named::Point(pinned)), HitAt::Point);
-    assert_eq!(drawing.grip(&pinned_point), None);
+    assert_eq!(drawing.grip(Named::Point(pinned), HitAt::Point), None);
 
     // An edge slides only if both its ends can: one pinned end would pivot it
     // rather than translate it, which is not what a grab on an edge means.
-    let held = hit(
-        tag_of(Named::Segment(anchored)),
-        HitAt::Segment { index: 0, t: 0.5 },
-    );
-    assert_eq!(drawing.grip(&held), None);
-    let slides = hit(
-        tag_of(Named::Segment(floating)),
-        HitAt::Segment { index: 0, t: 0.25 },
-    );
+    let along = |t| HitAt::Segment { index: 0, t };
+    assert_eq!(drawing.grip(Named::Segment(anchored), along(0.5)), None);
     assert_eq!(
-        drawing.grip(&slides),
+        drawing.grip(Named::Segment(floating), along(0.25)),
         Some(Grip::Segment {
             id: floating,
             t: 0.25
@@ -132,8 +116,10 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     );
 
     // A rim drives the radius, so where round it was grabbed does not matter.
-    let rim = hit(tag_of(Named::Circle(hole)), HitAt::Ring { angle: 1.2 });
-    assert_eq!(drawing.grip(&rim), Some(Grip::Rim(hole)));
+    assert_eq!(
+        drawing.grip(Named::Circle(hole), HitAt::Ring { angle: 1.2 }),
+        Some(Grip::Rim(hole))
+    );
 
     // Whatever the grip, the answer is the drawing's own plane — a plane is
     // named by any point of it, so there is nothing per-grip to say.
@@ -212,18 +198,6 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     assert!((drawing.sketch.circle(hole).radius - 2.0).abs() < 1e-9);
 }
 
-/// A `Hit` as `Scene::nearest` would report one, for the parts of a grip that
-/// do not depend on where the cursor was.
-fn hit(tag: Tag, at: HitAt) -> Hit {
-    Hit {
-        tag,
-        at,
-        world: Vec3::ZERO,
-        screen: 0.0,
-        distance: 0.0,
-    }
-}
-
 /// A rewrite renames the drawing from scratch, so the tags have to come out
 /// the same — a drag holds one across every frame of itself, and a tag that
 /// shifted would let go of the point and grab its neighbour.
@@ -232,11 +206,12 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     let mut linkage = Linkage::new();
     let mut scene = Scene::default();
 
-    linkage.drawing.write_into(scene.overlays_mut());
+    let mut names = Names::default();
+    linkage.drawing.write_into(&mut names, scene.overlays_mut());
     let before: Vec<Option<Named>> = scene
         .points
         .iter()
-        .map(|point| point.tag.and_then(|tag| linkage.drawing.resolve(tag)))
+        .map(|point| point.tag.and_then(|tag| names.get(tag)))
         .collect();
     assert_eq!(before.len(), 2);
     assert!(before.iter().all(Option::is_some));
@@ -247,12 +222,12 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
         Grip::Point(linkage.grip),
         plane.point(DVec2::new(-3.0, 1.0)),
     );
-    linkage.drawing.write_into(scene.overlays_mut());
+    linkage.drawing.write_into(&mut names, scene.overlays_mut());
 
     let after: Vec<Option<Named>> = scene
         .points
         .iter()
-        .map(|point| point.tag.and_then(|tag| linkage.drawing.resolve(tag)))
+        .map(|point| point.tag.and_then(|tag| names.get(tag)))
         .collect();
     assert_eq!(before, after, "a rewrite renumbered the drawing");
     // Cleared and refilled rather than appended to.

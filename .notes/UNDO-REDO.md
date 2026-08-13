@@ -488,3 +488,50 @@ phase 2 and 3, where the frame's shape changes.
 - **`Drawing` gained a `#[cfg(test)] mod internals`** with a `sketch()`
   accessor, so `history/tests.rs` can name a point by handle. Production reach
   is unchanged.
+
+---
+
+## Follow-up: the view stopped writing the document
+
+`SceneView::settle` took `&mut Document` and a `moved: bool`. Both are gone.
+
+**The `&mut` was one field in the wrong place.** `settle` needed it only because
+`Drawing::write_into` needed `&mut self`, and that was only because it cleared
+and refilled `Drawing.names`. But `Names` is not part of a document —
+`Document`'s own doc comment already listed "the tags the renderer picks
+against" among what a document is *not*, and `named.rs` describes the map as a
+rendering artefact rebuilt with every layout. It is the exact parallel of the
+scene's overlay buffers, which live in the renderer, which the view owns.
+
+So `names` moved to `SceneView`, and with it:
+
+- `Drawing::write_into(&self, names: &mut Names, into: Overlays<'_>)`
+- `Drawing::resolve` deleted — the view reads its own names
+- `Drawing::grip(&self, named: Named, at: HitAt)`, which stops it answering two
+  questions at once: what a tag stands for is the layout's, what can be grabbed
+  is the model's
+- `Document::raise(&self, names: &mut Names) -> Scene` — `&self` now
+- `SceneView::settle(&mut self, document: &Document)`
+
+`Document::drawing_mut` is left with exactly one caller, `History` restoring a
+step, which is the right story: the only thing that mutates a document outside
+`apply` is taking something back.
+
+**The `moved` bool became `Drawing::revision()`.** A `Revision` is bumped in
+`settled` — already the single funnel for "the drawing has been solved" — and
+the view remembers which one it laid out. `History::apply` now returns nothing:
+whether the drawing moved is a fact about the drawing, and there is one place to
+read it rather than a value that a caller could forget to pass on.
+
+It is **conservative**: a drag the constraints refuse is solved and put back,
+and that counts. The asymmetry is deliberate — a revision that missed a change
+would leave a stale picture on screen, where a spare one costs a refill of
+buffers that already have the room. Only one test needs to know, and it says so.
+
+**Two things this turned up.** `SceneView::new` now settles once inside
+`CatCad::build`, because a view handed a laid-out scene while believing it had
+laid nothing out is a view that disagrees with itself; without it the first
+frame relaid the drawing and overwrote the synthetic ring
+`a_ring_stays_round_at_a_radius_that_would_facet_a_polyline` substitutes into
+the renderer. And the grip test lost its `tag_of` sweep — it had been resolving
+64 tags to build a `Hit` whose tag `grip` immediately resolved back.

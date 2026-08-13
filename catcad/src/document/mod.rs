@@ -4,6 +4,7 @@ use aperture::{Camera, Object, Renderer, Scene};
 
 use crate::drawing::Drawing;
 use crate::intent::Intent;
+use crate::named::Names;
 use crate::sketch_plane::SketchPlane;
 use silverpoint::Sketch;
 
@@ -89,13 +90,18 @@ impl Document {
     /// Builds rather than fills, unlike everything that happens per frame: the
     /// solids are copied across once here, where a document is being opened and
     /// the heap is not being counted.
-    pub(crate) fn raise(&mut self) -> Scene {
+    ///
+    /// `names` comes from the caller and goes back to it. The scene's tags are
+    /// indices into it, so the two are only meaningful together — and neither
+    /// is the document's, which is why raising one asks nothing of it but to be
+    /// read.
+    pub(crate) fn raise(&self, names: &mut Names) -> Scene {
         let mut scene = Scene {
             camera: self.camera,
             objects: self.solids.clone(),
             ..Scene::default()
         };
-        self.drawing.write_into(scene.overlays_mut());
+        self.drawing.write_into(names, scene.overlays_mut());
         scene
     }
 

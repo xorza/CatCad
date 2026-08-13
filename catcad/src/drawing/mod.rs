@@ -1,6 +1,6 @@
 //! The sketch being edited, where it sits in the world, and what it draws.
 
-use aperture::{Hit, HitAt, Motion, Overlays, Tag};
+use aperture::{HitAt, Motion, Overlays};
 use glam::Vec3;
 use silverpoint::{CircleId, Freedoms, PointId, SegmentId, Sketch, Snapshot, SolveReport, Solver};
 
@@ -20,9 +20,10 @@ pub(crate) struct Drawing {
     sketch: Sketch,
     plane: SketchPlane,
     solver: Solver,
-    /// What each drawn primitive's tag stands for, rewritten with the drawing.
-    names: Names,
     report: SolveReport,
+    /// Which version of the drawing this is, so anything holding a layout of it
+    /// can tell whether that layout is still current.
+    revision: Revision,
     /// Which geometry the constraints have decided, which is what it is drawn
     /// in the colour of. Taken afresh whenever the sketch moves, because moving
     /// it is what changes the answer.
@@ -38,8 +39,8 @@ impl Drawing {
             sketch,
             plane,
             solver,
-            names: Names::default(),
             report,
+            revision: Revision::default(),
             freedoms: Freedoms::default(),
         };
         drawing.remeasure();
@@ -55,6 +56,7 @@ impl Drawing {
     /// them leaves the drawing painted from the state before.
     fn settled(&mut self, report: SolveReport) {
         self.report = report;
+        self.revision = self.revision.next();
         self.remeasure();
     }
 
@@ -69,6 +71,14 @@ impl Drawing {
     /// What the last solve made of it.
     pub(crate) fn report(&self) -> SolveReport {
         self.report
+    }
+
+    /// Which version of the drawing this is.
+    ///
+    /// What a caller holding a layout of it compares against its own, to tell
+    /// whether what it drew still describes what is here.
+    pub(crate) fn revision(&self) -> Revision {
+        self.revision
     }
 
     /// Take down where the drawing stands, so it can be put back later.
@@ -92,33 +102,33 @@ impl Drawing {
         self.settled(standing.report);
     }
 
-    /// What `tag` was drawn for, or `None` if it came from a drawing older
-    /// than this one.
-    pub(crate) fn resolve(&self, tag: Tag) -> Option<Named> {
-        self.names.get(tag)
-    }
-
-    /// Rewrite the drawn primitives, and the names they answer to, from the
-    /// sketch as it now stands.
+    /// Write the drawn primitives, and name each of them into `names`.
     ///
     /// Fills buffers rather than returning them, so a drag refills what the
     /// renderer already holds instead of handing it new vectors every frame.
     /// The tags come out the same across a rewrite, because they are positions
     /// in a list built in the same order — which is what lets a drag keep hold
     /// of what it grabbed.
-    pub(crate) fn write_into(&mut self, into: Overlays<'_>) {
-        self.names.clear();
+    ///
+    /// `names` is the caller's, not the drawing's. A tag is an index into a
+    /// list of what was drawn, so it describes a *layout* of this drawing and
+    /// not the drawing itself — nothing here would be written down by saving,
+    /// and whoever laid the drawing out is who has to be able to read its tags
+    /// back. Emptied here rather than by the caller, because a name list half
+    /// from one layout and half from another names nothing.
+    pub(crate) fn write_into(&self, names: &mut Names, into: Overlays<'_>) {
+        names.clear();
         let drawn = Drawn {
             sketch: &self.sketch,
             freedoms: &self.freedoms,
         };
-        self.plane.write_curves(drawn, &mut self.names, into.curves);
-        self.plane.write_rings(drawn, &mut self.names, into.rings);
-        self.plane.write_points(drawn, &mut self.names, into.points);
+        self.plane.write_curves(drawn, names, into.curves);
+        self.plane.write_rings(drawn, names, into.rings);
+        self.plane.write_points(drawn, names, into.points);
     }
 
-    /// What a press on `hit` takes hold of, or `None` if it takes hold of
-    /// nothing.
+    /// What a press on `named`, landing `at`, takes hold of — or `None` if it
+    /// takes hold of nothing.
     ///
     /// Whether a drag may start and what it would have hold of are one
     /// question, so they are one answer: two of these would be two places to
@@ -130,8 +140,8 @@ impl Drawing {
     /// because both of them travel. A rim asks for neither — it drives the
     /// radius and leaves the centre where it is, so resizing about a pinned
     /// centre is as good a drag as any other.
-    pub(crate) fn grip(&self, hit: &Hit) -> Option<Grip> {
-        match (self.names.get(hit.tag)?, hit.at) {
+    pub(crate) fn grip(&self, named: Named, at: HitAt) -> Option<Grip> {
+        match (named, at) {
             (Named::Point(id), HitAt::Point) => {
                 (!self.sketch.is_fixed(id)).then_some(Grip::Point(id))
             }
@@ -245,6 +255,28 @@ impl Standing {
     /// step that moved nothing, and leave a Ctrl+Z that appeared to do nothing.
     pub(crate) fn moved_from(&self, was: &Standing) -> bool {
         self.at != was.at
+    }
+}
+
+/// Which version of a drawing something was laid out from.
+///
+/// Bumped whenever the drawing settles, which is whenever it has been solved
+/// again. Compared and never read: the number means nothing beyond not being
+/// the one before it.
+///
+/// Conservative on purpose — it can move where the geometry did not. A drag the
+/// constraints refuse is solved and put back, and this counts that, because
+/// what the drawing can cheaply say is that it has been worked on and not
+/// whether the work came to anything. The asymmetry is the point: a revision
+/// that missed a change would leave a stale picture on screen, where a spare
+/// one costs a refill of buffers that already have the room.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Revision(u64);
+
+impl Revision {
+    /// The one after this.
+    fn next(self) -> Self {
+        Self(self.0 + 1)
     }
 }
 

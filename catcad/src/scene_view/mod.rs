@@ -10,9 +10,9 @@ use palantir::{
 };
 
 use crate::document::Document;
-use crate::drawing::Grip;
+use crate::drawing::{Grip, Revision};
 use crate::intent::{Intent, Intents};
-use crate::named::Named;
+use crate::named::{Named, Names};
 
 /// Radians of orbit per logical pixel of drag.
 const ORBIT_RATE: f32 = 0.008;
@@ -107,6 +107,20 @@ enum Gesture {
 #[derive(Debug)]
 pub(crate) struct SceneView {
     renderer: Rc<RefCell<Renderer>>,
+    /// What each tag in the scene stands for.
+    ///
+    /// The view's rather than the drawing's, for the same reason the scene is:
+    /// a tag is an index into a list of what was *laid out*, so it describes
+    /// this view's picture of the drawing and would mean nothing to another. It
+    /// is rewritten with the scene, by the one call that rewrites both.
+    names: Names,
+    /// Which revision of the drawing `names` and the scene's overlays were laid
+    /// out from, or `None` before this view has laid it out itself.
+    ///
+    /// Compared rather than trusted: a caller could say whether it had just
+    /// edited the document, but then a caller that forgot would leave the view
+    /// drawing last frame's geometry with no way to notice.
+    laid_out: Option<Revision>,
     gesture: Gesture,
     /// The sketch entity under the pointer, if any.
     hovered: Option<Named>,
@@ -121,10 +135,17 @@ pub(crate) struct SceneView {
 }
 
 impl SceneView {
-    /// A view of `scene`.
-    pub(crate) fn new(scene: Scene) -> Self {
+    /// A view of `scene`, which `names` names the drawn parts of.
+    ///
+    /// `laid_out` starts empty however current the two are, so the first settle
+    /// lays the drawing out again. It costs one refill of buffers that already
+    /// have the room, and it buys a view whose only claim about what it has
+    /// drawn is one it made itself.
+    pub(crate) fn new(scene: Scene, names: Names) -> Self {
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
+            names,
+            laid_out: None,
             gesture: Gesture::None,
             hovered: None,
             aimed: None,
@@ -210,8 +231,8 @@ impl SceneView {
     }
 
     /// Everything that reads the document once it has finished moving: lay the
-    /// drawing out again if it moved, light what the pointer is over, and hand
-    /// the renderer the camera to paint through.
+    /// drawing out again if it has moved, light what the pointer is over, and
+    /// hand the renderer the camera to paint through.
     ///
     /// After the intents rather than during them, which is what makes the
     /// answers agree with each other. The highlight is picked against geometry
@@ -219,16 +240,22 @@ impl SceneView {
     /// given is the one every gesture this frame settled on. Both are the same
     /// mistake avoided twice: reading a document that is still being written.
     ///
+    /// Reads the document and never writes it. What a view holds is a picture
+    /// of a document — the scene, the names, the highlight — and a picture is
+    /// made by looking.
+    ///
     /// Still in time for the frame being drawn. `GpuView` records a paint
     /// command holding the renderer and calls it at submit, after the record
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
-    pub(crate) fn settle(&mut self, document: &mut Document, moved: bool) {
+    pub(crate) fn settle(&mut self, document: &Document) {
         let mut renderer = self.renderer.borrow_mut();
-        if moved {
+        let drawing = document.drawing();
+        if self.laid_out != Some(drawing.revision()) {
             // Into the batches the renderer already holds, so a drag rewrites
             // the drawing every frame without asking the heap for anything.
-            document.drawing_mut().write_into(renderer.overlays_mut());
+            drawing.write_into(&mut self.names, renderer.overlays_mut());
+            self.laid_out = Some(drawing.revision());
         }
 
         // Only one thing lights: a marker sits on the end of every edge that
@@ -240,7 +267,7 @@ impl SceneView {
                 .nearest(aim.cursor, aim.viewport, HOVER_REACH);
             hit.map(|hit| hit.tag)
         });
-        self.hovered = under.and_then(|tag| document.drawing().resolve(tag));
+        self.hovered = under.and_then(|tag| self.names.get(tag));
         renderer.highlight_only(under.map(|tag| Lit { tag, look: HOVERED }));
 
         // Wholesale rather than on change: the document owns the camera and the
@@ -262,7 +289,7 @@ impl SceneView {
                 let renderer = self.renderer.borrow();
                 let scene = renderer.scene();
                 let hit = scene.nearest(aim.cursor, aim.viewport, HOVER_REACH)?;
-                let grip = document.drawing().grip(&hit)?;
+                let grip = document.drawing().grip(self.names.get(hit.tag)?, hit.at)?;
                 let motion = document.drawing().motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
@@ -293,6 +320,24 @@ fn landing(response: &Response<'_>, document: &Document, held: Held) -> Option<V
     let aim = Aimed::of(response)?;
     let ray = document.camera().ray_through(aim.cursor, aim.viewport);
     Some(held.motion.resolve(ray)? + held.offset)
+}
+
+#[cfg(test)]
+pub(crate) mod internals {
+    use crate::named::Named;
+    use crate::scene_view::SceneView;
+    use aperture::Tag;
+
+    impl SceneView {
+        /// What `tag` stands for in the layout this view last made.
+        ///
+        /// For a test sweeping candidate cursors to find one that would grab
+        /// something — which asks what a press would find without a press to
+        /// ask it through.
+        pub(crate) fn named(&self, tag: Tag) -> Option<Named> {
+            self.names.get(tag)
+        }
+    }
 }
 
 #[cfg(test)]
