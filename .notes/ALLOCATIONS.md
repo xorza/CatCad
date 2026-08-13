@@ -29,8 +29,9 @@ The gates as measured in the `bench` profile:
 
 | crate | step | blocks/run | limit |
 | --- | --- | --- | --- |
-| silverpoint | `solve-from-guess` | 24 | 32 |
-| silverpoint | `solve-converged` | 12 | 20 |
+| silverpoint | `solve-from-guess` (solver kept) | 0 | 0 (strict) |
+| silverpoint | `solve-converged` (solver kept) | 0 | 0 (strict) |
+| silverpoint | `solve-cold` (solver thrown away) | 21 | 32 |
 | aperture3d | `pick-miss` | 0 | 0 (strict) |
 | aperture3d | `pick-hit` | 1 | 1 |
 | aperture3d | `nearest-hit` | 0 | 0 (strict) |
@@ -44,10 +45,11 @@ dominated by wgpu's own per-submission allocations — pinning that means
 pinning a *driver floor* and watching for drift from it, which is what
 palantir's own bench does and wants a GPU in the loop.
 
-The solver's two figures are lower here than in the exploratory run below (24
-and 12 against 28 and 16) because the bench profile inlines where the debug
-build did not. The gates are set against the bench profile, which is what
-`cargo bench` runs.
+`Solver` holds the buffers a solve works in, so a solver kept alive across
+solves — which is what a drag is — allocates nothing after the first. A caller
+who throws the solver away each time, which is what every caller does today,
+still pays for them: that is `solve-cold`, kept so the cost the workspace
+avoids stays visible rather than looking like it never existed.
 
 ## The survey these findings came from
 
@@ -103,24 +105,3 @@ of the swept cursor positions that landed on the drawing.
       `SceneView::show`, `overlay::show` and palantir's own input handling each
       allocate nothing; while it moves, `Scene::nearest` and the renderer's
       batches allocate nothing either.
-
-## silverpoint
-
-- [ ] `Solver::solve` allocates 16 times before it does any work and 28 across
-      a full solve of the demo, none of it surviving the call: seven buffers up
-      front (`residuals`, `jacobian`, `trial_residuals`, `trial_jacobian`,
-      `normal`, `step`, `params`), one `Vec` per accepted iteration for
-      `trial`, and one more in `rank`. The `Solver` itself is a two-field
-      `Copy` struct that keeps none of it between calls.
-
-      Not per-frame today — the app solves once at startup — but this becomes
-      the per-frame cost the moment dragging re-solves, which is the next
-      thing the app will want to do.
-
-- [ ] `rank` copies the entire Jacobian (`jacobian.to_vec()`) so it can destroy
-      it by elimination, once per solve.
-
-- [ ] `assemble` reuses its two buffers across iterations via `clear`, but they
-      start empty on every `solve` and `jacobian.resize(start + n, 0.0)` grows
-      them one row at a time, so the doubling ladder is re-climbed from nothing
-      on each call — about eight reallocations for the demo's 11×11.

@@ -3,15 +3,16 @@
 //! One bench of two steps, both over the same fixture — a rectangle with a
 //! circle at its centre, eleven parameters against eleven equations:
 //!
-//! | step | measures | why |
+//! | step | measures | limit |
 //! |---|---|---|
-//! | `solve-from-guess` | a full solve from coordinates deliberately off the answer | what a first solve costs |
-//! | `solve-converged` | re-solving geometry already at the answer | what a *drag* costs, where the sketch has barely moved since the last frame |
+//! | `solve-from-guess` | a full solve from coordinates deliberately off the answer, through a solver kept alive | strict zero |
+//! | `solve-converged` | re-solving geometry already at the answer, through the same | strict zero |
+//! | `solve-cold` | the same solve through a solver thrown away each time | a budget |
 //!
-//! The second is the one that matters for a frame budget. Nothing re-solves
-//! per frame yet, so neither number is a per-frame cost today — but dragging
-//! a point is what the solver exists for, and when that lands this is the
-//! allocation it will pay on every frame of the drag.
+//! The first two are the shape a drag has: one solver, many solves, and the
+//! workspace it keeps means none of them touch the heap. The third is the
+//! shape every caller has today — nothing re-solves per frame yet — and it
+//! allocates, which is exactly the contrast worth keeping visible.
 //!
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.
@@ -23,19 +24,18 @@ use common::AllocBench;
 use glam::DVec2;
 use std::hint::black_box;
 
-/// Most blocks one solve from a cold guess may allocate.
-///
-/// A budget rather than zero: the solver builds a dense system per call and
-/// nothing in the API lets it keep those buffers between calls. Measured at
-/// 28 on the fixture below, so this catches drift rather than presence — and
-/// halving it is the open finding in `.notes/ALLOCATIONS.md`.
-const FROM_GUESS_MAX: f64 = 32.0;
+/// Nothing: the solver keeps the buffers a solve works in, so the second and
+/// every later solve of a sketch refills them rather than rebuilding them.
+const FROM_GUESS_MAX: f64 = 0.0;
 
-/// Most blocks re-solving an already-converged sketch may allocate.
-///
-/// Lower than the above because the iteration loop never runs: what is left
-/// is the fixed cost of setting up, which is what a drag would pay per frame.
-const CONVERGED_MAX: f64 = 20.0;
+/// Nothing, for the same reason — and this is the one a drag would pay on
+/// every frame, so it is the number that matters.
+const CONVERGED_MAX: f64 = 0.0;
+
+/// What a solve costs a caller who does not keep the solver: the workspace is
+/// born empty and grows from nothing. A budget rather than zero, and the
+/// contrast with the two above is the whole point of the step.
+const SOLVE_COLD_MAX: f64 = 32.0;
 
 /// A rectangle anchored at the origin with a circle at its centre, its
 /// coordinates deliberately off the answer.
@@ -109,22 +109,38 @@ fn fixture() -> Sketch {
 pub fn alloc_bench() {
     let mut bench = AllocBench::start("silverpoint", "solve");
 
-    // Solving from the fixture's own guesses, over and over. The sketch is
-    // rewound with `set_params` rather than cloned: a clone allocates, and it
-    // would land inside the window and be counted as the solver's.
+    // Solving from the fixture's own guesses, over and over, through one
+    // solver — which is what a drag is, and the only shape the workspace pays
+    // for. The sketch is rewound with `set_params` rather than cloned: a clone
+    // allocates, and it would land inside the window and be counted as the
+    // solver's.
     let mut sketch = fixture();
-    let guess = sketch.params();
+    let mut guess = Vec::new();
+    sketch.write_params(&mut guess);
+    let mut solver = Solver::default();
     bench.step("solve-from-guess", FROM_GUESS_MAX, || {
         sketch.set_params(&guess);
-        black_box(Solver::default().solve(&mut sketch));
+        black_box(solver.solve(&mut sketch));
     });
 
-    // Re-solving a sketch already at its answer — the drag case.
+    // Re-solving a sketch already at its answer, which is what most frames of
+    // a drag actually are: the geometry has barely moved since the last one.
     let mut sketch = fixture();
-    Solver::default().solve(&mut sketch);
-    let solved = sketch.params();
+    let mut solver = Solver::default();
+    solver.solve(&mut sketch);
+    let mut solved = Vec::new();
+    sketch.write_params(&mut solved);
     bench.step("solve-converged", CONVERGED_MAX, || {
         sketch.set_params(&solved);
+        black_box(solver.solve(&mut sketch));
+    });
+
+    // And the same solve through a solver thrown away each time, which is what
+    // every caller does today. Kept so the cost the workspace avoids stays
+    // visible rather than looking like it never existed.
+    let mut sketch = fixture();
+    bench.step("solve-cold", SOLVE_COLD_MAX, || {
+        sketch.set_params(&guess);
         black_box(Solver::default().solve(&mut sketch));
     });
 

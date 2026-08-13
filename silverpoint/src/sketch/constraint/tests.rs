@@ -46,7 +46,8 @@ fn analytic(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
 /// honest: an error in either one shows up as a mismatch.
 fn numeric(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
     const H: f64 = 1e-6;
-    let base = sketch.params();
+    let mut base = Vec::new();
+    sketch.write_params(&mut base);
     let mut scratch = sketch.clone();
     let mut discard = vec![0.0; base.len()];
     let mut row = Vec::with_capacity(base.len());

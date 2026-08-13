@@ -304,15 +304,20 @@ impl Sketch {
         }
     }
 
+    /// Append every parameter's current value, in index order.
+    ///
+    /// Appends rather than replacing, so the caller owns the buffer — which is
+    /// what lets the solver keep one across solves instead of being handed a
+    /// fresh one every time.
+    ///
     /// Reads zero at a hole, which is a value nothing will move: its column is
     /// zeroed and its step is pinned to zero, so the number is never used.
-    pub(crate) fn params(&self) -> Vec<f64> {
-        (0..self.param_count())
-            .map(|index| {
-                self.param(index)
-                    .map_or(0.0, |param| self.param_value(param))
-            })
-            .collect()
+    pub(crate) fn write_params(&self, out: &mut Vec<f64>) {
+        out.reserve_exact(self.param_count());
+        out.extend((0..self.param_count()).map(|index| {
+            self.param(index)
+                .map_or(0.0, |param| self.param_value(param))
+        }));
     }
 
     pub(crate) fn set_params(&mut self, params: &[f64]) {
@@ -369,7 +374,8 @@ mod tests {
         // reports what the solver left behind rather than the initial guess.
         // Radii ride the same vector: three points fill 0..6, so the circle's
         // radius is parameter 6.
-        let mut params = sketch.params();
+        let mut params = Vec::new();
+        sketch.write_params(&mut params);
         assert_eq!(params, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 0.5]);
         params[2] = 30.0;
         params[6] = 0.75;
@@ -446,9 +452,13 @@ mod tests {
 
         // It reads zero and refuses to be written, so a step landing on it
         // changes nothing.
-        assert_eq!(sketch.params(), [0.0, 0.0, 3.0, 4.0, 0.5]);
+        let mut params = Vec::new();
+        sketch.write_params(&mut params);
+        assert_eq!(params, [0.0, 0.0, 3.0, 4.0, 0.5]);
         sketch.set_params(&[9.0; 5]);
-        assert_eq!(sketch.params(), [0.0, 0.0, 9.0, 9.0, 9.0]);
+        params.clear();
+        sketch.write_params(&mut params);
+        assert_eq!(params, [0.0, 0.0, 9.0, 9.0, 9.0]);
 
         // The freed position is filled again rather than the vector widening,
         // and the handle to what was there is refused, not answered.

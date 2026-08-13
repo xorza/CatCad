@@ -201,6 +201,93 @@ fn a_coincidence_pins_both_axes_and_counts_as_two_equations() {
     assert_eq!(report.redundant_equations, 0, "{report:?}");
 }
 
+/// A solver keeps the buffers a solve works in, so nothing one solve leaves
+/// behind may be visible to the next.
+///
+/// Sizes are the sharp case. Solving a large sketch and then a small one
+/// leaves every buffer longer than the small one needs, so a missed `clear` or
+/// a length taken from the buffer instead of the sketch shows up here and
+/// nowhere else — and the large one again afterwards covers the grow back.
+#[test]
+fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
+    fn rectangle() -> Sketch {
+        let mut sketch = Sketch::default();
+        let corner = [
+            sketch.add_point(DVec2::ZERO),
+            sketch.add_point(DVec2::new(5.1, 0.2)),
+            sketch.add_point(DVec2::new(4.9, 3.1)),
+        ];
+        sketch.fix(corner[0]);
+        sketch.add_constraint(Constraint::Horizontal {
+            a: corner[0],
+            b: corner[1],
+        });
+        sketch.add_constraint(Constraint::Distance {
+            a: corner[0],
+            b: corner[1],
+            distance: 5.0,
+        });
+        sketch.add_constraint(Constraint::Vertical {
+            a: corner[1],
+            b: corner[2],
+        });
+        sketch.add_constraint(Constraint::Distance {
+            a: corner[1],
+            b: corner[2],
+            distance: 3.0,
+        });
+        sketch
+    }
+    // Four parameters against one equation, where the rectangle has six
+    // against four.
+    fn pair() -> Sketch {
+        let mut sketch = Sketch::default();
+        let anchor = sketch.add_point(DVec2::ZERO);
+        let free = sketch.add_point(DVec2::new(1.0, 0.0));
+        sketch.fix(anchor);
+        sketch.add_constraint(Constraint::Distance {
+            a: anchor,
+            b: free,
+            distance: 5.0,
+        });
+        sketch
+    }
+
+    // What each looks like to a solver that has never seen anything.
+    let mut fresh_rectangle = rectangle();
+    let rectangle_report = Solver::default().solve(&mut fresh_rectangle);
+    let mut fresh_pair = pair();
+    let pair_report = Solver::default().solve(&mut fresh_pair);
+
+    // The same two through one solver, largest first.
+    let mut solver = Solver::default();
+    let mut large = rectangle();
+    assert_eq!(solver.solve(&mut large), rectangle_report);
+    let mut small = pair();
+    assert_eq!(
+        solver.solve(&mut small),
+        pair_report,
+        "a smaller sketch after a larger one"
+    );
+    let mut large_again = rectangle();
+    assert_eq!(
+        solver.solve(&mut large_again),
+        rectangle_report,
+        "and larger again after that"
+    );
+
+    // The same reports, and the same geometry behind them.
+    for (reused, fresh) in [
+        (&large, &fresh_rectangle),
+        (&small, &fresh_pair),
+        (&large_again, &fresh_rectangle),
+    ] {
+        let moved: Vec<DVec2> = reused.points().map(|(_, at)| at).collect();
+        let expected: Vec<DVec2> = fresh.points().map(|(_, at)| at).collect();
+        assert_eq!(moved, expected);
+    }
+}
+
 #[test]
 fn a_duplicate_constraint_is_reported_as_redundant() {
     let mut sketch = Sketch::default();

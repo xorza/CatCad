@@ -40,14 +40,105 @@ pub struct SolveReport {
     pub redundant_equations: usize,
 }
 
+/// Everything a solve needs room for, kept between calls.
+///
+/// Sized by the sketch and refilled rather than rebuilt, so a second solve of
+/// the same sketch — which is what dragging one is — allocates nothing at all.
+/// Nothing in here survives a solve as *meaning*; only as room.
+#[derive(Debug, Clone, Default)]
+struct Workspace {
+    residuals: Vec<f64>,
+    /// Row-major, one row of `n` per equation.
+    jacobian: Vec<f64>,
+    trial_residuals: Vec<f64>,
+    trial_jacobian: Vec<f64>,
+    /// `JᵀJ + λD`, `n × n` row-major.
+    normal: Vec<f64>,
+    step: Vec<f64>,
+    params: Vec<f64>,
+    trial: Vec<f64>,
+    /// Measuring rank destroys what it eliminates, so it runs on a copy of
+    /// the Jacobian rather than on the Jacobian.
+    elimination: Vec<f64>,
+}
+
+impl Workspace {
+    /// Size the fixed-length buffers to a sketch of `n` parameters and load
+    /// its current values, keeping whatever room everything has grown to.
+    ///
+    /// The variable-length ones are left alone: `assemble` clears the two
+    /// residual/Jacobian pairs as it fills them, and `trial` and `elimination`
+    /// are cleared where they are written.
+    fn reset(&mut self, sketch: &Sketch, n: usize) {
+        self.normal.clear();
+        self.normal.resize(n * n, 0.0);
+        self.step.clear();
+        self.step.resize(n, 0.0);
+        self.params.clear();
+        sketch.write_params(&mut self.params);
+    }
+
+    /// Rank of the Jacobian over its free columns — the number of independent
+    /// constraints actually acting on the sketch.
+    fn rank(&mut self, n: usize, sketch: &Sketch) -> usize {
+        if n == 0 || self.jacobian.is_empty() {
+            return 0;
+        }
+        self.elimination.clear();
+        self.elimination.extend_from_slice(&self.jacobian);
+        let a = &mut self.elimination;
+        let m = a.len() / n;
+        let scale = a.iter().fold(0.0f64, |acc, v| acc.max(v.abs())).max(1.0);
+        let tolerance = RANK_TOLERANCE * scale;
+        let mut rank = 0;
+        for col in 0..n {
+            if !sketch.param_is_free(col) || rank == m {
+                continue;
+            }
+            let mut pivot = rank;
+            for row in rank..m {
+                if a[row * n + col].abs() > a[pivot * n + col].abs() {
+                    pivot = row;
+                }
+            }
+            if a[pivot * n + col].abs() <= tolerance {
+                continue;
+            }
+            if pivot != rank {
+                for c in 0..n {
+                    a.swap(pivot * n + c, rank * n + c);
+                }
+            }
+            let diagonal = a[rank * n + col];
+            for row in (rank + 1)..m {
+                let factor = a[row * n + col] / diagonal;
+                if factor == 0.0 {
+                    continue;
+                }
+                for c in 0..n {
+                    a[row * n + c] -= factor * a[rank * n + c];
+                }
+            }
+            rank += 1;
+        }
+        rank
+    }
+}
+
 /// Solves a [`Sketch`] in place.
-#[derive(Debug, Clone, Copy)]
+///
+/// Holds the buffers a solve works in, so one kept alive across a drag pays
+/// for them once rather than once a frame. A throwaway
+/// `Solver::default().solve(..)` still works and still allocates — the room
+/// is only saved by keeping the solver.
+#[derive(Debug, Clone)]
 pub struct Solver {
     pub max_iterations: u32,
     /// Converged once every residual is within this of zero. Residuals are in
     /// sketch units (lengths) or their squares (angles), so this is an
     /// absolute tolerance on the geometry, not a relative one.
     pub tolerance: f64,
+    work: Workspace,
 }
 
 impl Default for Solver {
@@ -55,6 +146,7 @@ impl Default for Solver {
         Self {
             max_iterations: 100,
             tolerance: 1e-10,
+            work: Workspace::default(),
         }
     }
 }
@@ -65,31 +157,28 @@ impl Solver {
     /// The sketch is left at the best position found, converged or not — a
     /// failed solve still leaves it closer than it started, which is what a
     /// UI wants to draw.
-    pub fn solve(&self, sketch: &mut Sketch) -> SolveReport {
+    pub fn solve(&mut self, sketch: &mut Sketch) -> SolveReport {
+        let max_iterations = self.max_iterations;
+        let tolerance = self.tolerance;
         let n = sketch.param_count();
-        let mut residuals = Vec::new();
-        let mut jacobian = Vec::new();
-        let mut trial_residuals = Vec::new();
-        let mut trial_jacobian = Vec::new();
-        let mut normal = vec![0.0; n * n];
-        let mut step = vec![0.0; n];
-        let mut params = sketch.params();
+        let work = &mut self.work;
+        work.reset(sketch, n);
         let mut damping = INITIAL_DAMPING;
         let mut iterations = 0;
 
-        assemble(sketch, &mut residuals, &mut jacobian);
-        while iterations < self.max_iterations && max_abs(&residuals) > self.tolerance {
+        assemble(sketch, &mut work.residuals, &mut work.jacobian);
+        while iterations < max_iterations && max_abs(&work.residuals) > tolerance {
             iterations += 1;
-            normal.fill(0.0);
-            step.fill(0.0);
-            for (row, residual) in jacobian.chunks_exact(n).zip(&residuals) {
+            work.normal.fill(0.0);
+            work.step.fill(0.0);
+            for (row, residual) in work.jacobian.chunks_exact(n).zip(&work.residuals) {
                 for a in 0..n {
                     if row[a] == 0.0 {
                         continue;
                     }
-                    step[a] -= row[a] * residual;
+                    work.step[a] -= row[a] * residual;
                     for b in 0..n {
-                        normal[a * n + b] += row[a] * row[b];
+                        work.normal[a * n + b] += row[a] * row[b];
                     }
                 }
             }
@@ -100,19 +189,19 @@ impl Solver {
             // and the resulting sideways drift is O(1) in the damping rather
             // than vanishing with it. Uniform damping keeps the step
             // minimum-norm, so free geometry stays where the user left it.
-            let curvature = (0..n).fold(1.0f64, |acc, a| acc.max(normal[a * n + a]));
+            let curvature = (0..n).fold(1.0f64, |acc, a| acc.max(work.normal[a * n + a]));
             for a in 0..n {
                 if sketch.param_is_free(a) {
-                    normal[a * n + a] += damping * curvature;
+                    work.normal[a * n + a] += damping * curvature;
                 } else {
                     // A fixed parameter has an all-zero column, which would
                     // make the system singular. A unit diagonal against a zero
                     // gradient yields a zero step for it instead.
-                    normal[a * n + a] = 1.0;
+                    work.normal[a * n + a] = 1.0;
                 }
             }
 
-            if !solve_in_place(&mut normal, n, &mut step) {
+            if !solve_in_place(&mut work.normal, n, &mut work.step) {
                 damping *= DAMPING_GROWTH;
                 if damping > MAX_DAMPING {
                     break;
@@ -120,16 +209,20 @@ impl Solver {
                 continue;
             }
 
-            let trial: Vec<f64> = params.iter().zip(&step).map(|(p, d)| p + d).collect();
-            sketch.set_params(&trial);
-            assemble(sketch, &mut trial_residuals, &mut trial_jacobian);
-            if norm(&trial_residuals) < norm(&residuals) {
-                params = trial;
-                std::mem::swap(&mut residuals, &mut trial_residuals);
-                std::mem::swap(&mut jacobian, &mut trial_jacobian);
+            work.trial.clear();
+            work.trial
+                .extend(work.params.iter().zip(&work.step).map(|(p, d)| p + d));
+            sketch.set_params(&work.trial);
+            assemble(sketch, &mut work.trial_residuals, &mut work.trial_jacobian);
+            if norm(&work.trial_residuals) < norm(&work.residuals) {
+                // Swapped rather than assigned: the loser's buffer becomes the
+                // next round's scratch, so neither pair is ever rebuilt.
+                std::mem::swap(&mut work.params, &mut work.trial);
+                std::mem::swap(&mut work.residuals, &mut work.trial_residuals);
+                std::mem::swap(&mut work.jacobian, &mut work.trial_jacobian);
                 damping = (damping * DAMPING_DECAY).max(f64::MIN_POSITIVE);
             } else {
-                sketch.set_params(&params);
+                sketch.set_params(&work.params);
                 damping *= DAMPING_GROWTH;
                 if damping > MAX_DAMPING {
                     break;
@@ -138,13 +231,13 @@ impl Solver {
         }
 
         let free_params = (0..n).filter(|&p| sketch.param_is_free(p)).count();
-        let rank = rank(&jacobian, n, sketch);
+        let rank = work.rank(n, sketch);
         SolveReport {
-            converged: max_abs(&residuals) <= self.tolerance,
+            converged: max_abs(&work.residuals) <= tolerance,
             iterations,
-            max_residual: max_abs(&residuals),
+            max_residual: max_abs(&work.residuals),
             degrees_of_freedom: free_params - rank,
-            redundant_equations: residuals.len() - rank,
+            redundant_equations: work.residuals.len() - rank,
         }
     }
 }
@@ -222,50 +315,6 @@ fn solve_in_place(a: &mut [f64], n: usize, b: &mut [f64]) -> bool {
         b[i] = sum / a[i * n + i];
     }
     b.iter().all(|value| value.is_finite())
-}
-
-/// Rank of the Jacobian over its free columns — the number of independent
-/// constraints actually acting on the sketch.
-fn rank(jacobian: &[f64], n: usize, sketch: &Sketch) -> usize {
-    if n == 0 || jacobian.is_empty() {
-        return 0;
-    }
-    let mut a = jacobian.to_vec();
-    let m = a.len() / n;
-    let scale = a.iter().fold(0.0f64, |acc, v| acc.max(v.abs())).max(1.0);
-    let tolerance = RANK_TOLERANCE * scale;
-    let mut rank = 0;
-    for col in 0..n {
-        if !sketch.param_is_free(col) || rank == m {
-            continue;
-        }
-        let mut pivot = rank;
-        for row in rank..m {
-            if a[row * n + col].abs() > a[pivot * n + col].abs() {
-                pivot = row;
-            }
-        }
-        if a[pivot * n + col].abs() <= tolerance {
-            continue;
-        }
-        if pivot != rank {
-            for c in 0..n {
-                a.swap(pivot * n + c, rank * n + c);
-            }
-        }
-        let diagonal = a[rank * n + col];
-        for row in (rank + 1)..m {
-            let factor = a[row * n + col] / diagonal;
-            if factor == 0.0 {
-                continue;
-            }
-            for c in 0..n {
-                a[row * n + c] -= factor * a[rank * n + c];
-            }
-        }
-        rank += 1;
-    }
-    rank
 }
 
 fn max_abs(values: &[f64]) -> f64 {
