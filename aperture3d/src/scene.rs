@@ -62,8 +62,16 @@ impl Scene {
 
     /// Everything within `radius` of `cursor` on screen, nearest first.
     ///
-    /// `cursor` and `radius` are in the units the [`Viewport`] was built in,
-    /// and `cursor` counts down from the top-left corner.
+    /// `cursor` and `radius` are in **logical** pixels, as is the [`Viewport`]
+    /// they are measured against, and `cursor` counts down from the top-left
+    /// corner.
+    ///
+    /// Not a free choice, unlike everywhere else a cursor and a viewport meet:
+    /// what counts as a hit depends on how wide the thing is drawn, and a
+    /// stroke's width and a marker's diameter are always logical — scaling
+    /// them to the target is the renderer's job and happens after this. Aiming
+    /// in physical pixels on a scaled display would ask for everything within
+    /// a reach the glyph has already outgrown.
     ///
     /// Tested in screen space rather than against the world, because that is
     /// where the aim happened: a stroke is a pixel and a half wide however far
@@ -78,9 +86,11 @@ impl Scene {
     /// hovering differently from clicking are all answerable from one query
     /// this way, and none of them are if the choice is made here.
     ///
-    /// Ordered by [`HitAt::rank`], then by distance from the cursor, then by
-    /// distance from the eye. Untagged primitives are scenery and never
-    /// appear.
+    /// Ordered by how specific the hit is — a marker beats a stroke running
+    /// through it, because the smaller thing is the harder one to aim at and
+    /// so the one the aim was meant for — then by distance from the cursor,
+    /// then by distance from the eye. Untagged primitives are scenery and
+    /// never appear.
     pub fn pick(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Vec<Hit> {
         let view_proj = self.camera.view_proj(viewport.aspect());
         let ray = self.camera.ray_through(cursor, viewport);

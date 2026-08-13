@@ -12,9 +12,12 @@ use glam::{UVec2, Vec2, Vec4, Vec4Swizzles};
 /// dragged.
 ///
 /// Logical or physical pixels, whichever the caller works in — only ratios are
-/// read, so what goes in comes back out. A cursor, a viewport and a pick
-/// radius have to agree with each other, and nothing here can check that they
-/// do.
+/// read, so what goes in comes back out, and nothing here can check that a
+/// cursor and a viewport were measured the same way.
+///
+/// [`Scene::pick`](crate::Scene::pick) is the one caller that doesn't get the
+/// choice: it weighs a cursor against how wide a stroke is drawn, and widths
+/// are always logical.
 ///
 /// The shaders do their own conversion and cannot call this. Theirs is a
 /// different mapping: it carries *differences* rather than positions, and so

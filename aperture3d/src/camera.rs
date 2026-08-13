@@ -174,7 +174,11 @@ impl Camera {
     /// The perspective far plane is at infinity. Nothing is clipped for being
     /// too far off, and since depth resolution is no longer bought at the far
     /// plane's expense, giving it up costs nothing. Orthographic has no such
-    /// option — see [`ORTHO_SLAB`].
+    /// option and takes a slab instead, reaching sixty-four orbit distances
+    /// either side of the target — as far behind the eye as in front, because
+    /// with no vanishing point there is nothing to justify clipping what the
+    /// eye has passed, and clipping it would slice the model open on the way
+    /// in.
     pub fn view_proj(&self, aspect: f32) -> Mat4 {
         let proj = match self.projection {
             Projection::Perspective => {
