@@ -1,8 +1,8 @@
 //! The sketch being edited, where it sits in the world, and what it draws.
 
-use aperture::{Motion, Overlays, Tag};
+use aperture::{Hit, HitAt, Motion, Overlays, Tag};
 use glam::Vec3;
-use silverpoint::{Sketch, SolveReport, Solver};
+use silverpoint::{CircleId, PointId, SegmentId, Sketch, SolveReport, Solver};
 
 use crate::named::{Named, Names};
 use crate::sketch_plane::SketchPlane;
@@ -73,48 +73,115 @@ impl Drawing {
             .write_points(&self.sketch, &mut self.names, into.points);
     }
 
-    /// How `entity` may be dragged, or `None` if it may not be.
+    /// What a press on `hit` takes hold of, or `None` if it takes hold of
+    /// nothing.
     ///
-    /// Whether a drag may take hold of something and where it may take it are
-    /// one question, so they are one answer: two of these would be two places
-    /// to teach about segments, and a drag would start on whichever was
+    /// Whether a drag may start and what it would have hold of are one
+    /// question, so they are one answer: two of these would be two places to
+    /// teach about a new kind of grip, and a drag would begin on whichever was
     /// taught first.
     ///
-    /// Points only, for now — a segment would move both its ends and a circle's
-    /// rim would drive its radius, and both are the same machinery pointed at a
-    /// different part of the sketch. Not a point the drawing pins either: `fix`
-    /// is the user saying where it goes, and a drag is not an argument.
-    ///
-    /// A sketch point may go anywhere on the plane it was drawn on and nowhere
-    /// else, which is exactly what a [`Motion::Plane`] says. A gizmo handle
-    /// would answer with an axis instead, and nothing above here would change.
-    pub(crate) fn motion_of(&self, entity: Named) -> Option<Motion> {
-        let Named::Point(id) = entity else {
-            return None;
-        };
-        if self.sketch.is_fixed(id) {
-            return None;
+    /// Nothing the drawing pins: `fix` is the user saying where a point goes,
+    /// and a drag is not an argument. A segment needs both its ends free,
+    /// because both of them travel.
+    pub(crate) fn grip(&self, hit: &Hit) -> Option<Grip> {
+        match (self.names.get(hit.tag)?, hit.at) {
+            (Named::Point(id), HitAt::Point) => {
+                (!self.sketch.is_fixed(id)).then_some(Grip::Point(id))
+            }
+            (Named::Segment(id), HitAt::Segment { t, .. }) => {
+                let held = self.sketch.segment(id);
+                let free = !self.sketch.is_fixed(held.a) && !self.sketch.is_fixed(held.b);
+                free.then_some(Grip::Segment { id, t: t as f64 })
+            }
+            (Named::Circle(id), HitAt::Ring { .. }) => Some(Grip::Rim(id)),
+            _ => None,
         }
-        Some(Motion::Plane {
-            origin: self.plane.point(self.sketch.point(id)),
-            normal: self.plane.normal(),
-        })
     }
 
-    /// Put `entity` at `world` and re-solve, holding it there.
+    /// Where the pointer may take what it has hold of.
+    ///
+    /// Every grip answers with the sketch's own plane, because that is the
+    /// whole of where a drawing lives — a point goes anywhere on it, a segment
+    /// slides across it, a rim grows within it. The origin differs only so
+    /// that the answer reads as being about the thing grabbed. A gizmo handle
+    /// would answer with a [`Motion::Axis`] instead, and nothing above here
+    /// would change.
+    pub(crate) fn motion_of(&self, grip: Grip) -> Motion {
+        Motion::Plane {
+            origin: self.plane.point(self.grip_point(grip)),
+            normal: self.plane.normal(),
+        }
+    }
+
+    /// Take what `grip` holds to `world` and re-solve, holding it there.
     ///
     /// Held rather than merely written, so the rest of the sketch moves to
-    /// accommodate the drag instead of the solver pulling the dragged point
-    /// back onto its constraints. A sketch that cannot give reports
+    /// accommodate the drag instead of the solver pulling what is dragged back
+    /// onto its constraints. A sketch that cannot give reports
     /// `converged: false` and is left wherever the solver got to, which is
     /// closer than it started and the honest thing to draw.
-    pub(crate) fn drag_to(&mut self, entity: Named, world: Vec3) {
-        let Named::Point(id) = entity else {
-            return;
-        };
-        self.sketch.set_point(id, self.plane.flatten(world));
-        self.report = self.solver.solve_holding(&mut self.sketch, &[id]);
+    pub(crate) fn drag_to(&mut self, grip: Grip, world: Vec3) {
+        let at = self.plane.flatten(world);
+        match grip {
+            Grip::Point(id) => {
+                self.sketch.set_point(id, at);
+                self.report = self.solver.solve_holding(&mut self.sketch, &[id]);
+            }
+            Grip::Segment { id, t } => {
+                // Both ends travel by whatever it takes to put the spot that
+                // was grabbed under the cursor. Measured against where that
+                // spot is *now* rather than accumulated, so a solve that moves
+                // the segment is corrected on the next frame instead of drifting.
+                let held = self.sketch.segment(id);
+                let (a, b) = (self.sketch.point(held.a), self.sketch.point(held.b));
+                let shift = at - a.lerp(b, t);
+                self.sketch.set_point(held.a, a + shift);
+                self.sketch.set_point(held.b, b + shift);
+                self.report = self
+                    .solver
+                    .solve_holding(&mut self.sketch, &[held.a, held.b]);
+            }
+            Grip::Rim(id) => {
+                // A rim drives the radius rather than moving the circle, so
+                // the centre is held: growing a circle should not walk it.
+                let circle = self.sketch.circle(id);
+                let centre = self.sketch.point(circle.center);
+                self.sketch.set_radius(id, (at - centre).length());
+                self.report = self
+                    .solver
+                    .solve_holding(&mut self.sketch, &[circle.center]);
+            }
+        }
     }
+
+    /// The sketch position a grip is anchored at.
+    fn grip_point(&self, grip: Grip) -> glam::DVec2 {
+        match grip {
+            Grip::Point(id) => self.sketch.point(id),
+            Grip::Segment { id, t } => {
+                let held = self.sketch.segment(id);
+                self.sketch.point(held.a).lerp(self.sketch.point(held.b), t)
+            }
+            Grip::Rim(id) => self.sketch.point(self.sketch.circle(id).center),
+        }
+    }
+}
+
+/// What a drag has hold of, and where on it.
+///
+/// Settled once, when the press lands. Where on a primitive it was grabbed is
+/// what tells moving a circle from resizing it, and asking again mid-drag
+/// would be asking of geometry that has since moved.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Grip {
+    /// The point itself.
+    Point(PointId),
+    /// A segment, held `t` of the way along it. Both ends travel together, so
+    /// the edge slides rather than pivoting.
+    Segment { id: SegmentId, t: f64 },
+    /// A circle's rim, which drives its radius rather than moving it.
+    Rim(CircleId),
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
 };
 
-use crate::drawing::Drawing;
+use crate::drawing::{Drawing, Grip};
 use crate::named::Named;
 
 /// Radians of orbit per logical pixel of drag.
@@ -65,14 +65,15 @@ impl Aimed {
     }
 }
 
-/// A sketch entity being dragged, and where the pointer may take it.
+/// What is being dragged, and where the pointer may take it.
 ///
-/// The target is held apart from whatever was grabbed on purpose. They are the
-/// same thing while a point is dragged by its own marker, and they are not the
-/// moment a gizmo arrives: there the handle is grabbed and the selection moves.
+/// The grip is held apart from the motion on purpose. They agree while a
+/// sketch entity is dragged by its own geometry, and they part the moment a
+/// gizmo arrives: there a handle is grabbed, the selection is what moves, and
+/// the axis it moves along is the handle's rather than the selection's.
 #[derive(Debug, Clone, Copy)]
 struct Held {
-    target: Named,
+    grip: Grip,
     motion: Motion,
     /// Where the entity sits relative to where the press landed on the motion,
     /// so a grab three pixels off centre does not snap it to the cursor.
@@ -216,10 +217,10 @@ impl SceneView {
 
     /// Decide what this press is the start of.
     ///
-    /// Something draggable under the cursor takes precedence, and everything
-    /// else — empty space, an edge, a rim, a point the drawing pins — turns
-    /// the camera. Grabbing nothing has to stay the way the view is orbited,
-    /// or the pointer would lose its only way to look around.
+    /// Something the drawing will let go of takes precedence, and everything
+    /// else — empty space, a solid, a point the drawing pins — turns the
+    /// camera. Grabbing nothing has to stay the way the view is orbited, or
+    /// the pointer would lose its only way to look around.
     fn grab(&self, response: &Response<'_>, drawing: &Drawing) -> Gesture {
         let Some(held) = Aimed::of(response)
             .filter(|_| response.hovered)
@@ -227,13 +228,13 @@ impl SceneView {
                 let renderer = self.renderer.borrow();
                 let scene = renderer.scene();
                 let hit = scene.nearest(aim.cursor, aim.viewport, HOVER_REACH)?;
-                let target = drawing.resolve(hit.tag)?;
-                let motion = drawing.motion_of(target)?;
+                let grip = drawing.grip(&hit)?;
+                let motion = drawing.motion_of(grip);
                 // Where the press landed on the motion, against where the
-                // entity actually is: a grab is not a teleport.
+                // geometry actually is: a grab is not a teleport.
                 let ray = scene.camera.ray_through(aim.cursor, aim.viewport);
                 Some(Held {
-                    target,
+                    grip,
                     motion,
                     offset: hit.world - motion.resolve(ray)?,
                 })
@@ -262,7 +263,7 @@ impl SceneView {
         }) else {
             return;
         };
-        drawing.drag_to(held.target, landed + held.offset);
+        drawing.drag_to(held.grip, landed + held.offset);
 
         let mut renderer = self.renderer.borrow_mut();
         // Into the batches the renderer already holds, so a drag rewrites the

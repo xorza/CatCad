@@ -33,18 +33,23 @@ impl Raised {
 
     /// A cursor position that lands on something the drawing will let go of.
     fn over_draggable(&self) -> Option<Vec2> {
-        self.sweep(|motion| motion.is_some())
+        self.sweep(|grip| grip.is_some())
     }
 
     /// A cursor position that lands on something it will not — the demo pins a
     /// point, and pressing one has to orbit like any other miss.
     fn over_pinned(&self) -> Option<Vec2> {
-        self.sweep(|motion| motion.is_none())
+        self.sweep(|grip| grip.is_none())
+    }
+
+    /// A cursor position that lands on a grip of the given kind.
+    fn over(&self, want: fn(Grip) -> bool) -> Option<Vec2> {
+        self.sweep(move |grip| grip.is_some_and(want))
     }
 
     /// The first cursor of a coarse sweep whose hit satisfies `keep`, asked of
     /// the very scene the view picks against.
-    fn sweep(&self, keep: impl Fn(Option<Motion>) -> bool) -> Option<Vec2> {
+    fn sweep(&self, keep: impl Fn(Option<Grip>) -> bool) -> Option<Vec2> {
         let renderer = self.view.renderer().borrow();
         let viewport = Viewport::new(SIZE);
         (0..SIZE.y)
@@ -58,8 +63,7 @@ impl Raised {
                 renderer
                     .scene()
                     .nearest(cursor, viewport, HOVER_REACH)
-                    .and_then(|hit| self.drawing.resolve(hit.tag))
-                    .is_some_and(|entity| keep(self.drawing.motion_of(entity)))
+                    .is_some_and(|hit| keep(self.drawing.grip(&hit)))
             })
     }
 
@@ -168,6 +172,35 @@ fn dragging_a_point_moves_it_and_not_the_camera() {
     raised.harness.move_to(cursor + Vec2::new(80.0, 25.0));
     raised.frame();
     assert_eq!(raised.markers(), settled, "the drag outlived its release");
+}
+
+/// Every kind of grip is reachable through the real pick path, not only
+/// constructible.
+///
+/// What a press lands on has to carry the `HitAt` that tells a slide from a
+/// resize, and only a real hit carries one — the drawing's own tests build
+/// those by hand, so this is what says the two agree.
+#[test]
+fn the_view_can_take_hold_of_a_point_an_edge_and_a_rim() {
+    let mut raised = Raised::new();
+    raised.frame();
+
+    assert!(
+        raised.over(|grip| matches!(grip, Grip::Point(_))).is_some(),
+        "no cursor found a point to move"
+    );
+    // The rectangle's fixed corner rules out the two edges that meet it, so
+    // this finds one of the others — or the linkage's own.
+    assert!(
+        raised
+            .over(|grip| matches!(grip, Grip::Segment { .. }))
+            .is_some(),
+        "no cursor found an edge to slide"
+    );
+    assert!(
+        raised.over(|grip| matches!(grip, Grip::Rim(_))).is_some(),
+        "no cursor found a rim to resize"
+    );
 }
 
 /// Pressing where the drawing is not turns the camera, which is the only way

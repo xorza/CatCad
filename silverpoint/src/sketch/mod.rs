@@ -184,6 +184,15 @@ impl Sketch {
         self.circles.get_mut(id).expect(REMOVED_CIRCLE)
     }
 
+    /// Resize a circle.
+    ///
+    /// A starting guess like the one it was added with, exactly as
+    /// [`Sketch::set_point`] is: a radius is a solver parameter, so the next
+    /// solve is free to move it again unless a constraint holds it.
+    pub fn set_radius(&mut self, id: CircleId, radius: f64) {
+        self.circle_mut(id).radius = radius;
+    }
+
     /// Every circle in insertion order, each with the handle that names it.
     pub fn circles(&self) -> impl Iterator<Item = (CircleId, Circle)> {
         self.circles.iter().map(|(id, circle)| (id, *circle))
