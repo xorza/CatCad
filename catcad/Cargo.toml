@@ -12,5 +12,15 @@ glam = { workspace = true, features = ["f64"] }
 palantir.workspace = true
 silverpoint.workspace = true
 
+[dev-dependencies]
+image = { version = "0.25", default-features = false, features = ["png"] }
+palantir = { workspace = true, features = ["internals", "golden"] }
+
+# The frames the app actually draws, measured and compared against goldens.
+# Needs a GPU, so it is its own target rather than a unit test.
+[[test]]
+name = "visual"
+path = "tests/visual/main.rs"
+
 [lints]
 workspace = true
