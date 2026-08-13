@@ -13,6 +13,30 @@ use glam::DVec2;
 /// and the solver only needs somewhere to push.
 const DEGENERATE: f64 = 1e-12;
 
+/// A difference of two points, split into how far it ran and which way.
+///
+/// Every constraint measuring a distance needs both halves — the length is its
+/// residual and the direction is its partials — and every one of them has to
+/// answer for the pair being in the same place.
+#[derive(Debug, Clone, Copy)]
+struct Direction {
+    /// Unit length, or `+x` where there was no direction left to recover.
+    unit: DVec2,
+    length: f64,
+}
+
+impl Direction {
+    fn of(delta: DVec2) -> Self {
+        let length = delta.length();
+        let unit = if length < DEGENERATE {
+            DVec2::X
+        } else {
+            delta / length
+        };
+        Self { unit, length }
+    }
+}
+
 /// A relation between sketch entities. Distances and radii are signed values
 /// in sketch units; angles are expressed structurally
 /// ([`Self::Perpendicular`], [`Self::Parallel`]) rather than in degrees.
@@ -66,19 +90,13 @@ impl Constraint {
                 axis(sketch.point(a)) - axis(sketch.point(b))
             }
             Constraint::Distance { a, b, distance } => {
-                let delta = sketch.point(a) - sketch.point(b);
-                let length = delta.length();
-                let unit = if length < DEGENERATE {
-                    DVec2::X
-                } else {
-                    delta / length
-                };
+                let apart = Direction::of(sketch.point(a) - sketch.point(b));
                 let (ax, bx) = (sketch.point_param(a), sketch.point_param(b));
-                row[ax] = unit.x;
-                row[ax + 1] = unit.y;
-                row[bx] = -unit.x;
-                row[bx + 1] = -unit.y;
-                length - distance
+                row[ax] = apart.unit.x;
+                row[ax + 1] = apart.unit.y;
+                row[bx] = -apart.unit.x;
+                row[bx + 1] = -apart.unit.y;
+                apart.length - distance
             }
             Constraint::Horizontal { a, b } => {
                 row[sketch.point_param(a) + 1] = 1.0;
@@ -94,32 +112,23 @@ impl Constraint {
                 let (s1, s2) = (sketch.segment(first), sketch.segment(second));
                 let d1 = sketch.point(s1.b) - sketch.point(s1.a);
                 let d2 = sketch.point(s2.b) - sketch.point(s2.a);
-                let (a1, b1) = (sketch.point_param(s1.a), sketch.point_param(s1.b));
-                let (a2, b2) = (sketch.point_param(s2.a), sketch.point_param(s2.b));
-                row[b1] += d2.y;
-                row[a1] -= d2.y;
-                row[b1 + 1] -= d2.x;
-                row[a1 + 1] += d2.x;
-                row[b2] -= d1.y;
-                row[a2] += d1.y;
-                row[b2 + 1] += d1.x;
-                row[a2 + 1] -= d1.x;
+                // `perp_dot(d1, d2)` is `dot(perp(d1), d2)`, so this is
+                // [`Self::Perpendicular`] with one direction turned a quarter
+                // circle — and each direction's partials are the *other* one
+                // turned, the opposite way round, because the cross product
+                // reverses when its arguments swap.
+                sketch.write_segment_partials(row, s1, DVec2::new(d2.y, -d2.x));
+                sketch.write_segment_partials(row, s2, DVec2::new(-d1.y, d1.x));
                 d1.perp_dot(d2)
             }
             Constraint::Perpendicular { first, second } => {
                 let (s1, s2) = (sketch.segment(first), sketch.segment(second));
                 let d1 = sketch.point(s1.b) - sketch.point(s1.a);
                 let d2 = sketch.point(s2.b) - sketch.point(s2.a);
-                let (a1, b1) = (sketch.point_param(s1.a), sketch.point_param(s1.b));
-                let (a2, b2) = (sketch.point_param(s2.a), sketch.point_param(s2.b));
-                row[b1] += d2.x;
-                row[a1] -= d2.x;
-                row[b1 + 1] += d2.y;
-                row[a1 + 1] -= d2.y;
-                row[b2] += d1.x;
-                row[a2] -= d1.x;
-                row[b2 + 1] += d1.y;
-                row[a2 + 1] -= d1.y;
+                // The residual is `dot(d1, d2)`, whose partial in either
+                // direction is simply the other direction.
+                sketch.write_segment_partials(row, s1, d2);
+                sketch.write_segment_partials(row, s2, d1);
                 d1.dot(d2)
             }
             Constraint::PointOnSegment { point, segment } => {
@@ -146,20 +155,14 @@ impl Constraint {
             }
             Constraint::PointOnCircle { point, circle } => {
                 let c = sketch.circle(circle);
-                let delta = sketch.point(point) - sketch.point(c.center);
-                let length = delta.length();
-                let unit = if length < DEGENERATE {
-                    DVec2::X
-                } else {
-                    delta / length
-                };
+                let out = Direction::of(sketch.point(point) - sketch.point(c.center));
                 let (ip, ic) = (sketch.point_param(point), sketch.point_param(c.center));
-                row[ip] += unit.x;
-                row[ip + 1] += unit.y;
-                row[ic] -= unit.x;
-                row[ic + 1] -= unit.y;
+                row[ip] += out.unit.x;
+                row[ip + 1] += out.unit.y;
+                row[ic] -= out.unit.x;
+                row[ic + 1] -= out.unit.y;
                 row[sketch.radius_param(circle)] -= 1.0;
-                length - c.radius
+                out.length - c.radius
             }
         }
     }
@@ -232,6 +235,29 @@ mod tests {
             row.push((high - low) / (2.0 * H));
         }
         row
+    }
+
+    /// The fallback the fixture below can't reach: its points are in general
+    /// position, so no residual there ever measures two points in one place.
+    #[test]
+    fn a_difference_too_short_to_point_anywhere_falls_back_to_x() {
+        // 3-4-5, and both components of the unit vector are the correctly
+        // rounded quotient, so they compare equal to the literals.
+        let apart = Direction::of(DVec2::new(3.0, -4.0));
+        assert_eq!(apart.length, 5.0);
+        assert_eq!(apart.unit, DVec2::new(0.6, -0.8));
+
+        // Far under the threshold, dividing would be a ratio of two roundings.
+        // The solver is handed +x to push along instead, and a length that
+        // still reports how far apart the two really were.
+        let together = Direction::of(DVec2::new(1e-20, -1e-20));
+        assert_eq!(together.unit, DVec2::X);
+        assert!(together.length > 0.0 && together.length < DEGENERATE);
+
+        // Exactly nowhere is the case that would divide by zero.
+        let same = Direction::of(DVec2::ZERO);
+        assert_eq!(same.unit, DVec2::X);
+        assert_eq!(same.length, 0.0);
     }
 
     #[test]

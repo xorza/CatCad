@@ -9,18 +9,19 @@ just noise for the next reader.
 `Constraint::evaluate` is a hundred-line match in which the interesting
 mathematics is a line or two per arm and the rest is lookup and bookkeeping.
 
-- [ ] `Parallel` and `Perpendicular` differ only in which component each of
-      eight row writes uses and in two signs; the surrounding eight lines of
-      segment and parameter lookup are identical.
-- [ ] `Distance` and `PointOnCircle` both compute a unit vector with the same
-      degenerate-length fallback, written out twice.
-- [ ] Every arm opens by fetching `point_param` for each point it touches and
-      closes by writing partials at fixed offsets from those indices, so the
-      parameter-index arithmetic is spread across all nine arms.
+- [ ] Eight of the nine arms open by fetching `point_param` for each point they
+      touch and close by writing partials at fixed offsets from those indices —
+      21 lookups and 17 `row[… + 1]` writes, so "y follows x" is restated
+      seventeen times in a file that never states the layout. `Param` and `Axis`
+      in `sketch/mod.rs` are that vocabulary already, but they are private and
+      unadopted here. (`Radius` is the exception; it touches no point.)
 - [ ] `Coincident` is the only constraint contributing more than one equation,
       and the whole `equation: usize` parameter and `equation_count` protocol
       exists for it — including an `axis` closure inside the arm that branches
-      on the equation index.
+      on the equation index. Its two equations are exactly `Vertical` and
+      `Horizontal`, so expanding it at `add_constraint` would delete the
+      protocol outright — at the cost of the constraint list no longer being
+      able to say that two entries are one coincidence.
 
 ## The application entry point holds four unrelated jobs
 

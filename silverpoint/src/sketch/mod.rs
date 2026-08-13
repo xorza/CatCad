@@ -244,6 +244,30 @@ impl Sketch {
         self.param_index(Param::Radius(id))
     }
 
+    /// Add `gradient` to a segment's endpoints, as the partials of a residual
+    /// that reads the segment's direction.
+    ///
+    /// The head gains it and the tail loses it, because the direction is
+    /// `head - tail` and moving either end moves it by the same amount in
+    /// opposite senses.
+    ///
+    /// Added rather than assigned, so a constraint naming one segment twice
+    /// accumulates instead of overwriting itself — which is what makes a
+    /// segment parallel to itself come out with no gradient at all rather than
+    /// half of one.
+    pub(crate) fn write_segment_partials(
+        &self,
+        row: &mut [f64],
+        segment: Segment,
+        gradient: DVec2,
+    ) {
+        let (tail, head) = (self.point_param(segment.a), self.point_param(segment.b));
+        row[head] += gradient.x;
+        row[tail] -= gradient.x;
+        row[head + 1] += gradient.y;
+        row[tail + 1] -= gradient.y;
+    }
+
     /// Whether the solver may move this parameter. Radii always move; point
     /// coordinates move unless the point is fixed; a hole left by a removal
     /// never moves, which is what keeps the solver off it without the solver
