@@ -1,12 +1,8 @@
 //! Where a sketch sits in the world, and what it looks like once it's there.
 
-use aperture::{Curve, Point};
+use aperture::{Curve, Point, Ring};
 use glam::{DVec2, Vec3};
 use silverpoint::Sketch;
-
-/// Straight segments per circle. A circle is the only sketch entity that
-/// isn't already straight, and this is what it costs to look round.
-const CIRCLE_SEGMENTS: usize = 96;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -87,18 +83,15 @@ impl SketchPlane {
         self.x.cross(self.y).normalize()
     }
 
-    /// The sketch's strokes: an edge per segment and a tessellated circle per
-    /// circle, biased clear of the solids in depth so the drawing reads over
-    /// them.
+    /// The sketch's straight strokes, one edge per segment, biased clear of
+    /// the solids in depth so the drawing reads over them. Circles are not
+    /// strokes — see [`SketchPlane::rings`].
     pub(crate) fn curves(&self, sketch: &Sketch) -> Vec<Curve> {
         let mut curves = Vec::new();
         for (_, segment) in sketch.segments() {
             let a = self.point(sketch.point(segment.a));
             let b = self.point(sketch.point(segment.b));
             curves.push(Curve::segment(a, b).colored(EDGE).width(EDGE_WIDTH));
-        }
-        for (_, circle) in sketch.circles() {
-            curves.push(self.circle(sketch.point(circle.center), circle.radius.abs()));
         }
         // Applied here rather than at each constructor: the drawing rides on
         // one plane and above the solids as one thing, and nothing in it
@@ -137,15 +130,30 @@ impl SketchPlane {
             .collect()
     }
 
-    fn circle(&self, centre: DVec2, radius: f64) -> Curve {
-        let points = (0..CIRCLE_SEGMENTS)
-            .map(|step| {
-                let angle = step as f64 / CIRCLE_SEGMENTS as f64 * std::f64::consts::TAU;
-                let (sin, cos) = angle.sin_cos();
-                self.point(centre + DVec2::new(cos, sin) * radius)
+    /// The sketch's circles, one ring apiece.
+    ///
+    /// Not tessellated into strokes: the count that looks round depends on how
+    /// large the circle lands on screen, and the renderer resolves a ring in
+    /// the fragment stage instead, which is round at every zoom and needs no
+    /// rebuilding when the camera moves.
+    ///
+    /// No plane named, unlike the strokes — a ring's band is widened in its
+    /// own plane, so the depth it carries is already the surface's.
+    pub(crate) fn rings(&self, sketch: &Sketch) -> Vec<Ring> {
+        let normal = self.normal();
+        sketch
+            .circles()
+            .map(|(_, circle)| {
+                Ring::new(
+                    self.point(sketch.point(circle.center)),
+                    circle.radius.abs() as f32,
+                    normal,
+                )
+                .colored(EDGE)
+                .width(EDGE_WIDTH)
+                .z_offset(STROKE_LIFT)
             })
-            .collect();
-        Curve::new(points).closed().colored(EDGE).width(EDGE_WIDTH)
+            .collect()
     }
 }
 
@@ -186,9 +194,9 @@ mod tests {
         sketch.add_segment(a, b);
         sketch.add_circle(b, 2.0);
 
-        // One edge and one circle. Markers are no longer strokes.
+        // One edge. Circles are rings now, and markers were never strokes.
         let curves = SketchPlane::GROUND.curves(&sketch);
-        assert_eq!(curves.len(), 2);
+        assert_eq!(curves.len(), 1);
 
         // Every last stroke rides in front of the solids, and names the plane
         // it lies in so the renderer can take its depth off the surface rather
@@ -206,16 +214,22 @@ mod tests {
         assert_eq!(edge.points, [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)]);
         assert!(!edge.closed);
 
-        let circle = &curves[1];
-        assert_eq!(circle.points.len(), CIRCLE_SEGMENTS);
-        assert!(circle.closed, "an open circle would leave a gap");
-        let centre = Vec3::new(10.0, 0.0, 0.0);
-        for point in &circle.points {
-            assert!((point.distance(centre) - 2.0).abs() < 1e-5, "{point:?}");
-            assert_eq!(point.y, 0.0, "the circle stays in the plane");
+        // The circle comes back as one ring, carrying the whole of itself
+        // rather than a count of chords standing in for it.
+        let rings = SketchPlane::GROUND.rings(&sketch);
+        assert_eq!(rings.len(), 1);
+        let ring = rings[0];
+        assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
+        assert_eq!(ring.radius, 2.0);
+        assert_eq!(ring.z_offset, STROKE_LIFT);
+        assert!(ring.normal().abs_diff_eq(Vec3::Y, 1e-6), "faces +Y");
+        // Its axes lie in the ground plane, so every point of it does too.
+        for step in 0..8 {
+            let angle = step as f32 / 8.0 * std::f32::consts::TAU;
+            let at = ring.at(angle);
+            assert!((at.y).abs() < 1e-6, "the ring stays in the plane: {at:?}");
+            assert!((at.distance(ring.center) - 2.0).abs() < 1e-5, "{at:?}");
         }
-        // It starts at angle zero and runs the way the sketch does.
-        assert!(circle.points[0].abs_diff_eq(Vec3::new(12.0, 0.0, 0.0), 1e-5));
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::object::Object;
 use crate::point::Point;
+use crate::ring::Ring;
 use crate::scene::Scene;
 use crate::viewport::Viewport;
 use glam::{Mat3, UVec2, Vec3};
@@ -79,6 +80,24 @@ struct CurveInstance {
     /// that named none — which is what the shader tests to decide whether it
     /// can read depth off the surface instead of off the centreline.
     plane: [f32; 3],
+}
+
+/// One stroked circle, shipped once however large it is drawn.
+///
+/// Both in-plane axes travel so the shader can walk the rim without picking a
+/// basis of its own — the only place a basis is chosen is [`Ring::new`].
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+struct RingInstance {
+    center: [f32; 3],
+    x_axis: [f32; 3],
+    y_axis: [f32; 3],
+    color: [f32; 3],
+    radius: f32,
+    /// Half the stroke width, in logical px.
+    half_width: f32,
+    /// Depth bias in resolution steps.
+    z_offset: f32,
 }
 
 /// One marker, shipped once. Its quad spans `±1` either way, and the two low
@@ -153,6 +172,41 @@ impl BatchRecord for PointInstance {
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32, 3 => Float32, 4 => Float32x3
     ];
+}
+
+impl BatchRecord for RingInstance {
+    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
+    const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
+        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x3,
+        4 => Float32, 5 => Float32, 6 => Float32
+    ];
+}
+
+/// Vertex pairs the ring band is built from, which has to match `RING_STEPS`
+/// in `ring.wgsl` — the shader walks the same angles this indexes.
+const RING_STEPS: usize = 32;
+
+/// The band's triangles: a quad per step, wrapping at the last back to the
+/// first. Inner and outer alternate, so step `s` owns vertices `2s` and
+/// `2s + 1`.
+const RING_INDICES: [u32; RING_STEPS * 6] = ring_indices();
+
+const fn ring_indices() -> [u32; RING_STEPS * 6] {
+    let mut indices = [0; RING_STEPS * 6];
+    let mut step = 0;
+    while step < RING_STEPS {
+        let inner = (step * 2) as u32;
+        let next = ((step + 1) % RING_STEPS * 2) as u32;
+        let base = step * 6;
+        indices[base] = inner;
+        indices[base + 1] = inner + 1;
+        indices[base + 2] = next;
+        indices[base + 3] = next;
+        indices[base + 4] = inner + 1;
+        indices[base + 5] = next + 1;
+        step += 1;
+    }
+    indices
 }
 
 /// The two triangles every overlay quad is drawn through. Together they cover
@@ -322,9 +376,10 @@ struct PassSpec {
     name: &'static str,
     records_label: &'static str,
     indices_label: &'static str,
-    /// Whether the pass grows a triangle list of its own. Meshes do; the
-    /// overlays are built holding the six quad indices and never rewrite them.
-    own_indices: bool,
+    /// The pass's triangle list, for a pass whose list never changes: it is
+    /// built holding these and never rewrites them. `None` grows one instead,
+    /// which is meshes and only meshes.
+    indices: Option<&'static [u32]>,
     cull: Option<wgpu::Face>,
     /// Whether the fragment stage reports partial coverage in alpha, for a
     /// shape that does not fill the triangles it is drawn on.
@@ -394,17 +449,16 @@ impl Pipelines<'_> {
         Pass {
             pipeline,
             records: Retained::growable(spec.records_label, wgpu::BufferUsages::VERTEX),
-            indices: if spec.own_indices {
-                Retained::growable(spec.indices_label, wgpu::BufferUsages::INDEX)
-            } else {
-                Retained::filled(
+            indices: match spec.indices {
+                Some(contents) => Retained::filled(
                     self.device,
                     spec.indices_label,
                     wgpu::BufferUsages::INDEX,
-                    bytemuck::cast_slice(&QUAD_INDICES),
-                )
+                    bytemuck::cast_slice(contents),
+                ),
+                None => Retained::growable(spec.indices_label, wgpu::BufferUsages::INDEX),
             },
-            index_count: 0,
+            index_count: spec.indices.map_or(0, |contents| contents.len() as u32),
             instances: 0,
         }
     }
@@ -432,8 +486,9 @@ impl Pass {
         self.instances = 1;
     }
 
-    /// Refill from overlay instances, every one of them drawn through the quad
-    /// this pass was built holding.
+    /// Refill from overlay instances, every one of them drawn through the
+    /// triangle list this pass was built holding — which is why only the
+    /// count of instances moves.
     fn upload_instances<R: BatchRecord>(
         &mut self,
         device: &wgpu::Device,
@@ -442,7 +497,6 @@ impl Pass {
     ) {
         self.records
             .write(device, queue, bytemuck::cast_slice(records));
-        self.index_count = QUAD_INDICES.len() as u32;
         self.instances = records.len() as u32;
     }
 
@@ -467,6 +521,7 @@ impl Pass {
 struct Gpu {
     meshes: Pass,
     curves: Pass,
+    rings: Pass,
     points: Pass,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
@@ -491,6 +546,7 @@ impl Gpu {
             include_str!("shader/common.wgsl"),
             include_str!("shader/mesh.wgsl"),
             include_str!("shader/curve.wgsl"),
+            include_str!("shader/ring.wgsl"),
             include_str!("shader/point.wgsl"),
         ]
         .concat();
@@ -543,7 +599,7 @@ impl Gpu {
             name: "mesh",
             records_label: "aperture.meshes.vertices",
             indices_label: "aperture.meshes.indices",
-            own_indices: true,
+            indices: None,
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
         });
@@ -551,21 +607,30 @@ impl Gpu {
             name: "curve",
             records_label: "aperture.curves.instances",
             indices_label: "aperture.curves.quad",
-            own_indices: false,
+            indices: Some(&QUAD_INDICES),
             cull: None,
             alpha_to_coverage: false,
+        });
+        let rings = pipelines.build::<RingInstance>(PassSpec {
+            name: "ring",
+            records_label: "aperture.rings.instances",
+            indices_label: "aperture.rings.band",
+            indices: Some(&RING_INDICES),
+            cull: None,
+            alpha_to_coverage: true,
         });
         let points = pipelines.build::<PointInstance>(PassSpec {
             name: "point",
             records_label: "aperture.points.instances",
             indices_label: "aperture.points.quad",
-            own_indices: false,
+            indices: Some(&QUAD_INDICES),
             cull: None,
             alpha_to_coverage: true,
         });
         Self {
             meshes,
             curves,
+            rings,
             points,
             uniforms,
             bind_group,
@@ -597,6 +662,7 @@ pub struct Renderer {
 struct Dirty {
     meshes: bool,
     curves: bool,
+    rings: bool,
     points: bool,
 }
 
@@ -606,6 +672,7 @@ impl Dirty {
         Self {
             meshes: true,
             curves: true,
+            rings: true,
             points: true,
         }
     }
@@ -645,6 +712,12 @@ impl Renderer {
     pub fn curves_mut(&mut self) -> &mut Vec<Curve> {
         self.dirty.curves = true;
         &mut self.scene.curves
+    }
+
+    /// Edit the scene's rings, re-uploading the batch on the next paint.
+    pub fn rings_mut(&mut self) -> &mut Vec<Ring> {
+        self.dirty.rings = true;
+        &mut self.scene.rings
     }
 
     /// Edit the scene's markers, re-uploading the batch on the next paint.
@@ -704,6 +777,23 @@ impl Renderer {
         instances
     }
 
+    /// Every circle as one instance, however large it is drawn.
+    fn flatten_rings(&self) -> Vec<RingInstance> {
+        self.scene
+            .rings
+            .iter()
+            .map(|ring| RingInstance {
+                center: ring.center.to_array(),
+                x_axis: ring.x_axis.to_array(),
+                y_axis: ring.y_axis.to_array(),
+                color: ring.color.to_array(),
+                radius: ring.radius,
+                half_width: ring.width * 0.5,
+                z_offset: ring.z_offset as f32,
+            })
+            .collect()
+    }
+
     /// Every marker as one instance. Only the anchor travels; the shader sizes
     /// the quad around it.
     fn flatten_points(&self) -> Vec<PointInstance> {
@@ -746,6 +836,7 @@ impl GpuPaint for Renderer {
         // Flattened before the GPU is borrowed, since both want `self`.
         let meshes = self.dirty.meshes.then(|| self.flatten_meshes());
         let curves = self.dirty.curves.then(|| self.flatten_curves());
+        let rings = self.dirty.rings.then(|| self.flatten_rings());
         let points = self.dirty.points.then(|| self.flatten_points());
         self.dirty = Dirty::default();
 
@@ -755,6 +846,9 @@ impl GpuPaint for Renderer {
         }
         if let Some(data) = curves {
             gpu.curves.upload_instances(ctx.device, ctx.queue, &data);
+        }
+        if let Some(data) = rings {
+            gpu.rings.upload_instances(ctx.device, ctx.queue, &data);
         }
         if let Some(data) = points {
             gpu.points.upload_instances(ctx.device, ctx.queue, &data);
@@ -798,7 +892,7 @@ impl GpuPaint for Renderer {
         // Overlays after solids: all three write depth, so what hides what is
         // the depth test's answer either way, and this order keeps the
         // pipeline switch to one per pass.
-        for layer in [&gpu.meshes, &gpu.curves, &gpu.points] {
+        for layer in [&gpu.meshes, &gpu.curves, &gpu.rings, &gpu.points] {
             layer.draw(&mut pass);
         }
     }

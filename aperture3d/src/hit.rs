@@ -15,6 +15,10 @@ pub enum HitAt {
         /// Where along that segment, from 0 at its start to 1 at its end.
         t: f32,
     },
+    Ring {
+        /// Radians round from the ring's own `x_axis`.
+        angle: f32,
+    },
 }
 
 impl HitAt {
@@ -28,7 +32,9 @@ impl HitAt {
     pub(crate) fn rank(&self) -> u8 {
         match self {
             Self::Point => 0,
-            Self::Segment { .. } => 1,
+            // An edge is an edge however it curves, so a stroke and a rim rank
+            // together and the cursor's distance decides between them.
+            Self::Segment { .. } | Self::Ring { .. } => 1,
         }
     }
 }

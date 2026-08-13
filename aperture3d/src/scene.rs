@@ -6,6 +6,7 @@ use crate::curve::Curve;
 use crate::hit::{Hit, HitAt};
 use crate::object::Object;
 use crate::point::Point;
+use crate::ring::Ring;
 use crate::viewport::Viewport;
 use glam::{Mat4, Vec2, Vec3, Vec4};
 
@@ -18,6 +19,11 @@ const MIN_RUN_PX2: f32 = 1e-6;
 /// squeeze. Only a segment with both ends astronomically far off gets near it.
 const MIN_RECIP_W: f32 = 1e-6;
 
+/// How squarely a ray has to meet a ring's plane before the crossing is worth
+/// solving for. Edge-on, the plane covers no screen area and the crossing runs
+/// off toward infinity, so there is nothing there to aim at anyway.
+const MIN_FACING: f32 = 1e-4;
+
 /// The whole of the drawable world: shaded meshes, stroked curves, and the
 /// camera viewing them. Flat for now — hierarchy, if it earns its place, goes
 /// here.
@@ -26,6 +32,7 @@ pub struct Scene {
     pub camera: Camera,
     pub objects: Vec<Object>,
     pub curves: Vec<Curve>,
+    pub rings: Vec<Ring>,
     pub points: Vec<Point>,
 }
 
@@ -51,6 +58,19 @@ impl Scene {
             for point in &curve.points {
                 include(*point);
             }
+        }
+        // A circle reaches its radius along every world axis except in so far
+        // as its plane leans away from that axis, which is what the normal's
+        // component in it measures.
+        for ring in &self.rings {
+            let normal = ring.normal();
+            let spread = Vec3::new(
+                (1.0 - normal.x * normal.x).max(0.0).sqrt(),
+                (1.0 - normal.y * normal.y).max(0.0).sqrt(),
+                (1.0 - normal.z * normal.z).max(0.0).sqrt(),
+            ) * ring.radius;
+            include(ring.center - spread);
+            include(ring.center + spread);
         }
         // A marker's glyph is screen-sized, so like a stroke's width it says
         // nothing about where the world reaches — only its anchor counts.
@@ -143,6 +163,37 @@ impl Scene {
                 });
             }
             hits.extend(best);
+        }
+
+        for ring in &self.rings {
+            let Some(tag) = ring.tag else { continue };
+            // Answered in the ring's own plane rather than against the ellipse
+            // it projects to: meet the plane, and the nearest point of the
+            // circle is straight out from its centre through where you landed.
+            let normal = ring.normal();
+            let facing = ray.direction.dot(normal);
+            if facing.abs() <= MIN_FACING {
+                continue;
+            }
+            let reached = (ring.center - ray.origin).dot(normal) / facing;
+            let landed = ray.origin + ray.direction * reached - ring.center;
+            let (across, up) = (landed.dot(ring.x_axis), landed.dot(ring.y_axis));
+            let angle = up.atan2(across);
+            let world = ring.at(angle);
+            let clip = view_proj * world.extend(1.0);
+            if !Inside::of(clip).drawn() {
+                continue;
+            }
+            let screen = cursor.distance(viewport.pixel_from_clip(clip));
+            if screen <= radius.max(ring.width * 0.5) {
+                hits.push(Hit {
+                    tag,
+                    at: HitAt::Ring { angle },
+                    world,
+                    screen,
+                    distance: along(world),
+                });
+            }
         }
 
         hits.sort_by(|a, b| {

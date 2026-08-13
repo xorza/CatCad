@@ -9,7 +9,7 @@
 use std::path::Path;
 use std::sync::{OnceLock, mpsc};
 
-use aperture::{Camera, Curve, Projection, Viewport};
+use aperture::{Camera, Curve, Projection, Ring, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::{HeadlessGpu, OffscreenHost, wgpu};
 use silverpoint::Solver;
@@ -355,10 +355,13 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
         "no strokes to begin with, so the rest proves nothing"
     );
     let original: Vec<Curve> = app.view.borrow().scene().curves.clone();
+    let rings: Vec<Ring> = app.view.borrow().scene().rings.clone();
 
-    // Emptied. The buffer stays behind, so anything still drawn here is a
-    // ghost read out of bytes the removed batch left in it.
+    // Emptied — rings too, since the sketch's circle is one and would still be
+    // ink in the column. The buffers stay behind, so anything still drawn here
+    // is a ghost read out of bytes the removed batch left in them.
     app.view.borrow_mut().curves_mut().clear();
+    app.view.borrow_mut().rings_mut().clear();
     let cleared = capture(size, &mut app);
     assert!(
         strokes(&cleared, 430).is_empty(),
@@ -373,11 +376,104 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
         curves.extend(original.iter().cloned());
         curves.extend(original);
     }
+    app.view.borrow_mut().rings_mut().extend(rings);
     let refilled = capture(size, &mut app);
     assert_eq!(
         strokes(&refilled, 430).len(),
         strokes(&first, 430).len(),
         "a grown buffer drew a different set of strokes than the same geometry did"
+    );
+}
+
+/// The regression a fixed segment count cannot pass.
+///
+/// A polyline of `n` chords sits `r(1 − cos(π/n))` inside the arc at its
+/// worst, so the 96 segments this used to be tessellated into cross a pixel of
+/// error once the radius reaches about 1900 px on screen — and a sketch is
+/// zoomed into, so it gets there. The ring is resolved in the fragment stage
+/// instead, and the check is simply that the rim keeps one distance from the
+/// centre all the way round.
+#[test]
+fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
+    /// Where the rim is put, in pixels from the centre. Past the ~1900 px at
+    /// which 96 chords cross a pixel of error.
+    const RIM_PX: f32 = 2400.0;
+    /// Well clear of the pitch at which a Y-up view has no side to stand on.
+    const PITCH: f32 = 1.0;
+
+    let size = UVec2::new(800, 628);
+    let mut app = CatCad::build();
+    {
+        let mut view = app.view.borrow_mut();
+        // Nothing else in the frame, so every lit pixel is the rim.
+        view.objects_mut().clear();
+        view.curves_mut().clear();
+        view.points_mut().clear();
+        // Square to the eye, so the circle projects to a circle and roundness
+        // is what the distances measure. Straight down would do it too, but
+        // that is the one pitch where a Y-up view has no side to stand on.
+        let (sin, cos) = PITCH.sin_cos();
+        let rings = view.rings_mut();
+        rings.clear();
+        rings.push(
+            Ring::new(Vec3::ZERO, 1.0, Vec3::new(0.0, sin, cos))
+                .colored(Vec3::new(0.35, 0.55, 0.80))
+                .width(2.0),
+        );
+
+        // Parallel, so no foreshortening enters the measurement. Zoomed until a
+        // world radius of 1 spans `RIM_PX`, and aimed at the rim rather than
+        // the centre — at that magnification the centre is far off the frame
+        // and only a shallow arc crosses it, which is exactly the arc a chord
+        // would visibly cut across.
+        let camera = view.camera_mut();
+        camera.projection = Projection::Orthographic;
+        camera.target = Vec3::X;
+        camera.yaw = 0.0;
+        camera.pitch = PITCH;
+        camera.distance = 4.0;
+        camera.fov_y = 2.0 * (size.y as f32 / 2.0 / RIM_PX / camera.distance).atan();
+    }
+    let frame = capture(size, &mut app);
+
+    let viewport = Viewport::new(frame.size);
+    let centre = viewport
+        .pixel_from_clip(frame.camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0));
+
+    // Every pixel of the rim, by how far it sits from where the centre
+    // projected. Picked out by its blue rather than by brightness, because the
+    // app's own status line is drawn over the viewport and is neither.
+    let mut reach: Vec<f32> = Vec::new();
+    for y in 0..frame.size.y {
+        for x in 0..frame.size.x {
+            let [r, _, b, _] = frame.pixel(x, y);
+            if f32::from(b) - f32::from(r) > 30.0 {
+                reach.push(centre.distance(Vec2::new(x as f32 + 0.5, y as f32 + 0.5)));
+            }
+        }
+    }
+    assert!(
+        reach.len() > 500,
+        "expected a long arc of rim to measure, got {} px",
+        reach.len()
+    );
+
+    let near = reach.iter().copied().fold(f32::MAX, f32::min);
+    let far = reach.iter().copied().fold(0.0f32, f32::max);
+    // The stroke is two logical pixels wide and fades over one either side, so
+    // four pixels of spread is the stroke itself and nothing more. Ninety-six
+    // chords at this radius would wander a further 1.3 px as each one dips
+    // inside the arc and climbs back out.
+    assert!(
+        far - near < 4.0,
+        "the rim wandered {:.2} px, between {near:.1} and {far:.1} from the centre",
+        far - near
+    );
+    // And it is the rim of the circle that was asked for, not some other
+    // curve that happens to be smooth.
+    assert!(
+        (near - RIM_PX).abs() < 4.0 && (far - RIM_PX).abs() < 4.0,
+        "the arc sits at {near:.1}..{far:.1} px, not the {RIM_PX} asked for"
     );
 }
 

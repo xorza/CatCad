@@ -51,6 +51,7 @@ impl CatCad {
         let plane = SketchPlane::GROUND;
         let mut scene = Scene {
             curves: plane.curves(&sketch),
+            rings: plane.rings(&sketch),
             points: plane.points(&sketch),
             ..Default::default()
         };

@@ -15,6 +15,12 @@ struct Uniforms {
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
 
+// WGSL has no built-in for either, and a shader that spells one out inline is
+// a shader that can spell it out differently.
+const PI: f32 = 3.14159265359;
+const TAU: f32 = 6.28318530718;
+const SQRT_2: f32 = 1.41421356237;
+
 // The relative gap between neighbouring f32 values, which is what one step of
 // depth resolution costs. The mantissa is 24 bits, so the gap runs between
 // 2⁻²⁴ and 2⁻²³ depending on where in the binade the value sits; the larger is

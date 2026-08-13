@@ -81,6 +81,7 @@ pub(crate) mod object;
 pub(crate) mod point;
 pub(crate) mod ray;
 pub(crate) mod renderer;
+pub(crate) mod ring;
 pub(crate) mod scene;
 pub(crate) mod viewport;
 
@@ -93,5 +94,6 @@ pub use object::Object;
 pub use point::Point;
 pub use ray::Ray;
 pub use renderer::Renderer;
+pub use ring::Ring;
 pub use scene::Scene;
 pub use viewport::Viewport;
