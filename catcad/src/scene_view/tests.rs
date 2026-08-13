@@ -31,9 +31,20 @@ impl Raised {
         harness.frame(|ui| view.show(ui, drawing));
     }
 
-    /// The first cursor position of a coarse sweep that lands on something the
-    /// drawing will let go of, asked of the very scene the view picks against.
-    fn find(&self, draggable: bool) -> Option<Vec2> {
+    /// A cursor position that lands on something the drawing will let go of.
+    fn over_draggable(&self) -> Option<Vec2> {
+        self.sweep(|motion| motion.is_some())
+    }
+
+    /// A cursor position that lands on something it will not — the demo pins a
+    /// point, and pressing one has to orbit like any other miss.
+    fn over_pinned(&self) -> Option<Vec2> {
+        self.sweep(|motion| motion.is_none())
+    }
+
+    /// The first cursor of a coarse sweep whose hit satisfies `keep`, asked of
+    /// the very scene the view picks against.
+    fn sweep(&self, keep: impl Fn(Option<Motion>) -> bool) -> Option<Vec2> {
         let renderer = self.view.renderer().borrow();
         let viewport = Viewport::new(SIZE);
         (0..SIZE.y)
@@ -48,7 +59,7 @@ impl Raised {
                     .scene()
                     .nearest(cursor, viewport, HOVER_REACH)
                     .and_then(|hit| self.drawing.resolve(hit.tag))
-                    .is_some_and(|entity| self.drawing.draggable(entity) == draggable)
+                    .is_some_and(|entity| keep(self.drawing.motion_of(entity)))
             })
     }
 
@@ -83,7 +94,9 @@ fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
     // Arranges the view, so there is something for the pointer to be over.
     raised.frame();
 
-    let cursor = raised.find(true).expect("the demo draws something to grab");
+    let cursor = raised
+        .over_draggable()
+        .expect("the demo draws something to grab");
 
     // Entering the view changes the hover target, which wakes a frame by
     // itself — so the one that proves anything is the next, wholly inside.
@@ -113,11 +126,19 @@ fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
 
 /// Pressing on something draggable and moving takes it with the pointer, and
 /// leaves the camera alone.
+///
+/// What this pins is the wiring — press, resolve, edit, redraw, release — and
+/// not which geometry ends up where. The sweep takes the first draggable point
+/// in raster order, so what it grabs is whatever the demo happens to draw
+/// there; where a drag *puts* things, and what follows it, is the drawing's
+/// own business and tested against a fixture there.
 #[test]
 fn dragging_a_point_moves_it_and_not_the_camera() {
     let mut raised = Raised::new();
     raised.frame();
-    let cursor = raised.find(true).expect("the demo draws a draggable point");
+    let cursor = raised
+        .over_draggable()
+        .expect("the demo draws a draggable point");
 
     raised.harness.move_to(cursor);
     raised.frame();
@@ -131,22 +152,12 @@ fn dragging_a_point_moves_it_and_not_the_camera() {
     raised.harness.drag_to(cursor + Vec2::new(40.0, 25.0));
     raised.frame();
 
-    let after = raised.markers();
-    assert_ne!(before, after, "the drag moved nothing");
+    assert_ne!(raised.markers(), before, "the drag moved nothing");
     assert_eq!(
         raised.camera(),
         camera,
         "a drag on the drawing turned the camera"
     );
-    // Exactly one marker moved: the one under the cursor. The demo's linkage
-    // partner is held by a distance, not by this drag, and the rest of the
-    // drawing is determined.
-    let moved = before
-        .iter()
-        .zip(&after)
-        .filter(|(was, now)| was != now)
-        .count();
-    assert!(moved >= 1, "nothing moved");
 
     // Released, the pointer moves over the drawing without moving it — a
     // plain move rather than a drag, since there is no longer a press for one
@@ -190,7 +201,7 @@ fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
     let mut raised = Raised::new();
     raised.frame();
     let cursor = raised
-        .find(false)
+        .over_pinned()
         .expect("the demo pins a point and draws it");
 
     raised.harness.move_to(cursor);

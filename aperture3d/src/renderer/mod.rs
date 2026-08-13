@@ -12,7 +12,7 @@ use crate::highlight::{Highlight, Lit};
 use crate::object::Object;
 use crate::point::Point;
 use crate::ring::Ring;
-use crate::scene::Scene;
+use crate::scene::{Overlays, Scene};
 use crate::tag::Tag;
 use crate::viewport::Viewport;
 use glam::{Mat3, UVec2};
@@ -160,15 +160,6 @@ impl MeshData {
     }
 }
 
-/// The scene's three overlay batches, borrowed together. See
-/// [`Renderer::overlays_mut`].
-#[derive(Debug)]
-pub struct Overlays<'a> {
-    pub curves: &'a mut Vec<Curve>,
-    pub rings: &'a mut Vec<Ring>,
-    pub points: &'a mut Vec<Point>,
-}
-
 /// The look a tag was given, if any.
 fn look_of(highlights: &[Lit], tag: Option<Tag>) -> Option<Highlight> {
     let tag = tag?;
@@ -277,21 +268,12 @@ impl Renderer {
     }
 
     /// Edit all three overlay batches at once, re-uploading them on the next
-    /// paint.
-    ///
-    /// Borrowed together because they are rewritten together: a caller that
-    /// emits a drawing emits strokes, rims and markers from one walk of it,
-    /// and holding one at a time would mean three walks or three passes over
-    /// whatever it emits from.
+    /// paint. See [`Scene::overlays_mut`].
     pub fn overlays_mut(&mut self) -> Overlays<'_> {
         self.dirty.curves = true;
         self.dirty.rings = true;
         self.dirty.points = true;
-        Overlays {
-            curves: &mut self.scene.curves,
-            rings: &mut self.scene.rings,
-            points: &mut self.scene.points,
-        }
+        self.scene.overlays_mut()
     }
 
     /// Draw everything named by `lit.tag` a second time, in `lit.look`, over

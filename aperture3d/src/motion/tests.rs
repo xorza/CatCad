@@ -18,7 +18,7 @@ fn a_plane_answers_where_the_ray_crosses_it() {
 
     // From (0, 3, 0) at 45° toward +x: dropping 3 costs 3 along x.
     let slanted = Ray::new(Vec3::new(0.0, 3.0, 0.0), Vec3::new(1.0, -1.0, 0.0));
-    let landed = slanted.resolve_on(&ground);
+    let landed = resolved(&ground, slanted);
     assert!(
         landed.abs_diff_eq(Vec3::new(3.0, 0.0, 0.0), 1e-5),
         "{landed:?}"
@@ -29,7 +29,10 @@ fn a_plane_answers_where_the_ray_crosses_it() {
         origin: Vec3::new(0.0, 1.0, 0.0),
         normal: Vec3::Y,
     };
-    let landed = Ray::new(Vec3::new(0.0, 3.0, 0.0), Vec3::new(1.0, -1.0, 0.0)).resolve_on(&raised);
+    let landed = resolved(
+        &raised,
+        Ray::new(Vec3::new(0.0, 3.0, 0.0), Vec3::new(1.0, -1.0, 0.0)),
+    );
     assert!(
         landed.abs_diff_eq(Vec3::new(2.0, 1.0, 0.0), 1e-5),
         "{landed:?}"
@@ -54,7 +57,7 @@ fn a_plane_answer_always_lies_on_the_plane() {
         Vec3::new(-0.6, -1.0, 0.4),
         Vec3::new(0.9, -1.0, -0.2),
     ] {
-        let landed = Ray::new(Vec3::new(0.0, 8.0, 0.0), aim).resolve_on(&plane);
+        let landed = resolved(&plane, Ray::new(Vec3::new(0.0, 8.0, 0.0), aim));
         let off = (landed - origin).dot(normal.normalize());
         assert!(off.abs() < 1e-4, "{aim:?} landed {off} off the plane");
     }
@@ -152,13 +155,8 @@ fn walking_the_cursor_along_an_axis_walks_the_answer_the_same_way() {
     assert_eq!(moved - start, Vec3::Z * 5.0);
 }
 
-/// Sugar for the tests that only care about the answer, not the refusal.
-trait ResolveOn {
-    fn resolve_on(self, motion: &Motion) -> Vec3;
-}
-
-impl ResolveOn for Ray {
-    fn resolve_on(self, motion: &Motion) -> Vec3 {
-        motion.resolve(self).expect("the ray reaches this motion")
-    }
+/// Where `ray` lands, for the tests that only care about the answer rather
+/// than the refusal.
+fn resolved(motion: &Motion, ray: Ray) -> Vec3 {
+    motion.resolve(ray).expect("the ray reaches this motion")
 }

@@ -1,4 +1,5 @@
 use super::*;
+use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Constraint, PointId};
 
@@ -92,15 +93,12 @@ fn only_a_point_the_drawing_does_not_pin_can_be_dragged() {
     sketch.fix(pinned);
     let drawing = Drawing::new(sketch, SketchPlane::GROUND);
 
-    assert!(drawing.draggable(Named::Point(free)));
     // `fix` is the user saying where it goes, and a drag is not an argument.
-    assert!(!drawing.draggable(Named::Point(pinned)));
+    assert!(drawing.motion_of(Named::Point(pinned)).is_none());
     // Segments and circles come later, by the same machinery.
-    assert!(!drawing.draggable(Named::Segment(edge)));
-    assert!(!drawing.draggable(Named::Circle(hole)));
-
-    // And only what can be dragged offers a motion to drag it along.
     assert!(drawing.motion_of(Named::Segment(edge)).is_none());
+    assert!(drawing.motion_of(Named::Circle(hole)).is_none());
+
     let Some(Motion::Plane { origin, normal }) = drawing.motion_of(Named::Point(free)) else {
         panic!("a sketch point moves on the plane it was drawn on");
     };
@@ -114,14 +112,11 @@ fn only_a_point_the_drawing_does_not_pin_can_be_dragged() {
 #[test]
 fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     let mut linkage = Linkage::new();
-    let mut curves = Vec::new();
-    let mut rings = Vec::new();
-    let mut points = Vec::new();
+    let mut scene = Scene::default();
 
-    linkage
-        .drawing
-        .write_into(&mut curves, &mut rings, &mut points);
-    let before: Vec<Option<Named>> = points
+    linkage.drawing.write_into(scene.overlays_mut());
+    let before: Vec<Option<Named>> = scene
+        .points
         .iter()
         .map(|point| point.tag.and_then(|tag| linkage.drawing.resolve(tag)))
         .collect();
@@ -134,17 +129,16 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
         Named::Point(linkage.grip),
         plane.point(DVec2::new(-3.0, 1.0)),
     );
-    linkage
-        .drawing
-        .write_into(&mut curves, &mut rings, &mut points);
+    linkage.drawing.write_into(scene.overlays_mut());
 
-    let after: Vec<Option<Named>> = points
+    let after: Vec<Option<Named>> = scene
+        .points
         .iter()
         .map(|point| point.tag.and_then(|tag| linkage.drawing.resolve(tag)))
         .collect();
     assert_eq!(before, after, "a rewrite renumbered the drawing");
     // Cleared and refilled rather than appended to.
-    assert_eq!(points.len(), 2);
-    assert_eq!(curves.len(), 1);
-    assert!(rings.is_empty());
+    assert_eq!(scene.points.len(), 2);
+    assert_eq!(scene.curves.len(), 1);
+    assert!(scene.rings.is_empty());
 }

@@ -28,7 +28,7 @@ impl Demo {
         let mut drawing = Drawing::new(Self::sketch(), SketchPlane::GROUND);
         let plane = drawing.plane();
         let mut scene = Scene::default();
-        drawing.write_into(&mut scene.curves, &mut scene.rings, &mut scene.points);
+        drawing.write_into(scene.overlays_mut());
         // The ground the drawing lies on, and the reason the drawing carries a
         // depth bias at all: the slab's top face *is* the sketch plane, so the
         // two are exactly coplanar and something has to decide which reads.

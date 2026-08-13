@@ -24,6 +24,20 @@ pub struct Scene {
 }
 
 impl Scene {
+    /// Edit all three overlay batches at once.
+    ///
+    /// Borrowed together because they are rewritten together: a caller that
+    /// emits a drawing emits strokes, rims and markers from one walk of it,
+    /// and holding one at a time would mean three walks, or three passes over
+    /// whatever it emits from.
+    pub fn overlays_mut(&mut self) -> Overlays<'_> {
+        Overlays {
+            curves: &mut self.curves,
+            rings: &mut self.rings,
+            points: &mut self.points,
+        }
+    }
+
     /// What the scene occupies in world space, or `None` when there is
     /// nothing in it. Mesh vertices are measured after their object's
     /// transform, so this is where the geometry actually lands.
@@ -127,6 +141,15 @@ impl Scene {
             .chain(self.curves.iter().filter_map(move |curve| curve.pick(&aim)))
             .chain(self.rings.iter().filter_map(move |ring| ring.pick(&aim)))
     }
+}
+
+/// A scene's three overlay batches, borrowed together. See
+/// [`Scene::overlays_mut`].
+#[derive(Debug)]
+pub struct Overlays<'a> {
+    pub curves: &'a mut Vec<Curve>,
+    pub rings: &'a mut Vec<Ring>,
+    pub points: &'a mut Vec<Point>,
 }
 
 #[cfg(test)]

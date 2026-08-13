@@ -1,6 +1,6 @@
 //! The sketch being edited, where it sits in the world, and what it draws.
 
-use aperture::{Curve, Motion, Point, Ring, Tag};
+use aperture::{Motion, Overlays, Tag};
 use glam::Vec3;
 use silverpoint::{Sketch, SolveReport, Solver};
 
@@ -63,31 +63,27 @@ impl Drawing {
     /// The tags come out the same across a rewrite, because they are positions
     /// in a list built in the same order — which is what lets a drag keep hold
     /// of what it grabbed.
-    pub(crate) fn write_into(
-        &mut self,
-        curves: &mut Vec<Curve>,
-        rings: &mut Vec<Ring>,
-        points: &mut Vec<Point>,
-    ) {
+    pub(crate) fn write_into(&mut self, into: Overlays<'_>) {
         self.names.clear();
         self.plane
-            .write_curves(&self.sketch, &mut self.names, curves);
-        self.plane.write_rings(&self.sketch, &mut self.names, rings);
+            .write_curves(&self.sketch, &mut self.names, into.curves);
         self.plane
-            .write_points(&self.sketch, &mut self.names, points);
+            .write_rings(&self.sketch, &mut self.names, into.rings);
+        self.plane
+            .write_points(&self.sketch, &mut self.names, into.points);
     }
 
-    /// Whether a drag may take hold of `entity`.
+    /// How `entity` may be dragged, or `None` if it may not be.
+    ///
+    /// Whether a drag may take hold of something and where it may take it are
+    /// one question, so they are one answer: two of these would be two places
+    /// to teach about segments, and a drag would start on whichever was
+    /// taught first.
     ///
     /// Points only, for now — a segment would move both its ends and a circle's
     /// rim would drive its radius, and both are the same machinery pointed at a
-    /// different part of the sketch. Not a point the drawing pins: `fix` is the
-    /// user saying where it goes, and a drag is not an argument.
-    pub(crate) fn draggable(&self, entity: Named) -> bool {
-        matches!(entity, Named::Point(id) if !self.sketch.is_fixed(id))
-    }
-
-    /// How `entity` may move, and where it sits now.
+    /// different part of the sketch. Not a point the drawing pins either: `fix`
+    /// is the user saying where it goes, and a drag is not an argument.
     ///
     /// A sketch point may go anywhere on the plane it was drawn on and nowhere
     /// else, which is exactly what a [`Motion::Plane`] says. A gizmo handle
@@ -96,6 +92,9 @@ impl Drawing {
         let Named::Point(id) = entity else {
             return None;
         };
+        if self.sketch.is_fixed(id) {
+            return None;
+        }
         Some(Motion::Plane {
             origin: self.plane.point(self.sketch.point(id)),
             normal: self.plane.normal(),

@@ -35,6 +35,36 @@ const HOVERED: Highlight = Highlight {
     lift: MARKER_LIFT_STEP,
 };
 
+/// Where the pointer is over the view, and the viewport that measures it.
+///
+/// `pointer_local` is already what [`Scene::nearest`] asks for — logical
+/// pixels from the widget's own top-left — so nothing is converted. It is
+/// measured against `layout_rect` rather than the visible `rect`, and the
+/// viewport is built from that same rect, or the two would disagree the moment
+/// anything clipped the view.
+#[derive(Debug, Clone, Copy)]
+struct Aimed {
+    cursor: Vec2,
+    viewport: Viewport,
+}
+
+impl Aimed {
+    /// What the pointer is aiming at this frame, or `None` if it is off the
+    /// surface or the view has not arranged yet.
+    ///
+    /// Says nothing about whether the pointer is over *this* view: it is the
+    /// offset from this widget's corner wherever the pointer is, including
+    /// well off the widget. A caller that cares asks `response.hovered`, and
+    /// one mid-drag deliberately does not.
+    fn of(response: &Response<'_>) -> Option<Self> {
+        let (cursor, rect) = response.pointer_local.zip(response.layout_rect)?;
+        Some(Self {
+            cursor,
+            viewport: Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32)),
+        })
+    }
+}
+
 /// A sketch entity being dragged, and where the pointer may take it.
 ///
 /// The target is held apart from whatever was grabbed on purpose. They are the
@@ -161,28 +191,20 @@ impl SceneView {
 
     /// Light whatever the pointer is over.
     ///
-    /// `pointer_local` is already what [`Scene::nearest`] asks for — logical
-    /// pixels from the widget's own top-left — so nothing is converted here.
-    /// It is measured against `layout_rect` rather than the visible `rect`,
-    /// and the viewport has to be built from the same one or the two would
-    /// disagree the moment anything clipped the view.
-    ///
     /// Only one thing lights: a marker sits on the end of every edge that
     /// meets it, and lighting all of them would answer a question nobody
     /// asked.
     fn hover(&mut self, response: &Response<'_>, drawing: &Drawing) {
-        let under = response
-            .pointer_local
-            .zip(response.layout_rect)
-            // `pointer_local` is the offset from this widget's corner wherever
-            // the pointer is, including well off the widget — so asking
-            // whether it is actually over the view is what stops the overlay's
-            // own controls from lighting the drawing behind them.
+        let under = Aimed::of(response)
+            // Asking whether the pointer is actually over the view is what
+            // stops the overlay's own controls from lighting what is behind
+            // them.
             .filter(|_| response.hovered)
-            .and_then(|(cursor, rect)| {
-                let viewport = Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32));
+            .and_then(|aim| {
                 let renderer = self.renderer.borrow();
-                let hit = renderer.scene().nearest(cursor, viewport, HOVER_REACH);
+                let hit = renderer
+                    .scene()
+                    .nearest(aim.cursor, aim.viewport, HOVER_REACH);
                 hit.map(|hit| hit.tag)
             });
 
@@ -199,26 +221,21 @@ impl SceneView {
     /// the camera. Grabbing nothing has to stay the way the view is orbited,
     /// or the pointer would lose its only way to look around.
     fn grab(&self, response: &Response<'_>, drawing: &Drawing) -> Gesture {
-        let Some(held) = response
-            .pointer_local
-            .zip(response.layout_rect)
+        let Some(held) = Aimed::of(response)
             .filter(|_| response.hovered)
-            .and_then(|(cursor, rect)| {
-                let viewport = Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32));
+            .and_then(|aim| {
                 let renderer = self.renderer.borrow();
                 let scene = renderer.scene();
-                let hit = scene.nearest(cursor, viewport, HOVER_REACH)?;
-                let target = drawing
-                    .resolve(hit.tag)
-                    .filter(|&it| drawing.draggable(it))?;
+                let hit = scene.nearest(aim.cursor, aim.viewport, HOVER_REACH)?;
+                let target = drawing.resolve(hit.tag)?;
                 let motion = drawing.motion_of(target)?;
                 // Where the press landed on the motion, against where the
                 // entity actually is: a grab is not a teleport.
-                let landed = motion.resolve(scene.camera.ray_through(cursor, viewport))?;
+                let ray = scene.camera.ray_through(aim.cursor, aim.viewport);
                 Some(Held {
                     target,
                     motion,
-                    offset: hit.world - landed,
+                    offset: hit.world - motion.resolve(ray)?,
                 })
             })
         else {
@@ -233,21 +250,16 @@ impl SceneView {
     /// leaves everything where it was rather than jumping, which is what makes
     /// turning the view mid-drag survivable.
     fn drag(&mut self, response: &Response<'_>, drawing: &mut Drawing, held: Held) {
-        let Some(landed) =
-            response
-                .pointer_local
-                .zip(response.layout_rect)
-                .and_then(|(cursor, rect)| {
-                    let viewport =
-                        Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32));
-                    let ray = self
-                        .renderer
-                        .borrow()
-                        .camera()
-                        .ray_through(cursor, viewport);
-                    held.motion.resolve(ray)
-                })
-        else {
+        // No `hovered` filter, unlike the two above: a drag that outruns the
+        // view keeps hold of what it grabbed.
+        let Some(landed) = Aimed::of(response).and_then(|aim| {
+            let ray = self
+                .renderer
+                .borrow()
+                .camera()
+                .ray_through(aim.cursor, aim.viewport);
+            held.motion.resolve(ray)
+        }) else {
             return;
         };
         drawing.drag_to(held.target, landed + held.offset);
@@ -255,8 +267,7 @@ impl SceneView {
         let mut renderer = self.renderer.borrow_mut();
         // Into the batches the renderer already holds, so a drag rewrites the
         // drawing every frame without asking the heap for anything.
-        let drawn = renderer.overlays_mut();
-        drawing.write_into(drawn.curves, drawn.rings, drawn.points);
+        drawing.write_into(renderer.overlays_mut());
     }
 }
 

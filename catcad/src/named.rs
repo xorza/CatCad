@@ -64,8 +64,4 @@ impl Names {
     pub fn clear(&mut self) {
         self.entities.clear();
     }
-
-    pub fn is_empty(&self) -> bool {
-        self.entities.is_empty()
-    }
 }
