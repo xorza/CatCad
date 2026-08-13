@@ -221,10 +221,10 @@ fn paint(bench: &mut AllocBench) {
     let mut lit = 0u64;
     bench.step("paint-hovering", PAINT_HOVERING_MAX, || {
         lit = (lit + 1) % 4;
-        pane.view.borrow_mut().highlight_only(Some(Lit {
+        pane.view.borrow_mut().highlight_only(Lit {
             tag: Tag::new(lit),
             look: Highlight::new(Vec3::Y),
-        }));
+        });
         black_box(host.frame_offscreen(&target, 1.0, &mut pane));
         wait();
     });
@@ -246,10 +246,10 @@ pub fn alloc_bench() {
     let mut lit = 0u64;
     bench.step("flatten-highlights", 0.0, || {
         lit = (lit + 1) % 4;
-        renderer.highlight_only(Some(Lit {
+        renderer.highlight_only(Lit {
             tag: Tag::new(lit),
             look: Highlight::new(Vec3::Y),
-        }));
+        });
         black_box(renderer.refresh_overlays(true));
     });
 

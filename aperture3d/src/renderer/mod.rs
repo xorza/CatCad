@@ -132,18 +132,30 @@ impl Renderer {
         self.dirty.highlights = true;
     }
 
-    /// Light `lit` and nothing else, dropping whatever was lit before. `None`
-    /// lights nothing at all.
+    /// Light `lit` and nothing else, dropping whatever was lit before.
     ///
-    /// What a hover wants, where the answer is one thing or none of them and
-    /// the previous answer is of no interest. Like [`Renderer::highlight`],
-    /// a call that changes nothing dirties nothing.
-    pub fn highlight_only(&mut self, lit: Option<Lit>) {
-        if self.highlights.iter().copied().eq(lit) {
+    /// What a hover wants, where the answer is one thing and the previous
+    /// answer is of no interest. Like [`Renderer::highlight`], a call that
+    /// changes nothing dirties nothing.
+    pub fn highlight_only(&mut self, lit: Lit) {
+        if self.highlights == [lit] {
             return;
         }
         self.highlights.clear();
-        self.highlights.extend(lit);
+        self.highlights.push(lit);
+        self.dirty.highlights = true;
+    }
+
+    /// Drop every highlight, leaving the scene drawn as nothing but itself.
+    ///
+    /// The other half of what a hover asks for — a pointer over nothing has no
+    /// [`Lit`] to name — and free in the same way when there was nothing lit to
+    /// drop.
+    pub fn clear_highlights(&mut self) {
+        if self.highlights.is_empty() {
+            return;
+        }
+        self.highlights.clear();
         self.dirty.highlights = true;
     }
 

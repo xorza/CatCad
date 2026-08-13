@@ -771,7 +771,7 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
         .expect("the drawing tags its edges");
     app.renderer()
         .borrow_mut()
-        .highlight_only(Some(Lit { tag: edge, look }));
+        .highlight_only(Lit { tag: edge, look });
     let lit = capture(size, &mut pane);
     assert!(
         magenta(&lit) > 200,
@@ -781,7 +781,7 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
 
     // And it is *drawn over*, not drawn instead: the rest of the frame is
     // untouched, so clearing restores it pixel for pixel.
-    app.renderer().borrow_mut().highlight_only(None);
+    app.renderer().borrow_mut().clear_highlights();
     let cleared = capture(size, &mut pane);
     assert_eq!(magenta(&cleared), 0);
     assert_eq!(cleared.image, plain.image, "clearing left something behind");

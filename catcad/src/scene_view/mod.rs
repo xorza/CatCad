@@ -287,7 +287,10 @@ impl SceneView {
             renderer.scene().nearest(aim).map(|hit| hit.tag)
         });
         self.hovered = under.and_then(|tag| self.names.get(tag));
-        renderer.highlight_only(under.map(|tag| Lit { tag, look: HOVERED }));
+        match under {
+            Some(tag) => renderer.highlight_only(Lit { tag, look: HOVERED }),
+            None => renderer.clear_highlights(),
+        }
 
         // Wholesale rather than on change: the document owns the camera and the
         // scene holds the copy the next paint reads, so overwriting it every

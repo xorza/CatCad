@@ -260,7 +260,7 @@ fn a_refilled_batch_holds_only_what_the_scene_holds_now() {
     });
     renderer.refresh_overlays(true);
     assert_eq!(renderer.batches.curves.lit.len(), 1);
-    renderer.highlight_only(None);
+    renderer.clear_highlights();
     renderer.refresh_overlays(true);
     assert!(
         renderer.batches.curves.lit.is_empty(),
@@ -372,11 +372,11 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     assert_eq!(batches.rings.lit[0].look.half_extent, 1.5);
     assert_eq!(batches.rings.lit[0].look.color, [0.0, 1.0, 0.0]);
 
-    // Lighting one thing alone drops the rest, and `None` drops everything.
-    renderer.highlight_only(Some(Lit {
+    // Lighting one thing alone drops the rest, and clearing drops everything.
+    renderer.highlight_only(Lit {
         tag: Tag::new(2),
         look,
-    }));
+    });
     renderer.refresh_overlays(true);
     let batches = &renderer.batches;
     assert!(
@@ -384,7 +384,7 @@ fn a_highlight_repeats_only_what_its_tag_names() {
             && batches.points.lit.len() == 1
             && batches.rings.lit.is_empty()
     );
-    renderer.highlight_only(None);
+    renderer.clear_highlights();
     renderer.refresh_overlays(true);
     let batches = &renderer.batches;
     assert!(
@@ -416,7 +416,7 @@ fn re_lighting_what_is_already_lit_dirties_nothing() {
 
     renderer.dirty = Dirty::default();
     renderer.highlight(lit);
-    renderer.highlight_only(Some(lit));
+    renderer.highlight_only(lit);
     assert!(!renderer.dirty.highlights, "neither call changed anything");
 
     // A different look for the same tag is a change, and so is dropping it.
@@ -426,6 +426,12 @@ fn re_lighting_what_is_already_lit_dirties_nothing() {
     });
     assert!(renderer.dirty.highlights);
     renderer.dirty = Dirty::default();
-    renderer.highlight_only(None);
+    renderer.clear_highlights();
     assert!(renderer.dirty.highlights);
+
+    // And clearing what is already clear is the same nothing: a pointer over
+    // empty space says so every frame it does not move.
+    renderer.dirty = Dirty::default();
+    renderer.clear_highlights();
+    assert!(!renderer.dirty.highlights, "nothing was lit to drop");
 }
