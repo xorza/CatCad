@@ -152,7 +152,7 @@ impl Sketch {
     ///
     /// A starting guess like the one it was added with, not a constraint: the
     /// next solve is free to move it again unless it is fixed, or held for the
-    /// length of a drag by [`Solver::solve_holding`](crate::Solver).
+    /// length of a drag by [`Solver::edit_holding`](crate::Solver).
     pub fn set_point(&mut self, id: PointId, position: DVec2) {
         self.point_mut(id).position = position;
     }

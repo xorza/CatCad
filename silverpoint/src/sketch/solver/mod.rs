@@ -179,20 +179,20 @@ impl Solver {
     /// Solve with `held` pinned where they are, whatever their own
     /// [`Sketch::is_fixed`] says.
     ///
-    /// What dragging needs. The point under the cursor stays where the cursor
-    /// put it and the rest of the sketch moves to accommodate it, which is the
-    /// difference between dragging a drawing and watching it snap back.
+    /// The settling half of a drag: the point under the cursor stays where the
+    /// cursor put it and the rest of the sketch moves to accommodate it, which
+    /// is the difference between dragging a drawing and watching it snap back.
     ///
     /// Held rather than fixed, because [`Sketch::fix`] is the user's statement
     /// about the drawing: a point does not become pinned because someone is
     /// holding it, and anything reading that flag — the marker it is drawn
     /// with, the degrees of freedom reported at rest — would be told it did.
     ///
-    /// A sketch with nothing left to give reports `converged: false`. Holding
-    /// a point of a fully-determined drawing asks for a motion its constraints
-    /// forbid, and that it cannot be had is the honest answer rather than a
-    /// failure.
-    pub fn solve_holding(&mut self, sketch: &mut Sketch, held: &[PointId]) -> SolveReport {
+    /// A sketch with nothing left to give reports `converged: false`, and is
+    /// left at the compromise that reached it. Only half an answer, which is
+    /// why this is not the crate's way of dragging one: what a caller wants is
+    /// [`Solver::edit_holding`], which throws that compromise away.
+    pub(crate) fn solve_holding(&mut self, sketch: &mut Sketch, held: &[PointId]) -> SolveReport {
         let max_iterations = self.max_iterations;
         let tolerance = self.tolerance;
         let n = sketch.param_count();
@@ -278,7 +278,7 @@ impl Solver {
     /// the constraints cannot take the step.
     ///
     /// What a drag is made of, and the reason it is one call rather than an
-    /// edit followed by [`Solver::solve_holding`]. Dragging geometry the
+    /// edit followed by a solve. Dragging geometry the
     /// constraints already determine asks for a motion they forbid, and least
     /// squares answers with a compromise: the drawing deforms under the cursor.
     /// Keeping that would be bad enough on its own, but it is worse than it

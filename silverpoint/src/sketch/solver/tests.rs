@@ -293,11 +293,15 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
         "{at_rest:?}"
     );
 
-    // Somewhere the constraints cannot reach with that point held.
+    // Somewhere the constraints cannot reach with that point held. The anchor
+    // is fixed and this one is held, so every column is zeroed and nothing can
+    // move at all: the distance is satisfied exactly where it was put — 3-4-5
+    // — and the horizontal is out by the whole of its four.
     sketch.set_point(pinned, DVec2::new(3.0, 4.0));
     let report = Solver::default().solve_holding(&mut sketch, &[pinned]);
     assert!(!report.converged, "{report:?}");
-    assert!(report.max_residual > EPSILON, "{report:?}");
+    assert_eq!(report.max_residual, 4.0, "{report:?}");
+    assert_eq!(sketch.point(pinned), DVec2::new(3.0, 4.0), "{report:?}");
 
     // Back to rest, and then the same request as an edit. Nothing of it
     // survives: not the geometry, and not the report either.
