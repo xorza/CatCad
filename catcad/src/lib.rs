@@ -9,6 +9,7 @@ mod bench;
 mod demo;
 mod document;
 mod drawing;
+mod history;
 mod intent;
 pub mod named;
 mod overlay;
@@ -25,13 +26,22 @@ use std::fmt;
 use std::rc::Rc;
 
 use aperture::{Camera, Renderer};
-use palantir::{App, Configure, HostHandle, Panel, Sizing, Ui, WindowToken};
+use palantir::{App, Configure, HostHandle, Panel, Shortcut, Sizing, Ui, WindowToken};
 use silverpoint::SolveReport;
 
 use crate::document::Document;
+use crate::history::History;
 use crate::intent::{Intent, Intents};
 use crate::named::Named;
 use crate::scene_view::SceneView;
+
+/// Take back the last step, and put it back.
+///
+/// Palantir normalises the command modifier at the input boundary, so one
+/// binding is Ctrl on Windows and Linux and Cmd on macOS. Modifiers are matched
+/// exactly, which is what keeps `Ctrl+Z` from firing on `Ctrl+Shift+Z`.
+const UNDO: Shortcut = Shortcut::ctrl('Z');
+const REDO: Shortcut = Shortcut::ctrl_shift('Z');
 
 /// One view of one scene, with the controls and the solve's verdict laid over
 /// it.
@@ -40,6 +50,10 @@ pub struct CatCad {
     /// Everything a session would have to write down to be opened again: the
     /// sketch, the solids beside it, and the camera looking at them.
     document: Document,
+    /// How the document came to say what it says. Beside the document rather
+    /// than in it: what is in one is what saving writes down, and the way here
+    /// belongs to this run of the program.
+    history: History,
     /// What this frame's gestures asked for, standing between the view that
     /// raised them and the document they land on. Kept across frames for its
     /// room rather than its contents, which are cleared before each one.
@@ -67,6 +81,7 @@ impl CatCad {
         scene.camera = document.camera();
         Self {
             document,
+            history: History::default(),
             intents: Intents::default(),
             view: SceneView::new(scene),
         }
@@ -146,6 +161,16 @@ impl App for CatCad {
             .auto_id()
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
+                // Polled unconditionally rather than short-circuited: reading a
+                // chord is also what subscribes it for the wake that delivers
+                // the next one, so one left unread on the frame the other fired
+                // would stop waking a frame of its own.
+                if ui.key_pressed(UNDO) {
+                    self.intents.push(Intent::Undo);
+                }
+                if ui.key_pressed(REDO) {
+                    self.intents.push(Intent::Redo);
+                }
                 self.view.show(ui, &self.document, &mut self.intents);
                 // Formatted straight into the pass's own text arena — no
                 // `String` is built on the way, and the handle is lowered by
@@ -158,7 +183,7 @@ impl App for CatCad {
                 }
                 // Everything above only asked. This is where a frame's asking
                 // becomes a change, and where what that changed is drawn.
-                let moved = self.document.apply(&self.intents);
+                let moved = self.history.apply(&mut self.document, &self.intents);
                 self.view.settle(&mut self.document, moved);
             });
     }

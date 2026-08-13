@@ -2,7 +2,7 @@
 
 use aperture::{Hit, HitAt, Motion, Overlays, Tag};
 use glam::Vec3;
-use silverpoint::{CircleId, Freedoms, PointId, SegmentId, Sketch, SolveReport, Solver};
+use silverpoint::{CircleId, Freedoms, PointId, SegmentId, Sketch, Snapshot, SolveReport, Solver};
 
 use crate::named::{Named, Names};
 use crate::sketch_plane::SketchPlane;
@@ -69,6 +69,27 @@ impl Drawing {
     /// What the last solve made of it.
     pub(crate) fn report(&self) -> SolveReport {
         self.report
+    }
+
+    /// Take down where the drawing stands, so it can be put back later.
+    ///
+    /// Fills rather than returns, so a history noting where a drag started
+    /// refills the same buffers rather than taking two a frame.
+    pub(crate) fn snapshot_into(&self, into: &mut Standing) {
+        self.sketch.snapshot_into(&mut into.at);
+        into.report = self.report;
+    }
+
+    /// Put the drawing back the way `standing` found it.
+    ///
+    /// Restored rather than re-solved. Solving from the restored geometry would
+    /// derive the report through the one path that already produces one, but a
+    /// solve is free to *move* what it is given — and an undo that landed the
+    /// drawing near where it was rather than on it would not be an undo. So the
+    /// report is carried instead, which costs forty bytes and cannot drift.
+    pub(crate) fn restore(&mut self, standing: &Standing) {
+        self.sketch.restore(&standing.at);
+        self.settled(standing.report);
     }
 
     /// What `tag` was drawn for, or `None` if it came from a drawing older
@@ -201,6 +222,32 @@ pub(crate) struct Drawn<'a> {
     pub freedoms: &'a Freedoms,
 }
 
+/// The drawing as it stood at one moment: where its geometry was, and what the
+/// solve that put it there made of it.
+///
+/// The two travel together for the reason [`Drawing::settled`] keeps them
+/// together — a report stored without the geometry it was read off describes a
+/// moment that never happened. Restoring one without the other would put the
+/// drawing back and then paint it in the colours of somewhere else.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Standing {
+    at: Snapshot,
+    report: SolveReport,
+}
+
+impl Standing {
+    /// Whether the geometry has moved from where `was` had it.
+    ///
+    /// The geometry alone, deliberately. Two standings of identical geometry
+    /// can carry different reports: a drag the constraints refuse leaves one
+    /// measured at rest, in nought iterations, where the drawing's own was the
+    /// four its last real solve took. Counting that as a change would record a
+    /// step that moved nothing, and leave a Ctrl+Z that appeared to do nothing.
+    pub(crate) fn moved_from(&self, was: &Standing) -> bool {
+        self.at != was.at
+    }
+}
+
 /// What a drag has hold of, and where on it.
 ///
 /// Settled once, when the press lands. Where on a primitive it was grabbed is
@@ -215,6 +262,22 @@ pub(crate) enum Grip {
     Segment { id: SegmentId, t: f64 },
     /// A circle's rim, which drives its radius rather than moving it.
     Rim(CircleId),
+}
+
+#[cfg(test)]
+pub(crate) mod internals {
+    use crate::drawing::Drawing;
+    use silverpoint::Sketch;
+
+    impl Drawing {
+        /// The sketch the drawing is of.
+        ///
+        /// For a test that has to name a point the way nothing in production
+        /// does — by its handle, rather than by what a cursor landed on.
+        pub(crate) fn sketch(&self) -> &Sketch {
+            &self.sketch
+        }
+    }
 }
 
 #[cfg(test)]

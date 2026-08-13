@@ -1,6 +1,9 @@
-//! What the app decides before anything is drawn.
+//! What the app decides, from the sketch it opens with to the frames it records.
 
-use glam::DVec2;
+use aperture::Viewport;
+use glam::{DVec2, UVec2, Vec2, Vec3};
+use palantir::internals::UiHarness;
+use palantir::{App, Key, Modifiers, WindowToken};
 use silverpoint::{Freedom, Freedoms, PointId, SolveReport, Solver};
 
 use crate::demo;
@@ -205,4 +208,91 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
         "solved · 5 dof · 0 redundant · 4 iterations",
         "the demo opens with its arm free and its frame determined"
     );
+}
+
+/// Ctrl+Z through the whole application: a real drag with the pointer, taken
+/// back with the keyboard.
+///
+/// The one place the key bindings exist is `CatCad::record`, so the one way to
+/// test them is to record real frames. What it pins beyond the history's own
+/// tests is the wiring — that the chord is read at all, that reading it wakes a
+/// frame, and that what it raises reaches the document before that frame is
+/// drawn.
+#[test]
+fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
+    const SIZE: UVec2 = UVec2::new(800, 600);
+
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    // The far end of the arm, which is drawn last and is the freest thing the
+    // demo has — aimed at through the very camera the frame was drawn with.
+    let at_rest = markers(&app);
+    let world = *at_rest.last().expect("the demo draws markers");
+    let viewport = Viewport::new(SIZE);
+    let clip = app.camera_mut().view_proj(viewport.aspect()) * world.extend(1.0);
+    let cursor = viewport.pixel_from_clip(clip);
+
+    // Press, travel past palantir's four-pixel latch, release.
+    harness.move_to(cursor);
+    frame(&mut app, &mut harness);
+    harness.press_at(cursor);
+    frame(&mut app, &mut harness);
+    harness.drag_to(cursor + Vec2::new(40.0, 25.0));
+    frame(&mut app, &mut harness);
+    harness.release();
+    frame(&mut app, &mut harness);
+    let dragged = markers(&app);
+    assert_ne!(dragged, at_rest, "the pointer moved nothing");
+
+    // Now the keyboard. The chord has to wake a frame of its own: nothing else
+    // is happening, and an undo that waited for an unrelated event would sit
+    // unapplied on screen.
+    harness.set_modifiers(Modifiers {
+        ctrl: true,
+        ..Modifiers::NONE
+    });
+    let woken = harness.key(Key::Char('Z'));
+    assert!(
+        woken.requests_repaint,
+        "Ctrl+Z left the frame asleep, so the undo would not be drawn"
+    );
+    frame(&mut app, &mut harness);
+    assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the drag back");
+
+    // And Ctrl+Shift+Z puts it back. The modifiers are matched exactly, so the
+    // two chords cannot be confused for one another.
+    harness.set_modifiers(Modifiers {
+        ctrl: true,
+        shift: true,
+        ..Modifiers::NONE
+    });
+    harness.key(Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    assert_eq!(markers(&app), dragged, "Ctrl+Shift+Z did not put it back");
+
+    // With nothing left to put back, the chord changes nothing.
+    harness.key(Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    assert_eq!(markers(&app), dragged);
+}
+
+/// One recorded frame of the real application.
+///
+/// Both halves by argument rather than captured in a closure, so a caller can
+/// still read the app between frames.
+fn frame(app: &mut CatCad, harness: &mut UiHarness) {
+    harness.frame(|ui| app.record(WindowToken(0), ui));
+}
+
+/// Where every marker the app is drawing sits, in the order it draws them.
+fn markers(app: &CatCad) -> Vec<Vec3> {
+    app.renderer()
+        .borrow()
+        .scene()
+        .points
+        .iter()
+        .map(|point| point.position)
+        .collect()
 }

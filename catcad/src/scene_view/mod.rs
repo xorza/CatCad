@@ -187,7 +187,13 @@ impl SceneView {
                     });
                 }
             }
-            (_, Drag::Stopped) => self.gesture = Gesture::None,
+            (_, Drag::Stopped) => {
+                self.gesture = Gesture::None;
+                // Whatever the gesture was. An orbit has nothing open for this
+                // to close, and saying so costs less than remembering which
+                // kind of gesture it was in order not to.
+                intents.push(Intent::Release);
+            }
             _ => {}
         }
 

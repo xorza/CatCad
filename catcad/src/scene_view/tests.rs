@@ -1,6 +1,7 @@
 use super::*;
 use crate::demo;
-use crate::intent::Intents;
+use crate::history::History;
+use crate::intent::{Intent, Intents};
 use palantir::internals::UiHarness;
 
 const SIZE: UVec2 = UVec2::new(800, 600);
@@ -9,6 +10,7 @@ const SIZE: UVec2 = UVec2::new(800, 600);
 #[derive(Debug)]
 struct Raised {
     document: Document,
+    history: History,
     intents: Intents,
     view: SceneView,
     harness: UiHarness,
@@ -22,6 +24,7 @@ impl Raised {
         scene.camera = document.camera();
         Self {
             document,
+            history: History::default(),
             intents: Intents::default(),
             view: SceneView::new(scene),
             harness: UiHarness::new(SIZE),
@@ -36,6 +39,7 @@ impl Raised {
     fn frame(&mut self) {
         let Self {
             document,
+            history,
             intents,
             view,
             harness,
@@ -43,7 +47,7 @@ impl Raised {
         harness.frame(|ui| {
             intents.clear();
             view.show(ui, document, intents);
-            let moved = document.apply(intents);
+            let moved = history.apply(document, intents);
             view.settle(document, moved);
         });
     }
@@ -60,6 +64,7 @@ impl Raised {
             intents,
             view,
             harness,
+            ..
         } = self;
         harness.frame(|ui| {
             intents.clear();
@@ -371,7 +376,7 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     );
 
     // Applying is what moves it, and what says the drawing is owed a redraw.
-    let moved = raised.document.apply(&raised.intents);
+    let moved = raised.history.apply(&mut raised.document, &raised.intents);
     assert!(moved, "a drag left the drawing to be laid out as it was");
     assert_ne!(raised.asked_for(), before, "the applied drag moved nothing");
 
@@ -400,7 +405,7 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     // pass already took, so how far this one turns depends on which pass is
     // being read, and only the whole frame has a stable answer.
     assert!(
-        !raised.document.apply(&raised.intents),
+        !raised.history.apply(&mut raised.document, &raised.intents),
         "an orbit asked the drawing to be laid out again"
     );
 }

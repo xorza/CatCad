@@ -23,7 +23,11 @@ const DAMPING_GROWTH: f64 = 8.0;
 const MAX_DAMPING: f64 = 1e12;
 
 /// What a solve achieved, and how determined the answer was.
-#[derive(Debug, Clone, Copy, PartialEq)]
+///
+/// Defaults to what an unsolved sketch would report — nothing converged, in
+/// nought iterations — which is what a caller holding a report before it has
+/// one to hold should read.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct SolveReport {
     /// Every residual landed within the solver's tolerance.
     pub converged: bool,
