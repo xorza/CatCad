@@ -199,20 +199,29 @@ struct Batch {
 impl Batch {
     /// A mesh batch, drawn once through indices of its own. `None` if there is
     /// nothing to draw — wgpu rejects zero-sized buffers.
-    fn indexed(device: &wgpu::Device, label: &str, data: &MeshData) -> Option<Self> {
+    ///
+    /// Both buffers are named, and named apart: they are the only two this
+    /// renderer makes that would otherwise land in a capture under one label,
+    /// with nothing to say which is which.
+    fn indexed(
+        device: &wgpu::Device,
+        vertices: &str,
+        indices: &str,
+        data: &MeshData,
+    ) -> Option<Self> {
         if data.indices.is_empty() {
             return None;
         }
         Some(Self {
             records: Self::buffer(
                 device,
-                label,
+                vertices,
                 bytemuck::cast_slice(&data.vertices),
                 wgpu::BufferUsages::VERTEX,
             ),
             indices: Self::buffer(
                 device,
-                label,
+                indices,
                 bytemuck::cast_slice(&data.indices),
                 wgpu::BufferUsages::INDEX,
             ),
@@ -680,7 +689,12 @@ impl GpuPaint for Renderer {
 
         let gpu = self.gpu.as_mut().expect("init runs before paint");
         if let Some(data) = meshes {
-            gpu.meshes.batch = Batch::indexed(ctx.device, "aperture.meshes", &data);
+            gpu.meshes.batch = Batch::indexed(
+                ctx.device,
+                "aperture.meshes.vertices",
+                "aperture.meshes.indices",
+                &data,
+            );
         }
         if let Some(data) = curves {
             gpu.curves.batch = Batch::instanced(ctx.device, "aperture.curves", &data, &gpu.quad);
