@@ -9,7 +9,7 @@ use glam::{Mat4, Vec2, Vec3, Vec4};
 /// Where the cursor is, how far it reaches, and the projection that puts the
 /// scene under it.
 ///
-/// Built once per [`Scene::pick`](crate::Scene::pick) and handed to every
+/// Built once per [`Scene::nearest`](crate::Scene::nearest) and handed to every
 /// primitive in turn, so a primitive answers only for itself and none of them
 /// rebuilds the view-projection or the cursor ray.
 #[derive(Debug, Clone, Copy)]

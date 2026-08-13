@@ -15,7 +15,7 @@ use glam::{UVec2, Vec2, Vec4, Vec4Swizzles};
 /// read, so what goes in comes back out, and nothing here can check that a
 /// cursor and a viewport were measured the same way.
 ///
-/// [`Scene::pick`](crate::Scene::pick) is the one caller that doesn't get the
+/// [`Scene::nearest`](crate::Scene::nearest) is the one caller that doesn't get the
 /// choice: it weighs a cursor against how wide a stroke is drawn, and widths
 /// are always logical.
 ///

@@ -1,23 +1,24 @@
 //! Per-frame allocation gates for the renderer, driven by `dhat`.
 //!
-//! One bench of seven steps, in two halves.
+//! One bench of five steps, in two halves.
 //!
 //! The CPU path, which needs no device and is entirely ours:
 //!
 //! | step | measures | limit |
 //! |---|---|---|
-//! | `pick-miss` | a pick that lands on nothing | strict zero |
-//! | `pick-hit` | a pick that lands on the drawing | the answer's own `Vec` |
-//! | `nearest-hit` | the same aim, answered with one hit instead of the list | strict zero |
+//! | `nearest-hit` | what is under the cursor, answered with one hit | strict zero |
 //! | `flatten-highlights` | rebuilding the highlight batches, which a hover does every frame | strict zero |
 //! | `flatten-batches` | re-flattening every scene batch, which only a scene edit does | strict zero |
 //!
 //! `nearest-hit` and `flatten-highlights` are the two a hover pays every
 //! frame, and both are strict zero — so pointing at the drawing costs the heap
-//! nothing at all. `pick-hit` is the odd one out: the list query still
-//! allocates the list, which is what a click wants and no hover does.
-//! `flatten-batches` runs only on a frame where a batch is dirty, but it is
-//! the one that scales with the model, so it is worth watching.
+//! nothing at all. `flatten-batches` runs only on a frame where a batch is
+//! dirty, but it is the one that scales with the model, so it is worth
+//! watching.
+//!
+//! There is no step for a list query, because there is no list query: the
+//! scene answers with one hit. A `pick_into` filling a caller's buffer is what
+//! a click will want, and it gets a step when it exists.
 //!
 //! And whole frames through a real device, where the count is dominated by
 //! wgpu rather than by us:
@@ -55,10 +56,6 @@ use palantir::{
 use std::cell::RefCell;
 use std::hint::black_box;
 use std::rc::Rc;
-
-/// A pick that finds something allocates the answer it hands back, and
-/// nothing else. The list is what costs it — see `nearest-hit`.
-const PICK_HIT_MAX: f64 = 1.0;
 
 /// The driver's own per-frame floor on the current pin, measured at 92.
 ///
@@ -103,9 +100,6 @@ const SURFACE: UVec2 = UVec2::new(800, 600);
 
 /// Dead centre, where the fixture puts a tagged marker.
 const ON_THE_DRAWING: Vec2 = Vec2::new(400.0, 300.0);
-
-/// A corner the fixture's geometry comes nowhere near.
-const OFF_THE_DRAWING: Vec2 = Vec2::new(6.0, 6.0);
 
 /// The application's own shape at the scale it actually runs: a ground slab
 /// and three solids, a four-edge sketch with a circle, and a marker per
@@ -242,12 +236,6 @@ pub fn alloc_bench() {
     let viewport = Viewport::new(SURFACE);
 
     let scene = scene();
-    bench.step("pick-miss", 0.0, || {
-        black_box(scene.pick(OFF_THE_DRAWING, viewport, 6.0));
-    });
-    bench.step("pick-hit", PICK_HIT_MAX, || {
-        black_box(scene.pick(ON_THE_DRAWING, viewport, 6.0));
-    });
     bench.step("nearest-hit", 0.0, || {
         black_box(scene.nearest(ON_THE_DRAWING, viewport, 6.0));
     });

@@ -1,18 +1,18 @@
 //! Per-solve allocation gates, driven by `dhat`.
 //!
-//! One bench of three steps, all over the same fixture — a rectangle with a
-//! circle at its centre, eleven parameters against eleven equations:
+//! One bench of two steps, both over the same fixture — a rectangle with a
+//! circle at its centre, eleven parameters against eleven equations — and both
+//! through one solver kept alive across the window:
 //!
 //! | step | measures | limit |
 //! |---|---|---|
-//! | `solve-from-guess` | a full solve from coordinates deliberately off the answer, through a solver kept alive | strict zero |
-//! | `solve-converged` | re-solving geometry already at the answer, through the same | strict zero |
-//! | `solve-cold` | the same solve through a solver thrown away each time | a budget |
+//! | `solve-from-guess` | a full solve from coordinates deliberately off the answer | strict zero |
+//! | `solve-converged` | re-solving geometry already at the answer | strict zero |
 //!
-//! The first two are the shape a drag has: one solver, many solves, and the
-//! workspace it keeps means none of them touch the heap. The third is the
-//! shape every caller has today — nothing re-solves per frame yet — and it
-//! allocates, which is exactly the contrast worth keeping visible.
+//! One solver, many solves, is the shape a drag has, and the workspace it
+//! keeps means none of them touch the heap. A solver thrown away each time has
+//! no workspace to reuse and allocates accordingly — which is a fact about
+//! that caller, not about the solver, so there is nothing here to gate.
 //!
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.
@@ -23,11 +23,6 @@ use crate::sketch::{PointId, Sketch};
 use common::AllocBench;
 use glam::DVec2;
 use std::hint::black_box;
-
-/// What a solve costs a caller who does not keep the solver: the workspace is
-/// born empty and grows from nothing. A budget rather than zero, and the
-/// contrast with the two above is the whole point of the step.
-const SOLVE_COLD_MAX: f64 = 32.0;
 
 /// A rectangle anchored at the origin with a circle at its centre, its
 /// coordinates deliberately off the answer.
@@ -125,15 +120,6 @@ pub fn alloc_bench() {
     bench.step("solve-converged", 0.0, || {
         sketch.set_params(&solved);
         black_box(solver.solve(&mut sketch));
-    });
-
-    // And the same solve through a solver thrown away each time, which is what
-    // every caller does today. Kept so the cost the workspace avoids stays
-    // visible rather than looking like it never existed.
-    let mut sketch = fixture();
-    bench.step("solve-cold", SOLVE_COLD_MAX, || {
-        sketch.set_params(&guess);
-        black_box(Solver::default().solve(&mut sketch));
     });
 
     bench.finish();

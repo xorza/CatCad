@@ -123,16 +123,15 @@ impl SceneView {
 
     /// Light whatever the pointer is over.
     ///
-    /// `pointer_local` is already what [`Scene::pick`] asks for — logical
+    /// `pointer_local` is already what [`Scene::nearest`] asks for — logical
     /// pixels from the widget's own top-left — so nothing is converted here.
     /// It is measured against `layout_rect` rather than the visible `rect`,
     /// and the viewport has to be built from the same one or the two would
     /// disagree the moment anything clipped the view.
     ///
-    /// Only the nearest hit lights: a marker sits on the end of every edge
-    /// that meets it, and lighting all of them would answer a question nobody
-    /// asked — which is why this asks [`Scene::nearest`] rather than building
-    /// the whole list and reading one element of it.
+    /// Only one thing lights: a marker sits on the end of every edge that
+    /// meets it, and lighting all of them would answer a question nobody
+    /// asked.
     fn hover(&mut self, response: &Response<'_>) {
         let under = response
             .pointer_local

@@ -37,10 +37,7 @@ fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
                     .map(move |x| Vec2::new(x as f32, y as f32))
             })
             .find_map(|cursor| {
-                let hit = *renderer
-                    .scene()
-                    .pick(cursor, viewport, HOVER_REACH)
-                    .first()?;
+                let hit = renderer.scene().nearest(cursor, viewport, HOVER_REACH)?;
                 Some((cursor, hit.tag))
             })
             .expect("the demo drawing covers some pixel of an 800×600 view")

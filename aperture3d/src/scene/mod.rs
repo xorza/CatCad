@@ -67,7 +67,8 @@ impl Scene {
         bounds
     }
 
-    /// Everything within `radius` of `cursor` on screen, nearest first.
+    /// What the aim was most likely meant for, within `radius` of `cursor` on
+    /// screen, or `None` if nothing is near enough.
     ///
     /// `cursor` and `radius` are in **logical** pixels, as is the [`Viewport`]
     /// they are measured against, and `cursor` counts down from the top-left
@@ -87,34 +88,22 @@ impl Scene {
     /// wider than `radius` is pickable anywhere it is visible — you can always
     /// grab what you can see.
     ///
-    /// A *list* rather than the nearest one, because "what did I click" and
-    /// "what did I mean" are different questions. Clicking again to cycle
-    /// through what overlaps and ignoring kinds the current tool cannot use
-    /// are both answerable from one query this way, and neither is if the
-    /// choice is made here. When one answer really is all that is wanted —
-    /// which is what a hover wants — [`Scene::nearest`] gives it without
-    /// building the list.
+    /// Chosen by how specific the hit is, then how near the cursor, then how
+    /// near the eye: a marker beats a stroke running through it, because the
+    /// smaller thing is the harder one to aim at and so the one the aim was
+    /// meant for. Untagged primitives are scenery and never answer.
     ///
-    /// Ordered by [`Hit::aim_order`]: a marker beats a stroke running through
-    /// it, because the smaller thing is the harder one to aim at and so the
-    /// one the aim was meant for. Untagged primitives are scenery and never
-    /// appear.
-    pub fn pick(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Vec<Hit> {
-        let mut hits: Vec<Hit> = self.hits(self.aim(cursor, viewport, radius)).collect();
-        hits.sort_by(Hit::aim_order);
-        hits
-    }
-
-    /// The one thing under the cursor the aim was most likely meant for, or
-    /// `None` if nothing is within `radius`.
-    ///
-    /// Exactly [`Scene::pick`]'s first answer, and the whole of what a hover
-    /// wants: a pointer lights one thing, and the list the full query builds
-    /// so a click can cycle through what overlaps is a list a hover reads one
-    /// element of and drops. Allocates nothing, and never sorts.
+    /// One answer rather than the list of everything under the cursor. The
+    /// list is the better question for a *click* — cycling through what
+    /// overlaps, or ignoring kinds the current tool cannot use, both need it —
+    /// but nothing asks it yet, and a query that hands back an owned `Vec`
+    /// would allocate on every frame a pointer moves. When something does ask,
+    /// it wants a `pick_into` filling a buffer the caller keeps, not this
+    /// returning one.
     pub fn nearest(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Option<Hit> {
         // `min_by` keeps the first of equally-ordered hits, which is the one a
-        // stable sort would put first — so this and `pick` cannot disagree.
+        // stable sort would put first — so this answers as the head of that
+        // list, and a `pick_into` added later cannot disagree with it.
         self.hits(self.aim(cursor, viewport, radius))
             .min_by(Hit::aim_order)
     }

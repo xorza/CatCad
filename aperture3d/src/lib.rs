@@ -62,7 +62,7 @@
 //!
 //! Every primitive carries an optional [`Tag`]: what a pick that lands on it
 //! reports, and nothing else. `None` is scenery — grids, guides, anything
-//! there to be seen and not grabbed. Ask with [`Scene::pick`], which aims in
+//! there to be seen and not grabbed. Ask with [`Scene::nearest`], which aims in
 //! pixels — [`Viewport`] is how those meet the coordinates a projection works
 //! in — and answers in [`Hit`]s.
 //!

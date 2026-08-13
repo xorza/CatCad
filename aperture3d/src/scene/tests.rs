@@ -30,6 +30,18 @@ fn viewport() -> Viewport {
     Viewport::new(UVec2::new(100, 100))
 }
 
+/// Everything within `radius` of `cursor`, in the order the aim ranks them.
+///
+/// The scene answers with one hit, not a list — a caller wanting the list gets
+/// a `pick_into` when one is needed. These assertions are about what is under
+/// the cursor and how it orders, which is the pair `nearest` is built from, so
+/// they ask those two directly.
+fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
+    let mut hits: Vec<Hit> = scene.hits(scene.aim(cursor, viewport(), radius)).collect();
+    hits.sort_by(Hit::aim_order);
+    hits
+}
+
 /// A ring is picked against the ellipse it draws, not against the circle
 /// in its own plane.
 ///
@@ -58,7 +70,7 @@ fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
             .push(Ring::new(Vec3::ZERO, 2.0, Vec3::Z).tagged(Tag::new(7)));
 
         let cursor = aim_beside_the_rim(&scene, 1.0);
-        let hits = scene.pick(cursor, viewport(), 2.0);
+        let hits = ranked(&scene, cursor, 2.0);
         assert_eq!(hits.len(), 1, "lean {lean}: rim missed from a pixel away");
         // A pixel from *one* point of the rim, so the nearest point of the
         // whole rim can only be nearer — and once the lean turns the circle
@@ -86,7 +98,7 @@ fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
         // paper over the measurement.
         let far = aim_beside_the_rim(&scene, 6.0);
         assert!(
-            scene.pick(far, viewport(), 2.0).is_empty(),
+            ranked(&scene, far, 2.0).is_empty(),
             "lean {lean}: six pixels out should not hit"
         );
     }
@@ -100,7 +112,7 @@ fn a_marker_is_hit_within_its_own_glyph_or_the_asked_radius() {
         .push(Point::new(Vec3::ZERO).size(8.0).tagged(Tag::new(1)));
 
     // Dead on.
-    let hits = scene.pick(CENTRE, viewport(), 1.0);
+    let hits = ranked(&scene, CENTRE, 1.0);
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].tag, Tag::new(1));
     assert_eq!(hits[0].at, HitAt::Point);
@@ -111,23 +123,14 @@ fn a_marker_is_hit_within_its_own_glyph_or_the_asked_radius() {
 
     // Three pixels off is inside the 8px glyph even at zero tolerance,
     // because what is drawn is grabbable.
-    let near = scene.pick(CENTRE + Vec2::new(3.0, 0.0), viewport(), 0.0);
+    let near = ranked(&scene, CENTRE + Vec2::new(3.0, 0.0), 0.0);
     assert_eq!(near.len(), 1);
     assert!((near[0].screen - 3.0).abs() < 1e-4);
 
     // Six is outside the glyph's four, and outside a one-pixel radius.
-    assert!(
-        scene
-            .pick(CENTRE + Vec2::new(6.0, 0.0), viewport(), 1.0)
-            .is_empty()
-    );
+    assert!(ranked(&scene, CENTRE + Vec2::new(6.0, 0.0), 1.0).is_empty());
     // But not outside a generous one.
-    assert_eq!(
-        scene
-            .pick(CENTRE + Vec2::new(6.0, 0.0), viewport(), 8.0)
-            .len(),
-        1
-    );
+    assert_eq!(ranked(&scene, CENTRE + Vec2::new(6.0, 0.0), 8.0).len(), 1);
 }
 
 #[test]
@@ -137,7 +140,7 @@ fn scenery_is_never_picked() {
     scene
         .curves
         .push(Curve::segment(-Vec3::X, Vec3::X).width(2.0));
-    assert!(scene.pick(CENTRE, viewport(), 20.0).is_empty());
+    assert!(ranked(&scene, CENTRE, 20.0).is_empty());
 }
 
 #[test]
@@ -149,7 +152,7 @@ fn a_stroke_reports_where_along_it_the_cursor_fell() {
         Curve::segment(Vec3::new(-2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)).tagged(Tag::new(7)),
     );
 
-    let hits = scene.pick(CENTRE + Vec2::new(10.0, 0.0), viewport(), 4.0);
+    let hits = ranked(&scene, CENTRE + Vec2::new(10.0, 0.0), 4.0);
     assert_eq!(hits.len(), 1);
     assert_eq!(hits[0].tag, Tag::new(7));
     // Ten pixels right of centre is world x = 1, which is three quarters
@@ -165,15 +168,11 @@ fn a_stroke_reports_where_along_it_the_cursor_fell() {
     // The far end is at world x = 2, which is pixel 70. Past it the
     // nearest point on the segment is the end itself, until the cursor
     // walks out of the radius entirely.
-    let beyond = scene.pick(Vec2::new(72.0, 50.0), viewport(), 4.0);
+    let beyond = ranked(&scene, Vec2::new(72.0, 50.0), 4.0);
     assert_eq!(beyond.len(), 1, "{beyond:?}");
     assert_eq!(beyond[0].at, HitAt::Segment { index: 0, t: 1.0 });
     assert!((beyond[0].screen - 2.0).abs() < 1e-4, "{beyond:?}");
-    assert!(
-        scene
-            .pick(Vec2::new(76.0, 50.0), viewport(), 4.0)
-            .is_empty()
-    );
+    assert!(ranked(&scene, Vec2::new(76.0, 50.0), 4.0).is_empty());
 }
 
 #[test]
@@ -189,7 +188,7 @@ fn a_receding_stroke_reports_where_the_cursor_is_in_the_world_not_on_screen() {
 
     // With a 90° fov the projected y is −1/w, so the ends land at pixel
     // 100 and 50 + 50/21 = 52.38, and their midpoint is 76.19.
-    let hits = scene.pick(Vec2::new(50.0, 76.19), viewport(), 4.0);
+    let hits = ranked(&scene, Vec2::new(50.0, 76.19), 4.0);
     assert_eq!(hits.len(), 1, "{hits:?}");
     let HitAt::Segment { t, .. } = hits[0].at else {
         panic!("{hits:?}");
@@ -226,7 +225,7 @@ fn a_marker_outranks_the_strokes_running_through_it() {
         .points
         .push(Point::new(Vec3::ZERO).size(6.0).tagged(Tag::new(12)));
 
-    let hits = scene.pick(CENTRE, viewport(), 3.0);
+    let hits = ranked(&scene, CENTRE, 3.0);
     assert_eq!(hits.len(), 3);
     assert_eq!(
         hits[0].tag,
@@ -238,13 +237,14 @@ fn a_marker_outranks_the_strokes_running_through_it() {
     assert!(hits[1..].iter().all(|hit| hit.at.rank() == 1));
 }
 
-/// `nearest` is `pick`'s first answer, wherever the cursor falls.
+/// `nearest` answers with the head of the ranking, wherever the cursor falls.
 ///
-/// The two share one comparator so they cannot drift, and this is what pins
-/// that they haven't — including where hits order equally, since a stable sort
-/// keeps the first of those and `min_by` has to agree.
+/// It reaches that answer without ever building the ranking, so this is what
+/// pins the two together — including where hits order equally, since a stable
+/// sort keeps the first of those and `min_by` has to agree. A `pick_into`
+/// added later would hand back exactly this list.
 #[test]
-fn nearest_answers_with_exactly_what_pick_puts_first() {
+fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
     let mut scene = head_on();
     // Every kind, overlapping, so the ordering has real work to do: two edges
     // crossing at the origin, a marker on the crossing, a rim around it.
@@ -272,7 +272,7 @@ fn nearest_answers_with_exactly_what_pick_puts_first() {
     ];
     let mut found = 0;
     for cursor in cursors {
-        let hits = scene.pick(cursor, viewport(), 4.0);
+        let hits = ranked(&scene, cursor, 4.0);
         assert_eq!(
             scene.nearest(cursor, viewport(), 4.0),
             hits.first().copied(),
@@ -306,7 +306,7 @@ fn nearer_the_cursor_beats_nearer_the_eye() {
             .tagged(Tag::new(21)),
     );
 
-    let hits = scene.pick(CENTRE, viewport(), 10.0);
+    let hits = ranked(&scene, CENTRE, 10.0);
     assert_eq!(hits.len(), 2);
     assert_eq!(hits[0].tag, Tag::new(21), "aim beats depth: {hits:?}");
     assert!(hits[0].screen < hits[1].screen);
@@ -320,7 +320,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
     scene
         .points
         .push(Point::new(Vec3::new(0.0, 0.0, 9.0)).tagged(Tag::new(1)));
-    assert!(scene.pick(CENTRE, viewport(), 50.0).is_empty());
+    assert!(ranked(&scene, CENTRE, 50.0).is_empty());
 
     // And a marker the near plane cut is no more pickable than one behind
     // the eye — it is just as absent from the screen. The near plane is a
@@ -329,7 +329,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
     scene
         .points
         .push(Point::new(Vec3::new(0.0, 0.0, 4.5)).tagged(Tag::new(1)));
-    assert!(scene.pick(CENTRE, viewport(), 50.0).is_empty());
+    assert!(ranked(&scene, CENTRE, 50.0).is_empty());
 
     // Straddling. The visible half still picks, and reports a parameter on
     // the *whole* segment rather than on the surviving piece. This one
@@ -339,7 +339,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
     scene.curves.push(
         Curve::segment(Vec3::new(0.0, 0.0, -3.0), Vec3::new(0.0, 0.0, 9.0)).tagged(Tag::new(2)),
     );
-    let hits = scene.pick(CENTRE, viewport(), 20.0);
+    let hits = ranked(&scene, CENTRE, 20.0);
     assert_eq!(hits.len(), 1, "{hits:?}");
     assert_eq!(hits[0].tag, Tag::new(2));
     assert_eq!(hits[0].at, HitAt::Segment { index: 0, t: 0.0 });
@@ -356,22 +356,20 @@ fn only_what_survived_the_near_plane_can_be_picked() {
             .width(1.0)
             .tagged(Tag::new(3)),
     );
-    let hits = scene.pick(Vec2::new(40.0, 50.0), viewport(), 1.0);
+    let hits = ranked(&scene, Vec2::new(40.0, 50.0), 1.0);
     assert_eq!(hits.len(), 1, "inside the drawn stretch: {hits:?}");
 
     // Thirteen pixels short of where the near plane cut it. What lies that
     // way is the stretch between the near plane and the eye, which is
     // drawn nowhere, so a tolerance smaller than the gap finds nothing.
     assert!(
-        scene
-            .pick(Vec2::new(20.0, 50.0), viewport(), 4.0)
-            .is_empty(),
+        ranked(&scene, Vec2::new(20.0, 50.0), 4.0).is_empty(),
         "picked a stretch the near plane cut"
     );
 
     // Widen the tolerance and the cut itself is what answers: a third
     // along, at the near plane, and 13.3 pixels from the cursor.
-    let hits = scene.pick(Vec2::new(20.0, 50.0), viewport(), 20.0);
+    let hits = ranked(&scene, Vec2::new(20.0, 50.0), 20.0);
     assert_eq!(hits.len(), 1, "{hits:?}");
     let HitAt::Segment { t, .. } = hits[0].at else {
         panic!("{hits:?}");

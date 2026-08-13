@@ -4,7 +4,7 @@ use std::fmt;
 use std::hash::{Hash, Hasher};
 use std::marker::PhantomData;
 
-/// Handle to a value in an [`Arena`].
+/// Handle to a value in an `Arena`.
 ///
 /// Carries the generation of the position it was minted from, so a handle to a
 /// removed value is refused rather than silently answering with whatever took

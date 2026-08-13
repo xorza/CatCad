@@ -91,7 +91,7 @@ enum Param {
 ///
 /// The solver's parameter vector is this sketch flattened: two entries per
 /// point in insertion order, then one radius per circle. Handles index
-/// straight into it, so nothing needs to be looked up by name — see [`Param`],
+/// straight into it, so nothing needs to be looked up by name — see `Param`,
 /// which is where that layout is stated.
 #[derive(Debug, Clone, Default)]
 pub struct Sketch {

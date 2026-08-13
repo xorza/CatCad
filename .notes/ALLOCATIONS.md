@@ -4,11 +4,11 @@
 those changes reached and how to check it still holds; a new finding goes at
 the bottom, and comes out again once it is addressed.
 
-Drawing a frame allocates nothing. Recording it allocates nothing, picking
-what is under the pointer allocates nothing, and re-solving a sketch through a
-solver that is kept alive allocates nothing. The two things that still
-allocate both do it on purpose: `Scene::pick` builds the list it hands back,
-and a solver thrown away rather than kept has no workspace to reuse.
+Recording a frame allocates nothing, finding what is under the pointer
+allocates nothing, and re-solving a sketch through a solver that is kept alive
+allocates nothing. Every gate below is a strict zero except the two that paint
+whole frames through a real device, where what is counted is wgpu's and not
+ours.
 
 ## The standing gates
 
@@ -38,9 +38,6 @@ The gates as measured in the `bench` profile:
 | --- | --- | --- | --- |
 | silverpoint | `solve-from-guess` (solver kept) | 0 | 0 (strict) |
 | silverpoint | `solve-converged` (solver kept) | 0 | 0 (strict) |
-| silverpoint | `solve-cold` (solver thrown away) | 21 | 32 |
-| aperture3d | `pick-miss` | 0 | 0 (strict) |
-| aperture3d | `pick-hit` | 1 | 1 |
 | aperture3d | `nearest-hit` | 0 | 0 (strict) |
 | aperture3d | `flatten-highlights` | 0 | 0 (strict) |
 | aperture3d | `flatten-batches` | 0 | 0 (strict) |
@@ -57,11 +54,11 @@ upload costs, and a widening gap is the shape an aperture regression would
 take. On a machine with no usable backend both are skipped and the rest still
 gate.
 
-`Solver` holds the buffers a solve works in, so a solver kept alive across
-solves — which is what a drag is — allocates nothing after the first. A caller
-who throws the solver away each time, which is what every caller does today,
-still pays for them: that is `solve-cold`, kept so the cost the workspace
-avoids stays visible rather than looking like it never existed.
+Nothing gates a path nothing runs. The list query is gone — `Scene::nearest`
+answers with one hit, and a `pick_into` filling a caller's buffer is what a
+click will want when there is one — and a solver thrown away each time has no
+workspace to reuse, which is a fact about that caller rather than a budget
+worth holding.
 
 ## The survey these findings came from
 
