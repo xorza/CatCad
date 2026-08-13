@@ -146,10 +146,12 @@ impl CatCad {
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
         let status = ui.fmt(format_args!("{}", self.status()));
-        let asked = overlay::show(ui, status, self.document.camera().projection);
-        if asked != self.document.camera().projection {
-            self.intents.push(Intent::Project(asked));
-        }
+        overlay::show(
+            ui,
+            status,
+            self.document.camera().projection,
+            &mut self.intents,
+        );
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
