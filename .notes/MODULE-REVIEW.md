@@ -9,12 +9,6 @@ just noise for the next reader.
 `Constraint::evaluate` is a hundred-line match in which the interesting
 mathematics is a line or two per arm and the rest is lookup and bookkeeping.
 
-- [ ] Eight of the nine arms open by fetching `point_param` for each point they
-      touch and close by writing partials at fixed offsets from those indices —
-      21 lookups and 17 `row[… + 1]` writes, so "y follows x" is restated
-      seventeen times in a file that never states the layout. `Param` and `Axis`
-      in `sketch/mod.rs` are that vocabulary already, but they are private and
-      unadopted here. (`Radius` is the exception; it touches no point.)
 - [ ] `Coincident` is the only constraint contributing more than one equation,
       and the whole `equation: usize` parameter and `equation_count` protocol
       exists for it — including an `axis` closure inside the arm that branches

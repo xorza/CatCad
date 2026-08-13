@@ -83,29 +83,26 @@ impl Constraint {
         debug_assert_eq!(row.len(), sketch.param_count());
         match *self {
             Constraint::Coincident { a, b } => {
-                let (ax, bx) = (sketch.point_param(a), sketch.point_param(b));
-                row[ax + equation] = 1.0;
-                row[bx + equation] = -1.0;
-                let axis = |p: DVec2| if equation == 0 { p.x } else { p.y };
-                axis(sketch.point(a)) - axis(sketch.point(b))
+                // One axis per equation, which is also the gradient along it.
+                let axis = if equation == 0 { DVec2::X } else { DVec2::Y };
+                sketch.write_point_partials(row, a, axis);
+                sketch.write_point_partials(row, b, -axis);
+                axis.dot(sketch.point(a) - sketch.point(b))
             }
             Constraint::Distance { a, b, distance } => {
                 let apart = Direction::of(sketch.point(a) - sketch.point(b));
-                let (ax, bx) = (sketch.point_param(a), sketch.point_param(b));
-                row[ax] = apart.unit.x;
-                row[ax + 1] = apart.unit.y;
-                row[bx] = -apart.unit.x;
-                row[bx + 1] = -apart.unit.y;
+                sketch.write_point_partials(row, a, apart.unit);
+                sketch.write_point_partials(row, b, -apart.unit);
                 apart.length - distance
             }
             Constraint::Horizontal { a, b } => {
-                row[sketch.point_param(a) + 1] = 1.0;
-                row[sketch.point_param(b) + 1] = -1.0;
+                sketch.write_point_partials(row, a, DVec2::Y);
+                sketch.write_point_partials(row, b, -DVec2::Y);
                 sketch.point(a).y - sketch.point(b).y
             }
             Constraint::Vertical { a, b } => {
-                row[sketch.point_param(a)] = 1.0;
-                row[sketch.point_param(b)] = -1.0;
+                sketch.write_point_partials(row, a, DVec2::X);
+                sketch.write_point_partials(row, b, -DVec2::X);
                 sketch.point(a).x - sketch.point(b).x
             }
             Constraint::Parallel { first, second } => {
@@ -136,31 +133,26 @@ impl Constraint {
                 let (pa, pb, p) = (sketch.point(s.a), sketch.point(s.b), sketch.point(point));
                 let edge = pb - pa;
                 let offset = p - pa;
-                let (ia, ib, ip) = (
-                    sketch.point_param(s.a),
-                    sketch.point_param(s.b),
-                    sketch.point_param(point),
+                // The tail moves both `edge` and `offset`, which is why its
+                // gradient carries a term from each and the other two don't.
+                sketch.write_point_partials(row, point, DVec2::new(-edge.y, edge.x));
+                sketch.write_point_partials(
+                    row,
+                    s.a,
+                    DVec2::new(edge.y - offset.y, offset.x - edge.x),
                 );
-                row[ip] -= edge.y;
-                row[ip + 1] += edge.x;
-                row[ia] += edge.y - offset.y;
-                row[ia + 1] += offset.x - edge.x;
-                row[ib] += offset.y;
-                row[ib + 1] -= offset.x;
+                sketch.write_point_partials(row, s.b, DVec2::new(offset.y, -offset.x));
                 edge.perp_dot(offset)
             }
             Constraint::Radius { circle, radius } => {
-                row[sketch.radius_param(circle)] = 1.0;
+                row[sketch.radius_param(circle)] += 1.0;
                 sketch.circle(circle).radius - radius
             }
             Constraint::PointOnCircle { point, circle } => {
                 let c = sketch.circle(circle);
                 let out = Direction::of(sketch.point(point) - sketch.point(c.center));
-                let (ip, ic) = (sketch.point_param(point), sketch.point_param(c.center));
-                row[ip] += out.unit.x;
-                row[ip + 1] += out.unit.y;
-                row[ic] -= out.unit.x;
-                row[ic + 1] -= out.unit.y;
+                sketch.write_point_partials(row, point, out.unit);
+                sketch.write_point_partials(row, c.center, -out.unit);
                 row[sketch.radius_param(circle)] -= 1.0;
                 out.length - c.radius
             }
@@ -296,6 +288,36 @@ mod tests {
                 radius: 0.9,
             },
             Constraint::PointOnCircle { point: p0, circle },
+            // Naming one entity twice, where both writes land on the same
+            // parameters. Central differences don't care that the two halves
+            // collide, so they say what the sum has to be: nothing for a point
+            // measured against itself, nothing for a segment parallel to
+            // itself, and twice the direction for one perpendicular to itself,
+            // whose residual is the squared length.
+            Constraint::Coincident { a: p0, b: p0 },
+            Constraint::Distance {
+                a: p0,
+                b: p0,
+                distance: 2.5,
+            },
+            Constraint::Horizontal { a: p1, b: p1 },
+            Constraint::Vertical { a: p1, b: p1 },
+            Constraint::Parallel {
+                first: s0,
+                second: s0,
+            },
+            Constraint::Perpendicular {
+                first: s0,
+                second: s0,
+            },
+            // The point is the segment's own tail, so two of the three
+            // gradients meet in one place.
+            Constraint::PointOnSegment {
+                point: p0,
+                segment: s0,
+            },
+            // The point is the circle's own centre.
+            Constraint::PointOnCircle { point: p3, circle },
         ];
         for constraint in cases {
             for equation in 0..constraint.equation_count() {
