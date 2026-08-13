@@ -9,6 +9,7 @@ mod bench;
 mod demo;
 mod document;
 mod drawing;
+mod intent;
 pub mod named;
 mod overlay;
 mod scene_view;
@@ -28,6 +29,7 @@ use palantir::{App, Configure, HostHandle, Panel, Sizing, Ui, WindowToken};
 use silverpoint::SolveReport;
 
 use crate::document::Document;
+use crate::intent::{Intent, Intents};
 use crate::named::Named;
 use crate::scene_view::SceneView;
 
@@ -38,6 +40,10 @@ pub struct CatCad {
     /// Everything a session would have to write down to be opened again: the
     /// sketch, the solids beside it, and the camera looking at them.
     document: Document,
+    /// What this frame's gestures asked for, standing between the view that
+    /// raised them and the document they land on. Kept across frames for its
+    /// room rather than its contents, which are cleared before each one.
+    intents: Intents,
     /// What draws that, and what the pointer over it is in the middle of. Owns
     /// nothing the document would be saved without.
     view: SceneView,
@@ -61,6 +67,7 @@ impl CatCad {
         scene.camera = document.camera();
         Self {
             document,
+            intents: Intents::default(),
             view: SceneView::new(scene),
         }
     }
@@ -126,21 +133,33 @@ impl fmt::Display for Status {
 
 impl App for CatCad {
     fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
+        // Emptied once a *pass*, not once a frame. A frame that settles records
+        // twice, and palantir drains the input queues between the two — so the
+        // second pass is a fresh reading of what is still latched, and it has to
+        // start from an empty inbox rather than adding to the first's. Each pass
+        // asks, applies and settles whole, which is what makes the pair
+        // harmless: a drag names where it wants to be rather than how far to
+        // travel, and an orbit measures against the total the last pass already
+        // took, so re-asking on the second pass turns nothing.
+        self.intents.clear();
         Panel::zstack()
             .auto_id()
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
-                self.view.show(ui, &mut self.document);
+                self.view.show(ui, &self.document, &mut self.intents);
                 // Formatted straight into the pass's own text arena — no
                 // `String` is built on the way, and the handle is lowered by
                 // the same pass that minted it, which is the only pass it is
                 // good for.
                 let status = ui.fmt(format_args!("{}", self.status()));
                 let asked = overlay::show(ui, status, self.document.camera().projection);
-                self.document.camera_mut().projection = asked;
-                // Last, so the renderer paints through the camera every gesture
-                // this frame settled on rather than the one it started with.
-                self.view.aim(&self.document);
+                if asked != self.document.camera().projection {
+                    self.intents.push(Intent::Project(asked));
+                }
+                // Everything above only asked. This is where a frame's asking
+                // becomes a change, and where what that changed is drawn.
+                let moved = self.document.apply(&self.intents);
+                self.view.settle(&mut self.document, moved);
             });
     }
 }

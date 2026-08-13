@@ -3,6 +3,7 @@
 use aperture::{Camera, Object, Renderer, Scene};
 
 use crate::drawing::Drawing;
+use crate::intent::{Intent, Intents};
 use crate::sketch_plane::SketchPlane;
 use silverpoint::Sketch;
 
@@ -61,6 +62,31 @@ impl Document {
 
     pub(crate) fn camera_mut(&mut self) -> &mut Camera {
         &mut self.camera
+    }
+
+    /// Land everything a frame asked for, in the order it was asked.
+    ///
+    /// The one place an intent becomes a change, which is the point of there
+    /// being intents at all: every edit to a document passes through here, so
+    /// there is one place to watch rather than one per gesture.
+    ///
+    /// Answers whether the drawing has to be laid out again. The camera arms
+    /// change the document too — it is where the camera lives — but none of
+    /// them change what is drawn, only where it is drawn from.
+    pub(crate) fn apply(&mut self, intents: &Intents) -> bool {
+        let mut moved = false;
+        for intent in intents.iter() {
+            match intent {
+                Intent::Drag { grip, to } => {
+                    self.drawing.drag_to(grip, to);
+                    moved = true;
+                }
+                Intent::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
+                Intent::Dolly { factor } => self.camera.dolly(factor),
+                Intent::Project(projection) => self.camera.projection = projection,
+            }
+        }
+        moved
     }
 
     /// The scene this document draws as — what opening one produces.
