@@ -1,6 +1,8 @@
 //! Everything that cannot exist before the device does.
 
+use crate::overlay::Overlay;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
+use crate::renderer::batch::{Batch, Rebuilt};
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{CurveInstance, GpuVertex, PointInstance, RingInstance};
 use crate::renderer::{DEPTH_FORMAT, SAMPLES, Uniforms};
@@ -51,18 +53,52 @@ impl Attachments {
     }
 }
 
+/// The two passes one overlay kind is drawn through: its own, and the same
+/// pipeline again holding only what a caller has singled out.
+///
+/// Paired for the reason [`Batch`] pairs the buffers that feed them — the two
+/// are built together, uploaded together and drawn one after the other, and
+/// `sharing` already makes the second the first's pipeline with a vertex buffer
+/// of its own.
+#[derive(Debug)]
+pub(super) struct GpuBatch {
+    pub(super) ordinary: Pass,
+    pub(super) lit: Pass,
+}
+
+impl GpuBatch {
+    fn new(ordinary: Pass, lit: &'static str) -> Self {
+        Self {
+            lit: ordinary.sharing(lit),
+            ordinary,
+        }
+    }
+
+    /// Hand the GPU whatever the last refresh rewrote, and nothing it did not.
+    pub(super) fn upload<O: Overlay>(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        batch: &Batch<O>,
+        rebuilt: Rebuilt,
+    ) {
+        if rebuilt.instances {
+            self.ordinary
+                .upload_instances(device, queue, &batch.instances);
+        }
+        if rebuilt.lit {
+            self.lit.upload_instances(device, queue, &batch.lit);
+        }
+    }
+}
+
 /// Everything that can't exist before the device does.
 #[derive(Debug)]
 pub(super) struct Gpu {
     pub(super) meshes: Pass,
-    pub(super) curves: Pass,
-    pub(super) rings: Pass,
-    pub(super) points: Pass,
-    /// The same three overlay passes again, holding only what a caller has
-    /// singled out. Drawn last so a highlight reads over what it doubles.
-    pub(super) lit_curves: Pass,
-    pub(super) lit_rings: Pass,
-    pub(super) lit_points: Pass,
+    pub(super) curves: GpuBatch,
+    pub(super) rings: GpuBatch,
+    pub(super) points: GpuBatch,
     pub(super) uniforms: wgpu::Buffer,
     pub(super) bind_group: wgpu::BindGroup,
     pub(super) attachments: Option<Attachments>,
@@ -143,34 +179,40 @@ impl Gpu {
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
         });
-        let curves = pipelines.build::<CurveInstance>(PassSpec {
-            name: "curve",
-            records_label: "aperture.curves.instances",
-            indices_label: "aperture.curves.quad",
-            indices: Some(&QUAD_INDICES),
-            cull: None,
-            alpha_to_coverage: false,
-        });
-        let rings = pipelines.build::<RingInstance>(PassSpec {
-            name: "ring",
-            records_label: "aperture.rings.instances",
-            indices_label: "aperture.rings.band",
-            indices: Some(&RING_INDICES),
-            cull: None,
-            alpha_to_coverage: true,
-        });
-        let points = pipelines.build::<PointInstance>(PassSpec {
-            name: "point",
-            records_label: "aperture.points.instances",
-            indices_label: "aperture.points.quad",
-            indices: Some(&QUAD_INDICES),
-            cull: None,
-            alpha_to_coverage: true,
-        });
+        let curves = GpuBatch::new(
+            pipelines.build::<CurveInstance>(PassSpec {
+                name: "curve",
+                records_label: "aperture.curves.instances",
+                indices_label: "aperture.curves.quad",
+                indices: Some(&QUAD_INDICES),
+                cull: None,
+                alpha_to_coverage: false,
+            }),
+            "aperture.curves.highlighted",
+        );
+        let rings = GpuBatch::new(
+            pipelines.build::<RingInstance>(PassSpec {
+                name: "ring",
+                records_label: "aperture.rings.instances",
+                indices_label: "aperture.rings.band",
+                indices: Some(&RING_INDICES),
+                cull: None,
+                alpha_to_coverage: true,
+            }),
+            "aperture.rings.highlighted",
+        );
+        let points = GpuBatch::new(
+            pipelines.build::<PointInstance>(PassSpec {
+                name: "point",
+                records_label: "aperture.points.instances",
+                indices_label: "aperture.points.quad",
+                indices: Some(&QUAD_INDICES),
+                cull: None,
+                alpha_to_coverage: true,
+            }),
+            "aperture.points.highlighted",
+        );
         Self {
-            lit_curves: curves.sharing("aperture.curves.highlighted"),
-            lit_rings: rings.sharing("aperture.rings.highlighted"),
-            lit_points: points.sharing("aperture.points.highlighted"),
             meshes,
             curves,
             rings,

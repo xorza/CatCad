@@ -182,7 +182,8 @@ impl Ring {
         self
     }
 
-    /// Set the depth-test bias. See [`Ring::z_offset`].
+    /// Bias the rim this many steps of depth-buffer resolution toward the
+    /// viewer. See [overlays](crate#overlays).
     pub fn z_offset(mut self, z_offset: i32) -> Self {
         self.z_offset = z_offset;
         self

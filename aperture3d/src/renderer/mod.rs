@@ -362,30 +362,12 @@ impl GpuPaint for Renderer {
             gpu.meshes
                 .upload_mesh(ctx.device, ctx.queue, &batches.meshes);
         }
-        if rebuilt.curves.instances {
-            gpu.curves
-                .upload_instances(ctx.device, ctx.queue, &batches.curves.instances);
-        }
-        if rebuilt.curves.lit {
-            gpu.lit_curves
-                .upload_instances(ctx.device, ctx.queue, &batches.curves.lit);
-        }
-        if rebuilt.rings.instances {
-            gpu.rings
-                .upload_instances(ctx.device, ctx.queue, &batches.rings.instances);
-        }
-        if rebuilt.rings.lit {
-            gpu.lit_rings
-                .upload_instances(ctx.device, ctx.queue, &batches.rings.lit);
-        }
-        if rebuilt.points.instances {
-            gpu.points
-                .upload_instances(ctx.device, ctx.queue, &batches.points.instances);
-        }
-        if rebuilt.points.lit {
-            gpu.lit_points
-                .upload_instances(ctx.device, ctx.queue, &batches.points.lit);
-        }
+        gpu.curves
+            .upload(ctx.device, ctx.queue, &batches.curves, rebuilt.curves);
+        gpu.rings
+            .upload(ctx.device, ctx.queue, &batches.rings, rebuilt.rings);
+        gpu.points
+            .upload(ctx.device, ctx.queue, &batches.points, rebuilt.points);
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
         }
@@ -425,14 +407,17 @@ impl GpuPaint for Renderer {
         // Overlays after solids: all three write depth, so what hides what is
         // the depth test's answer either way, and this order keeps the
         // pipeline switch to one per pass.
+        // Reached through rather than looped over a batch at a time: the
+        // highlights go last as a group, so one reads over anything it doubles
+        // whatever kind that is, and not merely over its own kind.
         for layer in [
             &gpu.meshes,
-            &gpu.curves,
-            &gpu.rings,
-            &gpu.points,
-            &gpu.lit_curves,
-            &gpu.lit_rings,
-            &gpu.lit_points,
+            &gpu.curves.ordinary,
+            &gpu.rings.ordinary,
+            &gpu.points.ordinary,
+            &gpu.curves.lit,
+            &gpu.rings.lit,
+            &gpu.points.lit,
         ] {
             layer.draw(&mut pass);
         }

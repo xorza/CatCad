@@ -11,24 +11,23 @@ production settles on.
 
 ## The three overlay kinds have no shared abstraction, so every stage repeats
 
-Mostly addressed: `Overlay` in `overlay.rs` states what the three share,
-`Batch<O>` in `renderer/batch.rs` holds one kind's whole CPU-side state, and
-`Look` is the tail every record ends with. What is left is what the type system
-will not fold.
+Addressed. `Overlay` states what the three share, `Batch<O>` holds one kind's
+CPU-side state, `GpuBatch` holds the two passes that draw it, and `Look` is the
+tail every record ends with. Three of the leftovers turned out not to survive
+investigation, and are recorded here rather than left to be found again:
 
-- [ ] `Gpu` still names six overlay passes — `curves`, `rings`, `points` and
-      then `lit_curves`, `lit_rings`, `lit_points`. They are created and drawn
-      in six statements where a `Batch` already pairs the two buffers that feed
-      them.
-- [ ] `GpuPaint::paint` still spells the upload out six times, two per kind.
-      `Vec<CurveInstance>` and `Vec<RingInstance>` are different types, so this
-      cannot go below one mention per kind without erasing them — which
-      `BatchRecord::LAYOUT_SPANS_STRUCT` forbids.
-- [ ] `Scene::hits` walks the three collections in three chained `filter_map`s.
-      `Overlay` has no `pick`, because picking is three genuinely different
-      algorithms and a trait method would only move where they are spelled.
-- [ ] `Styled` covers `colored` and `tagged`; `z_offset` is still restated on
-      all three primitives and `width` on `Curve` and `Ring`.
+- `Scene::hits` walks the three collections in three chained `filter_map`s, and
+  should keep doing so. `Overlay` has no `pick` because picking is three
+  genuinely different algorithms — a trait method would move where they are
+  spelled without reducing them, and would have no generic caller.
+- `paint` uploads and draws through one mention per kind, which is the floor.
+  `Vec<CurveInstance>` and `Vec<RingInstance>` are different types, and erasing
+  them would drop `BatchRecord::LAYOUT_SPANS_STRUCT` — a const assertion
+  evaluated per concrete type that checks the attribute list spans the struct.
+- `z_offset` stays restated on all three primitives. It looks like `Styled`'s
+  obvious third member, but `Object` is styled too and a solid has no depth
+  bias; the alternatives are a second public trait for one setter, or a field on
+  solids that nothing reads.
 
 ## `Renderer` is four responsibilities in one file, and `paint` is six jobs
 
