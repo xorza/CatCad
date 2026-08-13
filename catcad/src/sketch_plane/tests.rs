@@ -1,4 +1,15 @@
 use super::*;
+use silverpoint::{Freedoms, Sketch, Solver};
+
+/// A sketch and what its constraints make of it, which is what the writers
+/// take. Solved first, because determinacy is measured where the geometry
+/// stands and an unsolved guess is not where it will stand.
+fn drawn<'a>(sketch: &'a mut Sketch, freedoms: &'a mut Freedoms) -> Drawn<'a> {
+    let mut solver = Solver::default();
+    solver.solve(sketch);
+    solver.freedoms(sketch, freedoms);
+    Drawn { sketch, freedoms }
+}
 
 #[test]
 fn the_ground_plane_lays_sketch_y_along_negative_z() {
@@ -35,7 +46,9 @@ fn every_entity_becomes_a_curve() {
 
     // One edge. Circles are rings now, and markers were never strokes.
     let mut curves = Vec::new();
-    SketchPlane::GROUND.write_curves(&sketch, &mut Names::default(), &mut curves);
+    let mut freedoms = Freedoms::default();
+    let drawn = drawn(&mut sketch, &mut freedoms);
+    SketchPlane::GROUND.write_curves(drawn, &mut Names::default(), &mut curves);
     assert_eq!(curves.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
@@ -57,7 +70,7 @@ fn every_entity_becomes_a_curve() {
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
     let mut rings = Vec::new();
-    SketchPlane::GROUND.write_rings(&sketch, &mut Names::default(), &mut rings);
+    SketchPlane::GROUND.write_rings(drawn, &mut Names::default(), &mut rings);
     assert_eq!(rings.len(), 1);
     let ring = rings[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
@@ -81,7 +94,9 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     sketch.fix(a);
 
     let mut points = Vec::new();
-    SketchPlane::GROUND.write_points(&sketch, &mut Names::default(), &mut points);
+    let mut freedoms = Freedoms::default();
+    let drawn = drawn(&mut sketch, &mut freedoms);
+    SketchPlane::GROUND.write_points(drawn, &mut Names::default(), &mut points);
     assert_eq!(points.len(), 2);
     // Above the strokes, not merely above the solids: a marker lands on
     // the end of the segments meeting it, and is drawn after them.
@@ -90,12 +105,12 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     // Pinned reads larger and in its own colour; free is the other way.
     let anchor = &points[0];
     assert_eq!(anchor.position, Vec3::ZERO);
-    assert_eq!(anchor.color, FIXED_POINT);
+    assert_eq!(anchor.color, PINNED);
     assert_eq!(anchor.size, FIXED_MARKER);
 
     let free = &points[1];
     assert_eq!(free.position, Vec3::new(10.0, 0.0, 0.0));
-    assert_eq!(free.color, FREE_POINT);
+    assert_eq!(free.color, FREE);
     assert_eq!(free.size, FREE_MARKER);
     assert!(free.size < anchor.size);
 
@@ -115,11 +130,75 @@ fn marker_size_ignores_how_big_the_drawing_is() {
     large.add_point(DVec2::ZERO);
     large.add_point(DVec2::new(0.0, 100.0));
 
-    let sizes = |sketch: &Sketch| -> Vec<f32> {
+    let sizes = |sketch: &mut Sketch| -> Vec<f32> {
         let mut points = Vec::new();
-        SketchPlane::GROUND.write_points(sketch, &mut Names::default(), &mut points);
+        let mut freedoms = Freedoms::default();
+        SketchPlane::GROUND.write_points(
+            drawn(sketch, &mut freedoms),
+            &mut Names::default(),
+            &mut points,
+        );
         points.iter().map(|point| point.size).collect()
     };
-    assert_eq!(sizes(&small), sizes(&large));
-    assert_eq!(sizes(&small), vec![FREE_MARKER; 2]);
+    assert_eq!(sizes(&mut small), sizes(&mut large));
+    assert_eq!(sizes(&mut small), vec![FREE_MARKER; 2]);
+}
+
+/// Geometry is drawn in the colour of the freedom its constraints leave it,
+/// and an edge takes the looser of its two ends.
+///
+/// The sketch is one chain of three points against one constraint, so all three
+/// answers turn up in one drawing: the anchor is pinned, its partner is held to
+/// the anchor's height and can only slide, and the far point is tied to nothing
+/// at all. The edge between the last two has to read as the freer of them.
+#[test]
+fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::ZERO);
+    let slider = sketch.add_point(DVec2::new(4.0, 1.0));
+    let loose = sketch.add_point(DVec2::new(7.0, 2.0));
+    sketch.fix(anchor);
+    sketch.add_constraint(silverpoint::Constraint::Horizontal {
+        a: anchor,
+        b: slider,
+    });
+    sketch.add_segment(anchor, slider);
+    sketch.add_segment(slider, loose);
+    let pinned_hole = sketch.add_circle(anchor, 1.0);
+    sketch.add_constraint(silverpoint::Constraint::Radius {
+        circle: pinned_hole,
+        radius: 1.0,
+    });
+    sketch.add_circle(anchor, 2.0);
+
+    let mut freedoms = Freedoms::default();
+    let drawn = drawn(&mut sketch, &mut freedoms);
+    let mut points = Vec::new();
+    let mut curves = Vec::new();
+    let mut rings = Vec::new();
+    SketchPlane::GROUND.write_points(drawn, &mut Names::default(), &mut points);
+    SketchPlane::GROUND.write_curves(drawn, &mut Names::default(), &mut curves);
+    SketchPlane::GROUND.write_rings(drawn, &mut Names::default(), &mut rings);
+
+    // Three markers, three different things to say about them.
+    assert_eq!(points[0].color, PINNED, "the anchor was pinned by hand");
+    assert_eq!(points[1].color, PARTLY, "it can only slide along y = 0");
+    assert_eq!(points[2].color, FREE, "nothing constrains it at all");
+
+    // The first edge joins a pinned end to a sliding one, so it slides; the
+    // second reaches a point that can go anywhere, so it can too.
+    assert_eq!(curves[0].color, PARTLY);
+    assert_eq!(curves[1].color, FREE);
+
+    // A circle on a determined centre is only as settled as its radius.
+    assert_eq!(rings[0].color, DETERMINED, "centre pinned, radius stated");
+    assert_eq!(rings[1].color, FREE, "nothing said how big it is");
+
+    // Every state is its own colour, or the drawing says nothing by using them.
+    let shades = [PINNED, DETERMINED, PARTLY, FREE];
+    for (first, one) in shades.iter().enumerate() {
+        for other in &shades[first + 1..] {
+            assert_ne!(one, other, "two states share a colour");
+        }
+    }
 }

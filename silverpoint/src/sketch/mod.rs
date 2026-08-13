@@ -214,9 +214,19 @@ impl Sketch {
         self.radius_base() + self.circles.slot_count()
     }
 
+    /// Positions the points occupy, holes from removals included — the length
+    /// of anything keyed by point rather than by surviving point.
+    pub(crate) fn point_slot_count(&self) -> usize {
+        self.points.slot_count()
+    }
+
+    pub(crate) fn circle_slot_count(&self) -> usize {
+        self.circles.slot_count()
+    }
+
     /// Where the radii start, which is the boundary the whole layout turns on.
     fn radius_base(&self) -> usize {
-        self.points.slot_count() * 2
+        self.point_slot_count() * 2
     }
 
     /// Where `param` sits in the parameter vector. Inverse of [`Self::param`].

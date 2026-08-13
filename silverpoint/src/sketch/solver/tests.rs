@@ -546,3 +546,208 @@ fn an_empty_sketch_is_solved_and_fully_determined() {
         }
     );
 }
+
+/// Which geometry the constraints pin down, and which they leave something to
+/// decide.
+///
+/// The pair that matters is the last two, and what matters is that they agree.
+/// A point riding a horizontal line and a point riding a circle are equally
+/// constrained — each has one way to go — and both read `Partly`, though the
+/// first keeps a coordinate still and the second changes both as it travels.
+/// Counting coordinates rather than directions would separate them, and would
+/// then have to call a point on a diagonal free.
+#[test]
+fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
+    let mut freedoms = Freedoms::default();
+    let mut solver = Solver::default();
+
+    // Six independent equations against six free parameters: every corner has
+    // exactly one place it can be, and the anchor never had a choice.
+    let mut rectangle = Sketch::default();
+    let corner = [
+        rectangle.add_point(DVec2::ZERO),
+        rectangle.add_point(DVec2::new(5.1, 0.2)),
+        rectangle.add_point(DVec2::new(4.9, 3.1)),
+    ];
+    rectangle.fix(corner[0]);
+    rectangle.add_constraint(Constraint::Horizontal {
+        a: corner[0],
+        b: corner[1],
+    });
+    rectangle.add_constraint(Constraint::Distance {
+        a: corner[0],
+        b: corner[1],
+        distance: 5.0,
+    });
+    rectangle.add_constraint(Constraint::Vertical {
+        a: corner[1],
+        b: corner[2],
+    });
+    rectangle.add_constraint(Constraint::Distance {
+        a: corner[1],
+        b: corner[2],
+        distance: 3.0,
+    });
+    assert!(solver.solve(&mut rectangle).converged);
+    solver.freedoms(&rectangle, &mut freedoms);
+    for (index, point) in corner.iter().enumerate() {
+        assert_eq!(
+            freedoms.point(*point),
+            Freedom::Determined,
+            "corner {index} was left something to decide"
+        );
+    }
+
+    // The same rectangle with its width released: two of its corners can now
+    // travel, and the third still cannot.
+    let mut stretchy = Sketch::default();
+    let loose = [
+        stretchy.add_point(DVec2::ZERO),
+        stretchy.add_point(DVec2::new(5.0, 0.0)),
+    ];
+    stretchy.fix(loose[0]);
+    stretchy.add_constraint(Constraint::Horizontal {
+        a: loose[0],
+        b: loose[1],
+    });
+    assert!(solver.solve(&mut stretchy).converged);
+    solver.freedoms(&stretchy, &mut freedoms);
+    assert_eq!(freedoms.point(loose[0]), Freedom::Determined, "the anchor");
+    // Its y is the anchor's and its x is anyone's guess.
+    assert_eq!(freedoms.point(loose[1]), Freedom::Partly);
+
+    // The same one freedom, spent on a curve instead of a line. Both of its
+    // coordinates change as it goes round, and it is no freer for that — a
+    // cursor that leaves the circle is still asking for the impossible.
+    let mut orbit = Sketch::default();
+    let hub = orbit.add_point(DVec2::ZERO);
+    let rider = orbit.add_point(DVec2::new(2.0, 0.5));
+    orbit.fix(hub);
+    let ring = orbit.add_circle(hub, 2.0);
+    orbit.add_constraint(Constraint::Radius {
+        circle: ring,
+        radius: 2.0,
+    });
+    orbit.add_constraint(Constraint::PointOnCircle {
+        point: rider,
+        circle: ring,
+    });
+    let report = solver.solve(&mut orbit);
+    assert!(report.converged, "{report:?}");
+    assert_eq!(report.degrees_of_freedom, 1, "the same one freedom");
+    solver.freedoms(&orbit, &mut freedoms);
+    assert_eq!(freedoms.point(rider), Freedom::Partly);
+    // And the radius the constraint named is decided, unlike the rider on it.
+    assert_eq!(freedoms.radius(ring), Freedom::Determined);
+
+    // A circle nothing sized keeps its rim to be dragged.
+    let mut loose_ring = Sketch::default();
+    let centre = loose_ring.add_point(DVec2::ZERO);
+    loose_ring.fix(centre);
+    let free_ring = loose_ring.add_circle(centre, 1.0);
+    assert!(solver.solve(&mut loose_ring).converged);
+    solver.freedoms(&loose_ring, &mut freedoms);
+    assert_eq!(freedoms.radius(free_ring), Freedom::Free);
+    assert_eq!(freedoms.point(centre), Freedom::Determined);
+}
+
+/// The freedoms have to agree with the count they break down, entity by entity.
+///
+/// Holding a point and asking again is the other way to learn the same thing:
+/// pinning a coordinate that was already decided costs the sketch nothing,
+/// where pinning one it was free to choose spends a degree of freedom. That is
+/// a different route through the solver — the count comes from `free_params`
+/// against the rank, the labels from the reduced elimination — so where the two
+/// agree across sketches of every shape, both are doing what they claim.
+#[test]
+fn the_freedoms_agree_with_what_holding_each_point_costs() {
+    let mut freedoms = Freedoms::default();
+    let mut solver = Solver::default();
+
+    for (name, mut sketch) in [
+        ("a determined rectangle", determined_rectangle()),
+        ("a point on its own circle", point_on_a_circle()),
+        ("a duplicated constraint", duplicated_distance()),
+        ("conflicting distances", conflicting_distances()),
+    ] {
+        solver.solve(&mut sketch);
+        let at_rest = solver.edit_holding(&mut sketch, &[], |_| {});
+        solver.freedoms(&sketch, &mut freedoms);
+
+        for (id, _) in sketch.points().collect::<Vec<_>>() {
+            let held = solver.edit_holding(&mut sketch, &[id], |_| {});
+            let spent = at_rest.degrees_of_freedom - held.degrees_of_freedom;
+            let expected = match spent {
+                0 => Freedom::Determined,
+                1 => Freedom::Partly,
+                _ => Freedom::Free,
+            };
+            assert_eq!(
+                freedoms.point(id),
+                expected,
+                "{name}: holding this point spent {spent} of the sketch's freedoms"
+            );
+        }
+    }
+}
+
+fn determined_rectangle() -> Sketch {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(5.1, 0.2));
+    sketch.fix(a);
+    sketch.add_constraint(Constraint::Horizontal { a, b });
+    sketch.add_constraint(Constraint::Distance {
+        a,
+        b,
+        distance: 5.0,
+    });
+    sketch
+}
+
+fn point_on_a_circle() -> Sketch {
+    let mut sketch = Sketch::default();
+    let hub = sketch.add_point(DVec2::ZERO);
+    let rider = sketch.add_point(DVec2::new(2.0, 0.5));
+    sketch.fix(hub);
+    let ring = sketch.add_circle(hub, 2.0);
+    sketch.add_constraint(Constraint::Radius {
+        circle: ring,
+        radius: 2.0,
+    });
+    sketch.add_constraint(Constraint::PointOnCircle {
+        point: rider,
+        circle: ring,
+    });
+    sketch
+}
+
+fn duplicated_distance() -> Sketch {
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::ZERO);
+    let free = sketch.add_point(DVec2::new(1.0, 0.0));
+    sketch.fix(anchor);
+    let distance = Constraint::Distance {
+        a: anchor,
+        b: free,
+        distance: 5.0,
+    };
+    sketch.add_constraint(distance);
+    sketch.add_constraint(distance);
+    sketch
+}
+
+fn conflicting_distances() -> Sketch {
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::ZERO);
+    let free = sketch.add_point(DVec2::new(1.0, 0.0));
+    sketch.fix(anchor);
+    for distance in [1.0, 2.0] {
+        sketch.add_constraint(Constraint::Distance {
+            a: anchor,
+            b: free,
+            distance,
+        });
+    }
+    sketch
+}

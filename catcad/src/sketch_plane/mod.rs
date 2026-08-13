@@ -2,8 +2,9 @@
 
 use aperture::{Curve, Point, Ring, Styled};
 use glam::{DVec2, Vec3};
-use silverpoint::Sketch;
+use silverpoint::Freedom;
 
+use crate::drawing::Drawn;
 use crate::named::{Named, Names};
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
@@ -12,9 +13,28 @@ const FIXED_MARKER: f32 = 9.0;
 const FREE_MARKER: f32 = 7.0;
 
 /// Linear-RGB, unlit — these reach the target as authored.
-const EDGE: Vec3 = Vec3::new(0.35, 0.55, 0.80);
-const FREE_POINT: Vec3 = Vec3::new(0.85, 0.55, 0.10);
-const FIXED_POINT: Vec3 = Vec3::new(0.80, 0.14, 0.05);
+///
+/// Geometry is coloured by how much freedom its constraints have left it, cool
+/// for none and warm for all of it, so a sketch starts hot and cools as it is
+/// pinned down — which is the convention every constrained modeller draws on,
+/// and reads at a glance as how much work the drawing still needs.
+///
+/// A point the user pinned by hand keeps its own colour regardless. It is
+/// determined, but by a different authority, and the two are worth telling
+/// apart: constraints can be argued with by adding more, and `fix` cannot.
+const DETERMINED: Vec3 = Vec3::new(0.35, 0.55, 0.80);
+const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
+const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
+const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
+
+/// What geometry with this much freedom left is drawn in.
+fn paint(freedom: Freedom) -> Vec3 {
+    match freedom {
+        Freedom::Determined => DETERMINED,
+        Freedom::Partly => PARTLY,
+        Freedom::Free => FREE,
+    }
+}
 
 /// Logical pixels.
 const EDGE_WIDTH: f32 = 1.6;
@@ -100,14 +120,23 @@ impl SketchPlane {
     /// The sketch's straight strokes, one edge per segment, biased clear of
     /// the solids in depth so the drawing reads over them. Circles are not
     /// strokes — see [`SketchPlane::rings`].
-    pub(crate) fn write_curves(&self, sketch: &Sketch, names: &mut Names, curves: &mut Vec<Curve>) {
+    pub(crate) fn write_curves(
+        &self,
+        drawn: Drawn<'_>,
+        names: &mut Names,
+        curves: &mut Vec<Curve>,
+    ) {
+        let Drawn { sketch, freedoms } = drawn;
         curves.clear();
         for (id, segment) in sketch.segments() {
             let a = self.point(sketch.point(segment.a));
             let b = self.point(sketch.point(segment.b));
+            // An edge is only as settled as its looser end: one end free to
+            // travel is an edge free to travel with it.
+            let freedom = freedoms.point(segment.a).max(freedoms.point(segment.b));
             curves.push(
                 Curve::segment(a, b)
-                    .colored(EDGE)
+                    .colored(paint(freedom))
                     .width(EDGE_WIDTH)
                     .tagged(names.tag(Named::Segment(id))),
             );
@@ -128,15 +157,23 @@ impl SketchPlane {
     /// The plane comes along for the same reason a stroke's does: a disc is
     /// flat in depth and the surface under it is not, so without it the glyph
     /// is sliced wherever the plane is seen at an angle.
-    pub(crate) fn write_points(&self, sketch: &Sketch, names: &mut Names, points: &mut Vec<Point>) {
+    pub(crate) fn write_points(
+        &self,
+        drawn: Drawn<'_>,
+        names: &mut Names,
+        points: &mut Vec<Point>,
+    ) {
+        let Drawn { sketch, freedoms } = drawn;
         let normal = self.normal();
         points.clear();
         points.extend(sketch.points().map(|(id, position)| {
-            let fixed = sketch.is_fixed(id);
-            let (color, size) = if fixed {
-                (FIXED_POINT, FIXED_MARKER)
+            // Pinned by hand outranks pinned by consequence: a fixed point is
+            // determined too, but saying so in the same colour would lose the
+            // one thing about it the user chose.
+            let (color, size) = if sketch.is_fixed(id) {
+                (PINNED, FIXED_MARKER)
             } else {
-                (FREE_POINT, FREE_MARKER)
+                (paint(freedoms.point(id)), FREE_MARKER)
             };
             Point::new(self.point(position))
                 .colored(color)
@@ -156,16 +193,21 @@ impl SketchPlane {
     ///
     /// No plane named, unlike the strokes — a ring's band is widened in its
     /// own plane, so the depth it carries is already the surface's.
-    pub(crate) fn write_rings(&self, sketch: &Sketch, names: &mut Names, rings: &mut Vec<Ring>) {
+    pub(crate) fn write_rings(&self, drawn: Drawn<'_>, names: &mut Names, rings: &mut Vec<Ring>) {
+        let Drawn { sketch, freedoms } = drawn;
         let normal = self.normal();
         rings.clear();
         rings.extend(sketch.circles().map(|(id, circle)| {
+            // A circle can move with its centre or grow on its own, so it is
+            // settled only when both are — the demo's is pinned to the middle
+            // of a rigid frame and still has its rim to give.
+            let freedom = freedoms.point(circle.center).max(freedoms.radius(id));
             Ring::new(
                 self.point(sketch.point(circle.center)),
                 circle.radius.abs() as f32,
                 normal,
             )
-            .colored(EDGE)
+            .colored(paint(freedom))
             .width(EDGE_WIDTH)
             .z_offset(STROKE_LIFT)
             .tagged(names.tag(Named::Circle(id)))

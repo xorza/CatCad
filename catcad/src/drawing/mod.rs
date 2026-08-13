@@ -2,7 +2,7 @@
 
 use aperture::{Hit, HitAt, Motion, Overlays, Tag};
 use glam::Vec3;
-use silverpoint::{CircleId, PointId, SegmentId, Sketch, SolveReport, Solver};
+use silverpoint::{CircleId, Freedoms, PointId, SegmentId, Sketch, SolveReport, Solver};
 
 use crate::named::{Named, Names};
 use crate::sketch_plane::SketchPlane;
@@ -23,6 +23,10 @@ pub(crate) struct Drawing {
     /// What each drawn primitive's tag stands for, rewritten with the drawing.
     names: Names,
     report: SolveReport,
+    /// Which geometry the constraints have decided, which is what it is drawn
+    /// in the colour of. Taken afresh whenever the sketch moves, because moving
+    /// it is what changes the answer.
+    freedoms: Freedoms,
 }
 
 impl Drawing {
@@ -30,12 +34,15 @@ impl Drawing {
     pub(crate) fn new(mut sketch: Sketch, plane: SketchPlane) -> Self {
         let mut solver = Solver::default();
         let report = solver.solve(&mut sketch);
+        let mut freedoms = Freedoms::default();
+        solver.freedoms(&sketch, &mut freedoms);
         Self {
             sketch,
             plane,
             solver,
             names: Names::default(),
             report,
+            freedoms,
         }
     }
 
@@ -65,12 +72,13 @@ impl Drawing {
     /// of what it grabbed.
     pub(crate) fn write_into(&mut self, into: Overlays<'_>) {
         self.names.clear();
-        self.plane
-            .write_curves(&self.sketch, &mut self.names, into.curves);
-        self.plane
-            .write_rings(&self.sketch, &mut self.names, into.rings);
-        self.plane
-            .write_points(&self.sketch, &mut self.names, into.points);
+        let drawn = Drawn {
+            sketch: &self.sketch,
+            freedoms: &self.freedoms,
+        };
+        self.plane.write_curves(drawn, &mut self.names, into.curves);
+        self.plane.write_rings(drawn, &mut self.names, into.rings);
+        self.plane.write_points(drawn, &mut self.names, into.points);
     }
 
     /// What a press on `hit` takes hold of, or `None` if it takes hold of
@@ -158,7 +166,24 @@ impl Drawing {
                     })
             }
         };
+        // Whatever the drag settled on, including a refusal that put everything
+        // back: what the constraints decide is a property of where the geometry
+        // now stands, so it is taken from what survived rather than predicted.
+        self.solver.freedoms(&self.sketch, &mut self.freedoms);
     }
+}
+
+/// A sketch and what its constraints have decided about it, which is what it
+/// takes to draw one.
+///
+/// The two travel together because they have to agree: the freedoms are read
+/// off a sketch as it stood at a moment, and asking them about geometry added
+/// since is a question they cannot answer. Handing them over as one is what
+/// keeps a caller from pairing a drawing with last frame's answer.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Drawn<'a> {
+    pub sketch: &'a Sketch,
+    pub freedoms: &'a Freedoms,
 }
 
 /// What a drag has hold of, and where on it.

@@ -1,7 +1,7 @@
 //! What the app decides before anything is drawn.
 
 use glam::DVec2;
-use silverpoint::{PointId, SolveReport, Solver};
+use silverpoint::{Freedom, Freedoms, PointId, SolveReport, Solver};
 
 use crate::demo::Demo;
 use crate::named::Named;
@@ -95,6 +95,45 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
         2.2,
         "the rim would not be driven"
     );
+}
+
+/// The demo is arranged to show every state the drawing can paint, so it has to
+/// actually contain them all.
+///
+/// A colour that never appears teaches nothing, and the freedoms are what
+/// decide the colours — so this is where the demo earns the claim that looking
+/// at it tells you which parts of it will answer a cursor.
+#[test]
+fn the_demo_shows_every_state_a_drawing_can_be_painted_in() {
+    let mut sketch = Demo::sketch();
+    let mut solver = Solver::default();
+    assert!(solver.solve(&mut sketch).converged);
+    let mut freedoms = Freedoms::default();
+    solver.freedoms(&sketch, &mut freedoms);
+
+    let id: Vec<PointId> = sketch.points().map(|(point, _)| point).collect();
+    // The frame is settled to the last corner, and the arm is free to the last
+    // joint. Points 0..5 are the rectangle and the hub, 5..9 the rail and arm.
+    for (index, point) in id.iter().enumerate().take(5) {
+        assert_eq!(
+            freedoms.point(*point),
+            Freedom::Determined,
+            "the frame's point {index} was left something to decide"
+        );
+    }
+    for (index, point) in id.iter().enumerate().skip(5) {
+        assert_eq!(
+            freedoms.point(*point),
+            Freedom::Free,
+            "the arm's point {index} cannot be put where it is asked for"
+        );
+    }
+
+    // The circle nothing sized can still be resized; the eye that was given a
+    // size cannot. Between them that is both states a rim can be in.
+    let circle: Vec<_> = sketch.circles().map(|(id, _)| id).collect();
+    assert_eq!(freedoms.radius(circle[0]), Freedom::Free);
+    assert_eq!(freedoms.radius(circle[1]), Freedom::Determined);
 }
 
 /// What the status line reads, in every shape it takes.

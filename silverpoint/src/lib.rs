@@ -38,5 +38,6 @@ pub use sketch::constraint::Constraint;
 /// where it can reach what it measures.
 #[cfg(feature = "bench")]
 pub use sketch::solver::bench::alloc_bench;
+pub use sketch::solver::freedoms::{Freedom, Freedoms};
 pub use sketch::solver::{SolveReport, Solver};
 pub use sketch::{Circle, CircleId, Point, PointId, Segment, SegmentId, Sketch};

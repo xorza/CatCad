@@ -226,10 +226,15 @@ fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
 
 /// A sketch stroke crossing `column`, as the width it actually deposited.
 ///
-/// Strokes are blue on a neutral slab, so blue-minus-red isolates them from
-/// the shading. Total ink over peak intensity is the covered width in pixels
-/// however multisampling spreads the edges: a stroke of width `n` drawn at
-/// peak `p` deposits `n * p` whether that lands on two pixels or four.
+/// The slab is neutral and the drawing never is, so how far a pixel's red and
+/// blue stand apart isolates the strokes from the shading. Taken as a magnitude
+/// rather than a difference because the drawing is coloured by how constrained
+/// it is: settled geometry is cool and free geometry warm, and a signed
+/// blue-minus-red would see only half of it.
+///
+/// Total ink over peak intensity is the covered width in pixels however
+/// multisampling spreads the edges: a stroke of width `n` drawn at peak `p`
+/// deposits `n * p` whether that lands on two pixels or four.
 #[derive(Debug, PartialEq)]
 struct Stroke {
     row: u32,
@@ -239,13 +244,16 @@ struct Stroke {
 fn strokes(frame: &Frame, column: u32) -> Vec<Stroke> {
     let signal: Vec<f32> = (0..frame.size.y)
         .map(|y| {
-            let [r, _, b, _] = frame.pixel(UVec2::new(column, y));
-            f32::from(b) - f32::from(r)
+            let [r, g, b, _] = frame.pixel(UVec2::new(column, y));
+            let (r, g, b) = (linear(r), linear(g), linear(b));
+            r.max(g).max(b) - r.min(g).min(b)
         })
         .collect();
 
     // The slab's own blue tint drifts with the shading, so each row is judged
-    // against its neighbourhood rather than against zero.
+    // against its neighbourhood rather than against zero. That also keeps the
+    // coloured cubes out of it: a broad flat region is its own baseline, and
+    // only something thin against its surroundings lifts clear.
     let reach = 12usize;
     let baseline = |y: usize| {
         let lo = y.saturating_sub(reach);
@@ -259,12 +267,12 @@ fn strokes(frame: &Frame, column: u32) -> Vec<Stroke> {
     let mut out = Vec::new();
     let mut y = 0usize;
     while y < lifted.len() {
-        if lifted[y] <= 4.0 {
+        if lifted[y] <= EDGE_OF_INK {
             y += 1;
             continue;
         }
         let start = y;
-        while y < lifted.len() && lifted[y] > 4.0 {
+        while y < lifted.len() && lifted[y] > EDGE_OF_INK {
             y += 1;
         }
         let peak = lifted[start..y].iter().copied().fold(0.0, f32::max);
@@ -280,9 +288,41 @@ fn strokes(frame: &Frame, column: u32) -> Vec<Stroke> {
     out
 }
 
+/// A pixel this much more saturated than its neighbourhood is stroke rather
+/// than slab. In linear light, and well under the least saturated thing the
+/// drawing paints.
+const EDGE_OF_INK: f32 = 0.01;
+
+/// One sRGB byte as the linear intensity it stands for.
+///
+/// The frame comes back sRGB-encoded, and coverage is blended before that
+/// encoding: a pixel a stroke half covers carries half the light, not half the
+/// byte. Measuring ink in bytes therefore weighs a stroke by its colour as much
+/// as by its width, which is exactly what a width measurement must not do.
+fn linear(byte: u8) -> f32 {
+    let c = f32::from(byte) / 255.0;
+    if c <= 0.04045 {
+        c / 12.92
+    } else {
+        ((c + 0.055) / 1.055).powf(2.4)
+    }
+}
+
 /// Sketch strokes are authored 1.6 logical pixels wide, and the harness
 /// renders at scale 1, so this is what a fully drawn one deposits.
 const AUTHORED_WIDTH: f32 = 1.6;
+
+/// How much of that a stroke has to still be carrying to count as intact.
+///
+/// Lower than it reads, because the measurement under it changed: ink is now
+/// summed in linear light, where before it was summed in sRGB bytes and the
+/// encoding curve flattered every shoulder it passed through. The same strokes
+/// that measured about 1.55 in bytes measure about 1.22 honestly, so a floor
+/// calibrated against the old figure would fail on geometry that is fine.
+///
+/// It still catches what this pair of tests exists for by a wide margin: before
+/// the plane-aware depth, a grazing stroke fell to about *half* its width.
+const INTACT: f32 = AUTHORED_WIDTH * 0.7;
 
 /// Square on the drawing, so the near and far edges of the rectangle run
 /// straight across the screen. That is the worst case for a stroke lying on a
@@ -482,7 +522,7 @@ fn strokes_keep_their_width_at_grazing_angles() {
     assert!(flat.len() >= 3, "expected the sketch edges, got {flat:?}");
     for stroke in &flat {
         assert!(
-            stroke.width > AUTHORED_WIDTH * 0.9,
+            stroke.width > INTACT,
             "head-on stroke already thin: {stroke:?}"
         );
     }
@@ -497,7 +537,7 @@ fn strokes_keep_their_width_at_grazing_angles() {
         );
         for stroke in &tilted {
             assert!(
-                stroke.width > AUTHORED_WIDTH * 0.9,
+                stroke.width > INTACT,
                 "pitch {pitch} ate the stroke: {stroke:?} (authored {AUTHORED_WIDTH})"
             );
         }
