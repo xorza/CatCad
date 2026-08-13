@@ -2,6 +2,8 @@
 
 use crate::aim::{Aim, Inside};
 use crate::hit::{Hit, HitAt};
+use crate::overlay::Overlay;
+use crate::renderer::record::CurveInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::Vec3;
@@ -240,6 +242,32 @@ fn nearest_on_segment(a: Vec3, b: Vec3, aim: &Aim) -> Option<Nearest> {
         t: span.start + in_span * (span.end - span.start),
         screen,
     })
+}
+
+impl Overlay for Curve {
+    type Record = CurveInstance;
+
+    /// One per segment: the shader takes a ribbon's direction from the
+    /// difference between its two ends, so both travel.
+    fn record_count(&self) -> usize {
+        self.segment_count()
+    }
+
+    fn records(&self) -> impl Iterator<Item = Self::Record> {
+        CurveInstance::of(self)
+    }
+
+    fn tag(&self) -> Option<Tag> {
+        self.tag
+    }
+
+    /// Stroke width doesn't count: it is a screen-space quantity, and the
+    /// distance that would satisfy it is the one being solved for.
+    fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
+        for point in &self.points {
+            include(*point);
+        }
+    }
 }
 
 #[cfg(test)]

@@ -6,10 +6,11 @@ use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::hit::Hit;
 use crate::object::Object;
+use crate::overlay;
 use crate::point::Point;
 use crate::ring::Ring;
 use crate::viewport::Viewport;
-use glam::{Vec2, Vec3};
+use glam::Vec2;
 
 /// The whole of the drawable world: shaded meshes, stroked curves, and the
 /// camera viewing them. Flat for now — hierarchy, if it earns its place, goes
@@ -46,38 +47,22 @@ impl Scene {
     /// the distance that would satisfy it is the one being solved for.
     pub fn bounds(&self) -> Option<Bounds> {
         let mut bounds: Option<Bounds> = None;
-        let mut include = |point| match &mut bounds {
-            Some(bounds) => bounds.include(point),
-            empty => *empty = Some(Bounds::point(point)),
-        };
         for object in &self.objects {
             for vertex in &object.mesh.vertices {
-                include(object.transform.transform_point3(vertex.position));
+                let at = object.transform.transform_point3(vertex.position);
+                match bounds.as_mut() {
+                    Some(bounds) => bounds.include(at),
+                    None => bounds = Some(Bounds::point(at)),
+                }
             }
         }
-        for curve in &self.curves {
-            for point in &curve.points {
-                include(*point);
-            }
-        }
-        // A circle reaches its radius along every world axis except in so far
-        // as its plane leans away from that axis, which is what the normal's
-        // component in it measures.
-        for ring in &self.rings {
-            let normal = ring.normal();
-            let spread = Vec3::new(
-                (1.0 - normal.x * normal.x).max(0.0).sqrt(),
-                (1.0 - normal.y * normal.y).max(0.0).sqrt(),
-                (1.0 - normal.z * normal.z).max(0.0).sqrt(),
-            ) * ring.radius;
-            include(ring.center - spread);
-            include(ring.center + spread);
-        }
-        // A marker's glyph is screen-sized, so like a stroke's width it says
-        // nothing about where the world reaches — only its anchor counts.
-        for point in &self.points {
-            include(point.position);
-        }
+        // Each overlay kind knows how far it reaches, and none of them counts
+        // what it is drawn *as*: a stroke's width and a marker's glyph are
+        // screen-space quantities, and the distance that would satisfy them is
+        // the one being solved for.
+        overlay::bounds(&self.curves, &mut bounds);
+        overlay::bounds(&self.rings, &mut bounds);
+        overlay::bounds(&self.points, &mut bounds);
         bounds
     }
 

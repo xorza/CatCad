@@ -80,6 +80,7 @@ pub(crate) mod hit;
 pub(crate) mod mesh;
 pub(crate) mod motion;
 pub(crate) mod object;
+pub(crate) mod overlay;
 pub(crate) mod point;
 pub(crate) mod ray;
 pub(crate) mod renderer;

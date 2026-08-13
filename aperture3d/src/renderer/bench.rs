@@ -250,16 +250,16 @@ pub fn alloc_bench() {
             tag: Tag::new(lit),
             look: Highlight::new(Vec3::Y),
         }));
-        renderer.flatten_highlights();
-        black_box(&renderer.batches.lit);
+        black_box(renderer.refresh_overlays(true));
     });
 
     // What a scene edit costs: every batch re-flattened from the scene.
     bench.step("flatten-batches", 0.0, || {
         renderer.flatten_meshes();
-        renderer.flatten_curves();
-        renderer.flatten_rings();
-        renderer.flatten_points();
+        renderer.batches.curves.dirty = true;
+        renderer.batches.rings.dirty = true;
+        renderer.batches.points.dirty = true;
+        black_box(renderer.refresh_overlays(false));
         black_box(&renderer.batches);
     });
 

@@ -2,6 +2,8 @@
 
 use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
+use crate::overlay::Overlay;
+use crate::renderer::record::RingInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::Vec3;
@@ -204,6 +206,38 @@ struct NearestOnRing {
     angle: f32,
     /// How far the cursor was from it on screen.
     screen: f32,
+}
+
+impl Overlay for Ring {
+    type Record = RingInstance;
+
+    /// One, however large it is drawn — the fragment stage resolves the circle
+    /// rather than a count of chords standing in for it.
+    fn record_count(&self) -> usize {
+        1
+    }
+
+    fn records(&self) -> impl Iterator<Item = Self::Record> {
+        std::iter::once(RingInstance::of(self))
+    }
+
+    fn tag(&self) -> Option<Tag> {
+        self.tag
+    }
+
+    /// A circle reaches its radius along every world axis except in so far as
+    /// its plane leans away from that axis, which is what the normal's
+    /// component in it measures.
+    fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
+        let normal = self.normal();
+        let spread = Vec3::new(
+            (1.0 - normal.x * normal.x).max(0.0).sqrt(),
+            (1.0 - normal.y * normal.y).max(0.0).sqrt(),
+            (1.0 - normal.z * normal.z).max(0.0).sqrt(),
+        ) * self.radius;
+        include(self.center - spread);
+        include(self.center + spread);
+    }
 }
 
 #[cfg(test)]

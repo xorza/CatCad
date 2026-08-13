@@ -19,7 +19,7 @@ use glam::Vec3;
 /// that is not true.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-pub(super) struct Look {
+pub(crate) struct Look {
     pub(super) color: [f32; 3],
     /// Half the stroke width, or half a marker's diameter — the distance the
     /// shader spreads either side of the shape's own centre.
@@ -54,7 +54,7 @@ impl Look {
 /// and all three inherit it.
 ///
 /// [`Styled`]: crate::styled::Styled
-pub(super) trait Instance: BatchRecord {
+pub(crate) trait Instance: BatchRecord {
     fn look_mut(&mut self) -> &mut Look;
 
     /// Drawn again in `look`, over the top of its ordinary self.
@@ -84,7 +84,7 @@ pub(super) struct GpuVertex {
 /// follow from the index. Everything below was identical across all four.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-pub(super) struct CurveInstance {
+pub(crate) struct CurveInstance {
     pub(super) start: [f32; 3],
     pub(super) end: [f32; 3],
     pub(super) look: Look,
@@ -100,7 +100,7 @@ pub(super) struct CurveInstance {
 /// basis of its own — the only place a basis is chosen is [`Ring::new`].
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-pub(super) struct RingInstance {
+pub(crate) struct RingInstance {
     pub(super) center: [f32; 3],
     pub(super) x_axis: [f32; 3],
     pub(super) y_axis: [f32; 3],
@@ -110,7 +110,7 @@ pub(super) struct RingInstance {
 
 impl CurveInstance {
     /// The instances one stroke ships, one per segment.
-    pub(super) fn of(curve: &Curve) -> impl Iterator<Item = Self> + '_ {
+    pub(crate) fn of(curve: &Curve) -> impl Iterator<Item = Self> + '_ {
         let look = Look::of(curve.color, curve.width, curve.z_offset);
         let plane = curve.plane_normal.unwrap_or(Vec3::ZERO).to_array();
         curve.segments().map(move |(a, b)| Self {
@@ -129,7 +129,7 @@ impl Instance for CurveInstance {
 }
 
 impl RingInstance {
-    pub(super) fn of(ring: &Ring) -> Self {
+    pub(crate) fn of(ring: &Ring) -> Self {
         Self {
             center: ring.center.to_array(),
             x_axis: ring.x_axis.to_array(),
@@ -150,7 +150,7 @@ impl Instance for RingInstance {
 /// bits of `@builtin(vertex_index)` pick a corner, so none travels.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
-pub(super) struct PointInstance {
+pub(crate) struct PointInstance {
     pub(super) position: [f32; 3],
     pub(super) look: Look,
     /// Unit normal of the plane the marker sits on, or all-zero for one that
@@ -159,7 +159,7 @@ pub(super) struct PointInstance {
 }
 
 impl PointInstance {
-    pub(super) fn of(point: &Point) -> Self {
+    pub(crate) fn of(point: &Point) -> Self {
         Self {
             position: point.position.to_array(),
             look: Look::of(point.color, point.size, point.z_offset),
@@ -177,7 +177,7 @@ impl Instance for PointInstance {
 /// A record the renderer batches and uploads: one per vertex for modelled
 /// geometry, one per primitive for the overlays, which build their own
 /// corners.
-pub(super) trait BatchRecord: bytemuck::Pod {
+pub(crate) trait BatchRecord: bytemuck::Pod {
     /// Whether the buffer advances per vertex or per instance.
     const STEP_MODE: wgpu::VertexStepMode;
 

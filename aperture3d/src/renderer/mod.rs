@@ -8,17 +8,17 @@
 
 use crate::camera::{Camera, Projection};
 use crate::curve::Curve;
-use crate::highlight::{Highlight, Lit};
+use crate::highlight::Lit;
 use crate::object::Object;
 use crate::point::Point;
 use crate::ring::Ring;
 use crate::scene::{Overlays, Scene};
-use crate::tag::Tag;
 use crate::viewport::Viewport;
 use glam::{Mat3, UVec2};
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
 
 pub(crate) mod band;
+pub(crate) mod batch;
 #[cfg(feature = "bench")]
 pub(crate) mod bench;
 pub(crate) mod gpu;
@@ -26,8 +26,9 @@ pub(crate) mod pass;
 pub(crate) mod record;
 pub(crate) mod retained;
 
+use crate::renderer::batch::{Batch, Refreshed};
 use crate::renderer::gpu::{Attachments, Gpu};
-use crate::renderer::record::{CurveInstance, GpuVertex, Instance, PointInstance, RingInstance};
+use crate::renderer::record::GpuVertex;
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 
@@ -92,37 +93,13 @@ impl Uniforms {
     }
 }
 
-/// What the highlight passes draw, flattened together because one look can
-/// cover primitives of every kind at once.
-#[derive(Debug, Default)]
-struct Highlighted {
-    curves: Vec<CurveInstance>,
-    rings: Vec<RingInstance>,
-    points: Vec<PointInstance>,
-}
-
-impl Highlighted {
-    fn clear(&mut self) {
-        self.curves.clear();
-        self.rings.clear();
-        self.points.clear();
-    }
-}
-
 /// Everything the scene flattens to on the CPU, on its way to the GPU.
-///
-/// Held between frames for the same reason the buffers they feed are: an edit
-/// that moves one vertex should not discard and rebuild a whole batch. Each is
-/// emptied and refilled in place, so once it has grown to fit the scene it
-/// stops allocating — which is what keeps a hover, whose only work is
-/// rebuilding [`Batches::lit`], off the heap entirely.
 #[derive(Debug, Default)]
 struct Batches {
     meshes: MeshData,
-    curves: Vec<CurveInstance>,
-    rings: Vec<RingInstance>,
-    points: Vec<PointInstance>,
-    lit: Highlighted,
+    curves: Batch<Curve>,
+    rings: Batch<Ring>,
+    points: Batch<Point>,
 }
 
 /// The mesh batch flattened on the CPU, before upload. The overlays need no
@@ -160,14 +137,6 @@ impl MeshData {
     }
 }
 
-/// The look a tag was given, if any.
-fn look_of(highlights: &[Lit], tag: Option<Tag>) -> Option<Highlight> {
-    let tag = tag?;
-    highlights
-        .iter()
-        .find_map(|lit| (lit.tag == tag).then_some(lit.look))
-}
-
 /// A GPU buffer that outlives the data in it.
 ///
 /// Written in place for as long as what arrives still fits, which is what stops
@@ -186,19 +155,17 @@ pub struct Renderer {
     gpu: Option<Gpu>,
 }
 
-/// Which batches have been edited since they were last uploaded.
+/// What has been edited since it was last uploaded, for the two things no
+/// [`Batch`] owns.
 ///
-/// Per batch rather than one flag for the scene, because the three are edited
-/// on completely different schedules: markers move as the solver runs while
-/// the solids they sit on never change, and a single flag would re-flatten and
+/// Per batch rather than one flag for the scene, because they are edited on
+/// completely different schedules: markers move as the solver runs while the
+/// solids they sit on never change, and a single flag would re-flatten and
 /// re-upload every triangle in the model to move one disc. Camera moves set
 /// none of these — the camera only feeds the per-frame uniform.
 #[derive(Debug, Clone, Copy, Default)]
 struct Dirty {
     meshes: bool,
-    curves: bool,
-    rings: bool,
-    points: bool,
     /// Set by a change of *which* primitives are highlighted, never by the
     /// scene — which is what keeps hovering off the ordinary batches.
     highlights: bool,
@@ -209,9 +176,6 @@ impl Dirty {
     fn all() -> Self {
         Self {
             meshes: true,
-            curves: true,
-            rings: true,
-            points: true,
             highlights: true,
         }
     }
@@ -251,28 +215,28 @@ impl Renderer {
 
     /// Edit the scene's curves, re-uploading the batch on the next paint.
     pub fn curves_mut(&mut self) -> &mut Vec<Curve> {
-        self.dirty.curves = true;
+        self.batches.curves.dirty = true;
         &mut self.scene.curves
     }
 
     /// Edit the scene's rings, re-uploading the batch on the next paint.
     pub fn rings_mut(&mut self) -> &mut Vec<Ring> {
-        self.dirty.rings = true;
+        self.batches.rings.dirty = true;
         &mut self.scene.rings
     }
 
     /// Edit the scene's markers, re-uploading the batch on the next paint.
     pub fn points_mut(&mut self) -> &mut Vec<Point> {
-        self.dirty.points = true;
+        self.batches.points.dirty = true;
         &mut self.scene.points
     }
 
     /// Edit all three overlay batches at once, re-uploading them on the next
     /// paint. See [`Scene::overlays_mut`].
     pub fn overlays_mut(&mut self) -> Overlays<'_> {
-        self.dirty.curves = true;
-        self.dirty.rings = true;
-        self.dirty.points = true;
+        self.batches.curves.dirty = true;
+        self.batches.rings.dirty = true;
+        self.batches.points.dirty = true;
         self.scene.overlays_mut()
     }
 
@@ -307,6 +271,27 @@ impl Renderer {
         self.dirty.highlights = true;
     }
 
+    /// Bring every overlay batch up to date, and say what each now owes the
+    /// GPU.
+    ///
+    /// `relight` is a change of *which* primitives are lit, which can happen
+    /// with the scene untouched — a pointer crossing a drawing does exactly
+    /// that. Each batch also answers for its own edits, so a marker moving
+    /// leaves the strokes and rims alone.
+    fn refresh_overlays(&mut self, relight: bool) -> Refreshed {
+        let Self {
+            scene,
+            highlights,
+            batches,
+            ..
+        } = self;
+        Refreshed {
+            curves: batches.curves.refresh(&scene.curves, highlights, relight),
+            rings: batches.rings.refresh(&scene.rings, highlights, relight),
+            points: batches.points.refresh(&scene.points, highlights, relight),
+        }
+    }
+
     /// World-space triangle soup for the whole scene. Transforms are applied
     /// here rather than per draw call, so a still scene costs one draw and no
     /// per-object bindings.
@@ -336,72 +321,6 @@ impl Renderer {
             data.extend(vertices, &object.mesh.indices);
         }
     }
-
-    /// Every curve segment as one instance. Both ends travel, since the shader
-    /// takes the ribbon's direction from the difference between them.
-    fn flatten_curves(&mut self) {
-        let segments: usize = self.scene.curves.iter().map(Curve::segment_count).sum();
-        let instances = &mut self.batches.curves;
-        instances.clear();
-        instances.reserve_exact(segments);
-        for curve in &self.scene.curves {
-            instances.extend(CurveInstance::of(curve));
-        }
-    }
-
-    /// Every circle as one instance, however large it is drawn.
-    fn flatten_rings(&mut self) {
-        let instances = &mut self.batches.rings;
-        instances.clear();
-        instances.reserve_exact(self.scene.rings.len());
-        instances.extend(self.scene.rings.iter().map(RingInstance::of));
-    }
-
-    /// Every marker as one instance. Only the anchor travels; the shader sizes
-    /// the quad around it.
-    fn flatten_points(&mut self) {
-        let instances = &mut self.batches.points;
-        instances.clear();
-        instances.reserve_exact(self.scene.points.len());
-        instances.extend(self.scene.points.iter().map(PointInstance::of));
-    }
-
-    /// The highlighted primitives, in the looks they were given.
-    ///
-    /// Built by walking the same scene the ordinary batches came from, so a
-    /// highlight is the primitive it doubles rather than a copy that can
-    /// drift from it.
-    ///
-    /// How many there will be is not known before the walk — it depends on
-    /// what the caller lit — so this is the one batch that grows rather than
-    /// reserving exactly. It settles after a few frames of hovering and stops
-    /// allocating there.
-    fn flatten_highlights(&mut self) {
-        let Self {
-            scene,
-            highlights,
-            batches,
-            ..
-        } = self;
-        let lit = &mut batches.lit;
-        lit.clear();
-        for curve in &scene.curves {
-            if let Some(look) = look_of(highlights, curve.tag) {
-                lit.curves
-                    .extend(CurveInstance::of(curve).map(|instance| instance.highlighted(look)));
-            }
-        }
-        for ring in &scene.rings {
-            if let Some(look) = look_of(highlights, ring.tag) {
-                lit.rings.push(RingInstance::of(ring).highlighted(look));
-            }
-        }
-        for point in &scene.points {
-            if let Some(look) = look_of(highlights, point.tag) {
-                lit.points.push(PointInstance::of(point).highlighted(look));
-            }
-        }
-    }
 }
 
 impl GpuPaint for Renderer {
@@ -426,26 +345,14 @@ impl GpuPaint for Renderer {
             raster_scale: ctx.raster_scale,
             probe_reach: Uniforms::probe_reach(&self.scene.camera),
         };
-        // Refilled before the GPU is borrowed, since both want `self`.
+        // Refilled before the GPU is borrowed, since both want `self`. Each
+        // batch answers for itself, so a hover over a marker no longer rebuilds
+        // the highlights of the strokes and rims it passed over.
         let dirty = std::mem::take(&mut self.dirty);
-        // Any scene edit can add or remove what a tag names, so the highlight
-        // batches follow the scene as well as their own flag.
-        let lit_dirty = dirty.highlights || dirty.curves || dirty.rings || dirty.points;
         if dirty.meshes {
             self.flatten_meshes();
         }
-        if dirty.curves {
-            self.flatten_curves();
-        }
-        if dirty.rings {
-            self.flatten_rings();
-        }
-        if dirty.points {
-            self.flatten_points();
-        }
-        if lit_dirty {
-            self.flatten_highlights();
-        }
+        let rebuilt = self.refresh_overlays(dirty.highlights);
 
         // Split so the batches and the GPU are borrowed apart: the uploads
         // read one while writing the other.
@@ -455,25 +362,29 @@ impl GpuPaint for Renderer {
             gpu.meshes
                 .upload_mesh(ctx.device, ctx.queue, &batches.meshes);
         }
-        if dirty.curves {
+        if rebuilt.curves.instances {
             gpu.curves
-                .upload_instances(ctx.device, ctx.queue, &batches.curves);
+                .upload_instances(ctx.device, ctx.queue, &batches.curves.instances);
         }
-        if dirty.rings {
-            gpu.rings
-                .upload_instances(ctx.device, ctx.queue, &batches.rings);
-        }
-        if dirty.points {
-            gpu.points
-                .upload_instances(ctx.device, ctx.queue, &batches.points);
-        }
-        if lit_dirty {
+        if rebuilt.curves.lit {
             gpu.lit_curves
-                .upload_instances(ctx.device, ctx.queue, &batches.lit.curves);
+                .upload_instances(ctx.device, ctx.queue, &batches.curves.lit);
+        }
+        if rebuilt.rings.instances {
+            gpu.rings
+                .upload_instances(ctx.device, ctx.queue, &batches.rings.instances);
+        }
+        if rebuilt.rings.lit {
             gpu.lit_rings
-                .upload_instances(ctx.device, ctx.queue, &batches.lit.rings);
+                .upload_instances(ctx.device, ctx.queue, &batches.rings.lit);
+        }
+        if rebuilt.points.instances {
+            gpu.points
+                .upload_instances(ctx.device, ctx.queue, &batches.points.instances);
+        }
+        if rebuilt.points.lit {
             gpu.lit_points
-                .upload_instances(ctx.device, ctx.queue, &batches.lit.points);
+                .upload_instances(ctx.device, ctx.queue, &batches.points.lit);
         }
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));

@@ -1,7 +1,9 @@
 use super::*;
+use crate::highlight::Highlight;
 use crate::mesh::{Mesh, Vertex};
 use crate::renderer::band::QUAD_INDICES;
 use crate::styled::Styled;
+use crate::tag::Tag;
 use glam::{Mat4, Vec3};
 
 #[test]
@@ -84,14 +86,13 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
 fn flatten_of_an_empty_scene_uploads_nothing() {
     let mut renderer = Renderer::new(Scene::default());
     renderer.flatten_meshes();
-    renderer.flatten_curves();
-    renderer.flatten_points();
+    renderer.refresh_overlays(false);
 
     let batches = &renderer.batches;
     assert!(batches.meshes.vertices.is_empty());
     assert!(batches.meshes.indices.is_empty());
-    assert!(batches.curves.is_empty());
-    assert!(batches.points.is_empty());
+    assert!(batches.curves.instances.is_empty());
+    assert!(batches.points.instances.is_empty());
 }
 
 #[test]
@@ -105,8 +106,8 @@ fn flatten_curves_ships_one_instance_per_segment() {
             .z_offset(64),
     );
     let mut renderer = Renderer::new(scene);
-    renderer.flatten_curves();
-    let data = &renderer.batches.curves;
+    renderer.refresh_overlays(false);
+    let data = &renderer.batches.curves.instances;
 
     // Three points, two segments, one record each — the four corners are the
     // shader's business now.
@@ -183,8 +184,8 @@ fn flatten_curves_normalizes_and_spreads_a_named_plane() {
             .z_offset(32),
     );
     let mut renderer = Renderer::new(scene);
-    renderer.flatten_curves();
-    let data = &renderer.batches.curves;
+    renderer.refresh_overlays(false);
+    let data = &renderer.batches.curves.instances;
 
     assert_eq!(data.len(), 1);
     assert_eq!(data[0].plane, [0.0, 1.0, 0.0], "{data:?}");
@@ -201,8 +202,8 @@ fn flatten_curves_strokes_the_closing_segment_too() {
     let mut scene = Scene::default();
     scene.curves.push(Curve::new(corners.clone()).closed());
     let mut renderer = Renderer::new(scene);
-    renderer.flatten_curves();
-    let closed = &renderer.batches.curves;
+    renderer.refresh_overlays(false);
+    let closed = &renderer.batches.curves.instances;
     // Four corners closed is four segments; open would be three.
     assert_eq!(closed.len(), 4);
     // The closing segment runs from the last point back to the first.
@@ -212,8 +213,8 @@ fn flatten_curves_strokes_the_closing_segment_too() {
     let mut scene = Scene::default();
     scene.curves.push(Curve::new(corners));
     let mut renderer = Renderer::new(scene);
-    renderer.flatten_curves();
-    assert_eq!(renderer.batches.curves.len(), 3);
+    renderer.refresh_overlays(false);
+    assert_eq!(renderer.batches.curves.instances.len(), 3);
 }
 
 /// A batch is held between frames now, so refilling it has to leave no trace
@@ -231,21 +232,21 @@ fn a_refilled_batch_holds_only_what_the_scene_holds_now() {
             .push(Curve::segment(Vec3::X * i as f32, Vec3::Y).tagged(Tag::new(i)));
     }
     let mut renderer = Renderer::new(scene);
-    renderer.flatten_curves();
-    assert_eq!(renderer.batches.curves.len(), 4);
-    let grown = renderer.batches.curves.capacity();
+    renderer.refresh_overlays(false);
+    assert_eq!(renderer.batches.curves.instances.len(), 4);
+    let grown = renderer.batches.curves.instances.capacity();
 
     // Down to one: the other three must be gone, not merely overwritten.
-    renderer.scene.curves.truncate(1);
-    renderer.flatten_curves();
-    assert_eq!(renderer.batches.curves.len(), 1);
+    renderer.curves_mut().truncate(1);
+    renderer.refresh_overlays(false);
+    assert_eq!(renderer.batches.curves.instances.len(), 1);
     assert_eq!(
-        renderer.batches.curves[0].start,
+        renderer.batches.curves.instances[0].start,
         Vec3::ZERO.to_array(),
         "the surviving instance is the surviving curve's"
     );
     assert_eq!(
-        renderer.batches.curves.capacity(),
+        renderer.batches.curves.instances.capacity(),
         grown,
         "the room it grew to is the point of holding it"
     );
@@ -255,12 +256,12 @@ fn a_refilled_batch_holds_only_what_the_scene_holds_now() {
         tag: Tag::new(0),
         look: Highlight::new(Vec3::Y),
     });
-    renderer.flatten_highlights();
-    assert_eq!(renderer.batches.lit.curves.len(), 1);
+    renderer.refresh_overlays(true);
+    assert_eq!(renderer.batches.curves.lit.len(), 1);
     renderer.highlight_only(None);
-    renderer.flatten_highlights();
+    renderer.refresh_overlays(true);
     assert!(
-        renderer.batches.lit.curves.is_empty(),
+        renderer.batches.curves.lit.is_empty(),
         "unlighting has to empty what lighting filled"
     );
 }
@@ -311,39 +312,49 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     let mut renderer = Renderer::new(scene);
 
     // Nothing named, nothing doubled.
-    renderer.flatten_highlights();
-    let lit = &renderer.batches.lit;
-    assert!(lit.curves.is_empty() && lit.rings.is_empty() && lit.points.is_empty());
+    renderer.refresh_overlays(true);
+    let batches = &renderer.batches;
+    assert!(
+        batches.curves.lit.is_empty()
+            && batches.rings.lit.is_empty()
+            && batches.points.lit.is_empty()
+    );
 
     let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0).lift(64);
     renderer.highlight(Lit {
         tag: Tag::new(1),
         look,
     });
-    renderer.flatten_highlights();
-    let lit = &renderer.batches.lit;
+    renderer.refresh_overlays(true);
+    let batches = &renderer.batches;
 
     // Tag 1 is the three-point curve and the ring: two segments and one rim.
     // The curve tagged 2 and the marker tagged 2 are left alone.
-    assert_eq!(lit.curves.len(), 2);
-    assert_eq!(lit.rings.len(), 1);
-    assert!(lit.points.is_empty());
+    assert_eq!(batches.curves.lit.len(), 2);
+    assert_eq!(batches.rings.lit.len(), 1);
+    assert!(batches.points.lit.is_empty());
 
     // The look replaces the colour, multiplies the width, and adds to the
     // bias rather than replacing it — a highlight has to clear the lift the
     // primitive already carried.
-    assert!(lit.curves.iter().all(|i| i.look.color == [1.0, 0.0, 0.0]));
-    assert!(lit.curves.iter().all(|i| i.look.half_extent == 3.0)); // 2.0/2 × 3
-    assert!(lit.curves.iter().all(|i| i.look.z_offset == 74.0)); // 10 + 64
-    assert_eq!(lit.rings[0].look.half_extent, 4.5); // 3.0/2 × 3
-    assert_eq!(lit.rings[0].look.z_offset, 64.0);
+    assert!(
+        batches
+            .curves
+            .lit
+            .iter()
+            .all(|i| i.look.color == [1.0, 0.0, 0.0])
+    );
+    assert!(batches.curves.lit.iter().all(|i| i.look.half_extent == 3.0)); // 2.0/2 × 3
+    assert!(batches.curves.lit.iter().all(|i| i.look.z_offset == 74.0)); // 10 + 64
+    assert_eq!(batches.rings.lit[0].look.half_extent, 4.5); // 3.0/2 × 3
+    assert_eq!(batches.rings.lit[0].look.z_offset, 64.0);
 
     // The geometry is the primitive's own, untouched. Copied out first: the
     // batches are held on the renderer now, so flattening another one needs
     // it back.
-    let doubled = lit.curves[0];
-    renderer.flatten_curves();
-    let plain = &renderer.batches.curves;
+    let doubled = batches.curves.lit[0];
+    renderer.refresh_overlays(false);
+    let plain = &renderer.batches.curves.instances;
     assert_eq!(doubled.start, plain[0].start);
     assert_eq!(doubled.end, plain[0].end);
 
@@ -353,24 +364,32 @@ fn a_highlight_repeats_only_what_its_tag_names() {
         tag: Tag::new(1),
         look: Highlight::new(Vec3::Y).scale(1.0).lift(0),
     });
-    renderer.flatten_highlights();
-    let lit = &renderer.batches.lit;
-    assert_eq!(lit.curves.len(), 2, "still doubled once, not twice");
-    assert_eq!(lit.rings[0].look.half_extent, 1.5);
-    assert_eq!(lit.rings[0].look.color, [0.0, 1.0, 0.0]);
+    renderer.refresh_overlays(true);
+    let batches = &renderer.batches;
+    assert_eq!(batches.curves.lit.len(), 2, "still doubled once, not twice");
+    assert_eq!(batches.rings.lit[0].look.half_extent, 1.5);
+    assert_eq!(batches.rings.lit[0].look.color, [0.0, 1.0, 0.0]);
 
     // Lighting one thing alone drops the rest, and `None` drops everything.
     renderer.highlight_only(Some(Lit {
         tag: Tag::new(2),
         look,
     }));
-    renderer.flatten_highlights();
-    let lit = &renderer.batches.lit;
-    assert!(lit.curves.len() == 1 && lit.points.len() == 1 && lit.rings.is_empty());
+    renderer.refresh_overlays(true);
+    let batches = &renderer.batches;
+    assert!(
+        batches.curves.lit.len() == 1
+            && batches.points.lit.len() == 1
+            && batches.rings.lit.is_empty()
+    );
     renderer.highlight_only(None);
-    renderer.flatten_highlights();
-    let lit = &renderer.batches.lit;
-    assert!(lit.curves.is_empty() && lit.rings.is_empty() && lit.points.is_empty());
+    renderer.refresh_overlays(true);
+    let batches = &renderer.batches;
+    assert!(
+        batches.curves.lit.is_empty()
+            && batches.rings.lit.is_empty()
+            && batches.points.lit.is_empty()
+    );
 }
 
 /// Re-asking for a look already in force leaves the batch alone, which is what

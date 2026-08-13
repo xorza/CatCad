@@ -5,6 +5,7 @@ use crate::mesh::Mesh;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::UVec2;
+use glam::Vec3;
 
 /// Looking straight down −Z from 5 away with a 90° fov, so a 100×100
 /// viewport puts the origin dead centre and the world spans ±5 across it
