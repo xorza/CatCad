@@ -67,3 +67,18 @@ incremental = false
 # its debug build while the dependency graph stays optimized.
 [profile.dev.package."*"]
 opt-level = 3
+
+# `objc2` verifies every Objective-C message send against the runtime's own
+# method signature, which parses a type encoding and allocates — behind each
+# `MTLRenderCommandEncoder` call, so a frame pays it a few hundred times. That
+# put `aperture3d`'s two paint gates 36 and 39 blocks/run over limits authored
+# where objc2 is not in the graph at all; without it they measure 90 and 93
+# against 102 and 106, so the two backends agree about what a frame costs.
+#
+# Off rather than measured around, because a dependency is built once for the
+# whole of `cargo build` and `cargo test` alike — there is no scope that could
+# hold it for one and not the other. What is given up is a check on calls
+# `wgpu-hal` makes and this workspace does not, on the one platform objc2
+# compiles on.
+[profile.dev.package.objc2]
+debug-assertions = false

@@ -10,18 +10,13 @@
   adding a whole stroked segment with a marker at each end — measured at 1044
   pixels, 0.21% of the frame.
 
+- Sketch strokes lose about a quarter of their authored width at grazing angles.
+  Measured in linear light — summing ink in sRGB bytes, as the harness used to,
+  inflates the shoulders and hides it. At a pitch of 0.3 a rectangle edge
+  deposits about 1.22 px against 1.6.
+
 - Rings thin at grazing viewing angles where curves do not. A curve carries the
   plane it lies in so the renderer takes its depth off the surface; a ring names
   no plane, on the grounds that its band is already widened in its own. Measured
   at a pitch of 0.3 the demo's circle deposits about 1.16 px against the 1.6 it
   is authored at, where the rectangle's edges at the same pitch hold 1.5.
-
-- `aperture3d`'s allocation gates fail on the two paint steps. `paint-still`
-  measures 138.03 blocks/run against a limit of 102, and `paint-hovering`
-  145.03 against 106; `nearest-hit`, `flatten-highlights` and `flatten-batches`
-  are all still at zero.
-
-- Sketch strokes lose about a quarter of their authored width at grazing angles.
-  Measured in linear light — summing ink in sRGB bytes, as the harness used to,
-  inflates the shoulders and hides it. At a pitch of 0.3 a rectangle edge
-  deposits about 1.22 px against 1.6.
