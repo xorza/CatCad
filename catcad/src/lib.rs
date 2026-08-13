@@ -77,9 +77,8 @@ impl CatCad {
         // Raised before it is framed, because what has to fit on screen is what
         // the document turns into and not the document itself.
         let mut names = Names::default();
-        let mut scene = document.raise(&mut names);
+        let scene = document.raise(&mut names);
         document.frame(&scene);
-        scene.camera = document.camera();
         let mut view = SceneView::new(scene, names);
         // Settled once here, so the view's account of what it has drawn agrees
         // with the scene it was handed. Without it the view would be holding a

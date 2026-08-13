@@ -26,14 +26,12 @@ fn raising_a_document_lays_out_its_solids_and_its_drawing() {
     assert_eq!(scene.curves.len(), 7);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
-    assert_eq!(scene.camera, document.camera());
 
     // Raising it again says the same thing: the document is unchanged by being
     // looked at, which is what makes it the thing worth saving.
     let again = raise(&document);
     assert_eq!(again.objects.len(), scene.objects.len());
     assert_eq!(again.points.len(), scene.points.len());
-    assert_eq!(again.camera, scene.camera);
 }
 
 /// A document opens looking at itself rather than at wherever the default

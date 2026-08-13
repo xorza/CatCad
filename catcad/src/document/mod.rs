@@ -95,9 +95,16 @@ impl Document {
     /// indices into it, so the two are only meaningful together — and neither
     /// is the document's, which is why raising one asks nothing of it but to be
     /// read.
+    ///
+    /// Says nothing about the camera, though a [`Scene`] carries one.
+    /// [`Document::aim`] is the only thing that ever writes one into a scene,
+    /// and it does so every frame — so a camera set here would be a camera set
+    /// before it had been framed, overwritten before anything was painted
+    /// through it. Leaving it alone is what keeps the flow one-directional:
+    /// geometry out of the document, bounds back in, and the camera out again
+    /// through the one door it has.
     pub(crate) fn raise(&self, names: &mut Names) -> Scene {
         let mut scene = Scene {
-            camera: self.camera,
             objects: self.solids.clone(),
             ..Scene::default()
         };
