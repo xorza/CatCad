@@ -149,6 +149,10 @@ pub struct Solver {
     /// absolute tolerance on the geometry, not a relative one.
     pub tolerance: f64,
     work: Workspace,
+    /// Where the geometry stood before the edit being attempted, so one the
+    /// constraints cannot take can be put back. Outside [`Workspace`] because
+    /// it outlives a solve rather than serving one.
+    before: Vec<f64>,
 }
 
 impl Default for Solver {
@@ -157,6 +161,7 @@ impl Default for Solver {
             max_iterations: 100,
             tolerance: 1e-10,
             work: Workspace::default(),
+            before: Vec::new(),
         }
     }
 }
@@ -265,14 +270,91 @@ impl Solver {
             }
         }
 
-        let free_params = (0..n).filter(|&p| movable(sketch, &work.held, p)).count();
-        let rank = work.rank(n, sketch);
+        self.tally(sketch, iterations)
+    }
+
+    /// Move the sketch's geometry with `edit`, then settle the rest around it
+    /// with `held` pinned — putting the sketch back exactly as it was found if
+    /// the constraints cannot take the step.
+    ///
+    /// What a drag is made of, and the reason it is one call rather than an
+    /// edit followed by [`Solver::solve_holding`]. Dragging geometry the
+    /// constraints already determine asks for a motion they forbid, and least
+    /// squares answers with a compromise: the drawing deforms under the cursor.
+    /// Keeping that would be bad enough on its own, but it is worse than it
+    /// looks — the compromise is held together only by what the drag pins, so
+    /// the *next* solve, holding something else, lets go of it and the drawing
+    /// springs back. Deform under one drag, snap on the next. Undoing the step
+    /// whole is what makes a drag the constraints refuse simply not move
+    /// anything, which is the truth about it.
+    ///
+    /// Judged on the residual rather than on convergence alone, so a sketch
+    /// whose constraints already conflict can still be dragged: what is refused
+    /// is a step that leaves the sketch *less* satisfied than it was, not one
+    /// that merely fails to finish the job.
+    ///
+    /// `edit` may move geometry. It may not add or remove any: what is put back
+    /// is the parameter vector, and a sketch that has grown or lost one is no
+    /// longer described by the vector that was saved.
+    pub fn edit_holding(
+        &mut self,
+        sketch: &mut Sketch,
+        held: &[PointId],
+        edit: impl FnOnce(&mut Sketch),
+    ) -> SolveReport {
+        let was = self.measure(sketch);
+        self.before.clear();
+        sketch.write_params(&mut self.before);
+
+        edit(sketch);
+        debug_assert_eq!(
+            sketch.param_count(),
+            self.before.len(),
+            "an edit may move a sketch's geometry, not add to or remove from it"
+        );
+
+        let report = self.solve_holding(sketch, held);
+        if report.converged || report.max_residual <= was.max_residual {
+            return report;
+        }
+        sketch.set_params(&self.before);
+        was
+    }
+
+    /// What the sketch amounts to where it stands, moving nothing.
+    ///
+    /// The measurements a solve ends with, taken without taking a step — what
+    /// a sketch already at rest reports about itself, and so also what to
+    /// report for one an edit has just been undone on. Its `iterations` is
+    /// zero because none were kept.
+    fn measure(&mut self, sketch: &Sketch) -> SolveReport {
+        self.work.held.clear();
+        assemble(
+            sketch,
+            &self.work.held,
+            &mut self.work.residuals,
+            &mut self.work.jacobian,
+        );
+        self.tally(sketch, 0)
+    }
+
+    /// Sum up the residuals and Jacobian as they currently stand.
+    ///
+    /// Reads the `held` they were assembled against, so what it reports as free
+    /// is freedom of the same system that produced them.
+    fn tally(&mut self, sketch: &Sketch, iterations: u32) -> SolveReport {
+        let n = sketch.param_count();
+        let free_params = (0..n)
+            .filter(|&p| movable(sketch, &self.work.held, p))
+            .count();
+        let rank = self.work.rank(n, sketch);
+        let max_residual = max_abs(&self.work.residuals);
         SolveReport {
-            converged: max_abs(&work.residuals) <= tolerance,
+            converged: max_residual <= self.tolerance,
             iterations,
-            max_residual: max_abs(&work.residuals),
+            max_residual,
             degrees_of_freedom: free_params - rank,
-            redundant_equations: work.residuals.len() - rank,
+            redundant_equations: self.work.residuals.len() - rank,
         }
     }
 }

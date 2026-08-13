@@ -71,6 +71,19 @@ impl Raised {
         *self.view.renderer().borrow().camera()
     }
 
+    /// Where a world position lands on screen — the cursor that aims at it.
+    fn cursor_on(&self, world: Vec3) -> Vec2 {
+        let viewport = Viewport::new(SIZE);
+        let clip = self.camera().view_proj(viewport.aspect()) * world.extend(1.0);
+        viewport.pixel_from_clip(clip)
+    }
+
+    /// The demo's linkage, which is the part of it with freedom to be dragged.
+    /// Its two points are added last, so they are drawn last.
+    fn linkage(&self) -> Vec3 {
+        *self.markers().last().expect("the demo draws markers")
+    }
+
     /// Where every marker in the scene sits, in the order they are drawn.
     fn markers(&self) -> Vec<Vec3> {
         self.view
@@ -128,21 +141,19 @@ fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
     assert_eq!(raised.view.hovered(), None);
 }
 
-/// Pressing on something draggable and moving takes it with the pointer, and
-/// leaves the camera alone.
+/// Pressing on something and moving takes it with the pointer, and leaves the
+/// camera alone.
 ///
 /// What this pins is the wiring — press, resolve, edit, redraw, release — and
-/// not which geometry ends up where. The sweep takes the first draggable point
-/// in raster order, so what it grabs is whatever the demo happens to draw
-/// there; where a drag *puts* things, and what follows it, is the drawing's
-/// own business and tested against a fixture there.
+/// not which geometry ends up where; that is the drawing's own business and
+/// tested against a fixture there. It aims at the linkage rather than sweeping
+/// for the first grip, because most of the demo is fully determined and a drag
+/// on determined geometry is refused outright.
 #[test]
 fn dragging_a_point_moves_it_and_not_the_camera() {
     let mut raised = Raised::new();
     raised.frame();
-    let cursor = raised
-        .over_draggable()
-        .expect("the demo draws a draggable point");
+    let cursor = raised.cursor_on(raised.linkage());
 
     raised.harness.move_to(cursor);
     raised.frame();
@@ -172,6 +183,77 @@ fn dragging_a_point_moves_it_and_not_the_camera() {
     raised.harness.move_to(cursor + Vec2::new(80.0, 25.0));
     raised.frame();
     assert_eq!(raised.markers(), settled, "the drag outlived its release");
+}
+
+/// Dragging determined geometry moves nothing, and leaves nothing behind for
+/// a later drag to undo.
+///
+/// The whole of a reported bug: dragging a rectangle corner deformed the
+/// rectangle, because the solver answers an impossible request with a
+/// least-squares compromise. That compromise was held together only by what
+/// the drag pinned, so dragging *anything else* afterwards let go of it and
+/// the rectangle sprang back — deform under one drag, snap on the next. Both
+/// halves are checked here, in the order that produced them.
+#[test]
+fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let at_rest = raised.markers();
+    assert!(
+        raised.drawing.report().converged,
+        "the demo has to open solved for this to mean anything"
+    );
+
+    // A rectangle corner: determined by its constraints, so there is nowhere
+    // for it to go. Not the fixed one — this is refused for being impossible,
+    // not for being pinned.
+    let corner = raised.cursor_on(at_rest[2]);
+    raised.harness.move_to(corner);
+    raised.frame();
+    raised.harness.press_at(corner);
+    raised.frame();
+    raised.harness.drag_to(corner + Vec2::new(60.0, 40.0));
+    raised.frame();
+
+    assert_eq!(
+        raised.markers(),
+        at_rest,
+        "a drag the constraints forbid deformed the drawing"
+    );
+    assert!(
+        raised.drawing.report().converged,
+        "a refused drag left the drawing unsolved"
+    );
+    raised.harness.release();
+    raised.frame();
+
+    // Now drag the linkage, which does have somewhere to go. Nothing the first
+    // drag touched may spring back, because the first drag touched nothing.
+    let linkage = raised.cursor_on(raised.linkage());
+    raised.harness.move_to(linkage);
+    raised.frame();
+    raised.harness.press_at(linkage);
+    raised.frame();
+    raised.harness.drag_to(linkage + Vec2::new(30.0, 20.0));
+    raised.frame();
+
+    let now = raised.markers();
+    assert_ne!(now, at_rest, "the linkage would not move either");
+    // The rectangle and the circle's hub — everything but the linkage's two
+    // points — stand where they did. Within a tolerance, because a real solve
+    // ran: the corners come back to the same answer through different
+    // arithmetic, and land a few parts in 10^15 apart doing it.
+    assert!(
+        settled(&now[..5], &at_rest[..5]),
+        "dragging the linkage moved the rectangle: {:?} against {:?}",
+        &now[..5],
+        &at_rest[..5]
+    );
+}
+
+/// Whether two sets of positions agree to far below anything drawable.
+fn settled(now: &[Vec3], was: &[Vec3]) -> bool {
+    now.len() == was.len() && now.iter().zip(was).all(|(a, b)| a.abs_diff_eq(*b, 1e-6))
 }
 
 /// Every kind of grip is reachable through the real pick path, not only

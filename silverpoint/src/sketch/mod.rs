@@ -324,8 +324,12 @@ impl Sketch {
 
     /// Append every parameter's current value, in index order.
     ///
+    /// With [`Sketch::set_params`], the pair the solver works through: the
+    /// parameter vector is the whole of what a step can have touched, so
+    /// saving it and putting it back is how a step is undone.
+    ///
     /// Appends rather than replacing, so the caller owns the buffer — which is
-    /// what lets the solver keep one across solves instead of being handed a
+    /// what lets a solver kept across a drag keep one instead of being handed a
     /// fresh one every time.
     ///
     /// Reads zero at a hole, which is a value nothing will move: its column is
@@ -338,6 +342,8 @@ impl Sketch {
         }));
     }
 
+    /// Put every parameter back, in the order [`Sketch::write_params`]
+    /// wrote them.
     pub(crate) fn set_params(&mut self, params: &[f64]) {
         debug_assert_eq!(params.len(), self.param_count());
         for (index, &value) in params.iter().enumerate() {

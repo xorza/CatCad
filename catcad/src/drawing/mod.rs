@@ -118,46 +118,46 @@ impl Drawing {
         }
     }
 
-    /// Take what `grip` holds to `world` and re-solve, holding it there.
+    /// Take what `grip` holds to `world`, and settle the rest of the drawing
+    /// around it.
     ///
     /// Held rather than merely written, so the rest of the sketch moves to
     /// accommodate the drag instead of the solver pulling what is dragged back
-    /// onto its constraints. A sketch that cannot give reports
-    /// `converged: false` and is left wherever the solver got to, which is
-    /// closer than it started and the honest thing to draw.
+    /// onto its constraints — and attempted rather than applied, so a drag the
+    /// constraints refuse leaves the drawing alone. Both belong to
+    /// [`Solver::edit_holding`]; all that is decided here is what each kind of
+    /// grip means.
     pub(crate) fn drag_to(&mut self, grip: Grip, world: Vec3) {
         let at = self.plane.flatten(world);
-        match grip {
-            Grip::Point(id) => {
-                self.sketch.set_point(id, at);
-                self.settle(&[id]);
-            }
+        self.report = match grip {
+            Grip::Point(id) => self
+                .solver
+                .edit_holding(&mut self.sketch, &[id], |sketch| sketch.set_point(id, at)),
             Grip::Segment { id, t } => {
                 // Both ends travel by whatever it takes to put the spot that
                 // was grabbed under the cursor. Measured against where that
                 // spot is *now* rather than accumulated, so a solve that moves
                 // the segment is corrected on the next frame instead of drifting.
-                let held = self.sketch.segment(id);
-                let (a, b) = (self.sketch.point(held.a), self.sketch.point(held.b));
+                let edge = self.sketch.segment(id);
+                let (a, b) = (self.sketch.point(edge.a), self.sketch.point(edge.b));
                 let shift = at - a.lerp(b, t);
-                self.sketch.set_point(held.a, a + shift);
-                self.sketch.set_point(held.b, b + shift);
-                self.settle(&[held.a, held.b]);
+                self.solver
+                    .edit_holding(&mut self.sketch, &[edge.a, edge.b], |sketch| {
+                        sketch.set_point(edge.a, a + shift);
+                        sketch.set_point(edge.b, b + shift);
+                    })
             }
             Grip::Rim(id) => {
                 // A rim drives the radius rather than moving the circle, so
                 // the centre is held: growing a circle should not walk it.
                 let circle = self.sketch.circle(id);
-                let centre = self.sketch.point(circle.center);
-                self.sketch.set_radius(id, (at - centre).length());
-                self.settle(&[circle.center]);
+                let radius = (at - self.sketch.point(circle.center)).length();
+                self.solver
+                    .edit_holding(&mut self.sketch, &[circle.center], |sketch| {
+                        sketch.set_radius(id, radius)
+                    })
             }
-        }
-    }
-
-    /// Re-solve with `held` pinned, and keep what the solve made of it.
-    fn settle(&mut self, held: &[PointId]) {
-        self.report = self.solver.solve_holding(&mut self.sketch, held);
+        };
     }
 }
 

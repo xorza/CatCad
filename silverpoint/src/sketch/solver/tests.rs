@@ -245,16 +245,33 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     // The same drag without holding: the solver counts the dragged point as
     // free and satisfies the distance by moving it, so it does not stay.
     sketch.set_point(held, DVec2::new(3.0, 9.0));
-    Solver::default().solve(&mut sketch);
+    let mut solver = Solver::default();
+    solver.solve(&mut sketch);
     assert_ne!(
         sketch.point(held),
         DVec2::new(3.0, 9.0),
         "a free point slides back onto the constraint"
     );
+
+    // And once more through `edit_holding`, which is the call a drag makes.
+    // The 3-4-5 the other way round, so the request is reachable — and a
+    // reachable one has to be kept.
+    let sent = DVec2::new(-3.0, 4.0);
+    let report = solver.edit_holding(&mut sketch, &[held], |sketch| sketch.set_point(held, sent));
+    assert!(report.converged, "{report:?}");
+    assert_eq!(sketch.point(held), sent, "a reachable edit was undone");
+    let span = sketch.point(trailing) - sketch.point(held);
+    assert!((span.length() - 5.0).abs() < EPSILON, "{span:?}");
 }
 
 /// Holding a point of a fully-determined sketch asks for a motion its
-/// constraints forbid, and the report says so rather than pretending.
+/// constraints forbid, and the report says so rather than pretending — and the
+/// same request made as an edit is refused whole rather than half-taken.
+///
+/// The compromise the first half measures is exactly what an edit must never
+/// keep: it satisfies nothing, and it stands up only while the point that
+/// caused it is held, so the next solve that holds something else lets go of it
+/// and the sketch springs back to where it always had to be.
 #[test]
 fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
     let mut sketch = Sketch::default();
@@ -280,6 +297,22 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
     sketch.set_point(pinned, DVec2::new(3.0, 4.0));
     let report = Solver::default().solve_holding(&mut sketch, &[pinned]);
     assert!(!report.converged, "{report:?}");
+    assert!(report.max_residual > EPSILON, "{report:?}");
+
+    // Back to rest, and then the same request as an edit. Nothing of it
+    // survives: not the geometry, and not the report either.
+    let mut solver = Solver::default();
+    solver.solve(&mut sketch);
+    let was: Vec<DVec2> = sketch.points().map(|(_, at)| at).collect();
+    let refused = solver.edit_holding(&mut sketch, &[pinned], |sketch| {
+        sketch.set_point(pinned, DVec2::new(3.0, 4.0))
+    });
+
+    let now: Vec<DVec2> = sketch.points().map(|(_, at)| at).collect();
+    assert_eq!(now, was, "a refused edit moved the sketch");
+    assert!(refused.converged, "{refused:?}");
+    assert_eq!(refused.degrees_of_freedom, 0, "{refused:?}");
+    assert_eq!(refused.iterations, 0, "a refused edit kept an iteration");
 }
 
 /// Holding nothing is solving, exactly — the general entry point cannot drift
