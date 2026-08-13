@@ -1,17 +1,22 @@
 //! Per-frame allocation gates for the renderer's CPU path, driven by `dhat`.
 //!
-//! One bench of four steps:
+//! One bench of five steps:
 //!
 //! | step | measures | limit |
 //! |---|---|---|
 //! | `pick-miss` | a pick that lands on nothing | strict zero |
 //! | `pick-hit` | a pick that lands on the drawing | the answer's own `Vec` |
-//! | `flatten-highlights` | rebuilding the highlight batches, which a hover does every frame | one `Vec` per non-empty kind |
-//! | `flatten-batches` | re-flattening every scene batch, which only a scene edit does | the four batch `Vec`s |
+//! | `nearest-hit` | the same aim, answered with one hit instead of the list | strict zero |
+//! | `flatten-highlights` | rebuilding the highlight batches, which a hover does every frame | strict zero |
+//! | `flatten-batches` | re-flattening every scene batch, which only a scene edit does | strict zero |
 //!
-//! The first three are per-frame costs while the pointer is over the view.
-//! The fourth is not — it runs only on a frame where a batch is dirty — but it
-//! is the one that scales with the model, so it is worth watching.
+//! `nearest-hit` and `flatten-highlights` are the two a hover pays every
+//! frame, and both are strict zero — so pointing at the drawing costs the heap
+//! nothing at all. `pick-hit` is the odd one out: the list query still
+//! allocates the list, which is what a click wants and no hover does.
+//!
+//! `flatten-batches` runs only on a frame where a batch is dirty, but it is
+//! the one that scales with the model, so it is worth watching.
 //!
 //! **`Renderer::paint` is deliberately absent.** It needs a device, and under
 //! one the count is dominated by wgpu's own per-submission allocations rather
@@ -44,16 +49,22 @@ use std::hint::black_box;
 const PICK_MISS_MAX: f64 = 0.0;
 
 /// A pick that finds something allocates the answer it hands back, and
-/// nothing else.
+/// nothing else. The list is what costs it — see `nearest-hit`.
 const PICK_HIT_MAX: f64 = 1.0;
 
-/// One `Vec` per kind that has anything lit. The fixture lights one curve, so
-/// one — the other two stay empty, and an empty `Vec` does not allocate.
-const FLATTEN_HIGHLIGHTS_MAX: f64 = 1.0;
+/// Answering with one hit instead of the list allocates nothing at all, which
+/// is what puts hovering off the heap entirely.
+const NEAREST_HIT_MAX: f64 = 0.0;
 
-/// Two for the mesh batch (vertices and indices) and one for each overlay
-/// batch.
-const FLATTEN_BATCHES_MAX: f64 = 5.0;
+/// Nothing: the highlight batches are held between frames and refilled in
+/// place, so once they have grown to fit they stop allocating. This is the
+/// step that matters — rebuilding them is the whole of what a hover costs the
+/// renderer.
+const FLATTEN_HIGHLIGHTS_MAX: f64 = 0.0;
+
+/// Nothing, for the same reason, and this is the one that scales with the
+/// model: the mesh batch is re-flattened whole on any object edit.
+const FLATTEN_BATCHES_MAX: f64 = 0.0;
 
 /// Where the fixture is viewed from: straight down −Z from 5 away with a 90°
 /// fov, so the origin lands dead centre and a marker there is what the centre
@@ -132,6 +143,9 @@ pub fn alloc_bench() {
     bench.step("pick-hit", PICK_HIT_MAX, || {
         black_box(scene.pick(ON_THE_DRAWING, viewport, 6.0));
     });
+    bench.step("nearest-hit", NEAREST_HIT_MAX, || {
+        black_box(scene.nearest(ON_THE_DRAWING, viewport, 6.0));
+    });
 
     // What a hover costs the renderer: the lit set changes, so the highlight
     // batches are rebuilt while the scene's own are left alone.
@@ -143,15 +157,17 @@ pub fn alloc_bench() {
             tag: Tag::new(lit),
             look: Highlight::new(Vec3::Y),
         }));
-        black_box(renderer.flatten_highlights());
+        renderer.flatten_highlights();
+        black_box(&renderer.batches.lit);
     });
 
     // What a scene edit costs: every batch re-flattened from the scene.
     bench.step("flatten-batches", FLATTEN_BATCHES_MAX, || {
-        black_box(renderer.flatten_meshes());
-        black_box(renderer.flatten_curves());
-        black_box(renderer.flatten_rings());
-        black_box(renderer.flatten_points());
+        renderer.flatten_meshes();
+        renderer.flatten_curves();
+        renderer.flatten_rings();
+        renderer.flatten_points();
+        black_box(&renderer.batches);
     });
 
     bench.finish();

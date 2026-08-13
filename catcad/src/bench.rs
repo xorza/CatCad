@@ -6,7 +6,7 @@
 //! | step | measures | limit |
 //! |---|---|---|
 //! | `record-still` | a frame with the pointer parked | the status line it rebuilds |
-//! | `record-hovering` | a frame with the pointer moving over the drawing | the above, plus the pick's answer |
+//! | `record-hovering` | a frame with the pointer moving over the drawing | the above, at the length hovering gives it |
 //!
 //! Two, because the difference between them is the whole of what pointing at
 //! the drawing costs — and because a regression in one and not the other says
@@ -44,9 +44,11 @@ const PARKED: Vec2 = Vec2::new(12.0, 960.0);
 /// is the point of gating it at one rather than at three.
 const RECORD_STILL_MAX: f64 = 1.0;
 
-/// Hovering adds the pick's answer, and lengthens the status line enough that
-/// formatting it grows past what the literal reserved.
-const RECORD_HOVERING_MAX: f64 = 4.0;
+/// Hovering lengthens the status line enough that formatting it grows past
+/// what the literal reserved — and that is now the whole of the difference.
+/// Aiming at the drawing costs `aperture` nothing: `Scene::nearest` answers
+/// without building a list, and the renderer's batches are refilled in place.
+const RECORD_HOVERING_MAX: f64 = 2.0;
 
 /// The allocation bench: every step, one profiler, one verdict.
 pub fn alloc_bench() {

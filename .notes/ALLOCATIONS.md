@@ -33,10 +33,11 @@ The gates as measured in the `bench` profile:
 | silverpoint | `solve-converged` | 12 | 20 |
 | aperture3d | `pick-miss` | 0 | 0 (strict) |
 | aperture3d | `pick-hit` | 1 | 1 |
-| aperture3d | `flatten-highlights` | 1 | 1 |
-| aperture3d | `flatten-batches` | 5 | 5 |
+| aperture3d | `nearest-hit` | 0 | 0 (strict) |
+| aperture3d | `flatten-highlights` | 0 | 0 (strict) |
+| aperture3d | `flatten-batches` | 0 | 0 (strict) |
 | catcad | `record-still` | 1 | 1 |
-| catcad | `record-hovering` | 2.11 | 4 |
+| catcad | `record-hovering` | 1.74 | 2 |
 
 `Renderer::paint` has no gate. It needs a device, and under one the count is
 dominated by wgpu's own per-submission allocations — pinning that means
@@ -48,7 +49,12 @@ and 12 against 28 and 16) because the bench profile inlines where the debug
 build did not. The gates are set against the bench profile, which is what
 `cargo bench` runs.
 
-## How these were measured
+## The survey these findings came from
+
+**Historical.** These are the numbers as first measured, before anything below
+was addressed — kept because they are what the findings were written against
+and what the gates above were sized from. Where a finding has since been
+closed, the gate table is the current answer and this is not.
 
 A counting `GlobalAlloc` wrapping `System`, installed in each crate's test
 binary, tallying `alloc` and `realloc` (a `Vec` growing is a `realloc`, and
@@ -86,37 +92,17 @@ of the swept cursor positions that landed on the drawing.
 
 ## catcad
 
-- [ ] `CatCad::status` rebuilds the status line on every frame, and it is the
-      only unconditional per-frame allocation left in the app: one `String`
-      always, and about three when something is hovered — the `format!` for
-      the noun, the outer `format!`, and the outer one growing past what the
-      literal reserved. Nothing it prints changes per frame: the report moves
-      only on a solve, and the noun only when the hovered entity changes.
+- [ ] `CatCad::status` rebuilds the status line on every frame, and is now the
+      only per-frame allocation the application makes: one `String` always, and
+      about two when something is hovered — the `format!` for the noun and the
+      outer one growing past what the literal reserved. Nothing it prints
+      changes per frame: the report moves only on a solve, and the noun only
+      when the hovered entity changes.
 
-- [ ] The remaining per-frame allocation in `record` is `Scene::pick`'s
-      answer, below. With the pointer still, `SceneView::show`, `overlay::show`
-      and palantir's own input handling each measure zero, so `status` and
-      `pick` are the whole of it.
-
-## aperture3d
-
-- [ ] `Scene::pick` returns a fresh `Vec<Hit>` by value, so a hover frame that
-      lands on anything allocates one. There is nowhere for a caller to hand
-      back the previous frame's buffer, and the app calls this once a frame
-      while the pointer is over the view.
-
-- [ ] `Renderer::flatten_highlights` builds `Highlighted::default()` and fills
-      it fresh every time the highlight set changes, so a hover costs one
-      allocation per non-empty kind per frame. The GPU side of this was
-      already given retained buffers that survive an edit; the CPU side that
-      feeds them still churns. Nothing is lit costs nothing, since three empty
-      `Vec`s do not allocate.
-
-- [ ] `flatten_meshes` is two allocations and, for four cubes, four kilobytes.
-      Only on a frame where the mesh batch is dirty — never, in the demo,
-      after startup — but it is O(scene) and would be by far the largest
-      single allocation in a real model. The `with_capacity` is exact, so the
-      count stays at two however large the scene grows.
+      Everything around it measures zero. With the pointer still,
+      `SceneView::show`, `overlay::show` and palantir's own input handling each
+      allocate nothing; while it moves, `Scene::nearest` and the renderer's
+      batches allocate nothing either.
 
 ## silverpoint
 

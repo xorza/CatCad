@@ -2,6 +2,7 @@
 
 use crate::tag::Tag;
 use glam::Vec3;
+use std::cmp::Ordering;
 
 /// Where on a primitive a pick landed.
 ///
@@ -57,4 +58,20 @@ pub struct Hit {
     /// primitives and across projections, which is what makes it a usable
     /// tiebreak.
     pub distance: f32,
+}
+
+impl Hit {
+    /// Which of two hits the aim was more likely meant for, lowest first.
+    ///
+    /// How specific the hit is, then how near the cursor it fell, then how
+    /// near the eye. Stated once because two queries order by it — the whole
+    /// list and the single nearest — and an ordering that disagreed between
+    /// them would make the first of one differ from the answer of the other.
+    pub(crate) fn aim_order(&self, other: &Self) -> Ordering {
+        self.at
+            .rank()
+            .cmp(&other.at.rank())
+            .then(self.screen.total_cmp(&other.screen))
+            .then(self.distance.total_cmp(&other.distance))
+    }
 }

@@ -89,38 +89,54 @@ impl Scene {
     ///
     /// A *list* rather than the nearest one, because "what did I click" and
     /// "what did I mean" are different questions. Clicking again to cycle
-    /// through what overlaps, ignoring kinds the current tool cannot use, and
-    /// hovering differently from clicking are all answerable from one query
-    /// this way, and none of them are if the choice is made here.
+    /// through what overlaps and ignoring kinds the current tool cannot use
+    /// are both answerable from one query this way, and neither is if the
+    /// choice is made here. When one answer really is all that is wanted —
+    /// which is what a hover wants — [`Scene::nearest`] gives it without
+    /// building the list.
     ///
-    /// Ordered by how specific the hit is — a marker beats a stroke running
-    /// through it, because the smaller thing is the harder one to aim at and
-    /// so the one the aim was meant for — then by distance from the cursor,
-    /// then by distance from the eye. Untagged primitives are scenery and
-    /// never appear.
+    /// Ordered by [`Hit::aim_order`]: a marker beats a stroke running through
+    /// it, because the smaller thing is the harder one to aim at and so the
+    /// one the aim was meant for. Untagged primitives are scenery and never
+    /// appear.
     pub fn pick(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Vec<Hit> {
-        let aim = Aim::new(
+        let mut hits: Vec<Hit> = self.hits(self.aim(cursor, viewport, radius)).collect();
+        hits.sort_by(Hit::aim_order);
+        hits
+    }
+
+    /// The one thing under the cursor the aim was most likely meant for, or
+    /// `None` if nothing is within `radius`.
+    ///
+    /// Exactly [`Scene::pick`]'s first answer, and the whole of what a hover
+    /// wants: a pointer lights one thing, and the list the full query builds
+    /// so a click can cycle through what overlaps is a list a hover reads one
+    /// element of and drops. Allocates nothing, and never sorts.
+    pub fn nearest(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Option<Hit> {
+        // `min_by` keeps the first of equally-ordered hits, which is the one a
+        // stable sort would put first — so this and `pick` cannot disagree.
+        self.hits(self.aim(cursor, viewport, radius))
+            .min_by(Hit::aim_order)
+    }
+
+    /// What the cursor is aiming with, built once for a whole query.
+    fn aim(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Aim {
+        Aim::new(
             cursor,
             viewport,
             radius,
             self.camera.ray_through(cursor, viewport),
             self.camera.view_proj(viewport.aspect()),
-        );
+        )
+    }
 
-        let mut hits: Vec<Hit> = self
-            .points
+    /// Every primitive the aim reaches, in no particular order.
+    fn hits(&self, aim: Aim) -> impl Iterator<Item = Hit> {
+        self.points
             .iter()
-            .filter_map(|point| point.pick(&aim))
-            .chain(self.curves.iter().filter_map(|curve| curve.pick(&aim)))
-            .chain(self.rings.iter().filter_map(|ring| ring.pick(&aim)))
-            .collect();
-        hits.sort_by(|a, b| {
-            a.at.rank()
-                .cmp(&b.at.rank())
-                .then(a.screen.total_cmp(&b.screen))
-                .then(a.distance.total_cmp(&b.distance))
-        });
-        hits
+            .filter_map(move |point| point.pick(&aim))
+            .chain(self.curves.iter().filter_map(move |curve| curve.pick(&aim)))
+            .chain(self.rings.iter().filter_map(move |ring| ring.pick(&aim)))
     }
 }
 

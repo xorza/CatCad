@@ -131,7 +131,8 @@ impl SceneView {
     ///
     /// Only the nearest hit lights: a marker sits on the end of every edge
     /// that meets it, and lighting all of them would answer a question nobody
-    /// asked. `pick` has already put the most specific first.
+    /// asked — which is why this asks [`Scene::nearest`] rather than building
+    /// the whole list and reading one element of it.
     fn hover(&mut self, response: &Response<'_>) {
         let under = response
             .pointer_local
@@ -144,8 +145,8 @@ impl SceneView {
             .and_then(|(cursor, rect)| {
                 let viewport = Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32));
                 let renderer = self.renderer.borrow();
-                let hit = renderer.scene().pick(cursor, viewport, HOVER_REACH);
-                hit.first().map(|hit| hit.tag)
+                let hit = renderer.scene().nearest(cursor, viewport, HOVER_REACH);
+                hit.map(|hit| hit.tag)
             });
 
         self.hovered = under.and_then(|tag| self.names.get(tag));

@@ -238,6 +238,58 @@ fn a_marker_outranks_the_strokes_running_through_it() {
     assert!(hits[1..].iter().all(|hit| hit.at.rank() == 1));
 }
 
+/// `nearest` is `pick`'s first answer, wherever the cursor falls.
+///
+/// The two share one comparator so they cannot drift, and this is what pins
+/// that they haven't — including where hits order equally, since a stable sort
+/// keeps the first of those and `min_by` has to agree.
+#[test]
+fn nearest_answers_with_exactly_what_pick_puts_first() {
+    let mut scene = head_on();
+    // Every kind, overlapping, so the ordering has real work to do: two edges
+    // crossing at the origin, a marker on the crossing, a rim around it.
+    scene
+        .curves
+        .push(Curve::segment(-Vec3::X, Vec3::X).tagged(Tag::new(10)));
+    scene
+        .curves
+        .push(Curve::segment(-Vec3::Y, Vec3::Y).tagged(Tag::new(11)));
+    scene
+        .points
+        .push(Point::new(Vec3::ZERO).size(6.0).tagged(Tag::new(12)));
+    scene
+        .rings
+        .push(Ring::new(Vec3::ZERO, 1.0, Vec3::Z).tagged(Tag::new(13)));
+
+    // On the crossing, out along one edge, out on the rim, and well clear of
+    // everything — so the sweep covers a tie, a single hit and a miss.
+    let cursors = [
+        CENTRE,
+        CENTRE + Vec2::new(4.0, 0.0),
+        CENTRE + Vec2::new(10.0, 0.0),
+        CENTRE + Vec2::new(0.0, 30.0),
+        Vec2::new(2.0, 2.0),
+    ];
+    let mut found = 0;
+    for cursor in cursors {
+        let hits = scene.pick(cursor, viewport(), 4.0);
+        assert_eq!(
+            scene.nearest(cursor, viewport(), 4.0),
+            hits.first().copied(),
+            "at {cursor:?}, over {hits:?}"
+        );
+        found += usize::from(!hits.is_empty());
+    }
+    // The sweep has to actually hit things, or it would agree vacuously.
+    assert!(found >= 3, "only {found} of the cursors landed on anything");
+    assert!(
+        scene
+            .nearest(Vec2::new(2.0, 2.0), viewport(), 4.0)
+            .is_none(),
+        "a cursor off the drawing finds nothing"
+    );
+}
+
 #[test]
 fn nearer_the_cursor_beats_nearer_the_eye() {
     let mut scene = head_on();
