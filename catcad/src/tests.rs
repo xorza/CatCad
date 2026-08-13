@@ -7,7 +7,7 @@
 //! the window.
 
 use std::path::Path;
-use std::sync::mpsc;
+use std::sync::{OnceLock, mpsc};
 
 use aperture::{Camera, Projection, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
@@ -84,14 +84,31 @@ impl Frame {
     }
 }
 
+/// The one device the whole suite renders on.
+///
+/// Shared rather than built per frame because the Vulkan loader cannot be
+/// initialized from two threads at once: a second thread entering
+/// `vkEnumerateInstanceExtensionProperties` while the first is still
+/// negotiating the ICD reads a dispatch slot that is not filled in yet and
+/// calls through it, taking the process down at address zero about one run in
+/// ten. `get_or_init` puts exactly one thread on that path and parks the rest
+/// until it returns.
+static GPU: OnceLock<HeadlessGpu> = OnceLock::new();
+
+fn gpu() -> &'static HeadlessGpu {
+    GPU.get_or_init(|| {
+        HeadlessGpu::new(
+            wgpu::PowerPreference::HighPerformance,
+            wgpu::Features::empty(),
+        )
+        .expect("headless gpu")
+    })
+}
+
 /// Render one frame of the app at `size`, with `aim` applied to the camera
 /// after the scene has framed itself.
 fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
-    let gpu = HeadlessGpu::new(
-        wgpu::PowerPreference::HighPerformance,
-        wgpu::Features::empty(),
-    )
-    .expect("headless gpu");
+    let gpu = gpu();
     let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
     let mut app = CatCad::build();
     aim(app.view.borrow_mut().camera_mut());
