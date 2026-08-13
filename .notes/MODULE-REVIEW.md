@@ -4,13 +4,6 @@ Findings only; nothing here proposes a fix. **Delete an item once it is
 addressed** — this file lists what is still open, and an item left ticked is
 just noise for the next reader.
 
-## Gaussian elimination is implemented twice in the solver
-
-- [ ] `solve_in_place` and `rank` each contain their own partial-pivot search,
-      row swap and forward elimination over the same row-major layout — roughly
-      forty near-identical lines apiece, differing in what they do with the
-      result and in the pivot tolerance.
-
 ## Geometry is reallocated and re-uploaded wholesale on every edit
 
 - [ ] Each `flatten*` allocates fresh `Vec`s per dirty paint rather than

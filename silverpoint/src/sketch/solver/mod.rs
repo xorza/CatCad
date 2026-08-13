@@ -171,43 +171,55 @@ fn assemble(sketch: &Sketch, residuals: &mut Vec<f64>, jacobian: &mut Vec<f64>) 
     }
 }
 
-/// Gaussian elimination with partial pivoting, overwriting `a` and solving
-/// into `b`. False when the matrix is singular to working precision.
+/// Solve `a x = b` in place for a symmetric positive definite `a`, overwriting
+/// `a`'s lower triangle with its Cholesky factor and `b` with `x`. False when
+/// `a` turns out not to be positive definite to working precision.
+///
+/// Cholesky rather than Gaussian elimination because the normal equations are
+/// SPD by construction: `JᵀJ` is positive semi-definite, damping adds a
+/// strictly positive amount to the diagonal of every free parameter, and a
+/// fixed one gets an identity row over a column [`assemble`] has already
+/// zeroed. That halves the arithmetic, and more to the point it removes
+/// pivoting — an SPD matrix needs none, so there is no pivot search and no row
+/// swapping here to disagree with the one in [`rank`].
+///
+/// A non-positive pivot means the damping is too low to hold the matrix
+/// definite against rounding. That is the same answer a singular matrix used to
+/// give, and the caller answers it the same way, by damping harder and retrying.
 fn solve_in_place(a: &mut [f64], n: usize, b: &mut [f64]) -> bool {
-    for col in 0..n {
-        let mut pivot = col;
-        for row in (col + 1)..n {
-            if a[row * n + col].abs() > a[pivot * n + col].abs() {
-                pivot = row;
+    // Cholesky–Banachiewicz: row `i` is built from the rows above it, so every
+    // read runs along a row of the layout the matrix is already stored in.
+    for i in 0..n {
+        for j in 0..=i {
+            let mut sum = a[i * n + j];
+            for k in 0..j {
+                sum -= a[i * n + k] * a[j * n + k];
             }
-        }
-        if a[pivot * n + col] == 0.0 {
-            return false;
-        }
-        if pivot != col {
-            for c in 0..n {
-                a.swap(pivot * n + c, col * n + c);
+            if i == j {
+                if sum <= 0.0 {
+                    return false;
+                }
+                a[i * n + i] = sum.sqrt();
+            } else {
+                a[i * n + j] = sum / a[j * n + j];
             }
-            b.swap(pivot, col);
-        }
-        let diagonal = a[col * n + col];
-        for row in (col + 1)..n {
-            let factor = a[row * n + col] / diagonal;
-            if factor == 0.0 {
-                continue;
-            }
-            for c in col..n {
-                a[row * n + c] -= factor * a[col * n + c];
-            }
-            b[row] -= factor * b[col];
         }
     }
-    for col in (0..n).rev() {
-        let mut sum = b[col];
-        for c in (col + 1)..n {
-            sum -= a[col * n + c] * b[c];
+    for i in 0..n {
+        let mut sum = b[i];
+        for k in 0..i {
+            sum -= a[i * n + k] * b[k];
         }
-        b[col] = sum / a[col * n + col];
+        b[i] = sum / a[i * n + i];
+    }
+    // Back through the transpose, which is the same factor read down a column
+    // — the one place this layout costs anything, and it is the O(n²) half.
+    for i in (0..n).rev() {
+        let mut sum = b[i];
+        for k in (i + 1)..n {
+            sum -= a[k * n + i] * b[k];
+        }
+        b[i] = sum / a[i * n + i];
     }
     b.iter().all(|value| value.is_finite())
 }
