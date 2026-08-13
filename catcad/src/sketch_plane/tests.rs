@@ -1,14 +1,14 @@
 use super::*;
 use glam::DVec2;
-use silverpoint::{Freedoms, Sketch, Solver};
+use silverpoint::{Sketch, Solver};
 
-/// A sketch and what its constraints make of it, which is what the writers
-/// take. Solved first, because determinacy is measured where the geometry
-/// stands and an unsolved guess is not where it will stand.
-fn drawn<'a>(sketch: &'a mut Sketch, freedoms: &'a mut Freedoms) -> Drawn<'a> {
-    let mut solver = Solver::default();
-    solver.solve(sketch, freedoms);
-    Drawn { sketch, freedoms }
+/// The drawing the writers take: `sketch` on the ground, solved.
+///
+/// Solved because determinacy is measured where the geometry stands, and an
+/// unsolved guess is not where it will stand — which is the drawing's own job
+/// to arrange, so this asks for one rather than assembling the parts.
+fn drawn(sketch: Sketch) -> Drawing {
+    Drawing::new(&mut Solver::default(), sketch, GROUND)
 }
 
 #[test]
@@ -55,9 +55,8 @@ fn every_entity_becomes_a_curve() {
 
     // One edge. Circles are rings now, and markers were never strokes.
     let mut curves = Vec::new();
-    let mut freedoms = Freedoms::default();
-    let drawn = drawn(&mut sketch, &mut freedoms);
-    write_curves(GROUND, drawn, &mut Names::default(), &mut curves);
+    let drawing = drawn(sketch);
+    write_curves(&drawing, &mut Names::default(), &mut curves);
     assert_eq!(curves.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
@@ -79,7 +78,7 @@ fn every_entity_becomes_a_curve() {
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
     let mut rings = Vec::new();
-    write_rings(GROUND, drawn, &mut Names::default(), &mut rings);
+    write_rings(&drawing, &mut Names::default(), &mut rings);
     assert_eq!(rings.len(), 1);
     let ring = rings[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
@@ -103,9 +102,8 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     sketch.fix(a);
 
     let mut points = Vec::new();
-    let mut freedoms = Freedoms::default();
-    let drawn = drawn(&mut sketch, &mut freedoms);
-    write_points(GROUND, drawn, &mut Names::default(), &mut points);
+    let drawing = drawn(sketch);
+    write_points(&drawing, &mut Names::default(), &mut points);
     assert_eq!(points.len(), 2);
     // Above the strokes, not merely above the solids: a marker lands on
     // the end of the segments meeting it, and is drawn after them.
@@ -139,19 +137,13 @@ fn marker_size_ignores_how_big_the_drawing_is() {
     large.add_point(DVec2::ZERO);
     large.add_point(DVec2::new(0.0, 100.0));
 
-    let sizes = |sketch: &mut Sketch| -> Vec<f32> {
+    let sizes = |sketch: Sketch| -> Vec<f32> {
         let mut points = Vec::new();
-        let mut freedoms = Freedoms::default();
-        write_points(
-            GROUND,
-            drawn(sketch, &mut freedoms),
-            &mut Names::default(),
-            &mut points,
-        );
+        write_points(&drawn(sketch), &mut Names::default(), &mut points);
         points.iter().map(|point| point.size).collect()
     };
-    assert_eq!(sizes(&mut small), sizes(&mut large));
-    assert_eq!(sizes(&mut small), vec![FREE_MARKER; 2]);
+    assert_eq!(sizes(small.clone()), sizes(large));
+    assert_eq!(sizes(small), vec![FREE_MARKER; 2]);
 }
 
 /// Geometry is drawn in the colour of the freedom its constraints leave it,
@@ -181,14 +173,13 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     });
     sketch.add_circle(anchor, 2.0);
 
-    let mut freedoms = Freedoms::default();
-    let drawn = drawn(&mut sketch, &mut freedoms);
+    let drawing = drawn(sketch);
     let mut points = Vec::new();
     let mut curves = Vec::new();
     let mut rings = Vec::new();
-    write_points(GROUND, drawn, &mut Names::default(), &mut points);
-    write_curves(GROUND, drawn, &mut Names::default(), &mut curves);
-    write_rings(GROUND, drawn, &mut Names::default(), &mut rings);
+    write_points(&drawing, &mut Names::default(), &mut points);
+    write_curves(&drawing, &mut Names::default(), &mut curves);
+    write_rings(&drawing, &mut Names::default(), &mut rings);
 
     // Three markers, three different things to say about them.
     assert_eq!(points[0].color, PINNED, "the anchor was pinned by hand");

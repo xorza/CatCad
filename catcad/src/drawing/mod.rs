@@ -84,8 +84,21 @@ impl Drawing {
     }
 
     /// What the constraints have decided, and how much is left undecided.
+    ///
+    /// Only ever handed out beside the sketch it was measured over — they are
+    /// two readings of one moment, and the drawing is what holds them together.
     pub(crate) fn freedoms(&self) -> &Freedoms {
         &self.freedoms
+    }
+
+    /// The sketch the drawing is of.
+    pub(crate) fn sketch(&self) -> &Sketch {
+        &self.sketch
+    }
+
+    /// The plane it lies on.
+    pub(crate) fn plane(&self) -> Plane {
+        self.plane
     }
 
     /// Put the drawing back the way `standing` found it.
@@ -121,13 +134,9 @@ impl Drawing {
     /// from one layout and half from another names nothing.
     pub(crate) fn write_into(&self, names: &mut Names, into: Overlays<'_>) {
         names.clear();
-        let drawn = Drawn {
-            sketch: &self.sketch,
-            freedoms: &self.freedoms,
-        };
-        sketch_plane::write_curves(self.plane, drawn, names, into.curves);
-        sketch_plane::write_rings(self.plane, drawn, names, into.rings);
-        sketch_plane::write_points(self.plane, drawn, names, into.points);
+        sketch_plane::write_curves(self, names, into.curves);
+        sketch_plane::write_rings(self, names, into.rings);
+        sketch_plane::write_points(self, names, into.points);
     }
 
     /// What a press on `named`, landing `at`, takes hold of — or `None` if it
@@ -230,19 +239,6 @@ impl Drawing {
     }
 }
 
-/// A sketch and what its constraints have decided about it, which is what it
-/// takes to draw one.
-///
-/// The two travel together because they have to agree: the freedoms are read
-/// off a sketch as it stood at a moment, and asking them about geometry added
-/// since is a question they cannot answer. Handing them over as one is what
-/// keeps a caller from pairing a drawing with last frame's answer.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Drawn<'a> {
-    pub sketch: &'a Sketch,
-    pub freedoms: &'a Freedoms,
-}
-
 /// Which version of a drawing something was laid out from.
 ///
 /// Bumped whenever the drawing settles, which is whenever it has been solved
@@ -279,22 +275,6 @@ pub(crate) enum Grip {
     Segment { id: SegmentId, t: f64 },
     /// A circle's rim, which drives its radius rather than moving it.
     Rim(CircleId),
-}
-
-#[cfg(test)]
-pub(crate) mod internals {
-    use crate::drawing::Drawing;
-    use silverpoint::Sketch;
-
-    impl Drawing {
-        /// The sketch the drawing is of.
-        ///
-        /// For a test that has to name a point the way nothing in production
-        /// does — by its handle, rather than by what a cursor landed on.
-        pub(crate) fn sketch(&self) -> &Sketch {
-            &self.sketch
-        }
-    }
 }
 
 #[cfg(test)]

@@ -9,7 +9,7 @@ use aperture::{Curve, Point, Ring, Styled};
 use glam::{DVec3, Vec3};
 use silverpoint::{Freedom, Plane};
 
-use crate::drawing::Drawn;
+use crate::drawing::Drawing;
 use crate::named::{Named, Names};
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
@@ -88,13 +88,10 @@ pub(crate) const GROUND: Plane = Plane {
 /// The sketch's straight strokes, one edge per segment, biased clear of
 /// the solids in depth so the drawing reads over them. Circles are not
 /// strokes — see [`write_rings`].
-pub(crate) fn write_curves(
-    plane: Plane,
-    drawn: Drawn<'_>,
-    names: &mut Names,
-    curves: &mut Vec<Curve>,
-) {
-    let Drawn { sketch, freedoms } = drawn;
+pub(crate) fn write_curves(drawing: &Drawing, names: &mut Names, curves: &mut Vec<Curve>) {
+    let sketch = drawing.sketch();
+    let freedoms = drawing.freedoms();
+    let plane = drawing.plane();
     curves.clear();
     for (id, segment) in sketch.segments() {
         let a = plane.point(sketch.point(segment.a)).as_vec3();
@@ -125,13 +122,10 @@ pub(crate) fn write_curves(
 /// The plane comes along for the same reason a stroke's does: a disc is
 /// flat in depth and the surface under it is not, so without it the glyph
 /// is sliced wherever the plane is seen at an angle.
-pub(crate) fn write_points(
-    plane: Plane,
-    drawn: Drawn<'_>,
-    names: &mut Names,
-    points: &mut Vec<Point>,
-) {
-    let Drawn { sketch, freedoms } = drawn;
+pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Vec<Point>) {
+    let sketch = drawing.sketch();
+    let freedoms = drawing.freedoms();
+    let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
     points.clear();
     points.extend(sketch.points().map(|(id, position)| {
@@ -161,13 +155,10 @@ pub(crate) fn write_points(
 ///
 /// No plane named, unlike the strokes — a ring's band is widened in its
 /// own plane, so the depth it carries is already the surface's.
-pub(crate) fn write_rings(
-    plane: Plane,
-    drawn: Drawn<'_>,
-    names: &mut Names,
-    rings: &mut Vec<Ring>,
-) {
-    let Drawn { sketch, freedoms } = drawn;
+pub(crate) fn write_rings(drawing: &Drawing, names: &mut Names, rings: &mut Vec<Ring>) {
+    let sketch = drawing.sketch();
+    let freedoms = drawing.freedoms();
+    let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
     rings.clear();
     rings.extend(sketch.circles().map(|(id, circle)| {
