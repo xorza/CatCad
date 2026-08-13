@@ -42,16 +42,36 @@ pub enum Freedom {
 ///
 /// [`SolveReport::degrees_of_freedom`]: crate::SolveReport::degrees_of_freedom
 /// [`Solver::freedoms`]: crate::Solver::freedoms
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Freedoms {
     /// By point slot, so a handle indexes straight in.
     points: Vec<Freedom>,
     /// By circle slot. Never [`Freedom::Partly`] — a radius is one parameter,
     /// and one parameter is either decided or not.
     radii: Vec<Freedom>,
+    degrees_of_freedom: usize,
+    redundant_equations: usize,
 }
 
 impl Freedoms {
+    /// Free parameters the constraints leave undetermined. Zero is a fully
+    /// constrained sketch; higher means it can still be dragged, by exactly
+    /// this many independent motions.
+    ///
+    /// The total the labels below break down, and here rather than on a solve's
+    /// report because it is the same measurement read at a coarser resolution.
+    /// One rank decides both, so the count and the labels cannot disagree about
+    /// what the sketch can do.
+    pub fn degrees_of_freedom(&self) -> usize {
+        self.degrees_of_freedom
+    }
+
+    /// Equations beyond the rank of the system. On a satisfied sketch these are
+    /// consistent duplicates; on an unsatisfiable one they are the conflict.
+    pub fn redundant_equations(&self) -> usize {
+        self.redundant_equations
+    }
+
     /// What the constraints leave of a point.
     pub fn point(&self, id: PointId) -> Freedom {
         *self.points.get(id.slot()).expect(UNMEASURED)
@@ -65,7 +85,14 @@ impl Freedoms {
 
     /// Size to `sketch` and start everything determined, ready to be told
     /// otherwise. Keeps whatever room it has grown to.
-    pub(crate) fn reset(&mut self, sketch: &Sketch) {
+    pub(crate) fn reset(
+        &mut self,
+        sketch: &Sketch,
+        degrees_of_freedom: usize,
+        redundant_equations: usize,
+    ) {
+        self.degrees_of_freedom = degrees_of_freedom;
+        self.redundant_equations = redundant_equations;
         self.points.clear();
         self.points
             .resize(sketch.point_slot_count(), Freedom::Determined);

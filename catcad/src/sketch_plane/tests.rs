@@ -1,4 +1,5 @@
 use super::*;
+use glam::DVec2;
 use silverpoint::{Freedoms, Sketch, Solver};
 
 /// A sketch and what its constraints make of it, which is what the writers
@@ -6,33 +7,41 @@ use silverpoint::{Freedoms, Sketch, Solver};
 /// stands and an unsolved guess is not where it will stand.
 fn drawn<'a>(sketch: &'a mut Sketch, freedoms: &'a mut Freedoms) -> Drawn<'a> {
     let mut solver = Solver::default();
-    solver.solve(sketch);
-    solver.freedoms(sketch, freedoms);
+    solver.solve(sketch, freedoms);
     Drawn { sketch, freedoms }
 }
 
 #[test]
 fn the_ground_plane_lays_sketch_y_along_negative_z() {
-    let plane = SketchPlane::GROUND;
-    assert_eq!(plane.point(DVec2::ZERO), Vec3::ZERO);
-    assert_eq!(plane.point(DVec2::new(3.0, 0.0)), Vec3::new(3.0, 0.0, 0.0));
+    let plane = GROUND;
+    assert_eq!(plane.point(DVec2::ZERO), DVec3::ZERO);
+    assert_eq!(plane.point(DVec2::new(3.0, 0.0)), DVec3::new(3.0, 0.0, 0.0));
     // Sketch +y runs away from the camera, so the drawing lies flat
     // instead of standing up.
-    assert_eq!(plane.point(DVec2::new(0.0, 2.0)), Vec3::new(0.0, 0.0, -2.0));
+    assert_eq!(
+        plane.point(DVec2::new(0.0, 2.0)),
+        DVec3::new(0.0, 0.0, -2.0)
+    );
     assert_eq!(
         plane.point(DVec2::new(-1.5, 4.0)),
-        Vec3::new(-1.5, 0.0, -4.0)
+        DVec3::new(-1.5, 0.0, -4.0)
     );
 
     // A plane elsewhere carries its sketch with it.
-    let raised = SketchPlane {
-        origin: Vec3::new(0.0, 5.0, 0.0),
-        ..SketchPlane::GROUND
+    let raised = Plane {
+        origin: DVec3::new(0.0, 5.0, 0.0),
+        ..GROUND
     };
     assert_eq!(
         raised.point(DVec2::new(1.0, 1.0)),
-        Vec3::new(1.0, 5.0, -1.0)
+        DVec3::new(1.0, 5.0, -1.0)
     );
+    // And back again: the drawing flattens a cursor ray onto this same frame.
+    assert_eq!(
+        raised.flatten(DVec3::new(1.0, 5.0, -1.0)),
+        DVec2::new(1.0, 1.0)
+    );
+    assert_eq!(raised.normal(), DVec3::Y, "the ground faces up");
 }
 
 #[test]
@@ -48,7 +57,7 @@ fn every_entity_becomes_a_curve() {
     let mut curves = Vec::new();
     let mut freedoms = Freedoms::default();
     let drawn = drawn(&mut sketch, &mut freedoms);
-    SketchPlane::GROUND.write_curves(drawn, &mut Names::default(), &mut curves);
+    write_curves(GROUND, drawn, &mut Names::default(), &mut curves);
     assert_eq!(curves.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
@@ -70,7 +79,7 @@ fn every_entity_becomes_a_curve() {
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
     let mut rings = Vec::new();
-    SketchPlane::GROUND.write_rings(drawn, &mut Names::default(), &mut rings);
+    write_rings(GROUND, drawn, &mut Names::default(), &mut rings);
     assert_eq!(rings.len(), 1);
     let ring = rings[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
@@ -96,7 +105,7 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     let mut points = Vec::new();
     let mut freedoms = Freedoms::default();
     let drawn = drawn(&mut sketch, &mut freedoms);
-    SketchPlane::GROUND.write_points(drawn, &mut Names::default(), &mut points);
+    write_points(GROUND, drawn, &mut Names::default(), &mut points);
     assert_eq!(points.len(), 2);
     // Above the strokes, not merely above the solids: a marker lands on
     // the end of the segments meeting it, and is drawn after them.
@@ -133,7 +142,8 @@ fn marker_size_ignores_how_big_the_drawing_is() {
     let sizes = |sketch: &mut Sketch| -> Vec<f32> {
         let mut points = Vec::new();
         let mut freedoms = Freedoms::default();
-        SketchPlane::GROUND.write_points(
+        write_points(
+            GROUND,
             drawn(sketch, &mut freedoms),
             &mut Names::default(),
             &mut points,
@@ -176,9 +186,9 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     let mut points = Vec::new();
     let mut curves = Vec::new();
     let mut rings = Vec::new();
-    SketchPlane::GROUND.write_points(drawn, &mut Names::default(), &mut points);
-    SketchPlane::GROUND.write_curves(drawn, &mut Names::default(), &mut curves);
-    SketchPlane::GROUND.write_rings(drawn, &mut Names::default(), &mut rings);
+    write_points(GROUND, drawn, &mut Names::default(), &mut points);
+    write_curves(GROUND, drawn, &mut Names::default(), &mut curves);
+    write_rings(GROUND, drawn, &mut Names::default(), &mut rings);
 
     // Three markers, three different things to say about them.
     assert_eq!(points[0].color, PINNED, "the anchor was pinned by hand");

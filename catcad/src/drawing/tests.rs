@@ -1,7 +1,14 @@
 use super::*;
 use aperture::Scene;
 use glam::DVec2;
-use silverpoint::{Constraint, PointId, Solver};
+use silverpoint::{Constraint, Plane, PointId, Solver};
+
+/// Where a point of `plane` lands in the world as the drawing draws it — the
+/// model's `f64` read out into the `f32` a renderer wants, which is the same
+/// crossing `sketch_plane`'s writers make.
+fn on(plane: Plane, at: DVec2) -> Vec3 {
+    plane.point(at).as_vec3()
+}
 
 /// Two free points a fixed span apart, tied to nothing else — the smallest
 /// drawing that can actually be dragged, and the shape the demo's linkage has.
@@ -28,7 +35,7 @@ impl Linkage {
         });
         let mut solver = Solver::default();
         Self {
-            drawing: Drawing::new(&mut solver, sketch, SketchPlane::GROUND),
+            drawing: Drawing::new(&mut solver, sketch, sketch_plane::GROUND),
             solver,
             grip,
             swing,
@@ -42,7 +49,7 @@ impl Linkage {
     }
 
     fn world_of(&self, point: PointId) -> Vec3 {
-        self.drawing.plane.point(self.drawing.sketch.point(point))
+        on(self.drawing.plane, self.drawing.sketch.point(point))
     }
 }
 
@@ -55,7 +62,7 @@ fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
 
     // Straight up the plane's own y, four along — a 3-4-5 away from where the
     // partner sits, so where it must swing to is hand-checkable.
-    let sent = plane.point(DVec2::new(0.0, 4.0));
+    let sent = on(plane, DVec2::new(0.0, 4.0));
     linkage.drag_to(Grip::Point(linkage.grip), sent);
 
     let report = linkage.drawing.report();
@@ -77,16 +84,16 @@ fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
 fn a_drag_off_the_plane_lands_on_it() {
     let mut linkage = Linkage::new();
     let plane = linkage.drawing.plane;
-    let off = plane.point(DVec2::new(1.0, 3.0)) + plane.normal() * 5.0;
+    let off = on(plane, DVec2::new(1.0, 3.0)) + plane.normal().as_vec3() * 5.0;
 
     linkage.drag_to(Grip::Point(linkage.grip), off);
 
     let landed = linkage.world_of(linkage.grip);
-    let above = (landed - plane.origin).dot(plane.normal());
+    let above = (landed - plane.origin.as_vec3()).dot(plane.normal().as_vec3());
     assert!(above.abs() < 1e-5, "{landed:?} sits {above} off the plane");
     // And it kept the two coordinates the plane does hold.
     assert!(
-        landed.abs_diff_eq(plane.point(DVec2::new(1.0, 3.0)), 1e-5),
+        landed.abs_diff_eq(on(plane, DVec2::new(1.0, 3.0)), 1e-5),
         "{landed:?}"
     );
 }
@@ -103,7 +110,7 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let hub = sketch.add_point(DVec2::new(2.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     sketch.fix(pinned);
-    let drawing = Drawing::new(&mut Solver::default(), sketch, SketchPlane::GROUND);
+    let drawing = Drawing::new(&mut Solver::default(), sketch, sketch_plane::GROUND);
 
     assert_eq!(
         drawing.grip(Named::Point(free), HitAt::Point),
@@ -136,8 +143,8 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let Motion::Plane { origin, normal } = drawing.motion() else {
         panic!("a sketch grip moves on the plane it was drawn on");
     };
-    assert_eq!(origin, drawing.plane.origin);
-    assert_eq!(normal, drawing.plane.normal());
+    assert_eq!(origin, drawing.plane.origin.as_vec3());
+    assert_eq!(normal, drawing.plane.normal().as_vec3());
 }
 
 /// Dragging an edge slides it whole: both ends travel by the same amount, and
@@ -160,7 +167,7 @@ fn dragging_a_segment_translates_both_of_its_ends() {
     ];
     // Grabbed at the midpoint and sent three across, four up.
     let midpoint = was[0].lerp(was[1], 0.5);
-    let sent = midpoint + plane.point(DVec2::new(3.0, 4.0)) - plane.origin;
+    let sent = midpoint + on(plane, DVec2::new(3.0, 4.0)) - plane.origin.as_vec3();
     linkage.drag_to(Grip::Segment { id: edge, t: 0.5 }, sent);
 
     let now = [
@@ -186,11 +193,11 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let hub = sketch.add_point(DVec2::new(1.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     let mut solver = Solver::default();
-    let mut drawing = Drawing::new(&mut solver, sketch, SketchPlane::GROUND);
+    let mut drawing = Drawing::new(&mut solver, sketch, sketch_plane::GROUND);
     let plane = drawing.plane;
 
     // Three across and four up from the centre is a radius of five.
-    let sent = plane.point(DVec2::new(4.0, 6.0));
+    let sent = on(plane, DVec2::new(4.0, 6.0));
     drawing.drag_to(&mut solver, Grip::Rim(hole), sent);
 
     assert!(drawing.report().converged, "{:?}", drawing.report());
@@ -206,7 +213,7 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     drawing.drag_to(
         &mut solver,
         Grip::Rim(hole),
-        plane.point(DVec2::new(3.0, 2.0)),
+        on(plane, DVec2::new(3.0, 2.0)),
     );
     assert!((drawing.sketch.circle(hole).radius - 2.0).abs() < 1e-9);
 }
@@ -231,10 +238,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
 
     // Move something, so the rewrite has different geometry to emit.
     let plane = linkage.drawing.plane;
-    linkage.drag_to(
-        Grip::Point(linkage.grip),
-        plane.point(DVec2::new(-3.0, 1.0)),
-    );
+    linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
     linkage.drawing.write_into(&mut names, scene.overlays_mut());
 
     let after: Vec<Option<Named>> = scene

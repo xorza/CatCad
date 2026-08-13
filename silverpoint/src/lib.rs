@@ -4,13 +4,14 @@
 //! than as an extension of it — the two share a crate, not a coordinate space.
 //!
 //! A [`Sketch`] holds points, segments, and circles together with the
-//! [`Constraint`]s relating them. [`Solver`] moves the unfixed geometry until
-//! every constraint is satisfied, and reports how well determined the result
-//! was:
+//! [`Constraint`]s relating them, and [`Plane`] carries the whole of one into
+//! the world it is modelled in. [`Solver`] moves the unfixed geometry until
+//! every constraint is satisfied, reporting how the run went and filling in
+//! what the sketch it settled on can still do:
 //!
 //! ```
 //! # use glam::DVec2;
-//! # use silverpoint::{Constraint, Sketch, Solver};
+//! # use silverpoint::{Constraint, Freedoms, Sketch, Solver};
 //! let mut sketch = Sketch::default();
 //! let origin = sketch.add_point(DVec2::ZERO);
 //! let end = sketch.add_point(DVec2::new(1.0, 0.2));
@@ -18,9 +19,10 @@
 //! sketch.add_constraint(Constraint::Horizontal { a: origin, b: end });
 //! sketch.add_constraint(Constraint::Distance { a: origin, b: end, distance: 5.0 });
 //!
-//! let report = Solver::default().solve(&mut sketch);
+//! let mut freedoms = Freedoms::default();
+//! let report = Solver::default().solve(&mut sketch, &mut freedoms);
 //! assert!(report.converged);
-//! assert_eq!(report.degrees_of_freedom, 0);
+//! assert_eq!(freedoms.degrees_of_freedom(), 0);
 //! assert!((sketch.point(end) - DVec2::new(5.0, 0.0)).length() < 1e-9);
 //! ```
 //!
@@ -30,9 +32,11 @@
 //! residuals of a nearly-degenerate sketch do not survive `f32`.
 
 pub(crate) mod arena;
+pub(crate) mod math;
 pub(crate) mod sketch;
 
 pub use arena::Id;
+pub use math::plane::Plane;
 pub use sketch::constraint::Constraint;
 pub use sketch::snapshot::Snapshot;
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,

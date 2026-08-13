@@ -22,7 +22,13 @@ const DAMPING_GROWTH: f64 = 8.0;
 /// Past this the step is numerically zero, so no further damping can help.
 const MAX_DAMPING: f64 = 1e12;
 
-/// What a solve achieved, and how determined the answer was.
+/// What a solve achieved.
+///
+/// How *determined* the answer was is not here: that is a property of the
+/// sketch rather than of the run, and it comes back in the [`Freedoms`] every
+/// entry point fills — see [`Freedoms::degrees_of_freedom`]. Splitting them is
+/// what stops the two describing different moments, which is what a report
+/// carrying a count measured against a *held* system used to do.
 ///
 /// Defaults to what an unsolved sketch would report — nothing converged, in
 /// nought iterations — which is what a caller holding a report before it has
@@ -34,13 +40,6 @@ pub struct SolveReport {
     pub iterations: u32,
     /// Largest absolute residual left over.
     pub max_residual: f64,
-    /// Free parameters the constraints leave undetermined. Zero is a fully
-    /// constrained sketch; higher means it can still be dragged, by exactly
-    /// this many independent motions.
-    pub degrees_of_freedom: usize,
-    /// Equations beyond the rank of the system. On a converged solve these
-    /// are consistent duplicates; on a failed one they are the conflict.
-    pub redundant_equations: usize,
 }
 
 /// Solves a [`Sketch`] in place.
@@ -80,8 +79,8 @@ impl Solver {
     /// The sketch is left at the best position found, converged or not — a
     /// failed solve still leaves it closer than it started, which is what a
     /// UI wants to draw.
-    pub fn solve(&mut self, sketch: &mut Sketch) -> SolveReport {
-        self.solve_holding(sketch, &[])
+    pub fn solve(&mut self, sketch: &mut Sketch, into: &mut Freedoms) -> SolveReport {
+        self.solve_holding(sketch, &[], into)
     }
 
     /// Solve with `held` pinned where they are, whatever their own
@@ -100,7 +99,24 @@ impl Solver {
     /// left at the compromise that reached it. Only half an answer, which is
     /// why this is not the crate's way of dragging one: what a caller wants is
     /// [`Solver::edit_holding`], which throws that compromise away.
-    pub(crate) fn solve_holding(&mut self, sketch: &mut Sketch, held: &[PointId]) -> SolveReport {
+    pub(crate) fn solve_holding(
+        &mut self,
+        sketch: &mut Sketch,
+        held: &[PointId],
+        into: &mut Freedoms,
+    ) -> SolveReport {
+        let iterations = self.iterate(sketch, held);
+        self.measure_taking(sketch, into, iterations)
+    }
+
+    /// Take Levenberg-Marquardt steps until the residuals are inside tolerance
+    /// or the damping gives out, and answer how many were kept.
+    ///
+    /// Says nothing about what it left behind. What the sketch amounts to
+    /// afterwards is [`Solver::measure_taking`]'s to report, and it asks that
+    /// of the geometry rather than of the run — so nothing here has to know
+    /// that a `held` point is held only for the length of the drag.
+    fn iterate(&mut self, sketch: &mut Sketch, held: &[PointId]) -> u32 {
         let max_iterations = self.max_iterations;
         let tolerance = self.tolerance;
         let n = sketch.param_count();
@@ -177,8 +193,7 @@ impl Solver {
                 }
             }
         }
-
-        self.tally(sketch, iterations)
+        iterations
     }
 
     /// Move the sketch's geometry with `edit`, then settle the rest around it
@@ -208,9 +223,13 @@ impl Solver {
         &mut self,
         sketch: &mut Sketch,
         held: &[PointId],
+        into: &mut Freedoms,
         edit: impl FnOnce(&mut Sketch),
     ) -> SolveReport {
-        let was = self.measure(sketch);
+        // Only the residual, so the pre-edit look costs one assembly and no
+        // elimination: nothing is being reported about the sketch as it stands,
+        // only judged against what the edit leaves.
+        let was = self.residual_at_rest(sketch);
         sketch.snapshot_into(&mut self.before);
 
         edit(sketch);
@@ -219,12 +238,16 @@ impl Solver {
             "an edit may move a sketch's geometry, not add to or remove from it"
         );
 
-        let report = self.solve_holding(sketch, held);
-        if report.converged || report.max_residual <= was.max_residual {
+        let iterations = self.iterate(sketch, held);
+        let report = self.measure_taking(sketch, into, iterations);
+        if report.converged || report.max_residual <= was {
             return report;
         }
         sketch.restore(&self.before);
-        was
+        // Measured again, because `into` now describes the attempt rather than
+        // what survived it. A refused edit has to leave the caller holding the
+        // sketch it still has.
+        self.measure_taking(sketch, into, 0)
     }
 
     /// Which of the sketch's geometry its constraints leave anything to
@@ -241,12 +264,36 @@ impl Solver {
     ///
     /// Fills `into` rather than returning it, so a drawing measuring itself
     /// after every edit keeps one buffer instead of being handed a new one.
-    pub fn freedoms(&mut self, sketch: &Sketch, into: &mut Freedoms) {
+    pub fn measure(&mut self, sketch: &Sketch, into: &mut Freedoms) -> SolveReport {
+        self.measure_taking(sketch, into, 0)
+    }
+
+    /// The whole of what the sketch says about itself where it stands, with
+    /// `iterations` recorded as how it got there.
+    ///
+    /// One assembly and one elimination for all of it. The rank the null space
+    /// is read from is the same rank the degrees of freedom are counted
+    /// against, so the total and the per-entity labels are two resolutions of
+    /// one answer rather than two answers that have to be kept in step.
+    ///
+    /// Always at rest, whatever a solve was holding. Determinacy is a property
+    /// of the sketch and not of the drag being attempted on it, and a count
+    /// taken with a point held would say the sketch had less freedom than it
+    /// does for as long as someone was holding it.
+    fn measure_taking(
+        &mut self,
+        sketch: &Sketch,
+        into: &mut Freedoms,
+        iterations: u32,
+    ) -> SolveReport {
         let n = sketch.param_count();
         self.assemble_at_rest(sketch);
-        self.work.null_space(n, sketch);
+        let rank = self.work.null_space(n, sketch);
 
-        into.reset(sketch);
+        let free_params = (0..n)
+            .filter(|&p| movable(sketch, &self.work.held, p))
+            .count();
+        into.reset(sketch, free_params - rank, self.work.residuals.len() - rank);
         for (id, _) in sketch.points() {
             // A point's two parameters are adjacent, x first.
             let x = sketch.point_param(id);
@@ -255,17 +302,23 @@ impl Solver {
         for (id, _) in sketch.circles() {
             into.set_radius(id, self.work.travel(sketch.radius_param(id)));
         }
+
+        let max_residual = max_abs(&self.work.residuals);
+        SolveReport {
+            converged: max_residual <= self.tolerance,
+            iterations,
+            max_residual,
+        }
     }
 
-    /// What the sketch amounts to where it stands, moving nothing.
+    /// The largest residual where the sketch stands, and nothing else.
     ///
-    /// The measurements a solve ends with, taken without taking a step — what
-    /// a sketch already at rest reports about itself, and so also what to
-    /// report for one an edit has just been undone on. Its `iterations` is
-    /// zero because none were kept.
-    fn measure(&mut self, sketch: &Sketch) -> SolveReport {
+    /// One assembly, no elimination — for a caller judging whether an edit left
+    /// the sketch better or worse satisfied, which is a question the residuals
+    /// answer on their own.
+    fn residual_at_rest(&mut self, sketch: &Sketch) -> f64 {
         self.assemble_at_rest(sketch);
-        self.tally(sketch, 0)
+        max_abs(&self.work.residuals)
     }
 
     /// Build the residuals and Jacobian for the sketch as it stands, with
@@ -279,26 +332,6 @@ impl Solver {
             &mut self.work.residuals,
             &mut self.work.jacobian,
         );
-    }
-
-    /// Sum up the residuals and Jacobian as they currently stand.
-    ///
-    /// Reads the `held` they were assembled against, so what it reports as free
-    /// is freedom of the same system that produced them.
-    fn tally(&mut self, sketch: &Sketch, iterations: u32) -> SolveReport {
-        let n = sketch.param_count();
-        let free_params = (0..n)
-            .filter(|&p| movable(sketch, &self.work.held, p))
-            .count();
-        let rank = self.work.rank(n, sketch);
-        let max_residual = max_abs(&self.work.residuals);
-        SolveReport {
-            converged: max_residual <= self.tolerance,
-            iterations,
-            max_residual,
-            degrees_of_freedom: free_params - rank,
-            redundant_equations: self.work.residuals.len() - rank,
-        }
     }
 }
 
@@ -399,6 +432,38 @@ mod workspace;
 
 #[cfg(feature = "bench")]
 pub(crate) mod bench;
+
+#[cfg(test)]
+pub(crate) mod internals {
+    use crate::sketch::solver::{Solver, assemble, movable};
+    use crate::sketch::{PointId, Sketch};
+
+    impl Solver {
+        /// How many degrees of freedom the sketch has left with `held` pinned.
+        ///
+        /// Against the system a drag on those points would solve, which nothing
+        /// in the API reports any more: what a caller wants to know is what the
+        /// *sketch* can do, not what it could do while someone is holding it.
+        /// Kept because holding a point and asking again is a second route to
+        /// the answer the freedoms give, and two routes agreeing is what says
+        /// either is right.
+        pub(crate) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
+            let n = sketch.param_count();
+            self.work.reset(sketch, n, held);
+            assemble(
+                sketch,
+                &self.work.held,
+                &mut self.work.residuals,
+                &mut self.work.jacobian,
+            );
+            let rank = self.work.rank(n, sketch);
+            (0..n)
+                .filter(|&p| movable(sketch, &self.work.held, p))
+                .count()
+                - rank
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests;

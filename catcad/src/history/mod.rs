@@ -1,9 +1,8 @@
 //! What has been done to the document, and how to take it back.
 
 use crate::document::Document;
-use crate::drawing::Standing;
 use crate::intent::{Intent, Intents};
-use silverpoint::Solver;
+use silverpoint::{Snapshot, Solver};
 
 /// How many steps back the history goes.
 ///
@@ -40,8 +39,8 @@ pub(crate) struct History {
     /// Where the drawing stood before the intent now being applied, and where
     /// it stands after. Scratch, so a drag reuses two buffers rather than
     /// taking a pair every frame it lasts.
-    before: Standing,
-    after: Standing,
+    before: Snapshot,
+    after: Snapshot,
 }
 
 impl History {
@@ -105,7 +104,7 @@ impl History {
             return;
         }
 
-        if !self.after.moved_from(&self.before) {
+        if self.after == self.before {
             return;
         }
         // Anything undone and not yet put back is gone the moment something
@@ -177,8 +176,8 @@ impl History {
 /// no recomputing either — see [`History`].
 #[derive(Debug)]
 struct Edit {
-    before: Standing,
-    after: Standing,
+    before: Snapshot,
+    after: Snapshot,
 }
 
 #[cfg(test)]

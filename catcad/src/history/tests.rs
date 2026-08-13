@@ -2,7 +2,7 @@ use super::*;
 use crate::demo;
 use crate::drawing::Grip;
 use crate::named::Names;
-use crate::sketch_plane::SketchPlane;
+use crate::sketch_plane;
 use aperture::Scene;
 use glam::{DVec2, Vec3};
 use silverpoint::{CircleId, PointId, Solver};
@@ -56,7 +56,9 @@ fn hole(document: &Document) -> CircleId {
 fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
     let sketch = document.drawing().sketch();
     let centre = sketch.point(sketch.circle(circle).center);
-    SketchPlane::GROUND.point(centre + DVec2::new(radius, 0.0))
+    sketch_plane::GROUND
+        .point(centre + DVec2::new(radius, 0.0))
+        .as_vec3()
 }
 
 fn radius(document: &Document) -> f64 {
@@ -99,7 +101,9 @@ fn relaid(
 
 /// Where to send `id`, `by` from where it now stands on the drawing's plane.
 fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
-    SketchPlane::GROUND.point(document.drawing().sketch().point(id) + by)
+    sketch_plane::GROUND
+        .point(document.drawing().sketch().point(id) + by)
+        .as_vec3()
 }
 
 /// A drag is one thing the user did, however many frames it took — so one

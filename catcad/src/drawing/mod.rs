@@ -2,10 +2,12 @@
 
 use aperture::{HitAt, Motion, Overlays};
 use glam::Vec3;
-use silverpoint::{CircleId, Freedoms, PointId, SegmentId, Sketch, Snapshot, SolveReport, Solver};
+use silverpoint::{
+    CircleId, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot, SolveReport, Solver,
+};
 
 use crate::named::{Named, Names};
-use crate::sketch_plane::SketchPlane;
+use crate::sketch_plane;
 
 /// A sketch, the plane it lies on, and what the last solve made of the two.
 ///
@@ -17,7 +19,7 @@ use crate::sketch_plane::SketchPlane;
 #[derive(Debug)]
 pub(crate) struct Drawing {
     sketch: Sketch,
-    plane: SketchPlane,
+    plane: Plane,
     report: SolveReport,
     /// Which version of the drawing this is, so anything holding a layout of it
     /// can tell whether that layout is still current.
@@ -36,41 +38,28 @@ impl Drawing {
     /// opening a drawing is a solve like any other, and takes a borrowed solver
     /// like any other. The fields below are placeholders for exactly as long as
     /// the two lines after them.
-    pub(crate) fn new(solver: &mut Solver, sketch: Sketch, plane: SketchPlane) -> Self {
-        let mut drawing = Self {
+    pub(crate) fn new(solver: &mut Solver, mut sketch: Sketch, plane: Plane) -> Self {
+        let mut freedoms = Freedoms::default();
+        let report = solver.solve(&mut sketch, &mut freedoms);
+        Self {
             sketch,
             plane,
-            report: SolveReport::default(),
+            report,
             revision: Revision::default(),
-            freedoms: Freedoms::default(),
-        };
-        let report = solver.solve(&mut drawing.sketch);
-        drawing.settled(solver, report);
-        drawing
+            freedoms,
+        }
     }
 
-    /// Record what a solve made of the sketch, and take afresh what its
-    /// constraints have decided about the geometry it settled on.
+    /// Record what a solve left behind.
     ///
-    /// The one way the drawing's account of itself is written, opening it
-    /// included. Report, freedoms and revision all describe the same moment, and any of them written without the others
-    /// describes a moment that never happened: a report stored alone leaves the
-    /// drawing painted in the colours of where it used to be.
-    ///
-    /// The two arguments answer different questions, which is why both are
-    /// here. `report` is what the solve *concluded* — whether it converged, and
-    /// in how many iterations — and only the solve that ran can say that, so it
-    /// is handed over rather than asked for again. `solver` is the room to ask
-    /// a further question of the result: what the constraints have decided is a
-    /// property of where the geometry now *stands*, so it is read off the
-    /// sketch the solve left behind rather than predicted from what the solve
-    /// was asked for. That is what makes a refused drag come out right — its
-    /// report is the one from before, and its freedoms are measured where the
-    /// geometry was put back.
-    fn settled(&mut self, solver: &mut Solver, report: SolveReport) {
+    /// The freedoms are not here because they arrive with the report: every
+    /// solver entry point fills them from the same measurement it reports, so
+    /// there is no second call that could describe a different moment and
+    /// nothing to remember to make. All that is left is to store the verdict
+    /// and say the drawing has moved on.
+    fn settled(&mut self, report: SolveReport) {
         self.report = report;
         self.revision = self.revision.next();
-        solver.freedoms(&self.sketch, &mut self.freedoms);
     }
 
     /// What the last solve made of it.
@@ -90,9 +79,13 @@ impl Drawing {
     ///
     /// Fills rather than returns, so a history noting where a drag started
     /// refills the same buffers rather than taking two a frame.
-    pub(crate) fn snapshot_into(&self, into: &mut Standing) {
-        self.sketch.snapshot_into(&mut into.at);
-        into.report = self.report;
+    pub(crate) fn snapshot_into(&self, into: &mut Snapshot) {
+        self.sketch.snapshot_into(into);
+    }
+
+    /// What the constraints have decided, and how much is left undecided.
+    pub(crate) fn freedoms(&self) -> &Freedoms {
+        &self.freedoms
     }
 
     /// Put the drawing back the way `standing` found it.
@@ -102,9 +95,14 @@ impl Drawing {
     /// solve is free to *move* what it is given — and an undo that landed the
     /// drawing near where it was rather than on it would not be an undo. So the
     /// report is carried instead, which costs forty bytes and cannot drift.
-    pub(crate) fn restore(&mut self, solver: &mut Solver, standing: &Standing) {
-        self.sketch.restore(&standing.at);
-        self.settled(solver, standing.report);
+    pub(crate) fn restore(&mut self, solver: &mut Solver, snapshot: &Snapshot) {
+        self.sketch.restore(snapshot);
+        // Measured rather than remembered. Measuring moves nothing — it is one
+        // assembly over the geometry as it now stands — so the exactness a
+        // restore promises survives it, and a step no longer has to carry a
+        // report it would otherwise be storing twice over.
+        let report = solver.measure(&self.sketch, &mut self.freedoms);
+        self.settled(report);
     }
 
     /// Write the drawn primitives, and name each of them into `names`.
@@ -127,9 +125,9 @@ impl Drawing {
             sketch: &self.sketch,
             freedoms: &self.freedoms,
         };
-        self.plane.write_curves(drawn, names, into.curves);
-        self.plane.write_rings(drawn, names, into.rings);
-        self.plane.write_points(drawn, names, into.points);
+        sketch_plane::write_curves(self.plane, drawn, names, into.curves);
+        sketch_plane::write_rings(self.plane, drawn, names, into.rings);
+        sketch_plane::write_points(self.plane, drawn, names, into.points);
     }
 
     /// What a press on `named`, landing `at`, takes hold of — or `None` if it
@@ -172,8 +170,8 @@ impl Drawing {
     /// handle — and that is when this grows an argument again.
     pub(crate) fn motion(&self) -> Motion {
         Motion::Plane {
-            origin: self.plane.origin,
-            normal: self.plane.normal(),
+            origin: self.plane.origin.as_vec3(),
+            normal: self.plane.normal().as_vec3(),
         }
     }
 
@@ -187,10 +185,12 @@ impl Drawing {
     /// [`Solver::edit_holding`]; all that is decided here is what each kind of
     /// grip means.
     pub(crate) fn drag_to(&mut self, solver: &mut Solver, grip: Grip, world: Vec3) {
-        let at = self.plane.flatten(world);
+        let at = self.plane.flatten(world.as_dvec3());
         let report = match grip {
             Grip::Point(id) => {
-                solver.edit_holding(&mut self.sketch, &[id], |sketch| sketch.set_point(id, at))
+                solver.edit_holding(&mut self.sketch, &[id], &mut self.freedoms, |sketch| {
+                    sketch.set_point(id, at)
+                })
             }
             Grip::Segment { id, t } => {
                 // Both ends travel by whatever it takes to put the spot that
@@ -200,25 +200,33 @@ impl Drawing {
                 let edge = self.sketch.segment(id);
                 let (a, b) = (self.sketch.point(edge.a), self.sketch.point(edge.b));
                 let shift = at - a.lerp(b, t);
-                solver.edit_holding(&mut self.sketch, &[edge.a, edge.b], |sketch| {
-                    sketch.set_point(edge.a, a + shift);
-                    sketch.set_point(edge.b, b + shift);
-                })
+                solver.edit_holding(
+                    &mut self.sketch,
+                    &[edge.a, edge.b],
+                    &mut self.freedoms,
+                    |sketch| {
+                        sketch.set_point(edge.a, a + shift);
+                        sketch.set_point(edge.b, b + shift);
+                    },
+                )
             }
             Grip::Rim(id) => {
                 // A rim drives the radius rather than moving the circle, so
                 // the centre is held: growing a circle should not walk it.
                 let circle = self.sketch.circle(id);
                 let radius = (at - self.sketch.point(circle.center)).length();
-                solver.edit_holding(&mut self.sketch, &[circle.center], |sketch| {
-                    sketch.set_radius(id, radius)
-                })
+                solver.edit_holding(
+                    &mut self.sketch,
+                    &[circle.center],
+                    &mut self.freedoms,
+                    |sketch| sketch.set_radius(id, radius),
+                )
             }
         };
         // Whatever the drag settled on, including a refusal that put everything
         // back: what the constraints decide is a property of where the geometry
         // now stands, so it is taken from what survived rather than predicted.
-        self.settled(solver, report);
+        self.settled(report);
     }
 }
 
@@ -233,32 +241,6 @@ impl Drawing {
 pub(crate) struct Drawn<'a> {
     pub sketch: &'a Sketch,
     pub freedoms: &'a Freedoms,
-}
-
-/// The drawing as it stood at one moment: where its geometry was, and what the
-/// solve that put it there made of it.
-///
-/// The two travel together for the reason [`Drawing::settled`] keeps them
-/// together — a report stored without the geometry it was read off describes a
-/// moment that never happened. Restoring one without the other would put the
-/// drawing back and then paint it in the colours of somewhere else.
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Standing {
-    at: Snapshot,
-    report: SolveReport,
-}
-
-impl Standing {
-    /// Whether the geometry has moved from where `was` had it.
-    ///
-    /// The geometry alone, deliberately. Two standings of identical geometry
-    /// can carry different reports: a drag the constraints refuse leaves one
-    /// measured at rest, in nought iterations, where the drawing's own was the
-    /// four its last real solve took. Counting that as a change would record a
-    /// step that moved nothing, and leave a Ctrl+Z that appeared to do nothing.
-    pub(crate) fn moved_from(&self, was: &Standing) -> bool {
-        self.at != was.at
-    }
 }
 
 /// Which version of a drawing something was laid out from.

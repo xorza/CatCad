@@ -1,8 +1,13 @@
-//! Where a sketch sits in the world, and what it looks like once it's there.
+//! What a sketch looks like once it is drawn on its plane.
+//!
+//! The frame itself is [`Plane`], in silverpoint — geometry rather than
+//! drawing. What is here is the other half: turning a sketch on one into the
+//! strokes, rims and markers a renderer is handed. This is where the model's
+//! `f64` becomes the renderer's `f32`, and the only place it does.
 
 use aperture::{Curve, Point, Ring, Styled};
-use glam::{DVec2, Vec3};
-use silverpoint::Freedom;
+use glam::{DVec3, Vec3};
+use silverpoint::{Freedom, Plane};
 
 use crate::drawing::Drawn;
 use crate::named::{Named, Names};
@@ -68,151 +73,118 @@ const STROKE_LIFT: i32 = 512;
 /// disagree by and still three decades short of showing through the model.
 const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 
-/// The plane a sketch is drawn on: an origin, and the world directions its two
-/// axes run along.
+/// The world's horizontal plane through the origin, with the sketch's +y
+/// running to world −Z. Seen from above with +Y up, that reads the way the
+/// sketch was drawn, and anything modelled from it stands up in +Y.
 ///
-/// Sketch space is 2D and says nothing about where in the world it lives.
-/// This is what answers that, and the only place the two coordinate systems
-/// meet — silverpoint never learns its sketch was drawn, and aperture never
-/// learns the curves it draws came from one.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SketchPlane {
-    pub origin: Vec3,
-    /// World direction of the sketch's +x. Expected to be unit length.
-    pub x: Vec3,
-    /// World direction of the sketch's +y.
-    pub y: Vec3,
+/// Here rather than in silverpoint, which has no opinion on which way is up —
+/// and none to have, in a world it never sees.
+pub(crate) const GROUND: Plane = Plane {
+    origin: DVec3::ZERO,
+    x: DVec3::X,
+    y: DVec3::NEG_Z,
+};
+
+/// The sketch's straight strokes, one edge per segment, biased clear of
+/// the solids in depth so the drawing reads over them. Circles are not
+/// strokes — see [`write_rings`].
+pub(crate) fn write_curves(
+    plane: Plane,
+    drawn: Drawn<'_>,
+    names: &mut Names,
+    curves: &mut Vec<Curve>,
+) {
+    let Drawn { sketch, freedoms } = drawn;
+    curves.clear();
+    for (id, segment) in sketch.segments() {
+        let a = plane.point(sketch.point(segment.a)).as_vec3();
+        let b = plane.point(sketch.point(segment.b)).as_vec3();
+        // An edge is only as settled as its looser end: one end free to
+        // travel is an edge free to travel with it.
+        let freedom = freedoms.point(segment.a).max(freedoms.point(segment.b));
+        curves.push(
+            Curve::segment(a, b)
+                .colored(paint(freedom))
+                .width(EDGE_WIDTH)
+                .tagged(names.tag(Named::Segment(id))),
+        );
+    }
+    // Applied here rather than at each constructor: the drawing rides on
+    // one plane and above the solids as one thing, and nothing in it
+    // outranks the rest.
+    let normal = plane.normal().as_vec3();
+    for curve in curves.iter_mut() {
+        curve.z_offset = STROKE_LIFT;
+        curve.plane_normal = Some(normal);
+    }
 }
 
-impl SketchPlane {
-    /// The world's horizontal plane through the origin, with the sketch's +y
-    /// running to world −Z. Seen from above with +Y up, that reads the way the
-    /// sketch was drawn, and anything modelled from it stands up in +Y.
-    pub(crate) const GROUND: Self = Self {
-        origin: Vec3::ZERO,
-        x: Vec3::X,
-        y: Vec3::NEG_Z,
-    };
+/// The sketch's points, one marker apiece — larger and pinned-coloured
+/// where the solver may not move it.
+///
+/// The plane comes along for the same reason a stroke's does: a disc is
+/// flat in depth and the surface under it is not, so without it the glyph
+/// is sliced wherever the plane is seen at an angle.
+pub(crate) fn write_points(
+    plane: Plane,
+    drawn: Drawn<'_>,
+    names: &mut Names,
+    points: &mut Vec<Point>,
+) {
+    let Drawn { sketch, freedoms } = drawn;
+    let normal = plane.normal().as_vec3();
+    points.clear();
+    points.extend(sketch.points().map(|(id, position)| {
+        // Pinned by hand outranks pinned by consequence: a fixed point is
+        // determined too, but saying so in the same colour would lose the
+        // one thing about it the user chose.
+        let (color, size) = if sketch.is_fixed(id) {
+            (PINNED, FIXED_MARKER)
+        } else {
+            (paint(freedoms.point(id)), FREE_MARKER)
+        };
+        Point::new(plane.point(position).as_vec3())
+            .colored(color)
+            .size(size)
+            .z_offset(MARKER_LIFT)
+            .in_plane(normal)
+            .tagged(names.tag(Named::Point(id)))
+    }));
+}
 
-    /// Where a sketch point lands in the world.
-    pub(crate) fn point(&self, point: DVec2) -> Vec3 {
-        self.origin + self.x * point.x as f32 + self.y * point.y as f32
-    }
-
-    /// Where a world position lands on the plane, in sketch coordinates.
-    ///
-    /// The inverse of [`SketchPlane::point`] for anything already on the
-    /// plane, and the nearest point of it for anything off — which is what a
-    /// cursor ray resolved against the plane always is. Reading the two axes
-    /// off with a dot product is only that inverse because they are unit and
-    /// square to each other, which is what the fields promise.
-    pub(crate) fn flatten(&self, world: Vec3) -> DVec2 {
-        let out = world - self.origin;
-        DVec2::new(out.dot(self.x) as f64, out.dot(self.y) as f64)
-    }
-
-    /// The plane's unit normal. Which face it points out of follows from the
-    /// order of the axes and doesn't matter to anything that uses it.
-    pub(crate) fn normal(&self) -> Vec3 {
-        self.x.cross(self.y).normalize()
-    }
-
-    /// The sketch's straight strokes, one edge per segment, biased clear of
-    /// the solids in depth so the drawing reads over them. Circles are not
-    /// strokes — see [`SketchPlane::rings`].
-    pub(crate) fn write_curves(
-        &self,
-        drawn: Drawn<'_>,
-        names: &mut Names,
-        curves: &mut Vec<Curve>,
-    ) {
-        let Drawn { sketch, freedoms } = drawn;
-        curves.clear();
-        for (id, segment) in sketch.segments() {
-            let a = self.point(sketch.point(segment.a));
-            let b = self.point(sketch.point(segment.b));
-            // An edge is only as settled as its looser end: one end free to
-            // travel is an edge free to travel with it.
-            let freedom = freedoms.point(segment.a).max(freedoms.point(segment.b));
-            curves.push(
-                Curve::segment(a, b)
-                    .colored(paint(freedom))
-                    .width(EDGE_WIDTH)
-                    .tagged(names.tag(Named::Segment(id))),
-            );
-        }
-        // Applied here rather than at each constructor: the drawing rides on
-        // one plane and above the solids as one thing, and nothing in it
-        // outranks the rest.
-        let normal = self.normal();
-        for curve in curves.iter_mut() {
-            curve.z_offset = STROKE_LIFT;
-            curve.plane_normal = Some(normal);
-        }
-    }
-
-    /// The sketch's points, one marker apiece — larger and pinned-coloured
-    /// where the solver may not move it.
-    ///
-    /// The plane comes along for the same reason a stroke's does: a disc is
-    /// flat in depth and the surface under it is not, so without it the glyph
-    /// is sliced wherever the plane is seen at an angle.
-    pub(crate) fn write_points(
-        &self,
-        drawn: Drawn<'_>,
-        names: &mut Names,
-        points: &mut Vec<Point>,
-    ) {
-        let Drawn { sketch, freedoms } = drawn;
-        let normal = self.normal();
-        points.clear();
-        points.extend(sketch.points().map(|(id, position)| {
-            // Pinned by hand outranks pinned by consequence: a fixed point is
-            // determined too, but saying so in the same colour would lose the
-            // one thing about it the user chose.
-            let (color, size) = if sketch.is_fixed(id) {
-                (PINNED, FIXED_MARKER)
-            } else {
-                (paint(freedoms.point(id)), FREE_MARKER)
-            };
-            Point::new(self.point(position))
-                .colored(color)
-                .size(size)
-                .z_offset(MARKER_LIFT)
-                .in_plane(normal)
-                .tagged(names.tag(Named::Point(id)))
-        }));
-    }
-
-    /// The sketch's circles, one ring apiece.
-    ///
-    /// Not tessellated into strokes: the count that looks round depends on how
-    /// large the circle lands on screen, and the renderer resolves a ring in
-    /// the fragment stage instead, which is round at every zoom and needs no
-    /// rebuilding when the camera moves.
-    ///
-    /// No plane named, unlike the strokes — a ring's band is widened in its
-    /// own plane, so the depth it carries is already the surface's.
-    pub(crate) fn write_rings(&self, drawn: Drawn<'_>, names: &mut Names, rings: &mut Vec<Ring>) {
-        let Drawn { sketch, freedoms } = drawn;
-        let normal = self.normal();
-        rings.clear();
-        rings.extend(sketch.circles().map(|(id, circle)| {
-            // A circle can move with its centre or grow on its own, so it is
-            // settled only when both are — the demo's is pinned to the middle
-            // of a rigid frame and still has its rim to give.
-            let freedom = freedoms.point(circle.center).max(freedoms.radius(id));
-            Ring::new(
-                self.point(sketch.point(circle.center)),
-                circle.radius.abs() as f32,
-                normal,
-            )
-            .colored(paint(freedom))
-            .width(EDGE_WIDTH)
-            .z_offset(STROKE_LIFT)
-            .tagged(names.tag(Named::Circle(id)))
-        }));
-    }
+/// The sketch's circles, one ring apiece.
+///
+/// Not tessellated into strokes: the count that looks round depends on how
+/// large the circle lands on screen, and the renderer resolves a ring in
+/// the fragment stage instead, which is round at every zoom and needs no
+/// rebuilding when the camera moves.
+///
+/// No plane named, unlike the strokes — a ring's band is widened in its
+/// own plane, so the depth it carries is already the surface's.
+pub(crate) fn write_rings(
+    plane: Plane,
+    drawn: Drawn<'_>,
+    names: &mut Names,
+    rings: &mut Vec<Ring>,
+) {
+    let Drawn { sketch, freedoms } = drawn;
+    let normal = plane.normal().as_vec3();
+    rings.clear();
+    rings.extend(sketch.circles().map(|(id, circle)| {
+        // A circle can move with its centre or grow on its own, so it is
+        // settled only when both are — the demo's is pinned to the middle
+        // of a rigid frame and still has its rim to give.
+        let freedom = freedoms.point(circle.center).max(freedoms.radius(id));
+        Ring::new(
+            plane.point(sketch.point(circle.center)).as_vec3(),
+            circle.radius.abs() as f32,
+            normal,
+        )
+        .colored(paint(freedom))
+        .width(EDGE_WIDTH)
+        .z_offset(STROKE_LIFT)
+        .tagged(names.tag(Named::Circle(id)))
+    }));
 }
 
 #[cfg(test)]

@@ -22,7 +22,8 @@ use crate::{CatCad, Status};
 #[test]
 fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     let mut sketch = demo::sketch();
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
 
     assert!(report.converged, "{report:?}");
     // Eighteen free parameters — nine unpinned points and two radii — against
@@ -30,8 +31,8 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     // leaving the five that make the drawing worth dragging: the arm's three
     // (it can travel and turn as one piece), the rail's one (it stretches), and
     // the unconstrained radius of the circle.
-    assert_eq!(report.degrees_of_freedom, 5, "{report:?}");
-    assert_eq!(report.redundant_equations, 0, "{report:?}");
+    assert_eq!(freedoms.degrees_of_freedom(), 5, "{report:?}");
+    assert_eq!(freedoms.redundant_equations(), 0, "{report:?}");
 
     let at: Vec<DVec2> = sketch.points().map(|(_, position)| position).collect();
     let expected = [
@@ -66,9 +67,10 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     // freeze the arm, and only a drag can tell the two apart.
     let id: Vec<PointId> = sketch.points().map(|(point, _)| point).collect();
     let sent = wrist + DVec2::new(1.2, -0.4);
-    let report = Solver::default().edit_holding(&mut sketch, &[id[8]], |sketch| {
-        sketch.set_point(id[8], sent)
-    });
+    let report =
+        Solver::default().edit_holding(&mut sketch, &[id[8]], &mut Freedoms::default(), |sketch| {
+            sketch.set_point(id[8], sent)
+        });
     assert!(report.converged, "{report:?}");
 
     let now: Vec<DVec2> = sketch.points().map(|(_, position)| position).collect();
@@ -90,8 +92,10 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     // The circle is the other kind of freedom: no radius of its own, so its rim
     // keeps whatever a drag gives it instead of being pulled back.
     let hole = sketch.circles().next().unwrap().0;
-    let report = Solver::default()
-        .edit_holding(&mut sketch, &[id[4]], |sketch| sketch.set_radius(hole, 2.2));
+    let report =
+        Solver::default().edit_holding(&mut sketch, &[id[4]], &mut Freedoms::default(), |sketch| {
+            sketch.set_radius(hole, 2.2)
+        });
     assert!(report.converged, "{report:?}");
     assert_eq!(
         sketch.circle(hole).radius,
@@ -110,9 +114,8 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
 fn the_demo_shows_every_state_a_drawing_can_be_painted_in() {
     let mut sketch = demo::sketch();
     let mut solver = Solver::default();
-    assert!(solver.solve(&mut sketch).converged);
     let mut freedoms = Freedoms::default();
-    solver.freedoms(&sketch, &mut freedoms);
+    assert!(solver.solve(&mut sketch, &mut freedoms).converged);
 
     let id: Vec<PointId> = sketch.points().map(|(point, _)| point).collect();
     // The frame is settled to the last corner, and the arm is free to the last
@@ -151,12 +154,12 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
         converged: true,
         iterations: 4,
         max_residual: 0.0,
-        degrees_of_freedom: 0,
-        redundant_equations: 0,
     };
     assert_eq!(
         Status {
             report: solved,
+            degrees_of_freedom: 0,
+            redundant_equations: 0,
             hovered: None,
         }
         .to_string(),
@@ -177,6 +180,8 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
         assert_eq!(
             Status {
                 report: solved,
+                degrees_of_freedom: 0,
+                redundant_equations: 0,
                 hovered: Some(hovered),
             }
             .to_string(),
@@ -189,12 +194,12 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
         converged: false,
         iterations: 100,
         max_residual: 0.5,
-        degrees_of_freedom: 3,
-        redundant_equations: 2,
     };
     assert_eq!(
         Status {
             report: stuck,
+            degrees_of_freedom: 3,
+            redundant_equations: 2,
             hovered: None,
         }
         .to_string(),
@@ -327,5 +332,57 @@ fn the_app_opens_looking_at_the_whole_of_what_it_draws() {
         camera,
         Camera::default(),
         "the app opened at the camera it was given rather than aiming one"
+    );
+}
+
+/// The status line counts what the *sketch* can do, not what it could do while
+/// a drag was holding part of it — during the drag and after it.
+///
+/// The count used to come from the solve's report, and a solve tallies against
+/// the system it was asked to solve: with the wrist held, the demo read three
+/// degrees of freedom where it has five, and kept that number after the release
+/// because nothing measured it again. It now comes from the freedoms, which are
+/// measured at rest whatever the solve was holding — so it cannot drift from
+/// the colours the same geometry is painted in, which were always at rest.
+#[test]
+fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
+    const SIZE: UVec2 = UVec2::new(800, 600);
+    const AT_REST: &str = "solved · 5 dof · 0 redundant";
+
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+    assert!(
+        app.status().to_string().starts_with(AT_REST),
+        "opened at {}",
+        app.status()
+    );
+
+    let world = *markers(&app).last().expect("the demo draws markers");
+    let viewport = Viewport::new(SIZE);
+    let clip = app.camera_mut().view_proj(viewport.aspect()) * world.extend(1.0);
+    let cursor = viewport.pixel_from_clip(clip);
+
+    harness.move_to(cursor);
+    frame(&mut app, &mut harness);
+    let before = markers(&app);
+    harness.press_at(cursor);
+    frame(&mut app, &mut harness);
+    harness.drag_to(cursor + Vec2::new(40.0, 25.0));
+    frame(&mut app, &mut harness);
+
+    assert_ne!(markers(&app), before, "the drag moved nothing to report on");
+    assert!(
+        app.status().to_string().starts_with(AT_REST),
+        "mid-drag the sketch was reported as {}",
+        app.status()
+    );
+
+    harness.release();
+    frame(&mut app, &mut harness);
+    assert!(
+        app.status().to_string().starts_with(AT_REST),
+        "after the release the sketch was reported as {}",
+        app.status()
     );
 }

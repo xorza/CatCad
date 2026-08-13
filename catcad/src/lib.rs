@@ -128,8 +128,11 @@ impl CatCad {
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
+        let drawing = self.document.drawing();
         Status {
-            report: self.document.drawing().report(),
+            report: drawing.report(),
+            degrees_of_freedom: drawing.freedoms().degrees_of_freedom(),
+            redundant_equations: drawing.freedoms().redundant_equations(),
             hovered: self.view.hovered(),
         }
     }
@@ -146,6 +149,10 @@ impl CatCad {
 #[derive(Debug)]
 struct Status {
     report: SolveReport,
+    /// Read off the freedoms rather than the report, because they are what the
+    /// sketch can still do — where the report is only how the last run went.
+    degrees_of_freedom: usize,
+    redundant_equations: usize,
     hovered: Option<Named>,
 }
 
@@ -159,7 +166,7 @@ impl fmt::Display for Status {
         write!(
             f,
             "{state} · {} dof · {} redundant · {} iterations",
-            self.report.degrees_of_freedom, self.report.redundant_equations, self.report.iterations,
+            self.degrees_of_freedom, self.redundant_equations, self.report.iterations,
         )?;
         match self.hovered {
             Some(named) => write!(f, " · {}", named.noun()),

@@ -5,7 +5,7 @@ use aperture::{Camera, Object, Scene};
 use crate::drawing::Drawing;
 use crate::intent::Intent;
 use crate::named::Names;
-use crate::sketch_plane::SketchPlane;
+use silverpoint::Plane;
 use silverpoint::{Sketch, Solver};
 
 /// A drawing, the solids modelled beside it, and how it is being looked at —
@@ -43,7 +43,7 @@ impl Document {
     pub(crate) fn new(
         solver: &mut Solver,
         sketch: Sketch,
-        plane: SketchPlane,
+        plane: Plane,
         solids: Vec<Object>,
     ) -> Self {
         Self {

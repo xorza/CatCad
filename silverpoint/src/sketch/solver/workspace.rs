@@ -152,7 +152,7 @@ impl Workspace {
     /// A column that could never move — a pinned point, or the hole a removal
     /// left — has a row of zeros, which is the honest answer for something with
     /// no freedom to have.
-    pub(super) fn null_space(&mut self, n: usize, sketch: &Sketch) {
+    pub(super) fn null_space(&mut self, n: usize, sketch: &Sketch) -> usize {
         let rank = self.rank(n, sketch);
         self.free.clear();
         self.free.extend((0..n).filter(|&col| {
@@ -190,6 +190,7 @@ impl Workspace {
                 self.null[pivot * axes + axis] = -self.elimination[row * n + col];
             }
         }
+        rank
     }
 
     /// How many independent ways a parameter can move: none, or the one it has.

@@ -64,7 +64,8 @@ fn distance_moves_a_point_along_its_own_direction() {
         distance: 5.0,
     });
 
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
 
     assert!(report.converged, "{report:?}");
     // The residual's gradient points along b - a, so a point starting on the
@@ -73,8 +74,8 @@ fn distance_moves_a_point_along_its_own_direction() {
     assert_eq!(sketch.point(anchor), DVec2::ZERO, "fixed point moved");
     // One equation against two free parameters: the point may still slide
     // around the circle of radius 5.
-    assert_eq!(report.degrees_of_freedom, 1);
-    assert_eq!(report.redundant_equations, 0);
+    assert_eq!(freedoms.degrees_of_freedom(), 1);
+    assert_eq!(freedoms.redundant_equations(), 0);
 }
 
 #[test]
@@ -89,7 +90,11 @@ fn the_requested_distance_is_what_changes_the_answer() {
             b: free,
             distance,
         });
-        assert!(Solver::default().solve(&mut sketch).converged);
+        assert!(
+            Solver::default()
+                .solve(&mut sketch, &mut Freedoms::default())
+                .converged
+        );
         sketch.point(free).x
     };
     assert!((solve_for(5.0) - 5.0).abs() < EPSILON);
@@ -112,7 +117,8 @@ fn three_distances_make_a_right_triangle() {
         });
     }
 
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
     assert!(report.converged, "{report:?}");
 
     let (pa, pb, pc) = (sketch.point(a), sketch.point(b), sketch.point(c));
@@ -126,8 +132,8 @@ fn three_distances_make_a_right_triangle() {
 
     // Four free parameters against three independent distances: the triangle
     // can still rotate about the fixed corner.
-    assert_eq!(report.degrees_of_freedom, 1);
-    assert_eq!(report.redundant_equations, 0);
+    assert_eq!(freedoms.degrees_of_freedom(), 1);
+    assert_eq!(freedoms.redundant_equations(), 0);
 }
 
 #[test]
@@ -163,7 +169,8 @@ fn a_rectangle_is_fully_constrained() {
     });
     sketch.add_constraint(Constraint::Vertical { a: p0, b: p3 });
 
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
     assert!(report.converged, "{report:?}");
 
     // Six independent equations against six free parameters pin every corner
@@ -171,8 +178,8 @@ fn a_rectangle_is_fully_constrained() {
     assert!((sketch.point(p1) - DVec2::new(5.0, 0.0)).length() < EPSILON);
     assert!((sketch.point(p2) - DVec2::new(5.0, 3.0)).length() < EPSILON);
     assert!((sketch.point(p3) - DVec2::new(0.0, 3.0)).length() < EPSILON);
-    assert_eq!(report.degrees_of_freedom, 0);
-    assert_eq!(report.redundant_equations, 0);
+    assert_eq!(freedoms.degrees_of_freedom(), 0);
+    assert_eq!(freedoms.redundant_equations(), 0);
 }
 
 /// A coincidence pins both axes, which is the whole of what makes it worth two
@@ -193,13 +200,14 @@ fn a_coincidence_pins_both_axes_and_counts_as_two_equations() {
     sketch.fix(anchor);
     sketch.add_constraint(Constraint::Coincident { a: anchor, b: free });
 
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
 
     assert!(report.converged, "{report:?}");
     assert!((sketch.point(free) - sketch.point(anchor)).length() < EPSILON);
     // Two free parameters against two independent equations.
-    assert_eq!(report.degrees_of_freedom, 0, "{report:?}");
-    assert_eq!(report.redundant_equations, 0, "{report:?}");
+    assert_eq!(freedoms.degrees_of_freedom(), 0, "{report:?}");
+    assert_eq!(freedoms.redundant_equations(), 0, "{report:?}");
 }
 
 /// Holding a point pins it where the caller put it and moves the rest of the
@@ -232,12 +240,12 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
         b: trailing,
         distance: 5.0,
     });
-    Solver::default().solve(&mut sketch);
+    Solver::default().solve(&mut sketch, &mut Freedoms::default());
 
     // Drag the middle point straight up. It has to stay exactly there.
     let dragged = DVec2::new(3.0, 4.0);
     sketch.set_point(held, dragged);
-    let report = Solver::default().solve_holding(&mut sketch, &[held]);
+    let report = Solver::default().solve_holding(&mut sketch, &[held], &mut Freedoms::default());
 
     assert!(report.converged, "{report:?}");
     assert_eq!(sketch.point(held), dragged, "the held point was moved");
@@ -252,7 +260,7 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     // free and satisfies the distance by moving it, so it does not stay.
     sketch.set_point(held, DVec2::new(3.0, 9.0));
     let mut solver = Solver::default();
-    solver.solve(&mut sketch);
+    solver.solve(&mut sketch, &mut Freedoms::default());
     assert_ne!(
         sketch.point(held),
         DVec2::new(3.0, 9.0),
@@ -266,7 +274,9 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     sketch.snapshot_into(&mut before);
     let (was_held, was_trailing) = (sketch.point(held), sketch.point(trailing));
     let sent = DVec2::new(-3.0, 4.0);
-    let report = solver.edit_holding(&mut sketch, &[held], |sketch| sketch.set_point(held, sent));
+    let report = solver.edit_holding(&mut sketch, &[held], &mut Freedoms::default(), |sketch| {
+        sketch.set_point(held, sent)
+    });
     assert!(report.converged, "{report:?}");
     assert_eq!(sketch.point(held), sent, "a reachable edit was undone");
     let span = sketch.point(trailing) - sketch.point(held);
@@ -310,9 +320,10 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
         a: anchor,
         b: pinned,
     });
-    let at_rest = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let at_rest = Solver::default().solve(&mut sketch, &mut freedoms);
     assert!(
-        at_rest.converged && at_rest.degrees_of_freedom == 0,
+        at_rest.converged && freedoms.degrees_of_freedom() == 0,
         "{at_rest:?}"
     );
 
@@ -321,7 +332,7 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
     // move at all: the distance is satisfied exactly where it was put — 3-4-5
     // — and the horizontal is out by the whole of its four.
     sketch.set_point(pinned, DVec2::new(3.0, 4.0));
-    let report = Solver::default().solve_holding(&mut sketch, &[pinned]);
+    let report = Solver::default().solve_holding(&mut sketch, &[pinned], &mut Freedoms::default());
     assert!(!report.converged, "{report:?}");
     assert_eq!(report.max_residual, 4.0, "{report:?}");
     assert_eq!(sketch.point(pinned), DVec2::new(3.0, 4.0), "{report:?}");
@@ -329,10 +340,10 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
     // Back to rest, and then the same request as an edit. Nothing of it
     // survives: not the geometry, and not the report either.
     let mut solver = Solver::default();
-    solver.solve(&mut sketch);
+    solver.solve(&mut sketch, &mut Freedoms::default());
     let mut was = Snapshot::default();
     sketch.snapshot_into(&mut was);
-    let refused = solver.edit_holding(&mut sketch, &[pinned], |sketch| {
+    let refused = solver.edit_holding(&mut sketch, &[pinned], &mut freedoms, |sketch| {
         sketch.set_point(pinned, DVec2::new(3.0, 4.0))
     });
 
@@ -343,7 +354,7 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
     sketch.snapshot_into(&mut now);
     assert_eq!(now, was, "a refused edit moved the sketch");
     assert!(refused.converged, "{refused:?}");
-    assert_eq!(refused.degrees_of_freedom, 0, "{refused:?}");
+    assert_eq!(freedoms.degrees_of_freedom(), 0, "{refused:?}");
     assert_eq!(refused.iterations, 0, "a refused edit kept an iteration");
 }
 
@@ -366,8 +377,8 @@ fn holding_nothing_is_the_same_solve() {
     let mut plain = build();
     let mut empty_hold = build();
     assert_eq!(
-        Solver::default().solve(&mut plain),
-        Solver::default().solve_holding(&mut empty_hold, &[]),
+        Solver::default().solve(&mut plain, &mut Freedoms::default()),
+        Solver::default().solve_holding(&mut empty_hold, &[], &mut Freedoms::default()),
     );
     let moved: Vec<DVec2> = plain.points().map(|(_, at)| at).collect();
     let same: Vec<DVec2> = empty_hold.points().map(|(_, at)| at).collect();
@@ -428,26 +439,38 @@ fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
 
     // What each looks like to a solver that has never seen anything.
     let mut fresh_rectangle = rectangle();
-    let rectangle_report = Solver::default().solve(&mut fresh_rectangle);
+    let mut rectangle_freedoms = Freedoms::default();
+    let rectangle_report = Solver::default().solve(&mut fresh_rectangle, &mut rectangle_freedoms);
     let mut fresh_pair = pair();
-    let pair_report = Solver::default().solve(&mut fresh_pair);
+    let mut pair_freedoms = Freedoms::default();
+    let pair_report = Solver::default().solve(&mut fresh_pair, &mut pair_freedoms);
 
-    // The same two through one solver, largest first.
+    // The same two through one solver, largest first. Both halves of the answer
+    // are compared: the freedoms are keyed by slot and sized from the sketch,
+    // so a length taken from a buffer rather than from the geometry shows up
+    // there and in nothing else.
     let mut solver = Solver::default();
+    let mut freedoms = Freedoms::default();
     let mut large = rectangle();
-    assert_eq!(solver.solve(&mut large), rectangle_report);
+    assert_eq!(solver.solve(&mut large, &mut freedoms), rectangle_report);
+    assert_eq!(freedoms, rectangle_freedoms);
     let mut small = pair();
     assert_eq!(
-        solver.solve(&mut small),
+        solver.solve(&mut small, &mut freedoms),
         pair_report,
+        "a smaller sketch after a larger one"
+    );
+    assert_eq!(
+        freedoms, pair_freedoms,
         "a smaller sketch after a larger one"
     );
     let mut large_again = rectangle();
     assert_eq!(
-        solver.solve(&mut large_again),
+        solver.solve(&mut large_again, &mut freedoms),
         rectangle_report,
         "and larger again after that"
     );
+    assert_eq!(freedoms, rectangle_freedoms, "and larger again after that");
 
     // The same reports, and the same geometry behind them.
     for (reused, fresh) in [
@@ -475,14 +498,15 @@ fn a_duplicate_constraint_is_reported_as_redundant() {
     sketch.add_constraint(distance);
     sketch.add_constraint(distance);
 
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
 
     // Consistent, so it still solves — but two equations share one row of
     // rank, and the extra one is reported rather than silently absorbed.
     assert!(report.converged, "{report:?}");
     assert!((sketch.point(free) - DVec2::new(5.0, 0.0)).length() < EPSILON);
-    assert_eq!(report.redundant_equations, 1);
-    assert_eq!(report.degrees_of_freedom, 1);
+    assert_eq!(freedoms.redundant_equations(), 1);
+    assert_eq!(freedoms.degrees_of_freedom(), 1);
 }
 
 #[test]
@@ -499,7 +523,8 @@ fn conflicting_distances_settle_at_the_least_squares_compromise() {
         });
     }
 
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
 
     // Minimising (L-1)² + (L-2)² puts L at 1.5, leaving each equation half a
     // unit out. The solve reports failure rather than pretending.
@@ -522,7 +547,8 @@ fn a_circle_solves_its_radius_and_the_point_on_it_together() {
     sketch.add_constraint(Constraint::PointOnCircle { point: rim, circle });
 
     let start = sketch.point(rim);
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
     assert!(report.converged, "{report:?}");
 
     assert!((sketch.circle(circle).radius - 2.0).abs() < EPSILON);
@@ -531,8 +557,8 @@ fn a_circle_solves_its_radius_and_the_point_on_it_together() {
     assert!((sketch.point(rim).normalize() - start.normalize()).length() < EPSILON);
     // Three free parameters (the point, the radius) against two equations:
     // the point can still travel around the circle.
-    assert_eq!(report.degrees_of_freedom, 1);
-    assert_eq!(report.redundant_equations, 0);
+    assert_eq!(freedoms.degrees_of_freedom(), 1);
+    assert_eq!(freedoms.redundant_equations(), 0);
 }
 
 #[test]
@@ -549,30 +575,32 @@ fn point_on_segment_slides_onto_the_line_without_moving_it() {
         segment,
     });
 
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
     assert!(report.converged, "{report:?}");
 
     // Both endpoints are fixed, so the line can't come to the point: the
     // point drops straight down onto y = 0, keeping its x.
     assert!((sketch.point(stray) - DVec2::new(2.0, 0.0)).length() < EPSILON);
     assert_eq!(sketch.point(b), DVec2::new(4.0, 0.0));
-    assert_eq!(report.degrees_of_freedom, 1);
+    assert_eq!(freedoms.degrees_of_freedom(), 1);
 }
 
 #[test]
 fn an_empty_sketch_is_solved_and_fully_determined() {
     let mut sketch = Sketch::default();
-    let report = Solver::default().solve(&mut sketch);
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
     assert_eq!(
         report,
         SolveReport {
             converged: true,
             iterations: 0,
             max_residual: 0.0,
-            degrees_of_freedom: 0,
-            redundant_equations: 0,
         }
     );
+    assert_eq!(freedoms.degrees_of_freedom(), 0);
+    assert_eq!(freedoms.redundant_equations(), 0);
 }
 
 /// Which geometry the constraints pin down, and which they leave something to
@@ -616,8 +644,7 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
         b: corner[2],
         distance: 3.0,
     });
-    assert!(solver.solve(&mut rectangle).converged);
-    solver.freedoms(&rectangle, &mut freedoms);
+    assert!(solver.solve(&mut rectangle, &mut freedoms).converged);
     for (index, point) in corner.iter().enumerate() {
         assert_eq!(
             freedoms.point(*point),
@@ -638,8 +665,7 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
         a: loose[0],
         b: loose[1],
     });
-    assert!(solver.solve(&mut stretchy).converged);
-    solver.freedoms(&stretchy, &mut freedoms);
+    assert!(solver.solve(&mut stretchy, &mut freedoms).converged);
     assert_eq!(freedoms.point(loose[0]), Freedom::Determined, "the anchor");
     // Its y is the anchor's and its x is anyone's guess.
     assert_eq!(freedoms.point(loose[1]), Freedom::Partly);
@@ -660,10 +686,9 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
         point: rider,
         circle: ring,
     });
-    let report = solver.solve(&mut orbit);
+    let report = solver.solve(&mut orbit, &mut freedoms);
     assert!(report.converged, "{report:?}");
-    assert_eq!(report.degrees_of_freedom, 1, "the same one freedom");
-    solver.freedoms(&orbit, &mut freedoms);
+    assert_eq!(freedoms.degrees_of_freedom(), 1, "the same one freedom");
     assert_eq!(freedoms.point(rider), Freedom::Partly);
     // And the radius the constraint named is decided, unlike the rider on it.
     assert_eq!(freedoms.radius(ring), Freedom::Determined);
@@ -673,8 +698,7 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
     let centre = loose_ring.add_point(DVec2::ZERO);
     loose_ring.fix(centre);
     let free_ring = loose_ring.add_circle(centre, 1.0);
-    assert!(solver.solve(&mut loose_ring).converged);
-    solver.freedoms(&loose_ring, &mut freedoms);
+    assert!(solver.solve(&mut loose_ring, &mut freedoms).converged);
     assert_eq!(freedoms.radius(free_ring), Freedom::Free);
     assert_eq!(freedoms.point(centre), Freedom::Determined);
 }
@@ -698,13 +722,11 @@ fn the_freedoms_agree_with_what_holding_each_point_costs() {
         ("a duplicated constraint", duplicated_distance()),
         ("conflicting distances", conflicting_distances()),
     ] {
-        solver.solve(&mut sketch);
-        let at_rest = solver.edit_holding(&mut sketch, &[], |_| {});
-        solver.freedoms(&sketch, &mut freedoms);
+        solver.solve(&mut sketch, &mut freedoms);
+        let at_rest = solver.freedom_holding(&sketch, &[]);
 
         for (id, _) in sketch.points().collect::<Vec<_>>() {
-            let held = solver.edit_holding(&mut sketch, &[id], |_| {});
-            let spent = at_rest.degrees_of_freedom - held.degrees_of_freedom;
+            let spent = at_rest - solver.freedom_holding(&sketch, &[id]);
             let expected = match spent {
                 0 => Freedom::Determined,
                 1 => Freedom::Partly,
