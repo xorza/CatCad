@@ -60,17 +60,16 @@
 //!
 //! # Picking
 //!
-//! Every primitive carries a `tag`: what a pick that lands on it reports, and
-//! nothing else. It is opaque on purpose — whatever the caller models, a body,
-//! a sketch edge, a constraint handle, a dimension line, is the caller's own
-//! vocabulary, and a renderer that learned it would be a renderer that had to
-//! be told about every kind of thing there is. A number it carries and never
-//! reads keeps hits answerable without that.
+//! Every primitive carries an optional [`Tag`]: what a pick that lands on it
+//! reports, and nothing else. `None` is scenery — grids, guides, anything
+//! there to be seen and not grabbed. Ask with [`Scene::pick`], which aims in
+//! pixels — [`Viewport`] is how those meet the coordinates a projection works
+//! in — and answers in [`Hit`]s.
 //!
-//! `None` is scenery — grids, guides, anything there to be seen and not
-//! grabbed. Ask with [`Scene::pick`], which aims in pixels — [`Viewport`] is
-//! how those meet the coordinates a projection works in — and answers in
-//! [`Hit`]s.
+//! Naming one is [`Styled::tagged`], which every primitive gets from
+//! [`Styled`] along with [`colored`](Styled::colored) — so the trait has to be
+//! in scope to reach either. What a tag names can then be drawn differently
+//! with [`Renderer::highlight`], which takes a [`Lit`].
 
 pub(crate) mod aim;
 pub(crate) mod bounds;
@@ -85,12 +84,14 @@ pub(crate) mod ray;
 pub(crate) mod renderer;
 pub(crate) mod ring;
 pub(crate) mod scene;
+pub(crate) mod styled;
+pub(crate) mod tag;
 pub(crate) mod viewport;
 
 pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;
-pub use highlight::Highlight;
+pub use highlight::{Highlight, Lit};
 pub use hit::{Hit, HitAt};
 pub use mesh::{Mesh, Vertex};
 pub use object::Object;
@@ -99,4 +100,6 @@ pub use ray::Ray;
 pub use renderer::Renderer;
 pub use ring::Ring;
 pub use scene::Scene;
+pub use styled::Styled;
+pub use tag::Tag;
 pub use viewport::Viewport;

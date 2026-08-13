@@ -1,5 +1,6 @@
 //! What a pick reports, turned back into the sketch entity it came from.
 
+use aperture::Tag;
 use silverpoint::{CircleId, PointId, SegmentId};
 
 /// A sketch entity a drawn primitive stands for.
@@ -12,8 +13,8 @@ pub enum Named {
 
 /// Every entity the drawing named, in the order it was drawn.
 ///
-/// Aperture's `tag` is one opaque `u64`, and a sketch handle no longer fits in
-/// one: [`Id`](silverpoint::Id) spends a `u32` on the slot and another on the
+/// A [`Tag`] is one opaque `u64`, and a sketch handle no longer fits in one:
+/// [`Id`](silverpoint::Id) spends a `u32` on the slot and another on the
 /// generation, leaving nothing to say which of the three kinds it is. Packing
 /// would mean stealing bits from a counter and teaching two crates the same
 /// bit layout.
@@ -29,15 +30,15 @@ pub struct Names {
 
 impl Names {
     /// Name `entity`, and hand back the tag that will report it.
-    pub fn tag(&mut self, entity: Named) -> u64 {
+    pub fn tag(&mut self, entity: Named) -> Tag {
         self.entities.push(entity);
-        (self.entities.len() - 1) as u64
+        Tag::new((self.entities.len() - 1) as u64)
     }
 
     /// What `tag` was given to, or `None` if it came from a drawing older than
     /// this one.
-    pub fn get(&self, tag: u64) -> Option<Named> {
-        self.entities.get(usize::try_from(tag).ok()?).copied()
+    pub fn get(&self, tag: Tag) -> Option<Named> {
+        self.entities.get(usize::try_from(tag.get()).ok()?).copied()
     }
 
     pub fn is_empty(&self) -> bool {

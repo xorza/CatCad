@@ -10,7 +10,7 @@ pub mod sketch_plane;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Highlight, Mesh, Object, Projection, Renderer, Scene, Viewport};
+use aperture::{Highlight, Lit, Mesh, Object, Projection, Renderer, Scene, Styled, Viewport};
 use glam::{DVec2, Mat4, UVec2, Vec2, Vec3};
 use palantir::{
     Align, App, Background, Button, Configure, GpuPaint, GpuView, HostHandle, Panel, Response,
@@ -199,16 +199,9 @@ impl CatCad {
             });
 
         self.hovered = under.and_then(|tag| self.names.get(tag));
-
-        let mut view = self.view.borrow_mut();
-        let lit = view.highlights_mut();
-        // Rewritten only when it changes, so a still pointer never dirties the
-        // highlight batch.
-        let already = lit.first().map(|(tag, _)| *tag);
-        if already != under {
-            lit.clear();
-            lit.extend(under.map(|tag| (tag, HOVERED)));
-        }
+        self.view
+            .borrow_mut()
+            .highlight_only(under.map(|tag| Lit { tag, look: HOVERED }));
     }
 
     /// What floats over the viewport, pinned to its top-left corner.

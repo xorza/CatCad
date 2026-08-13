@@ -2,6 +2,8 @@
 
 use crate::aim::{Aim, Inside};
 use crate::hit::{Hit, HitAt};
+use crate::styled::Styled;
+use crate::tag::Tag;
 use glam::Vec3;
 
 /// Squared screen length below which a projected segment lands on a single
@@ -42,7 +44,7 @@ pub struct Curve {
     pub plane_normal: Option<Vec3>,
     /// What a pick that lands on this stroke reports. See
     /// [picking](crate#picking).
-    pub tag: Option<u64>,
+    pub tag: Option<Tag>,
 }
 
 impl Curve {
@@ -86,15 +88,35 @@ impl Curve {
         best
     }
 
+    /// How many segments this curve strokes.
+    pub(crate) fn segment_count(&self) -> usize {
+        let open = self.points.len().saturating_sub(1);
+        if self.wraps() { open + 1 } else { open }
+    }
+
+    /// Each stroked segment as its two endpoints, the closing one last.
+    pub(crate) fn segments(&self) -> impl Iterator<Item = (Vec3, Vec3)> {
+        let wrap = self
+            .wraps()
+            .then(|| (self.points[self.points.len() - 1], self.points[0]));
+        self.points
+            .windows(2)
+            .map(|pair| (pair[0], pair[1]))
+            .chain(wrap)
+    }
+
+    fn wraps(&self) -> bool {
+        self.closed && self.points.len() > 2
+    }
+}
+
+/// The chainable setters, beside the two [`Styled`] already supplies. Kept
+/// apart from what the curve *does*, so neither has to be read past to reach
+/// the other.
+impl Curve {
     /// Join the last point back to the first.
     pub fn closed(mut self) -> Self {
         self.closed = true;
-        self
-    }
-
-    /// Set the linear-RGB colour.
-    pub fn colored(mut self, color: Vec3) -> Self {
-        self.color = color;
         self
     }
 
@@ -115,33 +137,15 @@ impl Curve {
         self.plane_normal = Some(normal.normalize());
         self
     }
+}
 
-    /// Name this curve to whatever a pick will be reported to. See
-    /// [`Curve::tag`].
-    pub fn tagged(mut self, tag: u64) -> Self {
-        self.tag = Some(tag);
-        self
+impl Styled for Curve {
+    fn color_mut(&mut self) -> &mut Vec3 {
+        &mut self.color
     }
 
-    /// How many segments this curve strokes.
-    pub(crate) fn segment_count(&self) -> usize {
-        let open = self.points.len().saturating_sub(1);
-        if self.wraps() { open + 1 } else { open }
-    }
-
-    /// Each stroked segment as its two endpoints, the closing one last.
-    pub(crate) fn segments(&self) -> impl Iterator<Item = (Vec3, Vec3)> {
-        let wrap = self
-            .wraps()
-            .then(|| (self.points[self.points.len() - 1], self.points[0]));
-        self.points
-            .windows(2)
-            .map(|pair| (pair[0], pair[1]))
-            .chain(wrap)
-    }
-
-    fn wraps(&self) -> bool {
-        self.closed && self.points.len() > 2
+    fn tag_mut(&mut self) -> &mut Option<Tag> {
+        &mut self.tag
     }
 }
 

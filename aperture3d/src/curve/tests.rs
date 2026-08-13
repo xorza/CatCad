@@ -8,12 +8,12 @@ fn a_tag_survives_the_rest_of_the_chain() {
     // Each builder returns the whole curve, so one that rebuilt a field
     // instead of assigning it would drop whatever ran before it.
     let tagged = Curve::segment(Vec3::ZERO, Vec3::X)
-        .tagged(9)
+        .tagged(Tag::new(9))
         .colored(Vec3::Y)
         .width(3.0)
         .in_plane(Vec3::Y)
         .closed();
-    assert_eq!(tagged.tag, Some(9));
+    assert_eq!(tagged.tag, Some(Tag::new(9)));
     assert_eq!(tagged.width, 3.0);
 }
 

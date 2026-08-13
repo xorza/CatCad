@@ -1,6 +1,6 @@
 //! Where a sketch sits in the world, and what it looks like once it's there.
 
-use aperture::{Curve, Point, Ring};
+use aperture::{Curve, Point, Ring, Styled};
 use glam::{DVec2, Vec3};
 use silverpoint::Sketch;
 

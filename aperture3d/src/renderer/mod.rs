@@ -8,11 +8,12 @@
 
 use crate::camera::Camera;
 use crate::curve::Curve;
-use crate::highlight::Highlight;
+use crate::highlight::{Highlight, Lit};
 use crate::object::Object;
 use crate::point::Point;
 use crate::ring::Ring;
 use crate::scene::Scene;
+use crate::tag::Tag;
 use crate::viewport::Viewport;
 use glam::{Mat3, UVec2};
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
@@ -107,7 +108,9 @@ impl MeshData {
 #[derive(Debug)]
 pub struct Renderer {
     scene: Scene,
-    highlights: Vec<(u64, Highlight)>,
+    /// At most one entry per tag, which is what lets a lookup stop at the
+    /// first match rather than having to find the last.
+    highlights: Vec<Lit>,
     dirty: Dirty,
     gpu: Option<Gpu>,
 }
@@ -180,30 +183,6 @@ impl Renderer {
         &mut self.scene.curves
     }
 
-    /// What to draw a second time, and in what look.
-    ///
-    /// Paired by [`tag`](crate::Curve::tag), so one entry lights every
-    /// primitive carrying that tag — every edge of one sketch entity, say.
-    /// A tag named twice takes the last look given, which is what lets a
-    /// hover read over a selection without the caller reconciling the two.
-    ///
-    /// Editing this rebuilds only the highlight batches. The scene's own
-    /// batches are untouched, so hovering costs nothing proportional to the
-    /// scene.
-    pub fn highlights_mut(&mut self) -> &mut Vec<(u64, Highlight)> {
-        self.dirty.highlights = true;
-        &mut self.highlights
-    }
-
-    /// The look a tag was given, if any.
-    fn look_for(&self, tag: Option<u64>) -> Option<Highlight> {
-        let tag = tag?;
-        self.highlights
-            .iter()
-            .rev()
-            .find_map(|(lit, look)| (*lit == tag).then_some(*look))
-    }
-
     /// Edit the scene's rings, re-uploading the batch on the next paint.
     pub fn rings_mut(&mut self) -> &mut Vec<Ring> {
         self.dirty.rings = true;
@@ -214,6 +193,45 @@ impl Renderer {
     pub fn points_mut(&mut self) -> &mut Vec<Point> {
         self.dirty.points = true;
         &mut self.scene.points
+    }
+
+    /// Draw everything named by `lit.tag` a second time, in `lit.look`, over
+    /// the top of its ordinary self — replacing whatever look that tag had.
+    ///
+    /// Only the highlight batches are rebuilt; the scene's own are untouched,
+    /// so this costs nothing proportional to the scene. Nor does re-asking for
+    /// a look already in force, which is what lets a caller drive this from a
+    /// pointer that has not moved.
+    pub fn highlight(&mut self, lit: Lit) {
+        match self.highlights.iter_mut().find(|had| had.tag == lit.tag) {
+            Some(had) if *had == lit => return,
+            Some(had) => *had = lit,
+            None => self.highlights.push(lit),
+        }
+        self.dirty.highlights = true;
+    }
+
+    /// Light `lit` and nothing else, dropping whatever was lit before. `None`
+    /// lights nothing at all.
+    ///
+    /// What a hover wants, where the answer is one thing or none of them and
+    /// the previous answer is of no interest. Like [`Renderer::highlight`],
+    /// a call that changes nothing dirties nothing.
+    pub fn highlight_only(&mut self, lit: Option<Lit>) {
+        if self.highlights.iter().copied().eq(lit) {
+            return;
+        }
+        self.highlights.clear();
+        self.highlights.extend(lit);
+        self.dirty.highlights = true;
+    }
+
+    /// The look a tag was given, if any.
+    fn look_for(&self, tag: Option<Tag>) -> Option<Highlight> {
+        let tag = tag?;
+        self.highlights
+            .iter()
+            .find_map(|lit| (lit.tag == tag).then_some(lit.look))
     }
 
     /// World-space triangle soup for the whole scene. Transforms are applied
@@ -267,24 +285,27 @@ impl Renderer {
     /// highlight is the primitive it doubles rather than a copy that can
     /// drift from it.
     fn flatten_highlights(&self) -> Highlighted {
-        let mut lit = Highlighted::default();
+        let mut batch = Highlighted::default();
         for curve in &self.scene.curves {
             if let Some(look) = self.look_for(curve.tag) {
-                lit.curves
+                batch
+                    .curves
                     .extend(CurveInstance::of(curve).map(|instance| instance.highlighted(look)));
             }
         }
         for ring in &self.scene.rings {
             if let Some(look) = self.look_for(ring.tag) {
-                lit.rings.push(RingInstance::of(ring).highlighted(look));
+                batch.rings.push(RingInstance::of(ring).highlighted(look));
             }
         }
         for point in &self.scene.points {
             if let Some(look) = self.look_for(point.tag) {
-                lit.points.push(PointInstance::of(point).highlighted(look));
+                batch
+                    .points
+                    .push(PointInstance::of(point).highlighted(look));
             }
         }
-        lit
+        batch
     }
 
     /// Every marker as one instance. Only the anchor travels; the shader sizes
@@ -323,7 +344,7 @@ impl GpuPaint for Renderer {
         let points = self.dirty.points.then(|| self.flatten_points());
         // Any scene edit can add or remove what a tag names, so the highlight
         // batches follow the scene as well as their own flag.
-        let lit =
+        let highlighted =
             (self.dirty.highlights || self.dirty.curves || self.dirty.rings || self.dirty.points)
                 .then(|| self.flatten_highlights());
         self.dirty = Dirty::default();
@@ -341,13 +362,13 @@ impl GpuPaint for Renderer {
         if let Some(data) = points {
             gpu.points.upload_instances(ctx.device, ctx.queue, &data);
         }
-        if let Some(lit) = lit {
+        if let Some(highlighted) = highlighted {
             gpu.lit_curves
-                .upload_instances(ctx.device, ctx.queue, &lit.curves);
+                .upload_instances(ctx.device, ctx.queue, &highlighted.curves);
             gpu.lit_rings
-                .upload_instances(ctx.device, ctx.queue, &lit.rings);
+                .upload_instances(ctx.device, ctx.queue, &highlighted.rings);
             gpu.lit_points
-                .upload_instances(ctx.device, ctx.queue, &lit.points);
+                .upload_instances(ctx.device, ctx.queue, &highlighted.points);
         }
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));

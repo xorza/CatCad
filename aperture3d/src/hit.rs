@@ -1,5 +1,6 @@
 //! What a pick found.
 
+use crate::tag::Tag;
 use glam::Vec3;
 
 /// Where on a primitive a pick landed.
@@ -42,9 +43,9 @@ impl HitAt {
 /// One primitive the cursor was near enough to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hit {
-    /// The [tag](crate#picking) the primitive was named with. Untagged
-    /// primitives are scenery and never appear here.
-    pub tag: u64,
+    /// The [`Tag`] the primitive was named with. Untagged primitives are
+    /// scenery and never appear here.
+    pub tag: Tag,
     pub at: HitAt,
     /// Where on the primitive, in world space — the marker's own position, or
     /// the point of the stroke nearest the cursor.

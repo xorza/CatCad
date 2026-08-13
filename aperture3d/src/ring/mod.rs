@@ -2,6 +2,8 @@
 
 use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
+use crate::styled::Styled;
+use crate::tag::Tag;
 use glam::Vec3;
 
 /// Default stroke width, in logical pixels.
@@ -43,7 +45,7 @@ pub struct Ring {
     pub z_offset: i32,
     /// What a pick that lands on this stroke reports. See
     /// [picking](crate#picking).
-    pub tag: Option<u64>,
+    pub tag: Option<Tag>,
 }
 
 impl Ring {
@@ -75,29 +77,15 @@ impl Ring {
         }
     }
 
-    /// Set the linear-RGB colour.
-    pub fn colored(mut self, color: Vec3) -> Self {
-        self.color = color;
-        self
+    /// The plane the ring lies in, as a unit normal.
+    pub fn normal(&self) -> Vec3 {
+        self.x_axis.cross(self.y_axis)
     }
 
-    /// Set the stroke width in logical pixels.
-    pub fn width(mut self, width: f32) -> Self {
-        self.width = width;
-        self
-    }
-
-    /// Set the depth-test bias. See [`Ring::z_offset`].
-    pub fn z_offset(mut self, z_offset: i32) -> Self {
-        self.z_offset = z_offset;
-        self
-    }
-
-    /// Name this ring to whatever a pick will be reported to. See
-    /// [`Ring::tag`].
-    pub fn tagged(mut self, tag: u64) -> Self {
-        self.tag = Some(tag);
-        self
+    /// Where `angle` radians round from [`Ring::x_axis`] lands in the world.
+    pub fn at(&self, angle: f32) -> Vec3 {
+        let (sin, cos) = angle.sin_cos();
+        self.center + (self.x_axis * cos + self.y_axis * sin) * self.radius
     }
 
     /// Whether the cursor landed on this rim, and where round it.
@@ -114,29 +102,7 @@ impl Ring {
         })
     }
 
-    /// The plane the ring lies in, as a unit normal.
-    pub fn normal(&self) -> Vec3 {
-        self.x_axis.cross(self.y_axis)
-    }
-
-    /// Where `angle` radians round from [`Ring::x_axis`] lands in the world.
-    pub fn at(&self, angle: f32) -> Vec3 {
-        let (sin, cos) = angle.sin_cos();
-        self.center + (self.x_axis * cos + self.y_axis * sin) * self.radius
-    }
-}
-
-/// How near the cursor came to a ring's rim, and where round it.
-#[derive(Debug, Clone, Copy)]
-struct NearestOnRing {
-    /// Radians round from the ring's own `x_axis`, in `0..TAU`.
-    angle: f32,
-    /// How far the cursor was from it on screen.
-    screen: f32,
-}
-
-impl Ring {
-    /// The point of `ring` whose *projection* comes nearest `cursor`.
+    /// The point of the ring whose *projection* comes nearest the cursor.
     ///
     /// Measured on screen rather than in the ring's own plane. The two agree while
     /// the ring faces the eye and part company as it tilts: the in-plane answer
@@ -202,6 +168,42 @@ impl Ring {
             screen,
         })
     }
+}
+
+/// The chainable setters, beside the two [`Styled`] already supplies. Kept
+/// apart from what the ring *does*, so neither has to be read past to reach
+/// the other.
+impl Ring {
+    /// Set the stroke width in logical pixels.
+    pub fn width(mut self, width: f32) -> Self {
+        self.width = width;
+        self
+    }
+
+    /// Set the depth-test bias. See [`Ring::z_offset`].
+    pub fn z_offset(mut self, z_offset: i32) -> Self {
+        self.z_offset = z_offset;
+        self
+    }
+}
+
+impl Styled for Ring {
+    fn color_mut(&mut self) -> &mut Vec3 {
+        &mut self.color
+    }
+
+    fn tag_mut(&mut self) -> &mut Option<Tag> {
+        &mut self.tag
+    }
+}
+
+/// How near the cursor came to a ring's rim, and where round it.
+#[derive(Debug, Clone, Copy)]
+struct NearestOnRing {
+    /// Radians round from the ring's own `x_axis`, in `0..TAU`.
+    angle: f32,
+    /// How far the cursor was from it on screen.
+    screen: f32,
 }
 
 #[cfg(test)]

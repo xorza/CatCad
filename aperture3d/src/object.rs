@@ -1,6 +1,8 @@
 //! A mesh placed in the world.
 
 use crate::mesh::Mesh;
+use crate::styled::Styled;
+use crate::tag::Tag;
 use glam::{Mat4, Vec3};
 
 /// Geometry plus where it sits and what colour it is. Colour is flat per
@@ -13,7 +15,7 @@ pub struct Object {
     /// Linear-RGB base colour.
     pub color: Vec3,
     /// What a pick that lands here reports. See [picking](crate#picking).
-    pub tag: Option<u64>,
+    pub tag: Option<Tag>,
 }
 
 impl Object {
@@ -32,18 +34,15 @@ impl Object {
         self.transform = Mat4::from_translation(position);
         self
     }
+}
 
-    /// Set the base colour.
-    pub fn colored(mut self, color: Vec3) -> Self {
-        self.color = color;
-        self
+impl Styled for Object {
+    fn color_mut(&mut self) -> &mut Vec3 {
+        &mut self.color
     }
 
-    /// Name this object to whatever a pick will be reported to. See
-    /// [`Object::tag`].
-    pub fn tagged(mut self, tag: u64) -> Self {
-        self.tag = Some(tag);
-        self
+    fn tag_mut(&mut self) -> &mut Option<Tag> {
+        &mut self.tag
     }
 }
 
@@ -60,10 +59,10 @@ mod tests {
         // instead of assigning it would drop whatever ran before it — `at`
         // replaces the transform outright, which is exactly that shape.
         let tagged = Object::new(Mesh::cube(1.0))
-            .tagged(7)
+            .tagged(Tag::new(7))
             .at(Vec3::X)
             .colored(Vec3::Y);
-        assert_eq!(tagged.tag, Some(7));
+        assert_eq!(tagged.tag, Some(Tag::new(7)));
         assert_eq!(tagged.color, Vec3::Y);
     }
 }

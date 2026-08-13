@@ -14,7 +14,7 @@
 
 use std::sync::mpsc;
 
-use aperture::{Camera, Curve, Highlight, Projection, Ring, Viewport};
+use aperture::{Camera, Curve, Highlight, Lit, Projection, Ring, Styled, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use image::RgbaImage;
 use palantir::internals::headless_test_gpu;
@@ -672,7 +672,7 @@ fn the_demo_scene_grazing_looks_the_way_it_did() {
 /// A highlight is drawn over the primitive it names, and taking it away puts
 /// the frame back exactly as it was.
 ///
-/// Driven through `highlights_mut` rather than the pointer, because a headless
+/// Driven through `highlight_only` rather than the pointer, because a headless
 /// frame has no pointer to hover with — the wiring from one to the other is
 /// `CatCad::hover`, and what this pins is the drawing underneath it.
 #[test]
@@ -706,7 +706,9 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     let edge = app.view.borrow().scene().curves[0]
         .tag
         .expect("the drawing tags its edges");
-    app.view.borrow_mut().highlights_mut().push((edge, look));
+    app.view
+        .borrow_mut()
+        .highlight_only(Some(Lit { tag: edge, look }));
     let lit = capture(size, &mut pane);
     assert!(
         magenta(&lit) > 200,
@@ -716,7 +718,7 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
 
     // And it is *drawn over*, not drawn instead: the rest of the frame is
     // untouched, so clearing restores it pixel for pixel.
-    app.view.borrow_mut().highlights_mut().clear();
+    app.view.borrow_mut().highlight_only(None);
     let cleared = capture(size, &mut pane);
     assert_eq!(magenta(&cleared), 0);
     assert_eq!(cleared.image, plain.image, "clearing left something behind");

@@ -1,6 +1,7 @@
 use super::*;
 use crate::mesh::{Mesh, Vertex};
 use crate::renderer::band::QUAD_INDICES;
+use crate::styled::Styled;
 use glam::{Mat4, Vec3};
 
 #[test]
@@ -204,23 +205,22 @@ fn flatten_curves_strokes_the_closing_segment_too() {
 /// — and touches nothing else.
 #[test]
 fn a_highlight_repeats_only_what_its_tag_names() {
-    use crate::highlight::Highlight;
-    use crate::ring::Ring;
-
     let mut scene = Scene::default();
     scene.curves.push(
         Curve::new(vec![Vec3::ZERO, Vec3::X, Vec3::Y])
             .width(2.0)
             .z_offset(10)
-            .tagged(1),
+            .tagged(Tag::new(1)),
     );
     scene
         .curves
-        .push(Curve::segment(Vec3::ZERO, Vec3::Z).tagged(2));
-    scene
-        .rings
-        .push(Ring::new(Vec3::ZERO, 1.0, Vec3::Y).width(3.0).tagged(1));
-    scene.points.push(Point::new(Vec3::X).tagged(2));
+        .push(Curve::segment(Vec3::ZERO, Vec3::Z).tagged(Tag::new(2)));
+    scene.rings.push(
+        Ring::new(Vec3::ZERO, 1.0, Vec3::Y)
+            .width(3.0)
+            .tagged(Tag::new(1)),
+    );
+    scene.points.push(Point::new(Vec3::X).tagged(Tag::new(2)));
     let mut renderer = Renderer::new(scene);
 
     // Nothing named, nothing doubled.
@@ -228,7 +228,10 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     assert!(lit.curves.is_empty() && lit.rings.is_empty() && lit.points.is_empty());
 
     let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0).lift(64);
-    renderer.highlights_mut().push((1, look));
+    renderer.highlight(Lit {
+        tag: Tag::new(1),
+        look,
+    });
     let lit = renderer.flatten_highlights();
 
     // Tag 1 is the three-point curve and the ring: two segments and one rim.
@@ -251,11 +254,61 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     assert_eq!(lit.curves[0].start, plain[0].start);
     assert_eq!(lit.curves[0].end, plain[0].end);
 
-    // The last look for a tag wins, so a hover can read over a selection.
-    renderer
-        .highlights_mut()
-        .push((1, Highlight::new(Vec3::Y).scale(1.0).lift(0)));
+    // Naming a tag again replaces its look rather than stacking a second one,
+    // so a hover reads over a selection and both still draw once.
+    renderer.highlight(Lit {
+        tag: Tag::new(1),
+        look: Highlight::new(Vec3::Y).scale(1.0).lift(0),
+    });
     let lit = renderer.flatten_highlights();
+    assert_eq!(lit.curves.len(), 2, "still doubled once, not twice");
     assert_eq!(lit.rings[0].half_width, 1.5);
     assert_eq!(lit.rings[0].color, [0.0, 1.0, 0.0]);
+
+    // Lighting one thing alone drops the rest, and `None` drops everything.
+    renderer.highlight_only(Some(Lit {
+        tag: Tag::new(2),
+        look,
+    }));
+    let lit = renderer.flatten_highlights();
+    assert!(lit.curves.len() == 1 && lit.points.len() == 1 && lit.rings.is_empty());
+    renderer.highlight_only(None);
+    let lit = renderer.flatten_highlights();
+    assert!(lit.curves.is_empty() && lit.rings.is_empty() && lit.points.is_empty());
+}
+
+/// Re-asking for a look already in force leaves the batch alone, which is what
+/// lets a caller drive highlighting straight off a pointer that is not moving.
+#[test]
+fn re_lighting_what_is_already_lit_dirties_nothing() {
+    let mut scene = Scene::default();
+    scene
+        .curves
+        .push(Curve::segment(Vec3::ZERO, Vec3::X).tagged(Tag::new(1)));
+    let mut renderer = Renderer::new(scene);
+    let lit = Lit {
+        tag: Tag::new(1),
+        look: Highlight::new(Vec3::Y),
+    };
+
+    // `new` starts everything outstanding, so the flag says nothing until it
+    // has been cleared once.
+    renderer.dirty = Dirty::default();
+    renderer.highlight(lit);
+    assert!(renderer.dirty.highlights, "the first look is a change");
+
+    renderer.dirty = Dirty::default();
+    renderer.highlight(lit);
+    renderer.highlight_only(Some(lit));
+    assert!(!renderer.dirty.highlights, "neither call changed anything");
+
+    // A different look for the same tag is a change, and so is dropping it.
+    renderer.highlight(Lit {
+        look: Highlight::new(Vec3::X),
+        ..lit
+    });
+    assert!(renderer.dirty.highlights);
+    renderer.dirty = Dirty::default();
+    renderer.highlight_only(None);
+    assert!(renderer.dirty.highlights);
 }

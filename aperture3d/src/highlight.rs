@@ -1,5 +1,6 @@
 //! How a picked primitive is drawn differently.
 
+use crate::tag::Tag;
 use glam::Vec3;
 
 /// What a primitive looks like when something has singled it out.
@@ -9,12 +10,10 @@ use glam::Vec3;
 /// therefore costs nothing the scene has to be rebuilt for — only the handful
 /// of instances that are actually highlighted move.
 ///
-/// What "picked" *means* is the caller's business, the same way [`tag`] is:
+/// What "picked" *means* is the caller's business, the same way a [`Tag`] is:
 /// hover and selection want different looks, a tool that only accepts edges
 /// wants a third, and a renderer that decided between them would be a renderer
 /// that had to be told about tools.
-///
-/// [`tag`]: crate::Curve::tag
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Highlight {
     /// Linear-RGB the primitive takes on, in place of its own.
@@ -49,4 +48,15 @@ impl Highlight {
         self.lift = lift;
         self
     }
+}
+
+/// One tag singled out, and the look everything carrying it takes on.
+///
+/// A tag rather than a primitive, so that one entry lights every primitive
+/// standing for the same thing — all four edges of a sketch entity, say —
+/// without the caller having to know how many there turned out to be.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Lit {
+    pub tag: Tag,
+    pub look: Highlight,
 }

@@ -2,6 +2,8 @@ use super::*;
 use crate::camera::Projection;
 use crate::hit::HitAt;
 use crate::mesh::Mesh;
+use crate::styled::Styled;
+use crate::tag::Tag;
 use glam::UVec2;
 
 /// Looking straight down −Z from 5 away with a 90° fov, so a 100×100
@@ -53,7 +55,7 @@ fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
         // the one direction the lean never foreshortens.
         scene
             .rings
-            .push(Ring::new(Vec3::ZERO, 2.0, Vec3::Z).tagged(7));
+            .push(Ring::new(Vec3::ZERO, 2.0, Vec3::Z).tagged(Tag::new(7)));
 
         let cursor = aim_beside_the_rim(&scene, 1.0);
         let hits = scene.pick(cursor, viewport(), 2.0);
@@ -95,12 +97,12 @@ fn a_marker_is_hit_within_its_own_glyph_or_the_asked_radius() {
     let mut scene = head_on();
     scene
         .points
-        .push(Point::new(Vec3::ZERO).size(8.0).tagged(1));
+        .push(Point::new(Vec3::ZERO).size(8.0).tagged(Tag::new(1)));
 
     // Dead on.
     let hits = scene.pick(CENTRE, viewport(), 1.0);
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].tag, 1);
+    assert_eq!(hits[0].tag, Tag::new(1));
     assert_eq!(hits[0].at, HitAt::Point);
     assert_eq!(hits[0].world, Vec3::ZERO);
     assert!(hits[0].screen < 1e-4);
@@ -143,13 +145,13 @@ fn a_stroke_reports_where_along_it_the_cursor_fell() {
     let mut scene = head_on();
     // Spans x −2..2, which at ten pixels to the unit is 40 px either side
     // of centre.
-    scene
-        .curves
-        .push(Curve::segment(Vec3::new(-2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)).tagged(7));
+    scene.curves.push(
+        Curve::segment(Vec3::new(-2.0, 0.0, 0.0), Vec3::new(2.0, 0.0, 0.0)).tagged(Tag::new(7)),
+    );
 
     let hits = scene.pick(CENTRE + Vec2::new(10.0, 0.0), viewport(), 4.0);
     assert_eq!(hits.len(), 1);
-    assert_eq!(hits[0].tag, 7);
+    assert_eq!(hits[0].tag, Tag::new(7));
     // Ten pixels right of centre is world x = 1, which is three quarters
     // along a segment running from −2 to 2. The cursor sits on the line,
     // so nothing separates them.
@@ -181,9 +183,9 @@ fn a_receding_stroke_reports_where_the_cursor_is_in_the_world_not_on_screen() {
     // so the far half is squeezed into a fraction of the pixels the near
     // half gets. Halfway along on *screen* is nowhere near halfway along
     // the segment.
-    scene
-        .curves
-        .push(Curve::segment(Vec3::new(0.0, -1.0, 4.0), Vec3::new(0.0, -1.0, -16.0)).tagged(3));
+    scene.curves.push(
+        Curve::segment(Vec3::new(0.0, -1.0, 4.0), Vec3::new(0.0, -1.0, -16.0)).tagged(Tag::new(3)),
+    );
 
     // With a 90° fov the projected y is −1/w, so the ends land at pixel
     // 100 and 50 + 50/21 = 52.38, and their midpoint is 76.19.
@@ -210,19 +212,27 @@ fn a_marker_outranks_the_strokes_running_through_it() {
     // Two edges crossing at the origin, and a marker on the crossing —
     // the corner of any rectangle. Sorting on depth alone would bury the
     // marker under whichever edge rounded nearer.
-    scene
-        .curves
-        .push(Curve::segment(-Vec3::X, Vec3::X).width(2.0).tagged(10));
-    scene
-        .curves
-        .push(Curve::segment(-Vec3::Y, Vec3::Y).width(2.0).tagged(11));
+    scene.curves.push(
+        Curve::segment(-Vec3::X, Vec3::X)
+            .width(2.0)
+            .tagged(Tag::new(10)),
+    );
+    scene.curves.push(
+        Curve::segment(-Vec3::Y, Vec3::Y)
+            .width(2.0)
+            .tagged(Tag::new(11)),
+    );
     scene
         .points
-        .push(Point::new(Vec3::ZERO).size(6.0).tagged(12));
+        .push(Point::new(Vec3::ZERO).size(6.0).tagged(Tag::new(12)));
 
     let hits = scene.pick(CENTRE, viewport(), 3.0);
     assert_eq!(hits.len(), 3);
-    assert_eq!(hits[0].tag, 12, "the marker comes first: {hits:?}");
+    assert_eq!(
+        hits[0].tag,
+        Tag::new(12),
+        "the marker comes first: {hits:?}"
+    );
     assert_eq!(hits[0].at, HitAt::Point);
     // The strokes still come back — that is what lets a caller cycle.
     assert!(hits[1..].iter().all(|hit| hit.at.rank() == 1));
@@ -236,15 +246,17 @@ fn nearer_the_cursor_beats_nearer_the_eye() {
     scene.curves.push(
         Curve::segment(Vec3::new(-2.0, 0.4, 1.0), Vec3::new(2.0, 0.4, 1.0))
             .width(1.0)
-            .tagged(20),
+            .tagged(Tag::new(20)),
     );
-    scene
-        .curves
-        .push(Curve::segment(-Vec3::X, Vec3::X).width(1.0).tagged(21));
+    scene.curves.push(
+        Curve::segment(-Vec3::X, Vec3::X)
+            .width(1.0)
+            .tagged(Tag::new(21)),
+    );
 
     let hits = scene.pick(CENTRE, viewport(), 10.0);
     assert_eq!(hits.len(), 2);
-    assert_eq!(hits[0].tag, 21, "aim beats depth: {hits:?}");
+    assert_eq!(hits[0].tag, Tag::new(21), "aim beats depth: {hits:?}");
     assert!(hits[0].screen < hits[1].screen);
     assert!(hits[0].distance > hits[1].distance);
 }
@@ -255,7 +267,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
     // Wholly behind: the eye is at z = 5 looking down −Z.
     scene
         .points
-        .push(Point::new(Vec3::new(0.0, 0.0, 9.0)).tagged(1));
+        .push(Point::new(Vec3::new(0.0, 0.0, 9.0)).tagged(Tag::new(1)));
     assert!(scene.pick(CENTRE, viewport(), 50.0).is_empty());
 
     // And a marker the near plane cut is no more pickable than one behind
@@ -264,7 +276,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
     scene.points.clear();
     scene
         .points
-        .push(Point::new(Vec3::new(0.0, 0.0, 4.5)).tagged(1));
+        .push(Point::new(Vec3::new(0.0, 0.0, 4.5)).tagged(Tag::new(1)));
     assert!(scene.pick(CENTRE, viewport(), 50.0).is_empty());
 
     // Straddling. The visible half still picks, and reports a parameter on
@@ -272,12 +284,12 @@ fn only_what_survived_the_near_plane_can_be_picked() {
     // recedes straight down the view axis, so all of it lands on one
     // pixel and the near end answers for the rest.
     scene.points.clear();
-    scene
-        .curves
-        .push(Curve::segment(Vec3::new(0.0, 0.0, -3.0), Vec3::new(0.0, 0.0, 9.0)).tagged(2));
+    scene.curves.push(
+        Curve::segment(Vec3::new(0.0, 0.0, -3.0), Vec3::new(0.0, 0.0, 9.0)).tagged(Tag::new(2)),
+    );
     let hits = scene.pick(CENTRE, viewport(), 20.0);
     assert_eq!(hits.len(), 1, "{hits:?}");
-    assert_eq!(hits[0].tag, 2);
+    assert_eq!(hits[0].tag, Tag::new(2));
     assert_eq!(hits[0].at, HitAt::Segment { index: 0, t: 0.0 });
     assert_eq!(hits[0].world, Vec3::new(0.0, 0.0, -3.0));
 
@@ -290,7 +302,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
     scene.curves.push(
         Curve::segment(Vec3::new(-1.0, 0.0, 6.0), Vec3::new(1.0, 0.0, 0.0))
             .width(1.0)
-            .tagged(3),
+            .tagged(Tag::new(3)),
     );
     let hits = scene.pick(Vec2::new(40.0, 50.0), viewport(), 1.0);
     assert_eq!(hits.len(), 1, "inside the drawn stretch: {hits:?}");

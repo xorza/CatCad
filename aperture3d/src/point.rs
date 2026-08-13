@@ -2,6 +2,8 @@
 
 use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
+use crate::styled::Styled;
+use crate::tag::Tag;
 use glam::Vec3;
 
 /// Default marker diameter, in logical pixels.
@@ -29,7 +31,7 @@ pub struct Point {
     /// the viewer. See [overlays](crate#overlays).
     pub z_offset: i32,
     /// What a pick that lands here reports. See [picking](crate#picking).
-    pub tag: Option<u64>,
+    pub tag: Option<Tag>,
     /// The plane this marker sits on, as a unit normal, when it sits on one.
     /// See [overlays](crate#overlays). `None` keeps the anchor's depth, flat
     /// across the disc.
@@ -49,18 +51,6 @@ impl Point {
         }
     }
 
-    /// Set the linear-RGB colour.
-    pub fn colored(mut self, color: Vec3) -> Self {
-        self.color = color;
-        self
-    }
-
-    /// Set the diameter in logical pixels.
-    pub fn size(mut self, size: f32) -> Self {
-        self.size = size;
-        self
-    }
-
     /// Whether the cursor landed on this marker, and where.
     ///
     /// The glyph takes its depth from the anchor, so the anchor clipping is
@@ -71,6 +61,17 @@ impl Point {
         let screen = aim.reach_to(self.position)?;
         (screen <= aim.reach(self.size)).then(|| aim.hit(tag, HitAt::Point, self.position, screen))
     }
+}
+
+/// The chainable setters, beside the two [`Styled`] already supplies. Kept
+/// apart from what the marker *does*, so neither has to be read past to reach
+/// the other.
+impl Point {
+    /// Set the diameter in logical pixels.
+    pub fn size(mut self, size: f32) -> Self {
+        self.size = size;
+        self
+    }
 
     /// Set the depth-test bias. See [`Point::z_offset`].
     pub fn z_offset(mut self, z_offset: i32) -> Self {
@@ -78,16 +79,19 @@ impl Point {
         self
     }
 
-    /// Name this marker to whatever a pick will be reported to. See
-    /// [`Point::tag`].
-    pub fn tagged(mut self, tag: u64) -> Self {
-        self.tag = Some(tag);
-        self
-    }
-
     /// Declare the plane the marker sits on. See [`Point::plane_normal`].
     pub fn in_plane(mut self, normal: Vec3) -> Self {
         self.plane_normal = Some(normal.normalize());
         self
+    }
+}
+
+impl Styled for Point {
+    fn color_mut(&mut self) -> &mut Vec3 {
+        &mut self.color
+    }
+
+    fn tag_mut(&mut self) -> &mut Option<Tag> {
+        &mut self.tag
     }
 }
