@@ -38,27 +38,33 @@ impl Drawing {
     /// opening a drawing is a solve like any other, and takes a borrowed solver
     /// like any other. The fields below are placeholders for exactly as long as
     /// the two lines after them.
-    pub(crate) fn new(solver: &mut Solver, mut sketch: Sketch, plane: Plane) -> Self {
-        let mut freedoms = Freedoms::default();
-        let report = solver.solve(&mut sketch, &mut freedoms);
-        Self {
+    pub(crate) fn new(solver: &mut Solver, sketch: Sketch, plane: Plane) -> Self {
+        let mut drawing = Self {
             sketch,
             plane,
-            report,
+            report: SolveReport::default(),
             revision: Revision::default(),
-            freedoms,
-        }
+            freedoms: Freedoms::default(),
+        };
+        drawing.settled(|sketch, freedoms| solver.solve(sketch, freedoms));
+        drawing
     }
 
-    /// Record what a solve left behind.
+    /// Solve, and record everything the drawing then says about itself.
     ///
-    /// The freedoms are not here because they arrive with the report: every
-    /// solver entry point fills them from the same measurement it reports, so
-    /// there is no second call that could describe a different moment and
-    /// nothing to remember to make. All that is left is to store the verdict
-    /// and say the drawing has moved on.
-    fn settled(&mut self, report: SolveReport) {
-        self.report = report;
+    /// The one place `report`, `freedoms` and `revision` are written, and the
+    /// reason it takes the solve rather than its answer: the three describe one
+    /// moment, and a caller that solved for itself and then reported would be a
+    /// caller who could do either half and skip the other. Both misses are
+    /// silent — a report stored without the freedoms paints the drawing in the
+    /// colours of where it used to be, and a revision left alone leaves the
+    /// picture on screen unrepainted.
+    ///
+    /// `solve` is handed the sketch and the buffer to fill; every entry point
+    /// the solver has fits, because each of them fills the freedoms from the
+    /// same measurement it reports.
+    fn settled(&mut self, solve: impl FnOnce(&mut Sketch, &mut Freedoms) -> SolveReport) {
+        self.report = solve(&mut self.sketch, &mut self.freedoms);
         self.revision = self.revision.next();
     }
 
@@ -114,8 +120,7 @@ impl Drawing {
         // assembly over the geometry as it now stands — so the exactness a
         // restore promises survives it, and a step no longer has to carry a
         // report it would otherwise be storing twice over.
-        let report = solver.measure(&self.sketch, &mut self.freedoms);
-        self.settled(report);
+        self.settled(|sketch, freedoms| solver.measure(sketch, freedoms));
     }
 
     /// Write the drawn primitives, and name each of them into `names`.
@@ -195,12 +200,10 @@ impl Drawing {
     /// grip means.
     pub(crate) fn drag_to(&mut self, solver: &mut Solver, grip: Grip, world: Vec3) {
         let at = self.plane.flatten(world.as_dvec3());
-        let report = match grip {
-            Grip::Point(id) => {
-                solver.edit_holding(&mut self.sketch, &[id], &mut self.freedoms, |sketch| {
-                    sketch.set_point(id, at)
-                })
-            }
+        match grip {
+            Grip::Point(id) => self.settled(|sketch, freedoms| {
+                solver.edit_holding(sketch, &[id], freedoms, |sketch| sketch.set_point(id, at))
+            }),
             Grip::Segment { id, t } => {
                 // Both ends travel by whatever it takes to put the spot that
                 // was grabbed under the cursor. Measured against where that
@@ -209,33 +212,25 @@ impl Drawing {
                 let edge = self.sketch.segment(id);
                 let (a, b) = (self.sketch.point(edge.a), self.sketch.point(edge.b));
                 let shift = at - a.lerp(b, t);
-                solver.edit_holding(
-                    &mut self.sketch,
-                    &[edge.a, edge.b],
-                    &mut self.freedoms,
-                    |sketch| {
+                self.settled(|sketch, freedoms| {
+                    solver.edit_holding(sketch, &[edge.a, edge.b], freedoms, |sketch| {
                         sketch.set_point(edge.a, a + shift);
                         sketch.set_point(edge.b, b + shift);
-                    },
-                )
+                    })
+                });
             }
             Grip::Rim(id) => {
                 // A rim drives the radius rather than moving the circle, so
                 // the centre is held: growing a circle should not walk it.
                 let circle = self.sketch.circle(id);
                 let radius = (at - self.sketch.point(circle.center)).length();
-                solver.edit_holding(
-                    &mut self.sketch,
-                    &[circle.center],
-                    &mut self.freedoms,
-                    |sketch| sketch.set_radius(id, radius),
-                )
+                self.settled(|sketch, freedoms| {
+                    solver.edit_holding(sketch, &[circle.center], freedoms, |sketch| {
+                        sketch.set_radius(id, radius)
+                    })
+                });
             }
-        };
-        // Whatever the drag settled on, including a refusal that put everything
-        // back: what the constraints decide is a property of where the geometry
-        // now stands, so it is taken from what survived rather than predicted.
-        self.settled(report);
+        }
     }
 }
 

@@ -9,22 +9,6 @@ production settles on.
 
 ---
 
-## `Drawing` keeps three derived values that three callers must each pair up
-
-`Drawing` holds `report`, `revision` and `freedoms`, all derived from the last
-solve. Keeping them in step is now a convention among call sites rather than
-something the type enforces.
-
-- [ ] `settled` writes `report` and bumps `revision`, but does not touch
-      `freedoms` — the caller has to have passed `&mut self.freedoms` into the
-      solver call beforehand. `drag_to` and `restore` each do this as two
-      separate statements.
-- [ ] `Drawing::new` fills all three by hand and never calls `settled`, so there
-      are three places that establish the same invariant and one of them is not
-      the one named after it.
-- [ ] `Drawing` exposes `sketch()`, `freedoms()` and `plane()` as three separate
-      accessors, and `paint`'s three writers each open by reading all three.
-
 ## Small, contained
 
 - [ ] `pub fn param_count` on `Sketch` is public API with no caller outside the
