@@ -4,46 +4,33 @@
 pub(crate) mod constraint;
 pub(crate) mod solver;
 
+use crate::arena::{Arena, Id};
 use crate::sketch::constraint::Constraint;
 use glam::DVec2;
 
 /// Handle to a point in a [`Sketch`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct PointId(u32);
-
-impl PointId {
-    fn idx(self) -> usize {
-        self.0 as usize
-    }
-}
+pub type PointId = Id<Point>;
 
 /// Handle to a segment in a [`Sketch`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SegmentId(u32);
-
-impl SegmentId {
-    fn idx(self) -> usize {
-        self.0 as usize
-    }
-}
+pub type SegmentId = Id<Segment>;
 
 /// Handle to a circle in a [`Sketch`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct CircleId(u32);
+pub type CircleId = Id<Circle>;
 
-impl CircleId {
-    fn idx(self) -> usize {
-        self.0 as usize
-    }
-}
+/// What a handle to something the sketch no longer holds reports. Reaching one
+/// means a caller kept a handle across a removal, which is a mistake in the
+/// caller rather than anything the sketch can answer.
+const REMOVED_POINT: &str = "this point is no longer in the sketch";
+const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
+const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
 
 /// A point's position, and whether the solver may move it.
 #[derive(Debug, Clone, Copy)]
-struct Point {
-    position: DVec2,
+pub struct Point {
+    pub position: DVec2,
     /// The solver leaves it where it is. Anchors the sketch so a
     /// well-constrained system isn't still free to translate and rotate.
-    fixed: bool,
+    pub fixed: bool,
 }
 
 /// A straight edge between two points. Carries no parameters of its own — it
@@ -108,9 +95,9 @@ enum Param {
 /// which is where that layout is stated.
 #[derive(Debug, Clone, Default)]
 pub struct Sketch {
-    points: Vec<Point>,
-    segments: Vec<Segment>,
-    circles: Vec<Circle>,
+    points: Arena<Point>,
+    segments: Arena<Segment>,
+    circles: Arena<Circle>,
     constraints: Vec<Constraint>,
 }
 
@@ -119,30 +106,38 @@ impl Sketch {
     /// solver converges on the solution nearest the guess, so place points
     /// roughly where they belong.
     pub fn add_point(&mut self, position: DVec2) -> PointId {
-        self.points.push(Point {
+        self.points.insert(Point {
             position,
             fixed: false,
-        });
-        PointId((self.points.len() - 1) as u32)
+        })
     }
 
     /// Pin a point where it is. At least one fixed point is usually wanted:
     /// otherwise every sketch keeps three degrees of freedom for its own
     /// placement.
     pub fn fix(&mut self, point: PointId) {
-        self.points[point.idx()].fixed = true;
+        self.point_mut(point).fixed = true;
     }
 
     pub fn add_segment(&mut self, a: PointId, b: PointId) -> SegmentId {
-        self.segments.push(Segment { a, b });
-        SegmentId((self.segments.len() - 1) as u32)
+        // Checked here rather than where the endpoints are next read: a
+        // segment outliving a point is the caller's mistake, and it is worth
+        // more at the line that made it than deep inside a solve.
+        assert!(
+            self.points.contains(a) && self.points.contains(b),
+            "a segment needs two points the sketch still holds"
+        );
+        self.segments.insert(Segment { a, b })
     }
 
     /// Add a circle whose `radius` is a starting guess, free to move unless a
     /// constraint fixes it.
     pub fn add_circle(&mut self, center: PointId, radius: f64) -> CircleId {
-        self.circles.push(Circle { center, radius });
-        CircleId((self.circles.len() - 1) as u32)
+        assert!(
+            self.points.contains(center),
+            "a circle needs a centre the sketch still holds"
+        );
+        self.circles.insert(Circle { center, radius })
     }
 
     pub fn add_constraint(&mut self, constraint: Constraint) {
@@ -150,39 +145,43 @@ impl Sketch {
     }
 
     pub fn point(&self, id: PointId) -> DVec2 {
-        self.points[id.idx()].position
+        self.points.get(id).expect(REMOVED_POINT).position
+    }
+
+    fn point_mut(&mut self, id: PointId) -> &mut Point {
+        self.points.get_mut(id).expect(REMOVED_POINT)
     }
 
     /// Every point in insertion order, each with the handle needed to ask
     /// [`Self::is_fixed`] about it.
     pub fn points(&self) -> impl Iterator<Item = (PointId, DVec2)> {
-        self.points
-            .iter()
-            .enumerate()
-            .map(|(index, point)| (PointId(index as u32), point.position))
+        self.points.iter().map(|(id, point)| (id, point.position))
     }
 
     pub fn segment(&self, id: SegmentId) -> Segment {
-        self.segments[id.idx()]
+        *self.segments.get(id).expect(REMOVED_SEGMENT)
     }
 
-    /// Every segment in insertion order. Each carries the handles of its own
-    /// endpoints, so nothing here needs a [`SegmentId`] to be usable.
-    pub fn segments(&self) -> &[Segment] {
-        &self.segments
+    /// Every segment in insertion order, each with the handle that names it.
+    pub fn segments(&self) -> impl Iterator<Item = (SegmentId, Segment)> {
+        self.segments.iter().map(|(id, segment)| (id, *segment))
     }
 
     pub fn circle(&self, id: CircleId) -> Circle {
-        self.circles[id.idx()]
+        *self.circles.get(id).expect(REMOVED_CIRCLE)
     }
 
-    /// Every circle in insertion order, each carrying its centre handle.
-    pub fn circles(&self) -> &[Circle] {
-        &self.circles
+    fn circle_mut(&mut self, id: CircleId) -> &mut Circle {
+        self.circles.get_mut(id).expect(REMOVED_CIRCLE)
+    }
+
+    /// Every circle in insertion order, each with the handle that names it.
+    pub fn circles(&self) -> impl Iterator<Item = (CircleId, Circle)> {
+        self.circles.iter().map(|(id, circle)| (id, *circle))
     }
 
     pub fn is_fixed(&self, id: PointId) -> bool {
-        self.points[id.idx()].fixed
+        self.points.get(id).expect(REMOVED_POINT).fixed
     }
 
     pub fn constraints(&self) -> &[Constraint] {
@@ -190,26 +189,34 @@ impl Sketch {
     }
 
     /// Size of the solver's parameter vector.
+    ///
+    /// Counts positions rather than what is in them: a removed point keeps its
+    /// two entries, so every surviving handle keeps indexing where it did.
     pub fn param_count(&self) -> usize {
-        self.radius_base() + self.circles.len()
+        self.radius_base() + self.circles.slot_count()
     }
 
     /// Where the radii start, which is the boundary the whole layout turns on.
     fn radius_base(&self) -> usize {
-        self.points.len() * 2
+        self.points.slot_count() * 2
     }
 
     /// Where `param` sits in the parameter vector. Inverse of [`Self::param`].
     fn param_index(&self, param: Param) -> usize {
         match param {
-            Param::Point(id, Axis::X) => id.idx() * 2,
-            Param::Point(id, Axis::Y) => id.idx() * 2 + 1,
-            Param::Radius(id) => self.radius_base() + id.idx(),
+            Param::Point(id, Axis::X) => id.slot() * 2,
+            Param::Point(id, Axis::Y) => id.slot() * 2 + 1,
+            Param::Radius(id) => self.radius_base() + id.slot(),
         }
     }
 
-    /// What the parameter at `index` names. Inverse of [`Self::param_index`].
-    fn param(&self, index: usize) -> Param {
+    /// What the parameter at `index` names, or `None` where a removal left a
+    /// hole. Inverse of [`Self::param_index`].
+    ///
+    /// An index alone can't name anything: rebuilding a handle needs the
+    /// generation of the position, which only the store knows — and a freed
+    /// position has no handle to give.
+    fn param(&self, index: usize) -> Option<Param> {
         debug_assert!(
             index < self.param_count(),
             "parameter {index} is past the {} this sketch has",
@@ -221,9 +228,10 @@ impl Sketch {
             } else {
                 Axis::Y
             };
-            Param::Point(PointId((index / 2) as u32), axis)
+            Some(Param::Point(self.points.id_at_slot(index / 2)?, axis))
         } else {
-            Param::Radius(CircleId((index - self.radius_base()) as u32))
+            let slot = index - self.radius_base();
+            Some(Param::Radius(self.circles.id_at_slot(slot)?))
         }
     }
 
@@ -237,39 +245,48 @@ impl Sketch {
     }
 
     /// Whether the solver may move this parameter. Radii always move; point
-    /// coordinates move unless the point is fixed.
+    /// coordinates move unless the point is fixed; a hole left by a removal
+    /// never moves, which is what keeps the solver off it without the solver
+    /// having to know holes exist.
     pub(crate) fn param_is_free(&self, index: usize) -> bool {
         match self.param(index) {
-            Param::Point(id, _) => !self.is_fixed(id),
-            Param::Radius(_) => true,
+            Some(Param::Point(id, _)) => !self.is_fixed(id),
+            Some(Param::Radius(_)) => true,
+            None => false,
         }
     }
 
     fn param_value(&self, param: Param) -> f64 {
         match param {
-            Param::Point(id, axis) => axis.component(self.points[id.idx()].position),
-            Param::Radius(id) => self.circles[id.idx()].radius,
+            Param::Point(id, axis) => axis.component(self.point(id)),
+            Param::Radius(id) => self.circle(id).radius,
         }
     }
 
     fn set_param_value(&mut self, param: Param, value: f64) {
         match param {
-            Param::Point(id, axis) => axis.set(&mut self.points[id.idx()].position, value),
-            Param::Radius(id) => self.circles[id.idx()].radius = value,
+            Param::Point(id, axis) => axis.set(&mut self.point_mut(id).position, value),
+            Param::Radius(id) => self.circle_mut(id).radius = value,
         }
     }
 
+    /// Reads zero at a hole, which is a value nothing will move: its column is
+    /// zeroed and its step is pinned to zero, so the number is never used.
     pub(crate) fn params(&self) -> Vec<f64> {
         (0..self.param_count())
-            .map(|index| self.param_value(self.param(index)))
+            .map(|index| {
+                self.param(index)
+                    .map_or(0.0, |param| self.param_value(param))
+            })
             .collect()
     }
 
     pub(crate) fn set_params(&mut self, params: &[f64]) {
         debug_assert_eq!(params.len(), self.param_count());
         for (index, &value) in params.iter().enumerate() {
-            let param = self.param(index);
-            self.set_param_value(param, value);
+            if let Some(param) = self.param(index) {
+                self.set_param_value(param, value);
+            }
         }
     }
 }
@@ -301,15 +318,18 @@ mod tests {
         let fixed: Vec<bool> = points.iter().map(|&(id, _)| sketch.is_fixed(id)).collect();
         assert_eq!(fixed, [false, true, false]);
 
-        let segments = sketch.segments();
+        let segments: Vec<_> = sketch.segments().collect();
         assert_eq!(segments.len(), 2);
-        assert_eq!((segments[0].a, segments[0].b), (a, b));
-        assert_eq!((segments[1].a, segments[1].b), (b, c));
+        assert_eq!((segments[0].1.a, segments[0].1.b), (a, b));
+        assert_eq!((segments[1].1.a, segments[1].1.b), (b, c));
+        // The handle each carries is the one that names it back.
+        assert_eq!(sketch.segment(segments[1].0).a, b);
 
-        let circles = sketch.circles();
+        let circles: Vec<_> = sketch.circles().collect();
         assert_eq!(circles.len(), 1);
-        assert_eq!(circles[0].center, c);
-        assert_eq!(circles[0].radius, 0.5);
+        assert_eq!(circles[0].0, circle);
+        assert_eq!(circles[0].1.center, c);
+        assert_eq!(circles[0].1.radius, 0.5);
 
         // Solving rewrites positions through the same order, so the iterator
         // reports what the solver left behind rather than the initial guess.
@@ -346,12 +366,13 @@ mod tests {
         // The round trip is what keeps the forward map and the reverse lookup
         // in step: break either and some index stops coming back as itself.
         for index in 0..sketch.param_count() {
-            assert_eq!(sketch.param_index(sketch.param(index)), index, "{index}");
+            let param = sketch.param(index).expect("nothing has been removed");
+            assert_eq!(sketch.param_index(param), index, "{index}");
         }
-        assert_eq!(sketch.param(0), Param::Point(a, Axis::X));
-        assert_eq!(sketch.param(3), Param::Point(b, Axis::Y));
-        assert_eq!(sketch.param(6), Param::Radius(inner));
-        assert_eq!(sketch.param(7), Param::Radius(outer));
+        assert_eq!(sketch.param(0), Some(Param::Point(a, Axis::X)));
+        assert_eq!(sketch.param(3), Some(Param::Point(b, Axis::Y)));
+        assert_eq!(sketch.param(6), Some(Param::Radius(inner)));
+        assert_eq!(sketch.param(7), Some(Param::Radius(outer)));
 
         // Only b is pinned, so only its two coordinates are held. Radii move
         // whatever the points do.
@@ -359,5 +380,48 @@ mod tests {
             .map(|index| sketch.param_is_free(index))
             .collect();
         assert_eq!(free, [true, true, false, false, true, true, true, true]);
+    }
+
+    /// A removal leaves the vector the width it was, with a hole where the
+    /// point used to be — which is what keeps every surviving handle indexing
+    /// where it did.
+    #[test]
+    fn a_removed_points_parameters_stay_put_and_never_move() {
+        let mut sketch = Sketch::default();
+        let a = sketch.add_point(DVec2::new(1.0, 2.0));
+        let b = sketch.add_point(DVec2::new(3.0, 4.0));
+        let circle = sketch.add_circle(b, 0.5);
+        assert_eq!(sketch.param_count(), 5);
+
+        // Reaching past the public API on purpose: removal isn't exposed until
+        // it can cascade, and this is the behaviour that has to be right first.
+        sketch.points.remove(a);
+
+        assert_eq!(sketch.param_count(), 5);
+        assert_eq!(sketch.param(0), None);
+        assert_eq!(sketch.param(1), None);
+        assert_eq!(sketch.param(2), Some(Param::Point(b, Axis::X)));
+        assert_eq!(sketch.param(4), Some(Param::Radius(circle)));
+        assert_eq!(sketch.point_param(b), 2);
+        assert_eq!(sketch.radius_param(circle), 4);
+
+        // The hole is unfree, which is the whole of what the solver needs: it
+        // already pins a parameter it may not move and zeroes that column.
+        let free: Vec<bool> = (0..5).map(|index| sketch.param_is_free(index)).collect();
+        assert_eq!(free, [false, false, true, true, true]);
+
+        // It reads zero and refuses to be written, so a step landing on it
+        // changes nothing.
+        assert_eq!(sketch.params(), [0.0, 0.0, 3.0, 4.0, 0.5]);
+        sketch.set_params(&[9.0; 5]);
+        assert_eq!(sketch.params(), [0.0, 0.0, 9.0, 9.0, 9.0]);
+
+        // The freed position is filled again rather than the vector widening,
+        // and the handle to what was there is refused, not answered.
+        let c = sketch.add_point(DVec2::new(5.0, 6.0));
+        assert_eq!(sketch.param_count(), 5);
+        assert_eq!(sketch.point_param(c), 0);
+        assert_ne!(c, a);
+        assert_eq!(sketch.points().count(), 2);
     }
 }

@@ -11,15 +11,6 @@ just noise for the next reader.
       forty near-identical lines apiece, differing in what they do with the
       result and in the pivot tolerance.
 
-## Sketch collections hand out geometry without the handles that name it
-
-- [ ] `segments()` and `circles()` return bare slices, so a caller iterating
-      them cannot recover the `SegmentId` or `CircleId` of what it is looking
-      at. `points()` does return handles, so the three collections disagree
-      about how they are read. This directly blocks naming sketch entities to
-      anything outside the crate — `sketch_plane.rs` iterates `segments()` to
-      build curves and has no id to tag them with.
-
 ## Geometry is reallocated and re-uploaded wholesale on every edit
 
 - [ ] Each `flatten*` allocates fresh `Vec`s per dirty paint rather than
@@ -28,11 +19,6 @@ just noise for the next reader.
 - [ ] `Batch::upload` creates new `wgpu::Buffer`s each time rather than writing
       into existing ones, so a one-vertex change discards and reallocates every
       vertex and index buffer.
-
-## Three identical handle newtypes in silverpoint
-
-- [ ] `PointId`, `SegmentId` and `CircleId` are the same `u32` newtype with the
-      same derives and the same private `idx()`, written three times.
 
 ## Constraint arms repeat their scaffolding around the part that differs
 

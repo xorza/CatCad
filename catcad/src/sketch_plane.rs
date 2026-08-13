@@ -92,12 +92,12 @@ impl SketchPlane {
     /// them.
     pub(crate) fn curves(&self, sketch: &Sketch) -> Vec<Curve> {
         let mut curves = Vec::new();
-        for segment in sketch.segments() {
+        for (_, segment) in sketch.segments() {
             let a = self.point(sketch.point(segment.a));
             let b = self.point(sketch.point(segment.b));
             curves.push(Curve::segment(a, b).colored(EDGE).width(EDGE_WIDTH));
         }
-        for circle in sketch.circles() {
+        for (_, circle) in sketch.circles() {
             curves.push(self.circle(sketch.point(circle.center), circle.radius.abs()));
         }
         // Applied here rather than at each constructor: the drawing rides on

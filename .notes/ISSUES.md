@@ -13,9 +13,9 @@
   pixels. A caller working in physical pixels on a scaled display gets a pick
   reach smaller than the glyph it can see.
 
-- The `catcad` test binary segfaulted once (SIGSEGV) on the first run after a
-  rebuild, before any test reported, then passed six consecutive runs. The tests
-  that follow bring up a wgpu device.
+- The `catcad` test binary segfaults (SIGSEGV) on the first run after a rebuild,
+  before any test reports, then passes every run after that until the next
+  rebuild. Seen twice. The tests bring up a wgpu device.
 
 - Circle tessellation is a fixed 96 segments (`CIRCLE_SEGMENTS`, `catcad/src/sketch_plane.rs`)
   regardless of radius or screen size, and the curve batch is not rebuilt on camera

@@ -29,8 +29,10 @@
 //! is twice the point count plus one per circle. Everything is `f64`: the
 //! residuals of a nearly-degenerate sketch do not survive `f32`.
 
+pub(crate) mod arena;
 pub(crate) mod sketch;
 
+pub use arena::Id;
 pub use sketch::constraint::Constraint;
 pub use sketch::solver::{SolveReport, Solver};
-pub use sketch::{Circle, CircleId, PointId, Segment, SegmentId, Sketch};
+pub use sketch::{Circle, CircleId, Point, PointId, Segment, SegmentId, Sketch};

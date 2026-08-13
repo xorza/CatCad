@@ -300,7 +300,7 @@ fn the_demo_sketch_solves_to_a_determined_rectangle() {
     for (found, want) in corners.iter().zip(expected) {
         assert!((*found - want).length() < 1e-9, "{found:?} vs {want:?}");
     }
-    assert_eq!(sketch.circles()[0].radius, 1.5);
+    assert_eq!(sketch.circles().next().unwrap().1.radius, 1.5);
 }
 
 /// The regression this harness exists for.
