@@ -1,5 +1,6 @@
 use super::*;
 use crate::sketch::constraint::Constraint;
+use crate::sketch::solver::freedoms::Freedom;
 use glam::DVec2;
 
 /// Tight enough that a wrong answer can't hide behind it: the solver's own

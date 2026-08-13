@@ -7,7 +7,8 @@
 //! plus one per circle, so the cost of sparsity bookkeeping would exceed what
 //! it saves.
 
-use crate::sketch::solver::freedoms::{Freedom, Freedoms};
+use crate::sketch::solver::freedoms::Freedoms;
+use crate::sketch::solver::workspace::Workspace;
 use crate::sketch::{PointId, Sketch};
 
 /// Damping starts here and moves by these factors on an accepted or rejected
@@ -19,17 +20,6 @@ const DAMPING_GROWTH: f64 = 8.0;
 
 /// Past this the step is numerically zero, so no further damping can help.
 const MAX_DAMPING: f64 = 1e12;
-
-/// Relative threshold below which a pivot counts as zero when measuring the
-/// rank of the Jacobian, and below which a parameter counts as standing still
-/// when reading off what the sketch is still free to do. One number for both
-/// because they are one question asked twice: whether a direction survives the
-/// elimination at all.
-const RANK_TOLERANCE: f64 = 1e-9;
-
-/// The same threshold against a squared magnitude, which is what the null-space
-/// rows are compared as.
-const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
 
 /// What a solve achieved, and how determined the answer was.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -46,225 +36,6 @@ pub struct SolveReport {
     /// Equations beyond the rank of the system. On a converged solve these
     /// are consistent duplicates; on a failed one they are the conflict.
     pub redundant_equations: usize,
-}
-
-/// Everything a solve needs room for, kept between calls.
-///
-/// Sized by the sketch and refilled rather than rebuilt, so a second solve of
-/// the same sketch — which is what dragging one is — allocates nothing at all.
-/// Nothing in here survives a solve as *meaning*; only as room.
-#[derive(Debug, Clone, Default)]
-struct Workspace {
-    residuals: Vec<f64>,
-    /// Row-major, one row of `n` per equation.
-    jacobian: Vec<f64>,
-    trial_residuals: Vec<f64>,
-    trial_jacobian: Vec<f64>,
-    /// `JᵀJ + λD`, `n × n` row-major.
-    normal: Vec<f64>,
-    step: Vec<f64>,
-    params: Vec<f64>,
-    trial: Vec<f64>,
-    /// Measuring rank destroys what it eliminates, so it runs on a copy of
-    /// the Jacobian rather than on the Jacobian.
-    elimination: Vec<f64>,
-    /// Which column each row of the elimination took its pivot in, one per
-    /// rank. What tells a parameter the constraints resolve from one they
-    /// leave to be chosen — see [`Solver::freedoms`].
-    pivots: Vec<usize>,
-    /// The null space of the Jacobian, one row of `free.len()` per parameter:
-    /// how far that parameter travels along each way the sketch can still
-    /// move. Row-major, and meaningless until [`Workspace::null_space`] fills
-    /// it.
-    null: Vec<f64>,
-    /// The columns that took no pivot, which are the null space's own axes.
-    free: Vec<usize>,
-    /// Parameter indices the caller is holding, two per point. Kept as indices
-    /// rather than handles so the inner loops compare integers.
-    held: Vec<usize>,
-}
-
-impl Workspace {
-    /// Size the fixed-length buffers to a sketch of `n` parameters and load
-    /// its current values, keeping whatever room everything has grown to.
-    ///
-    /// The variable-length ones are left alone: `assemble` clears the two
-    /// residual/Jacobian pairs as it fills them, and `trial` and `elimination`
-    /// are cleared where they are written.
-    fn reset(&mut self, sketch: &Sketch, n: usize, held: &[PointId]) {
-        self.normal.clear();
-        self.normal.resize(n * n, 0.0);
-        self.step.clear();
-        self.step.resize(n, 0.0);
-        self.params.clear();
-        sketch.write_params(&mut self.params);
-        self.held.clear();
-        self.held.reserve_exact(held.len() * 2);
-        for &point in held {
-            // A point's two parameters are adjacent, x first.
-            let x = sketch.point_param(point);
-            self.held.extend([x, x + 1]);
-        }
-    }
-
-    /// Rank of the Jacobian over its free columns — the number of independent
-    /// constraints actually acting on the sketch.
-    ///
-    /// Leaves the elimination in row echelon form and `pivots` naming the
-    /// column each of its rows turns on, which is what
-    /// [`Workspace::null_space`] carries on from and what nothing else looks
-    /// at. So the answer is always `pivots.len()`, and callers that need both
-    /// take it from here rather than keeping their own count.
-    fn rank(&mut self, n: usize, sketch: &Sketch) -> usize {
-        self.pivots.clear();
-        if n == 0 || self.jacobian.is_empty() {
-            return 0;
-        }
-        self.elimination.clear();
-        self.elimination.extend_from_slice(&self.jacobian);
-        let a = &mut self.elimination;
-        let m = a.len() / n;
-        let scale = a.iter().fold(0.0f64, |acc, v| acc.max(v.abs())).max(1.0);
-        let tolerance = RANK_TOLERANCE * scale;
-        let mut rank = 0;
-        for col in 0..n {
-            if !movable(sketch, &self.held, col) || rank == m {
-                continue;
-            }
-            let mut pivot = rank;
-            for row in rank..m {
-                if a[row * n + col].abs() > a[pivot * n + col].abs() {
-                    pivot = row;
-                }
-            }
-            if a[pivot * n + col].abs() <= tolerance {
-                continue;
-            }
-            if pivot != rank {
-                for c in 0..n {
-                    a.swap(pivot * n + c, rank * n + c);
-                }
-            }
-            let diagonal = a[rank * n + col];
-            for row in (rank + 1)..m {
-                let factor = a[row * n + col] / diagonal;
-                if factor == 0.0 {
-                    continue;
-                }
-                for c in 0..n {
-                    a[row * n + c] -= factor * a[rank * n + c];
-                }
-            }
-            self.pivots.push(col);
-            rank += 1;
-        }
-        rank
-    }
-
-    /// Reduce the Jacobian to row echelon form and then to *reduced* row
-    /// echelon form, and write out the null space that exposes — every way the
-    /// sketch can still move.
-    ///
-    /// A row-echelon Jacobian says what each pivot parameter is in terms of the
-    /// columns to its right; reduced, it says so in terms of the columns that
-    /// took no pivot alone. Those columns are the sketch's remaining freedoms:
-    /// each one can be chosen at will, and choosing it fixes every pivot
-    /// parameter through the row that pivoted. So one null-space vector per
-    /// such column, carrying a one in its own and the negated coefficients
-    /// everywhere a pivot follows it.
-    ///
-    /// Held as one row per *parameter* rather than one per vector, because what
-    /// asks is always an entity asking about itself: how far its own handful of
-    /// parameters travel is a few adjacent rows, and how many independent ways
-    /// it can go is their rank.
-    ///
-    /// A column that could never move — a pinned point, or the hole a removal
-    /// left — has a row of zeros, which is the honest answer for something with
-    /// no freedom to have.
-    fn null_space(&mut self, n: usize, sketch: &Sketch) {
-        let rank = self.rank(n, sketch);
-        self.free.clear();
-        self.free.extend(
-            (0..n).filter(|&col| movable(sketch, &self.held, col) && !self.pivots.contains(&col)),
-        );
-
-        let a = &mut self.elimination;
-        // Backwards, so each row is cleared of every pivot below it before it
-        // is used to clear itself from the rows above.
-        for row in (0..rank).rev() {
-            let pivot = self.pivots[row];
-            let diagonal = a[row * n + pivot];
-            for c in 0..n {
-                a[row * n + c] /= diagonal;
-            }
-            for above in 0..row {
-                let factor = a[above * n + pivot];
-                if factor == 0.0 {
-                    continue;
-                }
-                for c in 0..n {
-                    a[above * n + c] -= factor * a[row * n + c];
-                }
-            }
-        }
-
-        let axes = self.free.len();
-        self.null.clear();
-        self.null.resize(n * axes, 0.0);
-        for (axis, &col) in self.free.iter().enumerate() {
-            self.null[col * axes + axis] = 1.0;
-        }
-        for (row, &pivot) in self.pivots.iter().enumerate() {
-            for (axis, &col) in self.free.iter().enumerate() {
-                self.null[pivot * axes + axis] = -self.elimination[row * n + col];
-            }
-        }
-    }
-
-    /// How many independent ways a parameter can move: none, or the one it has.
-    fn travel(&self, param: usize) -> Freedom {
-        if square_length(self.row(param)) <= DEAD {
-            Freedom::Determined
-        } else {
-            Freedom::Free
-        }
-    }
-
-    /// How many independent ways a pair of parameters can move together, which
-    /// is the rank of the two rows they own.
-    ///
-    /// Two rows that are multiples of one another leave the point on a track:
-    /// it moves, but every way it can move is the same way. That is what tells
-    /// a point sliding along a line — or round a circle, where both its
-    /// coordinates change and neither is decided — from one free to be put
-    /// wherever it is asked for.
-    ///
-    /// Measured through the Gram determinant rather than by comparing the rows
-    /// termwise, so the answer does not depend on which axes the sketch happens
-    /// to be drawn against: `|a|²|b|² − (a·b)²` is `|a|²|b|²sin²θ`, and the
-    /// threshold is on the sine.
-    fn spread(&self, first: usize, second: usize) -> Freedom {
-        let (a, b) = (self.row(first), self.row(second));
-        let (aa, bb) = (square_length(a), square_length(b));
-        if aa <= DEAD && bb <= DEAD {
-            return Freedom::Determined;
-        }
-        if aa <= DEAD || bb <= DEAD {
-            return Freedom::Partly;
-        }
-        let ab: f64 = a.iter().zip(b).map(|(x, y)| x * y).sum();
-        if aa * bb - ab * ab <= DEAD * aa * bb {
-            Freedom::Partly
-        } else {
-            Freedom::Free
-        }
-    }
-
-    /// How far one parameter travels along each of the sketch's freedoms.
-    fn row(&self, param: usize) -> &[f64] {
-        let axes = self.free.len();
-        &self.null[param * axes..][..axes]
-    }
 }
 
 /// Solves a [`Sketch`] in place.
@@ -616,15 +387,12 @@ fn max_abs(values: &[f64]) -> f64 {
     values.iter().fold(0.0f64, |acc, v| acc.max(v.abs()))
 }
 
-fn square_length(row: &[f64]) -> f64 {
-    row.iter().map(|v| v * v).sum()
-}
-
 fn norm(values: &[f64]) -> f64 {
     values.iter().map(|v| v * v).sum::<f64>().sqrt()
 }
 
 pub(crate) mod freedoms;
+mod workspace;
 
 #[cfg(feature = "bench")]
 pub(crate) mod bench;
