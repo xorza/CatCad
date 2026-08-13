@@ -79,6 +79,18 @@ impl SketchPlane {
         self.origin + self.x * point.x as f32 + self.y * point.y as f32
     }
 
+    /// Where a world position lands on the plane, in sketch coordinates.
+    ///
+    /// The inverse of [`SketchPlane::point`] for anything already on the
+    /// plane, and the nearest point of it for anything off — which is what a
+    /// cursor ray resolved against the plane always is. Reading the two axes
+    /// off with a dot product is only that inverse because they are unit and
+    /// square to each other, which is what the fields promise.
+    pub(crate) fn flatten(&self, world: Vec3) -> DVec2 {
+        let out = world - self.origin;
+        DVec2::new(out.dot(self.x) as f64, out.dot(self.y) as f64)
+    }
+
     /// The plane's unit normal. Which face it points out of follows from the
     /// order of the axes and doesn't matter to anything that uses it.
     pub(crate) fn normal(&self) -> Vec3 {
@@ -88,8 +100,8 @@ impl SketchPlane {
     /// The sketch's straight strokes, one edge per segment, biased clear of
     /// the solids in depth so the drawing reads over them. Circles are not
     /// strokes — see [`SketchPlane::rings`].
-    pub(crate) fn curves(&self, sketch: &Sketch, names: &mut Names) -> Vec<Curve> {
-        let mut curves = Vec::new();
+    pub(crate) fn write_curves(&self, sketch: &Sketch, names: &mut Names, curves: &mut Vec<Curve>) {
+        curves.clear();
         for (id, segment) in sketch.segments() {
             let a = self.point(sketch.point(segment.a));
             let b = self.point(sketch.point(segment.b));
@@ -104,11 +116,10 @@ impl SketchPlane {
         // one plane and above the solids as one thing, and nothing in it
         // outranks the rest.
         let normal = self.normal();
-        for curve in &mut curves {
+        for curve in curves.iter_mut() {
             curve.z_offset = STROKE_LIFT;
             curve.plane_normal = Some(normal);
         }
-        curves
     }
 
     /// The sketch's points, one marker apiece — larger and pinned-coloured
@@ -117,25 +128,23 @@ impl SketchPlane {
     /// The plane comes along for the same reason a stroke's does: a disc is
     /// flat in depth and the surface under it is not, so without it the glyph
     /// is sliced wherever the plane is seen at an angle.
-    pub(crate) fn points(&self, sketch: &Sketch, names: &mut Names) -> Vec<Point> {
+    pub(crate) fn write_points(&self, sketch: &Sketch, names: &mut Names, points: &mut Vec<Point>) {
         let normal = self.normal();
-        sketch
-            .points()
-            .map(|(id, position)| {
-                let fixed = sketch.is_fixed(id);
-                let (color, size) = if fixed {
-                    (FIXED_POINT, FIXED_MARKER)
-                } else {
-                    (FREE_POINT, FREE_MARKER)
-                };
-                Point::new(self.point(position))
-                    .colored(color)
-                    .size(size)
-                    .z_offset(MARKER_LIFT)
-                    .in_plane(normal)
-                    .tagged(names.tag(Named::Point(id)))
-            })
-            .collect()
+        points.clear();
+        points.extend(sketch.points().map(|(id, position)| {
+            let fixed = sketch.is_fixed(id);
+            let (color, size) = if fixed {
+                (FIXED_POINT, FIXED_MARKER)
+            } else {
+                (FREE_POINT, FREE_MARKER)
+            };
+            Point::new(self.point(position))
+                .colored(color)
+                .size(size)
+                .z_offset(MARKER_LIFT)
+                .in_plane(normal)
+                .tagged(names.tag(Named::Point(id)))
+        }));
     }
 
     /// The sketch's circles, one ring apiece.
@@ -147,22 +156,20 @@ impl SketchPlane {
     ///
     /// No plane named, unlike the strokes — a ring's band is widened in its
     /// own plane, so the depth it carries is already the surface's.
-    pub(crate) fn rings(&self, sketch: &Sketch, names: &mut Names) -> Vec<Ring> {
+    pub(crate) fn write_rings(&self, sketch: &Sketch, names: &mut Names, rings: &mut Vec<Ring>) {
         let normal = self.normal();
-        sketch
-            .circles()
-            .map(|(id, circle)| {
-                Ring::new(
-                    self.point(sketch.point(circle.center)),
-                    circle.radius.abs() as f32,
-                    normal,
-                )
-                .colored(EDGE)
-                .width(EDGE_WIDTH)
-                .z_offset(STROKE_LIFT)
-                .tagged(names.tag(Named::Circle(id)))
-            })
-            .collect()
+        rings.clear();
+        rings.extend(sketch.circles().map(|(id, circle)| {
+            Ring::new(
+                self.point(sketch.point(circle.center)),
+                circle.radius.abs() as f32,
+                normal,
+            )
+            .colored(EDGE)
+            .width(EDGE_WIDTH)
+            .z_offset(STROKE_LIFT)
+            .tagged(names.tag(Named::Circle(id)))
+        }));
     }
 }
 

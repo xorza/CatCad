@@ -2,9 +2,9 @@
 
 use aperture::{Mesh, Object, Scene, Styled};
 use glam::{DVec2, Mat4, Vec3};
-use silverpoint::{Constraint, Sketch, SolveReport, Solver};
+use silverpoint::{Constraint, Sketch};
 
-use crate::named::Names;
+use crate::drawing::Drawing;
 use crate::sketch_plane::SketchPlane;
 
 /// A sketch, solved and drawn, with the solids it stands on.
@@ -15,31 +15,20 @@ use crate::sketch_plane::SketchPlane;
 /// very thing, so it is as much the test fixture as it is the startup content.
 #[derive(Debug)]
 pub(crate) struct Demo {
+    pub(crate) drawing: Drawing,
     pub(crate) scene: Scene,
-    /// What each drawn primitive's tag stands for, built with the drawing.
-    pub(crate) names: Names,
-    pub(crate) report: SolveReport,
 }
 
 impl Demo {
     /// Solve the sketch and lay it out in the world, framed by the camera.
     pub(crate) fn build() -> Self {
-        let mut sketch = Self::sketch();
-        let report = Solver::default().solve(&mut sketch);
-
         // The sketch and the solids share one world: the drawing lies on the
         // ground plane and the boxes stand on it, so orbiting the view moves
         // both together.
-        let plane = SketchPlane::GROUND;
-        // Named in the order they are drawn, so a pick can say which sketch
-        // entity it landed on.
-        let mut names = Names::default();
-        let mut scene = Scene {
-            curves: plane.curves(&sketch, &mut names),
-            rings: plane.rings(&sketch, &mut names),
-            points: plane.points(&sketch, &mut names),
-            ..Default::default()
-        };
+        let mut drawing = Drawing::new(Self::sketch(), SketchPlane::GROUND);
+        let plane = drawing.plane();
+        let mut scene = Scene::default();
+        drawing.write_into(&mut scene.curves, &mut scene.rings, &mut scene.points);
         // The ground the drawing lies on, and the reason the drawing carries a
         // depth bias at all: the slab's top face *is* the sketch plane, so the
         // two are exactly coplanar and something has to decide which reads.
@@ -67,11 +56,7 @@ impl Demo {
             scene.camera.frame(bounds);
         }
 
-        Self {
-            scene,
-            names,
-            report,
-        }
+        Self { drawing, scene }
     }
 
     /// A rectangle anchored at the origin with a circle at its centre. Every
@@ -139,6 +124,20 @@ impl Demo {
         sketch.add_constraint(Constraint::Radius {
             circle: hole,
             radius: 1.5,
+        });
+
+        // A pair joined a fixed span apart and tied to nothing else. The
+        // rectangle above is fully determined, so nothing in it can be
+        // dragged — its every point is already where its constraints put it.
+        // This is where the drawing can actually be taken hold of: drag either
+        // end and the other swings round to keep the span.
+        let grip = sketch.add_point(DVec2::new(9.6, 1.2));
+        let swing = sketch.add_point(DVec2::new(11.4, 2.6));
+        sketch.add_segment(grip, swing);
+        sketch.add_constraint(Constraint::Distance {
+            a: grip,
+            b: swing,
+            distance: 2.0,
         });
         sketch
     }

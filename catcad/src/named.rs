@@ -56,6 +56,15 @@ impl Names {
         self.entities.get(usize::try_from(tag.get()).ok()?).copied()
     }
 
+    /// Forget every name, keeping the room they took.
+    ///
+    /// A drawing is renamed wholesale whenever it is rewritten, which during a
+    /// drag is every frame — so this empties rather than replaces, and the
+    /// tags come out the same because the order they are pushed in does.
+    pub fn clear(&mut self) {
+        self.entities.clear();
+    }
+
     pub fn is_empty(&self) -> bool {
         self.entities.is_empty()
     }

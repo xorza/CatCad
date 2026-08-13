@@ -59,7 +59,7 @@ impl Projection {
 ///
 /// Yaw turns around the world Y axis and is zero when the eye sits on +Z;
 /// pitch lifts the eye toward +Y.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Camera {
     /// Whether the view foreshortens.
     pub projection: Projection,

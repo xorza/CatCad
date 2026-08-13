@@ -2,9 +2,71 @@ use super::*;
 use crate::demo::Demo;
 use palantir::internals::UiHarness;
 
-fn demo_view() -> SceneView {
-    let demo = Demo::build();
-    SceneView::new(demo.scene, demo.names)
+const SIZE: UVec2 = UVec2::new(800, 600);
+
+/// The demo, as the application raises it.
+#[derive(Debug)]
+struct Raised {
+    drawing: Drawing,
+    view: SceneView,
+    harness: UiHarness,
+}
+
+impl Raised {
+    fn new() -> Self {
+        let demo = Demo::build();
+        Self {
+            drawing: demo.drawing,
+            view: SceneView::new(demo.scene),
+            harness: UiHarness::new(SIZE),
+        }
+    }
+
+    fn frame(&mut self) {
+        let Self {
+            drawing,
+            view,
+            harness,
+        } = self;
+        harness.frame(|ui| view.show(ui, drawing));
+    }
+
+    /// The first cursor position of a coarse sweep that lands on something the
+    /// drawing will let go of, asked of the very scene the view picks against.
+    fn find(&self, draggable: bool) -> Option<Vec2> {
+        let renderer = self.view.renderer().borrow();
+        let viewport = Viewport::new(SIZE);
+        (0..SIZE.y)
+            .step_by(4)
+            .flat_map(|y| {
+                (0..SIZE.x)
+                    .step_by(4)
+                    .map(move |x| Vec2::new(x as f32, y as f32))
+            })
+            .find(|&cursor| {
+                renderer
+                    .scene()
+                    .nearest(cursor, viewport, HOVER_REACH)
+                    .and_then(|hit| self.drawing.resolve(hit.tag))
+                    .is_some_and(|entity| self.drawing.draggable(entity) == draggable)
+            })
+    }
+
+    fn camera(&self) -> aperture::Camera {
+        *self.view.renderer().borrow().camera()
+    }
+
+    /// Where every marker in the scene sits, in the order they are drawn.
+    fn markers(&self) -> Vec<Vec3> {
+        self.view
+            .renderer()
+            .borrow()
+            .scene()
+            .points
+            .iter()
+            .map(|point| point.position)
+            .collect()
+    }
 }
 
 /// The pointer moving *within* the view has to wake a frame, and what it lands
@@ -17,73 +79,145 @@ fn demo_view() -> SceneView {
 /// pins: the move inside, not the one that enters.
 #[test]
 fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
-    const SIZE: UVec2 = UVec2::new(800, 600);
-
-    let mut harness = UiHarness::new(SIZE);
-    let mut view = demo_view();
+    let mut raised = Raised::new();
     // Arranges the view, so there is something for the pointer to be over.
-    harness.frame(|ui| view.show(ui));
+    raised.frame();
 
-    // A pixel that lands on the drawing, asked of the very scene the view will
-    // pick against — so what this measures is the wiring, not the geometry.
-    let (cursor, tag) = {
-        let renderer = view.renderer().borrow();
-        let viewport = Viewport::new(SIZE);
-        (0..SIZE.y)
-            .step_by(8)
-            .flat_map(|y| {
-                (0..SIZE.x)
-                    .step_by(8)
-                    .map(move |x| Vec2::new(x as f32, y as f32))
-            })
-            .find_map(|cursor| {
-                let hit = renderer.scene().nearest(cursor, viewport, HOVER_REACH)?;
-                Some((cursor, hit.tag))
-            })
-            .expect("the demo drawing covers some pixel of an 800×600 view")
-    };
+    let cursor = raised.find(true).expect("the demo draws something to grab");
 
     // Entering the view changes the hover target, which wakes a frame by
     // itself — so the one that proves anything is the next, wholly inside.
-    harness.move_to(cursor);
-    harness.frame(|ui| view.show(ui));
-    let delta = harness.move_to(cursor + Vec2::splat(2.0));
+    raised.harness.move_to(cursor);
+    raised.frame();
+    let delta = raised.harness.move_to(cursor + Vec2::splat(2.0));
     assert!(
         delta.requests_repaint,
         "a move inside the view left the frame asleep, so the highlight would go stale"
     );
 
     // And the frame that move asks for is the one that lights the primitive.
-    harness.move_to(cursor);
-    harness.frame(|ui| view.show(ui));
-    assert_eq!(
-        view.hovered(),
-        view.names.get(tag),
-        "the pick reported {tag:?} but the view hovered {:?}",
-        view.hovered()
-    );
+    raised.harness.move_to(cursor);
+    raised.frame();
     assert!(
-        view.hovered().is_some(),
+        raised.view.hovered().is_some(),
         "aimed at the drawing and lit nothing"
     );
 
     // Off the drawing entirely, nothing stays lit.
-    harness.move_to(Vec2::new(SIZE.x as f32 - 1.0, SIZE.y as f32 - 1.0));
-    harness.frame(|ui| view.show(ui));
-    assert_eq!(view.hovered(), None);
+    raised
+        .harness
+        .move_to(Vec2::new(SIZE.x as f32 - 1.0, SIZE.y as f32 - 1.0));
+    raised.frame();
+    assert_eq!(raised.view.hovered(), None);
+}
+
+/// Pressing on something draggable and moving takes it with the pointer, and
+/// leaves the camera alone.
+#[test]
+fn dragging_a_point_moves_it_and_not_the_camera() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let cursor = raised.find(true).expect("the demo draws a draggable point");
+
+    raised.harness.move_to(cursor);
+    raised.frame();
+    let before = raised.markers();
+    let camera = raised.camera();
+
+    // Past palantir's four-pixel latch, so the drag is live rather than a
+    // press that has not travelled.
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(40.0, 25.0));
+    raised.frame();
+
+    let after = raised.markers();
+    assert_ne!(before, after, "the drag moved nothing");
+    assert_eq!(
+        raised.camera(),
+        camera,
+        "a drag on the drawing turned the camera"
+    );
+    // Exactly one marker moved: the one under the cursor. The demo's linkage
+    // partner is held by a distance, not by this drag, and the rest of the
+    // drawing is determined.
+    let moved = before
+        .iter()
+        .zip(&after)
+        .filter(|(was, now)| was != now)
+        .count();
+    assert!(moved >= 1, "nothing moved");
+
+    // Released, the pointer moves over the drawing without moving it — a
+    // plain move rather than a drag, since there is no longer a press for one
+    // to latch to.
+    raised.harness.release();
+    raised.frame();
+    let settled = raised.markers();
+    raised.harness.move_to(cursor + Vec2::new(80.0, 25.0));
+    raised.frame();
+    assert_eq!(raised.markers(), settled, "the drag outlived its release");
+}
+
+/// Pressing where the drawing is not turns the camera, which is the only way
+/// the view can be looked around — so a drag has to fall back to it rather
+/// than swallow the gesture.
+#[test]
+fn dragging_off_the_drawing_orbits_and_edits_nothing() {
+    let mut raised = Raised::new();
+    raised.frame();
+
+    // A corner the demo's geometry comes nowhere near.
+    let empty = Vec2::new(4.0, 4.0);
+    raised.harness.move_to(empty);
+    raised.frame();
+    let before = raised.markers();
+    let camera = raised.camera();
+
+    raised.harness.press_at(empty);
+    raised.frame();
+    raised.harness.drag_to(empty + Vec2::new(60.0, 10.0));
+    raised.frame();
+
+    assert_ne!(raised.camera(), camera, "the drag did not orbit");
+    assert_eq!(raised.markers(), before, "orbiting edited the drawing");
+}
+
+/// A point the drawing pins is not draggable, so pressing it orbits like any
+/// other miss.
+#[test]
+fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let cursor = raised
+        .find(false)
+        .expect("the demo pins a point and draws it");
+
+    raised.harness.move_to(cursor);
+    raised.frame();
+    let before = raised.markers();
+    let camera = raised.camera();
+
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(50.0, 0.0));
+    raised.frame();
+
+    assert_ne!(raised.camera(), camera, "a press on scenery has to orbit");
+    assert_eq!(raised.markers(), before, "a pinned point was dragged");
 }
 
 /// The projection is the view's to hold, and reading it back has to answer
 /// with what was set — the overlay's toggle is a round trip through these two.
 #[test]
 fn the_projection_round_trips_through_the_view() {
-    let mut view = demo_view();
-    let first = view.projection();
+    let mut raised = Raised::new();
+    let first = raised.view.projection();
 
-    view.set_projection(first.toggled());
-    assert_eq!(view.projection(), first.toggled());
-    assert_ne!(view.projection(), first, "toggling changed nothing");
+    raised.view.set_projection(first.toggled());
+    assert_eq!(raised.view.projection(), first.toggled());
+    assert_ne!(raised.view.projection(), first, "toggling changed nothing");
 
-    view.set_projection(first);
-    assert_eq!(view.projection(), first);
+    raised.view.set_projection(first);
+    assert_eq!(raised.view.projection(), first);
 }

@@ -7,7 +7,7 @@
 //! plus one per circle, so the cost of sparsity bookkeeping would exceed what
 //! it saves.
 
-use crate::sketch::Sketch;
+use crate::sketch::{PointId, Sketch};
 
 /// Damping starts here and moves by these factors on an accepted or rejected
 /// step. Rejections back off harder than acceptances close in, which keeps a
@@ -60,6 +60,9 @@ struct Workspace {
     /// Measuring rank destroys what it eliminates, so it runs on a copy of
     /// the Jacobian rather than on the Jacobian.
     elimination: Vec<f64>,
+    /// Parameter indices the caller is holding, two per point. Kept as indices
+    /// rather than handles so the inner loops compare integers.
+    held: Vec<usize>,
 }
 
 impl Workspace {
@@ -69,13 +72,20 @@ impl Workspace {
     /// The variable-length ones are left alone: `assemble` clears the two
     /// residual/Jacobian pairs as it fills them, and `trial` and `elimination`
     /// are cleared where they are written.
-    fn reset(&mut self, sketch: &Sketch, n: usize) {
+    fn reset(&mut self, sketch: &Sketch, n: usize, held: &[PointId]) {
         self.normal.clear();
         self.normal.resize(n * n, 0.0);
         self.step.clear();
         self.step.resize(n, 0.0);
         self.params.clear();
         sketch.write_params(&mut self.params);
+        self.held.clear();
+        self.held.reserve_exact(held.len() * 2);
+        for &point in held {
+            // A point's two parameters are adjacent, x first.
+            let x = sketch.point_param(point);
+            self.held.extend([x, x + 1]);
+        }
     }
 
     /// Rank of the Jacobian over its free columns — the number of independent
@@ -92,7 +102,7 @@ impl Workspace {
         let tolerance = RANK_TOLERANCE * scale;
         let mut rank = 0;
         for col in 0..n {
-            if !sketch.param_is_free(col) || rank == m {
+            if !movable(sketch, &self.held, col) || rank == m {
                 continue;
             }
             let mut pivot = rank;
@@ -158,15 +168,35 @@ impl Solver {
     /// failed solve still leaves it closer than it started, which is what a
     /// UI wants to draw.
     pub fn solve(&mut self, sketch: &mut Sketch) -> SolveReport {
+        self.solve_holding(sketch, &[])
+    }
+
+    /// Solve with `held` pinned where they are, whatever their own
+    /// [`Sketch::is_fixed`] says.
+    ///
+    /// What dragging needs. The point under the cursor stays where the cursor
+    /// put it and the rest of the sketch moves to accommodate it, which is the
+    /// difference between dragging a drawing and watching it snap back.
+    ///
+    /// Held rather than fixed, because [`Sketch::fix`] is the user's statement
+    /// about the drawing: a point does not become pinned because someone is
+    /// holding it, and anything reading that flag — the marker it is drawn
+    /// with, the degrees of freedom reported at rest — would be told it did.
+    ///
+    /// A sketch with nothing left to give reports `converged: false`. Holding
+    /// a point of a fully-determined drawing asks for a motion its constraints
+    /// forbid, and that it cannot be had is the honest answer rather than a
+    /// failure.
+    pub fn solve_holding(&mut self, sketch: &mut Sketch, held: &[PointId]) -> SolveReport {
         let max_iterations = self.max_iterations;
         let tolerance = self.tolerance;
         let n = sketch.param_count();
         let work = &mut self.work;
-        work.reset(sketch, n);
+        work.reset(sketch, n, held);
         let mut damping = INITIAL_DAMPING;
         let mut iterations = 0;
 
-        assemble(sketch, &mut work.residuals, &mut work.jacobian);
+        assemble(sketch, &work.held, &mut work.residuals, &mut work.jacobian);
         while iterations < max_iterations && max_abs(&work.residuals) > tolerance {
             iterations += 1;
             work.normal.fill(0.0);
@@ -191,7 +221,7 @@ impl Solver {
             // minimum-norm, so free geometry stays where the user left it.
             let curvature = (0..n).fold(1.0f64, |acc, a| acc.max(work.normal[a * n + a]));
             for a in 0..n {
-                if sketch.param_is_free(a) {
+                if movable(sketch, &work.held, a) {
                     work.normal[a * n + a] += damping * curvature;
                 } else {
                     // A fixed parameter has an all-zero column, which would
@@ -213,7 +243,12 @@ impl Solver {
             work.trial
                 .extend(work.params.iter().zip(&work.step).map(|(p, d)| p + d));
             sketch.set_params(&work.trial);
-            assemble(sketch, &mut work.trial_residuals, &mut work.trial_jacobian);
+            assemble(
+                sketch,
+                &work.held,
+                &mut work.trial_residuals,
+                &mut work.trial_jacobian,
+            );
             if norm(&work.trial_residuals) < norm(&work.residuals) {
                 // Swapped rather than assigned: the loser's buffer becomes the
                 // next round's scratch, so neither pair is ever rebuilt.
@@ -230,7 +265,7 @@ impl Solver {
             }
         }
 
-        let free_params = (0..n).filter(|&p| sketch.param_is_free(p)).count();
+        let free_params = (0..n).filter(|&p| movable(sketch, &work.held, p)).count();
         let rank = work.rank(n, sketch);
         SolveReport {
             converged: max_abs(&work.residuals) <= tolerance,
@@ -245,7 +280,7 @@ impl Solver {
 /// Build the residual vector and its row-major Jacobian for the sketch as it
 /// currently stands. Columns of fixed parameters are zeroed, which is what
 /// holds those points still.
-fn assemble(sketch: &Sketch, residuals: &mut Vec<f64>, jacobian: &mut Vec<f64>) {
+fn assemble(sketch: &Sketch, held: &[usize], residuals: &mut Vec<f64>, jacobian: &mut Vec<f64>) {
     let n = sketch.param_count();
     residuals.clear();
     jacobian.clear();
@@ -256,7 +291,7 @@ fn assemble(sketch: &Sketch, residuals: &mut Vec<f64>, jacobian: &mut Vec<f64>) 
             let row = &mut jacobian[start..];
             residuals.push(equation.evaluate(sketch, row));
             for (param, partial) in row.iter_mut().enumerate() {
-                if !sketch.param_is_free(param) {
+                if !movable(sketch, held, param) {
                     *partial = 0.0;
                 }
             }
@@ -315,6 +350,15 @@ fn solve_in_place(a: &mut [f64], n: usize, b: &mut [f64]) -> bool {
         b[i] = sum / a[i * n + i];
     }
     b.iter().all(|value| value.is_finite())
+}
+
+/// Whether the solve may move this parameter: free in the sketch, and not
+/// pinned for the duration of a drag.
+///
+/// The one place the two reasons a column stays put are put together, so the
+/// Jacobian, the damping and the rank all describe the same system.
+fn movable(sketch: &Sketch, held: &[usize], param: usize) -> bool {
+    sketch.param_is_free(param) && !held.contains(&param)
 }
 
 fn max_abs(values: &[f64]) -> f64 {

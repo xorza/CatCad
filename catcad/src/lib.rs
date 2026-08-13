@@ -7,6 +7,7 @@
 #[cfg(feature = "bench")]
 mod bench;
 mod demo;
+mod drawing;
 pub mod named;
 mod overlay;
 mod scene_view;
@@ -26,6 +27,7 @@ use palantir::{App, Configure, HostHandle, Panel, Sizing, Ui, WindowToken};
 use silverpoint::SolveReport;
 
 use crate::demo::Demo;
+use crate::drawing::Drawing;
 use crate::named::Named;
 use crate::scene_view::SceneView;
 
@@ -33,11 +35,10 @@ use crate::scene_view::SceneView;
 /// it.
 #[derive(Debug)]
 pub struct CatCad {
+    /// The model: the sketch, where it lies, and the solver that keeps it
+    /// satisfied as the pointer edits it.
+    drawing: Drawing,
     view: SceneView,
-    /// What the startup solve made of the sketch now in the scene. Nothing
-    /// edits it yet, so re-solving per frame would only recompute the same
-    /// answer.
-    report: SolveReport,
 }
 
 impl CatCad {
@@ -52,8 +53,8 @@ impl CatCad {
     pub fn build() -> Self {
         let demo = Demo::build();
         Self {
-            view: SceneView::new(demo.scene, demo.names),
-            report: demo.report,
+            drawing: demo.drawing,
+            view: SceneView::new(demo.scene),
         }
     }
 
@@ -67,7 +68,7 @@ impl CatCad {
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
         Status {
-            report: self.report,
+            report: self.drawing.report(),
             hovered: self.view.hovered(),
         }
     }
@@ -112,7 +113,7 @@ impl App for CatCad {
             .auto_id()
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
-                self.view.show(ui);
+                self.view.show(ui, &mut self.drawing);
                 // Formatted straight into the pass's own text arena — no
                 // `String` is built on the way, and the handle is lowered by
                 // the same pass that minted it, which is the only pass it is

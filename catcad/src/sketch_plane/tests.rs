@@ -34,7 +34,8 @@ fn every_entity_becomes_a_curve() {
     sketch.add_circle(b, 2.0);
 
     // One edge. Circles are rings now, and markers were never strokes.
-    let curves = SketchPlane::GROUND.curves(&sketch, &mut Names::default());
+    let mut curves = Vec::new();
+    SketchPlane::GROUND.write_curves(&sketch, &mut Names::default(), &mut curves);
     assert_eq!(curves.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
@@ -55,7 +56,8 @@ fn every_entity_becomes_a_curve() {
 
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
-    let rings = SketchPlane::GROUND.rings(&sketch, &mut Names::default());
+    let mut rings = Vec::new();
+    SketchPlane::GROUND.write_rings(&sketch, &mut Names::default(), &mut rings);
     assert_eq!(rings.len(), 1);
     let ring = rings[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
@@ -78,7 +80,8 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     let b = sketch.add_point(DVec2::new(10.0, 0.0));
     sketch.fix(a);
 
-    let points = SketchPlane::GROUND.points(&sketch, &mut Names::default());
+    let mut points = Vec::new();
+    SketchPlane::GROUND.write_points(&sketch, &mut Names::default(), &mut points);
     assert_eq!(points.len(), 2);
     // Above the strokes, not merely above the solids: a marker lands on
     // the end of the segments meeting it, and is drawn after them.
@@ -113,11 +116,9 @@ fn marker_size_ignores_how_big_the_drawing_is() {
     large.add_point(DVec2::new(0.0, 100.0));
 
     let sizes = |sketch: &Sketch| -> Vec<f32> {
-        SketchPlane::GROUND
-            .points(sketch, &mut Names::default())
-            .iter()
-            .map(|point| point.size)
-            .collect()
+        let mut points = Vec::new();
+        SketchPlane::GROUND.write_points(sketch, &mut Names::default(), &mut points);
+        points.iter().map(|point| point.size).collect()
     };
     assert_eq!(sizes(&small), sizes(&large));
     assert_eq!(sizes(&small), vec![FREE_MARKER; 2]);

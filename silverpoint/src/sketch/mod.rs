@@ -148,6 +148,15 @@ impl Sketch {
         self.points.get(id).expect(REMOVED_POINT).position
     }
 
+    /// Move a point.
+    ///
+    /// A starting guess like the one it was added with, not a constraint: the
+    /// next solve is free to move it again unless it is fixed, or held for the
+    /// length of a drag by [`Solver::solve_holding`](crate::Solver).
+    pub fn set_point(&mut self, id: PointId, position: DVec2) {
+        self.point_mut(id).position = position;
+    }
+
     fn point_mut(&mut self, id: PointId) -> &mut Point {
         self.points.get_mut(id).expect(REMOVED_POINT)
     }

@@ -201,6 +201,114 @@ fn a_coincidence_pins_both_axes_and_counts_as_two_equations() {
     assert_eq!(report.redundant_equations, 0, "{report:?}");
 }
 
+/// Holding a point pins it where the caller put it and moves the rest of the
+/// sketch to suit — which is the whole of what dragging is.
+///
+/// Without it the solver treats the held point as free and pulls it straight
+/// back toward the constraint, so a drag would slip out from under the cursor.
+/// The second half of this is that failure, measured.
+#[test]
+fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::ZERO);
+    let held = sketch.add_point(DVec2::new(5.0, 0.0));
+    let trailing = sketch.add_point(DVec2::new(10.0, 0.0));
+    sketch.fix(anchor);
+    // A chain: anchor — held — trailing, each pair five apart. Holding the
+    // middle one leaves the last with somewhere to go.
+    sketch.add_constraint(Constraint::Distance {
+        a: anchor,
+        b: held,
+        distance: 5.0,
+    });
+    sketch.add_constraint(Constraint::Distance {
+        a: held,
+        b: trailing,
+        distance: 5.0,
+    });
+    Solver::default().solve(&mut sketch);
+
+    // Drag the middle point straight up. It has to stay exactly there.
+    let dragged = DVec2::new(3.0, 4.0);
+    sketch.set_point(held, dragged);
+    let report = Solver::default().solve_holding(&mut sketch, &[held]);
+
+    assert!(report.converged, "{report:?}");
+    assert_eq!(sketch.point(held), dragged, "the held point was moved");
+    // 3-4-5 again: the anchor constraint is satisfied where the caller put it,
+    // which is why this drag is possible at all.
+    assert!((sketch.point(held).length() - 5.0).abs() < EPSILON);
+    // And the trailing point followed, staying its own five away.
+    let span = sketch.point(trailing) - sketch.point(held);
+    assert!((span.length() - 5.0).abs() < EPSILON, "{span:?}");
+
+    // The same drag without holding: the solver counts the dragged point as
+    // free and satisfies the distance by moving it, so it does not stay.
+    sketch.set_point(held, DVec2::new(3.0, 9.0));
+    Solver::default().solve(&mut sketch);
+    assert_ne!(
+        sketch.point(held),
+        DVec2::new(3.0, 9.0),
+        "a free point slides back onto the constraint"
+    );
+}
+
+/// Holding a point of a fully-determined sketch asks for a motion its
+/// constraints forbid, and the report says so rather than pretending.
+#[test]
+fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::ZERO);
+    let pinned = sketch.add_point(DVec2::new(5.0, 0.0));
+    sketch.fix(anchor);
+    sketch.add_constraint(Constraint::Distance {
+        a: anchor,
+        b: pinned,
+        distance: 5.0,
+    });
+    sketch.add_constraint(Constraint::Horizontal {
+        a: anchor,
+        b: pinned,
+    });
+    let at_rest = Solver::default().solve(&mut sketch);
+    assert!(
+        at_rest.converged && at_rest.degrees_of_freedom == 0,
+        "{at_rest:?}"
+    );
+
+    // Somewhere the constraints cannot reach with that point held.
+    sketch.set_point(pinned, DVec2::new(3.0, 4.0));
+    let report = Solver::default().solve_holding(&mut sketch, &[pinned]);
+    assert!(!report.converged, "{report:?}");
+}
+
+/// Holding nothing is solving, exactly — the general entry point cannot drift
+/// from the one every caller uses.
+#[test]
+fn holding_nothing_is_the_same_solve() {
+    let build = || {
+        let mut sketch = Sketch::default();
+        let anchor = sketch.add_point(DVec2::ZERO);
+        let free = sketch.add_point(DVec2::new(1.0, 0.5));
+        sketch.fix(anchor);
+        sketch.add_constraint(Constraint::Distance {
+            a: anchor,
+            b: free,
+            distance: 5.0,
+        });
+        sketch
+    };
+    let mut plain = build();
+    let mut empty_hold = build();
+    assert_eq!(
+        Solver::default().solve(&mut plain),
+        Solver::default().solve_holding(&mut empty_hold, &[]),
+    );
+    let moved: Vec<DVec2> = plain.points().map(|(_, at)| at).collect();
+    let same: Vec<DVec2> = empty_hold.points().map(|(_, at)| at).collect();
+    assert_eq!(moved, same);
+}
+
 /// A solver keeps the buffers a solve works in, so nothing one solve leaves
 /// behind may be visible to the next.
 ///
