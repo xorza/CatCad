@@ -9,15 +9,6 @@ production settles on.
 
 ---
 
-## `paint` states its own sequence, and two constants sit where they fit nothing
-
-- [ ] `paint` still does the six steps in sequence rather than delegating the
-      sequence. The seams are visible now, but the order and the borrow split
-      between them are still stated inline.
-- [ ] `DEPTH_FORMAT`, `SAMPLES` and `OVERRIDES` sit in `renderer/mod.rs` because
-      `gpu.rs` and `pass.rs` both read them and it is their common parent.
-      Neither is where they belong.
-
 ## `Sketch` is both the model and the solver's view of the model
 
 `sketch/mod.rs` is 397 lines, of which the container — points, segments,

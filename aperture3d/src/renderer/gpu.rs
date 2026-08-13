@@ -5,8 +5,8 @@ use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
 use crate::renderer::batch::{Batch, Rebuilt};
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{CurveInstance, GpuVertex, PointInstance, RingInstance};
+use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::renderer::uniforms::Uniforms;
-use crate::renderer::{DEPTH_FORMAT, SAMPLES};
 use glam::UVec2;
 
 /// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU

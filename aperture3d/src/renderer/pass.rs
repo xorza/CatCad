@@ -1,9 +1,15 @@
 //! One pipeline, the buffers it draws from, and how one is built.
 
+use crate::renderer::band;
 use crate::renderer::batch::MeshData;
 use crate::renderer::record::BatchRecord;
 use crate::renderer::retained::Retained;
-use crate::renderer::{DEPTH_FORMAT, OVERRIDES, SAMPLES};
+use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
+
+/// What every pipeline built from the shared module is told. Only the ring pass
+/// reads it; every pipeline is handed it because the declaration it overrides is
+/// module-scope in the shader, and so this has to be.
+const OVERRIDES: [(&str, f64); 1] = [("RING_STEPS", band::RING_STEPS as f64)];
 
 pub(super) struct PassSpec {
     /// Names the pipeline and both its entry points: `mesh` finds `mesh_vs`

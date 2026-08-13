@@ -25,22 +25,12 @@ pub(crate) mod gpu;
 pub(crate) mod pass;
 pub(crate) mod record;
 pub(crate) mod retained;
+pub(crate) mod target;
 pub(crate) mod uniforms;
 
 use crate::renderer::batch::{Batches, Dirty, Refreshed};
 use crate::renderer::gpu::{Attachments, Gpu};
 use crate::renderer::uniforms::Uniforms;
-
-const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
-
-/// Samples per pixel. Ribbons a pixel and a half wide are most of what this
-/// draws, and their edges are what multisampling is for. WebGPU guarantees 4×
-/// on every renderable format, so there is no fallback path to carry.
-const SAMPLES: u32 = 4;
-
-/// What every pipeline built from the shared module is told. Only the ring
-/// pass reads it, but the declaration is module-scope and so is this.
-const OVERRIDES: [(&str, f64); 1] = [("RING_STEPS", band::RING_STEPS as f64)];
 
 /// A GPU buffer that outlives the data in it.
 ///
@@ -210,6 +200,10 @@ impl GpuPaint for Renderer {
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
         }
+        // Two statements rather than a get-or-create returning the reference:
+        // that would tie what comes back to a `&mut Gpu`, and the bind group is
+        // read out of the same `Gpu` a few lines down. The `expect` cannot fire
+        // — the line above is what makes sure of it.
         let attachments = gpu.attachments.as_ref().expect("attachments just ensured");
         ctx.queue
             .write_buffer(&gpu.uniforms, 0, bytemuck::bytes_of(&uniforms));
