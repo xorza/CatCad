@@ -3,8 +3,9 @@ use crate::demo;
 use crate::drawing::Grip;
 use crate::named::Names;
 use crate::sketch_plane::SketchPlane;
+use aperture::Scene;
 use glam::{DVec2, Vec3};
-use silverpoint::{CircleId, PointId};
+use silverpoint::{CircleId, PointId, Solver};
 
 /// One intent, as a frame that asked for exactly that would deliver it.
 fn once(intent: Intent) -> Intents {
@@ -16,12 +17,9 @@ fn once(intent: Intent) -> Intents {
 /// Where the drawing's markers stand, which is what a drag moves and an undo
 /// has to put back.
 fn markers(document: &Document) -> Vec<Vec3> {
-    document
-        .raise(&mut Names::default())
-        .points
-        .iter()
-        .map(|point| point.position)
-        .collect()
+    let mut scene = Scene::default();
+    document.sync(&mut scene, &mut Names::default());
+    scene.points.iter().map(|point| point.position).collect()
 }
 
 /// The demo's point at `index`, in the order it added them. The ninth is the
@@ -88,9 +86,14 @@ fn assert_rim(document: &Document, asked: f64) {
 /// revision is the only claim anything makes about whether a layout is out of
 /// date, so it is the one worth testing against — and the history deliberately
 /// reports nothing, so that there is only ever one such claim.
-fn relaid(history: &mut History, document: &mut Document, intent: Intent) -> bool {
+fn relaid(
+    history: &mut History,
+    document: &mut Document,
+    solver: &mut Solver,
+    intent: Intent,
+) -> bool {
     let was = document.drawing().revision();
-    history.apply(document, &once(intent));
+    history.apply(document, solver, &once(intent));
     document.drawing().revision() != was
 }
 
@@ -110,6 +113,7 @@ fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
 fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
     let mut document = demo::document();
     let mut history = History::default();
+    let mut solver = Solver::default();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
     let at_rest = markers(&document);
@@ -118,13 +122,18 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
     for frame in 0..10 {
         let to = shifted(&document, arm, DVec2::new(0.06, -0.02));
         assert!(
-            relaid(&mut history, &mut document, Intent::Drag { grip, to }),
+            relaid(
+                &mut history,
+                &mut document,
+                &mut solver,
+                Intent::Drag { grip, to }
+            ),
             "frame {frame} of a drag moved nothing"
         );
     }
     let dragged = markers(&document);
     assert_ne!(dragged, at_rest, "ten frames of dragging moved nothing");
-    history.apply(&mut document, &once(Intent::Release));
+    history.apply(&mut document, &mut solver, &once(Intent::Release));
     assert_eq!(
         history.edits.len(),
         1,
@@ -133,7 +142,12 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
     );
 
     // One step back, and the whole of it is gone — not a tenth of it.
-    assert!(relaid(&mut history, &mut document, Intent::Undo));
+    assert!(relaid(
+        &mut history,
+        &mut document,
+        &mut solver,
+        Intent::Undo
+    ));
     assert_eq!(
         markers(&document),
         at_rest,
@@ -141,15 +155,20 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
     );
     assert!(!history.can_undo());
     assert!(
-        !relaid(&mut history, &mut document, Intent::Undo),
+        !relaid(&mut history, &mut document, &mut solver, Intent::Undo),
         "took back a step that was not there"
     );
 
     // And redo puts the whole of it back, in one.
-    assert!(relaid(&mut history, &mut document, Intent::Redo));
+    assert!(relaid(
+        &mut history,
+        &mut document,
+        &mut solver,
+        Intent::Redo
+    ));
     assert_eq!(markers(&document), dragged, "redo landed somewhere else");
     assert!(
-        !relaid(&mut history, &mut document, Intent::Redo),
+        !relaid(&mut history, &mut document, &mut solver, Intent::Redo),
         "put back a step that was not there"
     );
 }
@@ -164,6 +183,7 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
 fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
     let mut document = demo::document();
     let mut history = History::default();
+    let mut solver = Solver::default();
     let at_rest = markers(&document);
     let camera = document.camera();
 
@@ -180,7 +200,7 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
         Intent::Project(document.camera().projection.toggled()),
     ] {
         assert!(
-            !relaid(&mut history, &mut document, turn),
+            !relaid(&mut history, &mut document, &mut solver, turn),
             "{turn:?} asked the drawing to be laid out again"
         );
     }
@@ -199,12 +219,13 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
     // cheaply it has moved on. What did not happen is a step.
     history.apply(
         &mut document,
+        &mut solver,
         &once(Intent::Drag {
             grip: Grip::Point(corner),
             to,
         }),
     );
-    history.apply(&mut document, &once(Intent::Release));
+    history.apply(&mut document, &mut solver, &once(Intent::Release));
     assert_eq!(
         markers(&document),
         at_rest,
@@ -230,29 +251,35 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
 fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
     let mut document = demo::document();
     let mut history = History::default();
+    let mut solver = Solver::default();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
     let at_rest = markers(&document);
 
     let to = shifted(&document, arm, DVec2::new(0.5, -0.2));
     let drag = once(Intent::Drag { grip, to });
-    history.apply(&mut document, &drag);
+    history.apply(&mut document, &mut solver, &drag);
     let once_over = markers(&document);
     // The same intent again, as the settling pass would deliver it. It names
     // where the wrist should be rather than how far to go, so it lands in the
     // same place.
-    history.apply(&mut document, &drag);
+    history.apply(&mut document, &mut solver, &drag);
     assert_eq!(
         markers(&document),
         once_over,
         "the second pass moved the drawing further"
     );
 
-    history.apply(&mut document, &once(Intent::Release));
-    history.apply(&mut document, &once(Intent::Release));
+    history.apply(&mut document, &mut solver, &once(Intent::Release));
+    history.apply(&mut document, &mut solver, &once(Intent::Release));
     assert_eq!(history.edits.len(), 1, "a settling frame left two steps");
 
-    assert!(relaid(&mut history, &mut document, Intent::Undo));
+    assert!(relaid(
+        &mut history,
+        &mut document,
+        &mut solver,
+        Intent::Undo
+    ));
     assert_eq!(markers(&document), at_rest);
     assert!(!history.can_undo(), "half the drag was left behind");
 }
@@ -265,40 +292,56 @@ fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
 fn something_new_after_an_undo_throws_away_what_was_undone() {
     let mut document = demo::document();
     let mut history = History::default();
+    let mut solver = Solver::default();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
 
     for out in [2.0, 3.0] {
         let to = rim_at(&document, circle, out);
-        history.apply(&mut document, &once(Intent::Drag { grip, to }));
-        history.apply(&mut document, &once(Intent::Release));
+        history.apply(&mut document, &mut solver, &once(Intent::Drag { grip, to }));
+        history.apply(&mut document, &mut solver, &once(Intent::Release));
     }
     assert_eq!(history.edits.len(), 2);
 
     // Back to the first step's end, with the second waiting to be put back.
-    assert!(relaid(&mut history, &mut document, Intent::Undo));
+    assert!(relaid(
+        &mut history,
+        &mut document,
+        &mut solver,
+        Intent::Undo
+    ));
     assert_rim(&document, 2.0);
     assert!(history.can_redo());
 
     // Something else instead, and the road not taken is gone.
     let to = rim_at(&document, circle, 0.8);
-    history.apply(&mut document, &once(Intent::Drag { grip, to }));
-    history.apply(&mut document, &once(Intent::Release));
+    history.apply(&mut document, &mut solver, &once(Intent::Drag { grip, to }));
+    history.apply(&mut document, &mut solver, &once(Intent::Release));
     assert!(
         !history.can_redo(),
         "the undone step survived being replaced"
     );
     assert!(
-        !relaid(&mut history, &mut document, Intent::Redo),
+        !relaid(&mut history, &mut document, &mut solver, Intent::Redo),
         "put back a step that had been thrown away"
     );
     assert_rim(&document, 0.8);
 
     // The two that are left still go back in order, and the last of them puts
     // the drawing back exactly as the document opened it.
-    assert!(relaid(&mut history, &mut document, Intent::Undo));
+    assert!(relaid(
+        &mut history,
+        &mut document,
+        &mut solver,
+        Intent::Undo
+    ));
     assert_rim(&document, 2.0);
-    assert!(relaid(&mut history, &mut document, Intent::Undo));
+    assert!(relaid(
+        &mut history,
+        &mut document,
+        &mut solver,
+        Intent::Undo
+    ));
     assert_eq!(
         radius(&document),
         1.5,
@@ -312,6 +355,7 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
 fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() {
     let mut document = demo::document();
     let mut history = History::default();
+    let mut solver = Solver::default();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
     let opened_at = radius(&document);
@@ -320,8 +364,8 @@ fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() 
     let over = 5;
     for step in 1..=DEPTH + over {
         let to = rim_at(&document, circle, 1.5 + 0.01 * step as f64);
-        history.apply(&mut document, &once(Intent::Drag { grip, to }));
-        history.apply(&mut document, &once(Intent::Release));
+        history.apply(&mut document, &mut solver, &once(Intent::Drag { grip, to }));
+        history.apply(&mut document, &mut solver, &once(Intent::Release));
     }
     assert_eq!(history.edits.len(), DEPTH, "the history grew past its cap");
     assert_eq!(history.applied, DEPTH);
@@ -329,11 +373,16 @@ fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() 
     // Every step it still holds goes back, and then no more.
     for step in 0..DEPTH {
         assert!(
-            relaid(&mut history, &mut document, Intent::Undo),
+            relaid(&mut history, &mut document, &mut solver, Intent::Undo),
             "step {step} of {DEPTH} would not go back"
         );
     }
-    assert!(!relaid(&mut history, &mut document, Intent::Undo));
+    assert!(!relaid(
+        &mut history,
+        &mut document,
+        &mut solver,
+        Intent::Undo
+    ));
     // And the five it forgot stay forgotten: undoing everything it has does not
     // reach the drawing the document opened with.
     assert_ne!(

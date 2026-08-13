@@ -1,12 +1,12 @@
 //! What a saved file would hold, and the one thing that owns it.
 
-use aperture::{Camera, Object, Renderer, Scene};
+use aperture::{Camera, Object, Scene};
 
 use crate::drawing::Drawing;
 use crate::intent::Intent;
 use crate::named::Names;
 use crate::sketch_plane::SketchPlane;
-use silverpoint::Sketch;
+use silverpoint::{Sketch, Solver};
 
 /// A drawing, the solids modelled beside it, and how it is being looked at —
 /// everything a session would have to write down to be opened again.
@@ -25,8 +25,8 @@ use silverpoint::Sketch;
 #[derive(Debug)]
 pub(crate) struct Document {
     drawing: Drawing,
-    /// The solids the drawing is modelled alongside. Handed to a renderer when
-    /// the document is raised and kept here as the record of them, which is the
+    /// The solids the drawing is modelled alongside. Read by whatever lays the
+    /// document out and kept here as the record of them, which is the
     /// difference between what the document *is* and what is being drawn.
     solids: Vec<Object>,
     camera: Camera,
@@ -36,9 +36,10 @@ impl Document {
     /// A document holding `sketch` on `plane`, with `solids` standing around
     /// it, seen from wherever the camera starts.
     ///
-    /// The camera is left at its default rather than framed: framing needs the
-    /// bounds of what is drawn, and what is drawn is not known until the
-    /// document is raised. [`Document::frame`] is the other half.
+    /// The camera is left at its default rather than aimed at anything: what
+    /// has to fit on screen is what will be *drawn*, and that is not known
+    /// until the document has been raised. Whoever raises one is who can
+    /// measure it, so whoever raises one is who aims the camera.
     pub(crate) fn new(sketch: Sketch, plane: SketchPlane, solids: Vec<Object>) -> Self {
         Self {
             drawing: Drawing::new(sketch, plane),
@@ -72,9 +73,14 @@ impl Document {
     /// there is one place to watch rather than one per gesture. What watches is
     /// [`History`](crate::history::History), which is also what drives this —
     /// it takes each of a frame's intents in turn and notes what this did.
-    pub(crate) fn apply(&mut self, intent: Intent) {
+    ///
+    /// `solver` is the caller's. Solving is what an edit to a drawing *is*, and
+    /// a solve wants room to work in that is worth keeping across a drag and
+    /// worth nothing in a saved file — so the room belongs to whoever is doing
+    /// the editing, and the document borrows it for the length of the call.
+    pub(crate) fn apply(&mut self, solver: &mut Solver, intent: Intent) {
         match intent {
-            Intent::Drag { grip, to } => self.drawing.drag_to(grip, to),
+            Intent::Drag { grip, to } => self.drawing.drag_to(solver, grip, to),
             Intent::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Intent::Dolly { factor } => self.camera.dolly(factor),
             Intent::Project(projection) => self.camera.projection = projection,
@@ -85,53 +91,30 @@ impl Document {
         }
     }
 
-    /// The scene this document draws as — what opening one produces.
+    /// Bring `scene` into agreement with this document: the solids it holds,
+    /// and its drawing turned into the strokes, rims and markers that show it.
     ///
-    /// Builds rather than fills, unlike everything that happens per frame: the
-    /// solids are copied across once here, where a document is being opened and
-    /// the heap is not being counted.
+    /// Fills a scene the caller owns rather than handing one back. A document
+    /// is the thing worth saving and a scene is one way of looking at it, so a
+    /// document that *made* one would be a document that had to know what a
+    /// renderer wants — where this only has to know how to describe itself.
     ///
     /// `names` comes from the caller and goes back to it. The scene's tags are
-    /// indices into it, so the two are only meaningful together — and neither
-    /// is the document's, which is why raising one asks nothing of it but to be
-    /// read.
+    /// indices into it, so the two are only meaningful together, and neither is
+    /// the document's.
     ///
-    /// Says nothing about the camera, though a [`Scene`] carries one.
-    /// [`Document::aim`] is the only thing that ever writes one into a scene,
-    /// and it does so every frame — so a camera set here would be a camera set
-    /// before it had been framed, overwritten before anything was painted
-    /// through it. Leaving it alone is what keeps the flow one-directional:
-    /// geometry out of the document, bounds back in, and the camera out again
-    /// through the one door it has.
-    pub(crate) fn raise(&self, names: &mut Names) -> Scene {
-        let mut scene = Scene {
-            objects: self.solids.clone(),
-            ..Scene::default()
-        };
+    /// Says nothing about the camera, though a [`Scene`] carries one. Whoever
+    /// holds a renderer copies a camera into it every frame; what is written
+    /// here changes only when the drawing does, and those two cadences are why
+    /// they are not one call.
+    ///
+    /// The meshes are copied across, which makes this an opening-a-document
+    /// call rather than a per-frame one — handing a renderer its objects again
+    /// has it upload them again. What a frame refreshes is the drawing alone.
+    pub(crate) fn sync(&self, scene: &mut Scene, names: &mut Names) {
+        scene.objects.clear();
+        scene.objects.extend_from_slice(&self.solids);
         self.drawing.write_into(names, scene.overlays_mut());
-        scene
-    }
-
-    /// Point the camera at everything `scene` holds, so a document opens
-    /// looking at itself rather than at wherever the default camera pointed.
-    ///
-    /// Takes the scene it was raised into rather than measuring its own
-    /// contents, because what has to fit on screen is what will be drawn —
-    /// which includes the strokes and markers the drawing turns into, and those
-    /// exist only once it has been laid out.
-    pub(crate) fn frame(&mut self, scene: &Scene) {
-        if let Some(bounds) = scene.bounds() {
-            self.camera.frame(bounds);
-        }
-    }
-
-    /// Hand `renderer` the camera this document is being looked at through.
-    ///
-    /// Wholesale and every frame, so the copy the next paint reads cannot drift
-    /// from the one the document holds. The document is what a gesture edits;
-    /// the scene's is what the renderer was handed for this frame.
-    pub(crate) fn aim(&self, renderer: &mut Renderer) {
-        *renderer.camera_mut() = self.camera;
     }
 }
 

@@ -1,6 +1,6 @@
 //! What the app decides, from the sketch it opens with to the frames it records.
 
-use aperture::Viewport;
+use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, Key, Modifiers, WindowToken};
@@ -295,4 +295,37 @@ fn markers(app: &CatCad) -> Vec<Vec3> {
         .iter()
         .map(|point| point.position)
         .collect()
+}
+
+/// The app opens looking at the whole of what it draws, rather than at wherever
+/// a default camera happened to point.
+///
+/// Asked of the renderer rather than of the document, so it covers the whole
+/// opening: the document is raised, the scene it came out as is measured, the
+/// camera is aimed at that, and the view hands it on. A break anywhere along
+/// there leaves the demo off screen or half of it out of frame.
+#[test]
+fn the_app_opens_looking_at_the_whole_of_what_it_draws() {
+    let app = CatCad::build();
+    let renderer = app.renderer().borrow();
+    let camera = *renderer.camera();
+    let bounds = renderer.scene().bounds().expect("the demo draws something");
+
+    // Aimed at the middle of what it holds, which for the demo is the slab:
+    // twelve wide and nine deep, centred on the sketch's own origin.
+    assert!(
+        camera.target.abs_diff_eq(bounds.centre(), 1e-4),
+        "aimed at {:?} rather than the middle of {bounds:?}",
+        camera.target
+    );
+    // And far enough back to take it all in.
+    assert!(
+        camera.distance > bounds.radius(),
+        "{camera:?} vs {bounds:?}"
+    );
+    assert_ne!(
+        camera,
+        Camera::default(),
+        "the app opened at the camera it was given rather than aiming one"
+    );
 }

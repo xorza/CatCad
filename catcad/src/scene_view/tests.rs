@@ -3,6 +3,7 @@ use crate::demo;
 use crate::history::History;
 use crate::intent::{Intent, Intents};
 use palantir::internals::UiHarness;
+use silverpoint::Solver;
 
 const SIZE: UVec2 = UVec2::new(800, 600);
 
@@ -11,6 +12,7 @@ const SIZE: UVec2 = UVec2::new(800, 600);
 struct Raised {
     document: Document,
     history: History,
+    solver: Solver,
     intents: Intents,
     view: SceneView,
     harness: UiHarness,
@@ -19,15 +21,15 @@ struct Raised {
 impl Raised {
     fn new() -> Self {
         let mut document = demo::document();
-        let mut names = Names::default();
-        let mut scene = document.raise(&mut names);
-        document.frame(&scene);
-        scene.camera = document.camera();
-        let mut view = SceneView::new(scene, names);
+        let mut view = SceneView::new(&document);
+        if let Some(bounds) = view.bounds() {
+            document.camera_mut().frame(bounds);
+        }
         view.settle(&document);
         Self {
             document,
             history: History::default(),
+            solver: Solver::default(),
             intents: Intents::default(),
             view,
             harness: UiHarness::new(SIZE),
@@ -43,6 +45,7 @@ impl Raised {
         let Self {
             document,
             history,
+            solver,
             intents,
             view,
             harness,
@@ -50,7 +53,7 @@ impl Raised {
         harness.frame(|ui| {
             intents.clear();
             view.show(ui, document, intents);
-            history.apply(document, intents);
+            history.apply(document, solver, intents);
             view.settle(document);
         });
     }
@@ -78,12 +81,9 @@ impl Raised {
     /// Where the *document* says its markers are, which is not the same
     /// question as where the scene the renderer holds still shows them.
     fn asked_for(&self) -> Vec<Vec3> {
-        self.document
-            .raise(&mut Names::default())
-            .points
-            .iter()
-            .map(|point| point.position)
-            .collect()
+        let mut scene = Scene::default();
+        self.document.sync(&mut scene, &mut Names::default());
+        scene.points.iter().map(|point| point.position).collect()
     }
 
     /// A cursor position that lands on something the drawing will let go of.
@@ -384,7 +384,9 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     // Applying is what moves it, and what marks the drawing as needing to be
     // laid out again — which the drawing says of itself rather than being told.
     let unlaid = raised.document.drawing().revision();
-    raised.history.apply(&mut raised.document, &raised.intents);
+    raised
+        .history
+        .apply(&mut raised.document, &mut raised.solver, &raised.intents);
     assert_ne!(
         raised.document.drawing().revision(),
         unlaid,
@@ -417,7 +419,9 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     // pass already took, so how far this one turns depends on which pass is
     // being read, and only the whole frame has a stable answer.
     let unlaid = raised.document.drawing().revision();
-    raised.history.apply(&mut raised.document, &raised.intents);
+    raised
+        .history
+        .apply(&mut raised.document, &mut raised.solver, &raised.intents);
     assert_eq!(
         raised.document.drawing().revision(),
         unlaid,
@@ -471,4 +475,36 @@ fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
 
     assert_ne!(raised.camera(), camera, "a press on scenery has to orbit");
     assert_eq!(raised.markers(), before, "a pinned point was dragged");
+}
+
+/// The camera the document holds is the one the renderer paints through.
+///
+/// The round trip the projection toggle makes: the overlay reads the document,
+/// writes back what was asked for, and the frame has to be drawn through it.
+/// Settling hands the renderer a copy every frame, which is what closes that
+/// loop — a copy refreshed only on change is what would leave it open.
+#[test]
+fn settling_aims_the_renderer_through_the_documents_own_camera() {
+    let mut raised = Raised::new();
+    raised.frame();
+    assert_eq!(*raised.view.renderer().borrow().camera(), raised.camera());
+
+    // Turn the camera the way a gesture would, and the renderer follows.
+    raised.document.camera_mut().orbit(0.4, 0.2);
+    let turned = raised.camera();
+    assert_ne!(
+        *raised.view.renderer().borrow().camera(),
+        turned,
+        "nothing to prove otherwise"
+    );
+    raised.view.settle(&raised.document);
+    assert_eq!(*raised.view.renderer().borrow().camera(), turned);
+
+    // The projection rides along with it, which is the toggle's whole path.
+    let was = raised.camera().projection;
+    raised.document.camera_mut().projection = was.toggled();
+    raised.view.settle(&raised.document);
+    let now = raised.view.renderer().borrow().camera().projection;
+    assert_eq!(now, was.toggled());
+    assert_ne!(now, was);
 }
