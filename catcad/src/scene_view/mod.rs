@@ -177,13 +177,18 @@ impl SceneView {
         self.hovered
     }
 
-    /// Show the view, and say what the pointer over it is asking for.
+    /// Show the view, and put what the pointer over it asks for in `intents`.
     ///
     /// Asks and does not act: `document` is read to resolve what the cursor is
     /// aiming at and never written, so orbiting, zooming and dragging all leave
     /// as intents. What they do is [`Document::apply`]'s, and what that leaves
     /// is [`SceneView::settle`]'s.
-    pub(crate) fn show(&mut self, ui: &mut Ui, document: &Document, intents: &mut Intents) {
+    ///
+    /// Named for that rather than for the widget it emits. A palantir `show`
+    /// answers its caller with a [`Response`] and leaves the deciding to it;
+    /// this reads the response itself and posts what it found, which is the
+    /// asking half of a frame and not a widget at all.
+    pub(crate) fn ask(&mut self, ui: &mut Ui, document: &Document, intents: &mut Intents) {
         // A bare pointer move only wakes a frame for a widget that asked for
         // one: palantir skips a `PointerMoved` that crosses no boundary and
         // latches no press, and a viewport filling the window has no boundary

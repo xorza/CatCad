@@ -54,7 +54,7 @@ impl Raised {
         } = self;
         harness.frame(|ui| {
             intents.clear();
-            view.show(ui, document, intents);
+            view.ask(ui, document, intents);
             history.apply(document, solver, intents);
             view.settle(document);
         });
@@ -76,7 +76,7 @@ impl Raised {
         } = self;
         harness.frame(|ui| {
             intents.clear();
-            view.show(ui, document, intents);
+            view.ask(ui, document, intents);
         });
     }
 

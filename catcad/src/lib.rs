@@ -141,12 +141,12 @@ impl CatCad {
         if ui.key_pressed(REDO) {
             self.intents.push(Intent::Redo);
         }
-        self.view.show(ui, &self.document, &mut self.intents);
+        self.view.ask(ui, &self.document, &mut self.intents);
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
         let status = ui.fmt(format_args!("{}", self.status()));
-        overlay::show(
+        overlay::ask(
             ui,
             status,
             self.document.camera().projection,

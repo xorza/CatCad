@@ -10,17 +10,13 @@ use crate::intent::{Intent, Intents};
 /// Asked for rather than done, exactly as the view is: a panel that turned the
 /// camera itself would be a panel that had to be handed one, and a control that
 /// answered its caller with a value instead would leave the caller to work out
-/// what had changed. The inbox is where a gesture goes, whichever raised it.
+/// what had changed. The inbox is where a gesture goes, whichever raised it —
+/// which is what this is named for, rather than for the panel it emits.
 ///
 /// `status` arrives already in the pass's text arena, so nothing here copies
 /// it — and it has to be lowered in the pass that minted it, which is the
 /// same pass that is calling.
-pub(crate) fn show(
-    ui: &mut Ui,
-    status: InternedStr,
-    projection: Projection,
-    intents: &mut Intents,
-) {
+pub(crate) fn ask(ui: &mut Ui, status: InternedStr, projection: Projection, intents: &mut Intents) {
     Panel::vstack()
         .auto_id()
         // Chrome would put a slab of theme colour over the drawing; the
