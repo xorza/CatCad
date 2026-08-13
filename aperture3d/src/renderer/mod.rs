@@ -27,7 +27,7 @@ pub(crate) mod record;
 pub(crate) mod retained;
 
 use crate::renderer::gpu::{Attachments, Gpu};
-use crate::renderer::record::{CurveInstance, GpuVertex, PointInstance, RingInstance};
+use crate::renderer::record::{CurveInstance, GpuVertex, Instance, PointInstance, RingInstance};
 
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
 

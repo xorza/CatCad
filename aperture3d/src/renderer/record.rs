@@ -6,6 +6,68 @@ use crate::point::Point;
 use crate::ring::Ring;
 use glam::Vec3;
 
+/// What every overlay record ends with, whatever shape carries it.
+///
+/// The three fields that mean the same thing for a stroke, a rim and a marker,
+/// laid out once so they cannot drift.
+///
+/// The plane a primitive lies in is *not* here, though two of the three carry
+/// one. A stroke and a marker are widened in screen space, so their corners
+/// leave the plane and the shader has to put their depth back on it; a ring's
+/// band is widened in its own plane and never leaves it. Sharing the field
+/// would ship a ring twelve bytes it has no use for and name something about it
+/// that is not true.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(super) struct Look {
+    pub(super) color: [f32; 3],
+    /// Half the stroke width, or half a marker's diameter — the distance the
+    /// shader spreads either side of the shape's own centre.
+    pub(super) half_extent: f32,
+    /// Depth bias in resolution steps.
+    pub(super) z_offset: f32,
+}
+
+impl Look {
+    /// The look a primitive of this size would be given.
+    fn of(color: Vec3, extent: f32, z_offset: i32) -> Self {
+        Self {
+            color: color.to_array(),
+            half_extent: extent * 0.5,
+            z_offset: z_offset as f32,
+        }
+    }
+
+    /// Drawn again in `look`, over the top of its ordinary self.
+    fn highlighted(mut self, look: Highlight) -> Self {
+        self.color = look.color.to_array();
+        self.half_extent *= look.scale;
+        self.z_offset += look.lift as f32;
+        self
+    }
+}
+
+/// An overlay record: a shape, and the [`Look`] every one of them ends with.
+///
+/// The look is reached through rather than restated, the way [`Styled`] does it
+/// for the primitives themselves — so what a highlight *is* lives in one place
+/// and all three inherit it.
+///
+/// [`Styled`]: crate::styled::Styled
+pub(super) trait Instance: BatchRecord {
+    fn look_mut(&mut self) -> &mut Look;
+
+    /// Drawn again in `look`, over the top of its ordinary self.
+    fn highlighted(mut self, look: Highlight) -> Self
+    where
+        Self: Sized,
+    {
+        let tail = self.look_mut();
+        *tail = tail.highlighted(look);
+        self
+    }
+}
+
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct GpuVertex {
@@ -25,14 +87,10 @@ pub(super) struct GpuVertex {
 pub(super) struct CurveInstance {
     pub(super) start: [f32; 3],
     pub(super) end: [f32; 3],
-    pub(super) color: [f32; 3],
-    /// Half the stroke width, in logical px.
-    pub(super) half_width: f32,
-    /// Depth bias in resolution steps.
-    pub(super) z_offset: f32,
-    /// Unit normal of the plane the curve lies in, or all-zero for a curve
-    /// that named none — which is what the shader tests to decide whether it
-    /// can read depth off the surface instead of off the centreline.
+    pub(super) look: Look,
+    /// Unit normal of the plane the curve lies in, or all-zero for a curve that
+    /// named none — which is what the shader tests to decide whether it can
+    /// read depth off the surface instead of off the centreline.
     pub(super) plane: [f32; 3],
 }
 
@@ -46,36 +104,27 @@ pub(super) struct RingInstance {
     pub(super) center: [f32; 3],
     pub(super) x_axis: [f32; 3],
     pub(super) y_axis: [f32; 3],
-    pub(super) color: [f32; 3],
     pub(super) radius: f32,
-    /// Half the stroke width, in logical px.
-    pub(super) half_width: f32,
-    /// Depth bias in resolution steps.
-    pub(super) z_offset: f32,
+    pub(super) look: Look,
 }
 
 impl CurveInstance {
     /// The instances one stroke ships, one per segment.
     pub(super) fn of(curve: &Curve) -> impl Iterator<Item = Self> + '_ {
-        let color = curve.color.to_array();
-        let half_width = curve.width * 0.5;
-        let z_offset = curve.z_offset as f32;
+        let look = Look::of(curve.color, curve.width, curve.z_offset);
         let plane = curve.plane_normal.unwrap_or(Vec3::ZERO).to_array();
         curve.segments().map(move |(a, b)| Self {
             start: a.to_array(),
             end: b.to_array(),
-            color,
-            half_width,
-            z_offset,
+            look,
             plane,
         })
     }
+}
 
-    pub(super) fn highlighted(mut self, look: Highlight) -> Self {
-        self.color = look.color.to_array();
-        self.half_width *= look.scale;
-        self.z_offset += look.lift as f32;
-        self
+impl Instance for CurveInstance {
+    fn look_mut(&mut self) -> &mut Look {
+        &mut self.look
     }
 }
 
@@ -85,18 +134,15 @@ impl RingInstance {
             center: ring.center.to_array(),
             x_axis: ring.x_axis.to_array(),
             y_axis: ring.y_axis.to_array(),
-            color: ring.color.to_array(),
             radius: ring.radius,
-            half_width: ring.width * 0.5,
-            z_offset: ring.z_offset as f32,
+            look: Look::of(ring.color, ring.width, ring.z_offset),
         }
     }
+}
 
-    pub(super) fn highlighted(mut self, look: Highlight) -> Self {
-        self.color = look.color.to_array();
-        self.half_width *= look.scale;
-        self.z_offset += look.lift as f32;
-        self
+impl Instance for RingInstance {
+    fn look_mut(&mut self) -> &mut Look {
+        &mut self.look
     }
 }
 
@@ -106,11 +152,7 @@ impl RingInstance {
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct PointInstance {
     pub(super) position: [f32; 3],
-    pub(super) color: [f32; 3],
-    /// Half the glyph's diameter, in logical px.
-    pub(super) half_size: f32,
-    /// Depth bias in resolution steps.
-    pub(super) z_offset: f32,
+    pub(super) look: Look,
     /// Unit normal of the plane the marker sits on, or all-zero for one that
     /// names none.
     pub(super) plane: [f32; 3],
@@ -120,18 +162,15 @@ impl PointInstance {
     pub(super) fn of(point: &Point) -> Self {
         Self {
             position: point.position.to_array(),
-            color: point.color.to_array(),
-            half_size: point.size * 0.5,
-            z_offset: point.z_offset as f32,
+            look: Look::of(point.color, point.size, point.z_offset),
             plane: point.plane_normal.unwrap_or(Vec3::ZERO).to_array(),
         }
     }
+}
 
-    pub(super) fn highlighted(mut self, look: Highlight) -> Self {
-        self.color = look.color.to_array();
-        self.half_size *= look.scale;
-        self.z_offset += look.lift as f32;
-        self
+impl Instance for PointInstance {
+    fn look_mut(&mut self) -> &mut Look {
+        &mut self.look
     }
 }
 
@@ -196,7 +235,7 @@ impl BatchRecord for PointInstance {
 impl BatchRecord for RingInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32x3,
-        4 => Float32, 5 => Float32, 6 => Float32
+        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32,
+        4 => Float32x3, 5 => Float32, 6 => Float32
     ];
 }

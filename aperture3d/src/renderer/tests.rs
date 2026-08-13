@@ -118,11 +118,11 @@ fn flatten_curves_ships_one_instance_per_segment() {
     assert_eq!(data[0].end, b.to_array());
     assert_eq!(data[1].start, b.to_array());
     assert_eq!(data[1].end, c.to_array());
-    assert!(data.iter().all(|i| i.half_width == 1.5));
-    assert!(data.iter().all(|i| i.color == [0.25, 0.5, 0.75]));
+    assert!(data.iter().all(|i| i.look.half_extent == 1.5));
+    assert!(data.iter().all(|i| i.look.color == [0.25, 0.5, 0.75]));
     // The bias is the segment's, not a corner's: a ribbon tilted in depth
     // against itself would z-fight along its own length.
-    assert!(data.iter().all(|i| i.z_offset == 64.0));
+    assert!(data.iter().all(|i| i.look.z_offset == 64.0));
     // No plane named, so the shader gets all-zero and falls back to reading
     // depth off the centreline.
     assert!(data.iter().all(|i| i.plane == [0.0; 3]));
@@ -332,11 +332,11 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     // The look replaces the colour, multiplies the width, and adds to the
     // bias rather than replacing it — a highlight has to clear the lift the
     // primitive already carried.
-    assert!(lit.curves.iter().all(|i| i.color == [1.0, 0.0, 0.0]));
-    assert!(lit.curves.iter().all(|i| i.half_width == 3.0)); // 2.0/2 × 3
-    assert!(lit.curves.iter().all(|i| i.z_offset == 74.0)); // 10 + 64
-    assert_eq!(lit.rings[0].half_width, 4.5); // 3.0/2 × 3
-    assert_eq!(lit.rings[0].z_offset, 64.0);
+    assert!(lit.curves.iter().all(|i| i.look.color == [1.0, 0.0, 0.0]));
+    assert!(lit.curves.iter().all(|i| i.look.half_extent == 3.0)); // 2.0/2 × 3
+    assert!(lit.curves.iter().all(|i| i.look.z_offset == 74.0)); // 10 + 64
+    assert_eq!(lit.rings[0].look.half_extent, 4.5); // 3.0/2 × 3
+    assert_eq!(lit.rings[0].look.z_offset, 64.0);
 
     // The geometry is the primitive's own, untouched. Copied out first: the
     // batches are held on the renderer now, so flattening another one needs
@@ -356,8 +356,8 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     renderer.flatten_highlights();
     let lit = &renderer.batches.lit;
     assert_eq!(lit.curves.len(), 2, "still doubled once, not twice");
-    assert_eq!(lit.rings[0].half_width, 1.5);
-    assert_eq!(lit.rings[0].color, [0.0, 1.0, 0.0]);
+    assert_eq!(lit.rings[0].look.half_extent, 1.5);
+    assert_eq!(lit.rings[0].look.color, [0.0, 1.0, 0.0]);
 
     // Lighting one thing alone drops the rest, and `None` drops everything.
     renderer.highlight_only(Some(Lit {
