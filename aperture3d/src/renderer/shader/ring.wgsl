@@ -108,10 +108,17 @@ fn ring_vs(
 
 // The circle itself, measured rather than approximated.
 //
-// `fwidth` of the in-plane radius is how far that radius moves across one
-// fragment, which is exactly the factor turning a distance in the plane into
-// a distance in pixels — and it picks up the foreshortening of a circle seen
-// at an angle without being told the camera is there at all.
+// How far the in-plane radius moves across one fragment is exactly the factor
+// turning a distance in the plane into a distance in pixels — and it picks up
+// the foreshortening of a circle seen at an angle without being told the camera
+// is there at all.
+//
+// The length of the gradient rather than `fwidth`, which is `|dpdx| + |dpdy|`:
+// that sum is the diagonal of the box the two derivatives span where what is
+// wanted is its hypotenuse, so it runs up to `SQRT_2` long, and by the most
+// where the two are equal — a rim running diagonally across the pixel grid.
+// Distance to the rim is then understated in the same proportion and the band
+// is drawn wider than it was authored.
 //
 // Coverage in alpha for the same reason the markers use it: alpha-to-coverage
 // turns it into a sample mask, so nothing blends, depth stays clean and draw
@@ -119,7 +126,7 @@ fn ring_vs(
 @fragment
 fn ring_fs(in: RingVsOut) -> @location(0) vec4<f32> {
     let radius = length(in.plane);
-    let per_fragment = max(fwidth(radius), MIN_FADE);
+    let per_fragment = max(length(vec2<f32>(dpdx(radius), dpdy(radius))), MIN_FADE);
     let from_rim = abs(radius - in.radius) / per_fragment;
     let coverage = clamp(in.half_px - from_rim + 0.5, 0.0, 1.0);
     return vec4<f32>(in.color, coverage);

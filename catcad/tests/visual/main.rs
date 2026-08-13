@@ -317,17 +317,52 @@ fn linear(byte: u8) -> f32 {
 /// renders at scale 1, so this is what a fully drawn one deposits.
 const AUTHORED_WIDTH: f32 = 1.6;
 
-/// How much of that a stroke has to still be carrying to count as intact.
+/// The finest a single crossing can be measured.
 ///
-/// Lower than it reads, because the measurement under it changed: ink is now
-/// summed in linear light, where before it was summed in sRGB bytes and the
-/// encoding curve flattered every shoulder it passed through. The same strokes
-/// that measured about 1.55 in bytes measure about 1.22 honestly, so a floor
-/// calibrated against the old figure would fail on geometry that is fine.
+/// Overlays are drawn against four samples with nothing blending, so what a
+/// stroke deposits lands on a multiple of a quarter pixel: one authored at 1.6
+/// measures 1.50 or 1.75 and never 1.6. Nothing is wrong with the stroke — that
+/// is the whole resolution the frame has to answer in, and the phase of the
+/// stroke against the sample grid decides which side it lands. It is why
+/// [`deposited`] averages many crossings instead of reading one.
+const QUANTUM: f32 = 0.25;
+
+/// Columns [`deposited`] measures across.
 ///
-/// It still catches what this pair of tests exists for by a wide margin: before
-/// the plane-aware depth, a grazing stroke fell to about *half* its width.
-const INTACT: f32 = AUTHORED_WIDTH * 0.7;
+/// Narrow, and about the circle's own centre, because a scan measures a stroke
+/// honestly only where it crosses one square on: a stroke crossed at an angle
+/// deposits its width over `1 / sin` of it, and averaging that in would measure
+/// the geometry's slope rather than its width. Over this band the circle's
+/// tangent stays within a few degrees of horizontal and the rectangle's near
+/// and far edges are horizontal outright.
+const MEASURED_COLUMNS: std::ops::Range<u32> = 415..446;
+
+/// How far from the authored width a mean may sit before it is a defect.
+///
+/// A shade under one [`QUANTUM`]: the mean of sixty-odd crossings has a
+/// standard error near 0.03, so this is wide enough that the sampling cannot
+/// trip it and narrow enough to catch the tenth of a width the two primitives
+/// were out by.
+const WIDTH_TOLERANCE: f32 = QUANTUM * 0.8;
+
+/// What a ring is allowed on top of that, and shouldn't be.
+///
+/// It runs about a sixth of a pixel narrow at every angle — measured 1.47
+/// overhead and 1.39 at the last of them, against 1.6 authored — where a curve
+/// in the same frames centres on what it asked for. The narrowness is flat in
+/// the viewing angle, so it is not the grazing defect the test below is about;
+/// it is what is left after that one, and this records how much rather than
+/// letting the assertion pass in silence.
+const RING_SHORTFALL: f32 = 0.15;
+
+/// How much a primitive's width may move between the steepest view and the
+/// shallowest.
+///
+/// The grazing claim in one number. Wider than [`WIDTH_TOLERANCE`] because the
+/// two ends are separate means and each carries its own quantum-driven wobble,
+/// and still less than half of the 0.35 a ring drifted by when it took its
+/// pixel scale from `fwidth`.
+const GRAZING_SPAN: f32 = QUANTUM;
 
 /// Square on the drawing, so the near and far edges of the rectangle run
 /// straight across the screen. That is the worst case for a stroke lying on a
@@ -525,34 +560,94 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
     );
 }
 
-#[test]
-fn strokes_keep_their_width_at_grazing_angles() {
-    // Straight down: the surface barely changes depth across a stroke, so
-    // nothing is lost here even with the depth handling wrong. This is the
-    // control the tilted cases are judged against.
-    let flat = strokes(&render(UVec2::new(800, 628), edge_on(1.4)), 430);
-    assert!(flat.len() >= 3, "expected the sketch edges, got {flat:?}");
-    for stroke in &flat {
-        assert!(
-            stroke.width > INTACT,
-            "head-on stroke already thin: {stroke:?}"
-        );
+/// Which of the drawing's overlays a measurement is of.
+///
+/// One at a time, because a column crosses more than one of them and they do
+/// not answer alike: reading them together averages a defect in one into the
+/// health of the other, which is what hid a ring losing a fifth of its width
+/// behind curves that had lost none.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Overlay {
+    Curves,
+    Rings,
+}
+
+/// What `overlay` deposits at `pitch`, in pixels, averaged over every crossing
+/// in [`MEASURED_COLUMNS`].
+///
+/// Averaged rather than read once because a single crossing carries a whole
+/// [`QUANTUM`] of noise — see there. Sixty-odd of them bring the standard error
+/// to about 0.03, which is what makes a tenth of a width worth asserting on.
+///
+/// Everything else is emptied rather than filtered out afterwards: what a
+/// column crosses is the demo's business and changes whenever the demo does,
+/// where what is *drawn* is this test's to decide.
+fn deposited(pitch: f32, overlay: Overlay) -> f32 {
+    let mut app = CatCad::build();
+    edge_on(pitch)(app.camera_mut());
+    {
+        let mut renderer = app.renderer().borrow_mut();
+        // The markers go in both cases: they are neither of the two, and they
+        // sit on the ends of every edge the column crosses.
+        renderer.points_mut().clear();
+        match overlay {
+            Overlay::Curves => renderer.rings_mut().clear(),
+            Overlay::Rings => renderer.curves_mut().clear(),
+        }
     }
 
-    // 34° down to under 3°. Before the plane-aware depth these fell to about
-    // half the authored width, bottoming out by 17°.
-    for pitch in [0.6, 0.3, 0.15, 0.05] {
-        let tilted = strokes(&render(UVec2::new(800, 628), edge_on(pitch)), 430);
-        assert!(
-            tilted.len() >= 3,
-            "expected the sketch edges at pitch {pitch}, got {tilted:?}"
-        );
-        for stroke in &tilted {
+    let frame = capture(UVec2::new(800, 628), &mut app);
+    let widths: Vec<f32> = MEASURED_COLUMNS
+        .flat_map(|column| strokes(&frame, column).into_iter().map(|drawn| drawn.width))
+        .collect();
+    assert!(
+        widths.len() >= 20,
+        "{overlay:?} at pitch {pitch} crossed {} columns, too few to average",
+        widths.len()
+    );
+    widths.iter().sum::<f32>() / widths.len() as f32
+}
+
+/// Every overlay holds the width it was authored at, whatever the view does.
+///
+/// The angles run from overhead to under 9°, which is where a surface's depth
+/// changes fastest across a stroke lying on it — and where a ribbon widened in
+/// screen space has no depth of its own to follow it down.
+///
+/// Both primitives, separately and by the same measure, because the two are
+/// widened in different spaces and shade their coverage by different rules, and
+/// the only claim worth making is the one they have to answer together: a width
+/// asked for is a width drawn. Before the ring took its pixel scale from the
+/// length of the radius gradient it read 1.75 overhead and 1.41 at the last of
+/// these angles, and no assertion over the two of them together saw it.
+#[test]
+fn overlays_keep_their_authored_width_at_grazing_angles() {
+    for overlay in [Overlay::Curves, Overlay::Rings] {
+        let allowed = match overlay {
+            Overlay::Curves => WIDTH_TOLERANCE,
+            Overlay::Rings => WIDTH_TOLERANCE + RING_SHORTFALL,
+        };
+        let mut measured = Vec::new();
+        for pitch in [1.5, 0.6, 0.3, 0.15] {
+            let width = deposited(pitch, overlay);
             assert!(
-                stroke.width > INTACT,
-                "pitch {pitch} ate the stroke: {stroke:?} (authored {AUTHORED_WIDTH})"
+                (width - AUTHORED_WIDTH).abs() < allowed,
+                "{overlay:?} at pitch {pitch} deposits {width:.3} px, not the \
+                 {AUTHORED_WIDTH} it was authored at"
             );
+            measured.push(width);
         }
+
+        // The spread across the angles, which is the grazing claim itself: a
+        // primitive that answers the same overhead and edge-on has nothing left
+        // to lose as the view tips, whatever it is worth in absolute terms.
+        let (lo, hi) = measured
+            .iter()
+            .fold((f32::MAX, 0.0f32), |(lo, hi), &w| (lo.min(w), hi.max(w)));
+        assert!(
+            hi - lo < GRAZING_SPAN,
+            "{overlay:?} runs {lo:.3}..{hi:.3} px across the angles, so it thins as the view grazes"
+        );
     }
 }
 
