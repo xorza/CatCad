@@ -59,9 +59,25 @@ impl Demo {
         Self { drawing, scene }
     }
 
-    /// A rectangle anchored at the origin with a circle at its centre. Every
-    /// position below is a guess deliberately off the answer: what puts the
-    /// geometry where it belongs is the solve, not the coordinates.
+    /// A rigid frame, a hole through it that can be resized, and a jointed arm
+    /// below that can be taken hold of anywhere.
+    ///
+    /// Every position below is a guess deliberately off the answer: what puts
+    /// the geometry where it belongs is the solve, not the coordinates. What
+    /// each part is *for* is the freedom it leaves behind, because that is what
+    /// a drag has to work with — between them they cover every way the drawing
+    /// can answer a cursor:
+    ///
+    /// - The rectangle is fully determined, so none of it moves. Its anchored
+    ///   corner refuses a drag for being pinned, and the other three refuse for
+    ///   having nowhere legal to go.
+    /// - The circle is pinned to the rectangle's centre but carries no radius,
+    ///   so its rim is the one dimension here the cursor can drive.
+    /// - The arm keeps both bar lengths and the right angle between them, so
+    ///   however it is grabbed it travels as one rigid body — and the eye at
+    ///   its end keeps a stated size while being carried around.
+    /// - The rail keeps the direction of the rectangle's base and nothing else,
+    ///   so it stretches along it and rides up and down with the arm.
     pub(crate) fn sketch() -> Sketch {
         const WIDTH: f64 = 8.0;
         const HEIGHT: f64 = 5.0;
@@ -76,7 +92,8 @@ impl Demo {
         // Without an anchor the rectangle is still free to slide and turn, and
         // the report would say so: three degrees of freedom left over.
         sketch.fix(corner[0]);
-        for pair in [[0, 1], [1, 2], [2, 3], [3, 0]] {
+        let base = sketch.add_segment(corner[0], corner[1]);
+        for pair in [[1, 2], [2, 3], [3, 0]] {
             sketch.add_segment(corner[pair[0]], corner[pair[1]]);
         }
         sketch.add_constraint(Constraint::Horizontal {
@@ -107,7 +124,10 @@ impl Demo {
         });
 
         let hub = sketch.add_point(DVec2::new(3.6, 2.1));
-        let hole = sketch.add_circle(hub, 0.9);
+        // No `Radius`, deliberately: the centre is nailed down by the two
+        // distances below and the radius is left to whatever it was made with,
+        // so dragging the rim drives it and nothing pulls back.
+        sketch.add_circle(hub, 1.5);
         // Both bottom corners sit half a diagonal from the centre. That leaves
         // a mirrored solution below the edge, which the guess above declines.
         let to_centre = (WIDTH * WIDTH + HEIGHT * HEIGHT).sqrt() * 0.5;
@@ -121,23 +141,42 @@ impl Demo {
             b: hub,
             distance: to_centre,
         });
-        sketch.add_constraint(Constraint::Radius {
-            circle: hole,
-            radius: 1.5,
+
+        // A rail and a two-bar arm, in the band of slab between the rectangle
+        // and the near edge. They share the shoulder rather than being welded
+        // there by a coincidence: one point is one marker, where a coincidence
+        // would draw two on top of each other and leave the cursor to guess
+        // between them.
+        let rail_end = sketch.add_point(DVec2::new(0.6, -1.2));
+        let shoulder = sketch.add_point(DVec2::new(3.4, -1.05));
+        let elbow = sketch.add_point(DVec2::new(5.2, -0.3));
+        let wrist = sketch.add_point(DVec2::new(5.85, -1.4));
+        let rail = sketch.add_segment(rail_end, shoulder);
+        let upper = sketch.add_segment(shoulder, elbow);
+        let fore = sketch.add_segment(elbow, wrist);
+        sketch.add_constraint(Constraint::Parallel {
+            first: base,
+            second: rail,
+        });
+        sketch.add_constraint(Constraint::Distance {
+            a: shoulder,
+            b: elbow,
+            distance: 2.0,
+        });
+        sketch.add_constraint(Constraint::Distance {
+            a: elbow,
+            b: wrist,
+            distance: 1.4,
+        });
+        sketch.add_constraint(Constraint::Perpendicular {
+            first: upper,
+            second: fore,
         });
 
-        // A pair joined a fixed span apart and tied to nothing else. The
-        // rectangle above is fully determined, so nothing in it can be
-        // dragged — its every point is already where its constraints put it.
-        // This is where the drawing can actually be taken hold of: drag either
-        // end and the other swings round to keep the span.
-        let grip = sketch.add_point(DVec2::new(9.6, 1.2));
-        let swing = sketch.add_point(DVec2::new(11.4, 2.6));
-        sketch.add_segment(grip, swing);
-        sketch.add_constraint(Constraint::Distance {
-            a: grip,
-            b: swing,
-            distance: 2.0,
+        let eye = sketch.add_circle(wrist, 0.45);
+        sketch.add_constraint(Constraint::Radius {
+            circle: eye,
+            radius: 0.45,
         });
         sketch
     }

@@ -509,9 +509,13 @@ fn strokes_keep_their_width_at_grazing_angles() {
 /// Enough of it settles a coplanar tie; too much and the drawing floats out of
 /// the model and shows through solids genuinely standing in front of it. This
 /// column runs down through the grey cube, which hides the rectangle's far
-/// edge, so only the near edge below the cube should survive. Pinning both
-/// ends is what keeps the constant honest: the grazing test stops it being
-/// lowered, this one stops it being raised.
+/// edge, so the cube's silhouette has to come back clean. Pinning both ends is
+/// what keeps the constant honest: the grazing test stops it being lowered,
+/// this one stops it being raised.
+///
+/// Judged by where the strokes are rather than by how many, because how many is
+/// the demo's business: everything the drawing puts on the near slab crosses
+/// this column too, and none of it says anything about the bias.
 #[test]
 fn solids_still_hide_the_strokes_behind_them() {
     const COLUMN: u32 = 270;
@@ -520,15 +524,18 @@ fn solids_still_hide_the_strokes_behind_them() {
 
     let frame = render(UVec2::new(800, 628), edge_on(0.45));
     let found = strokes(&frame, COLUMN);
-    assert_eq!(
-        found.len(),
-        1,
-        "one stroke should cross column {COLUMN} — the far edge is behind the \
-         cube — but found {found:?}"
-    );
+    let through: Vec<&Stroke> = found
+        .iter()
+        .filter(|drawn| drawn.row <= CUBE_BOTTOM)
+        .collect();
     assert!(
-        found[0].row > CUBE_BOTTOM,
-        "the surviving stroke is drawn over the cube rather than below it: {found:?}"
+        through.is_empty(),
+        "the far edge is behind the cube, so nothing may be drawn over it: {through:?}"
+    );
+    // Otherwise a column that crossed nothing at all would pass.
+    assert!(
+        !found.is_empty(),
+        "column {COLUMN} found no stroke below the cube either, so it proves nothing"
     );
 }
 

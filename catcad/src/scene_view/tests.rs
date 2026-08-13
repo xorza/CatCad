@@ -78,9 +78,9 @@ impl Raised {
         viewport.pixel_from_clip(clip)
     }
 
-    /// The demo's linkage, which is the part of it with freedom to be dragged.
-    /// Its two points are added last, so they are drawn last.
-    fn linkage(&self) -> Vec3 {
+    /// The far end of the demo's arm, which is the freest thing it draws. The
+    /// arm's points are added last, so the wrist is drawn last of all.
+    fn wrist(&self) -> Vec3 {
         *self.markers().last().expect("the demo draws markers")
     }
 
@@ -146,14 +146,14 @@ fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
 ///
 /// What this pins is the wiring — press, resolve, edit, redraw, release — and
 /// not which geometry ends up where; that is the drawing's own business and
-/// tested against a fixture there. It aims at the linkage rather than sweeping
-/// for the first grip, because most of the demo is fully determined and a drag
-/// on determined geometry is refused outright.
+/// tested against a fixture there. It aims at the arm rather than sweeping for
+/// the first grip, because the demo's frame is fully determined and a drag on
+/// determined geometry is refused outright.
 #[test]
 fn dragging_a_point_moves_it_and_not_the_camera() {
     let mut raised = Raised::new();
     raised.frame();
-    let cursor = raised.cursor_on(raised.linkage());
+    let cursor = raised.cursor_on(raised.wrist());
 
     raised.harness.move_to(cursor);
     raised.frame();
@@ -227,22 +227,22 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
     raised.harness.release();
     raised.frame();
 
-    // Now drag the linkage, which does have somewhere to go. Nothing the first
+    // Now drag the arm, which does have somewhere to go. Nothing the first
     // drag touched may spring back, because the first drag touched nothing.
-    let linkage = raised.cursor_on(raised.linkage());
-    raised.harness.move_to(linkage);
+    let wrist = raised.cursor_on(raised.wrist());
+    raised.harness.move_to(wrist);
     raised.frame();
-    raised.harness.press_at(linkage);
+    raised.harness.press_at(wrist);
     raised.frame();
-    raised.harness.drag_to(linkage + Vec2::new(30.0, 20.0));
+    raised.harness.drag_to(wrist + Vec2::new(30.0, 20.0));
     raised.frame();
 
     let now = raised.markers();
-    assert_ne!(now, at_rest, "the linkage would not move either");
-    // The rectangle and the circle's hub — everything but the linkage's two
-    // points — stand where they did. Within a tolerance, because a real solve
-    // ran: the corners come back to the same answer through different
-    // arithmetic, and land a few parts in 10^15 apart doing it.
+    assert_ne!(now, at_rest, "the arm would not move either");
+    // The rectangle and the circle's hub — everything the arm is not — stand
+    // where they did. Within a tolerance, because a real solve ran: the corners
+    // come back to the same answer through different arithmetic, and land a few
+    // parts in 10^15 apart doing it.
     assert!(
         settled(&now[..5], &at_rest[..5]),
         "dragging the linkage moved the rectangle: {:?} against {:?}",
