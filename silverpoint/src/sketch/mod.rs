@@ -211,7 +211,7 @@ impl Sketch {
     /// Counts positions rather than what is in them: a removed point keeps its
     /// two entries, so every surviving handle keeps indexing where it did.
     pub fn param_count(&self) -> usize {
-        self.radius_base() + self.circles.slot_count()
+        self.radius_base() + self.circle_slot_count()
     }
 
     /// Positions the points occupy, holes from removals included — the length

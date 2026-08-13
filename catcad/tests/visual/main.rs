@@ -226,15 +226,18 @@ fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
 
 /// A sketch stroke crossing `column`, as the width it actually deposited.
 ///
-/// The slab is neutral and the drawing never is, so how far a pixel's red and
-/// blue stand apart isolates the strokes from the shading. Taken as a magnitude
-/// rather than a difference because the drawing is coloured by how constrained
-/// it is: settled geometry is cool and free geometry warm, and a signed
-/// blue-minus-red would see only half of it.
+/// The slab is neutral and the drawing never is, so saturation — how far a
+/// pixel's strongest channel stands above its weakest — isolates the strokes
+/// from the shading. Saturation rather than any one pair of channels because
+/// the drawing is coloured by how constrained it is, cool where it is settled
+/// and warm where it is free, and a measure built around one hue would see
+/// only half of it.
 ///
 /// Total ink over peak intensity is the covered width in pixels however
 /// multisampling spreads the edges: a stroke of width `n` drawn at peak `p`
-/// deposits `n * p` whether that lands on two pixels or four.
+/// deposits `n * p` whether that lands on two pixels or four. That only holds
+/// where ink is proportional to coverage, which is why the channels are
+/// linearised first — see [`linear`].
 #[derive(Debug, PartialEq)]
 struct Stroke {
     row: u32,

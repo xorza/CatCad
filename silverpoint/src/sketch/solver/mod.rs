@@ -21,8 +21,15 @@ const DAMPING_GROWTH: f64 = 8.0;
 const MAX_DAMPING: f64 = 1e12;
 
 /// Relative threshold below which a pivot counts as zero when measuring the
-/// rank of the Jacobian.
+/// rank of the Jacobian, and below which a parameter counts as standing still
+/// when reading off what the sketch is still free to do. One number for both
+/// because they are one question asked twice: whether a direction survives the
+/// elimination at all.
 const RANK_TOLERANCE: f64 = 1e-9;
+
+/// The same threshold against a squared magnitude, which is what the null-space
+/// rows are compared as.
+const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
 
 /// What a solve achieved, and how determined the answer was.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -104,8 +111,10 @@ impl Workspace {
     /// constraints actually acting on the sketch.
     ///
     /// Leaves the elimination in row echelon form and `pivots` naming the
-    /// column each of its rows turns on, which is what [`Workspace::reduce`]
-    /// needs and what nothing else looks at.
+    /// column each of its rows turns on, which is what
+    /// [`Workspace::null_space`] carries on from and what nothing else looks
+    /// at. So the answer is always `pivots.len()`, and callers that need both
+    /// take it from here rather than keeping their own count.
     fn rank(&mut self, n: usize, sketch: &Sketch) -> usize {
         self.pivots.clear();
         if n == 0 || self.jacobian.is_empty() {
@@ -152,8 +161,9 @@ impl Workspace {
         rank
     }
 
-    /// Finish the elimination into reduced row echelon form, and write out the
-    /// null space it exposes — every way the sketch can still move.
+    /// Reduce the Jacobian to row echelon form and then to *reduced* row
+    /// echelon form, and write out the null space that exposes — every way the
+    /// sketch can still move.
     ///
     /// A row-echelon Jacobian says what each pivot parameter is in terms of the
     /// columns to its right; reduced, it says so in terms of the columns that
@@ -171,11 +181,12 @@ impl Workspace {
     /// A column that could never move — a pinned point, or the hole a removal
     /// left — has a row of zeros, which is the honest answer for something with
     /// no freedom to have.
-    fn null_space(&mut self, n: usize, sketch: &Sketch, rank: usize) {
+    fn null_space(&mut self, n: usize, sketch: &Sketch) {
+        let rank = self.rank(n, sketch);
         self.free.clear();
-        self.free.extend((0..n).filter(|&col| {
-            movable(sketch, &self.held, col) && !self.pivots[..rank].contains(&col)
-        }));
+        self.free.extend(
+            (0..n).filter(|&col| movable(sketch, &self.held, col) && !self.pivots.contains(&col)),
+        );
 
         let a = &mut self.elimination;
         // Backwards, so each row is cleared of every pivot below it before it
@@ -203,7 +214,7 @@ impl Workspace {
         for (axis, &col) in self.free.iter().enumerate() {
             self.null[col * axes + axis] = 1.0;
         }
-        for (row, &pivot) in self.pivots.iter().enumerate().take(rank) {
+        for (row, &pivot) in self.pivots.iter().enumerate() {
             for (axis, &col) in self.free.iter().enumerate() {
                 self.null[pivot * axes + axis] = -self.elimination[row * n + col];
             }
@@ -254,14 +265,6 @@ impl Workspace {
         let axes = self.free.len();
         &self.null[param * axes..][..axes]
     }
-}
-
-/// Squared magnitude under which a null-space row counts as standing still.
-/// Squared, because that is what it is compared against.
-const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
-
-fn square_length(row: &[f64]) -> f64 {
-    row.iter().map(|v| v * v).sum()
 }
 
 /// Solves a [`Sketch`] in place.
@@ -467,8 +470,7 @@ impl Solver {
     pub fn freedoms(&mut self, sketch: &Sketch, into: &mut Freedoms) {
         let n = sketch.param_count();
         self.assemble_at_rest(sketch);
-        let rank = self.work.rank(n, sketch);
-        self.work.null_space(n, sketch, rank);
+        self.work.null_space(n, sketch);
 
         into.reset(sketch);
         for (id, _) in sketch.points() {
@@ -612,6 +614,10 @@ fn movable(sketch: &Sketch, held: &[usize], param: usize) -> bool {
 
 fn max_abs(values: &[f64]) -> f64 {
     values.iter().fold(0.0f64, |acc, v| acc.max(v.abs()))
+}
+
+fn square_length(row: &[f64]) -> f64 {
+    row.iter().map(|v| v * v).sum()
 }
 
 fn norm(values: &[f64]) -> f64 {

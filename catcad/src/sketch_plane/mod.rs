@@ -68,8 +68,8 @@ const STROKE_LIFT: i32 = 512;
 /// disagree by and still three decades short of showing through the model.
 const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 
-/// The plane a [`Sketch`] is drawn on: an origin, and the world directions its
-/// two axes run along.
+/// The plane a sketch is drawn on: an origin, and the world directions its two
+/// axes run along.
 ///
 /// Sketch space is 2D and says nothing about where in the world it lives.
 /// This is what answers that, and the only place the two coordinate systems
