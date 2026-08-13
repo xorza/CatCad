@@ -34,16 +34,36 @@ impl Drawing {
     pub(crate) fn new(mut sketch: Sketch, plane: SketchPlane) -> Self {
         let mut solver = Solver::default();
         let report = solver.solve(&mut sketch);
-        let mut freedoms = Freedoms::default();
-        solver.freedoms(&sketch, &mut freedoms);
-        Self {
+        let mut drawing = Self {
             sketch,
             plane,
             solver,
             names: Names::default(),
             report,
-            freedoms,
-        }
+            freedoms: Freedoms::default(),
+        };
+        drawing.remeasure();
+        drawing
+    }
+
+    /// Record what a solve made of the sketch, and take afresh what its
+    /// constraints have decided about the geometry it settled on.
+    ///
+    /// The one way the drawing's account of itself is updated. The two halves
+    /// describe the same moment and are worth nothing apart: the freedoms are
+    /// read off the geometry a solve left behind, so a report stored without
+    /// them leaves the drawing painted from the state before.
+    fn settled(&mut self, report: SolveReport) {
+        self.report = report;
+        self.remeasure();
+    }
+
+    /// Take afresh what the constraints have decided, which is the one thing
+    /// every change to the geometry invalidates — including a change that put
+    /// the geometry back where it started, since deciding that is what the
+    /// measurement is for.
+    fn remeasure(&mut self) {
+        self.solver.freedoms(&self.sketch, &mut self.freedoms);
     }
 
     /// What the last solve made of it.
@@ -137,7 +157,7 @@ impl Drawing {
     /// grip means.
     pub(crate) fn drag_to(&mut self, grip: Grip, world: Vec3) {
         let at = self.plane.flatten(world);
-        self.report = match grip {
+        let report = match grip {
             Grip::Point(id) => self
                 .solver
                 .edit_holding(&mut self.sketch, &[id], |sketch| sketch.set_point(id, at)),
@@ -169,7 +189,7 @@ impl Drawing {
         // Whatever the drag settled on, including a refusal that put everything
         // back: what the constraints decide is a property of where the geometry
         // now stands, so it is taken from what survived rather than predicted.
-        self.solver.freedoms(&self.sketch, &mut self.freedoms);
+        self.settled(report);
     }
 }
 
