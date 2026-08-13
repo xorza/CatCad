@@ -5,12 +5,18 @@
 //!
 //! | step | measures | limit |
 //! |---|---|---|
-//! | `record-still` | a frame with the pointer parked | the status line it rebuilds |
-//! | `record-hovering` | a frame with the pointer moving over the drawing | the above, at the length hovering gives it |
+//! | `record-still` | a frame with the pointer parked | strict zero |
+//! | `record-hovering` | a frame with the pointer moving over the drawing | strict zero |
 //!
-//! Two, because the difference between them is the whole of what pointing at
-//! the drawing costs — and because a regression in one and not the other says
-//! immediately which half moved.
+//! Both are zero, and between them that is the whole of a frame: recording is
+//! all this crate does per frame, and none of it reaches the heap. The status
+//! line is formatted into the record pass's own text arena rather than a
+//! `String`; `Scene::nearest` answers a hover without building a list; and the
+//! renderer's batches are refilled in place.
+//!
+//! Two steps rather than one, because the difference between them is what
+//! pointing at the drawing costs — and a regression in one and not the other
+//! says immediately which half moved.
 //!
 //! No GPU: `Ui` records and lays out without one, which is the half of a frame
 //! this crate owns. What the renderer does with the result is gated in
@@ -36,20 +42,6 @@ const SURFACE: UVec2 = UVec2::new(1600, 1000);
 /// hovered and the status line stays at its shortest.
 const PARKED: Vec2 = Vec2::new(12.0, 960.0);
 
-/// A frame with a parked pointer rebuilds the status line and nothing else.
-///
-/// Not zero, and the reason is the open finding in `.notes/ALLOCATIONS.md`:
-/// `CatCad::status` formats a fresh `String` every frame out of a report that
-/// only changes on a solve. Drop that and this becomes a strict zero — which
-/// is the point of gating it at one rather than at three.
-const RECORD_STILL_MAX: f64 = 1.0;
-
-/// Hovering lengthens the status line enough that formatting it grows past
-/// what the literal reserved — and that is now the whole of the difference.
-/// Aiming at the drawing costs `aperture` nothing: `Scene::nearest` answers
-/// without building a list, and the renderer's batches are refilled in place.
-const RECORD_HOVERING_MAX: f64 = 2.0;
-
 /// The allocation bench: every step, one profiler, one verdict.
 pub fn alloc_bench() {
     let mut bench = AllocBench::start("catcad", "frame");
@@ -58,7 +50,7 @@ pub fn alloc_bench() {
     let mut app = CatCad::build();
     let mut harness = UiHarness::new(SURFACE);
     harness.move_to(PARKED);
-    bench.step("record-still", RECORD_STILL_MAX, || {
+    bench.step("record-still", 0.0, || {
         black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));
     });
 
@@ -69,7 +61,7 @@ pub fn alloc_bench() {
     let mut app = CatCad::build();
     let mut harness = UiHarness::new(SURFACE);
     let mut frame = 0usize;
-    bench.step("record-hovering", RECORD_HOVERING_MAX, || {
+    bench.step("record-hovering", 0.0, || {
         frame += 1;
         harness.move_to(Vec2::new(700.0 + (frame % 40) as f32, 520.0));
         black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));

@@ -43,28 +43,9 @@ use common::AllocBench;
 use glam::{UVec2, Vec2, Vec3};
 use std::hint::black_box;
 
-/// A pick that finds nothing must find it for free. `collect` on an empty
-/// iterator does not allocate, so this is an invariant rather than a budget:
-/// sweeping the pointer across empty space costs the heap nothing.
-const PICK_MISS_MAX: f64 = 0.0;
-
 /// A pick that finds something allocates the answer it hands back, and
 /// nothing else. The list is what costs it — see `nearest-hit`.
 const PICK_HIT_MAX: f64 = 1.0;
-
-/// Answering with one hit instead of the list allocates nothing at all, which
-/// is what puts hovering off the heap entirely.
-const NEAREST_HIT_MAX: f64 = 0.0;
-
-/// Nothing: the highlight batches are held between frames and refilled in
-/// place, so once they have grown to fit they stop allocating. This is the
-/// step that matters — rebuilding them is the whole of what a hover costs the
-/// renderer.
-const FLATTEN_HIGHLIGHTS_MAX: f64 = 0.0;
-
-/// Nothing, for the same reason, and this is the one that scales with the
-/// model: the mesh batch is re-flattened whole on any object edit.
-const FLATTEN_BATCHES_MAX: f64 = 0.0;
 
 /// Where the fixture is viewed from: straight down −Z from 5 away with a 90°
 /// fov, so the origin lands dead centre and a marker there is what the centre
@@ -137,13 +118,13 @@ pub fn alloc_bench() {
     let viewport = Viewport::new(SURFACE);
 
     let scene = scene();
-    bench.step("pick-miss", PICK_MISS_MAX, || {
+    bench.step("pick-miss", 0.0, || {
         black_box(scene.pick(OFF_THE_DRAWING, viewport, 6.0));
     });
     bench.step("pick-hit", PICK_HIT_MAX, || {
         black_box(scene.pick(ON_THE_DRAWING, viewport, 6.0));
     });
-    bench.step("nearest-hit", NEAREST_HIT_MAX, || {
+    bench.step("nearest-hit", 0.0, || {
         black_box(scene.nearest(ON_THE_DRAWING, viewport, 6.0));
     });
 
@@ -151,7 +132,7 @@ pub fn alloc_bench() {
     // batches are rebuilt while the scene's own are left alone.
     let mut renderer = Renderer::new(scene);
     let mut lit = 0u64;
-    bench.step("flatten-highlights", FLATTEN_HIGHLIGHTS_MAX, || {
+    bench.step("flatten-highlights", 0.0, || {
         lit = (lit + 1) % 4;
         renderer.highlight_only(Some(Lit {
             tag: Tag::new(lit),
@@ -162,7 +143,7 @@ pub fn alloc_bench() {
     });
 
     // What a scene edit costs: every batch re-flattened from the scene.
-    bench.step("flatten-batches", FLATTEN_BATCHES_MAX, || {
+    bench.step("flatten-batches", 0.0, || {
         renderer.flatten_meshes();
         renderer.flatten_curves();
         renderer.flatten_rings();

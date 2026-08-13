@@ -1,7 +1,7 @@
 //! What floats over the viewport, pinned to its top-left corner.
 
 use aperture::Projection;
-use palantir::{Align, Background, Button, Configure, Panel, Sizing, Text, Ui};
+use palantir::{Align, Background, Button, Configure, InternedStr, Panel, Sizing, Text, Ui};
 
 /// Show the controls and `status`, and answer with the projection the camera
 /// should now be on.
@@ -9,7 +9,11 @@ use palantir::{Align, Background, Button, Configure, Panel, Sizing, Text, Ui};
 /// Reported back rather than applied: the overlay reads state and says what
 /// was asked of it, and a panel that reached into the renderer would be a
 /// panel that had to be handed one.
-pub(crate) fn show(ui: &mut Ui, status: &str, projection: Projection) -> Projection {
+///
+/// `status` arrives already in the pass's text arena, so nothing here copies
+/// it — and it has to be lowered in the pass that minted it, which is the
+/// same pass that is calling.
+pub(crate) fn show(ui: &mut Ui, status: InternedStr, projection: Projection) -> Projection {
     let mut asked = projection;
     Panel::vstack()
         .auto_id()

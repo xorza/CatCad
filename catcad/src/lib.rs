@@ -18,6 +18,7 @@ pub mod sketch_plane;
 pub use bench::alloc_bench;
 
 use std::cell::RefCell;
+use std::fmt;
 use std::rc::Rc;
 
 use aperture::Renderer;
@@ -25,6 +26,7 @@ use palantir::{App, Configure, HostHandle, Panel, Sizing, Ui, WindowToken};
 use silverpoint::SolveReport;
 
 use crate::demo::Demo;
+use crate::named::Named;
 use crate::scene_view::SceneView;
 
 /// One view of one scene, with the controls and the solve's verdict laid over
@@ -63,20 +65,44 @@ impl CatCad {
 
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
-    fn status(&self) -> String {
+    fn status(&self) -> Status {
+        Status {
+            report: self.report,
+            hovered: self.view.hovered(),
+        }
+    }
+}
+
+/// What the status line says: the solve's verdict, and what the pointer is
+/// over.
+///
+/// A `Display` rather than a `String`, for two reasons. Its only caller writes
+/// it straight into the record pass's own text arena, and a line rebuilt every
+/// frame out of a report that changes only on a solve should not cost an
+/// allocation to say so. And a value that can be written to any formatter is
+/// one a test can read without raising a `Ui` to do it.
+#[derive(Debug)]
+struct Status {
+    report: SolveReport,
+    hovered: Option<Named>,
+}
+
+impl fmt::Display for Status {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let state = if self.report.converged {
             "solved"
         } else {
             "unsolved"
         };
-        let under = match self.view.hovered() {
-            Some(named) => format!(" · {}", named.noun()),
-            None => String::new(),
-        };
-        format!(
-            "{state} · {} dof · {} redundant · {} iterations{under}",
+        write!(
+            f,
+            "{state} · {} dof · {} redundant · {} iterations",
             self.report.degrees_of_freedom, self.report.redundant_equations, self.report.iterations,
-        )
+        )?;
+        match self.hovered {
+            Some(named) => write!(f, " · {}", named.noun()),
+            None => Ok(()),
+        }
     }
 }
 
@@ -87,7 +113,12 @@ impl App for CatCad {
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
                 self.view.show(ui);
-                let asked = overlay::show(ui, &self.status(), self.view.projection());
+                // Formatted straight into the pass's own text arena — no
+                // `String` is built on the way, and the handle is lowered by
+                // the same pass that minted it, which is the only pass it is
+                // good for.
+                let status = ui.fmt(format_args!("{}", self.status()));
+                let asked = overlay::show(ui, status, self.view.projection());
                 self.view.set_projection(asked);
             });
     }

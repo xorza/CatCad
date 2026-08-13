@@ -1,12 +1,19 @@
 # Per-frame allocations — catcad, aperture3d, silverpoint
 
-Findings only; nothing here proposes a fix. **Delete an item once it is
-addressed.**
+**Every finding this file opened is closed.** What is left is the posture
+those changes reached and how to check it still holds; a new finding goes at
+the bottom, and comes out again once it is addressed.
+
+Drawing a frame allocates nothing. Recording it allocates nothing, picking
+what is under the pointer allocates nothing, and re-solving a sketch through a
+solver that is kept alive allocates nothing. The two things that still
+allocate both do it on purpose: `Scene::pick` builds the list it hands back,
+and a solver thrown away rather than kept has no workspace to reuse.
 
 ## The standing gates
 
 Each crate has a `dhat` allocation bench holding the numbers below to a
-budget, so these findings cannot quietly get worse. They share their
+budget, so none of that can quietly come undone. They share their
 scaffolding — profiler, measured window, verdict — with the `common` crate,
 so a crate's own bench is its fixtures, its steps and its budgets and nothing
 else:
@@ -37,8 +44,8 @@ The gates as measured in the `bench` profile:
 | aperture3d | `nearest-hit` | 0 | 0 (strict) |
 | aperture3d | `flatten-highlights` | 0 | 0 (strict) |
 | aperture3d | `flatten-batches` | 0 | 0 (strict) |
-| catcad | `record-still` | 1 | 1 |
-| catcad | `record-hovering` | 1.74 | 2 |
+| catcad | `record-still` | 0 | 0 (strict) |
+| catcad | `record-hovering` | 0 | 0 (strict) |
 
 `Renderer::paint` has no gate. It needs a device, and under one the count is
 dominated by wgpu's own per-submission allocations — pinning that means
@@ -91,17 +98,3 @@ own per-frame allocations. Everything below is our code.
 The pick figures are fractional because a pick that finds nothing allocates
 nothing — `collect` on an empty iterator does not allocate. 0.375 is the share
 of the swept cursor positions that landed on the drawing.
-
-## catcad
-
-- [ ] `CatCad::status` rebuilds the status line on every frame, and is now the
-      only per-frame allocation the application makes: one `String` always, and
-      about two when something is hovered — the `format!` for the noun and the
-      outer one growing past what the literal reserved. Nothing it prints
-      changes per frame: the report moves only on a solve, and the noun only
-      when the hovered entity changes.
-
-      Everything around it measures zero. With the pointer still,
-      `SceneView::show`, `overlay::show` and palantir's own input handling each
-      allocate nothing; while it moves, `Scene::nearest` and the renderer's
-      batches allocate nothing either.

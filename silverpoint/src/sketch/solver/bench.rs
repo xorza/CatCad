@@ -1,6 +1,6 @@
 //! Per-solve allocation gates, driven by `dhat`.
 //!
-//! One bench of two steps, both over the same fixture — a rectangle with a
+//! One bench of three steps, all over the same fixture — a rectangle with a
 //! circle at its centre, eleven parameters against eleven equations:
 //!
 //! | step | measures | limit |
@@ -23,14 +23,6 @@ use crate::sketch::{PointId, Sketch};
 use common::AllocBench;
 use glam::DVec2;
 use std::hint::black_box;
-
-/// Nothing: the solver keeps the buffers a solve works in, so the second and
-/// every later solve of a sketch refills them rather than rebuilding them.
-const FROM_GUESS_MAX: f64 = 0.0;
-
-/// Nothing, for the same reason — and this is the one a drag would pay on
-/// every frame, so it is the number that matters.
-const CONVERGED_MAX: f64 = 0.0;
 
 /// What a solve costs a caller who does not keep the solver: the workspace is
 /// born empty and grows from nothing. A budget rather than zero, and the
@@ -118,7 +110,7 @@ pub fn alloc_bench() {
     let mut guess = Vec::new();
     sketch.write_params(&mut guess);
     let mut solver = Solver::default();
-    bench.step("solve-from-guess", FROM_GUESS_MAX, || {
+    bench.step("solve-from-guess", 0.0, || {
         sketch.set_params(&guess);
         black_box(solver.solve(&mut sketch));
     });
@@ -130,7 +122,7 @@ pub fn alloc_bench() {
     solver.solve(&mut sketch);
     let mut solved = Vec::new();
     sketch.write_params(&mut solved);
-    bench.step("solve-converged", CONVERGED_MAX, || {
+    bench.step("solve-converged", 0.0, || {
         sketch.set_params(&solved);
         black_box(solver.solve(&mut sketch));
     });
