@@ -94,8 +94,12 @@ impl CatCad {
             document.camera_mut().frame(bounds);
         }
         // Aiming the camera is not something the view was watching for, so it
-        // is handed on: nothing has been painted yet, and this is what the
-        // first paint will be painted through.
+        // is handed on here rather than left to the first frame. Not for the
+        // sake of the painting — a recorded frame settles before its paint
+        // command runs, so the first one would hand it on in time either way —
+        // but so that what `build` returns already agrees with itself, and a
+        // caller can measure the view it was given without recording a frame to
+        // make the answer true.
         view.settle(&document);
         Self {
             document,
