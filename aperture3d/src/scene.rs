@@ -1,28 +1,15 @@
 //! What to draw, and where to look at it from.
 
+use crate::aim::Aim;
 use crate::bounds::Bounds;
 use crate::camera::Camera;
 use crate::curve::Curve;
-use crate::hit::{Hit, HitAt};
+use crate::hit::Hit;
 use crate::object::Object;
 use crate::point::Point;
 use crate::ring::Ring;
 use crate::viewport::Viewport;
-use glam::{Mat4, Vec2, Vec3, Vec4};
-
-/// Squared screen length below which a projected segment lands on a single
-/// pixel and has no direction to project a cursor onto. A thousandth of a
-/// pixel, squared — the floor `MIN_PX` holds in the shaders.
-const MIN_RUN_PX2: f32 = 1e-6;
-
-/// Floor under the sum of reciprocal depths that undoes the perspective
-/// squeeze. Only a segment with both ends astronomically far off gets near it.
-const MIN_RECIP_W: f32 = 1e-6;
-
-/// How squarely a ray has to meet a ring's plane before the crossing is worth
-/// solving for. Edge-on, the plane covers no screen area and the crossing runs
-/// off toward infinity, so there is nothing there to aim at anyway.
-const MIN_FACING: f32 = 1e-4;
+use glam::{Vec2, Vec3};
 
 /// The whole of the drawable world: shaded meshes, stroked curves, and the
 /// camera viewing them. Flat for now — hierarchy, if it earns its place, goes
@@ -112,90 +99,21 @@ impl Scene {
     /// then by distance from the eye. Untagged primitives are scenery and
     /// never appear.
     pub fn pick(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Vec<Hit> {
-        let view_proj = self.camera.view_proj(viewport.aspect());
-        let ray = self.camera.ray_through(cursor, viewport);
-        let along = |world: Vec3| (world - ray.origin).dot(ray.direction);
+        let aim = Aim::new(
+            cursor,
+            viewport,
+            radius,
+            self.camera.ray_through(cursor, viewport),
+            self.camera.view_proj(viewport.aspect()),
+        );
 
-        let mut hits = Vec::new();
-        for point in &self.points {
-            let Some(tag) = point.tag else { continue };
-            let clip = view_proj * point.position.extend(1.0);
-            // The marker's quad takes its depth from the anchor, so the anchor
-            // clipping is the whole glyph clipping.
-            if !Inside::of(clip).drawn() {
-                continue;
-            }
-            let screen = cursor.distance(viewport.pixel_from_clip(clip));
-            // A marker you can see is a marker you can hit, even where the
-            // glyph outgrows the tolerance asked for.
-            if screen <= radius.max(point.size * 0.5) {
-                hits.push(Hit {
-                    tag,
-                    at: HitAt::Point,
-                    world: point.position,
-                    screen,
-                    distance: along(point.position),
-                });
-            }
-        }
-
-        for curve in &self.curves {
-            let Some(tag) = curve.tag else { continue };
-            let reach = radius.max(curve.width * 0.5);
-            let mut best: Option<Hit> = None;
-            for (index, (a, b)) in curve.segments().enumerate() {
-                let Some(near) = nearest_on_segment(a, b, view_proj, viewport, cursor) else {
-                    continue;
-                };
-                if near.screen > reach {
-                    continue;
-                }
-                if best.is_some_and(|best| best.screen <= near.screen) {
-                    continue;
-                }
-                let world = a.lerp(b, near.t);
-                best = Some(Hit {
-                    tag,
-                    at: HitAt::Segment { index, t: near.t },
-                    world,
-                    screen: near.screen,
-                    distance: along(world),
-                });
-            }
-            hits.extend(best);
-        }
-
-        for ring in &self.rings {
-            let Some(tag) = ring.tag else { continue };
-            // Answered in the ring's own plane rather than against the ellipse
-            // it projects to: meet the plane, and the nearest point of the
-            // circle is straight out from its centre through where you landed.
-            let normal = ring.normal();
-            let facing = ray.direction.dot(normal);
-            if facing.abs() <= MIN_FACING {
-                continue;
-            }
-            let reached = (ring.center - ray.origin).dot(normal) / facing;
-            let landed = ray.origin + ray.direction * reached - ring.center;
-            let (across, up) = (landed.dot(ring.x_axis), landed.dot(ring.y_axis));
-            let angle = up.atan2(across);
-            let world = ring.at(angle);
-            let clip = view_proj * world.extend(1.0);
-            if !Inside::of(clip).drawn() {
-                continue;
-            }
-            let screen = cursor.distance(viewport.pixel_from_clip(clip));
-            if screen <= radius.max(ring.width * 0.5) {
-                hits.push(Hit {
-                    tag,
-                    at: HitAt::Ring { angle },
-                    world,
-                    screen,
-                    distance: along(world),
-                });
-            }
-        }
-
+        let mut hits: Vec<Hit> = self
+            .points
+            .iter()
+            .filter_map(|point| point.pick(&aim))
+            .chain(self.curves.iter().filter_map(|curve| curve.pick(&aim)))
+            .chain(self.rings.iter().filter_map(|ring| ring.pick(&aim)))
+            .collect();
         hits.sort_by(|a, b| {
             a.at.rank()
                 .cmp(&b.at.rank())
@@ -206,139 +124,11 @@ impl Scene {
     }
 }
 
-/// Where a cursor came closest to one segment.
-#[derive(Debug, Clone, Copy)]
-struct Nearest {
-    /// How far along the segment, in world terms.
-    t: f32,
-    /// How far the cursor was from it on screen.
-    screen: f32,
-}
-
-/// How far into the view volume a clip position sits, along each of the two
-/// planes that can cut it: the near plane, and the far end of an orthographic
-/// slab.
-///
-/// Reversed depth puts the near plane at `z == w` and the slab's far end at
-/// `z == 0`, so both read as "non-negative is inside". These are the
-/// half-spaces the hardware clips against, which is what makes what can be
-/// picked the same as what was drawn. Perspective writes a constant positive
-/// `clip.z` and has no far plane, so there the first is `w >= z_near` and the
-/// second never fires.
-#[derive(Debug, Clone, Copy)]
-struct Inside {
-    near: f32,
-    far: f32,
-}
-
-impl Inside {
-    fn of(clip: Vec4) -> Self {
-        Self {
-            near: clip.w - clip.z,
-            far: clip.z,
-        }
-    }
-
-    /// Whether the position survived both planes, and so is drawn.
-    fn drawn(&self) -> bool {
-        self.near >= 0.0 && self.far >= 0.0
-    }
-}
-
-/// The stretch of a segment left after clipping, as fractions of the whole.
-#[derive(Debug, Clone, Copy)]
-struct Span {
-    start: f32,
-    end: f32,
-}
-
-impl Span {
-    fn whole() -> Self {
-        Self {
-            start: 0.0,
-            end: 1.0,
-        }
-    }
-
-    /// Trim to where a quantity that is affine along the segment — given by
-    /// its value at each end — is non-negative. `None` once nothing is left.
-    ///
-    /// Clip space is affine in the world parameter, so a crossing sits at the
-    /// same fraction of the world segment as of the clip one and the surviving
-    /// stretch can be picked on as itself.
-    fn clip(self, at_start: f32, at_end: f32) -> Option<Self> {
-        let Self { start, end } = match (at_start >= 0.0, at_end >= 0.0) {
-            (true, true) => self,
-            (false, false) => return None,
-            (true, false) => Self {
-                end: self.end.min(at_start / (at_start - at_end)),
-                ..self
-            },
-            (false, true) => Self {
-                start: self.start.max(at_start / (at_start - at_end)),
-                ..self
-            },
-        };
-        (start <= end).then_some(Self { start, end })
-    }
-}
-
-/// The point of segment `a`–`b` nearest `cursor` on screen, or `None` if none
-/// of it is drawn.
-fn nearest_on_segment(
-    a: Vec3,
-    b: Vec3,
-    view_proj: Mat4,
-    viewport: Viewport,
-    cursor: Vec2,
-) -> Option<Nearest> {
-    let (a_clip, b_clip) = (view_proj * a.extend(1.0), view_proj * b.extend(1.0));
-    let (a_in, b_in) = (Inside::of(a_clip), Inside::of(b_clip));
-    let span = Span::whole()
-        .clip(a_in.near, b_in.near)?
-        .clip(a_in.far, b_in.far)?;
-    // Inside the near plane `w` is at least `z_near` under perspective and
-    // exactly 1 under parallel rays, so what survived can be divided by it.
-    let near = a_clip.lerp(b_clip, span.start);
-    let far = a_clip.lerp(b_clip, span.end);
-
-    let (from, to) = (
-        viewport.pixel_from_clip(near),
-        viewport.pixel_from_clip(far),
-    );
-    let run = to - from;
-    let length = run.length_squared();
-    // A segment that lands on one pixel has no direction to project onto, and
-    // either end answers the same.
-    let on_screen = if length > MIN_RUN_PX2 {
-        ((cursor - from).dot(run) / length).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let screen = cursor.distance(from + run * on_screen);
-
-    // Screen distance runs evenly along the *projected* segment, and under
-    // perspective that is not evenly along the world one — the far half of a
-    // receding edge is squeezed into fewer pixels. Undoing that is what makes
-    // the returned point land where the cursor actually is rather than short
-    // of it, which is the difference between snapping to a midpoint and
-    // snapping near one.
-    let recip = (1.0 - on_screen) / near.w + on_screen / far.w;
-    let in_span = if recip > MIN_RECIP_W {
-        (on_screen / far.w) / recip
-    } else {
-        on_screen
-    };
-    Some(Nearest {
-        t: span.start + in_span * (span.end - span.start),
-        screen,
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::camera::Projection;
+    use crate::hit::HitAt;
     use crate::mesh::Mesh;
     use glam::UVec2;
 
@@ -364,6 +154,68 @@ mod tests {
 
     fn viewport() -> Viewport {
         Viewport::new(UVec2::new(100, 100))
+    }
+
+    /// A ring is picked against the ellipse it draws, not against the circle
+    /// in its own plane.
+    ///
+    /// Face-on the two agree, so the leaning case is the whole test. The plane
+    /// answer runs radially out from the centre while the screen answer runs
+    /// along the ellipse's normal, and the gap grows without bound as the rim
+    /// flattens: three degrees off edge-on, a cursor two pixels out used to
+    /// read as thirty-five, and every click near the rim was refused.
+    #[test]
+    fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
+        // Where the rim actually lands is asked of the projection rather than
+        // assumed, so the aim is one pixel outside it whatever the lean does.
+        let aim_beside_the_rim = |scene: &Scene, out: f32| {
+            let rim = Vec3::new(2.0, 0.0, 0.0);
+            let clip = scene.camera.view_proj(viewport().aspect()) * rim.extend(1.0);
+            viewport().pixel_from_clip(clip) + Vec2::new(out, 0.0)
+        };
+
+        for lean in [0.0, 0.6, 1.2, std::f32::consts::FRAC_PI_2 - 0.05] {
+            let mut scene = head_on();
+            scene.camera.pitch = lean;
+            // Radius 2 in the XY plane, so the rim reaches ±2 along world x —
+            // the one direction the lean never foreshortens.
+            scene
+                .rings
+                .push(Ring::new(Vec3::ZERO, 2.0, Vec3::Z).tagged(7));
+
+            let cursor = aim_beside_the_rim(&scene, 1.0);
+            let hits = scene.pick(cursor, viewport(), 2.0);
+            assert_eq!(hits.len(), 1, "lean {lean}: rim missed from a pixel away");
+            // A pixel from *one* point of the rim, so the nearest point of the
+            // whole rim can only be nearer — and once the lean turns the circle
+            // into an ellipse it is, because the point aimed beside stops being
+            // the one the ellipse reaches furthest along x. Overstating is the
+            // failure this guards: the plane answer used to report tens of
+            // pixels here.
+            assert!(
+                hits[0].screen <= 1.0 + 1e-3,
+                "lean {lean}: a pixel from the rim measured {} px",
+                hits[0].screen
+            );
+            // And the point it names is on the ring, at the angle it reported.
+            let HitAt::Ring { angle } = hits[0].at else {
+                panic!("lean {lean}: {:?} is not a rim hit", hits[0].at);
+            };
+            assert!((0.0..std::f32::consts::TAU).contains(&angle), "{angle}");
+            let found = hits[0].world;
+            assert!(
+                (found.length() - 2.0).abs() < 1e-3,
+                "lean {lean}: {found:?}"
+            );
+
+            // Well outside is still a miss — the reach is not being widened to
+            // paper over the measurement.
+            let far = aim_beside_the_rim(&scene, 6.0);
+            assert!(
+                scene.pick(far, viewport(), 2.0).is_empty(),
+                "lean {lean}: six pixels out should not hit"
+            );
+        }
     }
 
     #[test]

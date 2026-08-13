@@ -1,5 +1,7 @@
 //! A circle drawn as a circle, not as a great many short straight lines.
 
+use crate::aim::Aim;
+use crate::hit::{Hit, HitAt};
 use glam::Vec3;
 
 /// Default stroke width, in logical pixels.
@@ -98,6 +100,20 @@ impl Ring {
         self
     }
 
+    /// Whether the cursor landed on this rim, and where round it.
+    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let near = self.nearest_to(aim)?;
+        (near.screen <= aim.reach(self.width)).then(|| {
+            aim.hit(
+                tag,
+                HitAt::Ring { angle: near.angle },
+                self.at(near.angle),
+                near.screen,
+            )
+        })
+    }
+
     /// The plane the ring lies in, as a unit normal.
     pub fn normal(&self) -> Vec3 {
         self.x_axis.cross(self.y_axis)
@@ -163,5 +179,83 @@ mod tests {
             assert!((out.length() - 3.0).abs() < 1e-5, "{angle}");
             assert!(out.dot(ring.normal()).abs() < 1e-5, "{angle}");
         }
+    }
+}
+
+/// How near the cursor came to a ring's rim, and where round it.
+#[derive(Debug, Clone, Copy)]
+struct NearestOnRing {
+    /// Radians round from the ring's own `x_axis`, in `0..TAU`.
+    angle: f32,
+    /// How far the cursor was from it on screen.
+    screen: f32,
+}
+
+impl Ring {
+    /// The point of `ring` whose *projection* comes nearest `cursor`.
+    ///
+    /// Measured on screen rather than in the ring's own plane. The two agree while
+    /// the ring faces the eye and part company as it tilts: the in-plane answer
+    /// runs radially out from the centre, the screen answer along the normal of
+    /// the ellipse the circle projects to. At three degrees off edge-on — which is
+    /// well inside what this renderer is asked to draw — a cursor two pixels from
+    /// the rim measures as thirty-five, and every click near it misses.
+    ///
+    /// A circle projects to a conic, so the closed-form answer is a quartic, and a
+    /// different one for each way that conic degenerates once the circle crosses
+    /// the near plane. Walking the rim costs a few dozen matrix multiplies and has
+    /// none of those cases.
+    ///
+    /// The coarse pass is not there for accuracy — refinement supplies all of
+    /// that. It is there because distance round a rim has two minima, the near
+    /// side and the far, and a search started from a guess can settle on the wrong
+    /// one.
+    fn nearest_to(&self, aim: &Aim) -> Option<NearestOnRing> {
+        /// Arcs the rim is cut into before refining. Enough to tell the near side
+        /// of the ellipse from the far one, which is all this pass has to do.
+        const RIM_PROBES: usize = 8;
+        /// Ternary steps within the winning arc, each cutting the bracket by a
+        /// third. What they have to overcome is angular, so it is the rim's size
+        /// on screen rather than the number of arcs that decides how many are
+        /// wanted: sixteen holds a hundredth of a pixel at a rim of a hundred and
+        /// drifts to a fifth at a rim of a few thousand, where twenty-four holds
+        /// a thousandth.
+        const RIM_STEPS: usize = 24;
+
+        // A point off the far side of the near plane has no screen position to
+        // measure. Reading as infinitely far keeps it out of the answer and walks
+        // both passes away from it.
+        let screen_at = |angle: f32| aim.reach_to(self.at(angle)).unwrap_or(f32::INFINITY);
+
+        let arc = std::f32::consts::TAU / RIM_PROBES as f32;
+        let mut nearest = 0;
+        let mut nearest_screen = f32::INFINITY;
+        for probe in 0..RIM_PROBES {
+            let screen = screen_at(probe as f32 * arc);
+            if screen < nearest_screen {
+                nearest_screen = screen;
+                nearest = probe;
+            }
+        }
+        if !nearest_screen.is_finite() {
+            return None;
+        }
+
+        let (mut low, mut high) = ((nearest as f32 - 1.0) * arc, (nearest as f32 + 1.0) * arc);
+        for _ in 0..RIM_STEPS {
+            let third = (high - low) / 3.0;
+            if screen_at(low + third) < screen_at(high - third) {
+                high -= third;
+            } else {
+                low += third;
+            }
+        }
+
+        let angle = (low + high) * 0.5;
+        let screen = screen_at(angle);
+        screen.is_finite().then(|| NearestOnRing {
+            angle: angle.rem_euclid(std::f32::consts::TAU),
+            screen,
+        })
     }
 }

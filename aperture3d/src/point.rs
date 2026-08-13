@@ -1,5 +1,7 @@
 //! A marker at a world position, drawn at a size the zoom cannot change.
 
+use crate::aim::Aim;
+use crate::hit::{Hit, HitAt};
 use glam::Vec3;
 
 /// Default marker diameter, in logical pixels.
@@ -57,6 +59,17 @@ impl Point {
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
         self
+    }
+
+    /// Whether the cursor landed on this marker, and where.
+    ///
+    /// The glyph takes its depth from the anchor, so the anchor clipping is
+    /// the whole glyph clipping — there is no part of it drawn once that is
+    /// gone.
+    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let screen = aim.reach_to(self.position)?;
+        (screen <= aim.reach(self.size)).then(|| aim.hit(tag, HitAt::Point, self.position, screen))
     }
 
     /// Set the depth-test bias. See [`Point::z_offset`].

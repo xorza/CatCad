@@ -1,6 +1,17 @@
 //! Stroked polylines in world space.
 
+use crate::aim::{Aim, Inside};
+use crate::hit::{Hit, HitAt};
 use glam::Vec3;
+
+/// Squared screen length below which a projected segment lands on a single
+/// pixel and has no direction to project a cursor onto. A thousandth of a
+/// pixel, squared — the floor `MIN_PX` holds in the shaders.
+const MIN_RUN_PX2: f32 = 1e-6;
+
+/// Floor under the sum of reciprocal depths that undoes the perspective
+/// squeeze. Only a segment with both ends astronomically far off gets near it.
+const MIN_RECIP_W: f32 = 1e-6;
 
 /// Default stroke width, in logical pixels.
 const DEFAULT_WIDTH: f32 = 1.5;
@@ -51,6 +62,28 @@ impl Curve {
     /// A single straight stroke.
     pub fn segment(a: Vec3, b: Vec3) -> Self {
         Self::new(vec![a, b])
+    }
+
+    /// Whether the cursor landed on this stroke, and on which segment.
+    ///
+    /// The nearest segment wins outright rather than every segment answering:
+    /// a polyline is one thing to grab, and a corner where two segments meet
+    /// would otherwise report itself twice.
+    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let reach = aim.reach(self.width);
+        let mut best: Option<Hit> = None;
+        for (index, (a, b)) in self.segments().enumerate() {
+            let Some(near) = nearest_on_segment(a, b, aim) else {
+                continue;
+            };
+            if near.screen > reach || best.is_some_and(|best| best.screen <= near.screen) {
+                continue;
+            }
+            let at = HitAt::Segment { index, t: near.t };
+            best = Some(aim.hit(tag, at, a.lerp(b, near.t), near.screen));
+        }
+        best
     }
 
     /// Join the last point back to the first.
@@ -163,4 +196,97 @@ mod tests {
         assert_eq!(Curve::new(Vec::new()).closed().segment_count(), 0);
         assert_eq!(Curve::new(Vec::new()).segments().count(), 0);
     }
+}
+
+/// Where a cursor came closest to one segment.
+#[derive(Debug, Clone, Copy)]
+struct Nearest {
+    /// How far along the segment, in world terms.
+    t: f32,
+    /// How far the cursor was from it on screen.
+    screen: f32,
+}
+
+/// The stretch of a segment left after clipping, as fractions of the whole.
+#[derive(Debug, Clone, Copy)]
+struct Span {
+    start: f32,
+    end: f32,
+}
+
+impl Span {
+    fn whole() -> Self {
+        Self {
+            start: 0.0,
+            end: 1.0,
+        }
+    }
+
+    /// Trim to where a quantity that is affine along the segment — given by
+    /// its value at each end — is non-negative. `None` once nothing is left.
+    ///
+    /// Clip space is affine in the world parameter, so a crossing sits at the
+    /// same fraction of the world segment as of the clip one and the surviving
+    /// stretch can be picked on as itself.
+    fn clip(self, at_start: f32, at_end: f32) -> Option<Self> {
+        let Self { start, end } = match (at_start >= 0.0, at_end >= 0.0) {
+            (true, true) => self,
+            (false, false) => return None,
+            (true, false) => Self {
+                end: self.end.min(at_start / (at_start - at_end)),
+                ..self
+            },
+            (false, true) => Self {
+                start: self.start.max(at_start / (at_start - at_end)),
+                ..self
+            },
+        };
+        (start <= end).then_some(Self { start, end })
+    }
+}
+
+/// The point of segment `a`–`b` nearest `cursor` on screen, or `None` if none
+/// of it is drawn.
+fn nearest_on_segment(a: Vec3, b: Vec3, aim: &Aim) -> Option<Nearest> {
+    let (a_clip, b_clip) = (aim.view_proj * a.extend(1.0), aim.view_proj * b.extend(1.0));
+    let (a_in, b_in) = (Inside::of(a_clip), Inside::of(b_clip));
+    let span = Span::whole()
+        .clip(a_in.near, b_in.near)?
+        .clip(a_in.far, b_in.far)?;
+    // Inside the near plane `w` is at least `z_near` under perspective and
+    // exactly 1 under parallel rays, so what survived can be divided by it.
+    let near = a_clip.lerp(b_clip, span.start);
+    let far = a_clip.lerp(b_clip, span.end);
+
+    let (from, to) = (
+        aim.viewport.pixel_from_clip(near),
+        aim.viewport.pixel_from_clip(far),
+    );
+    let run = to - from;
+    let length = run.length_squared();
+    // A segment that lands on one pixel has no direction to project onto, and
+    // either end answers the same.
+    let on_screen = if length > MIN_RUN_PX2 {
+        ((aim.cursor - from).dot(run) / length).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let screen = aim.cursor.distance(from + run * on_screen);
+
+    // Screen distance runs evenly along the *projected* segment, and under
+    // perspective that is not evenly along the world one — the far half of a
+    // receding edge is squeezed into fewer pixels. Undoing that is what makes
+    // the returned point land where the cursor actually is rather than short
+    // of it, which is the difference between snapping to a midpoint and
+    // snapping near one.
+    let recip = (1.0 - on_screen) / near.w + on_screen / far.w;
+    let in_span = if recip > MIN_RECIP_W {
+        (on_screen / far.w) / recip
+    } else {
+        on_screen
+    };
+    Some(Nearest {
+        t: span.start + in_span * (span.end - span.start),
+        screen,
+    })
 }

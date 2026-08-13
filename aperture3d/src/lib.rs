@@ -72,6 +72,7 @@
 //! how those meet the coordinates a projection works in — and answers in
 //! [`Hit`]s.
 
+pub(crate) mod aim;
 pub(crate) mod bounds;
 pub(crate) mod camera;
 pub(crate) mod curve;
