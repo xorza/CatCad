@@ -27,12 +27,12 @@ use std::rc::Rc;
 
 use aperture::{Camera, Renderer};
 use palantir::{App, Configure, HostHandle, Panel, Shortcut, Sizing, Ui, WindowToken};
-use silverpoint::SolveReport;
+use silverpoint::{SolveReport, Solver};
 
 use crate::document::Document;
 use crate::history::History;
 use crate::intent::{Intent, Intents};
-use crate::named::{Named, Names};
+use crate::named::Named;
 use crate::scene_view::SceneView;
 
 /// Take back the last step, and put it back.
@@ -58,6 +58,14 @@ pub struct CatCad {
     /// raised them and the document they land on. Kept across frames for its
     /// room rather than its contents, which are cleared before each one.
     intents: Intents,
+    /// The room an edit's solve works in.
+    ///
+    /// A tool rather than anything the app *is* — kept for exactly the reason
+    /// the inbox above is, that a drag would otherwise ask the heap for the
+    /// same buffers sixty times a second. Lent to whatever is editing for the
+    /// length of the call, which is why it is neither in the document that
+    /// would be saved nor in the history of what has been done to it.
+    solver: Solver,
     /// What draws that, and what the pointer over it is in the middle of. Owns
     /// nothing the document would be saved without.
     view: SceneView,
@@ -73,23 +81,30 @@ impl CatCad {
 
     /// The app without a host, which is what the visual suite raises.
     pub fn build() -> Self {
-        let mut document = demo::document();
-        // Raised before it is framed, because what has to fit on screen is what
-        // the document turns into and not the document itself.
-        let mut names = Names::default();
-        let scene = document.raise(&mut names);
-        document.frame(&scene);
-        let mut view = SceneView::new(scene, names);
-        // Settled once here, so the view's account of what it has drawn agrees
-        // with the scene it was handed. Without it the view would be holding a
-        // laid-out drawing while believing it had laid nothing out, and would
-        // lay it out again on the first frame — harmless, but it would mean the
-        // app was never quite consistent until it had drawn once.
+        // The one solver, made before anything that needs one. Opening a
+        // document is a solve, so it is wanted here as much as it is per frame.
+        let mut solver = Solver::default();
+        let mut document = demo::document(&mut solver);
+        // Laid out before it is aimed at, and measured off the view rather than
+        // off the document. What has to fit on screen is what will be *drawn*,
+        // and how far that reaches is aperture's to say, not this crate's: a
+        // ring reaches its radius along each world axis only in so far as its
+        // plane does not lean away from it, and a stroke's width and a marker's
+        // glyph reach nowhere at all, being screen-sized. A document measuring
+        // itself would be a second copy of all of that, free to drift.
+        let mut view = SceneView::new(&document);
+        if let Some(bounds) = view.bounds() {
+            document.camera_mut().frame(bounds);
+        }
+        // Aiming the camera is not something the view was watching for, so it
+        // is handed on: nothing has been painted yet, and this is what the
+        // first paint will be painted through.
         view.settle(&document);
         Self {
             document,
             history: History::default(),
             intents: Intents::default(),
+            solver,
             view,
         }
     }
@@ -190,7 +205,8 @@ impl App for CatCad {
                 }
                 // Everything above only asked. This is where a frame's asking
                 // becomes a change, and where what that changed is drawn.
-                self.history.apply(&mut self.document, &self.intents);
+                self.history
+                    .apply(&mut self.document, &mut self.solver, &self.intents);
                 self.view.settle(&self.document);
             });
     }

@@ -535,3 +535,73 @@ frame relaid the drawing and overwrote the synthetic ring
 `a_ring_stays_round_at_a_radius_that_would_facet_a_polyline` substitutes into
 the renderer. And the grip test lost its `tag_of` sweep — it had been resolving
 64 tags to build a `Hit` whose tag `grip` immediately resolved back.
+
+### And then it stopped being handed the view's objects
+
+Two more one-line pass-throughs, both pointing the wrong way:
+
+- `Document::frame(&Scene)` — the document taking back the scene it had just
+  produced, to read bounds off it. It was `self.camera.frame(bounds)` over a
+  `Camera` the document already exposes.
+- `Document::aim(&mut Renderer)` — the document reaching into the view's
+  renderer to push a camera at it. It was one assignment.
+
+Both are gone. `CatCad::build` measures the scene and aims the camera;
+`SceneView::settle` copies the camera across itself. **`Document` no longer
+mentions `Renderer` at all**, and its only remaining `Scene` is the one `raise`
+returns — so every arrow now points out of the document and none back in:
+
+```
+document → scene        raise
+scene → bounds → camera  build aims what it measured
+document → renderer      settle copies, every frame
+```
+
+The camera writes deleted before this were the symptom; being handed a `Scene`
+and a `Renderer` in the first place was what made them writable. Two tests moved
+to where their claim now lives — the opening-looks-at-itself one to
+`catcad/src/tests.rs`, where it covers the whole startup path through the real
+app, and the renderer-follows-the-camera one to `scene_view/tests.rs`, because
+that is `settle`'s promise now.
+
+### And then it stopped building things and stopped holding tools
+
+Two more, from the same complaint: a document should be *read*, not asked to
+manufacture or to keep.
+
+**`Document::raise() -> Scene` became `Document::sync(&mut Scene, &mut Names)`.**
+A document that returns a scene is a scene factory, and a factory has to know
+what a renderer wants. Filling one the caller owns is the shape `write_into` and
+`snapshot_into` already use here: the document only has to know how to describe
+itself. `SceneView::new(&Document)` starts from `Scene::default()` and syncs,
+so it also knows honestly which revision it has laid out — `laid_out` is set
+where the laying out happens and nowhere else.
+
+The meshes are copied by `sync`, which makes it an opening call rather than a
+per-frame one: handing a renderer its objects again has it upload them again.
+What a frame refreshes is the drawing alone, which is why the camera is not
+synced here either — three cadences, three calls.
+
+**The `Solver` left `Drawing` for `CatCad`.** It is a tool, not state: the
+buffers it keeps are worth keeping across a drag and worth nothing in a file, so
+it has no business in the thing a saved file holds. It sat briefly in `History`,
+which was also wrong — a history is what has been *done*, not what does it.
+`CatCad` owns it beside `Intents`, for the same stated reason, and lends it down
+through `History::apply` → `Document::apply` → `Drawing::drag_to`.
+
+`Drawing::new` still makes its own for the one-off opening solve, where the
+buffers are not worth an argument.
+
+### One solver, made once
+
+`Drawing::new` had been making a throwaway `Solver` — inconsistent the moment
+the solver became a tool the app owns and lends. Opening a drawing *is* a
+solve: a sketch arrives as coordinates its constraints have not been checked
+against, whether typed in or read from a file. So it borrows one like every
+other solve, threaded `CatCad::build` → `demo::document` → `Document::new` →
+`Drawing::new`, and `CatCad` makes exactly one for the life of the program.
+
+`Drawing::new` also stopped duplicating what `settled` does. It fills the
+fields, solves, and settles — so `settled` is the one place the report,
+the freedoms and the revision are ever written, opening included, and there is
+no second copy of the rule that the three go together.

@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Highlight, Lit, Motion, Renderer, Scene, Viewport};
+use aperture::{Bounds, Highlight, Lit, Motion, Renderer, Scene, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
@@ -115,12 +115,13 @@ pub(crate) struct SceneView {
     /// is rewritten with the scene, by the one call that rewrites both.
     names: Names,
     /// Which revision of the drawing `names` and the scene's overlays were laid
-    /// out from, or `None` before this view has laid it out itself.
+    /// out from.
     ///
     /// Compared rather than trusted: a caller could say whether it had just
     /// edited the document, but then a caller that forgot would leave the view
-    /// drawing last frame's geometry with no way to notice.
-    laid_out: Option<Revision>,
+    /// drawing last frame's geometry with no way to notice. Written only where
+    /// the laying out happens, so it cannot claim more than was done.
+    laid_out: Revision,
     gesture: Gesture,
     /// The sketch entity under the pointer, if any.
     hovered: Option<Named>,
@@ -135,21 +136,29 @@ pub(crate) struct SceneView {
 }
 
 impl SceneView {
-    /// A view of `scene`, which `names` names the drawn parts of.
+    /// A view of `document`, laid out as it stands.
     ///
-    /// `laid_out` starts empty however current the two are, so the first settle
-    /// lays the drawing out again. It costs one refill of buffers that already
-    /// have the room, and it buys a view whose only claim about what it has
-    /// drawn is one it made itself.
-    pub(crate) fn new(scene: Scene, names: Names) -> Self {
+    /// The view lays it out itself rather than being handed a scene, which is
+    /// what lets it say honestly which revision it has drawn — the one claim it
+    /// makes about its own contents is one it is in a position to make.
+    pub(crate) fn new(document: &Document) -> Self {
+        let mut scene = Scene::default();
+        let mut names = Names::default();
+        document.sync(&mut scene, &mut names);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             names,
-            laid_out: None,
+            laid_out: document.drawing().revision(),
             gesture: Gesture::None,
             hovered: None,
             aimed: None,
         }
+    }
+
+    /// What the view holds occupies in world space, or `None` if it holds
+    /// nothing — what a camera is aimed at to take the whole of it in.
+    pub(crate) fn bounds(&self) -> Option<Bounds> {
+        self.renderer.borrow().scene().bounds()
     }
 
     /// The renderer being drawn, for a caller that wants to edit the scene or
@@ -251,11 +260,11 @@ impl SceneView {
     pub(crate) fn settle(&mut self, document: &Document) {
         let mut renderer = self.renderer.borrow_mut();
         let drawing = document.drawing();
-        if self.laid_out != Some(drawing.revision()) {
+        if self.laid_out != drawing.revision() {
             // Into the batches the renderer already holds, so a drag rewrites
             // the drawing every frame without asking the heap for anything.
             drawing.write_into(&mut self.names, renderer.overlays_mut());
-            self.laid_out = Some(drawing.revision());
+            self.laid_out = drawing.revision();
         }
 
         // Only one thing lights: a marker sits on the end of every edge that
@@ -272,8 +281,10 @@ impl SceneView {
 
         // Wholesale rather than on change: the document owns the camera and the
         // scene holds the copy the next paint reads, so overwriting it every
-        // frame is what keeps the two from ever disagreeing.
-        document.aim(&mut renderer);
+        // frame is what keeps the two from ever disagreeing. Copied here rather
+        // than pushed by the document, which has no business knowing a renderer
+        // exists.
+        *renderer.camera_mut() = document.camera();
     }
 
     /// Decide what this press is the start of.

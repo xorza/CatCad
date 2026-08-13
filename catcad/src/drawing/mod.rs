@@ -7,19 +7,17 @@ use silverpoint::{CircleId, Freedoms, PointId, SegmentId, Sketch, Snapshot, Solv
 use crate::named::{Named, Names};
 use crate::sketch_plane::SketchPlane;
 
-/// A sketch, the plane it lies on, and everything needed to keep the two in
-/// step as it is edited.
+/// A sketch, the plane it lies on, and what the last solve made of the two.
 ///
-/// The model half of the application. Held rather than solved once and thrown
-/// away, because every edit is a re-solve and a redraw of the same sketch —
-/// which is what dragging one is, sixty times a second. The solver comes along
-/// for that reason: it keeps the buffers a solve works in, so a drag pays for
-/// them once rather than once a frame.
+/// The model half of the application, and the whole of what saving one would
+/// write down. Nothing here is scratch: the [`Solver`] that does the work is
+/// borrowed for the length of a call and belongs to whoever is doing the
+/// editing, because the buffers it keeps are worth keeping for the length of a
+/// drag and worth nothing at all in a file.
 #[derive(Debug)]
 pub(crate) struct Drawing {
     sketch: Sketch,
     plane: SketchPlane,
-    solver: Solver,
     report: SolveReport,
     /// Which version of the drawing this is, so anything holding a layout of it
     /// can tell whether that layout is still current.
@@ -31,41 +29,48 @@ pub(crate) struct Drawing {
 }
 
 impl Drawing {
-    /// Solve `sketch` where it lies on `plane`.
-    pub(crate) fn new(mut sketch: Sketch, plane: SketchPlane) -> Self {
-        let mut solver = Solver::default();
-        let report = solver.solve(&mut sketch);
+    /// Solve `sketch` where it lies on `plane`, and take what that decides.
+    ///
+    /// A sketch arrives as coordinates its constraints have not been checked
+    /// against — a guess, whether it was typed in or read from a file — so
+    /// opening a drawing is a solve like any other, and takes a borrowed solver
+    /// like any other. The fields below are placeholders for exactly as long as
+    /// the two lines after them.
+    pub(crate) fn new(solver: &mut Solver, sketch: Sketch, plane: SketchPlane) -> Self {
         let mut drawing = Self {
             sketch,
             plane,
-            solver,
-            report,
+            report: SolveReport::default(),
             revision: Revision::default(),
             freedoms: Freedoms::default(),
         };
-        drawing.remeasure();
+        let report = solver.solve(&mut drawing.sketch);
+        drawing.settled(solver, report);
         drawing
     }
 
     /// Record what a solve made of the sketch, and take afresh what its
     /// constraints have decided about the geometry it settled on.
     ///
-    /// The one way the drawing's account of itself is updated. The two halves
-    /// describe the same moment and are worth nothing apart: the freedoms are
-    /// read off the geometry a solve left behind, so a report stored without
-    /// them leaves the drawing painted from the state before.
-    fn settled(&mut self, report: SolveReport) {
+    /// The one way the drawing's account of itself is written, opening it
+    /// included. Report, freedoms and revision all describe the same moment, and any of them written without the others
+    /// describes a moment that never happened: a report stored alone leaves the
+    /// drawing painted in the colours of where it used to be.
+    ///
+    /// The two arguments answer different questions, which is why both are
+    /// here. `report` is what the solve *concluded* — whether it converged, and
+    /// in how many iterations — and only the solve that ran can say that, so it
+    /// is handed over rather than asked for again. `solver` is the room to ask
+    /// a further question of the result: what the constraints have decided is a
+    /// property of where the geometry now *stands*, so it is read off the
+    /// sketch the solve left behind rather than predicted from what the solve
+    /// was asked for. That is what makes a refused drag come out right — its
+    /// report is the one from before, and its freedoms are measured where the
+    /// geometry was put back.
+    fn settled(&mut self, solver: &mut Solver, report: SolveReport) {
         self.report = report;
         self.revision = self.revision.next();
-        self.remeasure();
-    }
-
-    /// Take afresh what the constraints have decided, which is the one thing
-    /// every change to the geometry invalidates — including a change that put
-    /// the geometry back where it started, since deciding that is what the
-    /// measurement is for.
-    fn remeasure(&mut self) {
-        self.solver.freedoms(&self.sketch, &mut self.freedoms);
+        solver.freedoms(&self.sketch, &mut self.freedoms);
     }
 
     /// What the last solve made of it.
@@ -97,9 +102,9 @@ impl Drawing {
     /// solve is free to *move* what it is given — and an undo that landed the
     /// drawing near where it was rather than on it would not be an undo. So the
     /// report is carried instead, which costs forty bytes and cannot drift.
-    pub(crate) fn restore(&mut self, standing: &Standing) {
+    pub(crate) fn restore(&mut self, solver: &mut Solver, standing: &Standing) {
         self.sketch.restore(&standing.at);
-        self.settled(standing.report);
+        self.settled(solver, standing.report);
     }
 
     /// Write the drawn primitives, and name each of them into `names`.
@@ -181,12 +186,12 @@ impl Drawing {
     /// constraints refuse leaves the drawing alone. Both belong to
     /// [`Solver::edit_holding`]; all that is decided here is what each kind of
     /// grip means.
-    pub(crate) fn drag_to(&mut self, grip: Grip, world: Vec3) {
+    pub(crate) fn drag_to(&mut self, solver: &mut Solver, grip: Grip, world: Vec3) {
         let at = self.plane.flatten(world);
         let report = match grip {
-            Grip::Point(id) => self
-                .solver
-                .edit_holding(&mut self.sketch, &[id], |sketch| sketch.set_point(id, at)),
+            Grip::Point(id) => {
+                solver.edit_holding(&mut self.sketch, &[id], |sketch| sketch.set_point(id, at))
+            }
             Grip::Segment { id, t } => {
                 // Both ends travel by whatever it takes to put the spot that
                 // was grabbed under the cursor. Measured against where that
@@ -195,27 +200,25 @@ impl Drawing {
                 let edge = self.sketch.segment(id);
                 let (a, b) = (self.sketch.point(edge.a), self.sketch.point(edge.b));
                 let shift = at - a.lerp(b, t);
-                self.solver
-                    .edit_holding(&mut self.sketch, &[edge.a, edge.b], |sketch| {
-                        sketch.set_point(edge.a, a + shift);
-                        sketch.set_point(edge.b, b + shift);
-                    })
+                solver.edit_holding(&mut self.sketch, &[edge.a, edge.b], |sketch| {
+                    sketch.set_point(edge.a, a + shift);
+                    sketch.set_point(edge.b, b + shift);
+                })
             }
             Grip::Rim(id) => {
                 // A rim drives the radius rather than moving the circle, so
                 // the centre is held: growing a circle should not walk it.
                 let circle = self.sketch.circle(id);
                 let radius = (at - self.sketch.point(circle.center)).length();
-                self.solver
-                    .edit_holding(&mut self.sketch, &[circle.center], |sketch| {
-                        sketch.set_radius(id, radius)
-                    })
+                solver.edit_holding(&mut self.sketch, &[circle.center], |sketch| {
+                    sketch.set_radius(id, radius)
+                })
             }
         };
         // Whatever the drag settled on, including a refusal that put everything
         // back: what the constraints decide is a property of where the geometry
         // now stands, so it is taken from what survived rather than predicted.
-        self.settled(report);
+        self.settled(solver, report);
     }
 }
 

@@ -3,6 +3,7 @@
 use crate::document::Document;
 use crate::drawing::Standing;
 use crate::intent::{Intent, Intents};
+use silverpoint::Solver;
 
 /// How many steps back the history goes.
 ///
@@ -50,13 +51,18 @@ impl History {
     /// about the drawing, and anything that needs it reads
     /// [`Drawing::revision`](crate::drawing::Drawing::revision) — which cannot
     /// be forgotten to pass on, or passed on wrongly.
-    pub(crate) fn apply(&mut self, document: &mut Document, intents: &Intents) {
+    pub(crate) fn apply(
+        &mut self,
+        document: &mut Document,
+        solver: &mut Solver,
+        intents: &Intents,
+    ) {
         for intent in intents.iter() {
             match intent {
-                Intent::Undo => self.undo(document),
-                Intent::Redo => self.redo(document),
+                Intent::Undo => self.undo(document, solver),
+                Intent::Redo => self.redo(document, solver),
                 Intent::Release => self.close(),
-                edit => self.step(document, edit),
+                edit => self.step(document, solver, edit),
             }
         }
     }
@@ -81,13 +87,13 @@ impl History {
     /// refuse records nothing, because
     /// [`Solver::edit_holding`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
-    fn step(&mut self, document: &mut Document, intent: Intent) {
+    fn step(&mut self, document: &mut Document, solver: &mut Solver, intent: Intent) {
         let extending = self.open && intent.coalesces();
         if !extending {
             self.close();
             document.drawing().snapshot_into(&mut self.before);
         }
-        document.apply(intent);
+        document.apply(solver, intent);
         document.drawing().snapshot_into(&mut self.after);
 
         if extending {
@@ -115,7 +121,7 @@ impl History {
     }
 
     /// Take back the last step, if there is one.
-    fn undo(&mut self, document: &mut Document) {
+    fn undo(&mut self, document: &mut Document, solver: &mut Solver) {
         self.close();
         if !self.can_undo() {
             return;
@@ -123,18 +129,18 @@ impl History {
         self.applied -= 1;
         document
             .drawing_mut()
-            .restore(&self.edits[self.applied].before);
+            .restore(solver, &self.edits[self.applied].before);
     }
 
     /// Put back the last step taken away, if there is one.
-    fn redo(&mut self, document: &mut Document) {
+    fn redo(&mut self, document: &mut Document, solver: &mut Solver) {
         self.close();
         if !self.can_redo() {
             return;
         }
         document
             .drawing_mut()
-            .restore(&self.edits[self.applied].after);
+            .restore(solver, &self.edits[self.applied].after);
         self.applied += 1;
     }
 
