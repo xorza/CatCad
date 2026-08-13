@@ -4,7 +4,7 @@ use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, Key, Modifiers, WindowToken};
-use silverpoint::{Freedom, Freedoms, PointId, SolveReport, Solver};
+use silverpoint::{Freedom, Freedoms, Plane, PointId, SolveReport, Solver};
 
 use crate::demo;
 use crate::named::Named;
@@ -385,4 +385,16 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
         "after the release the sketch was reported as {}",
         app.status()
     );
+}
+
+/// The demo is drawn on the ground plane.
+///
+/// What that plane *is* — flat, facing +Y, its own +y running to world −Z — is
+/// silverpoint's to define and to test. What is catcad's is the choice: the
+/// drawing lies on the slab's top face and anything modelled from it stands up,
+/// and both follow from this one line of `demo`.
+#[test]
+fn the_demo_is_drawn_on_the_ground_plane() {
+    let document = demo::document(&mut Solver::default());
+    assert_eq!(document.drawing().plane(), Plane::GROUND);
 }

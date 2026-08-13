@@ -2,10 +2,9 @@ use super::*;
 use crate::demo;
 use crate::drawing::Grip;
 use crate::named::Names;
-use crate::sketch_plane;
 use aperture::Scene;
 use glam::{DVec2, Vec3};
-use silverpoint::{CircleId, PointId, Solver};
+use silverpoint::{CircleId, Plane, PointId, Solver};
 
 /// One intent, as a frame that asked for exactly that would deliver it.
 fn once(intent: Intent) -> Intents {
@@ -56,7 +55,7 @@ fn hole(document: &Document) -> CircleId {
 fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
     let sketch = document.drawing().sketch();
     let centre = sketch.point(sketch.circle(circle).center);
-    sketch_plane::GROUND
+    Plane::GROUND
         .point(centre + DVec2::new(radius, 0.0))
         .as_vec3()
 }
@@ -101,7 +100,7 @@ fn relaid(
 
 /// Where to send `id`, `by` from where it now stands on the drawing's plane.
 fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
-    sketch_plane::GROUND
+    Plane::GROUND
         .point(document.drawing().sketch().point(id) + by)
         .as_vec3()
 }

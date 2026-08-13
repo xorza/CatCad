@@ -1,6 +1,6 @@
 use super::*;
 use glam::DVec2;
-use silverpoint::{Sketch, Solver};
+use silverpoint::{Plane, Sketch, Solver};
 
 /// The drawing the writers take: `sketch` on the ground, solved.
 ///
@@ -8,40 +8,7 @@ use silverpoint::{Sketch, Solver};
 /// unsolved guess is not where it will stand — which is the drawing's own job
 /// to arrange, so this asks for one rather than assembling the parts.
 fn drawn(sketch: Sketch) -> Drawing {
-    Drawing::new(&mut Solver::default(), sketch, GROUND)
-}
-
-#[test]
-fn the_ground_plane_lays_sketch_y_along_negative_z() {
-    let plane = GROUND;
-    assert_eq!(plane.point(DVec2::ZERO), DVec3::ZERO);
-    assert_eq!(plane.point(DVec2::new(3.0, 0.0)), DVec3::new(3.0, 0.0, 0.0));
-    // Sketch +y runs away from the camera, so the drawing lies flat
-    // instead of standing up.
-    assert_eq!(
-        plane.point(DVec2::new(0.0, 2.0)),
-        DVec3::new(0.0, 0.0, -2.0)
-    );
-    assert_eq!(
-        plane.point(DVec2::new(-1.5, 4.0)),
-        DVec3::new(-1.5, 0.0, -4.0)
-    );
-
-    // A plane elsewhere carries its sketch with it.
-    let raised = Plane {
-        origin: DVec3::new(0.0, 5.0, 0.0),
-        ..GROUND
-    };
-    assert_eq!(
-        raised.point(DVec2::new(1.0, 1.0)),
-        DVec3::new(1.0, 5.0, -1.0)
-    );
-    // And back again: the drawing flattens a cursor ray onto this same frame.
-    assert_eq!(
-        raised.flatten(DVec3::new(1.0, 5.0, -1.0)),
-        DVec2::new(1.0, 1.0)
-    );
-    assert_eq!(raised.normal(), DVec3::Y, "the ground faces up");
+    Drawing::new(&mut Solver::default(), sketch, Plane::GROUND)
 }
 
 #[test]

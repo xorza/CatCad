@@ -1,13 +1,15 @@
-//! What a sketch looks like once it is drawn on its plane.
+//! What a drawing looks like: turning one into the strokes, rims and markers a
+//! renderer is handed.
 //!
-//! The frame itself is [`Plane`], in silverpoint — geometry rather than
-//! drawing. What is here is the other half: turning a sketch on one into the
-//! strokes, rims and markers a renderer is handed. This is where the model's
-//! `f64` becomes the renderer's `f32`, and the only place it does.
+//! Everything here is a choice about appearance — which colour says how much
+//! freedom is left, how wide an edge is, how far the drawing rides in front of
+//! the solids — held apart from the model it is applied to so that neither has
+//! to be read to change the other. It is also where the model's `f64` becomes
+//! the renderer's `f32`, and the only place it does.
 
 use aperture::{Curve, Point, Ring, Styled};
-use glam::{DVec3, Vec3};
-use silverpoint::{Freedom, Plane};
+use glam::Vec3;
+use silverpoint::Freedom;
 
 use crate::drawing::Drawing;
 use crate::named::{Named, Names};
@@ -33,7 +35,7 @@ const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
 const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
 
 /// What geometry with this much freedom left is drawn in.
-fn paint(freedom: Freedom) -> Vec3 {
+fn colour(freedom: Freedom) -> Vec3 {
     match freedom {
         Freedom::Determined => DETERMINED,
         Freedom::Partly => PARTLY,
@@ -73,18 +75,6 @@ const STROKE_LIFT: i32 = 512;
 /// disagree by and still three decades short of showing through the model.
 const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 
-/// The world's horizontal plane through the origin, with the sketch's +y
-/// running to world −Z. Seen from above with +Y up, that reads the way the
-/// sketch was drawn, and anything modelled from it stands up in +Y.
-///
-/// Here rather than in silverpoint, which has no opinion on which way is up —
-/// and none to have, in a world it never sees.
-pub(crate) const GROUND: Plane = Plane {
-    origin: DVec3::ZERO,
-    x: DVec3::X,
-    y: DVec3::NEG_Z,
-};
-
 /// The sketch's straight strokes, one edge per segment, biased clear of
 /// the solids in depth so the drawing reads over them. Circles are not
 /// strokes — see [`write_rings`].
@@ -101,7 +91,7 @@ pub(crate) fn write_curves(drawing: &Drawing, names: &mut Names, curves: &mut Ve
         let freedom = freedoms.point(segment.a).max(freedoms.point(segment.b));
         curves.push(
             Curve::segment(a, b)
-                .colored(paint(freedom))
+                .colored(colour(freedom))
                 .width(EDGE_WIDTH)
                 .tagged(names.tag(Named::Segment(id))),
         );
@@ -135,7 +125,7 @@ pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Ve
         let (color, size) = if sketch.is_fixed(id) {
             (PINNED, FIXED_MARKER)
         } else {
-            (paint(freedoms.point(id)), FREE_MARKER)
+            (colour(freedoms.point(id)), FREE_MARKER)
         };
         Point::new(plane.point(position).as_vec3())
             .colored(color)
@@ -171,7 +161,7 @@ pub(crate) fn write_rings(drawing: &Drawing, names: &mut Names, rings: &mut Vec<
             circle.radius.abs() as f32,
             normal,
         )
-        .colored(paint(freedom))
+        .colored(colour(freedom))
         .width(EDGE_WIDTH)
         .z_offset(STROKE_LIFT)
         .tagged(names.tag(Named::Circle(id)))

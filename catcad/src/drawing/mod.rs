@@ -7,7 +7,7 @@ use silverpoint::{
 };
 
 use crate::named::{Named, Names};
-use crate::sketch_plane;
+use crate::paint;
 
 /// A sketch, the plane it lies on, and what the last solve made of the two.
 ///
@@ -134,9 +134,9 @@ impl Drawing {
     /// from one layout and half from another names nothing.
     pub(crate) fn write_into(&self, names: &mut Names, into: Overlays<'_>) {
         names.clear();
-        sketch_plane::write_curves(self, names, into.curves);
-        sketch_plane::write_rings(self, names, into.rings);
-        sketch_plane::write_points(self, names, into.points);
+        paint::write_curves(self, names, into.curves);
+        paint::write_rings(self, names, into.rings);
+        paint::write_points(self, names, into.points);
     }
 
     /// What a press on `named`, landing `at`, takes hold of — or `None` if it

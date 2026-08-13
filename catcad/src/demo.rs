@@ -7,10 +7,9 @@
 
 use aperture::{Mesh, Object, Styled};
 use glam::{DVec2, Mat4, Vec3};
-use silverpoint::{Constraint, Sketch, Solver};
+use silverpoint::{Constraint, Plane, Sketch, Solver};
 
 use crate::document::Document;
-use crate::sketch_plane;
 
 /// The demo as a document: its sketch on the ground plane, and the solids
 /// that stand on it.
@@ -18,7 +17,7 @@ use crate::sketch_plane;
 /// The sketch and the solids share one world — the drawing lies on the ground
 /// plane and the boxes stand on it — so orbiting the view moves both together.
 pub(crate) fn document(solver: &mut Solver) -> Document {
-    let plane = sketch_plane::GROUND;
+    let plane = Plane::GROUND;
     let mut solids = Vec::new();
     // The ground the drawing lies on, and the reason the drawing carries a
     // depth bias at all: the slab's top face *is* the sketch plane, so the

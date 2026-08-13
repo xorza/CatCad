@@ -13,8 +13,8 @@ mod history;
 mod intent;
 pub mod named;
 mod overlay;
+mod paint;
 mod scene_view;
-pub mod sketch_plane;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
