@@ -19,6 +19,11 @@ silverpoint = { path = "silverpoint", version = "0.1" }
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.33", default-features = false, features = ["std"] }
 wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl"] }
+# The allocation benches only; each member marks it optional behind its own
+# `bench` feature. Pinned to palantir's version so the workspace resolves one
+# copy — `dhat::Alloc` is a global allocator, and two of them would be two
+# profilers fighting over the same process.
+dhat = "0.3"
 
 [workspace.lints.rust]
 missing_debug_implementations = "deny"

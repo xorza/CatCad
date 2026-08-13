@@ -11,10 +11,25 @@ aperture3d.workspace = true
 glam = { workspace = true, features = ["f64"] }
 palantir.workspace = true
 silverpoint.workspace = true
+dhat = { workspace = true, optional = true }
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
 palantir = { workspace = true, features = ["internals", "golden"] }
+
+[features]
+# Compiles the allocation-bench driver in `src/` and exposes the one call
+# `benches/alloc.rs` makes. Carries `palantir/internals` because the driver
+# raises the app through `UiHarness`, the same reach-in the tests use — the
+# bench has to record real frames, not a stand-in for them.
+bench = ["dep:dhat", "palantir/internals"]
+
+# Its own target because `dhat::Alloc` has to be *the* global allocator, which
+# is process-wide — anything sharing the binary pays a 10-30x allocator tax.
+[[bench]]
+name = "alloc"
+harness = false
+required-features = ["bench"]
 
 # The frames the app actually draws, measured and compared against goldens.
 # Needs a GPU, so it is its own target rather than a unit test.

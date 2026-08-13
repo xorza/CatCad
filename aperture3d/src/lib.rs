@@ -88,6 +88,11 @@ pub(crate) mod styled;
 pub(crate) mod tag;
 pub(crate) mod viewport;
 
+/// The one call `benches/alloc.rs` makes. The driver itself stays in `src/`,
+/// where it can reach what it measures.
+#[cfg(feature = "bench")]
+pub use renderer::bench::alloc_bench;
+
 pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;

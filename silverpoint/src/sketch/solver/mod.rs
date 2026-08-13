@@ -276,5 +276,8 @@ fn norm(values: &[f64]) -> f64 {
     values.iter().map(|v| v * v).sum::<f64>().sqrt()
 }
 
+#[cfg(feature = "bench")]
+pub(crate) mod bench;
+
 #[cfg(test)]
 mod tests;

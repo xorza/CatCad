@@ -4,11 +4,18 @@
 //! of the app is reachable from a test — which is what lets the visual suite
 //! raise the real thing rather than a stand-in for it.
 
+#[cfg(feature = "bench")]
+mod bench;
 mod demo;
 pub mod named;
 mod overlay;
 mod scene_view;
 pub mod sketch_plane;
+
+/// The one call `benches/alloc.rs` makes. The driver itself stays in `src/`,
+/// where it can reach what it measures.
+#[cfg(feature = "bench")]
+pub use bench::alloc_bench;
 
 use std::cell::RefCell;
 use std::rc::Rc;

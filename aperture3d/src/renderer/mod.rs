@@ -19,6 +19,8 @@ use glam::{Mat3, UVec2};
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
 
 pub(crate) mod band;
+#[cfg(feature = "bench")]
+pub(crate) mod bench;
 pub(crate) mod gpu;
 pub(crate) mod pass;
 pub(crate) mod record;

@@ -17,6 +17,19 @@ palantir.workspace = true
 bytemuck.workspace = true
 glam.workspace = true
 wgpu.workspace = true
+dhat = { workspace = true, optional = true }
+
+[features]
+# Compiles the allocation-bench driver in `src/` and exposes the one call
+# `benches/alloc.rs` makes. Off by default: nothing published depends on it.
+bench = ["dep:dhat"]
+
+# Its own target because `dhat::Alloc` has to be *the* global allocator, which
+# is process-wide — anything sharing the binary pays a 10-30x allocator tax.
+[[bench]]
+name = "alloc"
+harness = false
+required-features = ["bench"]
 
 [lints]
 workspace = true
