@@ -208,6 +208,11 @@ fn a_coincidence_pins_both_axes_and_counts_as_two_equations() {
 /// Without it the solver treats the held point as free and pulls it straight
 /// back toward the constraint, so a drag would slip out from under the cursor.
 /// The second half of this is that failure, measured.
+///
+/// The last of it is the drag taken back. What has to come back is not only
+/// what the edit touched but what the *solve* moved to accommodate it, and a
+/// snapshot is the one thing that holds both — which is why an undo is built on
+/// putting a value back rather than on dragging the other way.
 #[test]
 fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     let mut sketch = Sketch::default();
@@ -257,12 +262,29 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     // And once more through `edit_holding`, which is the call a drag makes.
     // The 3-4-5 the other way round, so the request is reachable — and a
     // reachable one has to be kept.
+    let mut before = Snapshot::default();
+    sketch.snapshot_into(&mut before);
+    let (was_held, was_trailing) = (sketch.point(held), sketch.point(trailing));
     let sent = DVec2::new(-3.0, 4.0);
     let report = solver.edit_holding(&mut sketch, &[held], |sketch| sketch.set_point(held, sent));
     assert!(report.converged, "{report:?}");
     assert_eq!(sketch.point(held), sent, "a reachable edit was undone");
     let span = sketch.point(trailing) - sketch.point(held);
     assert!((span.length() - 5.0).abs() < EPSILON, "{span:?}");
+
+    // An edit that took is an edit there is something to take back, and the
+    // snapshot says so. Restoring it returns the trailing point too — nothing
+    // asked that one to move, the solve moved it, and an undo that left it
+    // where the drag put it would be an undo of half the drag.
+    let mut after = Snapshot::default();
+    sketch.snapshot_into(&mut after);
+    assert_ne!(
+        after, before,
+        "an edit that moved the sketch snapshots as it was"
+    );
+    sketch.restore(&before);
+    assert_eq!(sketch.point(held), was_held);
+    assert_eq!(sketch.point(trailing), was_trailing);
 }
 
 /// Holding a point of a fully-determined sketch asks for a motion its
@@ -308,12 +330,17 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
     // survives: not the geometry, and not the report either.
     let mut solver = Solver::default();
     solver.solve(&mut sketch);
-    let was: Vec<DVec2> = sketch.points().map(|(_, at)| at).collect();
+    let mut was = Snapshot::default();
+    sketch.snapshot_into(&mut was);
     let refused = solver.edit_holding(&mut sketch, &[pinned], |sketch| {
         sketch.set_point(pinned, DVec2::new(3.0, 4.0))
     });
 
-    let now: Vec<DVec2> = sketch.points().map(|(_, at)| at).collect();
+    // Compared as a snapshot rather than as a list of points, because that is
+    // the comparison an undo stack will make: a refused edit has to read as the
+    // nothing it was, or it would be recorded as a step to take back.
+    let mut now = Snapshot::default();
+    sketch.snapshot_into(&mut now);
     assert_eq!(now, was, "a refused edit moved the sketch");
     assert!(refused.converged, "{refused:?}");
     assert_eq!(refused.degrees_of_freedom, 0, "{refused:?}");

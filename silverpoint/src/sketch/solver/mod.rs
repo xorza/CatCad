@@ -7,6 +7,7 @@
 //! plus one per circle, so the cost of sparsity bookkeeping would exceed what
 //! it saves.
 
+use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::freedoms::Freedoms;
 use crate::sketch::solver::workspace::Workspace;
 use crate::sketch::{PointId, Sketch};
@@ -55,7 +56,7 @@ pub struct Solver {
     /// Where the geometry stood before the edit being attempted, so one the
     /// constraints cannot take can be put back. Outside [`Workspace`] because
     /// it outlives a solve rather than serving one.
-    before: Vec<f64>,
+    before: Snapshot,
 }
 
 impl Default for Solver {
@@ -64,7 +65,7 @@ impl Default for Solver {
             max_iterations: 100,
             tolerance: 1e-10,
             work: Workspace::default(),
-            before: Vec::new(),
+            before: Snapshot::default(),
         }
     }
 }
@@ -197,8 +198,8 @@ impl Solver {
     /// that merely fails to finish the job.
     ///
     /// `edit` may move geometry. It may not add or remove any: what is put back
-    /// is the parameter vector, and a sketch that has grown or lost one is no
-    /// longer described by the vector that was saved.
+    /// is a [`Snapshot`], and a sketch that has grown or lost a parameter is no
+    /// longer described by one taken before it did.
     pub fn edit_holding(
         &mut self,
         sketch: &mut Sketch,
@@ -206,13 +207,11 @@ impl Solver {
         edit: impl FnOnce(&mut Sketch),
     ) -> SolveReport {
         let was = self.measure(sketch);
-        self.before.clear();
-        sketch.write_params(&mut self.before);
+        sketch.snapshot_into(&mut self.before);
 
         edit(sketch);
-        debug_assert_eq!(
-            sketch.param_count(),
-            self.before.len(),
+        debug_assert!(
+            self.before.fits(sketch),
             "an edit may move a sketch's geometry, not add to or remove from it"
         );
 
@@ -220,7 +219,7 @@ impl Solver {
         if report.converged || report.max_residual <= was.max_residual {
             return report;
         }
-        sketch.set_params(&self.before);
+        sketch.restore(&self.before);
         was
     }
 
