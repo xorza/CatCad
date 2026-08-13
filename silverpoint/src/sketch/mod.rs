@@ -83,6 +83,13 @@ impl Axis {
 /// that reads a parameter, writes one, or asks whether it may move goes
 /// through one of the two rather than doing the arithmetic again — so a layout
 /// change is those two functions and the round-trip test over them.
+///
+/// All of it sits on [`Sketch`] rather than in a module of its own, though it
+/// is about the vector a sketch flattens to rather than about a sketch. An impl
+/// block belongs to its type's file, so a module would mean free functions:
+/// `param::of_point(sketch, id)` in place of `sketch.point_param(id)`, at every
+/// call in the solver. The layout being one type's business is worth less than
+/// the crate's most-read code reading as it does.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Param {
     Point(PointId, Axis),

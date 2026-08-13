@@ -42,6 +42,12 @@ use crate::renderer::uniforms::Uniforms;
 #[derive(Debug)]
 pub struct Renderer {
     scene: Scene,
+    /// Where the scene is drawn from.
+    ///
+    /// Beside the scene rather than in it: a viewpoint is not part of what
+    /// there is, and holding one inside the scene let a caller pick through it
+    /// without ever naming it.
+    camera: Camera,
     /// At most one entry per tag, which is what lets a lookup stop at the
     /// first match rather than having to find the last.
     highlights: Vec<Lit>,
@@ -56,6 +62,7 @@ impl Renderer {
     pub fn new(scene: Scene) -> Self {
         Self {
             scene,
+            camera: Camera::default(),
             highlights: Vec::new(),
             batches: Batches::default(),
             dirty: Dirty::all(),
@@ -68,12 +75,12 @@ impl Renderer {
     }
 
     pub fn camera(&self) -> &Camera {
-        &self.scene.camera
+        &self.camera
     }
 
     /// Move the camera. Cheap — no geometry is re-uploaded.
     pub fn camera_mut(&mut self) -> &mut Camera {
-        &mut self.scene.camera
+        &mut self.camera
     }
 
     /// Edit the scene's objects, re-uploading the batch on the next paint.
@@ -173,7 +180,7 @@ impl GpuPaint for Renderer {
 
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {
         let size = ctx.size_px.max(UVec2::ONE);
-        let uniforms = Uniforms::of(&self.scene.camera, Viewport::new(size), ctx.raster_scale);
+        let uniforms = Uniforms::of(&self.camera, Viewport::new(size), ctx.raster_scale);
         // Refilled before the GPU is borrowed, since both want `self`. Each
         // batch answers for itself, so a hover over a marker no longer rebuilds
         // the highlights of the strokes and rims it passed over.

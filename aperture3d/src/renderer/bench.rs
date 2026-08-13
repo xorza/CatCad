@@ -106,7 +106,6 @@ const ON_THE_DRAWING: Vec2 = Vec2::new(400.0, 300.0);
 /// vertex — all tagged, so picking has to consider every one of them.
 fn scene() -> Scene {
     let mut scene = Scene {
-        camera: camera(),
         ..Default::default()
     };
     scene.objects.push(Object::new(Mesh::cube(8.0)));
@@ -237,7 +236,7 @@ pub fn alloc_bench() {
 
     let scene = scene();
     bench.step("nearest-hit", 0.0, || {
-        black_box(scene.nearest(ON_THE_DRAWING, viewport, 6.0));
+        black_box(scene.nearest(&camera(), ON_THE_DRAWING, viewport, 6.0));
     });
 
     // What a hover costs the renderer: the lit set changes, so the highlight

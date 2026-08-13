@@ -12,12 +12,16 @@ use crate::ring::Ring;
 use crate::viewport::Viewport;
 use glam::Vec2;
 
-/// The whole of the drawable world: shaded meshes, stroked curves, and the
-/// camera viewing them. Flat for now — hierarchy, if it earns its place, goes
-/// here.
+/// The whole of the drawable world: shaded meshes, stroked curves, rims and
+/// markers. Flat for now — hierarchy, if it earns its place, goes here.
+///
+/// What there is, and not where it is seen from. A camera used to travel with
+/// it, which meant every producer of a scene was invited to supply a viewpoint
+/// it had no opinion about, and every consumer could read one without saying
+/// which. [`Scene::nearest`] takes the camera it queries through, so a caller
+/// picking and a caller drawing cannot silently use two.
 #[derive(Debug, Clone, Default)]
 pub struct Scene {
-    pub camera: Camera,
     pub objects: Vec<Object>,
     pub curves: Vec<Curve>,
     pub rings: Vec<Ring>,
@@ -67,7 +71,12 @@ impl Scene {
     }
 
     /// What the aim was most likely meant for, within `radius` of `cursor` on
-    /// screen, or `None` if nothing is near enough.
+    /// screen, or `None` if nothing is near enough, seen `through` a camera.
+    ///
+    /// The camera is asked for rather than held, because a query is not a
+    /// drawing: what a scene *is* does not depend on where it is looked at
+    /// from, and a caller that picks through one viewpoint and paints through
+    /// another has to be made to say so.
     ///
     /// `cursor` and `radius` are in **logical** pixels, as is the [`Viewport`]
     /// they are measured against, and `cursor` counts down from the top-left
@@ -99,22 +108,28 @@ impl Scene {
     /// would allocate on every frame a pointer moves. When something does ask,
     /// it wants a `pick_into` filling a buffer the caller keeps, not this
     /// returning one.
-    pub fn nearest(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Option<Hit> {
+    pub fn nearest(
+        &self,
+        through: &Camera,
+        cursor: Vec2,
+        viewport: Viewport,
+        radius: f32,
+    ) -> Option<Hit> {
         // `min_by` keeps the first of equally-ordered hits, which is the one a
         // stable sort would put first — so this answers as the head of that
         // list, and a `pick_into` added later cannot disagree with it.
-        self.hits(self.aim(cursor, viewport, radius))
+        self.hits(Self::aim(through, cursor, viewport, radius))
             .min_by(Hit::aim_order)
     }
 
     /// What the cursor is aiming with, built once for a whole query.
-    fn aim(&self, cursor: Vec2, viewport: Viewport, radius: f32) -> Aim {
+    fn aim(through: &Camera, cursor: Vec2, viewport: Viewport, radius: f32) -> Aim {
         Aim::new(
             cursor,
             viewport,
             radius,
-            self.camera.ray_through(cursor, viewport),
-            self.camera.view_proj(viewport.aspect()),
+            through.ray_through(cursor, viewport),
+            through.view_proj(viewport.aspect()),
         )
     }
 

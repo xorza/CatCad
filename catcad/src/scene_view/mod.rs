@@ -270,10 +270,14 @@ impl SceneView {
         // Only one thing lights: a marker sits on the end of every edge that
         // meets it, and lighting all of them would answer a question nobody
         // asked.
+        // Picked through the *document's* camera, not the renderer's copy of
+        // it: the copy is written below, so a pick that read it would answer
+        // through wherever the camera was before this frame's orbit.
         let under = self.aimed.and_then(|aim| {
-            let hit = renderer
-                .scene()
-                .nearest(aim.cursor, aim.viewport, HOVER_REACH);
+            let hit =
+                renderer
+                    .scene()
+                    .nearest(&document.camera(), aim.cursor, aim.viewport, HOVER_REACH);
             hit.map(|hit| hit.tag)
         });
         self.hovered = under.and_then(|tag| self.names.get(tag));
@@ -299,12 +303,17 @@ impl SceneView {
             .and_then(|aim| {
                 let renderer = self.renderer.borrow();
                 let scene = renderer.scene();
-                let hit = scene.nearest(aim.cursor, aim.viewport, HOVER_REACH)?;
+                // One camera for both halves of the offset below. They used to
+                // come from two — the hit through the scene's copy, the ray
+                // through the document's — which on a frame that moved the
+                // camera subtracted one viewpoint's answer from another's.
+                let camera = document.camera();
+                let hit = scene.nearest(&camera, aim.cursor, aim.viewport, HOVER_REACH)?;
                 let grip = document.drawing().grip(self.names.get(hit.tag)?, hit.at)?;
                 let motion = document.drawing().motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
-                let ray = document.camera().ray_through(aim.cursor, aim.viewport);
+                let ray = camera.ray_through(aim.cursor, aim.viewport);
                 Some(Held {
                     grip,
                     motion,

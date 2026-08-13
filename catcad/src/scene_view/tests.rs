@@ -118,7 +118,7 @@ impl Raised {
             .find(|&cursor| {
                 renderer
                     .scene()
-                    .nearest(cursor, viewport, HOVER_REACH)
+                    .nearest(&self.document.camera(), cursor, viewport, HOVER_REACH)
                     .is_some_and(|hit| {
                         let named = self.view.named(hit.tag);
                         keep(named.and_then(|named| self.document.drawing().grip(named, hit.at)))

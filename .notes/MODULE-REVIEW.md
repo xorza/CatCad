@@ -9,35 +9,6 @@ production settles on.
 
 ---
 
-## `Sketch` is both the model and the solver's view of the model
-
-`sketch/mod.rs` is 397 lines, of which the container — points, segments,
-circles, constraints — is a minority. The rest is the parameter-vector mapping
-the solver needs, and it is `pub(crate)` surface that no other consumer can use.
-
-- [ ] `Param`, `Axis`, `param_index`, `param`, `param_value`, `set_param_value`,
-      `radius_base`, `point_slot_count`, `circle_slot_count`, `param_is_free`,
-      `point_param`, `radius_param`, `write_params` and `set_params` are all
-      about the flattened parameter vector rather than about a sketch.
-- [ ] `write_point_partials` and `write_segment_partials` are Jacobian-assembly
-      helpers. They live on `Sketch` but are only ever called while a constraint
-      is emitting its derivatives.
-- [ ] The comment on `Param` says the layout is stated in two functions and that
-      "everything that reads a parameter, writes one, or asks whether it may
-      move goes through one of the two" — a rule that exists because the layout
-      is spread across a type that has other work to do.
-
-## `Scene` bundles what there is with where it is seen from
-
-- [ ] `Scene` carries a `Camera` alongside its geometry. Every producer of a
-      scene is therefore invited to supply a viewpoint, and `catcad` had two
-      redundant camera writes for exactly that reason before they were deleted.
-      `Renderer::camera_mut` returns `&mut self.scene.camera`, so a scene and
-      the camera it is painted through cannot be handled separately.
-- [ ] `Scene::nearest` needs a camera only to build its `Aim`, so picking a
-      scene and drawing a scene both go through the same bundled type even
-      though one of them is a query.
-
 ## `Drawing` keeps three derived values that three callers must each pair up
 
 `Drawing` holds `report`, `revision` and `freedoms`, all derived from the last
@@ -56,6 +27,9 @@ something the type enforces.
 
 ## Small, contained
 
+- [ ] `pub fn param_count` on `Sketch` is public API with no caller outside the
+      crate. It publishes the width of the solver's vector, which is the one
+      thing the `Snapshot` work deliberately stopped publishing.
 - [ ] `Document::apply` has a `Release | Undo | Redo => {}` arm that is
       unreachable — `History::apply` matches those first and never forwards
       them. A caller reaching it gets silence rather than a failure.

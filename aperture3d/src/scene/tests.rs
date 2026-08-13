@@ -10,18 +10,15 @@ use glam::Vec3;
 /// Looking straight down −Z from 5 away with a 90° fov, so a 100×100
 /// viewport puts the origin dead centre and the world spans ±5 across it
 /// at the target's depth: 10 pixels to the world unit.
-fn head_on() -> Scene {
-    Scene {
-        camera: Camera {
-            target: Vec3::ZERO,
-            distance: 5.0,
-            yaw: 0.0,
-            pitch: 0.0,
-            fov_y: std::f32::consts::FRAC_PI_2,
-            near_ratio: 1.0 / 5.0,
-            projection: Projection::Perspective,
-        },
-        ..Default::default()
+fn head_on() -> Camera {
+    Camera {
+        target: Vec3::ZERO,
+        distance: 5.0,
+        yaw: 0.0,
+        pitch: 0.0,
+        fov_y: std::f32::consts::FRAC_PI_2,
+        near_ratio: 1.0 / 5.0,
+        projection: Projection::Perspective,
     }
 }
 
@@ -38,7 +35,14 @@ fn viewport() -> Viewport {
 /// the cursor and how it orders, which is the pair `nearest` is built from, so
 /// they ask those two directly.
 fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
-    let mut hits: Vec<Hit> = scene.hits(scene.aim(cursor, viewport(), radius)).collect();
+    ranked_through(scene, &head_on(), cursor, radius)
+}
+
+/// The same, seen from somewhere else.
+fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) -> Vec<Hit> {
+    let mut hits: Vec<Hit> = scene
+        .hits(Scene::aim(through, cursor, viewport(), radius))
+        .collect();
     hits.sort_by(Hit::aim_order);
     hits
 }
@@ -55,23 +59,24 @@ fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
 fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
     // Where the rim actually lands is asked of the projection rather than
     // assumed, so the aim is one pixel outside it whatever the lean does.
-    let aim_beside_the_rim = |scene: &Scene, out: f32| {
+    let aim_beside_the_rim = |through: &Camera, out: f32| {
         let rim = Vec3::new(2.0, 0.0, 0.0);
-        let clip = scene.camera.view_proj(viewport().aspect()) * rim.extend(1.0);
+        let clip = through.view_proj(viewport().aspect()) * rim.extend(1.0);
         viewport().pixel_from_clip(clip) + Vec2::new(out, 0.0)
     };
 
     for lean in [0.0, 0.6, 1.2, std::f32::consts::FRAC_PI_2 - 0.05] {
-        let mut scene = head_on();
-        scene.camera.pitch = lean;
+        let mut camera = head_on();
+        camera.pitch = lean;
+        let mut scene = Scene::default();
         // Radius 2 in the XY plane, so the rim reaches ±2 along world x —
         // the one direction the lean never foreshortens.
         scene
             .rings
             .push(Ring::new(Vec3::ZERO, 2.0, Vec3::Z).tagged(Tag::new(7)));
 
-        let cursor = aim_beside_the_rim(&scene, 1.0);
-        let hits = ranked(&scene, cursor, 2.0);
+        let cursor = aim_beside_the_rim(&camera, 1.0);
+        let hits = ranked_through(&scene, &camera, cursor, 2.0);
         assert_eq!(hits.len(), 1, "lean {lean}: rim missed from a pixel away");
         // A pixel from *one* point of the rim, so the nearest point of the
         // whole rim can only be nearer — and once the lean turns the circle
@@ -97,9 +102,9 @@ fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
 
         // Well outside is still a miss — the reach is not being widened to
         // paper over the measurement.
-        let far = aim_beside_the_rim(&scene, 6.0);
+        let far = aim_beside_the_rim(&camera, 6.0);
         assert!(
-            ranked(&scene, far, 2.0).is_empty(),
+            ranked_through(&scene, &camera, far, 2.0).is_empty(),
             "lean {lean}: six pixels out should not hit"
         );
     }
@@ -107,7 +112,7 @@ fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
 
 #[test]
 fn a_marker_is_hit_within_its_own_glyph_or_the_asked_radius() {
-    let mut scene = head_on();
+    let mut scene = Scene::default();
     scene
         .points
         .push(Point::new(Vec3::ZERO).size(8.0).tagged(Tag::new(1)));
@@ -136,7 +141,7 @@ fn a_marker_is_hit_within_its_own_glyph_or_the_asked_radius() {
 
 #[test]
 fn scenery_is_never_picked() {
-    let mut scene = head_on();
+    let mut scene = Scene::default();
     scene.points.push(Point::new(Vec3::ZERO).size(8.0));
     scene
         .curves
@@ -146,7 +151,7 @@ fn scenery_is_never_picked() {
 
 #[test]
 fn a_stroke_reports_where_along_it_the_cursor_fell() {
-    let mut scene = head_on();
+    let mut scene = Scene::default();
     // Spans x −2..2, which at ten pixels to the unit is 40 px either side
     // of centre.
     scene.curves.push(
@@ -178,7 +183,7 @@ fn a_stroke_reports_where_along_it_the_cursor_fell() {
 
 #[test]
 fn a_receding_stroke_reports_where_the_cursor_is_in_the_world_not_on_screen() {
-    let mut scene = head_on();
+    let mut scene = Scene::default();
     // Runs away from the eye at 5: the near end is 1 off, the far end 21,
     // so the far half is squeezed into a fraction of the pixels the near
     // half gets. Halfway along on *screen* is nowhere near halfway along
@@ -208,7 +213,7 @@ fn a_receding_stroke_reports_where_the_cursor_is_in_the_world_not_on_screen() {
 
 #[test]
 fn a_marker_outranks_the_strokes_running_through_it() {
-    let mut scene = head_on();
+    let mut scene = Scene::default();
     // Two edges crossing at the origin, and a marker on the crossing —
     // the corner of any rectangle. Sorting on depth alone would bury the
     // marker under whichever edge rounded nearer.
@@ -246,7 +251,7 @@ fn a_marker_outranks_the_strokes_running_through_it() {
 /// added later would hand back exactly this list.
 #[test]
 fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
-    let mut scene = head_on();
+    let mut scene = Scene::default();
     // Every kind, overlapping, so the ordering has real work to do: two edges
     // crossing at the origin, a marker on the crossing, a rim around it.
     scene
@@ -275,7 +280,7 @@ fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
     for cursor in cursors {
         let hits = ranked(&scene, cursor, 4.0);
         assert_eq!(
-            scene.nearest(cursor, viewport(), 4.0),
+            scene.nearest(&head_on(), cursor, viewport(), 4.0),
             hits.first().copied(),
             "at {cursor:?}, over {hits:?}"
         );
@@ -285,7 +290,7 @@ fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
     assert!(found >= 3, "only {found} of the cursors landed on anything");
     assert!(
         scene
-            .nearest(Vec2::new(2.0, 2.0), viewport(), 4.0)
+            .nearest(&head_on(), Vec2::new(2.0, 2.0), viewport(), 4.0)
             .is_none(),
         "a cursor off the drawing finds nothing"
     );
@@ -293,7 +298,7 @@ fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
 
 #[test]
 fn nearer_the_cursor_beats_nearer_the_eye() {
-    let mut scene = head_on();
+    let mut scene = Scene::default();
     // The closer stroke is a whole unit toward the eye but four pixels
     // off; the further one is dead under the cursor.
     scene.curves.push(
@@ -316,7 +321,7 @@ fn nearer_the_cursor_beats_nearer_the_eye() {
 
 #[test]
 fn only_what_survived_the_near_plane_can_be_picked() {
-    let mut scene = head_on();
+    let mut scene = Scene::default();
     // Wholly behind: the eye is at z = 5 looking down −Z.
     scene
         .points
