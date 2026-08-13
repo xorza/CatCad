@@ -13,7 +13,7 @@ mod overlay;
 mod scene_view;
 pub mod sketch_plane;
 
-/// The one call `benches/alloc.rs` makes. The driver itself stays in `src/`,
+/// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
 #[cfg(feature = "bench")]
 pub use bench::alloc_bench;

@@ -21,12 +21,16 @@ common = { workspace = true, optional = true }
 
 [features]
 # Compiles the allocation-bench driver in `src/` and exposes the one call
-# `benches/alloc.rs` makes. Off by default: nothing published depends on it.
+# `tests/alloc.rs` makes. Off by default: nothing published depends on it.
 bench = ["dep:common", "common/bench"]
 
 # Its own target because `dhat::Alloc` has to be *the* global allocator, which
-# is process-wide — anything sharing the binary pays a 10-30x allocator tax.
-[[bench]]
+# is process-wide — anything sharing the binary pays a 10-30x allocator tax. A
+# test rather than a bench because that isolation is per *binary*, and an
+# integration test is one: what the bench profile bought was `lto = "fat"` and a
+# single codegen unit, which cost a minute of build for a measurement that
+# counts allocations rather than timing them.
+[[test]]
 name = "alloc"
 harness = false
 required-features = ["bench"]

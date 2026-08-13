@@ -6,7 +6,7 @@
 //!
 //! | feature | what it adds |
 //! |---|---|
-//! | `bench` | [`AllocBench`], the harness every `benches/alloc.rs` here drives, and the `dhat` allocator it needs |
+//! | `bench` | [`AllocBench`], the harness every `tests/alloc.rs` here drives, and the `dhat` allocator it needs |
 //!
 //! # The allocation bench
 //!

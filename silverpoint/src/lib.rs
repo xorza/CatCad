@@ -34,7 +34,7 @@ pub(crate) mod sketch;
 
 pub use arena::Id;
 pub use sketch::constraint::Constraint;
-/// The one call `benches/alloc.rs` makes. The driver itself stays in `src/`,
+/// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
 #[cfg(feature = "bench")]
 pub use sketch::solver::bench::alloc_bench;
