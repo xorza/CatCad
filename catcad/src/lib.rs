@@ -125,6 +125,33 @@ impl CatCad {
         self.document.camera_mut()
     }
 
+    /// Show everything this frame draws, and collect what it asks for.
+    ///
+    /// Reads the document and writes only the inbox. Three sources of intent —
+    /// the keyboard, the view, and the overlay's own controls — and none of
+    /// them is allowed to act on what it asks.
+    fn ask(&mut self, ui: &mut Ui) {
+        // Polled unconditionally rather than short-circuited: reading a chord
+        // is also what subscribes it for the wake that delivers the next one,
+        // so one left unread on the frame the other fired would stop waking a
+        // frame of its own.
+        if ui.key_pressed(UNDO) {
+            self.intents.push(Intent::Undo);
+        }
+        if ui.key_pressed(REDO) {
+            self.intents.push(Intent::Redo);
+        }
+        self.view.show(ui, &self.document, &mut self.intents);
+        // Formatted straight into the pass's own text arena — no `String` is
+        // built on the way, and the handle is lowered by the same pass that
+        // minted it, which is the only pass it is good for.
+        let status = ui.fmt(format_args!("{}", self.status()));
+        let asked = overlay::show(ui, status, self.document.camera().projection);
+        if asked != self.document.camera().projection {
+            self.intents.push(Intent::Project(asked));
+        }
+    }
+
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
@@ -140,6 +167,11 @@ impl CatCad {
 
 /// What the status line says: the solve's verdict, and what the pointer is
 /// over.
+///
+/// Its own fields rather than a borrowed [`Drawing`](crate::drawing::Drawing):
+/// four values copied once a frame cost nothing, and a `Status` that could be
+/// built out of nothing but numbers is one a test can check the wording of
+/// without raising a document to do it.
 ///
 /// A `Display` rather than a `String`, for two reasons. Its only caller writes
 /// it straight into the record pass's own text arena, and a line rebuilt every
@@ -190,28 +222,10 @@ impl App for CatCad {
             .auto_id()
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
-                // Polled unconditionally rather than short-circuited: reading a
-                // chord is also what subscribes it for the wake that delivers
-                // the next one, so one left unread on the frame the other fired
-                // would stop waking a frame of its own.
-                if ui.key_pressed(UNDO) {
-                    self.intents.push(Intent::Undo);
-                }
-                if ui.key_pressed(REDO) {
-                    self.intents.push(Intent::Redo);
-                }
-                self.view.show(ui, &self.document, &mut self.intents);
-                // Formatted straight into the pass's own text arena — no
-                // `String` is built on the way, and the handle is lowered by
-                // the same pass that minted it, which is the only pass it is
-                // good for.
-                let status = ui.fmt(format_args!("{}", self.status()));
-                let asked = overlay::show(ui, status, self.document.camera().projection);
-                if asked != self.document.camera().projection {
-                    self.intents.push(Intent::Project(asked));
-                }
-                // Everything above only asked. This is where a frame's asking
-                // becomes a change, and where what that changed is drawn.
+                // Ask, apply, settle — the whole of a frame, and the order the
+                // rest of the crate is built around: nothing writes the document
+                // until everything has finished reading it.
+                self.ask(ui);
                 self.history
                     .apply(&mut self.document, &mut self.solver, &self.intents);
                 self.view.settle(&self.document);

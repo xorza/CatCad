@@ -219,7 +219,10 @@ impl Sketch {
     ///
     /// Counts positions rather than what is in them: a removed point keeps its
     /// two entries, so every surviving handle keeps indexing where it did.
-    pub fn param_count(&self) -> usize {
+    ///
+    /// Crate-internal: the width of that vector is the layout, and publishing
+    /// it is what [`Snapshot`] exists to avoid.
+    pub(crate) fn param_count(&self) -> usize {
         self.radius_base() + self.circle_slot_count()
     }
 

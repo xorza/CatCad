@@ -7,6 +7,7 @@
 //! plus one per circle, so the cost of sparsity bookkeeping would exceed what
 //! it saves.
 
+use crate::math::dense::{max_abs, norm, solve_in_place};
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::freedoms::Freedoms;
 use crate::sketch::solver::workspace::Workspace;
@@ -357,59 +358,6 @@ fn assemble(sketch: &Sketch, held: &[usize], residuals: &mut Vec<f64>, jacobian:
     }
 }
 
-/// Solve `a x = b` in place for a symmetric positive definite `a`, overwriting
-/// `a`'s lower triangle with its Cholesky factor and `b` with `x`. False when
-/// `a` turns out not to be positive definite to working precision.
-///
-/// Cholesky rather than Gaussian elimination because the normal equations are
-/// SPD by construction: `JᵀJ` is positive semi-definite, damping adds a
-/// strictly positive amount to the diagonal of every free parameter, and a
-/// fixed one gets an identity row over a column [`assemble`] has already
-/// zeroed. That halves the arithmetic, and more to the point it removes
-/// pivoting — an SPD matrix needs none, so there is no pivot search and no row
-/// swapping here to disagree with the one in [`rank`].
-///
-/// A non-positive pivot means the damping is too low to hold the matrix
-/// definite against rounding. That is the same answer a singular matrix used to
-/// give, and the caller answers it the same way, by damping harder and retrying.
-fn solve_in_place(a: &mut [f64], n: usize, b: &mut [f64]) -> bool {
-    // Cholesky–Banachiewicz: row `i` is built from the rows above it, so every
-    // read runs along a row of the layout the matrix is already stored in.
-    for i in 0..n {
-        for j in 0..=i {
-            let mut sum = a[i * n + j];
-            for k in 0..j {
-                sum -= a[i * n + k] * a[j * n + k];
-            }
-            if i == j {
-                if sum <= 0.0 {
-                    return false;
-                }
-                a[i * n + i] = sum.sqrt();
-            } else {
-                a[i * n + j] = sum / a[j * n + j];
-            }
-        }
-    }
-    for i in 0..n {
-        let mut sum = b[i];
-        for k in 0..i {
-            sum -= a[i * n + k] * b[k];
-        }
-        b[i] = sum / a[i * n + i];
-    }
-    // Back through the transpose, which is the same factor read down a column
-    // — the one place this layout costs anything, and it is the O(n²) half.
-    for i in (0..n).rev() {
-        let mut sum = b[i];
-        for k in (i + 1)..n {
-            sum -= a[k * n + i] * b[k];
-        }
-        b[i] = sum / a[i * n + i];
-    }
-    b.iter().all(|value| value.is_finite())
-}
-
 /// Whether the solve may move this parameter: free in the sketch, and not
 /// pinned for the duration of a drag.
 ///
@@ -417,14 +365,6 @@ fn solve_in_place(a: &mut [f64], n: usize, b: &mut [f64]) -> bool {
 /// Jacobian, the damping and the rank all describe the same system.
 fn movable(sketch: &Sketch, held: &[usize], param: usize) -> bool {
     sketch.param_is_free(param) && !held.contains(&param)
-}
-
-fn max_abs(values: &[f64]) -> f64 {
-    values.iter().fold(0.0f64, |acc, v| acc.max(v.abs()))
-}
-
-fn norm(values: &[f64]) -> f64 {
-    values.iter().map(|v| v * v).sum::<f64>().sqrt()
 }
 
 pub(crate) mod freedoms;

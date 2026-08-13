@@ -89,10 +89,14 @@ impl Document {
             Intent::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Intent::Dolly { factor } => self.camera.dolly(factor),
             Intent::Project(projection) => self.camera.projection = projection,
-            // Asked of the history rather than of the document. What to take
+            // Asked of the history rather than of the document: what to take
             // back is a question about what has been done, and a document is
-            // only ever what *is*.
-            Intent::Release | Intent::Undo | Intent::Redo => {}
+            // only ever what *is*. `History::apply` answers all three itself
+            // and forwards none of them, so arriving here is a caller that went
+            // round it — which is worth a crash rather than a silent nothing.
+            Intent::Release | Intent::Undo | Intent::Redo => {
+                unreachable!("{intent:?} is the history's to answer, not a document's")
+            }
         }
     }
 

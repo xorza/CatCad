@@ -157,6 +157,11 @@ impl SceneView {
 
     /// What the view holds occupies in world space, or `None` if it holds
     /// nothing — what a camera is aimed at to take the whole of it in.
+    ///
+    /// One caller, in `CatCad::build`, and worth the method anyway: how big
+    /// what you are showing is a fair question to ask a view, and the caller
+    /// would otherwise reach through `renderer().borrow().scene()` to ask the
+    /// scene the same thing.
     pub(crate) fn bounds(&self) -> Option<Bounds> {
         self.renderer.borrow().scene().bounds()
     }

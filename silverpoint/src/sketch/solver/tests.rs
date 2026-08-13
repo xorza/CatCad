@@ -7,51 +7,6 @@ use glam::DVec2;
 /// tolerance is on the residual, and these check the geometry that follows.
 const EPSILON: f64 = 1e-9;
 
-/// Worked by hand against a matrix whose factor is exact in binary, so the
-/// assertions can be equalities rather than tolerances.
-///
-/// Built by choosing `L` and multiplying out, so every entry of the factor is
-/// non-zero — a zero below the diagonal would let an index slip in the
-/// inner product go unnoticed.
-///
-/// ```text
-/// L = [2 0 0]     L Lᵀ = A = [ 4 2  6]
-///     [1 2 0]                [ 2 5  5]
-///     [3 1 2]                [ 6 5 14]
-/// ```
-///
-/// `L₀₀ = √4 = 2`, `L₁₀ = 2/2 = 1`, `L₁₁ = √(5−1) = 2`, `L₂₀ = 6/2 = 3`,
-/// `L₂₁ = (5−3·1)/2 = 1`, `L₂₂ = √(14−9−1) = 2`. With `x = [1 2 3]`, `A x` is
-/// `[26 27 58]`; forward substitution gives `y = [13 7 6]` and back
-/// substitution returns `x`.
-#[test]
-fn cholesky_factors_and_solves_a_known_system() {
-    let mut a = [4.0, 2.0, 6.0, 2.0, 5.0, 5.0, 6.0, 5.0, 14.0];
-    let mut b = [26.0, 27.0, 58.0];
-    assert!(solve_in_place(&mut a, 3, &mut b));
-    assert_eq!(b, [1.0, 2.0, 3.0]);
-
-    // The lower triangle is the factor itself, which pins the arithmetic
-    // rather than only the answer it happened to produce.
-    let lower = [a[0], a[3], a[4], a[6], a[7], a[8]];
-    assert_eq!(lower, [2.0, 1.0, 2.0, 3.0, 1.0, 2.0]);
-
-    // Indefinite: `L₁₁² = 1 − 2² = −3`, so there is no real factor and the
-    // caller is told to damp harder rather than handed a wrong step.
-    let mut indefinite = [1.0, 2.0, 2.0, 1.0];
-    assert!(!solve_in_place(&mut indefinite, 2, &mut [1.0, 1.0]));
-
-    // Singular sits on the same boundary: `L₁₁² = 1 − 1 = 0`.
-    let mut singular = [1.0, 1.0, 1.0, 1.0];
-    assert!(!solve_in_place(&mut singular, 2, &mut [1.0, 1.0]));
-
-    // A diagonal system is the case with no off-diagonal work to do at all.
-    let mut diagonal = [4.0, 0.0, 0.0, 0.25];
-    let mut rhs = [2.0, 1.0];
-    assert!(solve_in_place(&mut diagonal, 2, &mut rhs));
-    assert_eq!(rhs, [0.5, 4.0]);
-}
-
 #[test]
 fn distance_moves_a_point_along_its_own_direction() {
     let mut sketch = Sketch::default();
