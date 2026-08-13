@@ -1,16 +1,13 @@
 //! The allocation bench.
 //!
-//! Harness wiring only: `dhat::Alloc` has to be installed in the target that
-//! runs, and everything it drives lives in `src/` where it can reach the
-//! crate's own privates. See `catcad::alloc_bench`.
+//! Harness wiring only. Installing the allocator is the one thing that cannot
+//! move: `dhat::Alloc` has to be *the* allocator of the binary that runs.
+//! Everything it drives lives in `src/`, where it can reach this crate's own
+//! privates, over the shared scaffolding in `common`.
 
 #[global_allocator]
-static ALLOC: dhat::Alloc = dhat::Alloc;
+static ALLOC: common::Alloc = common::Alloc;
 
 fn main() {
-    // Cargo passes `--bench` to every `harness = false` target, and nothing
-    // else. `--dump` is the only flag read, so argv is scanned rather than
-    // parsed — a CLI parser would be a second dependency for one boolean.
-    let dump = std::env::args().any(|arg| arg == "--dump");
-    catcad::alloc_bench(dump);
+    catcad::alloc_bench();
 }

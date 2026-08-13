@@ -165,7 +165,7 @@ name = "aperture3d"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
- "dhat",
+ "common",
  "glam",
  "palantir",
  "wgpu",
@@ -362,7 +362,7 @@ name = "catcad"
 version = "0.1.0"
 dependencies = [
  "aperture3d",
- "dhat",
+ "common",
  "glam",
  "image",
  "palantir",
@@ -492,6 +492,13 @@ checksum = "ba5a308b75df32fe02788e748662718f03fde005016435c444eea572398219fd"
 dependencies = [
  "bytes",
  "memchr",
+]
+
+[[package]]
+name = "common"
+version = "0.1.0"
+dependencies = [
+ "dhat",
 ]
 
 [[package]]
@@ -2364,7 +2371,7 @@ checksum = "f8fadd59c855ef2080decdef8ff161eb6661b86933c9d82e5ba29dc602a55aba"
 name = "silverpoint"
 version = "0.1.0"
 dependencies = [
- "dhat",
+ "common",
  "glam",
 ]
 

@@ -34,17 +34,9 @@ use crate::scene::Scene;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::viewport::Viewport;
+use common::AllocBench;
 use glam::{UVec2, Vec2, Vec3};
 use std::hint::black_box;
-
-/// Runs per measured window. Enough that an allocation happening on one
-/// iteration in ten — a `Vec` doubling, say — is not lost between two
-/// snapshots.
-const MEASURE: usize = 256;
-
-/// Runs before the window opens, so one-time growth in any retained scratch
-/// is not charged to the steady state.
-const WARMUP: usize = 16;
 
 /// A pick that finds nothing must find it for free. `collect` on an empty
 /// iterator does not allocate, so this is an invariant rather than a budget:
@@ -62,67 +54,6 @@ const FLATTEN_HIGHLIGHTS_MAX: f64 = 1.0;
 /// Two for the mesh batch (vertices and indices) and one for each overlay
 /// batch.
 const FLATTEN_BATCHES_MAX: f64 = 5.0;
-
-fn profiler(dump: bool) -> dhat::Profiler {
-    if dump {
-        dhat::Profiler::new_heap()
-    } else {
-        dhat::Profiler::builder().testing().build()
-    }
-}
-
-/// One step's measured window.
-#[derive(Debug, Clone, Copy)]
-struct Step {
-    name: &'static str,
-    blocks: u64,
-    bytes: u64,
-    max: f64,
-}
-
-impl Step {
-    /// Warm up, then count what `MEASURE` runs of `body` allocate.
-    ///
-    /// Too short a warmup errs in the safe direction: leftover growth lands
-    /// inside the window and trips the gate rather than hiding under it.
-    fn measure(name: &'static str, max: f64, mut body: impl FnMut()) -> Self {
-        for _ in 0..WARMUP {
-            body();
-        }
-        let before = dhat::HeapStats::get();
-        for _ in 0..MEASURE {
-            body();
-        }
-        let after = dhat::HeapStats::get();
-        Self {
-            name,
-            blocks: after.total_blocks - before.total_blocks,
-            bytes: after.total_bytes - before.total_bytes,
-            max,
-        }
-    }
-
-    fn blocks_each(&self) -> f64 {
-        self.blocks as f64 / MEASURE as f64
-    }
-
-    /// Blocks alone — `dhat` only ever adds to `total_bytes` alongside
-    /// `total_blocks`, so a byte check could never fire on its own.
-    fn over(&self) -> bool {
-        self.blocks_each() > self.max
-    }
-
-    fn report(&self) {
-        println!(
-            "  {:<20} {:6} blocks  {:10} bytes  ({:6.2}/run, limit <= {})",
-            self.name,
-            self.blocks,
-            self.bytes,
-            self.blocks_each(),
-            self.max,
-        );
-    }
-}
 
 /// Where the fixture is viewed from: straight down −Z from 5 away with a 90°
 /// fov, so the origin lands dead centre and a marker there is what the centre
@@ -189,79 +120,39 @@ fn scene() -> Scene {
     scene
 }
 
-fn pick(name: &'static str, max: f64, cursor: Vec2) -> Step {
-    let scene = scene();
+/// The allocation bench: every step, one profiler, one verdict.
+pub fn alloc_bench() {
+    let mut bench = AllocBench::start("aperture3d", "run");
     let viewport = Viewport::new(SURFACE);
-    Step::measure(name, max, || {
-        black_box(scene.pick(cursor, viewport, 6.0));
-    })
-}
 
-/// What a hover costs the renderer: the lit set changes, so the highlight
-/// batches are rebuilt while the scene's own are left alone.
-fn flatten_highlights() -> Step {
-    let mut renderer = Renderer::new(scene());
+    let scene = scene();
+    bench.step("pick-miss", PICK_MISS_MAX, || {
+        black_box(scene.pick(OFF_THE_DRAWING, viewport, 6.0));
+    });
+    bench.step("pick-hit", PICK_HIT_MAX, || {
+        black_box(scene.pick(ON_THE_DRAWING, viewport, 6.0));
+    });
+
+    // What a hover costs the renderer: the lit set changes, so the highlight
+    // batches are rebuilt while the scene's own are left alone.
+    let mut renderer = Renderer::new(scene);
     let mut lit = 0u64;
-    Step::measure("flatten-highlights", FLATTEN_HIGHLIGHTS_MAX, || {
+    bench.step("flatten-highlights", FLATTEN_HIGHLIGHTS_MAX, || {
         lit = (lit + 1) % 4;
         renderer.highlight_only(Some(Lit {
             tag: Tag::new(lit),
             look: Highlight::new(Vec3::Y),
         }));
         black_box(renderer.flatten_highlights());
-    })
-}
+    });
 
-/// What a scene edit costs: every batch re-flattened from the scene.
-fn flatten_batches() -> Step {
-    let renderer = Renderer::new(scene());
-    Step::measure("flatten-batches", FLATTEN_BATCHES_MAX, || {
+    // What a scene edit costs: every batch re-flattened from the scene.
+    bench.step("flatten-batches", FLATTEN_BATCHES_MAX, || {
         black_box(renderer.flatten_meshes());
         black_box(renderer.flatten_curves());
         black_box(renderer.flatten_rings());
         black_box(renderer.flatten_points());
-    })
-}
+    });
 
-/// The allocation bench: every step, one profiler, one verdict.
-///
-/// Steps run to completion even when an earlier one is over — two numbers
-/// localize a regression where one plus an early exit does not.
-pub fn alloc_bench(dump: bool) {
-    let profiler = profiler(dump);
-
-    println!("aperture alloc: measure={MEASURE} runs/step");
-    let steps = [
-        pick("pick-miss", PICK_MISS_MAX, OFF_THE_DRAWING),
-        pick("pick-hit", PICK_HIT_MAX, ON_THE_DRAWING),
-        flatten_highlights(),
-        flatten_batches(),
-    ];
-    for step in &steps {
-        step.report();
-    }
-
-    // Before any exit: `process::exit` skips `Drop`, and dropping is what
-    // writes `dhat-heap.json` under `--dump`.
-    drop(profiler);
-
-    let over: Vec<&Step> = steps.iter().filter(|step| step.over()).collect();
-    if over.is_empty() {
-        println!("PASS: every allocation gate held.");
-        return;
-    }
-    eprintln!();
-    for step in over {
-        eprintln!(
-            "FAIL: {} allocates {:.2} blocks/run, over its limit of {}.",
-            step.name,
-            step.blocks_each(),
-            step.max,
-        );
-    }
-    eprintln!();
-    eprintln!("Inspect call sites with:");
-    eprintln!("  cargo bench -p aperture3d --bench alloc --features bench -- --dump");
-    eprintln!("  open dhat-heap.json at https://nnethercote.github.io/dh_view/");
-    std::process::exit(1);
+    bench.finish();
 }

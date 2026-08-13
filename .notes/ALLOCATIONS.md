@@ -6,7 +6,10 @@ addressed.**
 ## The standing gates
 
 Each crate has a `dhat` allocation bench holding the numbers below to a
-budget, so these findings cannot quietly get worse:
+budget, so these findings cannot quietly get worse. They share their
+scaffolding — profiler, measured window, verdict — with the `common` crate,
+so a crate's own bench is its fixtures, its steps and its budgets and nothing
+else:
 
 ```sh
 cargo bench -p silverpoint --bench alloc --features bench
@@ -33,7 +36,7 @@ The gates as measured in the `bench` profile:
 | aperture3d | `flatten-highlights` | 1 | 1 |
 | aperture3d | `flatten-batches` | 5 | 5 |
 | catcad | `record-still` | 1 | 1 |
-| catcad | `record-hovering` | 2.16 | 4 |
+| catcad | `record-hovering` | 2.11 | 4 |
 
 `Renderer::paint` has no gate. It needs a device, and under one the count is
 dominated by wgpu's own per-submission allocations — pinning that means

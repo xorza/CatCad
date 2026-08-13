@@ -11,7 +11,7 @@ aperture3d.workspace = true
 glam = { workspace = true, features = ["f64"] }
 palantir.workspace = true
 silverpoint.workspace = true
-dhat = { workspace = true, optional = true }
+common = { workspace = true, optional = true }
 
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
@@ -22,7 +22,7 @@ palantir = { workspace = true, features = ["internals", "golden"] }
 # `benches/alloc.rs` makes. Carries `palantir/internals` because the driver
 # raises the app through `UiHarness`, the same reach-in the tests use — the
 # bench has to record real frames, not a stand-in for them.
-bench = ["dep:dhat", "palantir/internals"]
+bench = ["dep:common", "common/bench", "palantir/internals"]
 
 # Its own target because `dhat::Alloc` has to be *the* global allocator, which
 # is process-wide — anything sharing the binary pays a 10-30x allocator tax.

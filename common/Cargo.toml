@@ -1,0 +1,23 @@
+[package]
+name = "common"
+description = "Small things more than one crate in this workspace needs"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+# Internal: it exists so the workspace's crates don't each carry their own copy
+# of the same scaffolding, and has no meaning outside it.
+publish = false
+
+[dependencies]
+dhat = { workspace = true, optional = true }
+
+[features]
+# The allocation-bench harness, and the heap profiler under it. Off by
+# default, so a crate reaching here for anything else never builds a profiler
+# it has no use for.
+bench = ["dep:dhat"]
+
+[lints]
+workspace = true

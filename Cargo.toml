@@ -1,6 +1,13 @@
 [workspace]
 resolver = "3"
-members = ["aperture3d", "catcad", "palantir", "palantir/anim-derive", "silverpoint"]
+members = [
+    "aperture3d",
+    "catcad",
+    "common",
+    "palantir",
+    "palantir/anim-derive",
+    "silverpoint",
+]
 default-members = ["catcad"]
 
 [workspace.package]
@@ -11,18 +18,19 @@ license = "GPL-3.0-or-later"
 repository = "https://github.com/xorza/CatCad"
 
 [workspace.dependencies]
-aperture3d = { path = "aperture3d", version = "0.1" }
-palantir = { path = "palantir", version = "0.3" }
-silverpoint = { path = "silverpoint", version = "0.1" }
+aperture3d = { path = "aperture3d" }
+common = { path = "common" }
+palantir = { path = "palantir" }
+silverpoint = { path = "silverpoint" }
 # Pinned to palantir's versions: `GpuInitCtx` hands out a `wgpu::Device`, so a
 # second semver-incompatible wgpu would make that a foreign type.
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.33", default-features = false, features = ["std"] }
 wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl"] }
-# The allocation benches only; each member marks it optional behind its own
-# `bench` feature. Pinned to palantir's version so the workspace resolves one
-# copy — `dhat::Alloc` is a global allocator, and two of them would be two
-# profilers fighting over the same process.
+# `common`'s to depend on; every other member reaches dhat through it.
+# Pinned to palantir's version so the workspace resolves one copy —
+# `dhat::Alloc` is a global allocator, and two of them would be two profilers
+# fighting over the same process.
 dhat = "0.3"
 
 [workspace.lints.rust]
