@@ -9,7 +9,7 @@
 use std::path::Path;
 use std::sync::{OnceLock, mpsc};
 
-use aperture::{Camera, Projection, Viewport};
+use aperture::{Camera, Curve, Projection, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::{HeadlessGpu, OffscreenHost, wgpu};
 use silverpoint::Solver;
@@ -108,12 +108,21 @@ fn gpu() -> &'static HeadlessGpu {
 /// Render one frame of the app at `size`, with `aim` applied to the camera
 /// after the scene has framed itself.
 fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
-    let gpu = gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
     let mut app = CatCad::build();
     aim(app.view.borrow_mut().camera_mut());
-    // Read back rather than rebuilt from `aim`, so a frame always carries the
-    // camera it was actually taken through.
+    capture(size, &mut app)
+}
+
+/// Paint `app` once and read the frame back.
+///
+/// Split out of [`render`] so a test can paint the same app twice. The
+/// renderer keeps its buffers across frames, and a second paint is the only
+/// thing that reaches the path where they are rewritten rather than built.
+fn capture(size: UVec2, app: &mut CatCad) -> Frame {
+    let gpu = gpu();
+    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+    // Read back rather than rebuilt from the caller's aim, so a frame always
+    // carries the camera it was actually taken through.
     let camera = *app.view.borrow().camera();
 
     let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -132,7 +141,7 @@ fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
             | wgpu::TextureUsages::COPY_SRC,
         view_formats: &[],
     });
-    host.frame_offscreen(&target, 1.0, &mut app);
+    host.frame_offscreen(&target, 1.0, app);
 
     let row = size.x * 4;
     let padded = row.div_ceil(COPY_ALIGN) * COPY_ALIGN;
@@ -328,6 +337,50 @@ fn the_demo_sketch_solves_to_a_determined_rectangle() {
 /// the stroke is drawn at half width — an artefact that no constant depth bias
 /// can cover, because the amount to cover grows without bound as the view
 /// approaches edge-on.
+/// The renderer's buffers outlive the geometry in them, so a second paint has
+/// to overwrite what the first left behind — not append to it, and not leave a
+/// removed batch still drawing out of bytes nothing cleared.
+///
+/// The only test that paints one app twice, and so the only one that reaches
+/// the re-upload path at all.
+#[test]
+fn a_second_paint_replaces_the_geometry_the_first_left() {
+    let size = UVec2::new(800, 628);
+    let mut app = CatCad::build();
+    edge_on(1.4)(app.view.borrow_mut().camera_mut());
+
+    let first = capture(size, &mut app);
+    assert!(
+        !strokes(&first, 430).is_empty(),
+        "no strokes to begin with, so the rest proves nothing"
+    );
+    let original: Vec<Curve> = app.view.borrow().scene().curves.clone();
+
+    // Emptied. The buffer stays behind, so anything still drawn here is a
+    // ghost read out of bytes the removed batch left in it.
+    app.view.borrow_mut().curves_mut().clear();
+    let cleared = capture(size, &mut app);
+    assert!(
+        strokes(&cleared, 430).is_empty(),
+        "strokes outlived the curves they were drawn from"
+    );
+
+    // Refilled past what the first batch needed, so the buffer has to grow and
+    // the new geometry has to land in the buffer that replaces it.
+    {
+        let mut view = app.view.borrow_mut();
+        let curves = view.curves_mut();
+        curves.extend(original.iter().cloned());
+        curves.extend(original);
+    }
+    let refilled = capture(size, &mut app);
+    assert_eq!(
+        strokes(&refilled, 430).len(),
+        strokes(&first, 430).len(),
+        "a grown buffer drew a different set of strokes than the same geometry did"
+    );
+}
+
 #[test]
 fn strokes_keep_their_width_at_grazing_angles() {
     // Straight down: the surface barely changes depth across a stroke, so

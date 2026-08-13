@@ -4,18 +4,14 @@ Findings only; nothing here proposes a fix. **Delete an item once it is
 addressed** — this file lists what is still open, and an item left ticked is
 just noise for the next reader.
 
-## Geometry is reallocated and re-uploaded wholesale on every edit
+## Geometry is reflattened wholesale on every edit
 
-Nothing calls `objects_mut`, `curves_mut` or `points_mut` anywhere, so the
-scene is built once and the re-upload path below is unreachable today. It is
-what editing will cost, not what the app costs now.
+Only `catcad/src/tests.rs` mutates a live scene, so outside that one test the
+scene is built once and this costs nothing yet. It is what editing will cost.
 
 - [ ] Each `flatten*` allocates a fresh `Vec` per dirty paint rather than
       refilling retained scratch — two for meshes, one for each overlay — sized
       to the whole of the batch that was dirtied.
-- [ ] `Batch::indexed` and `Batch::instanced` create new `wgpu::Buffer`s each
-      time rather than writing into existing ones, so a one-vertex change
-      discards and reallocates that batch's buffers.
 
 ## Constraint arms repeat their scaffolding around the part that differs
 

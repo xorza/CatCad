@@ -155,9 +155,12 @@ impl BatchRecord for PointInstance {
     ];
 }
 
-/// The two triangles every overlay quad is drawn through, uploaded once and
-/// shared by both passes. Together they cover the quad rather than
-/// overlapping, sharing the edge between the middle pair.
+/// The two triangles every overlay quad is drawn through. Together they cover
+/// the quad rather than overlapping, sharing the edge between the middle pair.
+///
+/// Each overlay pass is built holding its own copy rather than sharing one:
+/// twenty-four bytes twice, against an index buffer that would otherwise have
+/// to be told apart from the growable kind everywhere both are handled.
 const QUAD_INDICES: [u32; 6] = [0, 1, 2, 2, 1, 3];
 
 /// The mesh batch flattened on the CPU, before upload. The overlays need no
@@ -186,85 +189,82 @@ impl MeshData {
     }
 }
 
-/// An uploaded batch. Absent while there is nothing to draw.
+/// A GPU buffer that outlives the data in it.
+///
+/// Written in place for as long as what arrives still fits, which is what stops
+/// an edit discarding and reallocating a whole batch to move one vertex.
+///
+/// Absent until something is written: wgpu rejects a zero-sized buffer, and a
+/// pass can go a whole run with nothing to draw.
 #[derive(Debug)]
-struct Batch {
-    /// One record per vertex for meshes, one per primitive for the overlays.
-    records: wgpu::Buffer,
-    indices: wgpu::Buffer,
-    index_count: u32,
-    instances: u32,
+struct Retained {
+    label: &'static str,
+    usage: wgpu::BufferUsages,
+    buffer: Option<wgpu::Buffer>,
+    /// Bytes there is room for, which is at least what is in it.
+    capacity: u64,
 }
 
-impl Batch {
-    /// A mesh batch, drawn once through indices of its own. `None` if there is
-    /// nothing to draw — wgpu rejects zero-sized buffers.
-    ///
-    /// Both buffers are named, and named apart: they are the only two this
-    /// renderer makes that would otherwise land in a capture under one label,
-    /// with nothing to say which is which.
-    fn indexed(
-        device: &wgpu::Device,
-        vertices: &str,
-        indices: &str,
-        data: &MeshData,
-    ) -> Option<Self> {
-        if data.indices.is_empty() {
-            return None;
-        }
-        Some(Self {
-            records: Self::buffer(
-                device,
-                vertices,
-                bytemuck::cast_slice(&data.vertices),
-                wgpu::BufferUsages::VERTEX,
-            ),
-            indices: Self::buffer(
-                device,
-                indices,
-                bytemuck::cast_slice(&data.indices),
-                wgpu::BufferUsages::INDEX,
-            ),
-            index_count: data.indices.len() as u32,
-            instances: 1,
-        })
-    }
-
-    /// An overlay batch: one record per primitive, every one of them drawn
-    /// through the same six shared indices.
-    fn instanced<R: BatchRecord>(
-        device: &wgpu::Device,
-        label: &str,
-        records: &[R],
-        quad: &wgpu::Buffer,
-    ) -> Option<Self> {
-        if records.is_empty() {
-            return None;
-        }
-        Some(Self {
-            records: Self::buffer(
-                device,
-                label,
-                bytemuck::cast_slice(records),
-                wgpu::BufferUsages::VERTEX,
-            ),
-            indices: quad.clone(),
-            index_count: QUAD_INDICES.len() as u32,
-            instances: records.len() as u32,
-        })
-    }
-
-    fn buffer(
-        device: &wgpu::Device,
-        label: &str,
-        contents: &[u8],
-        usage: wgpu::BufferUsages,
-    ) -> wgpu::Buffer {
-        device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some(label),
-            contents,
+impl Retained {
+    /// Empty, to be filled and grown by [`Retained::write`].
+    fn growable(label: &'static str, usage: wgpu::BufferUsages) -> Self {
+        Self {
+            label,
             usage,
-        })
+            buffer: None,
+            capacity: 0,
+        }
+    }
+
+    /// Created already holding `contents`, for data that never changes. Wants
+    /// no queue, which is what lets it be built before the first frame.
+    fn filled(
+        device: &wgpu::Device,
+        label: &'static str,
+        usage: wgpu::BufferUsages,
+        contents: &[u8],
+    ) -> Self {
+        Self {
+            label,
+            usage,
+            buffer: Some(
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some(label),
+                    contents,
+                    usage,
+                }),
+            ),
+            capacity: contents.len() as u64,
+        }
+    }
+
+    fn buffer(&self) -> Option<&wgpu::Buffer> {
+        self.buffer.as_ref()
+    }
+
+    /// Overwrite from the start, growing first if `contents` no longer fits.
+    fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, contents: &[u8]) {
+        if contents.is_empty() {
+            return;
+        }
+        let needed = contents.len() as u64;
+        if needed > self.capacity {
+            // Doubled rather than fitted exactly: geometry that creeps upward
+            // a vertex at a time would otherwise reallocate on every edit,
+            // which is the whole of what this type exists to avoid.
+            self.capacity = needed.next_power_of_two();
+            self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some(self.label),
+                size: self.capacity,
+                usage: self.usage | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            }));
+        }
+        queue.write_buffer(
+            self.buffer.as_ref().expect("a buffer was just ensured"),
+            0,
+            contents,
+        );
     }
 }
 
@@ -320,6 +320,11 @@ struct PassSpec {
     /// Names the pipeline and both its entry points: `mesh` finds `mesh_vs`
     /// and `mesh_fs`.
     name: &'static str,
+    records_label: &'static str,
+    indices_label: &'static str,
+    /// Whether the pass grows a triangle list of its own. Meshes do; the
+    /// overlays are built holding the six quad indices and never rewrite them.
+    own_indices: bool,
     cull: Option<wgpu::Face>,
     /// Whether the fragment stage reports partial coverage in alpha, for a
     /// shape that does not fill the triangles it is drawn on.
@@ -388,17 +393,73 @@ impl Pipelines<'_> {
             });
         Pass {
             pipeline,
-            batch: None,
+            records: Retained::growable(spec.records_label, wgpu::BufferUsages::VERTEX),
+            indices: if spec.own_indices {
+                Retained::growable(spec.indices_label, wgpu::BufferUsages::INDEX)
+            } else {
+                Retained::filled(
+                    self.device,
+                    spec.indices_label,
+                    wgpu::BufferUsages::INDEX,
+                    bytemuck::cast_slice(&QUAD_INDICES),
+                )
+            },
+            index_count: 0,
+            instances: 0,
         }
     }
 }
 
-/// One pipeline and whatever geometry is currently uploaded for it.
+/// One pipeline and the buffers it draws from, which outlive any one upload.
 #[derive(Debug)]
 struct Pass {
     pipeline: wgpu::RenderPipeline,
-    /// Absent until something is uploaded, and while there is nothing to draw.
-    batch: Option<Batch>,
+    /// One record per vertex for meshes, one per primitive for the overlays.
+    records: Retained,
+    indices: Retained,
+    index_count: u32,
+    instances: u32,
+}
+
+impl Pass {
+    /// Refill from a mesh batch: its own triangle list, drawn once.
+    fn upload_mesh(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, data: &MeshData) {
+        self.records
+            .write(device, queue, bytemuck::cast_slice(&data.vertices));
+        self.indices
+            .write(device, queue, bytemuck::cast_slice(&data.indices));
+        self.index_count = data.indices.len() as u32;
+        self.instances = 1;
+    }
+
+    /// Refill from overlay instances, every one of them drawn through the quad
+    /// this pass was built holding.
+    fn upload_instances<R: BatchRecord>(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        records: &[R],
+    ) {
+        self.records
+            .write(device, queue, bytemuck::cast_slice(records));
+        self.index_count = QUAD_INDICES.len() as u32;
+        self.instances = records.len() as u32;
+    }
+
+    /// Draw, or do nothing while the pass has nothing in it. An emptied batch
+    /// keeps its buffer — the point of retaining one is not to give it back.
+    fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
+        let (Some(records), Some(indices)) = (self.records.buffer(), self.indices.buffer()) else {
+            return;
+        };
+        if self.index_count == 0 || self.instances == 0 {
+            return;
+        }
+        pass.set_pipeline(&self.pipeline);
+        pass.set_vertex_buffer(0, records.slice(..));
+        pass.set_index_buffer(indices.slice(..), wgpu::IndexFormat::Uint32);
+        pass.draw_indexed(0..self.index_count, 0, 0..self.instances);
+    }
 }
 
 /// Everything that can't exist before the device does.
@@ -407,8 +468,6 @@ struct Gpu {
     meshes: Pass,
     curves: Pass,
     points: Pass,
-    /// The six indices both overlay passes draw every instance through.
-    quad: wgpu::Buffer,
     uniforms: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     attachments: Option<Attachments>,
@@ -438,11 +497,6 @@ impl Gpu {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aperture.shader"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
-        });
-        let quad = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("aperture.quad"),
-            contents: bytemuck::cast_slice(&QUAD_INDICES),
-            usage: wgpu::BufferUsages::INDEX,
         });
         let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("aperture.uniforms"),
@@ -487,16 +541,25 @@ impl Gpu {
         // leave part of their own quad uncovered.
         let meshes = pipelines.build::<GpuVertex>(PassSpec {
             name: "mesh",
+            records_label: "aperture.meshes.vertices",
+            indices_label: "aperture.meshes.indices",
+            own_indices: true,
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
         });
         let curves = pipelines.build::<CurveInstance>(PassSpec {
             name: "curve",
+            records_label: "aperture.curves.instances",
+            indices_label: "aperture.curves.quad",
+            own_indices: false,
             cull: None,
             alpha_to_coverage: false,
         });
         let points = pipelines.build::<PointInstance>(PassSpec {
             name: "point",
+            records_label: "aperture.points.instances",
+            indices_label: "aperture.points.quad",
+            own_indices: false,
             cull: None,
             alpha_to_coverage: true,
         });
@@ -504,7 +567,6 @@ impl Gpu {
             meshes,
             curves,
             points,
-            quad,
             uniforms,
             bind_group,
             attachments: None,
@@ -689,18 +751,13 @@ impl GpuPaint for Renderer {
 
         let gpu = self.gpu.as_mut().expect("init runs before paint");
         if let Some(data) = meshes {
-            gpu.meshes.batch = Batch::indexed(
-                ctx.device,
-                "aperture.meshes.vertices",
-                "aperture.meshes.indices",
-                &data,
-            );
+            gpu.meshes.upload_mesh(ctx.device, ctx.queue, &data);
         }
         if let Some(data) = curves {
-            gpu.curves.batch = Batch::instanced(ctx.device, "aperture.curves", &data, &gpu.quad);
+            gpu.curves.upload_instances(ctx.device, ctx.queue, &data);
         }
         if let Some(data) = points {
-            gpu.points.batch = Batch::instanced(ctx.device, "aperture.points", &data, &gpu.quad);
+            gpu.points.upload_instances(ctx.device, ctx.queue, &data);
         }
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
@@ -742,13 +799,7 @@ impl GpuPaint for Renderer {
         // the depth test's answer either way, and this order keeps the
         // pipeline switch to one per pass.
         for layer in [&gpu.meshes, &gpu.curves, &gpu.points] {
-            let Some(batch) = &layer.batch else {
-                continue;
-            };
-            pass.set_pipeline(&layer.pipeline);
-            pass.set_vertex_buffer(0, batch.records.slice(..));
-            pass.set_index_buffer(batch.indices.slice(..), wgpu::IndexFormat::Uint32);
-            pass.draw_indexed(0..batch.index_count, 0, 0..batch.instances);
+            layer.draw(&mut pass);
         }
     }
 }
