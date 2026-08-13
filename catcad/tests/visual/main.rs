@@ -93,7 +93,7 @@ trait Viewed {
 
 impl Viewed for CatCad {
     fn view(&self) -> &Rc<RefCell<Renderer>> {
-        &self.view
+        self.renderer()
     }
 }
 
@@ -126,7 +126,7 @@ impl App for ScenePane {
 /// after the scene has framed itself.
 fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
     let mut app = CatCad::build();
-    aim(app.view.borrow_mut().camera_mut());
+    aim(app.renderer().borrow_mut().camera_mut());
     capture(size, &mut app)
 }
 
@@ -343,21 +343,21 @@ fn slab_in_frame(projection: Projection) -> impl FnOnce(&mut Camera) {
 fn a_second_paint_replaces_the_geometry_the_first_left() {
     let size = UVec2::new(800, 628);
     let mut app = CatCad::build();
-    edge_on(1.4)(app.view.borrow_mut().camera_mut());
+    edge_on(1.4)(app.renderer().borrow_mut().camera_mut());
 
     let first = capture(size, &mut app);
     assert!(
         !strokes(&first, 430).is_empty(),
         "no strokes to begin with, so the rest proves nothing"
     );
-    let original: Vec<Curve> = app.view.borrow().scene().curves.clone();
-    let rings: Vec<Ring> = app.view.borrow().scene().rings.clone();
+    let original: Vec<Curve> = app.renderer().borrow().scene().curves.clone();
+    let rings: Vec<Ring> = app.renderer().borrow().scene().rings.clone();
 
     // Emptied — rings too, since the sketch's circle is one and would still be
     // ink in the column. The buffers stay behind, so anything still drawn here
     // is a ghost read out of bytes the removed batch left in them.
-    app.view.borrow_mut().curves_mut().clear();
-    app.view.borrow_mut().rings_mut().clear();
+    app.renderer().borrow_mut().curves_mut().clear();
+    app.renderer().borrow_mut().rings_mut().clear();
     let cleared = capture(size, &mut app);
     assert!(
         strokes(&cleared, 430).is_empty(),
@@ -367,12 +367,12 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
     // Refilled past what the first batch needed, so the buffer has to grow and
     // the new geometry has to land in the buffer that replaces it.
     {
-        let mut view = app.view.borrow_mut();
+        let mut view = app.renderer().borrow_mut();
         let curves = view.curves_mut();
         curves.extend(original.iter().cloned());
         curves.extend(original);
     }
-    app.view.borrow_mut().rings_mut().extend(rings);
+    app.renderer().borrow_mut().rings_mut().extend(rings);
     let refilled = capture(size, &mut app);
     assert_eq!(
         strokes(&refilled, 430).len(),
@@ -400,7 +400,7 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
     let size = UVec2::new(800, 628);
     let mut app = CatCad::build();
     {
-        let mut view = app.view.borrow_mut();
+        let mut view = app.renderer().borrow_mut();
         // Nothing else in the frame, so every lit pixel is the rim.
         view.objects_mut().clear();
         view.curves_mut().clear();
@@ -679,9 +679,9 @@ fn the_demo_scene_grazing_looks_the_way_it_did() {
 fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     let size = UVec2::new(800, 628);
     let app = CatCad::build();
-    edge_on(1.1)(app.view.borrow_mut().camera_mut());
+    edge_on(1.1)(app.renderer().borrow_mut().camera_mut());
     let mut pane = ScenePane {
-        view: app.view.clone(),
+        view: app.renderer().clone(),
     };
 
     // A colour nothing in the scene wears, so counting it counts the
@@ -703,10 +703,10 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     let plain = capture(size, &mut pane);
     assert_eq!(magenta(&plain), 0, "nothing is that colour to begin with");
 
-    let edge = app.view.borrow().scene().curves[0]
+    let edge = app.renderer().borrow().scene().curves[0]
         .tag
         .expect("the drawing tags its edges");
-    app.view
+    app.renderer()
         .borrow_mut()
         .highlight_only(Some(Lit { tag: edge, look }));
     let lit = capture(size, &mut pane);
@@ -718,7 +718,7 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
 
     // And it is *drawn over*, not drawn instead: the rest of the frame is
     // untouched, so clearing restores it pixel for pixel.
-    app.view.borrow_mut().highlight_only(None);
+    app.renderer().borrow_mut().highlight_only(None);
     let cleared = capture(size, &mut pane);
     assert_eq!(magenta(&cleared), 0);
     assert_eq!(cleared.image, plain.image, "clearing left something behind");

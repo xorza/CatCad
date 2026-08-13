@@ -11,6 +11,21 @@ pub enum Named {
     Circle(CircleId),
 }
 
+impl Named {
+    /// What to call this where a person will read it.
+    ///
+    /// A segment reads as an edge: what the drawing shows is the boundary of
+    /// something, and "segment" is the solver's word for it rather than the
+    /// draughtsman's.
+    pub fn noun(&self) -> &'static str {
+        match self {
+            Self::Point(_) => "point",
+            Self::Segment(_) => "edge",
+            Self::Circle(_) => "circle",
+        }
+    }
+}
+
 /// Every entity the drawing named, in the order it was drawn.
 ///
 /// A [`Tag`] is one opaque `u64`, and a sketch handle no longer fits in one:

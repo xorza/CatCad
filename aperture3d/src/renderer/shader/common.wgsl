@@ -9,7 +9,7 @@ struct Uniforms {
     viewport: vec2<f32>,
     raster_scale: f32,
     // World distance per unit of clip w to step when probing the plane a curve
-    // lies on. The projection sets it — see `Camera::probe_reach`.
+    // lies on. The projection sets it — see `Uniforms::probe_reach`.
     probe_reach: f32,
 };
 

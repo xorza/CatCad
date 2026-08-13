@@ -137,27 +137,6 @@ impl Camera {
         self.distance * (self.fov_y * 0.5).tan()
     }
 
-    /// How far to step from a vertex when sampling the depth gradient of the
-    /// surface it lies on, scaled by that vertex's clip `w` and by the length
-    /// of the basis the shader reads the gradient against — so an upper bound
-    /// on the world distance rather than the distance itself.
-    ///
-    /// A share of the viewport rather than a fixed distance, or the probes land
-    /// close enough together on screen that differencing their depths cancels
-    /// down to noise. Perspective `w` is the view depth, so a fraction of it is
-    /// that share wherever the vertex sits; orthographic `w` is always 1 and
-    /// says nothing about scale, so the orbit distance stands in for it.
-    pub(crate) fn probe_reach(&self) -> f32 {
-        // A quarter of the way to what is being looked at, which at the fovs a
-        // camera is given works out to a useful fraction of the viewport.
-        const SHARE: f32 = 0.25;
-
-        match self.projection {
-            Projection::Perspective => SHARE,
-            Projection::Orthographic => SHARE * self.distance,
-        }
-    }
-
     /// Combined view-projection for a viewport of the given width/height
     /// ratio.
     ///

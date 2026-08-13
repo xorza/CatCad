@@ -249,11 +249,6 @@ fn orthographic_drops_the_foreshortening_and_keeps_the_target_plane() {
         .project_point3(Vec3::new(5.0, 0.0, 0.0));
     assert!((wide.x - 0.5).abs() < 1e-5, "{wide:?}");
 
-    // Orthographic clip `w` is always 1 and carries no scale, so the plane
-    // probes take theirs from the orbit distance instead.
-    assert_eq!(camera.probe_reach(), 0.25 * 5.0);
-    assert_eq!(unit_camera().probe_reach(), 0.25);
-
     assert_eq!(camera.projection.toggled(), Projection::Perspective);
     assert_eq!(Projection::Perspective.toggled(), camera.projection);
 }

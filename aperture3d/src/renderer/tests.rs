@@ -201,6 +201,29 @@ fn flatten_curves_strokes_the_closing_segment_too() {
     assert_eq!(Renderer::new(scene).flatten_curves().len(), 3);
 }
 
+/// The plane probes step a share of the viewport, and where that share comes
+/// from is the one thing the two projections disagree on.
+#[test]
+fn the_probe_reach_takes_its_scale_from_whatever_the_projection_left_out() {
+    let mut camera = Camera {
+        distance: 5.0,
+        ..Camera::default()
+    };
+
+    // Perspective clip `w` is the view depth, so the share rides on it
+    // already and the reach is the bare fraction.
+    camera.projection = Projection::Perspective;
+    assert_eq!(Uniforms::probe_reach(&camera), 0.25);
+
+    // Orthographic `w` is a constant 1 that says nothing about scale, so the
+    // orbit distance has to stand in for it — which makes this the one that
+    // follows a dolly.
+    camera.projection = Projection::Orthographic;
+    assert_eq!(Uniforms::probe_reach(&camera), 0.25 * 5.0);
+    camera.distance = 20.0;
+    assert_eq!(Uniforms::probe_reach(&camera), 0.25 * 20.0);
+}
+
 /// A highlight doubles the primitive it names — same geometry, different look
 /// — and touches nothing else.
 #[test]
