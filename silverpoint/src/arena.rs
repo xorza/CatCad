@@ -16,8 +16,9 @@ use std::marker::PhantomData;
 pub struct Id<T> {
     slot: u32,
     generation: u32,
-    /// `fn() -> T` rather than `T`: a handle owns none of the value, and this
-    /// is what keeps it `Copy`, `Send` and `Sync` whatever `T` is.
+    /// `fn() -> T` rather than `T`: a handle owns none of the value, so it
+    /// should neither inherit `T`'s `Send` and `Sync` nor count as holding one
+    /// for drop glue. Both are what `PhantomData<T>` would give it.
     marker: PhantomData<fn() -> T>,
 }
 
