@@ -157,11 +157,11 @@ fn assemble(sketch: &Sketch, residuals: &mut Vec<f64>, jacobian: &mut Vec<f64>) 
     residuals.clear();
     jacobian.clear();
     for constraint in sketch.constraints() {
-        for equation in 0..constraint.equation_count() {
+        for equation in constraint.equations() {
             let start = jacobian.len();
             jacobian.resize(start + n, 0.0);
             let row = &mut jacobian[start..];
-            residuals.push(constraint.evaluate(sketch, equation, row));
+            residuals.push(equation.evaluate(sketch, row));
             for (param, partial) in row.iter_mut().enumerate() {
                 if !sketch.param_is_free(param) {
                     *partial = 0.0;

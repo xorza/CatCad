@@ -174,6 +174,33 @@ fn a_rectangle_is_fully_constrained() {
     assert_eq!(report.redundant_equations, 0);
 }
 
+/// A coincidence pins both axes, which is the whole of what makes it worth two
+/// equations rather than one.
+///
+/// It is the only constraint the assembler expands — into a `Vertical` and a
+/// `Horizontal` — so this is where that expansion has to prove itself. The
+/// report is the sharp end: an expansion that dropped an equation would leave
+/// a degree of freedom, and one that emitted the same axis twice would leave a
+/// degree of freedom *and* a redundancy, while the point below still slid onto
+/// the anchor either way.
+#[test]
+fn a_coincidence_pins_both_axes_and_counts_as_two_equations() {
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::new(2.0, -1.0));
+    // Off in both axes, so neither is satisfied to begin with.
+    let free = sketch.add_point(DVec2::new(-3.5, 4.25));
+    sketch.fix(anchor);
+    sketch.add_constraint(Constraint::Coincident { a: anchor, b: free });
+
+    let report = Solver::default().solve(&mut sketch);
+
+    assert!(report.converged, "{report:?}");
+    assert!((sketch.point(free) - sketch.point(anchor)).length() < EPSILON);
+    // Two free parameters against two independent equations.
+    assert_eq!(report.degrees_of_freedom, 0, "{report:?}");
+    assert_eq!(report.redundant_equations, 0, "{report:?}");
+}
+
 #[test]
 fn a_duplicate_constraint_is_reported_as_redundant() {
     let mut sketch = Sketch::default();

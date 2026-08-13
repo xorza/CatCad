@@ -68,26 +68,39 @@ pub enum Constraint {
 }
 
 impl Constraint {
-    /// How many scalar equations this constraint contributes.
-    pub fn equation_count(&self) -> usize {
-        match self {
-            Constraint::Coincident { .. } => 2,
-            _ => 1,
-        }
+    /// The single-equation constraints this one is assembled from.
+    ///
+    /// Every variant but [`Self::Coincident`] is already one equation and
+    /// yields itself. A coincidence is exactly a [`Self::Vertical`] and a
+    /// [`Self::Horizontal`] over the same pair — the same residuals and the
+    /// same partials — so it is expanded here, at the moment of assembly,
+    /// rather than being carried as an equation index through everything that
+    /// touches a constraint.
+    ///
+    /// Expanded here and nowhere earlier: the sketch still holds the
+    /// coincidence the caller added, so [`Sketch::constraints`] can still say
+    /// that these two equations are one relation.
+    pub(crate) fn equations(&self) -> impl Iterator<Item = Self> {
+        let expanded = match *self {
+            Constraint::Coincident { a, b } => [
+                Some(Constraint::Vertical { a, b }),
+                Some(Constraint::Horizontal { a, b }),
+            ],
+            one => [Some(one), None],
+        };
+        expanded.into_iter().flatten()
     }
 
-    /// Residual of the given equation, with its partial derivatives written
-    /// into `row` — one entry per sketch parameter, zeroed by the caller.
-    pub(crate) fn evaluate(&self, sketch: &Sketch, equation: usize, row: &mut [f64]) -> f64 {
-        debug_assert!(equation < self.equation_count());
+    /// Residual of this equation, with its partial derivatives written into
+    /// `row` — one entry per sketch parameter, zeroed by the caller.
+    ///
+    /// Only ever reached through [`Self::equations`], so every arm below is a
+    /// single scalar equation and none of them needs to be told which.
+    pub(crate) fn evaluate(&self, sketch: &Sketch, row: &mut [f64]) -> f64 {
         debug_assert_eq!(row.len(), sketch.param_count());
         match *self {
-            Constraint::Coincident { a, b } => {
-                // One axis per equation, which is also the gradient along it.
-                let axis = if equation == 0 { DVec2::X } else { DVec2::Y };
-                sketch.write_point_partials(row, a, axis);
-                sketch.write_point_partials(row, b, -axis);
-                axis.dot(sketch.point(a) - sketch.point(b))
+            Constraint::Coincident { .. } => {
+                unreachable!("`equations` expands a coincidence into its two axes")
             }
             Constraint::Distance { a, b, distance } => {
                 let apart = Direction::of(sketch.point(a) - sketch.point(b));

@@ -35,16 +35,16 @@ impl Fixture {
     }
 }
 
-fn analytic(sketch: &Sketch, constraint: Constraint, equation: usize) -> Vec<f64> {
+fn analytic(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
     let mut row = vec![0.0; sketch.param_count()];
-    constraint.evaluate(sketch, equation, &mut row);
+    equation.evaluate(sketch, &mut row);
     row
 }
 
 /// Central differences of the residual, which the analytic partials must
 /// agree with. This is the check that keeps a hand-derived Jacobian
 /// honest: an error in either one shows up as a mismatch.
-fn numeric(sketch: &Sketch, constraint: Constraint, equation: usize) -> Vec<f64> {
+fn numeric(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
     const H: f64 = 1e-6;
     let base = sketch.params();
     let mut scratch = sketch.clone();
@@ -55,11 +55,11 @@ fn numeric(sketch: &Sketch, constraint: Constraint, equation: usize) -> Vec<f64>
         params[i] = base[i] + H;
         scratch.set_params(&params);
         discard.fill(0.0);
-        let high = constraint.evaluate(&scratch, equation, &mut discard);
+        let high = equation.evaluate(&scratch, &mut discard);
         params[i] = base[i] - H;
         scratch.set_params(&params);
         discard.fill(0.0);
-        let low = constraint.evaluate(&scratch, equation, &mut discard);
+        let low = equation.evaluate(&scratch, &mut discard);
         row.push((high - low) / (2.0 * H));
     }
     row
@@ -155,17 +155,74 @@ fn analytic_partials_match_central_differences() {
         // The point is the circle's own centre.
         Constraint::PointOnCircle { point: p3, circle },
     ];
+    // Through `equations`, which is the only path the solver assembles by —
+    // so a coincidence is checked as the two equations it actually becomes.
     for constraint in cases {
-        for equation in 0..constraint.equation_count() {
-            let a = analytic(&sketch, constraint, equation);
-            let n = numeric(&sketch, constraint, equation);
+        for equation in constraint.equations() {
+            let a = analytic(&sketch, equation);
+            let n = numeric(&sketch, equation);
             for (i, (got, want)) in a.iter().zip(&n).enumerate() {
                 assert!(
                     (got - want).abs() < 1e-6,
-                    "{constraint:?} eq {equation} param {i}: analytic {got} vs numeric {want}"
+                    "{constraint:?} as {equation:?}, param {i}: analytic {got} vs numeric {want}"
                 );
             }
         }
+    }
+}
+
+/// A coincidence is the one constraint worth more than one equation, and what
+/// it expands to has to be exactly the two it stands for — the sweep above
+/// only checks whatever comes out of here.
+#[test]
+fn only_a_coincidence_expands_and_it_expands_to_its_two_axes() {
+    let Fixture {
+        sketch,
+        point,
+        circle,
+        ..
+    } = Fixture::new();
+    let [p0, p1, ..] = point;
+
+    let coincident = Constraint::Coincident { a: p0, b: p1 };
+    assert_eq!(
+        coincident.equations().collect::<Vec<_>>(),
+        [
+            Constraint::Vertical { a: p0, b: p1 },
+            Constraint::Horizontal { a: p0, b: p1 },
+        ]
+    );
+
+    // Vertical carries the x offset and Horizontal the y, so between them they
+    // measure the whole of the gap — which is what makes the pair a
+    // coincidence rather than two unrelated relations.
+    let offset = sketch.point(p0) - sketch.point(p1);
+    let mut row = vec![0.0; sketch.param_count()];
+    let residuals: Vec<f64> = coincident
+        .equations()
+        .map(|equation| {
+            row.fill(0.0);
+            equation.evaluate(&sketch, &mut row)
+        })
+        .collect();
+    assert_eq!(residuals, [offset.x, offset.y]);
+    // −3.4 against −1.2: a swapped pair would not survive this fixture.
+    assert_ne!(offset.x, offset.y);
+
+    // Everything else is already one equation and comes back untouched.
+    for one in [
+        Constraint::Horizontal { a: p0, b: p1 },
+        Constraint::Distance {
+            a: p0,
+            b: p1,
+            distance: 2.5,
+        },
+        Constraint::Radius {
+            circle,
+            radius: 0.9,
+        },
+    ] {
+        assert_eq!(one.equations().collect::<Vec<_>>(), [one]);
     }
 }
 
@@ -184,7 +241,7 @@ fn residuals_read_zero_exactly_when_satisfied() {
         b,
         distance: 5.0,
     };
-    assert_eq!(distance.evaluate(&sketch, 0, &mut row), 0.0);
+    assert_eq!(distance.evaluate(&sketch, &mut row), 0.0);
     row.fill(0.0);
 
     // Asking for 4 instead leaves a residual of exactly +1.
@@ -193,19 +250,19 @@ fn residuals_read_zero_exactly_when_satisfied() {
         b,
         distance: 4.0,
     };
-    assert_eq!(short.evaluate(&sketch, 0, &mut row), 1.0);
+    assert_eq!(short.evaluate(&sketch, &mut row), 1.0);
     row.fill(0.0);
 
     // c shares b's y, so Horizontal is satisfied and Vertical is not:
     // c.x - b.x = 1 - 4 = -3.
     let horizontal = Constraint::Horizontal { a: c, b };
-    assert_eq!(horizontal.evaluate(&sketch, 0, &mut row), 0.0);
+    assert_eq!(horizontal.evaluate(&sketch, &mut row), 0.0);
     row.fill(0.0);
     let vertical = Constraint::Vertical { a: c, b };
-    assert_eq!(vertical.evaluate(&sketch, 0, &mut row), -3.0);
+    assert_eq!(vertical.evaluate(&sketch, &mut row), -3.0);
     row.fill(0.0);
 
     // c is off the a-b line: cross((3,4), (0,4)) = 3*4 - 4*0 = 12.
     let on_line = Constraint::PointOnSegment { point: c, segment };
-    assert_eq!(on_line.evaluate(&sketch, 0, &mut row), 12.0);
+    assert_eq!(on_line.evaluate(&sketch, &mut row), 12.0);
 }
