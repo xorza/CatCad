@@ -13,8 +13,8 @@ use std::rc::Rc;
 use aperture::{Highlight, Lit, Mesh, Object, Projection, Renderer, Scene, Styled, Viewport};
 use glam::{DVec2, Mat4, UVec2, Vec2, Vec3};
 use palantir::{
-    Align, App, Background, Button, Configure, GpuPaint, GpuView, HostHandle, Panel, Response,
-    Sense, Sizing, Text, Ui, WindowToken,
+    Align, App, Background, Button, Configure, GpuPaint, GpuView, HostHandle, Panel, PointerWake,
+    Response, Sense, Sizing, Text, Ui, WindowToken,
 };
 use silverpoint::{Constraint, Sketch, SolveReport, Solver};
 
@@ -144,6 +144,13 @@ impl CatCad {
 
     /// The 3D viewport, orbited and zoomed by the pointer over it.
     fn viewport(&mut self, ui: &mut Ui) {
+        // A bare pointer move only wakes a frame for a widget that asked for
+        // one: palantir skips a `PointerMoved` that crosses no boundary and
+        // latches no press, and a viewport filling the window has no boundary
+        // to cross. Without this the highlight below is computed once on the
+        // way in and then sits stale until an unrelated event forces a frame.
+        ui.watch_pointer(PointerWake::MOVE);
+
         let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
         let response = GpuView::new(paint)
             .auto_id()
@@ -191,6 +198,11 @@ impl CatCad {
         let under = response
             .pointer_local
             .zip(response.layout_rect)
+            // `pointer_local` is the offset from this widget's corner wherever
+            // the pointer is, including well off the widget — so asking
+            // whether it is actually over the view is what stops the overlay's
+            // own controls from lighting the drawing behind them.
+            .filter(|_| response.hovered)
             .and_then(|(cursor, rect)| {
                 let viewport = Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32));
                 let view = self.view.borrow();
