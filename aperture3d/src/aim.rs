@@ -1,5 +1,6 @@
 //! What a pick is aiming with, and what it can answer about a world position.
 
+use crate::camera::Camera;
 use crate::hit::{Hit, HitAt};
 use crate::ray::Ray;
 use crate::tag::Tag;
@@ -9,11 +10,17 @@ use glam::{Mat4, Vec2, Vec3, Vec4};
 /// Where the cursor is, how far it reaches, and the projection that puts the
 /// scene under it.
 ///
-/// Built once per [`Scene::nearest`](crate::Scene::nearest) and handed to every
-/// primitive in turn, so a primitive answers only for itself and none of them
-/// rebuilds the view-projection or the cursor ray.
+/// Built once and handed to every primitive in turn, so a primitive answers
+/// only for itself and none of them rebuilds the view-projection or the cursor
+/// ray. Opaque: what it holds beyond what it was built from is derived, and a
+/// caller able to set the ray would be a caller able to aim at one thing and
+/// pick against another.
+///
+/// One aim rather than four arguments, because a caller that picks usually also
+/// wants the ray it picked along — and taking both off the same value is what
+/// stops the two coming from different viewpoints.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Aim {
+pub struct Aim {
     pub(crate) cursor: Vec2,
     /// Logical pixels, and the floor under every reach — a primitive drawn
     /// wider than this is pickable anywhere it is visible.
@@ -25,20 +32,25 @@ pub(crate) struct Aim {
 }
 
 impl Aim {
-    pub(crate) fn new(
-        cursor: Vec2,
-        viewport: Viewport,
-        radius: f32,
-        ray: Ray,
-        view_proj: Mat4,
-    ) -> Self {
+    /// What a cursor at `cursor` is aiming at, seen `through` a camera, within
+    /// `radius` logical pixels.
+    pub fn new(through: &Camera, cursor: Vec2, viewport: Viewport, radius: f32) -> Self {
         Self {
             cursor,
             radius,
             viewport,
-            view_proj,
-            ray,
+            view_proj: through.view_proj(viewport.aspect()),
+            ray: through.ray_through(cursor, viewport),
         }
+    }
+
+    /// The ray the cursor casts into the world.
+    ///
+    /// The same one a hit was ordered along, so a caller resolving it against a
+    /// plane and a caller reading [`Hit::world`] are answering about one
+    /// viewpoint rather than two.
+    pub fn ray(&self) -> Ray {
+        self.ray
     }
 
     /// Where `world` lands on screen, or `None` if it is not drawn at all.

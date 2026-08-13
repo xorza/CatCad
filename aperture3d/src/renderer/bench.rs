@@ -36,6 +36,7 @@
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.
 
+use crate::aim::Aim;
 use crate::camera::{Camera, Projection};
 use crate::curve::Curve;
 use crate::highlight::{Highlight, Lit};
@@ -236,7 +237,7 @@ pub fn alloc_bench() {
 
     let scene = scene();
     bench.step("nearest-hit", 0.0, || {
-        black_box(scene.nearest(&camera(), ON_THE_DRAWING, viewport, 6.0));
+        black_box(scene.nearest(Aim::new(&camera(), ON_THE_DRAWING, viewport, 6.0)));
     });
 
     // What a hover costs the renderer: the lit set changes, so the highlight

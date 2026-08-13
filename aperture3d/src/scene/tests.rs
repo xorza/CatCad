@@ -1,10 +1,13 @@
 use super::*;
+use crate::camera::Camera;
 use crate::camera::Projection;
 use crate::hit::HitAt;
 use crate::mesh::Mesh;
 use crate::styled::Styled;
 use crate::tag::Tag;
+use crate::viewport::Viewport;
 use glam::UVec2;
+use glam::Vec2;
 use glam::Vec3;
 
 /// Looking straight down −Z from 5 away with a 90° fov, so a 100×100
@@ -41,7 +44,7 @@ fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
 /// The same, seen from somewhere else.
 fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) -> Vec<Hit> {
     let mut hits: Vec<Hit> = scene
-        .hits(Scene::aim(through, cursor, viewport(), radius))
+        .hits(Aim::new(through, cursor, viewport(), radius))
         .collect();
     hits.sort_by(Hit::aim_order);
     hits
@@ -280,7 +283,7 @@ fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
     for cursor in cursors {
         let hits = ranked(&scene, cursor, 4.0);
         assert_eq!(
-            scene.nearest(&head_on(), cursor, viewport(), 4.0),
+            scene.nearest(Aim::new(&head_on(), cursor, viewport(), 4.0)),
             hits.first().copied(),
             "at {cursor:?}, over {hits:?}"
         );
@@ -290,7 +293,7 @@ fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
     assert!(found >= 3, "only {found} of the cursors landed on anything");
     assert!(
         scene
-            .nearest(&head_on(), Vec2::new(2.0, 2.0), viewport(), 4.0)
+            .nearest(Aim::new(&head_on(), Vec2::new(2.0, 2.0), viewport(), 4.0))
             .is_none(),
         "a cursor off the drawing finds nothing"
     );

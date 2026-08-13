@@ -2,6 +2,7 @@ use super::*;
 use crate::demo;
 use crate::history::History;
 use crate::intent::{Intent, Intents};
+use aperture::Aim;
 use palantir::internals::UiHarness;
 use silverpoint::Solver;
 
@@ -118,7 +119,12 @@ impl Raised {
             .find(|&cursor| {
                 renderer
                     .scene()
-                    .nearest(&self.document.camera(), cursor, viewport, HOVER_REACH)
+                    .nearest(Aim::new(
+                        &self.document.camera(),
+                        cursor,
+                        viewport,
+                        HOVER_REACH,
+                    ))
                     .is_some_and(|hit| {
                         let named = self.view.named(hit.tag);
                         keep(named.and_then(|named| self.document.drawing().grip(named, hit.at)))

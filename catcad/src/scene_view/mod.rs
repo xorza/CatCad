@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Bounds, Highlight, Lit, Motion, Renderer, Scene, Viewport};
+use aperture::{Aim, Bounds, Highlight, Lit, Motion, Renderer, Scene, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
@@ -270,15 +270,17 @@ impl SceneView {
         // Only one thing lights: a marker sits on the end of every edge that
         // meets it, and lighting all of them would answer a question nobody
         // asked.
-        // Picked through the *document's* camera, not the renderer's copy of
-        // it: the copy is written below, so a pick that read it would answer
+        // Aimed through the *document's* camera, not the renderer's copy of it:
+        // the copy is written below, so a pick that read it would answer
         // through wherever the camera was before this frame's orbit.
-        let under = self.aimed.and_then(|aim| {
-            let hit =
-                renderer
-                    .scene()
-                    .nearest(&document.camera(), aim.cursor, aim.viewport, HOVER_REACH);
-            hit.map(|hit| hit.tag)
+        let under = self.aimed.and_then(|aimed| {
+            let aim = Aim::new(
+                &document.camera(),
+                aimed.cursor,
+                aimed.viewport,
+                HOVER_REACH,
+            );
+            renderer.scene().nearest(aim).map(|hit| hit.tag)
         });
         self.hovered = under.and_then(|tag| self.names.get(tag));
         renderer.highlight_only(under.map(|tag| Lit { tag, look: HOVERED }));
@@ -300,24 +302,28 @@ impl SceneView {
     fn grab(&self, response: &Response<'_>, document: &Document) -> Gesture {
         let Some(held) = Aimed::of(response)
             .filter(|_| response.hovered)
-            .and_then(|aim| {
+            .and_then(|aimed| {
                 let renderer = self.renderer.borrow();
                 let scene = renderer.scene();
-                // One camera for both halves of the offset below. They used to
-                // come from two — the hit through the scene's copy, the ray
-                // through the document's — which on a frame that moved the
-                // camera subtracted one viewpoint's answer from another's.
-                let camera = document.camera();
-                let hit = scene.nearest(&camera, aim.cursor, aim.viewport, HOVER_REACH)?;
+                // One aim for both halves of the offset below, so the hit and
+                // the ray cannot come from two viewpoints — which is what they
+                // did when the hit was picked through the scene's own camera
+                // and the ray cast through the document's.
+                let aim = Aim::new(
+                    &document.camera(),
+                    aimed.cursor,
+                    aimed.viewport,
+                    HOVER_REACH,
+                );
+                let hit = scene.nearest(aim)?;
                 let grip = document.drawing().grip(self.names.get(hit.tag)?, hit.at)?;
                 let motion = document.drawing().motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
-                let ray = camera.ray_through(aim.cursor, aim.viewport);
                 Some(Held {
                     grip,
                     motion,
-                    offset: hit.world - motion.resolve(ray)?,
+                    offset: hit.world - motion.resolve(aim.ray())?,
                 })
             })
         else {

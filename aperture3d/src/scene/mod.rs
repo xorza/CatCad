@@ -2,15 +2,12 @@
 
 use crate::aim::Aim;
 use crate::bounds::Bounds;
-use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::hit::Hit;
 use crate::object::Object;
 use crate::overlay;
 use crate::point::Point;
 use crate::ring::Ring;
-use crate::viewport::Viewport;
-use glam::Vec2;
 
 /// The whole of the drawable world: shaded meshes, stroked curves, rims and
 /// markers. Flat for now — hierarchy, if it earns its place, goes here.
@@ -108,29 +105,11 @@ impl Scene {
     /// would allocate on every frame a pointer moves. When something does ask,
     /// it wants a `pick_into` filling a buffer the caller keeps, not this
     /// returning one.
-    pub fn nearest(
-        &self,
-        through: &Camera,
-        cursor: Vec2,
-        viewport: Viewport,
-        radius: f32,
-    ) -> Option<Hit> {
+    pub fn nearest(&self, aim: Aim) -> Option<Hit> {
         // `min_by` keeps the first of equally-ordered hits, which is the one a
         // stable sort would put first — so this answers as the head of that
         // list, and a `pick_into` added later cannot disagree with it.
-        self.hits(Self::aim(through, cursor, viewport, radius))
-            .min_by(Hit::aim_order)
-    }
-
-    /// What the cursor is aiming with, built once for a whole query.
-    fn aim(through: &Camera, cursor: Vec2, viewport: Viewport, radius: f32) -> Aim {
-        Aim::new(
-            cursor,
-            viewport,
-            radius,
-            through.ray_through(cursor, viewport),
-            through.view_proj(viewport.aspect()),
-        )
+        self.hits(aim).min_by(Hit::aim_order)
     }
 
     /// Every primitive the aim reaches, in no particular order.

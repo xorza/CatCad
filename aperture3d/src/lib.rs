@@ -95,6 +95,7 @@ pub(crate) mod viewport;
 #[cfg(feature = "bench")]
 pub use renderer::bench::alloc_bench;
 
+pub use aim::Aim;
 pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;
