@@ -40,9 +40,14 @@ impl Document {
     /// has to fit on screen is what will be *drawn*, and that is not known
     /// until the document has been raised. Whoever raises one is who can
     /// measure it, so whoever raises one is who aims the camera.
-    pub(crate) fn new(sketch: Sketch, plane: SketchPlane, solids: Vec<Object>) -> Self {
+    pub(crate) fn new(
+        solver: &mut Solver,
+        sketch: Sketch,
+        plane: SketchPlane,
+        solids: Vec<Object>,
+    ) -> Self {
         Self {
-            drawing: Drawing::new(sketch, plane),
+            drawing: Drawing::new(solver, sketch, plane),
             solids,
             camera: Camera::default(),
         }

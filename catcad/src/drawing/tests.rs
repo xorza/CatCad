@@ -26,9 +26,10 @@ impl Linkage {
             b: swing,
             distance: 2.0,
         });
+        let mut solver = Solver::default();
         Self {
-            drawing: Drawing::new(sketch, SketchPlane::GROUND),
-            solver: Solver::default(),
+            drawing: Drawing::new(&mut solver, sketch, SketchPlane::GROUND),
+            solver,
             grip,
             swing,
         }
@@ -102,7 +103,7 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let hub = sketch.add_point(DVec2::new(2.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     sketch.fix(pinned);
-    let drawing = Drawing::new(sketch, SketchPlane::GROUND);
+    let drawing = Drawing::new(&mut Solver::default(), sketch, SketchPlane::GROUND);
 
     assert_eq!(
         drawing.grip(Named::Point(free), HitAt::Point),
@@ -184,8 +185,8 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let mut sketch = Sketch::default();
     let hub = sketch.add_point(DVec2::new(1.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
-    let mut drawing = Drawing::new(sketch, SketchPlane::GROUND);
     let mut solver = Solver::default();
+    let mut drawing = Drawing::new(&mut solver, sketch, SketchPlane::GROUND);
     let plane = drawing.plane;
 
     // Three across and four up from the centre is a radius of five.

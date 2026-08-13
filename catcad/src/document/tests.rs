@@ -1,5 +1,6 @@
 use super::*;
 use crate::demo;
+use silverpoint::Solver;
 
 /// Syncing a scene puts everything the document holds into it: the solids as
 /// they were given, and the drawing as the strokes, rims and markers it turns
@@ -9,7 +10,7 @@ use crate::demo;
 /// document does not say, which is the whole reason saving one is enough.
 #[test]
 fn a_document_syncs_a_scene_to_its_solids_and_its_drawing() {
-    let document = demo::document();
+    let document = demo::document(&mut Solver::default());
     let mut scene = Scene::default();
     let mut names = Names::default();
     document.sync(&mut scene, &mut names);

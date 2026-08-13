@@ -111,9 +111,9 @@ fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
 /// the frames it was delivered in.
 #[test]
 fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
-    let mut document = demo::document();
-    let mut history = History::default();
     let mut solver = Solver::default();
+    let mut document = demo::document(&mut solver);
+    let mut history = History::default();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
     let at_rest = markers(&document);
@@ -181,9 +181,9 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
 /// keep in step with the intents.
 #[test]
 fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
-    let mut document = demo::document();
-    let mut history = History::default();
     let mut solver = Solver::default();
+    let mut document = demo::document(&mut solver);
+    let mut history = History::default();
     let at_rest = markers(&document);
     let camera = document.camera();
 
@@ -249,9 +249,9 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
 /// release arriving twice is what makes closing have to be idempotent.
 #[test]
 fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
-    let mut document = demo::document();
-    let mut history = History::default();
     let mut solver = Solver::default();
+    let mut document = demo::document(&mut solver);
+    let mut history = History::default();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
     let at_rest = markers(&document);
@@ -290,9 +290,9 @@ fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
 /// put back — the alternative is a tree, and a tree is not what Ctrl+Y means.
 #[test]
 fn something_new_after_an_undo_throws_away_what_was_undone() {
-    let mut document = demo::document();
-    let mut history = History::default();
     let mut solver = Solver::default();
+    let mut document = demo::document(&mut solver);
+    let mut history = History::default();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
 
@@ -353,9 +353,9 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
 /// The history is bounded, and forgets from the far end.
 #[test]
 fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() {
-    let mut document = demo::document();
-    let mut history = History::default();
     let mut solver = Solver::default();
+    let mut document = demo::document(&mut solver);
+    let mut history = History::default();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
     let opened_at = radius(&document);

@@ -20,7 +20,8 @@ struct Raised {
 
 impl Raised {
     fn new() -> Self {
-        let mut document = demo::document();
+        let mut solver = Solver::default();
+        let mut document = demo::document(&mut solver);
         let mut view = SceneView::new(&document);
         if let Some(bounds) = view.bounds() {
             document.camera_mut().frame(bounds);
@@ -29,7 +30,7 @@ impl Raised {
         Self {
             document,
             history: History::default(),
-            solver: Solver::default(),
+            solver,
             intents: Intents::default(),
             view,
             harness: UiHarness::new(SIZE),
