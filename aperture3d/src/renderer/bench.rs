@@ -1,6 +1,8 @@
-//! Per-frame allocation gates for the renderer's CPU path, driven by `dhat`.
+//! Per-frame allocation gates for the renderer, driven by `dhat`.
 //!
-//! One bench of five steps:
+//! One bench of seven steps, in two halves.
+//!
+//! The CPU path, which needs no device and is entirely ours:
 //!
 //! | step | measures | limit |
 //! |---|---|---|
@@ -14,15 +16,21 @@
 //! frame, and both are strict zero — so pointing at the drawing costs the heap
 //! nothing at all. `pick-hit` is the odd one out: the list query still
 //! allocates the list, which is what a click wants and no hover does.
-//!
 //! `flatten-batches` runs only on a frame where a batch is dirty, but it is
 //! the one that scales with the model, so it is worth watching.
 //!
-//! **`Renderer::paint` is deliberately absent.** It needs a device, and under
-//! one the count is dominated by wgpu's own per-submission allocations rather
-//! than ours. Gating that wants the palantir approach: a step that pins the
-//! *driver floor* and catches drift from it, which is a different bench from
-//! this one and wants a GPU in the loop.
+//! And whole frames through a real device, where the count is dominated by
+//! wgpu rather than by us:
+//!
+//! | step | measures | limit |
+//! |---|---|---|
+//! | `paint-still` | a frame with nothing dirty | the driver floor |
+//! | `paint-hovering` | a frame whose highlight set changed | the floor plus what uploading costs |
+//!
+//! Neither can be zero — a submission allocates whatever wgpu needs to carry
+//! it — so those two gate *drift* from a measured baseline rather than
+//! presence. The four blocks between them are the price of asking for an
+//! upload, and a widening gap is the shape an aperture regression would take.
 //!
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.
@@ -41,11 +49,40 @@ use crate::tag::Tag;
 use crate::viewport::Viewport;
 use common::AllocBench;
 use glam::{UVec2, Vec2, Vec3};
+use palantir::{
+    App, Configure, GpuPaint, GpuView, HeadlessGpu, OffscreenHost, Sizing, Ui, WindowToken,
+};
+use std::cell::RefCell;
 use std::hint::black_box;
+use std::rc::Rc;
 
 /// A pick that finds something allocates the answer it hands back, and
 /// nothing else. The list is what costs it — see `nearest-hit`.
 const PICK_HIT_MAX: f64 = 1.0;
+
+/// The driver's own per-frame floor on the current pin, measured at 92.
+///
+/// **Not zero, and cannot be.** Every submission allocates a `CommandEncoder`,
+/// a `CommandBuffer`, the queue's in-flight bookkeeping and per-pass scratch
+/// inside `wgpu_hal`, and beginning a render pass allocates again — none of it
+/// ours, and none of it reachable from here. Aperture's own contribution to a
+/// still frame is zero: every batch is retained, so a frame with nothing dirty
+/// builds nothing.
+///
+/// So this gate catches *drift* rather than presence. If a wgpu or palantir
+/// upgrade legitimately moves the baseline, bump it; otherwise it has caught
+/// something. Headroom is about a tenth, matching what palantir gives its own
+/// driver-floor step.
+const PAINT_STILL_MAX: f64 = 102.0;
+
+/// The same floor plus what uploading costs, measured at 96.
+///
+/// Four blocks over [`PAINT_STILL_MAX`], and they are the price of asking:
+/// a changed highlight set means three `write_buffer` calls, and the staging
+/// those need is the queue's. What matters is that the gap stays four —
+/// aperture allocating per frame would widen it, and this step against the
+/// one above is what would show that.
+const PAINT_HOVERING_MAX: f64 = 106.0;
 
 /// Where the fixture is viewed from: straight down −Z from 5 away with a 90°
 /// fov, so the origin lands dead centre and a marker there is what the centre
@@ -112,6 +149,93 @@ fn scene() -> Scene {
     scene
 }
 
+/// A pane that draws one scene and does nothing else.
+///
+/// A `Renderer` is a [`GpuPaint`], not an [`App`], so painting it at all needs
+/// something to show a [`GpuView`] from — this is the least of that.
+#[derive(Debug)]
+struct ScenePane {
+    view: Rc<RefCell<Renderer>>,
+}
+
+impl App for ScenePane {
+    fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
+        let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
+        GpuView::new(paint)
+            .auto_id()
+            .size((Sizing::FILL, Sizing::FILL))
+            .show(ui);
+    }
+}
+
+/// Whole frames through a real device, so what `Renderer::paint` costs on top
+/// of the driver is measurable at all.
+///
+/// Two steps: a still scene, which is the driver floor with nothing of ours
+/// under it, and one whose highlight set changes every frame, which is what
+/// hovering does and the only per-frame path that reaches an upload. The
+/// second sits four blocks above the first — the staging its `write_buffer`
+/// calls need — and holding that gap is what says aperture is still adding
+/// nothing of its own.
+fn paint(bench: &mut AllocBench) {
+    let Ok(gpu) = HeadlessGpu::new(
+        wgpu::PowerPreference::HighPerformance,
+        wgpu::Features::empty(),
+    ) else {
+        // A machine with no usable backend can still gate everything above.
+        eprintln!("  paint: skipped, no GPU");
+        return;
+    };
+    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+    let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("aperture.bench.target"),
+        size: wgpu::Extent3d {
+            width: SURFACE.x,
+            height: SURFACE.y,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: wgpu::TextureFormat::Rgba8UnormSrgb,
+        // `COPY_DST` because the offscreen host always composes into its
+        // backbuffer and copies from there, whatever the frame drew.
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+            | wgpu::TextureUsages::COPY_DST
+            | wgpu::TextureUsages::COPY_SRC,
+        view_formats: &[],
+    });
+    // Drained between frames, so a frame's own GPU work lands inside its own
+    // measured window rather than the next one's.
+    let wait = || {
+        gpu.device
+            .poll(wgpu::PollType::Wait {
+                submission_index: None,
+                timeout: None,
+            })
+            .expect("device poll");
+    };
+
+    let mut pane = ScenePane {
+        view: Rc::new(RefCell::new(Renderer::new(scene()))),
+    };
+    bench.step("paint-still", PAINT_STILL_MAX, || {
+        black_box(host.frame_offscreen(&target, 1.0, &mut pane));
+        wait();
+    });
+
+    let mut lit = 0u64;
+    bench.step("paint-hovering", PAINT_HOVERING_MAX, || {
+        lit = (lit + 1) % 4;
+        pane.view.borrow_mut().highlight_only(Some(Lit {
+            tag: Tag::new(lit),
+            look: Highlight::new(Vec3::Y),
+        }));
+        black_box(host.frame_offscreen(&target, 1.0, &mut pane));
+        wait();
+    });
+}
+
 /// The allocation bench: every step, one profiler, one verdict.
 pub fn alloc_bench() {
     let mut bench = AllocBench::start("aperture3d", "run");
@@ -151,5 +275,6 @@ pub fn alloc_bench() {
         black_box(&renderer.batches);
     });
 
+    paint(&mut bench);
     bench.finish();
 }

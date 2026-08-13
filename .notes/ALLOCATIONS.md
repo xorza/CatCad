@@ -44,13 +44,18 @@ The gates as measured in the `bench` profile:
 | aperture3d | `nearest-hit` | 0 | 0 (strict) |
 | aperture3d | `flatten-highlights` | 0 | 0 (strict) |
 | aperture3d | `flatten-batches` | 0 | 0 (strict) |
+| aperture3d | `paint-still` | 92 | 102 (driver floor) |
+| aperture3d | `paint-hovering` | 96 | 106 (driver floor) |
 | catcad | `record-still` | 0 | 0 (strict) |
 | catcad | `record-hovering` | 0 | 0 (strict) |
 
-`Renderer::paint` has no gate. It needs a device, and under one the count is
-dominated by wgpu's own per-submission allocations — pinning that means
-pinning a *driver floor* and watching for drift from it, which is what
-palantir's own bench does and wants a GPU in the loop.
+The two `paint` steps run whole frames through a real device, so they are the
+only ones that cannot be zero: a submission allocates whatever wgpu needs to
+carry it, none of it ours or reachable from here. They gate *drift* from a
+measured baseline instead. The four blocks between them are what asking for an
+upload costs, and a widening gap is the shape an aperture regression would
+take. On a machine with no usable backend both are skipped and the rest still
+gate.
 
 `Solver` holds the buffers a solve works in, so a solver kept alive across
 solves — which is what a drag is — allocates nothing after the first. A caller
