@@ -400,6 +400,14 @@ mod tests {
         sketch.set_params(&params);
         assert_eq!(sketch.points().nth(1).unwrap().1, DVec2::new(30.0, 4.0));
         assert_eq!(sketch.circle(circle).radius, 0.75);
+
+        // The same two values written one at a time, which is what a drag
+        // does — and a fixed point takes a new guess like any other, since
+        // being pinned is a statement to the solver and not to the caller.
+        sketch.set_point(b, DVec2::new(-1.0, -2.0));
+        sketch.set_radius(circle, 2.5);
+        assert_eq!(sketch.point(b), DVec2::new(-1.0, -2.0));
+        assert_eq!(sketch.circle(circle).radius, 2.5);
     }
 
     /// The layout, against hand-counted indices: three points fill 0..6 two

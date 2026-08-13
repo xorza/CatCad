@@ -83,7 +83,9 @@ impl Drawing {
     ///
     /// Nothing the drawing pins: `fix` is the user saying where a point goes,
     /// and a drag is not an argument. A segment needs both its ends free,
-    /// because both of them travel.
+    /// because both of them travel. A rim asks for neither — it drives the
+    /// radius and leaves the centre where it is, so resizing about a pinned
+    /// centre is as good a drag as any other.
     pub(crate) fn grip(&self, hit: &Hit) -> Option<Grip> {
         match (self.names.get(hit.tag)?, hit.at) {
             (Named::Point(id), HitAt::Point) => {
@@ -99,17 +101,19 @@ impl Drawing {
         }
     }
 
-    /// Where the pointer may take what it has hold of.
+    /// Where the pointer may take whatever it has hold of.
     ///
-    /// Every grip answers with the sketch's own plane, because that is the
-    /// whole of where a drawing lives — a point goes anywhere on it, a segment
-    /// slides across it, a rim grows within it. The origin differs only so
-    /// that the answer reads as being about the thing grabbed. A gizmo handle
-    /// would answer with a [`Motion::Axis`] instead, and nothing above here
-    /// would change.
-    pub(crate) fn motion_of(&self, grip: Grip) -> Motion {
+    /// The sketch's own plane, whatever the grip: that is the whole of where a
+    /// drawing lives — a point goes anywhere on it, a segment slides across
+    /// it, a rim grows within it. Nothing per-grip to say, and nothing to say
+    /// it with: a plane is named by any point of it, so where on the drawing
+    /// the origin sits makes no difference to what a ray resolves against.
+    ///
+    /// A gizmo handle would answer with a [`Motion::Axis`], which *is* per
+    /// handle — and that is when this grows an argument again.
+    pub(crate) fn motion(&self) -> Motion {
         Motion::Plane {
-            origin: self.plane.point(self.grip_point(grip)),
+            origin: self.plane.origin,
             normal: self.plane.normal(),
         }
     }
@@ -126,7 +130,7 @@ impl Drawing {
         match grip {
             Grip::Point(id) => {
                 self.sketch.set_point(id, at);
-                self.report = self.solver.solve_holding(&mut self.sketch, &[id]);
+                self.settle(&[id]);
             }
             Grip::Segment { id, t } => {
                 // Both ends travel by whatever it takes to put the spot that
@@ -138,9 +142,7 @@ impl Drawing {
                 let shift = at - a.lerp(b, t);
                 self.sketch.set_point(held.a, a + shift);
                 self.sketch.set_point(held.b, b + shift);
-                self.report = self
-                    .solver
-                    .solve_holding(&mut self.sketch, &[held.a, held.b]);
+                self.settle(&[held.a, held.b]);
             }
             Grip::Rim(id) => {
                 // A rim drives the radius rather than moving the circle, so
@@ -148,23 +150,14 @@ impl Drawing {
                 let circle = self.sketch.circle(id);
                 let centre = self.sketch.point(circle.center);
                 self.sketch.set_radius(id, (at - centre).length());
-                self.report = self
-                    .solver
-                    .solve_holding(&mut self.sketch, &[circle.center]);
+                self.settle(&[circle.center]);
             }
         }
     }
 
-    /// The sketch position a grip is anchored at.
-    fn grip_point(&self, grip: Grip) -> glam::DVec2 {
-        match grip {
-            Grip::Point(id) => self.sketch.point(id),
-            Grip::Segment { id, t } => {
-                let held = self.sketch.segment(id);
-                self.sketch.point(held.a).lerp(self.sketch.point(held.b), t)
-            }
-            Grip::Rim(id) => self.sketch.point(self.sketch.circle(id).center),
-        }
+    /// Re-solve with `held` pinned, and keep what the solve made of it.
+    fn settle(&mut self, held: &[PointId]) {
+        self.report = self.solver.solve_holding(&mut self.sketch, held);
     }
 }
 

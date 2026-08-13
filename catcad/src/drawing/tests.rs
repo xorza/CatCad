@@ -135,11 +135,12 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let rim = hit(tag_of(Named::Circle(hole)), HitAt::Ring { angle: 1.2 });
     assert_eq!(drawing.grip(&rim), Some(Grip::Rim(hole)));
 
-    // Every grip moves on the drawing's own plane, anchored at itself.
-    let Motion::Plane { origin, normal } = drawing.motion_of(Grip::Point(free)) else {
-        panic!("a sketch point moves on the plane it was drawn on");
+    // Whatever the grip, the answer is the drawing's own plane — a plane is
+    // named by any point of it, so there is nothing per-grip to say.
+    let Motion::Plane { origin, normal } = drawing.motion() else {
+        panic!("a sketch grip moves on the plane it was drawn on");
     };
-    assert_eq!(origin, drawing.plane().point(DVec2::ZERO));
+    assert_eq!(origin, drawing.plane().origin);
     assert_eq!(normal, drawing.plane().normal());
 }
 
@@ -213,8 +214,8 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
 
 /// A `Hit` as `Scene::nearest` would report one, for the parts of a grip that
 /// do not depend on where the cursor was.
-fn hit(tag: Tag, at: HitAt) -> aperture::Hit {
-    aperture::Hit {
+fn hit(tag: Tag, at: HitAt) -> Hit {
+    Hit {
         tag,
         at,
         world: Vec3::ZERO,

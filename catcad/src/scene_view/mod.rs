@@ -229,7 +229,7 @@ impl SceneView {
                 let scene = renderer.scene();
                 let hit = scene.nearest(aim.cursor, aim.viewport, HOVER_REACH)?;
                 let grip = drawing.grip(&hit)?;
-                let motion = drawing.motion_of(grip);
+                let motion = drawing.motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
                 let ray = scene.camera.ray_through(aim.cursor, aim.viewport);
