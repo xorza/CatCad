@@ -3,8 +3,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Aim, Bounds, Camera, Highlight, Lit, Motion, Renderer, Viewport};
-use glam::{UVec2, Vec2, Vec3};
+use aperture::{Bounds, Highlight, Lit, Motion, Renderer};
+use glam::{Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
 };
@@ -16,8 +16,11 @@ use crate::intent::{Change, Choice, Intents, Step};
 use crate::named::{Named, Names};
 use crate::paint;
 use crate::preview::{Ends, Preview};
+use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
 use crate::tool::Tool;
+
+mod aimed;
 
 /// Radians of orbit per logical pixel of drag.
 const ORBIT_RATE: f32 = 0.008;
@@ -54,46 +57,6 @@ const SELECTED: Highlight = Highlight {
     scale: 1.5,
     lift: MARKER_LIFT_STEP,
 };
-
-/// Where the pointer is over the view, and the viewport that measures it.
-///
-/// `pointer_local` is already what [`Scene::nearest`](aperture::Scene::nearest)
-/// asks for — logical pixels from the widget's own top-left — so nothing is
-/// converted. It is
-/// measured against `layout_rect` rather than the visible `rect`, and the
-/// viewport is built from that same rect, or the two would disagree the moment
-/// anything clipped the view.
-#[derive(Debug, Clone, Copy)]
-struct Aimed {
-    cursor: Vec2,
-    viewport: Viewport,
-}
-
-impl Aimed {
-    /// What the pointer is aiming at this frame, or `None` if it is off the
-    /// surface or the view has not arranged yet.
-    ///
-    /// Says nothing about whether the pointer is over *this* view: it is the
-    /// offset from this widget's corner wherever the pointer is, including
-    /// well off the widget. A caller that cares asks `response.hovered`, and
-    /// one mid-drag deliberately does not.
-    fn of(response: &Response<'_>) -> Option<Self> {
-        let (cursor, rect) = response.pointer_local.zip(response.layout_rect)?;
-        Some(Self {
-            cursor,
-            viewport: Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32)),
-        })
-    }
-
-    /// The pick this cursor makes, seen through `camera`.
-    ///
-    /// Everything that asks the scene a question about the cursor goes through
-    /// here — the hover, the press and the click alike — so all three reach the
-    /// same distance and none can be given a camera the others were not.
-    fn aim(self, camera: &Camera) -> Aim {
-        Aim::new(camera, self.cursor, self.viewport, HOVER_REACH)
-    }
-}
 
 /// What is being dragged, and where the pointer may take it.
 ///
@@ -273,7 +236,7 @@ impl SceneView {
             (Gesture::Move(held), Drag::Started { .. } | Drag::Active { .. }) => {
                 // Where the entity should end up, which is where the cursor
                 // lands plus however far off centre it was grabbed.
-                if let Some(to) = landing(&response, document, held.motion) {
+                if let Some(to) = aimed::landing(&response, document, held.motion) {
                     intents.push(Change::Drag {
                         grip: held.grip,
                         to: to + held.offset,
@@ -366,7 +329,11 @@ impl SceneView {
         // document and never will be — see [`Preview`].
         self.preview = tool
             .started()
-            .zip(landing(&response, document, document.drawing().motion()))
+            .zip(aimed::landing(
+                &response,
+                document,
+                document.drawing().motion(),
+            ))
             .map(|(started, at)| {
                 let ends = Ends {
                     from: document.drawing().at(started),
@@ -500,7 +467,7 @@ impl SceneView {
         document: &Document,
         under: Option<Named>,
     ) -> Option<Anchor> {
-        let at = landing(response, document, document.drawing().motion());
+        let at = aimed::landing(response, document, document.drawing().motion());
         match under {
             Some(Named::Point(id)) => Some(Anchor::On(id)),
             Some(Named::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
@@ -548,22 +515,6 @@ impl SceneView {
         };
         Gesture::Move(held)
     }
-}
-
-/// Where the cursor lands on `motion`, or `None` if it cannot say.
-///
-/// A motion the cursor cannot resolve against — a plane gone edge-on — answers
-/// with nothing rather than jumping, which is what makes turning the view
-/// mid-drag survivable and what keeps a click across an edge-on sketch from
-/// putting a point somewhere nobody asked for.
-///
-/// No `hovered` filter, unlike hovering and grabbing. A drag that outruns the
-/// view keeps hold of what it grabbed, and a click is already the view's by the
-/// time palantir calls it one.
-fn landing(response: &Response<'_>, document: &Document, motion: Motion) -> Option<Vec3> {
-    let aim = Aimed::of(response)?;
-    let ray = document.camera().ray_through(aim.cursor, aim.viewport);
-    motion.resolve(ray)
 }
 
 #[cfg(any(test, feature = "internals"))]
