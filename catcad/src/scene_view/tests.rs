@@ -746,7 +746,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     // On the edge's infinite line, which is what `PointOnSegment` says: the
     // cross product of the edge's direction with the way to the point is zero.
     let held = sketch.segment(edge);
-    let (a, b) = (sketch.point(held.a), sketch.point(held.b));
+    let (a, b) = (sketch.point(held.a).position, sketch.point(held.b).position);
     let across = (b - a).perp_dot(at - a) / (b - a).length();
     assert!(
         across.abs() < 1e-6,
@@ -793,13 +793,13 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     raised.frame();
 
     let sketch = raised.document.drawing().sketch();
-    let now = sketch.point(placed);
+    let now = sketch.point(placed).position;
     assert!(
         (now - at).length() > 1e-3,
         "the drag never moved the point, so it proves nothing"
     );
     let held = sketch.segment(edge);
-    let (a, b) = (sketch.point(held.a), sketch.point(held.b));
+    let (a, b) = (sketch.point(held.a).position, sketch.point(held.b).position);
     let across = (b - a).perp_dot(now - a) / (b - a).length();
     assert!(
         across.abs() < 1e-6,
@@ -833,7 +833,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
         .last()
         .expect("the demo draws edges");
     let plane = raised.document.drawing().plane();
-    let ends = [bar.a, bar.b].map(|id| raised.document.drawing().sketch().point(id));
+    let ends = [bar.a, bar.b].map(|id| raised.document.drawing().sketch().point(id).position);
     let was: Vec<DVec2> = raised
         .document
         .drawing()
@@ -870,7 +870,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
 
     // And the new point is on the bar's line, which is what it was clicked onto.
     let placed = *now.last().expect("a point was just added");
-    let (a, b) = (sketch.point(bar.a), sketch.point(bar.b));
+    let (a, b) = (sketch.point(bar.a).position, sketch.point(bar.b).position);
     let off = (b - a).perp_dot(placed - a) / (b - a).length();
     assert!(
         off.abs() < 1e-9,

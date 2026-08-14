@@ -320,8 +320,8 @@ fn write_curves(
             curve.plane_normal = Some(normal);
             match stroke {
                 Stroke::Edge(id, edge) => {
-                    let a = plane.point(sketch.point(edge.a)).as_vec3();
-                    let b = plane.point(sketch.point(edge.b)).as_vec3();
+                    let a = plane.point(sketch.point(edge.a).position).as_vec3();
+                    let b = plane.point(sketch.point(edge.b).position).as_vec3();
                     // An edge is only as settled as its looser end: one end
                     // free to travel is an edge free to travel with it.
                     let freedom = freedoms.point(edge.a).max(freedoms.point(edge.b));
@@ -412,7 +412,7 @@ fn write_rings(drawing: &Drawing, names: &mut Names, band: Option<Ends>, rings: 
                     // give.
                     let freedom = freedoms.point(circle.center).max(freedoms.radius(id));
                     Ring::new(
-                        plane.point(sketch.point(circle.center)).as_vec3(),
+                        plane.point(sketch.point(circle.center).position).as_vec3(),
                         circle.radius.abs() as f32,
                         normal,
                     )

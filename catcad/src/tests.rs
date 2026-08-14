@@ -683,7 +683,7 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
         circle.radius
     );
     assert!(
-        (sketch.point(circle.center) - DVec2::new(-3.0, 2.5)).length() < 1e-2,
+        (sketch.point(circle.center).position - DVec2::new(-3.0, 2.5)).length() < 1e-2,
         "the centre did not land where it was clicked"
     );
 }

@@ -23,7 +23,7 @@
 //! Solver::default().solve(&mut sketch, &mut outcome);
 //! assert!(outcome.report().converged);
 //! assert_eq!(outcome.freedoms().degrees_of_freedom(), 0);
-//! assert!((sketch.point(end) - DVec2::new(5.0, 0.0)).length() < 1e-9);
+//! assert!((sketch.point(end).position - DVec2::new(5.0, 0.0)).length() < 1e-9);
 //! ```
 //!
 //! Solving is Levenberg-Marquardt over the analytic Jacobian of the constraint

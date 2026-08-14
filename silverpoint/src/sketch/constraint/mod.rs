@@ -8,7 +8,7 @@
 use crate::arena::Id;
 use crate::sketch::entity::Entity;
 use crate::sketch::jacobian_row::JacobianRow;
-use crate::sketch::{CircleId, PointId, SegmentId, Sketch};
+use crate::sketch::{CircleId, PointId, Segment, SegmentId, Sketch};
 use glam::DVec2;
 
 /// Handle to a constraint in a [`Sketch`].
@@ -41,6 +41,12 @@ impl Direction {
         };
         Self { unit, length }
     }
+}
+
+/// The way a segment runs, tail to head — what every constraint reading a
+/// direction is about, and the difference two of them take their partials from.
+fn direction(sketch: &Sketch, segment: Segment) -> DVec2 {
+    sketch.point(segment.b).position - sketch.point(segment.a).position
 }
 
 /// A relation between sketch entities. Distances and radii are signed values
@@ -195,7 +201,8 @@ impl Constraint {
                 unreachable!("`equations` expands a coincidence into its two axes")
             }
             Constraint::Distance { a, b, distance } => {
-                let apart = Direction::of(sketch.point(a) - sketch.point(b));
+                let (pa, pb) = (sketch.point(a).position, sketch.point(b).position);
+                let apart = Direction::of(pa - pb);
                 row.point(a, apart.unit);
                 row.point(b, -apart.unit);
                 apart.length - distance
@@ -203,17 +210,16 @@ impl Constraint {
             Constraint::Horizontal { a, b } => {
                 row.point(a, DVec2::Y);
                 row.point(b, -DVec2::Y);
-                sketch.point(a).y - sketch.point(b).y
+                sketch.point(a).position.y - sketch.point(b).position.y
             }
             Constraint::Vertical { a, b } => {
                 row.point(a, DVec2::X);
                 row.point(b, -DVec2::X);
-                sketch.point(a).x - sketch.point(b).x
+                sketch.point(a).position.x - sketch.point(b).position.x
             }
             Constraint::Parallel { first, second } => {
                 let (s1, s2) = (sketch.segment(first), sketch.segment(second));
-                let d1 = sketch.point(s1.b) - sketch.point(s1.a);
-                let d2 = sketch.point(s2.b) - sketch.point(s2.a);
+                let (d1, d2) = (direction(sketch, s1), direction(sketch, s2));
                 // `perp_dot(d1, d2)` is `dot(perp(d1), d2)`, so this is
                 // [`Self::Perpendicular`] with one direction turned a quarter
                 // circle — and each direction's partials are the *other* one
@@ -225,8 +231,7 @@ impl Constraint {
             }
             Constraint::Perpendicular { first, second } => {
                 let (s1, s2) = (sketch.segment(first), sketch.segment(second));
-                let d1 = sketch.point(s1.b) - sketch.point(s1.a);
-                let d2 = sketch.point(s2.b) - sketch.point(s2.a);
+                let (d1, d2) = (direction(sketch, s1), direction(sketch, s2));
                 // The residual is `dot(d1, d2)`, whose partial in either
                 // direction is simply the other direction.
                 row.segment(s1, d2);
@@ -235,9 +240,8 @@ impl Constraint {
             }
             Constraint::PointOnSegment { point, segment } => {
                 let s = sketch.segment(segment);
-                let (pa, pb, p) = (sketch.point(s.a), sketch.point(s.b), sketch.point(point));
-                let edge = pb - pa;
-                let offset = p - pa;
+                let edge = direction(sketch, s);
+                let offset = sketch.point(point).position - sketch.point(s.a).position;
                 // The tail moves both `edge` and `offset`, which is why its
                 // gradient carries a term from each and the other two don't.
                 row.point(point, DVec2::new(-edge.y, edge.x));
@@ -251,7 +255,8 @@ impl Constraint {
             }
             Constraint::PointOnCircle { point, circle } => {
                 let c = sketch.circle(circle);
-                let out = Direction::of(sketch.point(point) - sketch.point(c.center));
+                let at = sketch.point(point).position;
+                let out = Direction::of(at - sketch.point(c.center).position);
                 row.point(point, out.unit);
                 row.point(c.center, -out.unit);
                 row.radius(circle, -1.0);

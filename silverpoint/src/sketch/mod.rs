@@ -144,8 +144,10 @@ impl Sketch {
         self.constraints.insert(constraint)
     }
 
-    pub fn point(&self, id: PointId) -> DVec2 {
-        self.points.get(id).expect(REMOVED_POINT).position
+    /// What `id` names, whole — its position and whether the solver may move
+    /// it, as [`Self::segment`] and [`Self::circle`] hand back what they name.
+    pub fn point(&self, id: PointId) -> Point {
+        *self.points.get(id).expect(REMOVED_POINT)
     }
 
     /// Move a point.

@@ -51,7 +51,10 @@ impl Linkage {
     }
 
     fn world_of(&self, point: PointId) -> Vec3 {
-        on(self.drawing.plane, self.drawing.sketch.point(point))
+        on(
+            self.drawing.plane,
+            self.drawing.sketch.point(point).position,
+        )
     }
 }
 
@@ -206,7 +209,7 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let circle = drawing.sketch.circle(hole);
     assert!((circle.radius - 5.0).abs() < 1e-9, "{}", circle.radius);
     assert_eq!(
-        drawing.sketch.point(hub),
+        drawing.sketch.point(hub).position,
         DVec2::new(1.0, 2.0),
         "resizing walked the circle"
     );
@@ -405,7 +408,7 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
     assert!(matches!(level, Constraint::Horizontal { .. }));
     drawing.constrain(&mut solver, level);
     assert!(drawing.report().converged, "{:?}", drawing.report());
-    let apart = drawing.sketch().point(pa).y - drawing.sketch().point(pb).y;
+    let apart = drawing.sketch().point(pa).position.y - drawing.sketch().point(pb).position.y;
     assert!(apart.abs() < 1e-9, "{apart}");
 
     // The constraint is a thing the drawing holds, and taking it away leaves

@@ -65,7 +65,7 @@ fn geometry_comes_back_in_insertion_order() {
     // being pinned is a statement to the solver and not to the caller.
     sketch.set_point(b, DVec2::new(-1.0, -2.0));
     sketch.set_radius(circle, 2.5);
-    assert_eq!(sketch.point(b), DVec2::new(-1.0, -2.0));
+    assert_eq!(sketch.point(b).position, DVec2::new(-1.0, -2.0));
     assert_eq!(sketch.circle(circle).radius, 2.5);
 }
 
@@ -240,8 +240,8 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     assert_ne!(now, was, "a moved sketch snapshots as it stood before");
 
     sketch.restore(&was);
-    assert_eq!(sketch.point(a), DVec2::new(1.0, 2.0));
-    assert_eq!(sketch.point(b), DVec2::new(3.0, 4.0));
+    assert_eq!(sketch.point(a).position, DVec2::new(1.0, 2.0));
+    assert_eq!(sketch.point(b).position, DVec2::new(3.0, 4.0));
     assert_eq!(sketch.circle(circle).radius, 0.5);
 
     // Taken again into a buffer that already held one: refilled, not added to.
@@ -268,7 +268,7 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     // sketch restores into the narrower one it was taken from.
     sketch.restore(&now);
     assert_eq!(sketch.params().count(), 7);
-    assert_eq!(sketch.point(c), DVec2::new(6.0, 7.0));
+    assert_eq!(sketch.point(c).position, DVec2::new(6.0, 7.0));
 
     // A hole rides a snapshot like anything else: a position freed before one
     // is taken is still free after it is put back, rather than quietly closing
@@ -277,7 +277,7 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     sketch.snapshot_into(&mut now);
     sketch.set_point(b, DVec2::ZERO);
     sketch.restore(&now);
-    assert_eq!(sketch.point(b), DVec2::new(3.0, 4.0));
+    assert_eq!(sketch.point(b).position, DVec2::new(3.0, 4.0));
     assert_eq!(sketch.points().count(), 2);
     assert_eq!(sketch.params().count(), 7);
 

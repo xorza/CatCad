@@ -162,7 +162,7 @@ impl Drawing {
         let through = plane.flatten(self.at(rim).as_dvec3());
         self.solved(solver, |sketch| {
             let middle = center.point_in(sketch, plane);
-            let radius = (through - sketch.point(middle)).length();
+            let radius = (through - sketch.point(middle).position).length();
             let circle = sketch.add_circle(middle, radius);
             if let Some(point) = rim.point() {
                 sketch.add_constraint(Constraint::PointOnCircle { point, circle });
@@ -234,7 +234,8 @@ impl Drawing {
                 Constraint::Distance {
                     a,
                     b,
-                    distance: (self.sketch.point(a) - self.sketch.point(b)).length(),
+                    distance: (self.sketch.point(a).position - self.sketch.point(b).position)
+                        .length(),
                 },
                 Constraint::Horizontal { a, b },
                 Constraint::Vertical { a, b },
@@ -295,15 +296,18 @@ impl Drawing {
     /// no longer holds it.
     fn middle_of(&self, entity: Entity) -> Option<DVec2> {
         match entity {
-            Entity::Point(id) => self.sketch.holds(id).then(|| self.sketch.point(id)),
+            Entity::Point(id) => self
+                .sketch
+                .holds(id)
+                .then(|| self.sketch.point(id).position),
             Entity::Segment(id) => self.sketch.holds(id).then(|| {
                 let edge = self.sketch.segment(id);
-                (self.sketch.point(edge.a) + self.sketch.point(edge.b)) * 0.5
+                (self.sketch.point(edge.a).position + self.sketch.point(edge.b).position) * 0.5
             }),
             Entity::Circle(id) => self
                 .sketch
                 .holds(id)
-                .then(|| self.sketch.point(self.sketch.circle(id).center)),
+                .then(|| self.sketch.point(self.sketch.circle(id).center).position),
             // Nothing names a constraint, so nothing reaches this — see
             // [`Entity`].
             Entity::Constraint(_) => None,
@@ -468,7 +472,10 @@ impl Drawing {
                 // spot is *now* rather than accumulated, so a solve that moves
                 // the segment is corrected on the next frame instead of drifting.
                 let edge = self.sketch.segment(id);
-                let (a, b) = (self.sketch.point(edge.a), self.sketch.point(edge.b));
+                let (a, b) = (
+                    self.sketch.point(edge.a).position,
+                    self.sketch.point(edge.b).position,
+                );
                 let shift = at - a.lerp(b, t);
                 self.dragged(solver, &[edge.a, edge.b], |sketch| {
                     sketch.set_point(edge.a, a + shift);
@@ -479,7 +486,7 @@ impl Drawing {
                 // A rim drives the radius rather than moving the circle, so
                 // the centre is held: growing a circle should not walk it.
                 let center = self.sketch.circle(id).center;
-                let radius = (at - self.sketch.point(center)).length();
+                let radius = (at - self.sketch.point(center).position).length();
                 self.dragged(solver, &[center], |sketch| sketch.set_radius(id, radius));
             }
         }

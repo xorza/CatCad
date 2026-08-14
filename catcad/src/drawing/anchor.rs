@@ -77,12 +77,12 @@ impl Anchor {
     /// it means.
     pub(super) fn on_sketch(self, sketch: &Sketch, plane: Plane) -> DVec2 {
         match self {
-            Anchor::On(id) => sketch.point(id),
+            Anchor::On(id) => sketch.point(id).position,
             Anchor::OnSegment { segment, at } => {
                 let edge = sketch.segment(segment);
                 let (from, along) = (
-                    sketch.point(edge.a),
-                    sketch.point(edge.b) - sketch.point(edge.a),
+                    sketch.point(edge.a).position,
+                    sketch.point(edge.b).position - sketch.point(edge.a).position,
                 );
                 let click = plane.flatten(at.as_dvec3());
                 // The foot of the perpendicular, on the edge's own infinite line
@@ -98,7 +98,7 @@ impl Anchor {
             }
             Anchor::OnCircle { circle, at } => {
                 let ring = sketch.circle(circle);
-                let middle = sketch.point(ring.center);
+                let middle = sketch.point(ring.center).position;
                 let click = plane.flatten(at.as_dvec3());
                 // Straight out from the centre through the click. A click *at*
                 // the centre points nowhere, so any direction will do — what

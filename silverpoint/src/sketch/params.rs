@@ -43,7 +43,7 @@ enum Param {
 impl Param {
     fn value(self, sketch: &Sketch) -> f64 {
         match self {
-            Param::Point(id, axis) => axis.component(sketch.point(id)),
+            Param::Point(id, axis) => axis.component(sketch.point(id).position),
             Param::Radius(id) => sketch.circle(id).radius,
         }
     }

@@ -55,7 +55,7 @@ fn hole(document: &Document) -> CircleId {
 /// leaves everything else exactly where it stands.
 fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
     let sketch = document.drawing().sketch();
-    let centre = sketch.point(sketch.circle(circle).center);
+    let centre = sketch.point(sketch.circle(circle).center).position;
     Plane::GROUND
         .point(centre + DVec2::new(radius, 0.0))
         .as_vec3()
@@ -102,7 +102,7 @@ fn relaid(
 /// Where to send `id`, `by` from where it now stands on the drawing's plane.
 fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
     Plane::GROUND
-        .point(document.drawing().sketch().point(id) + by)
+        .point(document.drawing().sketch().point(id).position + by)
         .as_vec3()
 }
 

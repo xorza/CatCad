@@ -315,7 +315,7 @@ fn only_a_coincidence_expands_and_it_expands_to_its_two_axes() {
     // Vertical carries the x offset and Horizontal the y, so between them they
     // measure the whole of the gap — which is what makes the pair a
     // coincidence rather than two unrelated relations.
-    let offset = sketch.point(p0) - sketch.point(p1);
+    let offset = sketch.point(p0).position - sketch.point(p1).position;
     let residuals: Vec<f64> = coincident
         .equations()
         .map(|equation| residual(&sketch, equation))
