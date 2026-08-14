@@ -11,6 +11,13 @@
 // other draws half of it. There is one of them, and this is not it.
 override RING_STEPS: u32;
 
+// Floor under the rate above, in pixels per world unit, so the reciprocal below
+// stays finite where the plane turns edge-on and the rim covers no screen area
+// at all. A rate rather than a length: it shares neither its meaning nor its
+// units with `MIN_RUN_PX`, and only the coincidence of one thousandth ever made
+// the two look like one constant.
+const MIN_PX_PER_WORLD: f32 = 1e-3;
+
 // How far a clip-space direction `d` moves the screen, in pixels, at a point
 // `at` whose own `w` is `w`.
 //
@@ -90,7 +97,7 @@ fn ring_vs(
     // one to within a factor of root two, which is what pays for the `SQRT_2`
     // below.
     let per_world = min(length(radial_px), length(tangential_px));
-    let world_per_px = 1.0 / max(per_world, MIN_PX);
+    let world_per_px = 1.0 / max(per_world, MIN_PX_PER_WORLD);
 
     // How far past the rim the stroke reaches, in the plane. One pixel more
     // than half a width covers the edge the fragment stage fades over.

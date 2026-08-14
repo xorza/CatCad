@@ -57,9 +57,13 @@ fn lift(clip: vec4<f32>, z_offset: f32) -> vec4<f32> {
 }
 
 // Screen length below which a segment lands on one pixel and has no direction
-// to widen across. A thousandth of a pixel — the floor `MIN_RUN_PX2` holds,
-// squared, on the picking side.
-const MIN_PX: f32 = 1e-3;
+// to widen across.
+//
+// Handed over by the pipeline rather than written here, because picking floors
+// the same length on the Rust side and the two answering differently would
+// widen a segment one way and project a cursor onto it the other. There is one
+// of them — `curve::MIN_RUN_PX` — and this is not it.
+override MIN_RUN_PX: f32;
 
 // Clip `w` floor for the perspective divide.
 //

@@ -48,7 +48,7 @@ fn curve_vs(
     let travel = px_from_ndc_delta(there_ndc.xy - here_ndc.xy);
     let length_px = length(travel);
     var along = vec2<f32>(1.0, 0.0);
-    if (length_px > MIN_PX) {
+    if (length_px > MIN_RUN_PX) {
         along = travel / length_px;
     }
     let across = vec2<f32>(-along.y, along.x);
@@ -95,7 +95,7 @@ fn curve_vs(
     // of the eye — across the near plane one end's depth is nonsense, and
     // extrapolating from it would throw the quad out of the clip volume
     // instead of merely distorting it.
-    if (!from_plane && length_px > MIN_PX && here.w > MIN_W && there.w > MIN_W) {
+    if (!from_plane && length_px > MIN_RUN_PX && here.w > MIN_W && there.w > MIN_W) {
         depth_shift = -(there_ndc.z - here_ndc.z) * half_px / length_px;
     }
 
