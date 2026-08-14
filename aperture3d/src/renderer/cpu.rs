@@ -24,10 +24,10 @@ use glam::Mat3;
 /// allocating — which is what keeps a hover, whose only work is rebuilding the
 /// `lit` records, off the heap entirely.
 ///
-/// Not named `Batches`, though it holds one flattening per
-/// [`Batch`](crate::Batch): a batch is the primitives a *caller* writes, and
-/// nothing in here is one. The three tiers are `Batch` → [`Records`] →
-/// [`Passes`](crate::renderer::gpu::Passes), and each is a different word.
+/// Not named `Batches`, though it holds one flattening per [`Batch`]: a batch
+/// is the primitives a *caller* writes, and nothing in here is one. The three
+/// tiers are `Batch` → [`Records`] → [`Passes`](crate::renderer::gpu::Passes),
+/// and each is a different word.
 #[derive(Debug, Default)]
 pub(super) struct Cpu {
     pub(super) meshes: Triangles,
@@ -43,10 +43,10 @@ pub(super) struct Cpu {
 /// of a kind are only ever touched together, and keeping them apart is what used
 /// to mean five separate triples.
 ///
-/// Each of the two says for itself when it was rewritten, the way the
-/// [`Batch`](crate::Batch) upstream of them does — so nothing has to carry the
-/// answer from where it is known to where it is acted on. Two marks rather than
-/// one because the two are rewritten on different occasions: a pointer crossing
+/// Each of the two says for itself when it was rewritten, the way the [`Batch`]
+/// upstream of them does — so nothing has to carry the answer from where it is
+/// known to where it is acted on. Two marks rather than one because the two are
+/// rewritten on different occasions: a pointer crossing
 /// a drawing rewrites `lit` and leaves `ordinary` exactly as it was, and that
 /// frame is the one worth not paying for.
 #[derive(Debug)]
@@ -67,8 +67,8 @@ impl<O: Overlay> Default for Records<O> {
     /// Hand-written because deriving would demand `O: Default`, which is a
     /// claim about primitives that nothing here needs.
     ///
-    /// Clean, like an empty [`Batch`](crate::Batch): there is nothing in either
-    /// buffer, and nothing in the pass it feeds either.
+    /// Clean, like an empty [`Batch`]: there is nothing in either buffer, and
+    /// nothing in the pass it feeds either.
     fn default() -> Self {
         Self {
             ordinary: Vec::new(),

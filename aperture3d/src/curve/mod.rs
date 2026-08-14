@@ -30,7 +30,7 @@ const DEFAULT_WIDTH: f32 = 1.5;
 /// `Default` draws nothing — it has no points. It is what [`refill`] stands a
 /// new slot up as before writing it, and nothing else should want one.
 ///
-/// [`refill`]: crate::refill
+/// [`refill`]: crate::Batch::refill
 #[derive(Default, Debug, Clone)]
 pub struct Curve {
     /// Each neighbouring pair is one stroked segment. Fewer than two points

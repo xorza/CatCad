@@ -200,8 +200,9 @@ pub(crate) trait Record: bytemuck::Pod {
     /// the total is the whole of what can be checked from here: swapping two
     /// fields of equal width still slips through, and so does the shader
     /// reading them in the wrong order, since wgpu only checks the list
-    /// against the shader's declared types. Forced by [`Pipelines::build`],
-    /// the one place that pairs a struct with its list.
+    /// against the shader's declared types. Forced by
+    /// [`Pipelines::build`](crate::renderer::pass::Pipelines::build), the one
+    /// place that pairs a struct with its list.
     const LAYOUT_SPANS_STRUCT: () = {
         let mut span = 0;
         let mut attribute = 0;

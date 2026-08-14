@@ -67,8 +67,8 @@ impl Scene {
     /// from, and a caller that picks through one viewpoint and paints through
     /// another has to be made to say so.
     ///
-    /// `cursor` and `radius` are in **logical** pixels, as is the [`Viewport`]
-    /// they are measured against, and `cursor` counts down from the top-left
+    /// `cursor` and `radius` are in **logical** pixels, as is the
+    /// [`Viewport`](crate::Viewport) they are measured against, and `cursor` counts down from the top-left
     /// corner.
     ///
     /// Not a free choice, unlike everywhere else a cursor and a viewport meet:

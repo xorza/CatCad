@@ -30,7 +30,7 @@ const DEFAULT_WIDTH: f32 = 1.5;
 /// new slot up as before writing it, and nothing else should want one; its axes
 /// are zero too, where a ring meant to be drawn carries a unit pair.
 ///
-/// [`refill`]: crate::refill
+/// [`refill`]: crate::Batch::refill
 #[derive(Default, Debug, Clone, Copy)]
 pub struct Ring {
     pub center: Vec3,

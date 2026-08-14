@@ -18,7 +18,16 @@ const BACKGROUND: wgpu::Color = wgpu::Color {
     a: 1.0,
 };
 
+/// The two textures a frame is drawn into, and the size they were built for.
+///
+/// Multisampled, both of them, and neither outlives the pass: the colour buffer
+/// is resolved into whatever palantir hands over and the depth buffer is read
+/// only by the pass that wrote it. Both are discarded rather than stored when it
 /// ends, and neither buffer's samples are read again.
+///
+/// The size travels with them because it is what decides they are still good —
+/// a frame compares it against the target's and rebuilds the pair when the view
+/// has been resized, which is the only thing that invalidates one.
 #[derive(Debug)]
 pub(super) struct Attachments {
     pub(super) color: wgpu::TextureView,
