@@ -310,7 +310,7 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     frame(&mut app, &mut harness);
     let at_rest = markers(&app);
     assert_eq!(
-        app.tool,
+        app.session.tool(),
         Tool::Pointer,
         "the app opened with a tool in hand"
     );
@@ -318,7 +318,7 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     harness.click_at(POINT_BUTTON);
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.tool,
+        app.session.tool(),
         Tool::Point,
         "the toolbar did not arm the point tool"
     );
@@ -390,17 +390,25 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     harness.set_modifiers(Modifiers::NONE);
     harness.key(Key::Escape);
     frame(&mut app, &mut harness);
-    assert_eq!(app.tool, Tool::Pointer, "Escape did not put the tool down");
+    assert_eq!(
+        app.session.tool(),
+        Tool::Pointer,
+        "Escape did not put the tool down"
+    );
 
     // The right button over the drawing, which is the gesture a modeller
     // reaches for first.
     harness.click_at(POINT_BUTTON);
     frame(&mut app, &mut harness);
-    assert_eq!(app.tool, Tool::Point);
+    assert_eq!(app.session.tool(), Tool::Point);
     let held = markers(&app);
     harness.right_click_at(cursor);
     frame(&mut app, &mut harness);
-    assert_eq!(app.tool, Tool::Pointer, "the right button left it in hand");
+    assert_eq!(
+        app.session.tool(),
+        Tool::Pointer,
+        "the right button left it in hand"
+    );
     // And it is really down, not merely drawn as down: the click that follows
     // places nothing.
     harness.click_at(cursor);
@@ -414,11 +422,11 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     // And its own button again, because pressing the tool in hand puts it down.
     harness.click_at(POINT_BUTTON);
     frame(&mut app, &mut harness);
-    assert_eq!(app.tool, Tool::Point);
+    assert_eq!(app.session.tool(), Tool::Point);
     harness.click_at(POINT_BUTTON);
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.tool,
+        app.session.tool(),
         Tool::Pointer,
         "pressing the armed tool re-armed it rather than putting it down"
     );
@@ -453,7 +461,11 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
     harness.click_at(first);
     frame(&mut app, &mut harness);
     assert_eq!(markers(&app).len(), at_rest.len() + 1);
-    assert_eq!(app.selection.count(), 1, "the new point was not picked out");
+    assert_eq!(
+        app.session.selection().count(),
+        1,
+        "the new point was not picked out"
+    );
 
     // Take the creation back. The point goes, and so does the handle to it.
     harness.set_modifiers(Modifiers {
@@ -465,7 +477,7 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
     harness.set_modifiers(Modifiers::NONE);
     assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the point back");
     assert_eq!(
-        app.selection.count(),
+        app.session.selection().count(),
         0,
         "a handle to what the undo removed is still picked out"
     );
@@ -505,7 +517,7 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         .expect("the sketch holds points")
         .0;
     assert!(
-        !app.selection.contains(Named::Point(newest)),
+        !app.session.selection().contains(Named::Point(newest)),
         "a point nobody picked came up selected, on a handle left over from an undo"
     );
 }
@@ -549,7 +561,7 @@ fn a_line_takes_two_clicks_and_shares_the_point_it_started_on() {
         "the first click of a line reached the document"
     );
     assert!(
-        app.tool.started().is_some(),
+        app.session.tool().started().is_some(),
         "the first click was not remembered"
     );
 
@@ -560,8 +572,14 @@ fn a_line_takes_two_clicks_and_shares_the_point_it_started_on() {
     let sketch = app.document.drawing().sketch();
     assert_eq!(sketch.points().count(), at_rest + 2);
     assert_eq!(sketch.segments().count(), edges + 1);
-    assert!(app.tool.started().is_none(), "the tool did not start over");
-    assert!(app.tool.is(Tool::Line { from: None }), "it left the hand");
+    assert!(
+        app.session.tool().started().is_none(),
+        "the tool did not start over"
+    );
+    assert!(
+        app.session.tool().is(Tool::Line { from: None }),
+        "it left the hand"
+    );
 
     // A second line begun on the first one's far end shares that point, so this
     // one costs a single new point rather than two.

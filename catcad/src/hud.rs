@@ -7,7 +7,7 @@ use palantir::{
     Ui,
 };
 
-use crate::intent::{Change, Intents, Session};
+use crate::intent::{Change, Choice, Intents};
 use crate::tool::Tool;
 
 /// Logical pixels of breathing room inside a floating panel, and between the
@@ -93,7 +93,7 @@ impl Hud {
             button = button.style(&self.armed);
         }
         if button.show(ui).left.clicked() {
-            intents.push(Session::Hold(tool.toggled(arms)));
+            intents.push(Choice::Hold(tool.toggled(arms)));
         }
     }
 }

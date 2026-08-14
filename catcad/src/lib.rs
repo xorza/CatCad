@@ -17,6 +17,7 @@ mod paint;
 mod preview;
 mod scene_view;
 mod selection;
+mod session;
 mod tool;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
@@ -32,10 +33,11 @@ use silverpoint::{SolveReport, Solver};
 use crate::document::Document;
 use crate::history::History;
 use crate::hud::Hud;
-use crate::intent::{Intent, Intents, Session, Step};
+use crate::intent::{Choice, Intents, Step};
 use crate::named::Named;
 use crate::scene_view::SceneView;
 use crate::selection::Selection;
+use crate::session::Session;
 use crate::tool::Tool;
 
 /// Take back the last step, and put it back.
@@ -72,13 +74,10 @@ pub struct CatCad {
     /// What draws that, and what the pointer over it is in the middle of. Owns
     /// nothing the document would be saved without.
     view: SceneView,
-    /// What a click in the viewport means. Beside the document rather than in
-    /// it, like the history above: what a session is drawing *with* is not part
-    /// of what it has drawn.
-    tool: Tool,
-    /// What the next command would act on. Beside the document for the same
-    /// reason the tool is.
-    selection: Selection,
+    /// What is in hand and what is picked out. Beside the document rather than
+    /// in it, like the history above: what a session is drawing *with* is not
+    /// part of what it has drawn.
+    session: Session,
     /// What floats over the view: the tool bar, and the readout in the
     /// corner.
     hud: Hud,
@@ -123,8 +122,7 @@ impl CatCad {
             intents: Intents::default(),
             solver,
             view,
-            tool: Tool::default(),
-            selection: Selection::default(),
+            session: Session::default(),
             hud: Hud::default(),
         }
     }
@@ -151,10 +149,10 @@ impl CatCad {
         // bar for a second press of a tool's own button — three ways to ask for
         // the same thing, and none of them does it.
         if ui.escape_pressed() {
-            self.intents.push(Session::Hold(Tool::Pointer));
+            self.intents.push(Choice::Hold(Tool::Pointer));
         }
         self.view
-            .ask(ui, &self.document, self.tool, &mut self.intents);
+            .ask(ui, &self.document, self.session.tool(), &mut self.intents);
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
@@ -163,7 +161,7 @@ impl CatCad {
         // and takes its own presses rather than the view beneath it.
         self.hud.show(
             ui,
-            self.tool,
+            self.session.tool(),
             status,
             self.document.camera().projection,
             &mut self.intents,
@@ -173,44 +171,20 @@ impl CatCad {
     /// Land everything the frame asked for, on whichever of the three things a
     /// frame writes it belongs to.
     ///
-    /// The tool and the selection are taken here rather than in the history,
-    /// because neither is a step to take back: undoing a placed point should
-    /// not put the tool that placed it back in your hand, nor disturb what is
-    /// picked out around it. So the inbox is read twice over, once for what the
-    /// app owns and once for what the document does — which costs a walk of a
-    /// few entries, and means neither reader has to know what the other's
-    /// intents mean.
+    /// The session is written here rather than in the history, because none of
+    /// what it holds is a step to take back: undoing a placed point should not
+    /// put the tool that placed it back in your hand, nor disturb what is picked
+    /// out around it. So the inbox is read twice over, once for what the session
+    /// owns and once for what the document does — which costs a walk of a few
+    /// entries, and means neither reader has to know what the other's intents
+    /// mean.
     fn apply(&mut self) {
-        for intent in self.intents.iter() {
-            match intent {
-                Intent::Session(Session::Hold(tool)) => self.tool = tool,
-                Intent::Session(Session::Select(what)) => self.selection.select(what),
-                Intent::Session(Session::Include(what)) => self.selection.include(what),
-                // The history's, and the document's through it — landed just
-                // below, in the order the pointer made them.
-                Intent::Step(_) | Intent::Change(_) => {}
-            }
-        }
+        self.session.apply(&self.intents);
         self.history
             .apply(&mut self.document, &mut self.solver, &self.intents);
-        // After the history, because a step taken back can take geometry with
-        // it — and a handle left pointing at what has gone would not simply
-        // stop matching. The sketch is restored arenas and all, so the next
-        // entity created takes the very same handle and would come up selected
-        // without anyone having picked it.
-        self.selection
-            .retain(|named| self.document.drawing().holds(named));
-        // A half-drawn shape hangs off a handle in exactly the same way, and
-        // the undo that takes its first point away leaves it hanging off
-        // nothing. The tool stays in hand and starts over rather than going
-        // down: what was taken back is the point, not the intention to draw.
-        if self
-            .tool
-            .started()
-            .is_some_and(|anchor| !self.document.drawing().holds_anchor(anchor))
-        {
-            self.tool = self.tool.restarted();
-        }
+        // Last, because an undo can take geometry the session was still holding
+        // on to — see [`Session::prune`].
+        self.session.prune(self.document.drawing());
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
@@ -288,7 +262,7 @@ impl App for CatCad {
                 // until everything has finished reading it.
                 self.ask(ui);
                 self.apply();
-                self.view.settle(&self.document, &self.selection);
+                self.view.settle(&self.document, self.session.selection());
             });
     }
 }

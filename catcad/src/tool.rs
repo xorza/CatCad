@@ -9,7 +9,7 @@ use crate::drawing::anchor::Anchor;
 /// saving and none of it is anything to take back — an undo puts back a point
 /// the tool placed, and leaves what is in your hand alone.
 ///
-/// Asked for through a [`Session::Hold`](crate::intent::Session) all the same,
+/// Asked for through a [`Choice::Hold`](crate::intent::Choice) all the same,
 /// though it never reaches the document. Three things can put a tool down —
 /// Escape, the right button over the drawing, a second press of its own button
 /// — and an inbox is what keeps them from being three writers racing inside one
@@ -27,7 +27,7 @@ pub(crate) enum Tool {
     ///
     /// Named for the pointer rather than for selecting, though selecting is
     /// most of what it does, because
-    /// [`Session::Select`](crate::intent::Session) is the *selection* and the
+    /// [`Choice::Select`](crate::intent::Choice) is the *selection* and the
     /// two would otherwise read as one thing two lines apart in the click that
     /// raises both.
     #[default]

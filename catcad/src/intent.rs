@@ -27,7 +27,7 @@ use crate::tool::Tool;
 ///
 /// **Which of the three it is decides where it lands**, and the type says so.
 /// A [`Change`] is the document's to answer, a [`Step`] the history's and a
-/// [`Session`] the application's; each of the three is handed its own payload
+/// [`Choice`] the application's; each of the three is handed its own payload
 /// and can neither be given nor forget one of the others. One enum over the
 /// three rather than three inboxes, because order is promised across all of
 /// them: a dolly and a drag in one frame must land the way the pointer made
@@ -41,9 +41,9 @@ pub(crate) enum Intent {
     Change(Change),
     /// The history's.
     Step(Step),
-    /// The application's, and nobody else's: none of it is in the document, and
-    /// none of it is a step to take back.
-    Session(Session),
+    /// The [`Session`](crate::session::Session)'s, and nobody else's: none of it
+    /// is in the document, and none of it is a step to take back.
+    Choice(Choice),
 }
 
 impl From<Change> for Intent {
@@ -58,9 +58,9 @@ impl From<Step> for Intent {
     }
 }
 
-impl From<Session> for Intent {
-    fn from(session: Session) -> Self {
-        Intent::Session(session)
+impl From<Choice> for Intent {
+    fn from(choice: Choice) -> Self {
+        Intent::Choice(choice)
     }
 }
 
@@ -137,7 +137,12 @@ pub(crate) enum Step {
     Redo,
 }
 
-/// What the application answers: what is in hand, and what is picked out.
+/// What the [`Session`](crate::session::Session) answers: which tool to take up,
+/// and what to pick out.
+///
+/// Named for the choosing rather than for where it lands, like its two peers,
+/// and because that is what the three have in common — none of them asks for
+/// anything to be *done*, only for what the next thing done will be done with.
 ///
 /// Neither is in the document and neither is a step to take back — an undo puts
 /// back a point the tool placed and leaves what is in your hand alone. Asked for
@@ -145,7 +150,7 @@ pub(crate) enum Step {
 /// because three things can put a tool down: a replayed pass that flipped it
 /// where it was pressed would arm it and put it straight back down.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Session {
+pub(crate) enum Choice {
     /// Pick out this entity and nothing else, or nothing at all when it is
     /// `None`.
     ///
@@ -157,7 +162,7 @@ pub(crate) enum Session {
     Select(Option<Named>),
     /// Pick this out as well as whatever already is.
     ///
-    /// What a shift-click asks for. Names an addition where [`Session::Select`]
+    /// What a shift-click asks for. Names an addition where [`Choice::Select`]
     /// names the whole, and is safe to land twice for a different reason: an
     /// entity already picked out is not picked out again.
     Include(Named),

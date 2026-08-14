@@ -1,7 +1,7 @@
 use super::*;
 use crate::demo;
 use crate::history::History;
-use crate::intent::{Intent, Intents, Session};
+use crate::intent::{Choice, Intent, Intents};
 use crate::paint;
 use crate::selection::Selection;
 use crate::tool::Tool;
@@ -76,9 +76,9 @@ impl Raised {
             // the session owns comes off the inbox before the history reads it.
             for intent in intents.iter() {
                 match intent {
-                    Intent::Session(Session::Hold(held)) => *tool = held,
-                    Intent::Session(Session::Select(what)) => selection.select(what),
-                    Intent::Session(Session::Include(what)) => selection.include(what),
+                    Intent::Choice(Choice::Hold(held)) => *tool = held,
+                    Intent::Choice(Choice::Select(what)) => selection.select(what),
+                    Intent::Choice(Choice::Include(what)) => selection.include(what),
                     Intent::Step(_) | Intent::Change(_) => {}
                 }
             }

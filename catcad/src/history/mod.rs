@@ -65,7 +65,7 @@ impl History {
                 // Taken before this ran, by the app that owns them. What is in
                 // hand and what is picked out are not steps to take back — see
                 // `CatCad::apply`.
-                Intent::Session(_) => {}
+                Intent::Choice(_) => {}
             }
         }
     }

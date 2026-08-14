@@ -12,7 +12,7 @@ use palantir::{
 use crate::document::Document;
 use crate::drawing::anchor::Anchor;
 use crate::drawing::{Grip, Revision};
-use crate::intent::{Change, Intents, Session, Step};
+use crate::intent::{Change, Choice, Intents, Step};
 use crate::named::{Named, Names};
 use crate::paint;
 use crate::preview::{Ends, Preview};
@@ -58,8 +58,8 @@ const SELECTED: Highlight = Highlight {
 /// Where the pointer is over the view, and the viewport that measures it.
 ///
 /// `pointer_local` is already what [`Scene::nearest`](aperture::Scene::nearest)
-/// asks for — logical
-/// pixels from the widget's own top-left — so nothing is converted. It is
+/// asks for — logical pixels from the widget's own top-left — so nothing is
+/// converted. It is
 /// measured against `layout_rect` rather than the visible `rect`, and the
 /// viewport is built from that same rect, or the two would disagree the moment
 /// anything clipped the view.
@@ -315,14 +315,14 @@ impl SceneView {
                 // reaches the document not at all; the second commits the whole
                 // shape as one step.
                 (Tool::Line { from: None }, Some(start)) => {
-                    intents.push(Session::Hold(Tool::Line { from: Some(start) }));
+                    intents.push(Choice::Hold(Tool::Line { from: Some(start) }));
                 }
                 (Tool::Line { from: Some(from) }, Some(to)) => {
                     intents.push(Change::AddSegment { from, to });
-                    intents.push(Session::Hold(Tool::Line { from: None }));
+                    intents.push(Choice::Hold(Tool::Line { from: None }));
                 }
                 (Tool::Circle { center: None }, Some(middle)) => {
-                    intents.push(Session::Hold(Tool::Circle {
+                    intents.push(Choice::Hold(Tool::Circle {
                         center: Some(middle),
                     }));
                 }
@@ -333,7 +333,7 @@ impl SceneView {
                     Some(rim),
                 ) => {
                     intents.push(Change::AddCircle { center, rim });
-                    intents.push(Session::Hold(Tool::Circle { center: None }));
+                    intents.push(Choice::Hold(Tool::Circle { center: None }));
                 }
                 // Nothing in hand — or a plane seen so nearly edge-on that a
                 // click names nowhere on it, where there is nothing to build
@@ -341,13 +341,13 @@ impl SceneView {
                 (Tool::Pointer, _) | (_, None) => {
                     match under {
                         // Shift adds to what is picked out.
-                        Some(named) if adding => intents.push(Session::Include(named)),
+                        Some(named) if adding => intents.push(Choice::Include(named)),
                         // A shift-click on empty space adds nothing, and
                         // clearing is the plain click's business.
                         None if adding => {}
                         // A plain click starts over with whatever is under the
                         // cursor — which is nothing, when it is over nothing.
-                        _ => intents.push(Session::Select(under)),
+                        _ => intents.push(Choice::Select(under)),
                     }
                 }
             }
@@ -358,7 +358,7 @@ impl SceneView {
         // bar. A click rather than a press, like placing, so a right-drag is
         // left to whatever later wants one.
         if response.right.clicked() {
-            intents.push(Session::Hold(Tool::Pointer));
+            intents.push(Choice::Hold(Tool::Pointer));
         }
 
         // What the second click would commit, following the cursor. Kept on the
