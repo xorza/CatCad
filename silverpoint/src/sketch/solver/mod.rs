@@ -69,15 +69,20 @@ pub struct Solver {
     /// getting there. The one thing both phases work on: the run steps it, and
     /// everything that describes the sketch afterwards reads it.
     system: System,
+    /// The sketch as it stood before the edit being attempted, assembled, and
+    /// set aside for as long as the attempt lasts.
+    ///
+    /// A refused edit leaves the sketch exactly as it was found, so what it has
+    /// to report is what this already holds — and swapping it out of the way is
+    /// what keeps the attempt from overwriting it. Two pointer swaps against the
+    /// assembly they save, which is every constraint's residual and its
+    /// derivatives evaluated afresh over geometry that never moved.
+    spare: System,
     stepper: Stepper,
     elimination: Elimination,
     /// The sketch as it stood before the edit being attempted, so one the
     /// constraints cannot take can be put back whole.
     before: Snapshot,
-    /// The sketch as the edit left it, before any solve saw it — what the user
-    /// actually asked for. [`Solver::edit_holding`] tries twice, and the second
-    /// try has to start from here rather than from where the first gave up.
-    asked: Snapshot,
 }
 
 impl Default for Solver {
@@ -86,10 +91,10 @@ impl Default for Solver {
             max_iterations: 100,
             tolerance: 1e-10,
             system: System::default(),
+            spare: System::default(),
             stepper: Stepper::default(),
             elimination: Elimination::default(),
             before: Snapshot::default(),
-            asked: Snapshot::default(),
         }
     }
 }
@@ -152,18 +157,28 @@ impl Solver {
     /// `edit` may move geometry. It may not add or remove any: `held` and the
     /// residual this is judged against were both taken of the sketch as it
     /// arrived. Adding geometry is [`Solver::solve`]'s, with nothing held.
+    ///
+    /// It may also be run twice — once for each attempt — and both runs are
+    /// given the sketch exactly as it arrived, so one that reads the sketch and
+    /// moves geometry *relative* to what it finds would compound. Say where
+    /// geometry goes, not how far it moves: a drag knows where the cursor is.
     pub fn edit_holding(
         &mut self,
         sketch: &mut Sketch,
         held: &[PointId],
         into: &mut Outcome,
-        edit: impl FnOnce(&mut Sketch),
+        edit: impl Fn(&mut Sketch),
     ) {
         // Only the residual, so the pre-edit look costs one assembly and no
         // reduction: nothing is being reported about the sketch as it stands,
         // only judged against what the edit leaves.
         self.assemble_at_rest(sketch);
         let was = self.system.max_residual();
+        // Set aside whole, because a refusal has to describe exactly this
+        // sketch and this is already its assembly. A swap rather than a copy:
+        // whatever the attempt leaves in its place is cleared and refilled by
+        // the next assembly, so the buffers it hands over need hold nothing.
+        std::mem::swap(&mut self.system, &mut self.spare);
         sketch.snapshot_into(&mut self.before);
 
         edit(sketch);
@@ -171,12 +186,6 @@ impl Solver {
             self.before.fits(sketch),
             "an edit may move a sketch's geometry, not add to or remove from it"
         );
-
-        // Only what a second attempt would start from, and only a held edit has
-        // one — so an edit holding nothing does not pay for the copy.
-        if !held.is_empty() {
-            sketch.snapshot_into(&mut self.asked);
-        }
 
         // Held first, which is what makes an ordinary drag track the pointer
         // exactly: the grabbed point does not move, and the rest of the sketch
@@ -204,7 +213,13 @@ impl Solver {
         // had — and asking again would be the same solve run twice for the same
         // refusal.
         if !held.is_empty() {
-            sketch.restore(&self.asked);
+            // Put back and asked for again, rather than kept: what the edit
+            // wanted is the edit run on the sketch it was run on, and both of
+            // those are already here. Keeping it instead would be a second whole
+            // sketch copied on every frame of every drag, to spare a call that
+            // is usually one coordinate written.
+            sketch.restore(&self.before);
+            edit(sketch);
             let iterations = self.iterate(sketch, &[]);
             // Kept only where it moved the sketch at all. One with nowhere to go
             // answers this attempt by putting everything back where it always
@@ -224,11 +239,12 @@ impl Solver {
         }
 
         sketch.restore(&self.before);
-        // Described afresh, because the sketch being described is now the one
-        // that was there all along rather than either attempt on it — and
-        // [`Settled::Refused`] is the only part of this that a report of a sketch
-        // standing at its own solution could not say.
-        self.assemble_at_rest(sketch);
+        // Taken back rather than built again: this is the sketch the assembly
+        // set aside at the top was taken of, restored to the bit, so reducing
+        // that one is reducing this one. [`Settled::Refused`] is the only part
+        // of what comes out that a report of a sketch standing at its own
+        // solution could not say.
+        std::mem::swap(&mut self.system, &mut self.spare);
         self.read_at_rest(sketch, into, Settled::Refused, 0);
     }
 

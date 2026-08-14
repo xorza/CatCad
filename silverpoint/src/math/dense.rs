@@ -1,8 +1,8 @@
 //! Arithmetic over plain `f64` slices.
 //!
-//! Nothing here knows what a sketch is. A dense symmetric solve, and the two
-//! norms that judge what goes into one — the solver reaches for them every
-//! iteration, but they would read the same in any crate that had a matrix.
+//! Nothing here knows what a sketch is. A dense symmetric solve and the one
+//! norm that reads a row of the null space — both would read the same in any
+//! crate that had a matrix.
 
 /// Solve `a x = b` in place for a symmetric positive definite `a`, overwriting
 /// `a`'s lower triangle with its Cholesky factor and `b` with `x`. False when
@@ -57,18 +57,10 @@ pub(crate) fn solve_in_place(a: &mut [f64], n: usize, b: &mut [f64]) -> bool {
     b.iter().all(|value| value.is_finite())
 }
 
-pub(crate) fn max_abs(values: &[f64]) -> f64 {
-    values.iter().fold(0.0f64, |acc, v| acc.max(v.abs()))
-}
-
 /// Sum of squares — a norm with its square root left off, for a caller
 /// comparing against a squared threshold rather than reading a length.
 pub(crate) fn square_norm(values: &[f64]) -> f64 {
     values.iter().map(|v| v * v).sum()
-}
-
-pub(crate) fn norm(values: &[f64]) -> f64 {
-    square_norm(values).sqrt()
 }
 
 #[cfg(test)]

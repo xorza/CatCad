@@ -1,7 +1,6 @@
 //! One assembly of a sketch: where its constraints stand, how they move, and
 //! which parameters the assembly was allowed to move at all.
 
-use crate::math::dense::max_abs;
 use crate::sketch::constraint::ConstraintId;
 use crate::sketch::jacobian_row::JacobianRow;
 use crate::sketch::{PointId, Sketch};
@@ -36,6 +35,15 @@ pub(super) struct System {
     /// row: it cannot change while a phase runs, and asking cost more than
     /// everything it was asked about.
     pub(super) movable: Vec<bool>,
+    /// How big the residual is, measured both ways an answer is judged by.
+    ///
+    /// Worked out by the walk that fills `residuals`, which has every value in
+    /// hand as it goes — the alternative is two more passes over the same
+    /// numbers, and the largest of them is asked for up to three times per
+    /// assembly. Nought until [`System::assemble`] has run, which is what an
+    /// empty system honestly has.
+    max_residual: f64,
+    magnitude: f64,
 }
 
 impl System {
@@ -86,12 +94,17 @@ impl System {
         self.residuals.clear();
         self.jacobian.clear();
         self.equations.clear();
+        let mut largest = 0.0f64;
+        let mut squares = 0.0;
         for (id, constraint) in sketch.constraints() {
             for equation in constraint.equations() {
                 let start = self.jacobian.len();
                 self.jacobian.resize(start + n, 0.0);
                 let mut row = JacobianRow::new(sketch.params(), &mut self.jacobian[start..]);
-                self.residuals.push(equation.evaluate(sketch, &mut row));
+                let residual = equation.evaluate(sketch, &mut row);
+                largest = largest.max(residual.abs());
+                squares += residual * residual;
+                self.residuals.push(residual);
                 self.equations.push(id);
                 for (partial, &may_move) in self.jacobian[start..].iter_mut().zip(&self.movable) {
                     if !may_move {
@@ -100,6 +113,8 @@ impl System {
                 }
             }
         }
+        self.max_residual = largest;
+        self.magnitude = squares.sqrt();
     }
 
     /// Hold for `held` and assemble in one call.
@@ -122,6 +137,16 @@ impl System {
     /// The largest residual left over, which is what says whether the sketch
     /// stands at an answer.
     pub(super) fn max_residual(&self) -> f64 {
-        max_abs(&self.residuals)
+        self.max_residual
+    }
+
+    /// How far the whole residual vector reaches, which is what tells a step
+    /// that improved the sketch from one that did not.
+    ///
+    /// The least-squares quantity, where [`System::max_residual`] is the one a
+    /// tolerance is stated in: a step is worth keeping when it shortens this,
+    /// and the sketch is solved when that leaves nothing over.
+    pub(super) fn magnitude(&self) -> f64 {
+        self.magnitude
     }
 }

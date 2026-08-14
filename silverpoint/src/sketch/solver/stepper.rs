@@ -7,7 +7,7 @@
 //! one per circle, so the cost of sparsity bookkeeping would exceed what it
 //! saves.
 
-use crate::math::dense::{norm, solve_in_place};
+use crate::math::dense::solve_in_place;
 use crate::sketch::solver::system::System;
 use crate::sketch::{PointId, Sketch};
 
@@ -107,7 +107,7 @@ impl Stepper {
         // How far the residual vector reaches, carried rather than measured
         // afresh each round: after a step worth keeping it is the trial length
         // just taken, and after one that was not it has not moved.
-        let mut magnitude = norm(&system.residuals);
+        let mut magnitude = system.magnitude();
         while iterations < max_iterations && system.max_residual() > tolerance {
             iterations += 1;
             self.normal.fill(0.0);
@@ -161,7 +161,7 @@ impl Stepper {
                 .extend(self.params.iter().zip(&self.step).map(|(p, d)| p + d));
             sketch.params_mut().set(&self.trial_params);
             self.trial.assemble(sketch);
-            let trial = norm(&self.trial.residuals);
+            let trial = self.trial.magnitude();
             if trial < magnitude {
                 // Swapped rather than assigned: the loser's buffers become the
                 // next round's scratch, so nothing is ever rebuilt.

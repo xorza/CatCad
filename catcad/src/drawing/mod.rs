@@ -78,7 +78,7 @@ impl Drawing {
     /// it takes and the solve it judges; [`Drawing::settled`] wants a solve to
     /// run between the fields it writes. Nesting the two is what every grip
     /// below would otherwise be spelling out for itself.
-    fn dragged(&mut self, solver: &mut Solver, held: &[PointId], edit: impl FnOnce(&mut Sketch)) {
+    fn dragged(&mut self, solver: &mut Solver, held: &[PointId], edit: impl Fn(&mut Sketch)) {
         self.settled(|sketch, outcome| solver.edit_holding(sketch, held, outcome, edit));
     }
 
