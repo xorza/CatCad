@@ -12,7 +12,6 @@ use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::freedoms::Freedoms;
 use crate::sketch::solver::workspace::Workspace;
 use crate::sketch::{PointId, Sketch};
-use glam::DVec2;
 
 /// Damping starts here and moves by these factors on an accepted or rejected
 /// step. Rejections back off harder than acceptances close in, which keeps a
@@ -23,6 +22,20 @@ const DAMPING_GROWTH: f64 = 8.0;
 
 /// Past this the step is numerically zero, so no further damping can help.
 const MAX_DAMPING: f64 = 1e12;
+
+/// How far a parameter may differ and still count as not having moved, in
+/// sketch units.
+///
+/// Not [`Solver::tolerance`], which bounds *residuals*. A converged solve
+/// leaves the geometry satisfying its constraints rather than sitting on any
+/// particular point of the set that does, so free geometry drifts a little
+/// under the arithmetic — measured on the demo's sketch, about a nanometre,
+/// four decades looser than the residual bound that produced it.
+///
+/// Three decades above that drift, and far below the smallest drag anyone could
+/// mean: a pointer moving one pixel across a drawing on screen covers
+/// hundredths of a unit, never millionths.
+const UNMOVED: f64 = 1e-6;
 
 /// What a solve achieved.
 ///
@@ -66,10 +79,6 @@ pub struct Solver {
     /// actually asked for. [`Solver::edit_holding`] tries twice, and the second
     /// try has to start from here rather than from where the first gave up.
     asked: Snapshot,
-    /// Where the points a drag has hold of stood before it, so the second
-    /// attempt can be asked whether it moved them at all. Refilled per call,
-    /// which is what keeps a drag off the heap.
-    grabbed: Vec<DVec2>,
 }
 
 impl Default for Solver {
@@ -80,7 +89,6 @@ impl Default for Solver {
             work: Workspace::default(),
             before: Snapshot::default(),
             asked: Snapshot::default(),
-            grabbed: Vec::new(),
         }
     }
 }
@@ -263,8 +271,6 @@ impl Solver {
         // only judged against what the edit leaves.
         let was = self.residual_at_rest(sketch);
         sketch.snapshot_into(&mut self.before);
-        self.grabbed.clear();
-        self.grabbed.extend(held.iter().map(|&id| sketch.point(id)));
 
         edit(sketch);
         debug_assert!(
@@ -290,23 +296,26 @@ impl Solver {
         // constraints allow, which lands it as near the cursor as it may go. A
         // point held to an edge slides along it, and an arm outrun by the
         // pointer reaches as far as it can rather than freezing where it was.
-        sketch.restore(&self.asked);
-        let iterations = self.iterate(sketch, &[]);
-        let report = self.measure_taking(sketch, into, iterations);
-        // Kept only where it moved what the drag had hold of. A sketch with
-        // nowhere to go answers this attempt by putting the grabbed point back
-        // where it always had to be — and landing there again after a solve is
-        // not landing there *exactly*, so a step recorded on that would be a
-        // step to take back that nobody took. Judged in sketch units against
-        // the solver's own tolerance, because near enough to have not moved is
-        // what the rest of this call already means by equal.
-        let moved = self
-            .grabbed
-            .iter()
-            .zip(held)
-            .any(|(&was, &id)| (sketch.point(id) - was).length() > self.tolerance);
-        if moved && (report.converged || report.max_residual <= was) {
-            return report;
+        // Holding nothing is what the first attempt already did, so there is no
+        // second answer to be had — and asking again would be the same solve
+        // run twice for the same refusal.
+        if !held.is_empty() {
+            sketch.restore(&self.asked);
+            let iterations = self.iterate(sketch, &[]);
+            let report = self.measure_taking(sketch, into, iterations);
+            // Kept only where it moved the sketch at all. One with nowhere to
+            // go answers this attempt by putting everything back where it
+            // always had to be — and arriving there a second time by way of a
+            // solve is not arriving there in the same *bits*, so a caller
+            // comparing snapshots would read a step to take back that nobody
+            // took. The whole sketch rather than the held points, because what
+            // a drag moves need not be one: driving a radius holds the circle's
+            // centre, and the centre staying put says nothing about whether the
+            // circle grew.
+            let moved = !self.before.within(sketch, UNMOVED);
+            if moved && (report.converged || report.max_residual <= was) {
+                return report;
+            }
         }
 
         sketch.restore(&self.before);

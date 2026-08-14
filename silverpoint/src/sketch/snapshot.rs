@@ -37,6 +37,28 @@ impl Snapshot {
     pub(super) fn fits(&self, sketch: &Sketch) -> bool {
         self.sketch.param_count() == sketch.param_count()
     }
+
+    /// Whether `sketch` stands where this says, to within `epsilon` in every
+    /// parameter.
+    ///
+    /// The blunt cousin of the equality above, and the two answer different
+    /// questions. Equality asks whether a sketch is the one recorded, and a
+    /// caller deciding whether there is a step to take back wants exactly that.
+    /// This asks whether it has *materially* moved, which is what a caller
+    /// wants after a solve: an answer reached twice by two routes is the same
+    /// answer geometrically and rarely the same bits, so a solve that put
+    /// everything back where it belonged would otherwise read as a change.
+    ///
+    /// Every parameter, so a radius counts alongside a position — a drag that
+    /// drives one is as much a change as a drag that moves the other.
+    pub(super) fn within(&self, sketch: &Sketch, epsilon: f64) -> bool {
+        self.fits(sketch)
+            && self
+                .sketch
+                .params()
+                .zip(sketch.params())
+                .all(|(was, now)| (now - was).abs() <= epsilon)
+    }
 }
 
 // Written out for `clone_from`, as [`Sketch`]'s own is — see the note there. A

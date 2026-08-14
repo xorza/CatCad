@@ -377,6 +377,19 @@ impl Sketch {
         }
     }
 
+    /// Every parameter's current value, in index order — with the zero a
+    /// removed point's positions read, so this is as wide as the sketch and not
+    /// as wide as what survives in it.
+    ///
+    /// The `Vec`-free half of [`Sketch::write_params`], for a caller comparing
+    /// two sketches parameter by parameter rather than taking a copy of one.
+    pub(super) fn params(&self) -> impl Iterator<Item = f64> {
+        (0..self.param_count()).map(|index| {
+            self.param(index)
+                .map_or(0.0, |param| self.param_value(param))
+        })
+    }
+
     fn param_value(&self, param: Param) -> f64 {
         match param {
             Param::Point(id, axis) => axis.component(self.point(id)),
