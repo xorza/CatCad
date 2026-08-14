@@ -956,20 +956,10 @@ fn a_label_is_drawn_at_its_anchor_and_hidden_by_what_is_in_front_of_it() {
     };
     // A colour nothing else in these scenes wears, so counting it counts glyph
     // coverage and nothing else.
-    let ink = Vec3::new(1.0, 0.0, 1.0);
+    let ink = INK;
     let magenta = |frame: &Frame| {
-        let mut count = 0;
-        let mut sum = Vec2::ZERO;
-        for y in 0..frame.size.y {
-            for x in 0..frame.size.x {
-                let [r, g, b, _] = frame.pixel(UVec2::new(x, y));
-                if r > 150 && b > 150 && g < 90 {
-                    count += 1;
-                    sum += Vec2::new(x as f32, y as f32);
-                }
-            }
-        }
-        (count, sum / count.max(1) as f32)
+        let found = Ink::found_in(frame);
+        (found.count, found.centre())
     };
 
     let paint = |scene: Scene| {
@@ -1011,4 +1001,116 @@ fn a_label_is_drawn_at_its_anchor_and_hidden_by_what_is_in_front_of_it() {
     });
     let (hidden, _) = magenta(&paint(behind));
     assert_eq!(hidden, 0, "the plate did not hide the label");
+}
+
+/// A colour nothing else in these scenes wears, so finding it finds glyph
+/// coverage and nothing else.
+const INK: Vec3 = Vec3::new(1.0, 0.0, 1.0);
+
+/// Where a frame's ink landed: how much of it there is, and the box it fills.
+#[derive(Debug)]
+struct Ink {
+    count: u32,
+    min: Vec2,
+    max: Vec2,
+}
+
+impl Ink {
+    fn found_in(frame: &Frame) -> Self {
+        let mut found = Self {
+            count: 0,
+            min: Vec2::splat(f32::MAX),
+            max: Vec2::splat(f32::MIN),
+        };
+        for y in 0..frame.size.y {
+            for x in 0..frame.size.x {
+                let [r, g, b, _] = frame.pixel(UVec2::new(x, y));
+                if r > 150 && b > 150 && g < 90 {
+                    let at = Vec2::new(x as f32, y as f32);
+                    found.count += 1;
+                    found.min = found.min.min(at);
+                    found.max = found.max.max(at);
+                }
+            }
+        }
+        found
+    }
+
+    /// The centroid, which is where the run sits as a whole.
+    fn centre(&self) -> Vec2 {
+        // Only ever asked of a frame with ink in it; the guard is so a failing
+        // assertion prints a number rather than dividing by zero on the way.
+        (self.min + self.max) * 0.5
+    }
+}
+
+/// What is drawn falls inside the box a pick tests against, and fills it.
+///
+/// The invariant tying the two halves of text together. [`Text::extent`] is
+/// filled by the same layout that places the glyphs, so a run's ink and its hit
+/// box are two readings of one measurement — and a caller clicking where the
+/// type is has to land on the run.
+///
+/// This is the check the placement test above cannot make. A centroid says only
+/// that the ink is *about* where it should be, and the ways a glyph quad goes
+/// wrong all preserve that: flip the screen-space y and the run hangs above its
+/// anchor instead of below, reverse the raster bearing and every glyph sits off
+/// by its own ascent — both leave the middle of the type near the middle of the
+/// target, and both put it outside the box a click is tested against.
+#[test]
+fn the_type_lands_inside_the_box_a_click_is_tested_against() {
+    let size = UVec2::new(400, 400);
+    let mut scene = Scene::default();
+    // Anchored at its top-left, so the box runs right and down from the
+    // anchor — the corner is what makes a sign error show as a shift rather
+    // than as a symmetric spread that a centred run would hide.
+    scene
+        .texts
+        .push(Text::new(Vec3::ZERO, "10.5", 48.0).colored(INK));
+
+    let mut renderer = Renderer::new(scene);
+    *renderer.camera_mut() = Camera {
+        target: Vec3::ZERO,
+        distance: 5.0,
+        yaw: 0.0,
+        pitch: 0.0,
+        fov_y: std::f32::consts::FRAC_PI_2,
+        near_ratio: 1.0 / 5.0,
+        projection: Projection::Perspective,
+    };
+    let view = Rc::new(RefCell::new(renderer));
+    let mut pane = ScenePane { view: view.clone() };
+    let frame = capture(size, &mut pane);
+
+    let found = Ink::found_in(&frame);
+    assert!(found.count > 200, "the run drew {} px", found.count);
+
+    // The box the pick tests, in the frame's own pixels: the anchor projects to
+    // the middle of the target, and the extent is logical — which the harness
+    // paints at one to one.
+    let extent = view.borrow().scene().texts[0].extent();
+    let corner = Vec2::new(size.x as f32, size.y as f32) * 0.5;
+    // A pixel of slack either way: the ink is antialiased, so its outermost
+    // covered pixel is the one the edge falls inside.
+    assert!(
+        found.min.x >= corner.x - 1.0 && found.min.y >= corner.y - 1.0,
+        "type started at {:?}, above or left of the box at {corner:?}",
+        found.min,
+    );
+    let far = corner + extent;
+    assert!(
+        found.max.x <= far.x + 1.0 && found.max.y <= far.y + 1.0,
+        "type reached {:?}, past the box ending at {far:?}",
+        found.max,
+    );
+
+    // And it *fills* the box rather than huddling in a corner of it: four
+    // glyphs laid left to right span most of the width they were measured at.
+    let drawn = found.max - found.min;
+    assert!(
+        drawn.x > extent.x * 0.8,
+        "the run spans {} px of the {} it measured",
+        drawn.x,
+        extent.x,
+    );
 }
