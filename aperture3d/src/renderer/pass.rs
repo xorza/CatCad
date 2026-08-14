@@ -138,12 +138,18 @@ impl Pass {
     }
 
     /// Refill from the flattened solids: one triangle list, drawn once.
+    ///
+    /// Does nothing while the list stands as the pass already has it, which the
+    /// list is what answers for — see [`Triangles::take_dirty`].
     pub(super) fn upload_mesh(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        triangles: &Triangles,
+        triangles: &mut Triangles,
     ) {
+        if !triangles.take_dirty() {
+            return;
+        }
         self.records
             .write(device, queue, bytemuck::cast_slice(&triangles.vertices));
         self.indices

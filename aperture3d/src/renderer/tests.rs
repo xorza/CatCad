@@ -107,34 +107,43 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     scene.points.push(Point::new(Vec3::X));
     let mut renderer = Renderer::new(scene);
 
-    // Everything was written to build it, so everything is owed once.
-    let first = renderer.refresh(false);
-    assert!(first.meshes);
-    assert!(first.curves.ordinary && first.rings.ordinary && first.points.ordinary);
+    // Everything was written to build it, so everything is owed once. Asking
+    // takes the mark, which is what the second refresh below then relies on.
+    renderer.refresh(false);
+    let cpu = &mut renderer.cpu;
+    assert!(cpu.meshes.take_dirty());
+    assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(1));
+    assert_eq!(cpu.rings.ordinary_to_upload().map(<[_]>::len), Some(1));
+    assert_eq!(cpu.points.ordinary_to_upload().map(<[_]>::len), Some(1));
+    // Empty, and owed anyway: a pass left holding what was lit last time would
+    // go on drawing it.
+    assert_eq!(cpu.curves.lit_to_upload().map(<[_]>::len), Some(0));
 
     // And nothing twice. A still frame is the common case, not the odd one.
-    let second = renderer.refresh(false);
-    assert!(!second.meshes);
-    assert!(!second.curves.ordinary && !second.rings.ordinary && !second.points.ordinary);
-    assert!(
-        !second.curves.lit && !second.rings.lit && !second.points.lit,
-        "nothing was relit either"
-    );
+    renderer.refresh(false);
+    let cpu = &mut renderer.cpu;
+    assert!(!cpu.meshes.take_dirty());
+    assert!(cpu.curves.ordinary_to_upload().is_none());
+    assert!(cpu.rings.ordinary_to_upload().is_none());
+    assert!(cpu.points.ordinary_to_upload().is_none());
+    assert!(cpu.curves.lit_to_upload().is_none(), "nothing was relit");
 
     // One kind written, one kind owed. This is what `scene_mut` costs: reaching
-    // for the whole scene and moving a stroke is a stroke's worth of work, and
+    // for the whole scene and adding a stroke is a stroke's worth of work, and
     // the solids beside it are not re-flattened.
     renderer
         .scene_mut()
         .curves
         .push(Curve::segment(Vec3::ZERO, Vec3::Y));
-    let third = renderer.refresh(false);
-    assert!(third.curves.ordinary);
+    renderer.refresh(false);
+    let cpu = &mut renderer.cpu;
+    assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(2));
     assert!(
-        !third.meshes,
+        !cpu.meshes.take_dirty(),
         "adding a stroke asked for every mesh to be flattened again"
     );
-    assert!(!third.rings.ordinary && !third.points.ordinary);
+    assert!(cpu.rings.ordinary_to_upload().is_none());
+    assert!(cpu.points.ordinary_to_upload().is_none());
 }
 
 #[test]

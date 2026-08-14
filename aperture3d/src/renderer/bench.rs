@@ -250,7 +250,8 @@ pub fn alloc_bench() {
             tag: Tag::new(lit),
             look: Highlight::new(Vec3::Y),
         });
-        black_box(renderer.refresh(true));
+        renderer.refresh(true);
+        black_box(&renderer.cpu);
     });
 
     // What a scene edit costs: every kind re-flattened from the scene. Marked
@@ -262,7 +263,7 @@ pub fn alloc_bench() {
         scene.curves.mark();
         scene.rings.mark();
         scene.points.mark();
-        black_box(renderer.refresh(false));
+        renderer.refresh(false);
         black_box(&renderer.cpu);
     });
 

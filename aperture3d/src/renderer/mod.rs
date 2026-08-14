@@ -24,7 +24,7 @@ pub(crate) mod retained;
 pub(crate) mod target;
 pub(crate) mod uniforms;
 
-use crate::renderer::cpu::{Cpu, Owed};
+use crate::renderer::cpu::Cpu;
 use crate::renderer::gpu::{Attachments, Gpu};
 use crate::renderer::uniforms::Uniforms;
 
@@ -154,31 +154,31 @@ impl Renderer {
         self.relight = true;
     }
 
-    /// Bring the CPU mirror up to date with the scene, and say what that now
-    /// owes the GPU.
+    /// Bring the CPU mirror up to date with the scene.
     ///
-    /// `relight` is a change of *which* primitives are lit, which can happen
-    /// with the scene untouched — a pointer crossing a drawing does exactly
-    /// that. Every other answer comes off the batches themselves, one mark
-    /// apiece, so a marker moving leaves the strokes, the rims and the solids
-    /// alone.
+    /// Answers nothing, and nothing here has to. Each batch says whether it was
+    /// written to and each buffer flattened from one says whether it was
+    /// rewritten, so what the GPU is owed is asked at the point it is acted on
+    /// rather than carried there.
+    ///
+    /// `relight` is the one thing no buffer can answer for: which primitives are
+    /// lit can change with the scene untouched, which is what a pointer crossing
+    /// a drawing does.
     ///
     /// The scene is borrowed mutably to be *read*: taking a batch's mark is what
     /// clears it, and a mark left behind would re-flatten the same list every
     /// frame for the rest of the run.
-    fn refresh(&mut self, relight: bool) -> Owed {
+    fn refresh(&mut self, relight: bool) {
         let Self {
             scene,
             highlights,
             cpu,
             ..
         } = self;
-        Owed {
-            meshes: cpu.meshes.refresh(&mut scene.objects),
-            curves: cpu.curves.refresh(&mut scene.curves, highlights, relight),
-            rings: cpu.rings.refresh(&mut scene.rings, highlights, relight),
-            points: cpu.points.refresh(&mut scene.points, highlights, relight),
-        }
+        cpu.meshes.refresh(&mut scene.objects);
+        cpu.curves.refresh(&mut scene.curves, highlights, relight);
+        cpu.rings.refresh(&mut scene.rings, highlights, relight);
+        cpu.points.refresh(&mut scene.points, highlights, relight);
     }
 }
 
@@ -198,21 +198,18 @@ impl GpuPaint for Renderer {
         // answers for itself, so a hover over a marker no longer rebuilds the
         // highlights of the strokes and rims it passed over.
         let relight = std::mem::take(&mut self.relight);
-        let owed = self.refresh(relight);
+        self.refresh(relight);
 
         // Split so the two mirrors are borrowed apart: the uploads read one
-        // while writing the other.
+        // while writing the other. Unconditional, all four — each takes what it
+        // is owed and does nothing when that is nothing.
         let Self { cpu, gpu, .. } = self;
         let gpu = gpu.as_mut().expect("init runs before paint");
-        if owed.meshes {
-            gpu.meshes.upload_mesh(ctx.device, ctx.queue, &cpu.meshes);
-        }
-        gpu.curves
-            .upload(ctx.device, ctx.queue, &cpu.curves, owed.curves);
-        gpu.rings
-            .upload(ctx.device, ctx.queue, &cpu.rings, owed.rings);
-        gpu.points
-            .upload(ctx.device, ctx.queue, &cpu.points, owed.points);
+        gpu.meshes
+            .upload_mesh(ctx.device, ctx.queue, &mut cpu.meshes);
+        gpu.curves.upload(ctx.device, ctx.queue, &mut cpu.curves);
+        gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings);
+        gpu.points.upload(ctx.device, ctx.queue, &mut cpu.points);
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
         }

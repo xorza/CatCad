@@ -2,7 +2,7 @@
 
 use crate::overlay::Overlay;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::cpu::{Rebuilt, Records};
+use crate::renderer::cpu::Records;
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{CurveInstance, GpuVertex, PointInstance, RingInstance};
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
@@ -121,19 +121,21 @@ impl Passes {
     }
 
     /// Hand the GPU whatever the last refresh rewrote, and nothing it did not.
+    ///
+    /// Asks the records rather than being told: each buffer says whether it was
+    /// rewritten and hands itself over in the same breath, so a still frame
+    /// reaches the queue for neither.
     pub(super) fn upload<O: Overlay>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        records: &Records<O>,
-        rebuilt: Rebuilt,
+        records: &mut Records<O>,
     ) {
-        if rebuilt.ordinary {
-            self.ordinary
-                .upload_instances(device, queue, &records.ordinary);
+        if let Some(instances) = records.ordinary_to_upload() {
+            self.ordinary.upload_instances(device, queue, instances);
         }
-        if rebuilt.lit {
-            self.lit.upload_instances(device, queue, &records.lit);
+        if let Some(instances) = records.lit_to_upload() {
+            self.lit.upload_instances(device, queue, instances);
         }
     }
 }

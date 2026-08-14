@@ -36,31 +36,6 @@ pub(super) struct Cpu {
     pub(super) points: Records<Point>,
 }
 
-/// What a refresh rewrote, and so what the GPU is owed before the next draw.
-///
-/// One field per thing that uploads on its own, because they are edited on
-/// completely different schedules: markers move as the solver runs while the
-/// solids they sit on never change, and one flag for the whole scene would
-/// re-upload every triangle in the model to move one disc.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Owed {
-    pub(super) meshes: bool,
-    pub(super) curves: Rebuilt,
-    pub(super) rings: Rebuilt,
-    pub(super) points: Rebuilt,
-}
-
-/// Which of one overlay kind's two record buffers a refresh rewrote.
-///
-/// Named for the buffers rather than the reasons, and named the same as the
-/// [`Records`] fields it answers about and the
-/// [`Passes`](crate::renderer::gpu::Passes) fields they end up in.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Rebuilt {
-    pub(super) ordinary: bool,
-    pub(super) lit: bool,
-}
-
 /// What one overlay kind flattens to: the records it ships, and the records a
 /// highlight over it ships.
 ///
@@ -68,8 +43,12 @@ pub(super) struct Rebuilt {
 /// of a kind are only ever touched together, and keeping them apart is what used
 /// to mean five separate triples.
 ///
-/// It carries no dirty flag of its own. What has changed is the scene's
-/// business, and a [`Batch`](crate::Batch) already answers for itself.
+/// Each of the two says for itself when it was rewritten, the way the
+/// [`Batch`](crate::Batch) upstream of them does — so nothing has to carry the
+/// answer from where it is known to where it is acted on. Two marks rather than
+/// one because the two are rewritten on different occasions: a pointer crossing
+/// a drawing rewrites `lit` and leaves `ordinary` exactly as it was, and that
+/// frame is the one worth not paying for.
 #[derive(Debug)]
 pub(super) struct Records<O: Overlay> {
     /// The kind drawn as itself.
@@ -77,33 +56,39 @@ pub(super) struct Records<O: Overlay> {
     /// The same records again in a highlight's look, for whatever a caller has
     /// singled out — and empty whenever nothing is lit.
     pub(super) lit: Vec<O::Record>,
+    /// Whether each has been rewritten since the GPU was handed it. Private,
+    /// because the only honest way to read one is to take it — see
+    /// [`Records::ordinary_to_upload`].
+    ordinary_dirty: bool,
+    lit_dirty: bool,
 }
 
 impl<O: Overlay> Default for Records<O> {
     /// Hand-written because deriving would demand `O: Default`, which is a
     /// claim about primitives that nothing here needs.
+    ///
+    /// Clean, like an empty [`Batch`](crate::Batch): there is nothing in either
+    /// buffer, and nothing in the pass it feeds either.
     fn default() -> Self {
         Self {
             ordinary: Vec::new(),
             lit: Vec::new(),
+            ordinary_dirty: false,
+            lit_dirty: false,
         }
     }
 }
 
 impl<O: Overlay> Records<O> {
-    /// Bring both buffers up to date with `batch`, and say which moved.
+    /// Bring both buffers up to date with `batch`.
     ///
     /// Takes the batch's mark as it goes, which is the whole of how this knows
-    /// the scene changed. `relight` is the caller's own flag alongside it: what
-    /// is lit can change without the scene changing at all, which is what a
-    /// pointer moving across a drawing does. The scene changing forces both,
-    /// since an edit can add or remove whatever a tag named.
-    pub(super) fn refresh(
-        &mut self,
-        batch: &mut Batch<O>,
-        highlights: &[Lit],
-        relight: bool,
-    ) -> Rebuilt {
+    /// the scene changed, and leaves its own for whoever uploads. `relight` is
+    /// the caller's own flag alongside it: what is lit can change without the
+    /// scene changing at all, which is what a pointer moving across a drawing
+    /// does. The scene changing forces both, since an edit can add or remove
+    /// whatever a tag named.
+    pub(super) fn refresh(&mut self, batch: &mut Batch<O>, highlights: &[Lit], relight: bool) {
         let moved = batch.take_dirty();
         let items: &[O] = batch;
         if moved {
@@ -113,6 +98,7 @@ impl<O: Overlay> Records<O> {
             for item in items {
                 self.ordinary.extend(item.records());
             }
+            self.ordinary_dirty = true;
         }
         if moved || relight {
             // How many there will be is not known before the walk — it depends
@@ -126,11 +112,26 @@ impl<O: Overlay> Records<O> {
                         .extend(item.records().map(|record| record.highlighted(look)));
                 }
             }
+            self.lit_dirty = true;
         }
-        Rebuilt {
-            ordinary: moved,
-            lit: moved || relight,
-        }
+    }
+
+    /// The ordinary records if they have been rewritten since this last handed
+    /// them over, and `None` if they have not.
+    ///
+    /// Hands back the buffer rather than a flag about it, so there is no reading
+    /// one and uploading the other, and no uploading a buffer nobody rewrote.
+    pub(super) fn ordinary_to_upload(&mut self) -> Option<&[O::Record]> {
+        std::mem::take(&mut self.ordinary_dirty).then(|| &self.ordinary[..])
+    }
+
+    /// The highlighted records, on the same terms.
+    ///
+    /// Answers `Some` with an empty slice where the last thing lit was put out:
+    /// emptying is a rewrite like any other, and a pass left holding the old
+    /// records would go on drawing them.
+    pub(super) fn lit_to_upload(&mut self) -> Option<&[O::Record]> {
+        std::mem::take(&mut self.lit_dirty).then(|| &self.lit[..])
     }
 }
 
@@ -150,19 +151,32 @@ fn look_of(highlights: &[Lit], tag: Option<Tag>) -> Option<Highlight> {
 pub(super) struct Triangles {
     pub(super) vertices: Vec<GpuVertex>,
     pub(super) indices: Vec<u32>,
+    /// Whether the list has been rewritten since the GPU was handed it. One
+    /// where [`Records`] has two, because the vertices and the indices are
+    /// uploaded together and there is no rewriting one without the other.
+    dirty: bool,
 }
 
 impl Triangles {
-    /// Bring the list up to date with `objects`, and say whether it moved.
+    /// Bring the list up to date with `objects`.
     ///
-    /// Takes the batch's mark, like [`Records::refresh`] — solids answer for
-    /// their own edits the same way strokes do.
-    pub(super) fn refresh(&mut self, objects: &mut Batch<Object>) -> bool {
-        let moved = objects.take_dirty();
-        if moved {
+    /// Takes the batch's mark and leaves its own, like [`Records::refresh`] —
+    /// solids answer for their own edits the same way strokes do.
+    pub(super) fn refresh(&mut self, objects: &mut Batch<Object>) {
+        if objects.take_dirty() {
             self.flatten(objects);
+            self.dirty = true;
         }
-        moved
+    }
+
+    /// Whether the list has been rewritten since this last said so, clearing the
+    /// mark as it answers.
+    ///
+    /// A bare flag where [`Records`] hands back the buffer, because there is
+    /// nothing to hand back but the whole of `self` — a pass takes both vectors
+    /// or neither.
+    pub(super) fn take_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.dirty)
     }
 
     /// World-space triangle soup for every object handed in.
