@@ -324,5 +324,38 @@ impl Renderer {
     }
 }
 
+/// What a harness painting whole frames needs, and an application never does.
+///
+/// The tests and the allocation bench both drive a real device, and both need
+/// the same thing to do it with — the `bench` feature carries `internals`, so
+/// one gate reaches both.
+#[cfg(any(test, feature = "internals"))]
+pub(crate) mod internals {
+    use crate::renderer::Renderer;
+    use palantir::{App, Configure, GpuPaint, GpuView, Sizing, Ui, WindowToken};
+    use std::cell::RefCell;
+    use std::rc::Rc;
+
+    /// A pane that draws one scene and does nothing else.
+    ///
+    /// A [`Renderer`] is a [`GpuPaint`] rather than an [`App`], so painting one
+    /// at all needs something to show a [`GpuView`] from — this is the least of
+    /// that.
+    #[derive(Debug)]
+    pub(crate) struct ScenePane {
+        pub(crate) view: Rc<RefCell<Renderer>>,
+    }
+
+    impl App for ScenePane {
+        fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
+            let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
+            GpuView::new(paint)
+                .auto_id()
+                .size((Sizing::FILL, Sizing::FILL))
+                .show(ui);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

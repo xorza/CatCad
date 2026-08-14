@@ -44,6 +44,7 @@ use crate::mesh::Mesh;
 use crate::object::Object;
 use crate::point::Point;
 use crate::renderer::Renderer;
+use crate::renderer::internals::ScenePane;
 use crate::ring::Ring;
 use crate::scene::Scene;
 use crate::styled::Styled;
@@ -51,9 +52,7 @@ use crate::tag::Tag;
 use crate::viewport::Viewport;
 use common::AllocBench;
 use glam::{UVec2, Vec2, Vec3};
-use palantir::{
-    App, Configure, GpuPaint, GpuView, HeadlessGpu, OffscreenHost, Sizing, Ui, WindowToken,
-};
+use palantir::{HeadlessGpu, OffscreenHost};
 use std::cell::RefCell;
 use std::hint::black_box;
 use std::rc::Rc;
@@ -141,25 +140,6 @@ fn scene() -> Scene {
             .push(Point::new(at).tagged(Tag::new(21 + i as u64)));
     }
     scene
-}
-
-/// A pane that draws one scene and does nothing else.
-///
-/// A `Renderer` is a [`GpuPaint`], not an [`App`], so painting it at all needs
-/// something to show a [`GpuView`] from — this is the least of that.
-#[derive(Debug)]
-struct ScenePane {
-    view: Rc<RefCell<Renderer>>,
-}
-
-impl App for ScenePane {
-    fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
-        let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
-        GpuView::new(paint)
-            .auto_id()
-            .size((Sizing::FILL, Sizing::FILL))
-            .show(ui);
-    }
 }
 
 /// Whole frames through a real device, so what `Renderer::paint` costs on top

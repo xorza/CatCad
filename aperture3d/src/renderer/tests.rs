@@ -7,14 +7,15 @@ use crate::object::Object;
 use crate::point::Point;
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
+use crate::renderer::internals::ScenePane;
 use crate::renderer::uniforms::Uniforms;
 use crate::ring::Ring;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::Text;
 use glam::{Mat4, Vec3};
+use palantir::OffscreenHost;
 use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
-use palantir::{App, Configure, GpuView, OffscreenHost, Sizing, Ui, WindowToken};
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -598,24 +599,6 @@ fn every_pipeline_builds() {
         &built.texts.lit,
     ] {
         assert_eq!(pass.instances, 0, "a fresh pass has something in it");
-    }
-}
-
-/// A pane that draws one scene and does nothing else — a `Renderer` is a
-/// [`GpuPaint`] rather than an [`App`], so painting one at all needs something
-/// to show a [`GpuView`] from.
-#[derive(Debug)]
-struct ScenePane {
-    view: Rc<RefCell<Renderer>>,
-}
-
-impl App for ScenePane {
-    fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
-        let paint: Rc<RefCell<dyn GpuPaint>> = self.view.clone();
-        GpuView::new(paint)
-            .auto_id()
-            .size((Sizing::FILL, Sizing::FILL))
-            .show(ui);
     }
 }
 

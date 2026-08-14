@@ -3,7 +3,7 @@
 use crate::batch::Batch;
 use crate::highlight::{Highlight, Lit};
 use crate::object::Object;
-use crate::primitive::Flatten;
+use crate::primitive::{Flatten, Primitive};
 use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
 use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, Instance, PointInstance, RingInstance,
@@ -121,7 +121,7 @@ impl TextRecords {
             for text in texts.iter() {
                 // Only what is lit is laid out again, so a pointer crossing a
                 // drawing full of labels reshapes the one it stopped on.
-                let Some(look) = look_of(highlights, text.tag) else {
+                let Some(look) = look_of(highlights, text.tag()) else {
                     continue;
                 };
                 let from = lit.len();
