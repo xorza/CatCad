@@ -712,8 +712,16 @@ fn point_on_segment_slides_onto_the_line_without_moving_it() {
     assert_eq!(freedoms.degrees_of_freedom(), 1);
 }
 
+/// A sketch nothing has been said about, with and without geometry in it.
+///
+/// The half with geometry is the one that bites: there is no Jacobian to
+/// eliminate, so the freedoms cannot be read off a rank at all and every
+/// parameter a solve could move has to come back free. Answering it the other
+/// way — nothing to eliminate, therefore nothing undecided — is exactly
+/// backwards, and reads as a fully constrained drawing that refuses to be
+/// dragged.
 #[test]
-fn an_empty_sketch_is_solved_and_fully_determined() {
+fn a_sketch_with_no_constraints_is_solved_and_everything_it_can_move_is_free() {
     let mut sketch = Sketch::default();
     let mut freedoms = Freedoms::default();
     let report = Solver::default().solve(&mut sketch, &mut freedoms);
@@ -727,6 +735,31 @@ fn an_empty_sketch_is_solved_and_fully_determined() {
     );
     assert_eq!(freedoms.degrees_of_freedom(), 0);
     assert_eq!(freedoms.redundant_equations(), 0);
+
+    // Five parameters, of which the pinned point's two never move: two
+    // coordinates and one radius are left, and nothing states a thing about any
+    // of them.
+    let anchor = sketch.add_point(DVec2::ZERO);
+    sketch.fix(anchor);
+    let loose = sketch.add_point(DVec2::new(1.0, 2.0));
+    let ring = sketch.add_circle(loose, 0.5);
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
+    assert_eq!(
+        report,
+        SolveReport {
+            converged: true,
+            iterations: 0,
+            max_residual: 0.0,
+        }
+    );
+    assert_eq!(freedoms.degrees_of_freedom(), 3);
+    assert_eq!(freedoms.redundant_equations(), 0);
+    assert_eq!(freedoms.point(anchor), Freedom::Determined);
+    assert_eq!(freedoms.point(loose), Freedom::Free);
+    assert_eq!(freedoms.radius(ring), Freedom::Free);
+    // And nothing moved: a solve with no equations has no step to take.
+    assert_eq!(sketch.point(loose), DVec2::new(1.0, 2.0));
+    assert_eq!(sketch.circle(ring).radius, 0.5);
 }
 
 /// Which geometry the constraints pin down, and which they leave something to
@@ -795,6 +828,31 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
     assert_eq!(freedoms.point(loose[0]), Freedom::Determined, "the anchor");
     // Its y is the anchor's and its x is anyone's guess.
     assert_eq!(freedoms.point(loose[1]), Freedom::Partly);
+
+    // The same one freedom released the other way about. Not a mirror of the
+    // above as far as the elimination is concerned: there the free coordinate
+    // is the column the single row pivots on last, and here the row pivots
+    // first and the free coordinate is what is left over once every row has.
+    // Both have to come back as one direction to go in.
+    let mut tall = Sketch::default();
+    let upright = [
+        tall.add_point(DVec2::ZERO),
+        tall.add_point(DVec2::new(0.0, 5.0)),
+    ];
+    tall.fix(upright[0]);
+    tall.add_constraint(Constraint::Vertical {
+        a: upright[0],
+        b: upright[1],
+    });
+    assert!(solver.solve(&mut tall, &mut freedoms).converged);
+    assert_eq!(
+        freedoms.point(upright[0]),
+        Freedom::Determined,
+        "the anchor"
+    );
+    // Its x is the anchor's and its y is anyone's guess.
+    assert_eq!(freedoms.point(upright[1]), Freedom::Partly);
+    assert_eq!(freedoms.degrees_of_freedom(), 1);
 
     // The same one freedom, spent on a curve instead of a line. Both of its
     // coordinates change as it goes round, and it is no freer for that — a

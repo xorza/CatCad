@@ -62,6 +62,8 @@ pub(super) struct Workspace {
     /// it.
     pub(super) null: Vec<f64>,
     /// The columns that took no pivot, which are the null space's own axes.
+    /// Filled by [`Workspace::rank`] beside [`Workspace::pivots`], the other
+    /// half of the same partition.
     pub(super) free: Vec<usize>,
     /// Whether the solve may move each parameter, one entry per parameter.
     ///
@@ -117,15 +119,21 @@ impl Workspace {
     /// Rank of the Jacobian over its free columns — the number of independent
     /// constraints actually acting on the sketch.
     ///
-    /// Leaves the elimination in row echelon form and `pivots` naming the
-    /// column each of its rows turns on, which is what
-    /// [`Workspace::null_space`] carries on from and what nothing else looks
-    /// at. So the answer is always `pivots.len()`, and callers that need both
-    /// take it from here rather than keeping their own count.
+    /// Leaves the elimination in row echelon form and the movable columns split
+    /// in two: `pivots` naming those a row turned on, `free` naming those none
+    /// did. Both are decided as the walk reaches each column, so neither has to
+    /// be searched for in the other afterwards. That is what
+    /// [`Workspace::null_space`] carries on from and what nothing else looks at.
+    /// So the answer is always `pivots.len()`, and callers that need both take
+    /// it from here rather than keeping their own count.
     pub(super) fn rank(&mut self, n: usize) -> usize {
         self.pivots.clear();
         self.origin.clear();
+        self.free.clear();
         if n == 0 || self.jacobian.is_empty() {
+            // Nothing to eliminate, so every column the sketch can move is one
+            // it is still free to choose.
+            self.free.extend((0..n).filter(|&col| self.movable[col]));
             return 0;
         }
         self.elimination.clear();
@@ -139,7 +147,13 @@ impl Workspace {
         let tolerance = RANK_TOLERANCE * scale;
         let mut rank = 0;
         for col in 0..n {
-            if !self.movable[col] || rank == m {
+            if !self.movable[col] {
+                continue;
+            }
+            // Every row has pivoted already, so nothing is left to decide this
+            // column or any after it.
+            if rank == m {
+                self.free.push(col);
                 continue;
             }
             let mut pivot = rank;
@@ -149,6 +163,7 @@ impl Workspace {
                 }
             }
             if a[pivot * n + col].abs() <= tolerance {
+                self.free.push(col);
                 continue;
             }
             if pivot != rank {
@@ -195,9 +210,6 @@ impl Workspace {
     /// no freedom to have.
     pub(super) fn null_space(&mut self, n: usize) -> usize {
         let rank = self.rank(n);
-        self.free.clear();
-        self.free
-            .extend((0..n).filter(|&col| self.movable[col] && !self.pivots.contains(&col)));
 
         let a = &mut self.elimination;
         // Backwards, so each row is cleared of every pivot below it before it
