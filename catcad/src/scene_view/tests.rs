@@ -800,6 +800,77 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     );
 }
 
+/// Clicking *near* an edge puts the new point on the edge, and leaves the edge
+/// exactly where it was.
+///
+/// Which of the two moves is the whole of it. A click reaches six pixels, so
+/// one that lit an edge landed a little off it, and a constraint tying them is
+/// exact — so something must give. Left to the solve, the answer is whichever
+/// geometry *can* move: aimed at the demo's arm, which is free, the arm came up
+/// to meet the cursor. That is backwards. Clicking a thing is a statement about
+/// what is being drawn, not an invitation to move what was drawn already.
+///
+/// The arm rather than the frame, because the frame is determined and could not
+/// move whatever the solve wanted — it would pass this while the bug stood.
+#[test]
+fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
+    let mut raised = Raised::new();
+    raised.frame();
+
+    // The far bar of the arm, which is free at both ends.
+    let (edge, bar) = raised
+        .document
+        .drawing()
+        .sketch()
+        .segments()
+        .last()
+        .expect("the demo draws edges");
+    let plane = raised.document.drawing().plane();
+    let ends = [bar.a, bar.b].map(|id| raised.document.drawing().sketch().point(id));
+    let was: Vec<DVec2> = raised
+        .document
+        .drawing()
+        .sketch()
+        .points()
+        .map(|(_, at)| at)
+        .collect();
+
+    // Three pixels off the middle of it, square to it on screen: near enough to
+    // light, and nowhere near on it.
+    let on_screen = ends.map(|end| raised.cursor_on(plane.point(end).as_vec3()));
+    let across = (on_screen[1] - on_screen[0]).normalize().perp();
+    let cursor = (on_screen[0] + on_screen[1]) / 2.0 + across * 3.0;
+    assert_eq!(
+        raised.named_at(cursor),
+        Some(Named::Segment(edge)),
+        "the cursor did not land near the bar it was aimed at"
+    );
+
+    raised.tool = Tool::Point;
+    raised.harness.click_at(cursor);
+    raised.frame();
+
+    // The bar has not budged — nor has anything else that was already drawn.
+    let sketch = raised.document.drawing().sketch();
+    let now: Vec<DVec2> = sketch.points().map(|(_, at)| at).collect();
+    for (index, (before, after)) in was.iter().zip(&now).enumerate() {
+        assert!(
+            (*after - *before).length() < 1e-9,
+            "point {index} moved {} to meet a click that was about the new point",
+            (*after - *before).length()
+        );
+    }
+
+    // And the new point is on the bar's line, which is what it was clicked onto.
+    let placed = *now.last().expect("a point was just added");
+    let (a, b) = (sketch.point(bar.a), sketch.point(bar.b));
+    let off = (b - a).perp_dot(placed - a) / (b - a).length();
+    assert!(
+        off.abs() < 1e-9,
+        "the new point sits {off} off the edge it was clicked onto"
+    );
+}
+
 /// A half-drawn line is a stroke on screen and nothing in the document, hanging
 /// from where it started to wherever the cursor is.
 ///

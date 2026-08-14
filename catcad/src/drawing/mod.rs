@@ -1,7 +1,7 @@
 //! The sketch being edited, where it sits in the world, and what it draws.
 
 use aperture::{HitAt, Motion, Overlays};
-use glam::Vec3;
+use glam::{DVec2, Vec3};
 use silverpoint::{
     CircleId, Constraint, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot, SolveReport,
     Solver,
@@ -104,14 +104,15 @@ impl Drawing {
     ///
     /// The third shape of edit, between the two above. A drag holds what the
     /// pointer has and asks the constraints to accommodate it; a measure asks
-    /// them nothing. This asks them everything, holding nothing: an addition
-    /// lands where a click did, which is a few pixels from what it was aimed at
-    /// and exact only after a solve — a point put on an edge has to *reach* the
-    /// edge.
+    /// them nothing. This asks them everything, holding nothing.
     ///
-    /// Nothing held, unlike a drag, because there is nothing yet to hold: what
-    /// was added is new, and what was there was already satisfied, so a solve
-    /// from here moves the new geometry and leaves the rest where it stands.
+    /// It ought to have nothing to do. What is added arrives already satisfying
+    /// what it states — a point put on an edge is *placed* on the edge, by
+    /// [`on_sketch`] — and what was there was satisfied before, so the solve
+    /// takes no step and nothing moves. That is what a solve is for here: it is
+    /// the check, not the fix. A future addition that could not place itself
+    /// exactly would be settled by it, and until then it costs one assembly to
+    /// say that nothing needed settling.
     fn solved(&mut self, solver: &mut Solver, edit: impl FnOnce(&mut Sketch)) {
         self.settled(|sketch, freedoms| {
             edit(sketch);
@@ -170,16 +171,17 @@ impl Drawing {
         });
     }
 
-    /// Where `anchor` sits in the world.
+    /// Where `anchor` sits in the world — on whatever it landed on, which is
+    /// where a point built from it will go.
     ///
-    /// A point already drawn is wherever the solver last left it, which is not
-    /// where the click that named it landed — so this is asked afresh rather
-    /// than remembered, and a rubber band from it follows the geometry.
+    /// Asked afresh rather than remembered, so a rubber band hanging off a
+    /// point the solver has moved follows it there. And snapped, so the band
+    /// shows the place the second click will actually commit rather than the
+    /// pixel the first one happened to hit.
     pub(crate) fn at(&self, anchor: Anchor) -> Vec3 {
-        match anchor {
-            Anchor::On(id) => self.plane.point(self.sketch.point(id)).as_vec3(),
-            Anchor::OnSegment { at, .. } | Anchor::OnCircle { at, .. } | Anchor::At(at) => at,
-        }
+        self.plane
+            .point(on_sketch(&self.sketch, self.plane, anchor))
+            .as_vec3()
     }
 
     /// Whether the drawing still holds what `anchor` is built on.
@@ -395,43 +397,75 @@ impl Revision {
 /// Settled once, when the press lands. Where on a primitive it was grabbed is
 /// what tells moving a circle from resizing it, and asking again mid-drag
 /// would be asking of geometry that has since moved.
-/// The point `anchor` names, made where it names bare plane.
+/// Where on the sketch `anchor` names — *on* whatever it landed on, not merely
+/// near it.
+///
+/// The pointer reaches a few pixels and a constraint is exact, so a click that
+/// lit an edge is a little off the edge. Which of the two moves to close that
+/// gap is the whole of what this decides: snapping the click onto the edge
+/// makes it the new point, and leaves the drawing that was already there
+/// exactly where it stood. Left unsnapped, the solve would answer the same
+/// constraint by moving whichever geometry *could* move — nudging a free edge
+/// to meet the cursor, which is the opposite of what clicking on it means.
+fn on_sketch(sketch: &Sketch, plane: Plane, anchor: Anchor) -> DVec2 {
+    match anchor {
+        Anchor::On(id) => sketch.point(id),
+        Anchor::OnSegment { segment, at } => {
+            let edge = sketch.segment(segment);
+            let (from, along) = (
+                sketch.point(edge.a),
+                sketch.point(edge.b) - sketch.point(edge.a),
+            );
+            let click = plane.flatten(at.as_dvec3());
+            // The foot of the perpendicular, on the edge's own infinite line —
+            // which is what `PointOnSegment` says and all it says. An edge whose
+            // ends have met has no line to speak of, and one of them will do.
+            let reach = along.length_squared();
+            if reach > 0.0 {
+                from + along * ((click - from).dot(along) / reach)
+            } else {
+                from
+            }
+        }
+        Anchor::OnCircle { circle, at } => {
+            let ring = sketch.circle(circle);
+            let middle = sketch.point(ring.center);
+            let click = plane.flatten(at.as_dvec3());
+            // Straight out from the centre through the click. A click *at* the
+            // centre points nowhere, so any direction will do — what matters is
+            // landing on the rim.
+            middle + (click - middle).normalize_or(DVec2::X) * ring.radius
+        }
+        Anchor::At(world) => plane.flatten(world.as_dvec3()),
+    }
+}
+
+/// The point `anchor` names, made where it names bare plane and held to
+/// whatever else it names.
 ///
 /// A free fn rather than a method, because it is wanted inside the closure the
 /// edit runs in: the drawing has lent its sketch out for the length of that,
 /// and cannot be asked anything while it is gone.
 fn anchored(sketch: &mut Sketch, plane: Plane, anchor: Anchor) -> PointId {
-    let (world, held) = match anchor {
-        // Already a point, so there is nothing to make and nothing to say: two
-        // pieces of geometry sharing one point are held together by being the
-        // same point, which no constraint could state more strongly.
-        Anchor::On(id) => return id,
-        Anchor::OnSegment { segment, at } => (at, Some(Tie::Segment(segment))),
-        Anchor::OnCircle { circle, at } => (at, Some(Tie::Circle(circle))),
-        Anchor::At(world) => (world, None),
-    };
-    // Where the click landed, which is near what it landed on rather than on
-    // it: the pointer reaches a few pixels and a constraint is exact. The solve
-    // that follows is what closes that gap, and it is why adding geometry
-    // solves rather than only measuring.
-    let point = sketch.add_point(plane.flatten(world.as_dvec3()));
-    match held {
-        Some(Tie::Segment(segment)) => {
+    // Already a point, so there is nothing to make and nothing to say: two
+    // pieces of geometry sharing one point are held together by being the same
+    // point, which no constraint could state more strongly.
+    if let Anchor::On(id) = anchor {
+        return id;
+    }
+    // On what it landed on, so the constraint below is satisfied the moment it
+    // is stated and the solve that follows has nothing to negotiate.
+    let point = sketch.add_point(on_sketch(sketch, plane, anchor));
+    match anchor {
+        Anchor::OnSegment { segment, .. } => {
             sketch.add_constraint(Constraint::PointOnSegment { point, segment });
         }
-        Some(Tie::Circle(circle)) => {
+        Anchor::OnCircle { circle, .. } => {
             sketch.add_constraint(Constraint::PointOnCircle { point, circle });
         }
-        None => {}
+        Anchor::On(_) | Anchor::At(_) => {}
     }
     point
-}
-
-/// What a new point is held to, once it is known which of the two it is.
-#[derive(Debug, Clone, Copy)]
-enum Tie {
-    Segment(SegmentId),
-    Circle(CircleId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
