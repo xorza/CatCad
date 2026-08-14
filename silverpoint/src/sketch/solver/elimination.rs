@@ -90,9 +90,8 @@ impl Elimination {
         );
         let params = sketch.params();
         for (id, _) in sketch.points() {
-            // A point's two parameters are adjacent, x first.
-            let x = params.of_point(id);
-            into.set_point(id, self.spread(x, x + 1));
+            let [x, y] = params.of_point(id);
+            into.set_point(id, self.spread(x, y));
         }
         for (id, _) in sketch.circles() {
             into.set_radius(id, self.travel(params.of_radius(id)));

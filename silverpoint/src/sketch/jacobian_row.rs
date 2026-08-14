@@ -34,9 +34,9 @@ impl<'a> JacobianRow<'a> {
 
     /// Add `gradient` to a point's two cells.
     pub(super) fn point(&mut self, point: PointId, gradient: DVec2) {
-        let index = self.params.of_point(point);
-        self.cells[index] += gradient.x;
-        self.cells[index + 1] += gradient.y;
+        let [x, y] = self.params.of_point(point);
+        self.cells[x] += gradient.x;
+        self.cells[y] += gradient.y;
     }
 
     /// Add `gradient` to a segment's endpoints, as the partials of a residual

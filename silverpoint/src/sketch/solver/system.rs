@@ -55,10 +55,9 @@ impl System {
         self.movable
             .extend((0..count).map(|index| params.is_free(index)));
         for &point in held {
-            // A point's two parameters are adjacent, x first.
-            let x = params.of_point(point);
-            self.movable[x] = false;
-            self.movable[x + 1] = false;
+            for index in params.of_point(point) {
+                self.movable[index] = false;
+            }
         }
     }
 

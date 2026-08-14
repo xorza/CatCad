@@ -123,9 +123,15 @@ impl Params<'_> {
         }
     }
 
-    /// Index of a point's x parameter; its y follows immediately.
-    pub(super) fn of_point(self, id: PointId) -> usize {
-        self.index_of(Param::Point(id, Axis::X))
+    /// Where a point's two parameters sit, x first.
+    ///
+    /// Both through [`Params::index_of`], so the layout states where each axis
+    /// lives rather than a caller deriving one from the other.
+    pub(super) fn of_point(self, id: PointId) -> [usize; 2] {
+        [
+            self.index_of(Param::Point(id, Axis::X)),
+            self.index_of(Param::Point(id, Axis::Y)),
+        ]
     }
 
     pub(super) fn of_radius(self, id: CircleId) -> usize {
@@ -206,9 +212,9 @@ mod tests {
         sketch.fix(b);
 
         assert_eq!(sketch.params().count(), 8);
-        assert_eq!(sketch.params().of_point(a), 0);
-        assert_eq!(sketch.params().of_point(b), 2);
-        assert_eq!(sketch.params().of_point(c), 4);
+        assert_eq!(sketch.params().of_point(a), [0, 1]);
+        assert_eq!(sketch.params().of_point(b), [2, 3]);
+        assert_eq!(sketch.params().of_point(c), [4, 5]);
         assert_eq!(sketch.params().of_radius(inner), 6);
         assert_eq!(sketch.params().of_radius(outer), 7);
 
@@ -251,7 +257,7 @@ mod tests {
         assert_eq!(sketch.params().at(1), None);
         assert_eq!(sketch.params().at(2), Some(Param::Point(b, Axis::X)));
         assert_eq!(sketch.params().at(4), Some(Param::Radius(circle)));
-        assert_eq!(sketch.params().of_point(b), 2);
+        assert_eq!(sketch.params().of_point(b), [2, 3]);
         assert_eq!(sketch.params().of_radius(circle), 4);
 
         // The hole is unfree, which is the whole of what the solver needs: it
@@ -273,7 +279,7 @@ mod tests {
         // and the handle to what was there is refused, not answered.
         let c = sketch.add_point(DVec2::new(5.0, 6.0));
         assert_eq!(sketch.params().count(), 5);
-        assert_eq!(sketch.params().of_point(c), 0);
+        assert_eq!(sketch.params().of_point(c), [0, 1]);
         assert_ne!(c, a);
         assert_eq!(sketch.points().count(), 2);
     }
