@@ -7,9 +7,10 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled};
-use glam::Vec3;
-use silverpoint::{Circle, CircleId, Entity, Freedom, Segment, SegmentId};
+use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text};
+use glam::{Vec2, Vec3};
+use palantir::{FontFamily, FontWeight, GlyphFont};
+use silverpoint::{Circle, CircleId, Constraint, Entity, Freedom, Segment, SegmentId};
 
 use crate::document::Document;
 use crate::drawing::Drawing;
@@ -82,6 +83,47 @@ const STROKE_LIFT: i32 = 512;
 /// disagree by and still three decades short of showing through the model.
 const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 
+/// Type size of a constraint's mark, in logical pixels. Small: a drawing may
+/// carry dozens, and what they have to be is legible rather than prominent.
+const MARK_SIZE: f32 = 13.0;
+
+/// What a mark is set in.
+///
+/// Mono and bold, which are two claims about legibility rather than about
+/// style. A mark is one character read at a glance against a drawing behind it,
+/// so it wants the weight to hold its own over a stroke it may be sitting on —
+/// and the mono face is drawn on a fixed body, so ⊥ and ∥ and ∈ come out the
+/// same size as each other instead of set to the widths a running line would
+/// want.
+///
+/// Named rather than written where it is used, so that
+/// `every_mark_has_a_glyph_to_draw_it` asks about the faces the drawing
+/// actually sets marks in. A coverage check against a font nobody uses would
+/// pass while the drawing showed nothing.
+pub(super) fn mark_font() -> GlyphFont {
+    GlyphFont {
+        family: FontFamily::Mono,
+        weight: FontWeight::Bold,
+        ..GlyphFont::new(MARK_SIZE)
+    }
+}
+
+/// What a mark is drawn in.
+///
+/// Grey-violet, which is the one hue the drawing does not already spend:
+/// geometry runs blue through yellow to orange for how much freedom is left,
+/// red for pinned, and green for what is picked out. A mark is *about* the
+/// geometry rather than part of it, and reads as a different kind of thing for
+/// being a different kind of colour.
+const MARK: Vec3 = Vec3::new(0.62, 0.58, 0.78);
+
+/// What a mark the constraints could do without is drawn in.
+///
+/// The one thing a drawing can say that a count in the corner cannot: *this*
+/// relation is the spare one. Red, because it is the same news as a conflict —
+/// and on a sketch whose constraints disagree, it is exactly the mark to delete.
+const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
+
 /// The whole picture of `document` as it stands — the solids it holds, its
 /// drawing over them, and a name for every part that can be pointed at.
 ///
@@ -153,6 +195,64 @@ pub(crate) fn redraw(
         &mut into.rings,
     );
     write_points(drawing, names, &mut into.points);
+    write_marks(drawing, names, &mut into.texts);
+}
+
+/// A mark per constraint, saying what relation holds and where.
+///
+/// Set in type rather than drawn as geometry, which is what makes the whole set
+/// one rule: every relation gets a symbol, the symbol is legible at any zoom
+/// because it is sized in pixels, and adding a tenth constraint is a line in
+/// [`symbol`] rather than a shape to construct.
+///
+/// Tagged like everything else, so a mark is picked and deleted the way the
+/// geometry it is about is — which is the whole of how an over-constrained
+/// sketch gets un-stuck.
+fn write_marks(drawing: &Drawing, names: &mut Names, marks: &mut Batch<Text>) {
+    let freedoms = drawing.freedoms();
+    marks.refill(drawing.sketch().constraints(), |mark, (id, constraint)| {
+        let at = drawing.mark_at(constraint).unwrap_or_default();
+        // Rewritten in place rather than assigned, so a drawing whose marks are
+        // laid out every frame keeps the string it already has.
+        mark.content.clear();
+        mark.content.push_str(symbol(constraint));
+        mark.position = at;
+        mark.font = mark_font();
+        // Above the middle of what it names, so the mark clears the geometry it
+        // is about rather than sitting on top of it.
+        mark.anchor = Vec2::new(0.5, 1.6);
+        mark.color = if freedoms.is_redundant(id) {
+            REDUNDANT
+        } else {
+            MARK
+        };
+        mark.z_offset = MARKER_LIFT;
+        mark.plane_normal = Some(drawing.plane().normal().as_vec3());
+        mark.tag = Some(names.tag(Entity::Constraint(id)));
+    });
+}
+
+/// The symbol a relation is drawn as.
+///
+/// The draughtsman's marks where there is one, because a drawing is read at a
+/// glance and a word is not: ⊥ and ∥ say what they mean to anyone who has seen
+/// a technical drawing, and are what every modeller uses. Every symbol here was
+/// checked to have a glyph in the faces the shaper falls back through — see
+/// `every_mark_has_a_glyph_to_draw_it`.
+fn symbol(constraint: Constraint) -> &'static str {
+    match constraint {
+        // A coincidence makes two points one, so it is drawn as the one.
+        Constraint::Coincident { .. } => "\u{2022}",
+        Constraint::Distance { .. } => "\u{2194}",
+        Constraint::Horizontal { .. } => "\u{2015}",
+        Constraint::Vertical { .. } => "\u{2502}",
+        Constraint::Parallel { .. } => "\u{2225}",
+        Constraint::Perpendicular { .. } => "\u{22A5}",
+        // "is on", which is the same relation whether what it is on is straight
+        // or curved.
+        Constraint::PointOnSegment { .. } | Constraint::PointOnCircle { .. } => "\u{2208}",
+        Constraint::Radius { .. } => "R",
+    }
 }
 
 /// The sketch's straight strokes, one edge per segment, biased clear of

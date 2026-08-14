@@ -7,8 +7,11 @@ use palantir::{
     Ui,
 };
 
+use crate::drawing::Drawing;
 use crate::intent::{Change, Choice, Intents};
+use crate::selection::Selection;
 use crate::tool::Tool;
+use silverpoint::Constraint;
 
 /// Logical pixels of breathing room inside a floating panel, and between the
 /// things standing on one.
@@ -34,6 +37,11 @@ const GAP: f32 = 8.0;
 #[derive(Debug)]
 pub(crate) struct Hud {
     armed: ButtonTheme,
+    /// What the current selection admits, refilled every frame. Kept for its
+    /// room rather than its contents: the record pass allocates nothing, and a
+    /// bar rebuilt sixty times a second would otherwise ask the heap for a list
+    /// each time.
+    offers: Vec<Constraint>,
 }
 
 impl Hud {
@@ -42,18 +50,46 @@ impl Hud {
     /// `status` arrives already in the pass's text arena, so nothing here copies
     /// it — and it has to be lowered in the pass that minted it, which is the
     /// same pass that is calling.
-    pub(crate) fn show(
-        &self,
-        ui: &mut Ui,
-        tool: Tool,
-        status: InternedStr,
-        projection: Projection,
-        intents: &mut Intents,
-    ) {
-        self.readout(ui, status, projection, intents);
+    pub(crate) fn show(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
+        self.readout(ui, shown.status, shown.projection, intents);
+        self.constraints(ui, shown.drawing, shown.selection, intents);
         // Last, so the bar is the topmost thing in the zstack and takes its own
         // presses rather than the readout or the view beneath it.
-        self.tools(ui, tool, intents);
+        self.tools(ui, shown.tool, intents);
+    }
+
+    /// What can be asked of what is picked out, along the bottom.
+    ///
+    /// Shown only when there is something to offer, rather than a fixed bar of
+    /// mostly-dead buttons. A selection admits at most four relations and
+    /// usually none, so a bar sized to every constraint there is would be
+    /// mostly grey the whole time — and what the user wants to know is what
+    /// *this* selection can do.
+    fn constraints(
+        &mut self,
+        ui: &mut Ui,
+        drawing: &Drawing,
+        selection: &Selection,
+        intents: &mut Intents,
+    ) {
+        drawing.offers(selection.picked(), &mut self.offers);
+        if self.offers.is_empty() {
+            return;
+        }
+        floating(Panel::hstack(), "constraints", Align::BOTTOM).show(ui, |ui| {
+            for &constraint in &self.offers {
+                let label = noun(constraint);
+                if Button::new()
+                    .id_salt(label)
+                    .label(label)
+                    .show(ui)
+                    .left
+                    .clicked()
+                {
+                    intents.push(Change::Constrain(constraint));
+                }
+            }
+        });
     }
 
     /// What the solve made of the drawing, and what the camera is doing, pinned
@@ -117,6 +153,43 @@ fn floating(panel: Panel, salt: &str, align: Align) -> Panel {
         .gap(GAP)
 }
 
+/// Everything the overlay reads to draw itself.
+///
+/// Gathered rather than passed one by one, because they arrive together and
+/// mean one thing between them: this is the frame's state as the controls see
+/// it. What is *not* here is the inbox — the overlay reads all of this and
+/// writes none of it, and keeping the two apart at the signature is what says
+/// so.
+#[derive(Debug)]
+pub(crate) struct Shown<'a> {
+    pub(crate) tool: Tool,
+    /// Already in the pass's own text arena, so nothing here copies it — and it
+    /// has to be lowered in the pass that minted it.
+    pub(crate) status: InternedStr,
+    pub(crate) projection: Projection,
+    pub(crate) drawing: &'a Drawing,
+    pub(crate) selection: &'a Selection,
+}
+
+/// What to call a relation on the button that states it.
+///
+/// The user's word rather than the solver's, like
+/// [`noun`](crate::noun) for an entity: a `PointOnSegment` is "on edge" to
+/// whoever is drawing, and reads as a sentence about what was picked.
+fn noun(constraint: Constraint) -> &'static str {
+    match constraint {
+        Constraint::Coincident { .. } => "Coincident",
+        Constraint::Distance { .. } => "Distance",
+        Constraint::Horizontal { .. } => "Horizontal",
+        Constraint::Vertical { .. } => "Vertical",
+        Constraint::Parallel { .. } => "Parallel",
+        Constraint::Perpendicular { .. } => "Perpendicular",
+        Constraint::PointOnSegment { .. } => "On edge",
+        Constraint::Radius { .. } => "Radius",
+        Constraint::PointOnCircle { .. } => "On circle",
+    }
+}
+
 /// Flips the camera between the two projections.
 ///
 /// Labelled with the projection it is on rather than the one it would switch
@@ -143,6 +216,9 @@ impl Default for Hud {
         // pointer alike.
         armed.looks.normal = armed.looks.active.clone();
         armed.looks.hovered = armed.looks.active.clone();
-        Self { armed }
+        Self {
+            armed,
+            offers: Vec::new(),
+        }
     }
 }

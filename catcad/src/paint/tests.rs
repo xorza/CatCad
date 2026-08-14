@@ -264,3 +264,72 @@ fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
     assert_eq!(picture.rings.len(), 2);
     assert_eq!(picture.points.len(), 9);
 }
+
+/// Every symbol a mark is drawn as has a glyph in the faces the shaper falls
+/// back through.
+///
+/// The failure this guards is silent and total: a symbol the fonts lack
+/// rasterizes to nothing, so the relation is simply not drawn and the drawing
+/// says a constraint is absent when it is not. Nothing else notices — the
+/// records are built, the quads are laid out, and the sheet has no ink to give
+/// them.
+///
+/// Every variant, driven off `offers` rather than a list written twice, so a
+/// tenth relation is covered the moment the drawing can state it.
+#[test]
+fn every_mark_has_a_glyph_to_draw_it() {
+    let shaper = palantir::TextShaper::new();
+    let mut glyphs = shaper.glyphs();
+    let mut placed = Vec::new();
+
+    for constraint in every_relation() {
+        let mark = super::symbol(constraint);
+        // The face and the size the drawing sets marks in, not a stand-in: a
+        // symbol the mono bold face lacks falls through to whatever the system
+        // offers, and one nothing offers draws blank.
+        glyphs.line(mark, super::mark_font(), 1.0, &mut placed);
+        let [glyph] = placed[..] else {
+            panic!(
+                "{mark:?} for {constraint:?} shaped to {} glyphs",
+                placed.len()
+            );
+        };
+        let image = glyphs
+            .rasterize(glyph.raster_key)
+            .unwrap_or_else(|| panic!("{mark:?} for {constraint:?} has no glyph"));
+        assert!(
+            image.placement.width > 0 && image.placement.height > 0,
+            "{mark:?} for {constraint:?} rasterized to nothing",
+        );
+    }
+}
+
+/// One of every relation the drawing can state, so a sweep over them is a sweep
+/// over the enum.
+fn every_relation() -> Vec<silverpoint::Constraint> {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(3.0, 4.0));
+    let c = sketch.add_point(DVec2::new(6.0, 0.0));
+    let first = sketch.add_segment(a, b);
+    let second = sketch.add_segment(b, c);
+    let circle = sketch.add_circle(c, 2.0);
+    let drawing = Drawing::new(&mut Solver::default(), sketch, Plane::GROUND);
+
+    let mut every = Vec::new();
+    let mut offers = Vec::new();
+    for picked in [
+        vec![Entity::Point(a), Entity::Point(b)],
+        vec![Entity::Segment(first), Entity::Segment(second)],
+        vec![Entity::Point(a), Entity::Segment(second)],
+        vec![Entity::Point(a), Entity::Circle(circle)],
+        vec![Entity::Circle(circle)],
+    ] {
+        drawing.offers(&picked, &mut offers);
+        every.extend(offers.iter().copied());
+    }
+    // The nine the enum has; a variant `offers` cannot reach would be a
+    // variant nothing can state, which is its own bug.
+    assert_eq!(every.len(), 9, "{every:?}");
+    every
+}

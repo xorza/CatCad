@@ -123,6 +123,8 @@ impl Document {
             Change::AddPoint(at) => self.drawing.add_point(solver, at),
             Change::AddSegment { from, to } => self.drawing.add_segment(solver, from, to),
             Change::AddCircle { center, rim } => self.drawing.add_circle(solver, center, rim),
+            Change::Constrain(constraint) => self.drawing.constrain(solver, constraint),
+            Change::Delete(entity) => self.drawing.remove(solver, entity),
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Project(projection) => self.camera.projection = projection,

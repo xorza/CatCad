@@ -1,7 +1,7 @@
 //! The sketch being edited, where it sits in the world, and what it draws.
 
 use aperture::{HitAt, Motion};
-use glam::Vec3;
+use glam::{DVec2, Vec3};
 use silverpoint::{
     CircleId, Constraint, Entity, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot,
     SolveReport, Solver,
@@ -169,6 +169,127 @@ impl Drawing {
                 sketch.add_constraint(Constraint::PointOnCircle { point, circle });
             }
         });
+    }
+
+    /// State `constraint` over the drawing, and let the geometry settle onto it.
+    ///
+    /// [`Drawing::solved`] rather than [`Drawing::measured`], because unlike
+    /// everything else added here this one arrives *unsatisfied*: a user picks
+    /// two edges and asks for them to be parallel precisely because they are
+    /// not. Moving the drawing onto what was asked for is the whole of what
+    /// happens.
+    pub(crate) fn constrain(&mut self, solver: &mut Solver, constraint: Constraint) {
+        self.solved(solver, |sketch| {
+            sketch.add_constraint(constraint);
+        });
+    }
+
+    /// Take `entity` out of the drawing, with whatever was built on it.
+    ///
+    /// Solved rather than measured, for a reason that only shows on a drawing
+    /// whose constraints disagree. Removal can only ever *relax* a sketch, so on
+    /// a satisfied one the solve takes no step and nothing moves — but on one
+    /// left at a least-squares compromise, deleting the constraint that caused
+    /// it is exactly the moment the rest should settle onto what they always
+    /// meant.
+    ///
+    /// What the cascade takes with it is [`Sketch`]'s to decide — see
+    /// [`Sketch::remove_point`].
+    pub(crate) fn remove(&mut self, solver: &mut Solver, entity: Entity) {
+        self.solved(solver, |sketch| match entity {
+            Entity::Point(id) => sketch.remove_point(id),
+            Entity::Segment(id) => sketch.remove_segment(id),
+            Entity::Circle(id) => sketch.remove_circle(id),
+            Entity::Constraint(id) => sketch.remove_constraint(id),
+        });
+    }
+
+    /// Every constraint `picked` admits, written into `into`.
+    ///
+    /// What the bar offers, and so the one statement of which selections mean
+    /// what. Order matters where the constraint is not symmetric, and the
+    /// selection keeps the order things were picked in for exactly this.
+    ///
+    /// A constraint carrying a number takes the one the drawing already has, so
+    /// asking for a distance *locks* what is there rather than demanding a value
+    /// the user has no way to type yet. That is also what a modeller does: the
+    /// dimension appears reading what it measured, and is retyped afterwards.
+    ///
+    /// Fills rather than returns, because the bar asks this every frame and the
+    /// record pass allocates nothing.
+    pub(crate) fn offers(&self, picked: &[Entity], into: &mut Vec<Constraint>) {
+        into.clear();
+        match *picked {
+            [Entity::Point(a), Entity::Point(b)] => into.extend([
+                Constraint::Coincident { a, b },
+                Constraint::Distance {
+                    a,
+                    b,
+                    distance: (self.sketch.point(a) - self.sketch.point(b)).length(),
+                },
+                Constraint::Horizontal { a, b },
+                Constraint::Vertical { a, b },
+            ]),
+            [Entity::Segment(first), Entity::Segment(second)] => into.extend([
+                Constraint::Parallel { first, second },
+                Constraint::Perpendicular { first, second },
+            ]),
+            // Either way round: which was picked first says nothing about which
+            // is held to which, because a point on an edge is one relation
+            // however it was reached.
+            [Entity::Point(point), Entity::Segment(segment)]
+            | [Entity::Segment(segment), Entity::Point(point)] => {
+                into.push(Constraint::PointOnSegment { point, segment });
+            }
+            [Entity::Point(point), Entity::Circle(circle)]
+            | [Entity::Circle(circle), Entity::Point(point)] => {
+                into.push(Constraint::PointOnCircle { point, circle });
+            }
+            [Entity::Circle(circle)] => into.push(Constraint::Radius {
+                circle,
+                radius: self.sketch.circle(circle).radius,
+            }),
+            _ => {}
+        }
+    }
+
+    /// Where a mark for `constraint` belongs in the world, or `None` if the
+    /// drawing no longer holds what it is about.
+    ///
+    /// The middle of what it names, which is the one rule that reads sensibly
+    /// for all nine: on the point for a coincidence, along the span for a
+    /// distance, between the two edges for a parallel. A modeller would put a
+    /// mark against *each* entity a relation names — two ∥ marks, one per edge
+    /// — and that is a better drawing; it is also two glyphs per relation and a
+    /// tag apiece, which is worth doing when the drawing is busy enough to need
+    /// it rather than now.
+    pub(crate) fn mark_at(&self, constraint: Constraint) -> Option<Vec3> {
+        let mut sum = DVec2::ZERO;
+        let mut count = 0.0;
+        for entity in constraint.referents() {
+            sum += self.middle_of(entity)?;
+            count += 1.0;
+        }
+        (count > 0.0).then(|| self.plane.point(sum / count).as_vec3())
+    }
+
+    /// The middle of one entity on the sketch plane, or `None` where the drawing
+    /// no longer holds it.
+    fn middle_of(&self, entity: Entity) -> Option<DVec2> {
+        match entity {
+            Entity::Point(id) => self.sketch.holds(id).then(|| self.sketch.point(id)),
+            Entity::Segment(id) => self.sketch.holds(id).then(|| {
+                let edge = self.sketch.segment(id);
+                (self.sketch.point(edge.a) + self.sketch.point(edge.b)) * 0.5
+            }),
+            Entity::Circle(id) => self
+                .sketch
+                .holds(id)
+                .then(|| self.sketch.point(self.sketch.circle(id).center)),
+            // Nothing names a constraint, so nothing reaches this — see
+            // [`Entity`].
+            Entity::Constraint(_) => None,
+        }
     }
 
     /// Where `anchor` sits in the world — on whatever it landed on, which is

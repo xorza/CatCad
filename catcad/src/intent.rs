@@ -2,7 +2,7 @@
 
 use aperture::Projection;
 use glam::Vec3;
-use silverpoint::Entity;
+use silverpoint::{Constraint, Entity};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -99,6 +99,20 @@ pub(crate) enum Change {
     /// The rim says how big and nothing else: a radius is a number, so no point
     /// is made out there however the click that gave it landed.
     AddCircle { center: Anchor, rim: Anchor },
+    /// State this relation over the drawing.
+    ///
+    /// The whole constraint rather than what was picked and which button was
+    /// pressed, because working out what a selection admits is the drawing's —
+    /// see [`Drawing::offers`](crate::drawing::Drawing). What arrives here is
+    /// already an answer, so a replayed pass states the same relation twice
+    /// rather than reading a selection that has since moved on.
+    Constrain(Constraint),
+    /// Take this out of the drawing, with whatever was built on it.
+    ///
+    /// Names what to remove rather than saying "the selection", for the same
+    /// reason: a replayed pass would otherwise delete whatever is picked out by
+    /// the time it ran, which after the first pass is nothing.
+    Delete(Entity),
     /// Turn the camera about what it is looking at, in radians.
     Orbit { yaw: f32, pitch: f32 },
     /// Move the camera in or out by a multiple of how far off it is.

@@ -254,3 +254,144 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     assert_eq!(scene.curves.len(), 1);
     assert!(scene.rings.is_empty());
 }
+
+/// A drawing with one of everything, so a selection of any shape has something
+/// to be made of.
+fn assorted() -> (Drawing, Solver, [Entity; 5]) {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::new(0.0, 0.0));
+    let b = sketch.add_point(DVec2::new(3.0, 4.0));
+    let c = sketch.add_point(DVec2::new(6.0, 0.0));
+    let first = sketch.add_segment(a, b);
+    let second = sketch.add_segment(b, c);
+    let circle = sketch.add_circle(c, 2.5);
+    let mut solver = Solver::default();
+    let drawing = Drawing::new(&mut solver, sketch, Plane::GROUND);
+    (
+        drawing,
+        solver,
+        [
+            Entity::Point(a),
+            Entity::Point(b),
+            Entity::Segment(first),
+            Entity::Segment(second),
+            Entity::Circle(circle),
+        ],
+    )
+}
+
+/// What each shape of selection admits, and what none of them do.
+///
+/// The one statement of which picks mean what, so this is where a relation
+/// offered to the wrong selection — or quietly not offered to the right one —
+/// shows up. Nothing else in the crate knows the mapping.
+#[test]
+fn a_selection_admits_exactly_the_relations_it_can_bear() {
+    let (drawing, _, [a, b, first, second, circle]) = assorted();
+    let mut offers = Vec::new();
+    // Named here rather than borrowed from the bar that draws them: what the
+    // drawing offers is the drawing's, and a test reading the HUD's wording
+    // would fail on a relabelling that changed nothing.
+    let kinds = |offers: &[Constraint]| -> Vec<&'static str> {
+        offers
+            .iter()
+            .map(|offer| match offer {
+                Constraint::Coincident { .. } => "coincident",
+                Constraint::Distance { .. } => "distance",
+                Constraint::Horizontal { .. } => "horizontal",
+                Constraint::Vertical { .. } => "vertical",
+                Constraint::Parallel { .. } => "parallel",
+                Constraint::Perpendicular { .. } => "perpendicular",
+                Constraint::PointOnSegment { .. } => "on edge",
+                Constraint::Radius { .. } => "radius",
+                Constraint::PointOnCircle { .. } => "on circle",
+            })
+            .collect()
+    };
+
+    drawing.offers(&[a, b], &mut offers);
+    assert_eq!(
+        kinds(&offers),
+        ["coincident", "distance", "horizontal", "vertical"]
+    );
+    // The distance offered is the one the drawing already has: 3-4-5.
+    let Constraint::Distance { distance, .. } = offers[1] else {
+        panic!("{offers:?}");
+    };
+    assert!((distance - 5.0).abs() < 1e-9, "{distance}");
+
+    drawing.offers(&[first, second], &mut offers);
+    assert_eq!(kinds(&offers), ["parallel", "perpendicular"]);
+
+    // Either way round is the same relation — which was picked first says
+    // nothing about which is held to which.
+    for pair in [[a, second], [second, a]] {
+        drawing.offers(&pair, &mut offers);
+        assert_eq!(kinds(&offers), ["on edge"], "{pair:?}");
+    }
+    for pair in [[a, circle], [circle, a]] {
+        drawing.offers(&pair, &mut offers);
+        assert_eq!(kinds(&offers), ["on circle"], "{pair:?}");
+    }
+
+    // A radius takes the size the circle already is, so asking for one locks
+    // what is there rather than demanding a number nobody can type yet.
+    drawing.offers(&[circle], &mut offers);
+    assert_eq!(kinds(&offers), ["radius"]);
+    let Constraint::Radius { radius, .. } = offers[0] else {
+        panic!("{offers:?}");
+    };
+    assert_eq!(radius, 2.5);
+
+    // And the selections that bear nothing: too few, too many, and a pair with
+    // no relation between them.
+    for picked in [
+        &[][..],
+        &[a][..],
+        &[first][..],
+        &[a, b, circle][..],
+        &[first, circle][..],
+    ] {
+        drawing.offers(picked, &mut offers);
+        assert!(offers.is_empty(), "{picked:?} offered {:?}", kinds(&offers));
+    }
+}
+
+/// Stating a relation moves the drawing onto it, and taking geometry away takes
+/// what was built on it.
+#[test]
+fn constraining_settles_the_drawing_and_deleting_cascades() {
+    let (mut drawing, mut solver, [a, b, first, _, circle]) = assorted();
+    let (Entity::Point(pa), Entity::Point(pb)) = (a, b) else {
+        panic!("the fixture picks two points");
+    };
+
+    // The two points sit 4 apart in y; asked to be level, they meet.
+    let mut offers = Vec::new();
+    drawing.offers(&[a, b], &mut offers);
+    let level = offers[2];
+    assert!(matches!(level, Constraint::Horizontal { .. }));
+    drawing.constrain(&mut solver, level);
+    assert!(drawing.report().converged, "{:?}", drawing.report());
+    let apart = drawing.sketch().point(pa).y - drawing.sketch().point(pb).y;
+    assert!(apart.abs() < 1e-9, "{apart}");
+
+    // The constraint is a thing the drawing holds, and taking it away leaves
+    // the geometry where the solve had put it.
+    let stated = drawing
+        .sketch()
+        .constraints()
+        .map(|(id, _)| id)
+        .last()
+        .expect("the relation was stated");
+    assert!(drawing.holds(stated));
+    drawing.remove(&mut solver, Entity::Constraint(stated));
+    assert!(!drawing.holds(stated));
+    assert!(drawing.holds(a) && drawing.holds(b));
+
+    // Removing a point takes the edges it ends with it, and leaves the rest.
+    drawing.remove(&mut solver, a);
+    assert!(!drawing.holds(a));
+    assert!(!drawing.holds(first), "the edge outlived its endpoint");
+    assert!(drawing.holds(b) && drawing.holds(circle));
+}

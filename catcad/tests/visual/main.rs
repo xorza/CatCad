@@ -617,10 +617,12 @@ fn deposited(pitch: f32, overlay: Overlay) -> f32 {
     edge_on(pitch)(app.camera_mut());
     {
         let mut renderer = app.renderer().borrow_mut();
-        // The markers go in both cases: they are neither of the two, and they
-        // sit on the ends of every edge the column crosses.
+        // The markers and the constraint marks go in both cases: they are
+        // neither of the two, and they sit on the ends of every edge the column
+        // crosses and in the middle of what each relation names.
         let scene = renderer.scene_mut();
         scene.points.clear();
+        scene.texts.clear();
         match overlay {
             Overlay::Curves => scene.rings.clear(),
             Overlay::Rings => scene.curves.clear(),

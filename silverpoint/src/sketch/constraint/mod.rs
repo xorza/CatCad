@@ -91,7 +91,7 @@ impl Constraint {
     /// No constraint names more than two things, so the pair is built on the
     /// stack and flattened — the same shape [`Self::equations`] uses, for the
     /// same reason.
-    pub(crate) fn referents(&self) -> impl Iterator<Item = Entity> {
+    pub fn referents(&self) -> impl Iterator<Item = Entity> {
         let named = match *self {
             Constraint::Coincident { a, b }
             | Constraint::Distance { a, b, .. }

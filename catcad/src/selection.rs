@@ -51,6 +51,17 @@ impl Selection {
         self.picked.contains(&what)
     }
 
+    /// Everything picked out, in the order it was picked.
+    ///
+    /// The order is the point of handing back a slice rather than a set: what a
+    /// selection *admits* turns on it — see
+    /// [`Drawing::offers`](crate::drawing::Drawing) — and a pair read the other
+    /// way round is a different relation for every constraint that is not
+    /// symmetric.
+    pub(crate) fn picked(&self) -> &[Entity] {
+        &self.picked
+    }
+
     /// Drop everything `keep` refuses.
     ///
     /// What holding the sketch's own handles costs: they outlive what they name

@@ -27,13 +27,13 @@ pub use bench::alloc_bench;
 
 use std::fmt;
 
-use palantir::{App, Configure, HostHandle, Panel, Shortcut, Sizing, Ui, WindowToken};
+use palantir::{App, Configure, HostHandle, Key, Panel, Shortcut, Sizing, Ui, WindowToken};
 use silverpoint::{Entity, SolveReport, Solver};
 
 use crate::document::Document;
 use crate::history::History;
-use crate::hud::Hud;
-use crate::intent::{Choice, Intents, Step};
+use crate::hud::{Hud, Shown};
+use crate::intent::{Change, Choice, Intents, Step};
 use crate::scene_view::SceneView;
 use crate::selection::Selection;
 use crate::session::Session;
@@ -46,6 +46,14 @@ use crate::tool::Tool;
 /// exactly, which is what keeps `Ctrl+Z` from firing on `Ctrl+Shift+Z`.
 const UNDO: Shortcut = Shortcut::ctrl('Z');
 const REDO: Shortcut = Shortcut::ctrl_shift('Z');
+
+/// Take what is picked out out of the drawing.
+///
+/// A bare key rather than a chord, which is what every modeller binds it to —
+/// and safe to bind bare because nothing here takes typed text yet. That changes
+/// the moment a dimension can be retyped, and this is the binding that will have
+/// to answer for it.
+const DELETE: Shortcut = Shortcut::key(Key::Delete);
 
 /// One view of one scene, with the controls and the solve's verdict laid over
 /// it.
@@ -150,6 +158,15 @@ impl CatCad {
         if ui.escape_pressed() {
             self.intents.push(Choice::Hold(Tool::Pointer));
         }
+        // Everything picked out, each named rather than "the selection": an
+        // intent says where it wants to end up, and a replayed pass reading the
+        // selection again would find it already gone. Landing twice is harmless
+        // — the second removal finds nothing to remove.
+        if ui.key_pressed(DELETE) {
+            for &entity in self.session.selection().picked() {
+                self.intents.push(Change::Delete(entity));
+            }
+        }
         self.view
             .ask(ui, &self.document, self.session.tool(), &mut self.intents);
         // Formatted straight into the pass's own text arena — no `String` is
@@ -160,9 +177,13 @@ impl CatCad {
         // and takes its own presses rather than the view beneath it.
         self.hud.show(
             ui,
-            self.session.tool(),
-            status,
-            self.document.camera().projection,
+            Shown {
+                tool: self.session.tool(),
+                status,
+                projection: self.document.camera().projection,
+                drawing: self.document.drawing(),
+                selection: self.session.selection(),
+            },
             &mut self.intents,
         );
     }
