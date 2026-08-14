@@ -488,8 +488,8 @@ fn holding_nothing_is_the_same_solve() {
     let mut holding_nothing = Outcome::default();
     Solver::default().solve_holding(&mut empty_hold, &[], &mut holding_nothing);
     assert_eq!(plainly, holding_nothing);
-    let moved: Vec<DVec2> = plain.points().map(|(_, at)| at).collect();
-    let same: Vec<DVec2> = empty_hold.points().map(|(_, at)| at).collect();
+    let moved: Vec<DVec2> = plain.points().map(|(_, at)| at.position).collect();
+    let same: Vec<DVec2> = empty_hold.points().map(|(_, at)| at.position).collect();
     assert_eq!(moved, same);
 }
 
@@ -575,8 +575,8 @@ fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
         (&small, &fresh_pair),
         (&large_again, &fresh_rectangle),
     ] {
-        let moved: Vec<DVec2> = reused.points().map(|(_, at)| at).collect();
-        let expected: Vec<DVec2> = fresh.points().map(|(_, at)| at).collect();
+        let moved: Vec<DVec2> = reused.points().map(|(_, at)| at.position).collect();
+        let expected: Vec<DVec2> = fresh.points().map(|(_, at)| at.position).collect();
         assert_eq!(moved, expected);
     }
 }

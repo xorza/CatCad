@@ -362,18 +362,18 @@ fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>)
     let freedoms = drawing.freedoms();
     let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
-    points.refill(sketch.points(), |point, (id, position)| {
+    points.refill(sketch.points(), |marker, (id, point)| {
         // Pinned by hand outranks pinned by consequence: a fixed point is
         // determined too, but saying so in the same colour would lose the
         // one thing about it the user chose.
-        let (color, size) = if sketch.is_fixed(id) {
+        let (color, size) = if point.fixed {
             (PINNED, FIXED_MARKER)
         } else {
             (colour(freedoms.point(id)), FREE_MARKER)
         };
         // Assigned whole where a stroke is edited in place: a marker owns
         // nothing, so replacing one costs what overwriting it would.
-        *point = Point::new(plane.point(position).as_vec3())
+        *marker = Point::new(plane.point(point.position).as_vec3())
             .colored(color)
             .size(size)
             .z_offset(MARKER_LIFT)

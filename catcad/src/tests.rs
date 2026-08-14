@@ -57,7 +57,7 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
         outcome.report()
     );
 
-    let at: Vec<DVec2> = sketch.points().map(|(_, position)| position).collect();
+    let at: Vec<DVec2> = sketch.points().map(|(_, point)| point.position).collect();
     let expected = [
         DVec2::ZERO,
         DVec2::new(8.0, 0.0),
@@ -96,7 +96,7 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     });
     assert!(outcome.report().converged, "{:?}", outcome.report());
 
-    let now: Vec<DVec2> = sketch.points().map(|(_, position)| position).collect();
+    let now: Vec<DVec2> = sketch.points().map(|(_, point)| point.position).collect();
     assert_eq!(now[8], sent, "the arm would not go where it was sent");
     // It went as one rigid piece: both bars their own length, the elbow still
     // square, and the rail still along the base it is parallel to.

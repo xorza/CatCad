@@ -742,6 +742,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
 
     let sketch = raised.document.drawing().sketch();
     let (placed, at) = sketch.points().last().expect("a point was just added");
+    let at = at.position;
     // On the edge's infinite line, which is what `PointOnSegment` says: the
     // cross product of the edge's direction with the way to the point is zero.
     let held = sketch.segment(edge);
@@ -838,7 +839,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
         .drawing()
         .sketch()
         .points()
-        .map(|(_, at)| at)
+        .map(|(_, at)| at.position)
         .collect();
 
     // Three pixels off the middle of it, square to it on screen: near enough to
@@ -858,7 +859,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
 
     // The bar has not budged — nor has anything else that was already drawn.
     let sketch = raised.document.drawing().sketch();
-    let now: Vec<DVec2> = sketch.points().map(|(_, at)| at).collect();
+    let now: Vec<DVec2> = sketch.points().map(|(_, at)| at.position).collect();
     for (index, (before, after)) in was.iter().zip(&now).enumerate() {
         assert!(
             (*after - *before).length() < 1e-9,

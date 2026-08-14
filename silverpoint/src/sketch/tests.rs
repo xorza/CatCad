@@ -15,13 +15,21 @@ fn geometry_comes_back_in_insertion_order() {
 
     let points: Vec<_> = sketch.points().collect();
     assert_eq!(points.len(), 3);
-    assert_eq!(points[0], (a, DVec2::new(1.0, 2.0)));
-    assert_eq!(points[1], (b, DVec2::new(3.0, 4.0)));
-    assert_eq!(points[2], (c, DVec2::new(5.0, 6.0)));
-    // The handle the iterator hands back is the one `is_fixed` answers
-    // for — only the second point was pinned.
-    let fixed: Vec<bool> = points.iter().map(|&(id, _)| sketch.is_fixed(id)).collect();
+    assert_eq!(points[0].1.position, DVec2::new(1.0, 2.0));
+    assert_eq!(points[1].1.position, DVec2::new(3.0, 4.0));
+    assert_eq!(points[2].1.position, DVec2::new(5.0, 6.0));
+    assert_eq!([points[0].0, points[1].0, points[2].0], [a, b, c]);
+    // The walk hands back the flag as well as the place, and it agrees with
+    // what `is_fixed` answers for the same handle — only the second was pinned.
+    let fixed: Vec<bool> = points.iter().map(|&(_, point)| point.fixed).collect();
     assert_eq!(fixed, [false, true, false]);
+    assert_eq!(
+        fixed,
+        points
+            .iter()
+            .map(|&(id, _)| sketch.is_fixed(id))
+            .collect::<Vec<_>>()
+    );
 
     let segments: Vec<_> = sketch.segments().collect();
     assert_eq!(segments.len(), 2);
@@ -46,7 +54,10 @@ fn geometry_comes_back_in_insertion_order() {
     params[2] = 30.0;
     params[6] = 0.75;
     sketch.params_mut().set(&params);
-    assert_eq!(sketch.points().nth(1).unwrap().1, DVec2::new(30.0, 4.0));
+    assert_eq!(
+        sketch.points().nth(1).unwrap().1.position,
+        DVec2::new(30.0, 4.0)
+    );
     assert_eq!(sketch.circle(circle).radius, 0.75);
 
     // The same two values written one at a time, which is what a drag

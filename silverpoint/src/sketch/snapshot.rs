@@ -82,7 +82,9 @@ impl Snapshot {
                 .sketch
                 .points()
                 .zip(sketch.points())
-                .all(|((_, at), (_, moved))| (moved - at).abs().max_element() <= epsilon)
+                .all(|((_, was), (_, now))| {
+                    (now.position - was.position).abs().max_element() <= epsilon
+                })
             && self
                 .sketch
                 .circles()
