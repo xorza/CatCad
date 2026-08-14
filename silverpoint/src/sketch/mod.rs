@@ -3,8 +3,8 @@
 
 pub(crate) mod constraint;
 pub(crate) mod entity;
-pub(crate) mod jacobian_row;
-pub(crate) mod params;
+mod jacobian_row;
+mod params;
 pub(crate) mod snapshot;
 pub(crate) mod solver;
 
@@ -60,7 +60,7 @@ pub struct Circle {
 /// Points, segments, circles, and the constraints between them.
 ///
 /// The solver's parameter vector is this sketch flattened: two entries per
-/// point in insertion order, then one radius per circle. Handles index
+/// point in position order, then one radius per circle. Handles index
 /// straight into it, so nothing needs to be looked up by name.
 #[derive(Debug, Default, PartialEq)]
 pub struct Sketch {
@@ -161,7 +161,7 @@ impl Sketch {
         self.points.get_mut(id).expect(REMOVED_POINT)
     }
 
-    /// Every point in insertion order, each with the handle needed to ask
+    /// Every point in position order, each with the handle needed to ask
     /// [`Self::is_fixed`] about it.
     pub fn points(&self) -> impl Iterator<Item = (PointId, DVec2)> {
         self.points.iter().map(|(id, point)| (id, point.position))
@@ -171,7 +171,7 @@ impl Sketch {
         *self.segments.get(id).expect(REMOVED_SEGMENT)
     }
 
-    /// Every segment in insertion order, each with the handle that names it.
+    /// Every segment in position order, each with the handle that names it.
     pub fn segments(&self) -> impl Iterator<Item = (SegmentId, Segment)> {
         self.segments.iter().map(|(id, segment)| (id, *segment))
     }
@@ -193,7 +193,7 @@ impl Sketch {
         self.circle_mut(id).radius = radius;
     }
 
-    /// Every circle in insertion order, each with the handle that names it.
+    /// Every circle in position order, each with the handle that names it.
     pub fn circles(&self) -> impl Iterator<Item = (CircleId, Circle)> {
         self.circles.iter().map(|(id, circle)| (id, *circle))
     }
@@ -230,7 +230,7 @@ impl Sketch {
         *self.constraints.get(id).expect(REMOVED_CONSTRAINT)
     }
 
-    /// Every constraint in insertion order, each with the handle that names it.
+    /// Every constraint in position order, each with the handle that names it.
     pub fn constraints(&self) -> impl Iterator<Item = (ConstraintId, Constraint)> {
         self.constraints
             .iter()
@@ -347,7 +347,7 @@ impl Sketch {
     /// This sketch read as the vector a solve works on.
     ///
     /// The one place a [`Params`] is built, so the layout is stated in one file
-    /// and reached by one call. Crate-internal, and no wider: the layout is
+    /// and reached by one call. Private to `sketch`, and no wider: the layout is
     /// something a caller that knew it could no longer be changed under. What a
     /// caller outside wants of it, [`Snapshot`] answers without naming a single
     /// parameter.

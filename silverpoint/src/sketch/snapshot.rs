@@ -44,7 +44,7 @@ impl Snapshot {
     }
 
     /// Whether `sketch` stands where this says, to within `epsilon` in every
-    /// parameter.
+    /// position and radius.
     ///
     /// The blunt cousin of the equality above, and the two answer different
     /// questions. Equality asks whether a sketch is the one recorded, and a

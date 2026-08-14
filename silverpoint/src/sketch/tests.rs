@@ -258,4 +258,15 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     sketch.restore(&now);
     assert_eq!(sketch.params().count(), 7);
     assert_eq!(sketch.point(c), DVec2::new(6.0, 7.0));
+
+    // A hole rides a snapshot like anything else: a position freed before one
+    // is taken is still free after it is put back, rather than quietly closing
+    // up around what went.
+    sketch.remove_point(a);
+    sketch.snapshot_into(&mut now);
+    sketch.set_point(b, DVec2::ZERO);
+    sketch.restore(&now);
+    assert_eq!(sketch.point(b), DVec2::new(3.0, 4.0));
+    assert_eq!(sketch.points().count(), 2);
+    assert_eq!(sketch.params().count(), 7);
 }

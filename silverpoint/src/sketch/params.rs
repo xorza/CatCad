@@ -1,6 +1,6 @@
 //! The sketch read as the vector a solve works on.
 //!
-//! Two entries per point in slot order, then one radius per circle. Handles
+//! Two entries per point in position order, then one radius per circle. Handles
 //! index straight in, so nothing has to be looked up by name — and a removal
 //! leaves a hole rather than closing up, which is what keeps every surviving
 //! handle indexing where it did.
@@ -192,7 +192,6 @@ impl ParamsMut<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sketch::snapshot::Snapshot;
 
     /// The layout, against hand-counted indices: three points fill 0..6 two
     /// apiece, then one radius each at 6 and 7.
@@ -269,16 +268,6 @@ mod tests {
         params.clear();
         sketch.params().write(&mut params);
         assert_eq!(params, [0.0, 0.0, 9.0, 9.0, 9.0]);
-
-        // A snapshot rides the same hole: taken with the position already freed, it
-        // puts back a sketch that still has the hole in it rather than one that has
-        // quietly closed up around it.
-        let mut over_the_hole = Snapshot::default();
-        sketch.snapshot_into(&mut over_the_hole);
-        sketch.set_point(b, DVec2::new(1.0, 1.0));
-        sketch.restore(&over_the_hole);
-        assert_eq!(sketch.point(b), DVec2::new(9.0, 9.0));
-        assert_eq!(sketch.points().count(), 1);
 
         // The freed position is filled again rather than the vector widening,
         // and the handle to what was there is refused, not answered.
