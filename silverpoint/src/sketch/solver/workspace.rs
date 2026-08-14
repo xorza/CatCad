@@ -75,13 +75,14 @@ pub(super) struct Workspace {
 }
 
 impl Workspace {
-    /// Size the fixed-length buffers to a sketch of `n` parameters and load
-    /// its current values, keeping whatever room everything has grown to.
+    /// Size the fixed-length buffers to `sketch` and load its current values,
+    /// keeping whatever room everything has grown to.
     ///
     /// The variable-length ones are left alone: `assemble` clears the two
     /// residual/Jacobian pairs as it fills them, and `trial` and `elimination`
     /// are cleared where they are written.
-    pub(super) fn reset(&mut self, sketch: &Sketch, n: usize, held: &[PointId]) {
+    pub(super) fn reset(&mut self, sketch: &Sketch, held: &[PointId]) {
+        let n = sketch.params().count();
         self.normal.clear();
         self.normal.resize(n * n, 0.0);
         self.step.clear();
@@ -100,10 +101,11 @@ impl Workspace {
     /// sketch rather than of the drag being attempted on it.
     pub(super) fn hold(&mut self, sketch: &Sketch, held: &[PointId]) {
         let params = sketch.params();
+        let count = params.count();
         self.movable.clear();
-        self.movable.reserve_exact(params.count());
+        self.movable.reserve_exact(count);
         self.movable
-            .extend((0..params.count()).map(|index| params.is_free(index)));
+            .extend((0..count).map(|index| params.is_free(index)));
         for &point in held {
             // A point's two parameters are adjacent, x first.
             let x = params.of_point(point);

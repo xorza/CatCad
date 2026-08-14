@@ -143,7 +143,7 @@ impl Solver {
         let tolerance = self.tolerance;
         let n = sketch.params().count();
         let work = &mut self.work;
-        work.reset(sketch, n, held);
+        work.reset(sketch, held);
         let mut damping = INITIAL_DAMPING;
         let mut iterations = 0;
 
@@ -490,7 +490,7 @@ pub(crate) mod internals {
         /// either is right.
         pub(crate) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
             let n = sketch.params().count();
-            self.work.reset(sketch, n, held);
+            self.work.reset(sketch, held);
             assemble(
                 sketch,
                 &self.work.movable,
