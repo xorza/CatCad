@@ -8,8 +8,17 @@
 //! saves.
 
 use crate::math::dense::solve_in_place;
+use crate::sketch::solver::TOLERANCE;
 use crate::sketch::solver::system::System;
 use crate::sketch::{PointId, Sketch};
+
+/// How many steps a run may take before it gives up.
+///
+/// A ceiling rather than a target: a sketch that has an answer reaches it in a
+/// handful, and one that does not is stopped by the damping giving out or by
+/// `STALLED` long before this. What it bounds is the pathological case, so that
+/// a drag cannot hang a frame however badly conditioned the geometry is.
+const MAX_ITERATIONS: u32 = 100;
 
 /// Damping starts here and moves by these factors on an accepted or rejected
 /// step. Rejections back off harder than acceptances close in, which keeps a
@@ -24,9 +33,10 @@ const MAX_DAMPING: f64 = 1e12;
 /// Below this much of itself, the reduction an accepted step makes in the
 /// residual counts as no reduction at all, and the iteration stops.
 ///
-/// Not the `tolerance` [`Stepper::iterate`] is given, which asks whether the
-/// sketch is *solved*. This asks whether solving it any further is possible —
-/// two different questions. A system the constraints
+/// Not [`TOLERANCE`], which asks whether the sketch is *solved*. This asks
+/// whether solving it any further is possible — two different questions, which
+/// is why the margin between them is worth stating and why neither moves. A
+/// system the constraints
 /// cannot satisfy still has a least-squares answer, and its residual never
 /// reaches any tolerance — so the loop's one test can never fire, and without
 /// this it grinds on against a minimum it reached long ago until the damping
@@ -67,12 +77,9 @@ pub(super) struct Stepper {
 }
 
 impl Stepper {
-    /// Take up to `max_iterations` steps, stopping early once every residual is
-    /// within `tolerance` of zero or the damping gives out, and answer how many
-    /// were kept.
-    ///
-    /// Residuals are in sketch units (lengths) or their squares (angles), so
-    /// `tolerance` is an absolute bound on the geometry, not a relative one.
+    /// Take up to [`MAX_ITERATIONS`] steps, stopping early once every residual
+    /// is within [`TOLERANCE`] of zero or the damping gives out, and answer how
+    /// many were kept.
     ///
     /// `system` is held for `held` and left holding the sketch as the last kept
     /// step made it, so a caller judging the attempt has the assembly it needs
@@ -87,8 +94,6 @@ impl Stepper {
         sketch: &mut Sketch,
         system: &mut System,
         held: &[PointId],
-        max_iterations: u32,
-        tolerance: f64,
     ) -> u32 {
         system.hold(sketch, held);
         let n = system.width();
@@ -108,7 +113,7 @@ impl Stepper {
         // afresh each round: after a step worth keeping it is the trial length
         // just taken, and after one that was not it has not moved.
         let mut magnitude = system.magnitude();
-        while iterations < max_iterations && system.max_residual() > tolerance {
+        while iterations < MAX_ITERATIONS && system.max_residual() > TOLERANCE {
             iterations += 1;
             self.normal.fill(0.0);
             self.step.fill(0.0);

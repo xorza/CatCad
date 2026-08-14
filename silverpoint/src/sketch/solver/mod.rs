@@ -13,10 +13,21 @@ use crate::sketch::solver::stepper::Stepper;
 use crate::sketch::solver::system::System;
 use crate::sketch::{PointId, Sketch};
 
+/// Converged once every residual is within this of zero.
+///
+/// Residuals are in sketch units (lengths) or their squares (angles), so this is
+/// an absolute tolerance on the geometry, not a relative one.
+///
+/// Fixed rather than a knob a caller turns, because [`UNMOVED`] below and
+/// `STALLED` next door are both stated as margins against it — decades of room,
+/// measured once. A caller free to raise this would be free to invalidate the
+/// pair of them, and neither has anything to say when it happened.
+const TOLERANCE: f64 = 1e-10;
+
 /// How far a parameter may differ and still count as not having moved, in
 /// sketch units.
 ///
-/// Not [`Solver::tolerance`], which bounds *residuals*. A converged solve leaves
+/// Not [`TOLERANCE`], which bounds *residuals*. A converged solve leaves
 /// the geometry satisfying its constraints rather than sitting on any particular
 /// point of the set that does, so free geometry drifts a little under the
 /// arithmetic — measured on the demo's sketch, about a nanometre, four decades
@@ -33,13 +44,8 @@ const UNMOVED: f64 = 1e-6;
 /// alive across a drag pays for them once rather than once a frame. A throwaway
 /// `Solver::default().solve(..)` still works and still allocates — the room is
 /// only saved by keeping the solver.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct Solver {
-    pub max_iterations: u32,
-    /// Converged once every residual is within this of zero. Residuals are in
-    /// sketch units (lengths) or their squares (angles), so this is an absolute
-    /// tolerance on the geometry, not a relative one.
-    pub tolerance: f64,
     /// The sketch as it currently stands, and what it was allowed to move
     /// getting there. The one thing both phases work on: the run steps it, and
     /// everything that describes the sketch afterwards reads it.
@@ -58,20 +64,6 @@ pub struct Solver {
     /// The sketch as it stood before the edit being attempted, so one the
     /// constraints cannot take can be put back whole.
     before: Snapshot,
-}
-
-impl Default for Solver {
-    fn default() -> Self {
-        Self {
-            max_iterations: 100,
-            tolerance: 1e-10,
-            system: System::default(),
-            spare: System::default(),
-            stepper: Stepper::default(),
-            elimination: Elimination::default(),
-            before: Snapshot::default(),
-        }
-    }
 }
 
 impl Solver {
@@ -94,13 +86,7 @@ impl Solver {
     /// what anything describing the sketch afterwards wants — see
     /// [`Solver::assemble_at_rest`].
     fn iterate(&mut self, sketch: &mut Sketch, held: &[PointId]) -> u32 {
-        self.stepper.iterate(
-            sketch,
-            &mut self.system,
-            held,
-            self.max_iterations,
-            self.tolerance,
-        )
+        self.stepper.iterate(sketch, &mut self.system, held)
     }
 
     /// Move the sketch's geometry with `edit`, then settle the rest around it
@@ -270,7 +256,7 @@ impl Solver {
     ) -> bool {
         self.assemble_at_rest(sketch);
         let residual = self.system.max_residual();
-        if residual > self.tolerance && residual > was {
+        if residual > TOLERANCE && residual > was {
             return false;
         }
         self.read_at_rest(sketch, into, settled, iterations);
@@ -317,7 +303,7 @@ impl Solver {
             .measure(sketch, &self.system, &mut into.freedoms);
         let max_residual = self.system.max_residual();
         into.report = SolveReport {
-            converged: max_residual <= self.tolerance,
+            converged: max_residual <= TOLERANCE,
             iterations,
             max_residual,
         };
