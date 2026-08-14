@@ -196,8 +196,18 @@ impl Camera {
     /// agrees with the picture only until someone changes the projection, and
     /// picking that disagrees with what is on screen is worse than none.
     pub fn ray_through(&self, cursor: Vec2, viewport: Viewport) -> Ray {
+        self.ray_from(cursor, viewport, self.view_proj(viewport.aspect()))
+    }
+
+    /// The same ray, read out of a view-projection the caller already built.
+    ///
+    /// For [`Aim`](crate::Aim), which needs the matrix itself as well and would
+    /// otherwise build it twice. `view_proj` has to be this camera's own for
+    /// this viewport — the assert below is what catches one that is not, since
+    /// a foreign matrix aims the ray somewhere the picture is not.
+    pub(crate) fn ray_from(&self, cursor: Vec2, viewport: Viewport, view_proj: Mat4) -> Ray {
         let ndc = viewport.ndc_from_pixel(cursor);
-        let inverse = self.view_proj(viewport.aspect()).inverse();
+        let inverse = view_proj.inverse();
 
         // Depth is reversed under both projections, so 1 is the near plane and
         // anything below it is further off. Half of it is a second point down

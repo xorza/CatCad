@@ -35,12 +35,15 @@ impl Aim {
     /// What a cursor at `cursor` is aiming at, seen `through` a camera, within
     /// `radius` logical pixels.
     pub fn new(through: &Camera, cursor: Vec2, viewport: Viewport, radius: f32) -> Self {
+        // Built once and handed to the ray, which reads its own answer out of
+        // the same matrix — see [`Camera::ray_from`].
+        let view_proj = through.view_proj(viewport.aspect());
         Self {
             cursor,
             radius,
             viewport,
-            view_proj: through.view_proj(viewport.aspect()),
-            ray: through.ray_through(cursor, viewport),
+            ray: through.ray_from(cursor, viewport, view_proj),
+            view_proj,
         }
     }
 
@@ -114,5 +117,46 @@ impl Inside {
     /// Whether the position survived both planes, and so is drawn.
     pub(crate) fn drawn(&self) -> bool {
         self.near >= 0.0 && self.far >= 0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::camera::Projection;
+    use glam::UVec2;
+
+    /// The ray an aim carries is the one the camera would have cast.
+    ///
+    /// Both are reachable, and a caller uses both: a drag reads
+    /// [`Aim::ray`] to work out what it grabbed and asks the camera directly on
+    /// the frames after that. They agree only because the aim hands the camera
+    /// the very matrix it would have built — so this is what says that shortcut
+    /// is still a shortcut and not a second answer.
+    #[test]
+    fn an_aims_ray_is_the_one_the_camera_casts() {
+        let viewport = Viewport::new(UVec2::new(800, 600));
+        for projection in [Projection::Perspective, Projection::Orthographic] {
+            let camera = Camera {
+                projection,
+                target: Vec3::new(1.0, -2.0, 0.5),
+                distance: 7.0,
+                yaw: 0.9,
+                pitch: -0.3,
+                ..Camera::default()
+            };
+            // Corners as well as the middle: the two disagree first where the
+            // projection is least linear.
+            for cursor in [
+                Vec2::new(400.0, 300.0),
+                Vec2::ZERO,
+                Vec2::new(800.0, 0.0),
+                Vec2::new(13.0, 587.0),
+            ] {
+                let aimed = Aim::new(&camera, cursor, viewport, 6.0).ray();
+                let cast = camera.ray_through(cursor, viewport);
+                assert_eq!(aimed, cast, "{projection:?} at {cursor:?}");
+            }
+        }
     }
 }

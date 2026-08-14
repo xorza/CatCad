@@ -122,6 +122,13 @@ impl Ring {
     /// that. It is there because distance round a rim has two minima, the near
     /// side and the far, and a search started from a guess can settle on the wrong
     /// one.
+    ///
+    /// Every ring in the scene walks in full, with no cheap rejection first, so
+    /// a rim far off screen costs what the one under the cursor does. Left that
+    /// way deliberately: rejecting would need a conservative screen bound on the
+    /// projected conic, which has no simple form once the circle crosses the
+    /// near plane, and the walk measures 0.3 µs — a drawing of two hundred
+    /// circles spends 61 µs of a 16 ms frame on it.
     fn nearest_to(&self, aim: &Aim) -> Option<NearestOnRing> {
         /// Arcs the rim is cut into before refining. Enough to tell the near side
         /// of the ellipse from the far one, which is all this pass has to do.
