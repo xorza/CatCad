@@ -424,11 +424,11 @@ impl Drawing {
     pub(crate) fn grip(&self, entity: Entity, at: HitAt) -> Option<Grip> {
         match (entity, at) {
             (Entity::Point(id), HitAt::Point) => {
-                (!self.sketch.is_fixed(id)).then_some(Grip::Point(id))
+                (!self.sketch.point(id).fixed).then_some(Grip::Point(id))
             }
             (Entity::Segment(id), HitAt::Segment { t, .. }) => {
                 let held = self.sketch.segment(id);
-                let free = !self.sketch.is_fixed(held.a) && !self.sketch.is_fixed(held.b);
+                let free = !self.sketch.point(held.a).fixed && !self.sketch.point(held.b).fixed;
                 free.then_some(Grip::Segment { id, t: t as f64 })
             }
             (Entity::Circle(id), HitAt::Ring { .. }) => Some(Grip::Rim(id)),

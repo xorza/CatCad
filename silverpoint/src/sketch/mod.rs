@@ -144,7 +144,7 @@ impl Sketch {
         self.constraints.insert(constraint)
     }
 
-    /// What `id` names, whole — its position and whether the solver may move
+    /// What `id` names, whole — where it is and whether the solver may move
     /// it, as [`Self::segment`] and [`Self::circle`] hand back what they name.
     pub fn point(&self, id: PointId) -> Point {
         *self.points.get(id).expect(REMOVED_POINT)
@@ -163,18 +163,7 @@ impl Sketch {
         self.points.get_mut(id).expect(REMOVED_POINT)
     }
 
-    /// Every point in position order, whole, each with the handle that names
-    /// it.
-    ///
-    /// The [`Point`] rather than only where it is, as [`Self::segments`] and
-    /// [`Self::circles`] hand back what they are standing on: a caller walking
-    /// the points to draw them wants both halves, and asking
-    /// [`Self::is_fixed`] for the second is a second walk to the same place.
-    ///
-    /// That the single accessors differ — [`Self::point`] answers a position
-    /// and [`Self::is_fixed`] a flag, where [`Self::segment`] answers a whole
-    /// segment — is the types differing rather than the shape: a point has one
-    /// value it mostly means, and a segment and a circle have none.
+    /// Every point in position order, each with the handle that names it.
     pub fn points(&self) -> impl Iterator<Item = (PointId, Point)> {
         self.points.iter().map(|(id, point)| (id, *point))
     }
@@ -208,10 +197,6 @@ impl Sketch {
     /// Every circle in position order, each with the handle that names it.
     pub fn circles(&self) -> impl Iterator<Item = (CircleId, Circle)> {
         self.circles.iter().map(|(id, circle)| (id, *circle))
-    }
-
-    pub fn is_fixed(&self, id: PointId) -> bool {
-        self.points.get(id).expect(REMOVED_POINT).fixed
     }
 
     /// Whether the sketch still holds `entity`.

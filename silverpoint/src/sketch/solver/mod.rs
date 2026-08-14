@@ -125,7 +125,7 @@ impl Solver {
     }
 
     /// Solve with `held` pinned where they are, whatever their own
-    /// [`Sketch::is_fixed`] says.
+    /// [`Point::fixed`](crate::Point) says.
     ///
     /// The settling half of a drag: the point under the cursor stays where the
     /// cursor put it and the rest of the sketch moves to accommodate it, which

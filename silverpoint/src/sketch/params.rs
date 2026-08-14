@@ -138,7 +138,7 @@ impl Params<'_> {
     /// having to know holes exist.
     pub(super) fn is_free(self, index: usize) -> bool {
         match self.at(index) {
-            Some(Param::Point(id, _)) => !self.sketch.is_fixed(id),
+            Some(Param::Point(id, _)) => !self.sketch.point(id).fixed,
             Some(Param::Radius(_)) => true,
             None => false,
         }
