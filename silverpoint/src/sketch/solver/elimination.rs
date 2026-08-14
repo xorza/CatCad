@@ -79,22 +79,33 @@ impl Elimination {
     /// ones it built, and the entities walked here are the ones that built them.
     pub(super) fn measure(&mut self, sketch: &Sketch, system: &System, into: &mut Outcome) {
         self.null_space(system);
-        // Both totals read off the partition itself rather than by counting the
-        // movable columns again and subtracting the rank: the freedoms are the
-        // columns that took no pivot, and the redundant equations are the rows
-        // left over once every pivot has one. Neither can drift from the
-        // reduction it describes.
+        // Read off the partition itself rather than by counting the movable
+        // columns again and subtracting the rank: the freedoms are exactly the
+        // columns that took no pivot, so this cannot drift from the reduction it
+        // describes.
         into.degrees_of_freedom = self.free.len();
-        into.redundant_equations = self.origin.len() - self.pivots.len();
         into.freedoms.reset(sketch);
         let params = sketch.params();
         for (id, _) in sketch.points() {
             let [x, y] = params.of_point(id);
             into.freedoms.set_point(id, self.spread(x, y));
         }
-        for (id, _) in sketch.circles() {
-            into.freedoms
-                .set_radius(id, self.travel(params.of_radius(id)));
+        // An edge is only as settled as its looser end, and a circle only as
+        // settled as the looser of its centre and its radius. Rolled up here
+        // rather than by whoever asks: which parameters an entity is made of is
+        // this side's to know, and the ordering on [`Freedom`] is for exactly
+        // this. Read back off the labels just written, so an entity and its
+        // parts cannot disagree.
+        for (id, edge) in sketch.segments() {
+            let ends = into.freedoms.point(edge.a).max(into.freedoms.point(edge.b));
+            into.freedoms.set_segment(id, ends);
+        }
+        for (id, circle) in sketch.circles() {
+            let whole = into
+                .freedoms
+                .point(circle.center)
+                .max(self.travel(params.of_radius(id)));
+            into.freedoms.set_circle(id, whole);
         }
         // The same rank read the other way round: the rows the reduction had
         // nothing left to do with are the equations the rest of the system

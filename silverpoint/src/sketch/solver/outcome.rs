@@ -2,7 +2,7 @@
 //! settled on can still be asked to do.
 
 use crate::sketch::solver::freedoms::{Freedom, Freedoms};
-use crate::sketch::{CircleId, ConstraintId, PointId};
+use crate::sketch::{CircleId, ConstraintId, PointId, SegmentId};
 
 /// Everything a settle leaves behind: how the run that got here went, how much
 /// the sketch's constraints still leave undecided, and whose freedom that is.
@@ -23,7 +23,6 @@ pub struct Outcome {
     pub(super) converged: bool,
     pub(super) iterations: u32,
     pub(super) degrees_of_freedom: usize,
-    pub(super) redundant_equations: usize,
 }
 
 impl Outcome {
@@ -53,14 +52,17 @@ impl Outcome {
         self.degrees_of_freedom
     }
 
-    /// Equations beyond the rank of the system. On a satisfied sketch these are
-    /// consistent duplicates; on an unsatisfiable one they are the conflict.
+    /// How many constraints the system could do without where the sketch
+    /// stands. On a satisfied sketch these are consistent duplicates; on an
+    /// unsatisfiable one they are the conflict.
     ///
-    /// The total [`Outcome::is_redundant`] breaks down, and the two can differ:
-    /// this counts equations, that flags constraints, and a coincidence is worth
-    /// two equations.
-    pub fn redundant_equations(&self) -> usize {
-        self.redundant_equations
+    /// Exactly the total of what [`Outcome::is_redundant`] flags, counted off
+    /// those flags — so a drawing that lights a mark per flagged constraint
+    /// lights this many. Not the rank deficiency of the system, which can be
+    /// larger: a coincidence is worth two equations, and both of a duplicated
+    /// one's rows dying names the one constraint once.
+    pub fn redundant_constraints(&self) -> usize {
+        self.freedoms.redundant_count()
     }
 
     /// What the constraints leave of a point.
@@ -68,10 +70,16 @@ impl Outcome {
         self.freedoms.point(id)
     }
 
-    /// What the constraints leave of a circle's radius — not of the circle,
-    /// which also moves with its centre.
-    pub fn radius(&self, id: CircleId) -> Freedom {
-        self.freedoms.radius(id)
+    /// What the constraints leave of an edge, which is the looser of its two
+    /// ends: one end free to travel is an edge free to travel with it.
+    pub fn segment(&self, id: SegmentId) -> Freedom {
+        self.freedoms.segment(id)
+    }
+
+    /// What the constraints leave of a circle, which is the looser of its centre
+    /// and its radius — it can move with the one or grow on the other.
+    pub fn circle(&self, id: CircleId) -> Freedom {
+        self.freedoms.circle(id)
     }
 
     /// Whether this constraint is one the system could do without where the

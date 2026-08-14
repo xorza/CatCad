@@ -325,6 +325,10 @@ impl Sketch {
         self.points.slot_count()
     }
 
+    fn segment_slot_count(&self) -> usize {
+        self.segments.slot_count()
+    }
+
     fn circle_slot_count(&self) -> usize {
         self.circles.slot_count()
     }

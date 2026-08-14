@@ -216,7 +216,7 @@ impl CatCad {
             converged: outcome.converged(),
             iterations: outcome.iterations(),
             degrees_of_freedom: outcome.degrees_of_freedom(),
-            redundant_equations: outcome.redundant_equations(),
+            redundant_constraints: outcome.redundant_constraints(),
             hovered: self.view.hovered(),
         }
     }
@@ -242,7 +242,7 @@ struct Status {
     /// What the sketch can still do, where the two above are only how the last
     /// run getting it there went.
     degrees_of_freedom: usize,
-    redundant_equations: usize,
+    redundant_constraints: usize,
     hovered: Option<Entity>,
 }
 
@@ -267,7 +267,7 @@ impl fmt::Display for Status {
         write!(
             f,
             "{state} · {} dof · {} redundant · {} iterations",
-            self.degrees_of_freedom, self.redundant_equations, self.iterations,
+            self.degrees_of_freedom, self.redundant_constraints, self.iterations,
         )?;
         match self.hovered {
             Some(entity) => write!(f, " · {}", noun(entity)),

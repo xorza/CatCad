@@ -322,9 +322,7 @@ fn write_curves(
                 Stroke::Edge(id, edge) => {
                     let a = plane.point(sketch.point(edge.a).position).as_vec3();
                     let b = plane.point(sketch.point(edge.b).position).as_vec3();
-                    // An edge is only as settled as its looser end: one end
-                    // free to travel is an edge free to travel with it.
-                    let freedom = outcome.point(edge.a).max(outcome.point(edge.b));
+                    let freedom = outcome.segment(id);
                     curve.set_segment(a, b);
                     curve.color = colour(freedom);
                     curve.tag = Some(names.tag(Entity::Segment(id)));
@@ -406,11 +404,7 @@ fn write_rings(drawing: &Drawing, names: &mut Names, band: Option<Ends>, rings: 
             // nothing either.
             *ring = match rim {
                 Rim::Circle(id, circle) => {
-                    // A circle can move with its centre or grow on its own, so
-                    // it is settled only when both are — the demo's is pinned
-                    // to the middle of a rigid frame and still has its rim to
-                    // give.
-                    let freedom = outcome.point(circle.center).max(outcome.radius(id));
+                    let freedom = outcome.circle(id);
                     Ring::new(
                         plane.point(sketch.point(circle.center).position).as_vec3(),
                         circle.radius.abs() as f32,

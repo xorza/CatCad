@@ -45,7 +45,7 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     // (it can travel and turn as one piece), the rail's one (it stretches), and
     // the unconstrained radius of the circle.
     assert_eq!(outcome.degrees_of_freedom(), 5, "{:?}", outcome);
-    assert_eq!(outcome.redundant_equations(), 0, "{:?}", outcome);
+    assert_eq!(outcome.redundant_constraints(), 0, "{:?}", outcome);
 
     let at: Vec<DVec2> = sketch.points().map(|(_, point)| point.position).collect();
     let expected = [
@@ -150,11 +150,17 @@ fn the_demo_shows_every_state_a_drawing_can_be_painted_in() {
         );
     }
 
-    // The circle nothing sized can still be resized; the eye that was given a
-    // size cannot. Between them that is both states a rim can be in.
+    // Both rims paint free, for opposite reasons: the hub's circle has a centre
+    // the frame nails down and nothing stating its size, and the eye has a
+    // stated size on a centre that rides the arm. A circle is as free as its
+    // looser half, so neither is settled — which is what the demo has always
+    // drawn, whatever the radius alone reads.
+    //
+    // Which half is loose is silverpoint's to pin down, and it does: a circle
+    // free on a determined centre is one free to grow.
     let circle: Vec<_> = sketch.circles().map(|(id, _)| id).collect();
-    assert_eq!(outcome.radius(circle[0]), Freedom::Free);
-    assert_eq!(outcome.radius(circle[1]), Freedom::Determined);
+    assert_eq!(outcome.circle(circle[0]), Freedom::Free);
+    assert_eq!(outcome.circle(circle[1]), Freedom::Free);
 }
 
 /// What the status line reads, in every shape it takes.
@@ -170,7 +176,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             converged: true,
             iterations: 4,
             degrees_of_freedom: 0,
-            redundant_equations: 0,
+            redundant_constraints: 0,
             hovered: None,
         }
         .to_string(),
@@ -193,7 +199,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
                 converged: true,
                 iterations: 4,
                 degrees_of_freedom: 0,
-                redundant_equations: 0,
+                redundant_constraints: 0,
                 hovered: Some(hovered),
             }
             .to_string(),
@@ -207,7 +213,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             converged: false,
             iterations: 100,
             degrees_of_freedom: 3,
-            redundant_equations: 2,
+            redundant_constraints: 2,
             hovered: None,
         }
         .to_string(),

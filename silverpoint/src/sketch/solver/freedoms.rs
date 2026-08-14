@@ -1,7 +1,7 @@
 //! What a sketch's constraints leave undecided, entity by entity.
 
 use crate::sketch::constraint::ConstraintId;
-use crate::sketch::{CircleId, PointId, Sketch};
+use crate::sketch::{CircleId, PointId, SegmentId, Sketch};
 
 /// A slot past what was measured — the sketch having grown since — which is the
 /// whole of what the lookups below can tell apart.
@@ -47,9 +47,12 @@ pub enum Freedom {
 pub(super) struct Freedoms {
     /// By point slot, so a handle indexes straight in.
     points: Vec<Freedom>,
-    /// By circle slot. Never [`Freedom::Partly`] — a radius is one parameter,
-    /// and one parameter is either decided or not.
-    radii: Vec<Freedom>,
+    /// By segment slot: the looser of the edge's two ends, since an edge is only
+    /// as settled as the end that can still travel.
+    segments: Vec<Freedom>,
+    /// By circle slot: the looser of the centre and the radius, since a circle
+    /// can move with one or grow on the other.
+    circles: Vec<Freedom>,
     /// By constraint slot, like the two above. A flag rather than a list, so a
     /// caller walking the constraints to draw them asks about each in turn
     /// rather than searching — which is the way round every reader wants it,
@@ -63,8 +66,19 @@ impl Freedoms {
         *self.points.get(id.slot()).expect(UNMEASURED)
     }
 
-    pub(super) fn radius(&self, id: CircleId) -> Freedom {
-        *self.radii.get(id.slot()).expect(UNMEASURED)
+    pub(super) fn segment(&self, id: SegmentId) -> Freedom {
+        *self.segments.get(id.slot()).expect(UNMEASURED)
+    }
+
+    pub(super) fn circle(&self, id: CircleId) -> Freedom {
+        *self.circles.get(id.slot()).expect(UNMEASURED)
+    }
+
+    /// How many constraints are flagged — the total [`Freedoms::is_redundant`]
+    /// breaks down, counted off the flags themselves so the two cannot disagree
+    /// about how many there were.
+    pub(super) fn redundant_count(&self) -> usize {
+        self.redundant.iter().filter(|&&flagged| flagged).count()
     }
 
     pub(super) fn is_redundant(&self, id: ConstraintId) -> bool {
@@ -77,8 +91,11 @@ impl Freedoms {
         self.points.clear();
         self.points
             .resize(sketch.point_slot_count(), Freedom::Determined);
-        self.radii.clear();
-        self.radii
+        self.segments.clear();
+        self.segments
+            .resize(sketch.segment_slot_count(), Freedom::Determined);
+        self.circles.clear();
+        self.circles
             .resize(sketch.circle_slot_count(), Freedom::Determined);
         self.redundant.clear();
         self.redundant.resize(sketch.constraint_slot_count(), false);
@@ -88,8 +105,12 @@ impl Freedoms {
         self.points[id.slot()] = freedom;
     }
 
-    pub(super) fn set_radius(&mut self, id: CircleId, freedom: Freedom) {
-        self.radii[id.slot()] = freedom;
+    pub(super) fn set_segment(&mut self, id: SegmentId, freedom: Freedom) {
+        self.segments[id.slot()] = freedom;
+    }
+
+    pub(super) fn set_circle(&mut self, id: CircleId, freedom: Freedom) {
+        self.circles[id.slot()] = freedom;
     }
 
     /// Flag a constraint the system could do without. Idempotent, because a

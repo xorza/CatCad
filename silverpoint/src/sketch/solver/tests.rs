@@ -34,7 +34,7 @@ fn distance_moves_a_point_along_its_own_direction() {
     // One equation against two free parameters: the point may still slide
     // around the circle of radius 5.
     assert_eq!(outcome.degrees_of_freedom(), 1);
-    assert_eq!(outcome.redundant_equations(), 0);
+    assert_eq!(outcome.redundant_constraints(), 0);
 }
 
 /// A removal leaves a sketch the solver can still work on, and gives back
@@ -79,7 +79,7 @@ fn a_sketch_solves_the_same_once_geometry_and_constraints_are_removed() {
     assert_eq!(sketch.params().count(), 6);
     assert!((sketch.point(end).position - DVec2::new(5.0, 0.0)).length() < EPSILON);
     assert_eq!(outcome.degrees_of_freedom(), 0);
-    assert_eq!(outcome.redundant_equations(), 0);
+    assert_eq!(outcome.redundant_constraints(), 0);
 
     // Taking the level away hands `end` back the freedom it was spending: it
     // keeps its distance from the anchor and may swing about it.
@@ -147,7 +147,7 @@ fn three_distances_make_a_right_triangle() {
     // Four free parameters against three independent distances: the triangle
     // can still rotate about the fixed corner.
     assert_eq!(outcome.degrees_of_freedom(), 1);
-    assert_eq!(outcome.redundant_equations(), 0);
+    assert_eq!(outcome.redundant_constraints(), 0);
 }
 
 #[test]
@@ -193,7 +193,7 @@ fn a_rectangle_is_fully_constrained() {
     assert!((sketch.point(p2).position - DVec2::new(5.0, 3.0)).length() < EPSILON);
     assert!((sketch.point(p3).position - DVec2::new(0.0, 3.0)).length() < EPSILON);
     assert_eq!(outcome.degrees_of_freedom(), 0);
-    assert_eq!(outcome.redundant_equations(), 0);
+    assert_eq!(outcome.redundant_constraints(), 0);
 }
 
 /// A coincidence pins both axes, which is the whole of what makes it worth two
@@ -221,7 +221,7 @@ fn a_coincidence_pins_both_axes_and_counts_as_two_equations() {
     assert!((sketch.point(free).position - sketch.point(anchor).position).length() < EPSILON);
     // Two free parameters against two independent equations.
     assert_eq!(outcome.degrees_of_freedom(), 0, "{:?}", outcome);
-    assert_eq!(outcome.redundant_equations(), 0, "{:?}", outcome);
+    assert_eq!(outcome.redundant_constraints(), 0, "{:?}", outcome);
 }
 
 /// Holding a point pins it where the caller put it and moves the rest of the
@@ -553,7 +553,7 @@ fn a_duplicate_constraint_is_reported_as_redundant() {
     // rank, and the extra one is reported rather than silently absorbed.
     assert!(outcome.converged(), "{:?}", outcome);
     assert!((sketch.point(free).position - DVec2::new(5.0, 0.0)).length() < EPSILON);
-    assert_eq!(outcome.redundant_equations(), 1);
+    assert_eq!(outcome.redundant_constraints(), 1);
     assert_eq!(outcome.degrees_of_freedom(), 1);
 
     // And the count is broken down to the constraint that carries it. Exactly
@@ -600,9 +600,11 @@ fn redundancy_names_constraints_and_leaves_the_needed_ones_alone() {
     assert!(outcome.converged(), "{:?}", outcome);
 
     // Five equations, rank three: the coincidence pair spends two and the
-    // distance one, leaving two rows over.
-    assert_eq!(outcome.redundant_equations(), 2);
-    // Both of those rows belong to one coincidence, which is named once.
+    // distance one, leaving two rows over. Both of those rows belong to one
+    // coincidence, so what the system could do without is *one* constraint, not
+    // two equations' worth — and one is what the count says, which is what lets
+    // a drawing light a mark per flagged constraint and have the two agree.
+    assert_eq!(outcome.redundant_constraints(), 1);
     assert_ne!(outcome.is_redundant(first), outcome.is_redundant(second));
     assert!(
         !outcome.is_redundant(apart),
@@ -674,7 +676,7 @@ fn a_circle_solves_its_radius_and_the_point_on_it_together() {
     // Three free parameters (the point, the radius) against two equations:
     // the point can still travel around the circle.
     assert_eq!(outcome.degrees_of_freedom(), 1);
-    assert_eq!(outcome.redundant_equations(), 0);
+    assert_eq!(outcome.redundant_constraints(), 0);
 }
 
 #[test]
@@ -718,7 +720,7 @@ fn a_sketch_with_no_constraints_is_solved_and_everything_it_can_move_is_free() {
     assert!(outcome.converged());
     assert_eq!(outcome.iterations(), 0);
     assert_eq!(outcome.degrees_of_freedom(), 0);
-    assert_eq!(outcome.redundant_equations(), 0);
+    assert_eq!(outcome.redundant_constraints(), 0);
 
     // Five parameters, of which the pinned point's two never move: two
     // coordinates and one radius are left, and nothing states a thing about any
@@ -732,7 +734,7 @@ fn a_sketch_with_no_constraints_is_solved_and_everything_it_can_move_is_free() {
     assert!(outcome.converged());
     assert_eq!(outcome.iterations(), 0);
     assert_eq!(outcome.degrees_of_freedom(), 3);
-    assert_eq!(outcome.redundant_equations(), 0);
+    assert_eq!(outcome.redundant_constraints(), 0);
 
     // Measuring asks the constraints nothing and moves nothing, so it reads the
     // same as the solve that found the sketch already at its answer.
@@ -740,7 +742,7 @@ fn a_sketch_with_no_constraints_is_solved_and_everything_it_can_move_is_free() {
     assert_eq!(outcome.degrees_of_freedom(), 3);
     assert_eq!(outcome.point(anchor), Freedom::Determined);
     assert_eq!(outcome.point(loose), Freedom::Free);
-    assert_eq!(outcome.radius(ring), Freedom::Free);
+    assert_eq!(outcome.circle(ring), Freedom::Free);
     // And nothing moved: a solve with no equations has no step to take.
     assert_eq!(sketch.point(loose).position, DVec2::new(1.0, 2.0));
     assert_eq!(sketch.circle(ring).radius, 0.5);
@@ -858,7 +860,7 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
     assert_eq!(outcome.degrees_of_freedom(), 1, "the same one freedom");
     assert_eq!(outcome.point(rider), Freedom::Partly);
     // And the radius the constraint named is decided, unlike the rider on it.
-    assert_eq!(outcome.radius(ring), Freedom::Determined);
+    assert_eq!(outcome.circle(ring), Freedom::Determined);
 
     // A circle nothing sized keeps its rim to be dragged.
     let mut loose_ring = Sketch::default();
@@ -867,7 +869,7 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
     let free_ring = loose_ring.add_circle(centre, 1.0);
     solver.solve(&mut loose_ring, &mut outcome);
     assert!(outcome.converged());
-    assert_eq!(outcome.radius(free_ring), Freedom::Free);
+    assert_eq!(outcome.circle(free_ring), Freedom::Free);
     assert_eq!(outcome.point(centre), Freedom::Determined);
 }
 
