@@ -138,11 +138,13 @@ impl CatCad {
         if ui.key_pressed(REDO) {
             self.intents.push(Intent::Redo);
         }
-        // Escape puts down whatever is in hand, which is the way out of an
-        // armed tool that does not involve finding its button again. Written
-        // rather than raised as an intent — see [`Tool`].
+        // Escape puts down whatever is in hand wherever the pointer happens to
+        // be. The view answers for the right button over the drawing, which is
+        // the same cancel by the gesture a modeller reaches for first, and the
+        // bar for a second press of a tool's own button — three ways to ask for
+        // the same thing, and none of them does it.
         if ui.escape_pressed() {
-            self.tool = Tool::Select;
+            self.intents.push(Intent::Hold(Tool::Select));
         }
         self.view
             .ask(ui, &self.document, self.tool, &mut self.intents);
@@ -157,9 +159,27 @@ impl CatCad {
             &mut self.intents,
         );
         // Last, so it is the topmost thing in the zstack and takes its own
-        // presses. What it arms is read by the *next* frame's view, which is
-        // what keeps the press that armed a tool from also placing with it.
-        self.toolbar.show(ui, &mut self.tool);
+        // presses rather than the view beneath it.
+        self.toolbar.show(ui, self.tool, &mut self.intents);
+    }
+
+    /// Land everything the frame asked for, on whichever of the three things a
+    /// frame writes it belongs to.
+    ///
+    /// The tool is taken here rather than in the history, because what is in
+    /// hand is not a step to take back: undoing a placed point should not put
+    /// the tool that placed it back in your hand. So the inbox is read twice
+    /// over, once for what the app owns and once for what the document does —
+    /// which costs a walk of a few entries, and means neither reader has to
+    /// know what the other's intents mean.
+    fn apply(&mut self) {
+        for intent in self.intents.iter() {
+            if let Intent::Hold(tool) = intent {
+                self.tool = tool;
+            }
+        }
+        self.history
+            .apply(&mut self.document, &mut self.solver, &self.intents);
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
@@ -236,8 +256,7 @@ impl App for CatCad {
                 // rest of the crate is built around: nothing writes the document
                 // until everything has finished reading it.
                 self.ask(ui);
-                self.history
-                    .apply(&mut self.document, &mut self.solver, &self.intents);
+                self.apply();
                 self.view.settle(&self.document);
             });
     }

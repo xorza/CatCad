@@ -179,8 +179,9 @@ impl SceneView {
     /// all leave as intents. What they do is [`Document::apply`]'s, and what
     /// that leaves is [`SceneView::settle`]'s.
     ///
-    /// `tool` is read and never written, for the same reason `document` is: what
-    /// is in hand is settled before the frame starts, by the bar that shows it.
+    /// `tool` is read and never written, for the same reason `document` is:
+    /// the right button here puts down what is in hand, and it asks for that
+    /// like anything else rather than reaching over and doing it.
     ///
     /// Named for that rather than for the widget it emits. A palantir `show`
     /// answers its caller with a [`Response`] and leaves the deciding to it;
@@ -252,6 +253,14 @@ impl SceneView {
             && let Some(at) = landing(&response, document, document.drawing().motion())
         {
             intents.push(Intent::AddPoint { at });
+        }
+
+        // The right button puts down whatever is in hand — the gesture every
+        // modeller cancels with, and the one that needs no trip back to the
+        // bar. A click rather than a press, like placing, so a right-drag is
+        // left to whatever later wants one.
+        if response.right.clicked() {
+            intents.push(Intent::Hold(Tool::Select));
         }
 
         // Asking whether the pointer is actually over the view is what stops

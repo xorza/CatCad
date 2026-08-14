@@ -18,9 +18,10 @@ struct Raised {
     intents: Intents,
     view: SceneView,
     harness: UiHarness,
-    /// What the bar would be showing as in hand. Set straight rather than
-    /// pressed, because the bar is the application's and this raises the view
-    /// alone.
+    /// What the bar would be showing as in hand. Set straight to arm one,
+    /// because the bar is the application's and this raises the view alone —
+    /// but taken off the inbox like the application's, so what the view asks
+    /// for lands the same way here.
     tool: Tool,
 }
 
@@ -62,6 +63,13 @@ impl Raised {
         harness.frame(|ui| {
             intents.clear();
             view.ask(ui, document, *tool, intents);
+            // The app's own apply, minus the bar it has no toolbar for: the
+            // tool is taken off the inbox before the history reads it.
+            for intent in intents.iter() {
+                if let Intent::Hold(held) = intent {
+                    *tool = held;
+                }
+            }
             history.apply(document, solver, intents);
             view.settle(document);
         });
@@ -551,6 +559,25 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
         raised.markers(),
         placed,
         "an armed press dragged the drawing, or its release placed a second point"
+    );
+
+    // The right button puts it down, and a click afterwards places nothing —
+    // which is the half worth checking, since a tool that stopped *looking*
+    // armed and went on placing would pass every assertion above.
+    raised.harness.right_click_at(cursor);
+    raised.frame();
+    assert_eq!(
+        raised.tool,
+        Tool::Select,
+        "the right button left it in hand"
+    );
+
+    raised.harness.click_at(cursor);
+    raised.frame();
+    assert_eq!(
+        raised.markers(),
+        placed,
+        "a cancelled tool went on placing points"
     );
 }
 

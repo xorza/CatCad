@@ -376,14 +376,33 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
         "Ctrl+Shift+Z did not put the point back"
     );
 
-    // Escape is the way out of an armed tool that does not involve finding its
-    // button again — and the button itself is the other way, because pressing
-    // the tool in hand puts it down.
+    // Three ways to put a tool down, all landing on the same field through the
+    // same inbox. Escape first, from wherever the pointer happens to be.
     harness.set_modifiers(Modifiers::NONE);
     harness.key(Key::Escape);
     frame(&mut app, &mut harness);
     assert_eq!(app.tool, Tool::Select, "Escape did not put the tool down");
 
+    // The right button over the drawing, which is the gesture a modeller
+    // reaches for first.
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(app.tool, Tool::Point);
+    let held = markers(&app);
+    harness.right_click_at(cursor);
+    frame(&mut app, &mut harness);
+    assert_eq!(app.tool, Tool::Select, "the right button left it in hand");
+    // And it is really down, not merely drawn as down: the click that follows
+    // places nothing.
+    harness.click_at(cursor);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        markers(&app),
+        held,
+        "a cancelled tool went on placing points"
+    );
+
+    // And its own button again, because pressing the tool in hand puts it down.
     harness.click_at(POINT_BUTTON);
     frame(&mut app, &mut harness);
     assert_eq!(app.tool, Tool::Point);

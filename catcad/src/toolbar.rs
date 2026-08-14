@@ -2,6 +2,7 @@
 
 use palantir::{Align, Background, Button, ButtonTheme, Configure, Palette, Panel, Sizing, Ui};
 
+use crate::intent::{Intent, Intents};
 use crate::tool::Tool;
 
 /// The bar of tools, and the look a button wears while its tool is in hand.
@@ -15,18 +16,14 @@ pub(crate) struct Toolbar {
 }
 
 impl Toolbar {
-    /// Show the tools, arming and disarming `tool` as they are pressed.
+    /// Show the tools, putting what a press asks for in `intents`.
     ///
-    /// Writes `tool` where the overlay next door raises an intent, and the
-    /// difference is what is being written: the camera the overlay's button
-    /// turns is the document's, so it goes through the one place a document is
-    /// written, where the tool in hand is nobody's but this frame's.
-    ///
-    /// A press is read once however many times palantir replays the record
-    /// pass, because a click is an edge rather than a latch and the input
-    /// queues are drained between passes — which is what keeps a settling frame
-    /// from arming a tool and putting it straight back down.
-    pub(crate) fn show(&self, ui: &mut Ui, tool: &mut Tool) {
+    /// Shows and does not act, like the overlay next door: `tool` is read to
+    /// know which button to draw as held, and what a press asks for leaves as
+    /// an [`Intent::Hold`] naming the tool it wants — which is what makes a
+    /// replayed pass harmless, where flipping the tool here would arm it and
+    /// put it straight back down.
+    pub(crate) fn show(&self, ui: &mut Ui, tool: Tool, intents: &mut Intents) {
         Panel::hstack()
             .auto_id()
             // Chrome would put a slab of theme colour over the drawing; the bar
@@ -37,21 +34,21 @@ impl Toolbar {
             .padding(12.0)
             .gap(8.0)
             .show(ui, |ui| {
-                self.tool(ui, tool, Tool::Point, "Point");
+                self.tool(ui, tool, Tool::Point, "Point", intents);
             });
     }
 
-    /// One button, which arms `arms` and shows whether it is armed.
+    /// One button, which asks for `arms` and shows whether it is in hand.
     ///
     /// Salted with the label rather than `auto_id`, which would give every tool
     /// on the bar the one id of this call site.
-    fn tool(&self, ui: &mut Ui, tool: &mut Tool, arms: Tool, label: &str) {
+    fn tool(&self, ui: &mut Ui, tool: Tool, arms: Tool, label: &str, intents: &mut Intents) {
         let mut button = Button::new().id_salt(label).label(label);
-        if *tool == arms {
+        if tool == arms {
             button = button.style(&self.armed);
         }
         if button.show(ui).left.clicked() {
-            *tool = tool.toggled(arms);
+            intents.push(Intent::Hold(tool.toggled(arms)));
         }
     }
 }

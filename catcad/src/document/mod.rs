@@ -90,13 +90,15 @@ impl Document {
             Intent::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Intent::Dolly { factor } => self.camera.dolly(factor),
             Intent::Project(projection) => self.camera.projection = projection,
-            // Asked of the history rather than of the document: what to take
-            // back is a question about what has been done, and a document is
-            // only ever what *is*. `History::apply` answers all three itself
-            // and forwards none of them, so arriving here is a caller that went
-            // round it — which is worth a crash rather than a silent nothing.
-            Intent::Release | Intent::Undo | Intent::Redo => {
-                unreachable!("{intent:?} is the history's to answer, not a document's")
+            // None of these is a change to what the document *is*. Which step
+            // of the history is current is a question about what has been done,
+            // and which tool is in hand is about the session doing it — where a
+            // document is only ever what is. Each is answered before this runs,
+            // by whichever of `History::apply` and `CatCad::apply` owns it, and
+            // neither forwards one — so arriving here is a caller that went
+            // round both, which is worth a crash rather than a silent nothing.
+            Intent::Release | Intent::Undo | Intent::Redo | Intent::Hold(_) => {
+                unreachable!("{intent:?} is not a document's to answer")
             }
         }
     }

@@ -4,17 +4,27 @@ use aperture::Projection;
 use glam::Vec3;
 
 use crate::drawing::Grip;
+use crate::tool::Tool;
 
 /// One thing the user asked for.
 ///
-/// Asked for rather than done. The view that raises one is handed the document
-/// to read and never to write, so a gesture arrives as a request and lands in
-/// one place afterwards — which is what leaves a single point every change to a
-/// document passes through. An undo stack watches there; so, later, will
-/// whatever decides a document has gone unsaved.
+/// Asked for rather than done. Whatever raises one is handed what it needs to
+/// read and never to write, so a gesture arrives as a request and lands in one
+/// place afterwards — which is what leaves a single point every change passes
+/// through. Most land on the document, and an undo stack watches there; so,
+/// later, will whatever decides a document has gone unsaved. The rest land on
+/// what is not the document but is still the user's to change: which step of
+/// the history is current, and which tool is in hand.
+///
+/// **Every one names where it wants to end up, never how far to go.** A
+/// settling frame records twice and palantir may replay a pass up to three
+/// times, so an intent that said "toggle" or "move by" would land two or three
+/// times over. That is why a drag names a point in the world, the projection
+/// toggle names the projection it wants, and the toolbar names the tool it
+/// wants held rather than saying that it was pressed.
 ///
 /// `Copy`, so applying one can lift it out of the inbox and let go of the
-/// borrow before touching the document.
+/// borrow before touching what it lands on.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Intent {
     /// Take what a drag has hold of to a point in the world.
@@ -51,6 +61,14 @@ pub(crate) enum Intent {
     },
     /// Look through this projection.
     Project(Projection),
+    /// Take up this tool, or put down whatever is in hand by naming
+    /// [`Tool::Select`].
+    ///
+    /// The tool the user wants held, not the button they pressed. Pressing an
+    /// armed tool's button puts it down, which is a *toggle* — so the toolbar
+    /// works out what that leaves and names it, rather than asking for a flip a
+    /// replayed pass would perform twice. See the note on naming above.
+    Hold(Tool),
     /// Take back the last step, and put it back.
     Undo,
     Redo,
