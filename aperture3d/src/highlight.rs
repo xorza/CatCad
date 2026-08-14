@@ -98,25 +98,6 @@ impl Highlights {
         true
     }
 
-    /// Give one tag a look, replacing whatever it had, and say whether that
-    /// changed anything.
-    pub(crate) fn upsert(&mut self, lit: Lit) -> bool {
-        match self.entries.iter_mut().find(|had| had.tag == lit.tag) {
-            Some(had) if *had == lit => false,
-            Some(had) => {
-                // Only the look moved, and the index is ordered by tag, so what
-                // it points at is still where it belongs.
-                *had = lit;
-                true
-            }
-            None => {
-                self.entries.push(lit);
-                self.reindex();
-                true
-            }
-        }
-    }
-
     /// Drop everything, and say whether there was anything to drop.
     pub(crate) fn clear(&mut self) -> bool {
         if self.entries.is_empty() {
@@ -244,14 +225,9 @@ mod tests {
         );
         assert!(highlights.set_all(&[lit(1, Vec3::Y)]), "a different look");
 
-        assert!(
-            !highlights.upsert(lit(1, Vec3::Y)),
-            "the look it already had"
-        );
-        assert!(highlights.upsert(lit(1, Vec3::Z)), "replacing a look");
-        assert!(highlights.upsert(lit(2, Vec3::X)), "a tag not yet named");
-        // The new tag has to be reachable, which is what says `upsert` reindexed
-        // rather than only pushing.
+        assert!(highlights.set_all(&[lit(1, Vec3::Z), lit(2, Vec3::X)]));
+        // Both have to be reachable, which is what says the index was rebuilt
+        // rather than only the entries rewritten.
         assert_eq!(
             highlights.look_of(Some(Tag::new(2))),
             Some(Highlight::new(Vec3::X))

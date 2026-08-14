@@ -32,8 +32,8 @@ const BACKGROUND: wgpu::Color = wgpu::Color {
 /// has been resized, which is the only thing that invalidates one.
 #[derive(Debug)]
 pub(super) struct Attachments {
-    pub(super) color: wgpu::TextureView,
-    pub(super) depth: wgpu::TextureView,
+    color: wgpu::TextureView,
+    depth: wgpu::TextureView,
     pub(super) size: UVec2,
 }
 
@@ -86,7 +86,7 @@ impl Attachments {
         })
     }
 
-    pub(super) fn view(
+    fn view(
         device: &wgpu::Device,
         label: &str,
         size: UVec2,

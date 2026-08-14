@@ -4,7 +4,7 @@ use super::*;
 /// numbers.
 #[test]
 fn a_plane_answers_where_the_ray_crosses_it() {
-    let ground = Motion::Plane {
+    let ground = Motion {
         origin: Vec3::ZERO,
         normal: Vec3::Y,
     };
@@ -25,7 +25,7 @@ fn a_plane_answers_where_the_ray_crosses_it() {
     );
 
     // A plane away from the origin shifts the answer by exactly its offset.
-    let raised = Motion::Plane {
+    let raised = Motion {
         origin: Vec3::new(0.0, 1.0, 0.0),
         normal: Vec3::Y,
     };
@@ -47,7 +47,7 @@ fn a_plane_answer_always_lies_on_the_plane() {
     // facing rather than assuming anything about the normal's length.
     let origin = Vec3::new(1.0, -2.0, 0.5);
     let normal = Vec3::new(0.3, 0.8, -0.5);
-    let plane = Motion::Plane { origin, normal };
+    let plane = Motion { origin, normal };
     // All aimed downward, because the eye is above the plane and a ray that
     // turns away from it crosses only behind — which `resolve` refuses, and
     // the test below of its own.
@@ -69,7 +69,7 @@ fn a_plane_answer_always_lies_on_the_plane() {
 
 #[test]
 fn a_plane_the_ray_cannot_reach_answers_nothing() {
-    let ground = Motion::Plane {
+    let ground = Motion {
         origin: Vec3::ZERO,
         normal: Vec3::Y,
     };
@@ -90,71 +90,8 @@ fn a_plane_the_ray_cannot_reach_answers_nothing() {
 
 /// The two lines are skew, so the answer is the point of the *axis* nearest
 /// the ray — not a crossing, which does not exist.
-#[test]
-fn an_axis_answers_with_its_own_point_nearest_the_ray() {
-    let x_axis = Motion::Axis {
-        origin: Vec3::ZERO,
-        direction: Vec3::X,
-    };
-
-    // A ray straight down through (4, 0, 0): the nearest point of the axis is
-    // directly under it, and the answer sits on the axis rather than on the
-    // ray, so its y and z are the axis's own.
-    assert_eq!(
-        x_axis.resolve(Ray::new(Vec3::new(4.0, 7.0, 0.0), Vec3::NEG_Y)),
-        Some(Vec3::new(4.0, 0.0, 0.0))
-    );
-
-    // Skew: the ray passes two units to the side and never meets the axis at
-    // all. The x it names is still 4 — the offset is square to the axis, so
-    // it moves the distance, not the answer.
-    let skew = Ray::new(Vec3::new(4.0, 7.0, 2.0), Vec3::NEG_Y);
-    assert_eq!(x_axis.resolve(skew), Some(Vec3::new(4.0, 0.0, 0.0)));
-
-    // An axis away from the origin carries its own offset into the answer.
-    let raised = Motion::Axis {
-        origin: Vec3::new(0.0, 1.0, 0.0),
-        direction: Vec3::X,
-    };
-    assert_eq!(
-        raised.resolve(Ray::new(Vec3::new(4.0, 7.0, 0.0), Vec3::NEG_Y)),
-        Some(Vec3::new(4.0, 1.0, 0.0))
-    );
-}
-
-#[test]
-fn an_axis_the_ray_runs_alongside_answers_nothing() {
-    let x_axis = Motion::Axis {
-        origin: Vec3::ZERO,
-        direction: Vec3::X,
-    };
-    // Parallel: every point of the axis is as close as every other, so there
-    // is no nearest one to report.
-    assert_eq!(x_axis.resolve(Ray::new(Vec3::Y * 3.0, Vec3::X)), None);
-    assert_eq!(x_axis.resolve(Ray::new(Vec3::Y * 3.0, Vec3::NEG_X)), None);
-
-    // A hair off parallel still answers — the gate is on the arithmetic
-    // collapsing, not on the angle being small.
-    let nearly = Ray::new(Vec3::Y * 3.0, Vec3::new(1.0, -0.01, 0.0));
-    assert!(x_axis.resolve(nearly).is_some());
-}
-
 /// Dragging along an axis is a drag *along* it: two aims a known distance
 /// apart have to move the answer by that distance and no other.
-#[test]
-fn walking_the_cursor_along_an_axis_walks_the_answer_the_same_way() {
-    let axis = Motion::Axis {
-        origin: Vec3::new(1.0, 2.0, 3.0),
-        direction: Vec3::Z,
-    };
-    let from_above = |z: f32| Ray::new(Vec3::new(1.0, 9.0, z), Vec3::NEG_Y);
-
-    let start = axis.resolve(from_above(3.0)).unwrap();
-    let moved = axis.resolve(from_above(8.0)).unwrap();
-    assert_eq!(start, Vec3::new(1.0, 2.0, 3.0));
-    assert_eq!(moved - start, Vec3::Z * 5.0);
-}
-
 /// Where `ray` lands, for the tests that only care about the answer rather
 /// than the refusal.
 fn resolved(motion: &Motion, ray: Ray) -> Vec3 {

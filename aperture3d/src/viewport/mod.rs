@@ -58,7 +58,7 @@ impl Viewport {
 
     /// Where an NDC position lands on the viewport — the inverse of
     /// [`Viewport::ndc_from_pixel`].
-    pub fn pixel_from_ndc(&self, ndc: Vec2) -> Vec2 {
+    pub(crate) fn pixel_from_ndc(&self, ndc: Vec2) -> Vec2 {
         (ndc * Vec2::new(1.0, -1.0) * 0.5 + 0.5) * self.extent
     }
 

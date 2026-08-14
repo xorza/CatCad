@@ -74,10 +74,9 @@ pub struct Hit {
 impl Hit {
     /// Which of two hits the aim was more likely meant for, lowest first.
     ///
-    /// How specific the hit is, then how near the cursor it fell, then how
-    /// near the eye. Stated once because two queries order by it — the whole
-    /// list and the single nearest — and an ordering that disagreed between
-    /// them would make the first of one differ from the answer of the other.
+    /// How specific the hit is, then how near the cursor it fell, then how near
+    /// the eye — [`HitAt::rank`] is the first of those and the one that is not
+    /// a measurement.
     pub(crate) fn aim_order(&self, other: &Self) -> Ordering {
         self.at
             .rank()

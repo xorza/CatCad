@@ -13,7 +13,7 @@ pub struct Bounds {
 
 impl Bounds {
     /// The box containing one point, and nothing else yet.
-    pub fn point(point: Vec3) -> Self {
+    pub(crate) fn point(point: Vec3) -> Self {
         Self {
             min: point,
             max: point,

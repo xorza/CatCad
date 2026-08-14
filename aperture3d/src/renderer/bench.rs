@@ -105,9 +105,7 @@ const ON_THE_DRAWING: Vec2 = Vec2::new(400.0, 300.0);
 /// and three solids, a four-edge sketch with a circle, and a marker per
 /// vertex — all tagged, so picking has to consider every one of them.
 fn scene() -> Scene {
-    let mut scene = Scene {
-        ..Default::default()
-    };
+    let mut scene = Scene::default();
     scene.objects.push(Object::new(Mesh::cube(8.0)));
     for i in 0..3 {
         scene

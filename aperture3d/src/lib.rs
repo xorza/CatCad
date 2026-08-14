@@ -42,23 +42,11 @@
 //! geometry: it is a claim about legibility, not about the model.
 //!
 //! An overlay drawn on the surface it describes is in a depth fight with that
-//! surface. Two fields settle it, and both kinds carry both.
-//!
-//! `z_offset` is a depth-test bias toward the viewer, counted in steps of
-//! depth-buffer resolution. It settles a tie against a surface the overlay
-//! shares a plane with — a sketch over the face it was drawn on — without
-//! moving where the overlay lands on screen. It is deliberately not a way to
-//! draw over everything: a solid in front still hides what is behind it.
-//!
-//! `plane_normal` names the plane an overlay lies in, as a unit normal, when
-//! it lies in one. An overlay is widened in screen space, so its depth is its
-//! anchor's held flat across the whole of that width — while the surface
-//! beneath it is not flat at all. Seen at an angle the surface rises through
-//! the overlay and the depth test eats whichever half it rises into, costing
-//! up to half a stroke's width, or half a marker. Naming the plane lets the
-//! widened corners take the surface's own depth instead, which is exact and
-//! needs no bias. It is `None` for an overlay that is not planar, or is not
-//! drawn on anything.
+//! surface, and two fields on the overlay settle it. `z_offset` biases the
+//! depth test toward the viewer without moving where the overlay lands on
+//! screen; `plane_normal` gives its screen-widened corners the surface's own
+//! depth rather than the anchor's, which is exact and needs no bias. Each is
+//! documented where it is declared.
 //!
 //! # Picking
 //!
@@ -71,7 +59,7 @@
 //! Naming one is [`Styled::tagged`], which every primitive gets from
 //! [`Styled`] along with [`colored`](Styled::colored) — so the trait has to be
 //! in scope to reach either. What a tag names can then be drawn differently
-//! with [`Renderer::highlight`], which takes a [`Lit`].
+//! with [`Renderer::highlight_all`], which takes [`Lit`]s.
 
 pub(crate) mod aim;
 pub(crate) mod batch;

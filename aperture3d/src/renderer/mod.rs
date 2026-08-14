@@ -1,6 +1,7 @@
-//! The wgpu half: flattens a scene into one world-space triangle list and four
-//! instanced overlay buffers, and draws them into the off-screen target palantir
-//! hands over each frame.
+//! The wgpu half: flattens a scene into one world-space triangle list and eight
+//! instanced overlay buffers — an ordinary and a highlighted one for each of the
+//! four overlay kinds — and draws them into the off-screen target palantir hands
+//! over each frame.
 //!
 //! Meshes ship a vertex apiece; a stroke, a rim or a marker ships once and the
 //! vertex shader builds its four corners, since the corners differed only in
@@ -109,22 +110,11 @@ impl Renderer {
         &mut self.scene
     }
 
-    /// Draw everything named by `lit.tag` a second time, in `lit.look`, over
-    /// the top of its ordinary self — replacing whatever look that tag had.
-    ///
-    /// Only the `lit` records are rebuilt; the scene's own batches are
-    /// untouched, so this costs nothing proportional to the scene. Nor does
-    /// re-asking for a look already in force, which is what lets a caller drive
-    /// this from a pointer that has not moved.
-    pub fn highlight(&mut self, lit: Lit) {
-        self.relight |= self.highlights.upsert(lit);
-    }
-
     /// Light `lit` and nothing else, dropping whatever was lit before.
     ///
     /// What a hover wants, where the answer is one thing and the previous
-    /// answer is of no interest. Like [`Renderer::highlight`], a call that
-    /// changes nothing dirties nothing.
+    /// answer is of no interest. A call that changes nothing dirties nothing,
+    /// as with [`Renderer::highlight_all`] below it.
     pub fn highlight_only(&mut self, lit: Lit) {
         self.highlight_all(&[lit]);
     }
@@ -141,8 +131,8 @@ impl Renderer {
     ///
     /// Compared before it is written, so re-asking for the set already in force
     /// dirties nothing — which is what lets this be called unconditionally
-    /// every frame, and is the whole reason it takes the set rather than being
-    /// a clear followed by a run of [`Renderer::highlight`].
+    /// every frame, and is the whole reason it takes the set rather than a
+    /// clear followed by a run of single additions.
     pub fn highlight_all(&mut self, lit: &[Lit]) {
         self.relight |= self.highlights.set_all(lit);
     }

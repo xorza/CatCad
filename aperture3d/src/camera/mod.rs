@@ -122,7 +122,7 @@ impl Camera {
     /// Where the near plane currently sits, in world units. Perspective only:
     /// the orthographic slab is centred on the eye and clips nothing in front
     /// of it.
-    pub fn z_near(&self) -> f32 {
+    pub(crate) fn z_near(&self) -> f32 {
         debug_assert!(
             self.near_ratio > 0.0 && self.near_ratio < 1.0,
             "near_ratio {} puts the near plane on or past the orbit target",

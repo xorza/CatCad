@@ -368,7 +368,7 @@ impl Triangles {
     ///
     /// Transforms are applied here rather than per draw call, so a still scene
     /// costs one draw and no per-object bindings.
-    pub(super) fn flatten(&mut self, objects: &[Object]) {
+    fn flatten(&mut self, objects: &[Object]) {
         self.clear();
         self.reserve_exact(
             objects.iter().map(|o| o.mesh.vertices.len()).sum(),

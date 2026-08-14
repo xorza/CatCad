@@ -26,7 +26,7 @@ impl Ray {
     }
 
     /// The point `distance` along the ray.
-    pub fn at(&self, distance: f32) -> Vec3 {
+    pub(crate) fn at(&self, distance: f32) -> Vec3 {
         self.origin + self.direction * distance
     }
 }

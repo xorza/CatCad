@@ -322,7 +322,7 @@ fn refilled_records_hold_only_what_the_scene_holds_now() {
     );
 
     // And the `lit` records, which are what a hover refills every frame.
-    renderer.highlight(Lit {
+    renderer.highlight_only(Lit {
         tag: Tag::new(0),
         look: Highlight::new(Vec3::Y),
     });
@@ -387,7 +387,7 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     assert!(cpu.curves.lit.is_empty() && cpu.rings.lit.is_empty() && cpu.points.lit.is_empty());
 
     let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0).lift(64);
-    renderer.highlight(Lit {
+    renderer.highlight_only(Lit {
         tag: Tag::new(1),
         look,
     });
@@ -425,7 +425,7 @@ fn a_highlight_repeats_only_what_its_tag_names() {
 
     // Naming a tag again replaces its look rather than stacking a second one,
     // so a hover reads over a selection and both still draw once.
-    renderer.highlight(Lit {
+    renderer.highlight_only(Lit {
         tag: Tag::new(1),
         look: Highlight::new(Vec3::Y).scale(1.0).lift(0),
     });
@@ -467,16 +467,16 @@ fn re_lighting_what_is_already_lit_dirties_nothing() {
     // `new` starts everything outstanding, so the flag says nothing until it
     // has been cleared once.
     renderer.relight = false;
-    renderer.highlight(lit);
+    renderer.highlight_only(lit);
     assert!(renderer.relight, "the first look is a change");
 
     renderer.relight = false;
-    renderer.highlight(lit);
+    renderer.highlight_only(lit);
     renderer.highlight_only(lit);
     assert!(!renderer.relight, "neither call changed anything");
 
     // A different look for the same tag is a change, and so is dropping it.
-    renderer.highlight(Lit {
+    renderer.highlight_only(Lit {
         look: Highlight::new(Vec3::X),
         ..lit
     });

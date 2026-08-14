@@ -57,6 +57,16 @@ impl Retained {
     }
 
     /// Overwrite from the start, growing first if `contents` no longer fits.
+    ///
+    /// An empty slice writes nothing and leaves whatever the buffer last held:
+    /// wgpu rejects a zero-sized write, and a buffer has no way to be told it is
+    /// now empty. What keeps those stale bytes off the screen is the count
+    /// beside them rather than anything here — [`Pass::upload_instances`] takes
+    /// `instances` from the slice's own length, and [`Pass::draw`] draws nothing
+    /// at zero.
+    ///
+    /// [`Pass::upload_instances`]: crate::renderer::pass::Pass::upload_instances
+    /// [`Pass::draw`]: crate::renderer::pass::Pass::draw
     pub(super) fn write(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, contents: &[u8]) {
         if contents.is_empty() {
             return;
