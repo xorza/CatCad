@@ -562,10 +562,17 @@ fn two_fingers_travelling_pan_the_view_by_what_they_travelled() {
     assert!((raised.cursor_on(anchor) - (centre - travelled)).length() < 0.5);
 }
 
-/// Pinching zooms and does nothing else — the eye comes in, and where it is
-/// looking and from which side stay put.
+/// The wheel and the pinch zoom by what they were given, agree about which way
+/// is closer, and move the view no other way.
+///
+/// Both gestures on one fixture because the one thing they have to agree on is
+/// what closer *means*, and two tests cannot assert an agreement. A pinch says
+/// it outright — fingers apart is a bigger picture — and the wheel's number is
+/// a scroll offset, positive being a scroll down, which is the direction that
+/// takes the eye out. Both directions of both, because a zoom that only ever
+/// grew would pass a test that watched one end of one of them.
 #[test]
-fn a_pinch_brings_the_eye_in_and_pushing_apart_takes_it_out() {
+fn the_wheel_and_the_pinch_zoom_the_same_way_round() {
     let mut raised = Raised::new();
     raised.frame();
     let centre = Vec2::new(400.0, 300.0);
@@ -573,15 +580,47 @@ fn a_pinch_brings_the_eye_in_and_pushing_apart_takes_it_out() {
     raised.frame();
     let before = raised.camera();
 
-    // Fingers apart asks for a bigger picture, which is a shorter orbit.
+    // A notch down is one whole ZOOM_RATE further off.
+    raised.harness.scroll_lines_at(centre, Vec2::new(0.0, 1.0));
+    raised.frame();
+    let out = raised.camera();
+    assert!(
+        (out.distance - before.distance * ZOOM_RATE).abs() < before.distance * 1e-5,
+        "a notch down left the eye at {} from {}",
+        out.distance,
+        before.distance
+    );
+    assert_eq!(
+        (out.target, out.yaw, out.pitch),
+        (before.target, before.yaw, before.pitch),
+        "the wheel moved the view as well as zooming it"
+    );
+
+    // And two notches back up is two rates in from there, which is one rate
+    // nearer than it started.
+    raised.harness.scroll_lines_at(centre, Vec2::new(0.0, -2.0));
+    raised.frame();
+    let up = raised.camera().distance;
+    assert!(
+        (up - before.distance / ZOOM_RATE).abs() < before.distance * 1e-5,
+        "two notches up from {} left the eye at {up}",
+        out.distance
+    );
+    assert!(up < before.distance, "scrolling up did not come closer");
+
+    // Fingers apart asks for a bigger picture, which is a shorter orbit — the
+    // same direction scrolling up went.
     raised.harness.pinch_at(centre, 1.25);
     raised.frame();
     let closer = raised.camera();
     assert!(
-        (closer.distance - before.distance / 1.25).abs() < before.distance * 1e-5,
-        "a 1.25 pinch left the eye at {} from {}",
-        closer.distance,
-        before.distance
+        (closer.distance - up / 1.25).abs() < before.distance * 1e-5,
+        "a 1.25 pinch left the eye at {} from {up}",
+        closer.distance
+    );
+    assert!(
+        closer.distance < up,
+        "the pinch and the wheel disagree about which way is closer"
     );
     assert_eq!(
         (closer.target, closer.yaw, closer.pitch),
@@ -589,11 +628,11 @@ fn a_pinch_brings_the_eye_in_and_pushing_apart_takes_it_out() {
         "a pinch moved the view as well as zooming it"
     );
 
-    // And the way back out, by the reciprocal, is the distance it started at.
+    // And the way back out, by the reciprocal, is the distance it pinched from.
     raised.harness.pinch_at(centre, 0.8);
     raised.frame();
     assert!(
-        (raised.camera().distance - before.distance).abs() < before.distance * 1e-5,
+        (raised.camera().distance - up).abs() < before.distance * 1e-5,
         "{:?} did not undo the pinch",
         raised.camera()
     );
