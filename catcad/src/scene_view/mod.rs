@@ -294,10 +294,6 @@ impl SceneView {
         // which of the two a gesture was, and a drag suppresses the click it
         // began as — so dragging a point leaves the selection alone.
         if response.left.clicked() {
-            // Picked afresh rather than read off `hovered`, which is what the
-            // *last* frame's settle found: a click can land on the first frame
-            // the pointer reached something, and answering with what was under
-            // it before that would select the wrong thing.
             // A tool in hand takes every click, whatever it landed on: what was
             // clicked is what the new geometry is *held to*, so a click on the
             // drawing is worth more to a tool than one beside it. Nothing is
@@ -424,9 +420,10 @@ impl SceneView {
             self.laid_band = self.preview;
         }
 
-        // Only one thing lights: a marker sits on the end of every edge that
-        // meets it, and lighting all of them would answer a question nobody
-        // asked.
+        // What the pointer is over is one thing, however many are picked out: a
+        // marker sits on the end of every edge that meets it, and lighting all
+        // of them would answer a question nobody asked.
+        //
         // Aimed through the *document's* camera, not the renderer's copy of it:
         // the copy is written below, so a pick that read it would answer
         // through wherever the camera was before this frame's orbit.
