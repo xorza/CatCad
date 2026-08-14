@@ -3,8 +3,8 @@
 use aperture::{HitAt, Motion};
 use glam::{DVec2, Vec3};
 use silverpoint::{
-    CircleId, Constraint, ConstraintId, Entity, Freedoms, Plane, PointId, SegmentId, Sketch,
-    Snapshot, SolveReport, Solver,
+    CircleId, Constraint, ConstraintId, Entity, Freedoms, Outcome, Plane, PointId, SegmentId,
+    Sketch, Snapshot, SolveReport, Solver,
 };
 
 use crate::drawing::anchor::Anchor;
@@ -23,14 +23,14 @@ pub(crate) mod anchor;
 pub(crate) struct Drawing {
     sketch: Sketch,
     plane: Plane,
-    report: SolveReport,
+    /// What the last settle left behind: how it went, which ending it had, and
+    /// which geometry the constraints have decided — which is what the drawing
+    /// is painted in the colour of. Taken afresh whenever the sketch moves,
+    /// because moving it is what changes the answer.
+    outcome: Outcome,
     /// Which version of the drawing this is, so anything holding a layout of it
     /// can tell whether that layout is still current.
     revision: Revision,
-    /// Which geometry the constraints have decided, which is what it is drawn
-    /// in the colour of. Taken afresh whenever the sketch moves, because moving
-    /// it is what changes the answer.
-    freedoms: Freedoms,
 }
 
 impl Drawing {
@@ -45,11 +45,10 @@ impl Drawing {
         let mut drawing = Self {
             sketch,
             plane,
-            report: SolveReport::default(),
+            outcome: Outcome::default(),
             revision: Revision::default(),
-            freedoms: Freedoms::default(),
         };
-        drawing.settled(|sketch, freedoms| solver.solve(sketch, freedoms));
+        drawing.settled(|sketch, outcome| solver.solve(sketch, outcome));
         drawing
     }
 
@@ -64,10 +63,10 @@ impl Drawing {
     /// picture on screen unrepainted.
     ///
     /// `solve` is handed the sketch and the buffer to fill; every entry point
-    /// the solver has fits, because each of them fills the freedoms from the
-    /// same measurement it reports.
-    fn settled(&mut self, solve: impl FnOnce(&mut Sketch, &mut Freedoms) -> SolveReport) {
-        self.report = solve(&mut self.sketch, &mut self.freedoms);
+    /// the solver has fits, because each of them fills the whole outcome from
+    /// the same measurement it reports.
+    fn settled(&mut self, solve: impl FnOnce(&mut Sketch, &mut Outcome)) {
+        solve(&mut self.sketch, &mut self.outcome);
         self.revision = self.revision.next();
     }
 
@@ -80,7 +79,7 @@ impl Drawing {
     /// run between the fields it writes. Nesting the two is what every grip
     /// below would otherwise be spelling out for itself.
     fn dragged(&mut self, solver: &mut Solver, held: &[PointId], edit: impl FnOnce(&mut Sketch)) {
-        self.settled(|sketch, freedoms| solver.edit_holding(sketch, held, freedoms, edit));
+        self.settled(|sketch, outcome| solver.edit_holding(sketch, held, outcome, edit));
     }
 
     /// Change the sketch with `edit`, and take everything measuring what that
@@ -93,9 +92,9 @@ impl Drawing {
     /// for: an edit whose result is already the answer, where a solve would be
     /// free to wander off it.
     fn measured(&mut self, solver: &mut Solver, edit: impl FnOnce(&mut Sketch)) {
-        self.settled(|sketch, freedoms| {
+        self.settled(|sketch, outcome| {
             edit(sketch);
-            solver.measure(sketch, freedoms)
+            solver.measure(sketch, outcome);
         });
     }
 
@@ -114,9 +113,9 @@ impl Drawing {
     /// exactly would be settled by it, and until then it costs one assembly to
     /// say that nothing needed settling.
     fn solved(&mut self, solver: &mut Solver, edit: impl FnOnce(&mut Sketch)) {
-        self.settled(|sketch, freedoms| {
+        self.settled(|sketch, outcome| {
             edit(sketch);
-            solver.solve(sketch, freedoms)
+            solver.solve(sketch, outcome);
         });
     }
 
@@ -334,7 +333,7 @@ impl Drawing {
 
     /// What the last solve made of it.
     pub(crate) fn report(&self) -> SolveReport {
-        self.report
+        self.outcome.report()
     }
 
     /// Which version of the drawing this is.
@@ -358,7 +357,7 @@ impl Drawing {
     /// Only ever handed out beside the sketch it was measured over — they are
     /// two readings of one moment, and the drawing is what holds them together.
     pub(crate) fn freedoms(&self) -> &Freedoms {
-        &self.freedoms
+        self.outcome.freedoms()
     }
 
     /// The sketch the drawing is of.

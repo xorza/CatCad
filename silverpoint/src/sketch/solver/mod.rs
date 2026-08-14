@@ -11,7 +11,7 @@ use crate::math::dense::{max_abs, norm, solve_in_place};
 use crate::sketch::constraint::ConstraintId;
 use crate::sketch::jacobian_row::JacobianRow;
 use crate::sketch::snapshot::Snapshot;
-use crate::sketch::solver::freedoms::Freedoms;
+use crate::sketch::solver::outcome::{Outcome, Settled};
 use crate::sketch::solver::workspace::Workspace;
 use crate::sketch::{PointId, Sketch};
 
@@ -42,9 +42,14 @@ const UNMOVED: f64 = 1e-6;
 /// What a solve achieved.
 ///
 /// How *determined* the answer was is not here: that is a property of the
-/// sketch rather than of the run, and it comes back in the [`Freedoms`] every
-/// entry point fills — see [`Freedoms::degrees_of_freedom`]. Splitting them is
-/// what stops the two describing different moments, which is what a report
+/// sketch rather than of the run, and it rides beside this in the
+/// [`Outcome`](crate::Outcome) every entry point fills — see
+/// [`Freedoms::degrees_of_freedom`](crate::Freedoms::degrees_of_freedom).
+/// Neither is *which ending* the run had, which is
+/// [`Settled`](crate::Settled)'s: a refused edit leaves the sketch exactly as
+/// it was found, so it reports converged in nought iterations and reads from
+/// here like an edit that was taken and had nothing to do. Splitting the three
+/// is what stops them describing different moments, which is what a report
 /// carrying a count measured against a *held* system used to do.
 ///
 /// Defaults to what an unsolved sketch would report — nothing converged, in
@@ -101,8 +106,8 @@ impl Solver {
     /// The sketch is left at the best position found, converged or not — a
     /// failed solve still leaves it closer than it started, which is what a
     /// UI wants to draw.
-    pub fn solve(&mut self, sketch: &mut Sketch, into: &mut Freedoms) -> SolveReport {
-        self.solve_holding(sketch, &[], into)
+    pub fn solve(&mut self, sketch: &mut Sketch, into: &mut Outcome) {
+        self.solve_holding(sketch, &[], into);
     }
 
     /// Solve with `held` pinned where they are, whatever their own
@@ -125,10 +130,15 @@ impl Solver {
         &mut self,
         sketch: &mut Sketch,
         held: &[PointId],
-        into: &mut Freedoms,
-    ) -> SolveReport {
+        into: &mut Outcome,
+    ) {
         let iterations = self.iterate(sketch, held);
-        self.measure_taking(sketch, into, iterations)
+        let settled = if held.is_empty() {
+            Settled::Freely
+        } else {
+            Settled::Holding
+        };
+        self.measure_taking(sketch, into, settled, iterations);
     }
 
     /// Take Levenberg-Marquardt steps until the residuals are inside tolerance
@@ -272,9 +282,9 @@ impl Solver {
         &mut self,
         sketch: &mut Sketch,
         held: &[PointId],
-        into: &mut Freedoms,
+        into: &mut Outcome,
         edit: impl FnOnce(&mut Sketch),
-    ) -> SolveReport {
+    ) {
         // Only the residual, so the pre-edit look costs one assembly and no
         // elimination: nothing is being reported about the sketch as it stands,
         // only judged against what the edit leaves.
@@ -287,15 +297,22 @@ impl Solver {
             "an edit may move a sketch's geometry, not add to or remove from it"
         );
 
-        sketch.snapshot_into(&mut self.asked);
+        // Only what a second attempt would start from, and only a held edit has
+        // one — so an edit holding nothing does not pay for the copy.
+        if !held.is_empty() {
+            sketch.snapshot_into(&mut self.asked);
+        }
 
         // Held first, which is what makes an ordinary drag track the pointer
         // exactly: the grabbed point does not move, and the rest of the sketch
         // swings to accommodate it.
+        //
+        // Judged before it is described: an attempt that is not kept is one
+        // nothing will be asked about, and working out what the sketch could
+        // still do would be working it out for a sketch about to be put back.
         let iterations = self.iterate(sketch, held);
-        let report = self.measure_taking(sketch, into, iterations);
-        if report.converged || report.max_residual <= was {
-            return report;
+        if self.takes(sketch, was) {
+            return self.read_at_rest(sketch, into, Settled::Holding, iterations);
         }
 
         // Held, that was impossible — the cursor asked for somewhere the
@@ -311,7 +328,6 @@ impl Solver {
         if !held.is_empty() {
             sketch.restore(&self.asked);
             let iterations = self.iterate(sketch, &[]);
-            let report = self.measure_taking(sketch, into, iterations);
             // Kept only where it moved the sketch at all. One with nowhere to
             // go answers this attempt by putting everything back where it
             // always had to be — and arriving there a second time by way of a
@@ -322,16 +338,17 @@ impl Solver {
             // centre, and the centre staying put says nothing about whether the
             // circle grew.
             let moved = !self.before.within(sketch, UNMOVED);
-            if moved && (report.converged || report.max_residual <= was) {
-                return report;
+            if moved && self.takes(sketch, was) {
+                return self.read_at_rest(sketch, into, Settled::Freely, iterations);
             }
         }
 
         sketch.restore(&self.before);
-        // Measured again, because `into` now describes the attempt rather than
-        // what survived it. A refused edit has to leave the caller holding the
-        // sketch it still has.
-        self.measure_taking(sketch, into, 0)
+        // Described afresh, because the sketch being described is now the one
+        // that was there all along rather than either attempt on it — and
+        // [`Settled::Refused`] is the only part of this that a report of a
+        // sketch standing at its own solution could not say.
+        self.measure_taking(sketch, into, Settled::Refused, 0);
     }
 
     /// Which of the sketch's geometry its constraints leave anything to
@@ -348,8 +365,8 @@ impl Solver {
     ///
     /// Fills `into` rather than returning it, so a drawing measuring itself
     /// after every edit keeps one buffer instead of being handed a new one.
-    pub fn measure(&mut self, sketch: &Sketch, into: &mut Freedoms) -> SolveReport {
-        self.measure_taking(sketch, into, 0)
+    pub fn measure(&mut self, sketch: &Sketch, into: &mut Outcome) {
+        self.measure_taking(sketch, into, Settled::AtRest, 0);
     }
 
     /// The whole of what the sketch says about itself where it stands, with
@@ -367,52 +384,68 @@ impl Solver {
     fn measure_taking(
         &mut self,
         sketch: &Sketch,
-        into: &mut Freedoms,
+        into: &mut Outcome,
+        settled: Settled,
         iterations: u32,
-    ) -> SolveReport {
+    ) {
+        self.residual_at_rest(sketch);
+        self.read_at_rest(sketch, into, settled, iterations);
+    }
+
+    /// Read what the assembly already in the workspace says the sketch can do.
+    ///
+    /// Carries on from [`Solver::residual_at_rest`] rather than assembling
+    /// again, so a caller that has already judged the residual pays for the
+    /// elimination alone. Nothing may have moved the sketch in between: the
+    /// rows being reduced are the ones that assembly built.
+    fn read_at_rest(
+        &mut self,
+        sketch: &Sketch,
+        into: &mut Outcome,
+        settled: Settled,
+        iterations: u32,
+    ) {
         let n = sketch.params().count();
-        self.assemble_at_rest(sketch);
         let rank = self.work.null_space(n);
 
         let free_params = self.work.movable.iter().filter(|&&free| free).count();
-        into.reset(sketch, free_params - rank, self.work.residuals.len() - rank);
+        into.freedoms
+            .reset(sketch, free_params - rank, self.work.residuals.len() - rank);
         for (id, _) in sketch.points() {
             // A point's two parameters are adjacent, x first.
             let x = sketch.params().of_point(id);
-            into.set_point(id, self.work.spread(x, x + 1));
+            into.freedoms.set_point(id, self.work.spread(x, x + 1));
         }
         for (id, _) in sketch.circles() {
-            into.set_radius(id, self.work.travel(sketch.params().of_radius(id)));
+            into.freedoms
+                .set_radius(id, self.work.travel(sketch.params().of_radius(id)));
         }
         // The same rank read the other way round: the rows it left behind are
         // the equations the rest of the system already implies, and each one
         // names the constraint that wrote it.
         for id in self.work.dependent() {
-            into.set_redundant(id);
+            into.freedoms.set_redundant(id);
         }
 
         let max_residual = max_abs(&self.work.residuals);
-        SolveReport {
+        into.report = SolveReport {
             converged: max_residual <= self.tolerance,
             iterations,
             max_residual,
-        }
+        };
+        into.settled = settled;
     }
 
-    /// The largest residual where the sketch stands, and nothing else.
+    /// Build the residuals and Jacobian for the sketch as it stands with
+    /// nothing held, and answer the largest residual left over.
     ///
-    /// One assembly, no elimination — for a caller judging whether an edit left
-    /// the sketch better or worse satisfied, which is a question the residuals
-    /// answer on their own.
+    /// The state every question about the sketch itself, rather than about a
+    /// drag on it, has to be asked of. One assembly and no elimination, which
+    /// is the whole of what judging an edit needs — and the assembly stays in
+    /// the workspace, so a caller that decides to keep the answer reads the
+    /// rest of it off with [`Solver::read_at_rest`] instead of building it
+    /// again.
     fn residual_at_rest(&mut self, sketch: &Sketch) -> f64 {
-        self.assemble_at_rest(sketch);
-        max_abs(&self.work.residuals)
-    }
-
-    /// Build the residuals and Jacobian for the sketch as it stands, with
-    /// nothing held — the state every question about the sketch itself, rather
-    /// than about a drag on it, has to be asked of.
-    fn assemble_at_rest(&mut self, sketch: &Sketch) {
         self.work.hold(sketch, &[]);
         assemble(
             sketch,
@@ -421,6 +454,19 @@ impl Solver {
             &mut self.work.jacobian,
             &mut self.work.equations,
         );
+        max_abs(&self.work.residuals)
+    }
+
+    /// Whether the sketch as it stands is one to keep: satisfied outright, or
+    /// at least no less satisfied than it was at `was`.
+    ///
+    /// Judged on the residual rather than on convergence alone, so a sketch
+    /// whose constraints already conflict can still be edited: what is refused
+    /// is a step that leaves it *less* satisfied than it was, not one that
+    /// merely fails to finish the job.
+    fn takes(&mut self, sketch: &Sketch, was: f64) -> bool {
+        let residual = self.residual_at_rest(sketch);
+        residual <= self.tolerance || residual <= was
     }
 }
 
@@ -469,6 +515,7 @@ fn assemble(
 }
 
 pub(crate) mod freedoms;
+pub(crate) mod outcome;
 mod workspace;
 
 #[cfg(feature = "bench")]

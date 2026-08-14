@@ -11,7 +11,7 @@
 //!
 //! ```
 //! # use glam::DVec2;
-//! # use silverpoint::{Constraint, Freedoms, Sketch, Solver};
+//! # use silverpoint::{Constraint, Outcome, Sketch, Solver};
 //! let mut sketch = Sketch::default();
 //! let origin = sketch.add_point(DVec2::ZERO);
 //! let end = sketch.add_point(DVec2::new(1.0, 0.2));
@@ -19,10 +19,10 @@
 //! sketch.add_constraint(Constraint::Horizontal { a: origin, b: end });
 //! sketch.add_constraint(Constraint::Distance { a: origin, b: end, distance: 5.0 });
 //!
-//! let mut freedoms = Freedoms::default();
-//! let report = Solver::default().solve(&mut sketch, &mut freedoms);
-//! assert!(report.converged);
-//! assert_eq!(freedoms.degrees_of_freedom(), 0);
+//! let mut outcome = Outcome::default();
+//! Solver::default().solve(&mut sketch, &mut outcome);
+//! assert!(outcome.report().converged);
+//! assert_eq!(outcome.freedoms().degrees_of_freedom(), 0);
 //! assert!((sketch.point(end) - DVec2::new(5.0, 0.0)).length() < 1e-9);
 //! ```
 //!
@@ -45,5 +45,6 @@ pub use sketch::snapshot::Snapshot;
 #[cfg(feature = "bench")]
 pub use sketch::solver::bench::alloc_bench;
 pub use sketch::solver::freedoms::{Freedom, Freedoms};
+pub use sketch::solver::outcome::{Outcome, Settled};
 pub use sketch::solver::{SolveReport, Solver};
 pub use sketch::{Circle, CircleId, Point, PointId, Segment, SegmentId, Sketch};

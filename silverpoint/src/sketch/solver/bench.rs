@@ -19,7 +19,7 @@
 
 use crate::sketch::constraint::Constraint;
 use crate::sketch::solver::Solver;
-use crate::sketch::solver::freedoms::Freedoms;
+use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::{PointId, Sketch};
 use common::AllocBench;
 use glam::DVec2;
@@ -108,23 +108,25 @@ pub fn alloc_bench() {
     let mut solver = Solver::default();
     // Kept outside the window with the solver: a solve fills it rather than
     // handing one back, so it is the caller's buffer and pays for itself once.
-    let mut freedoms = Freedoms::default();
+    let mut outcome = Outcome::default();
     bench.step("solve-from-guess", 0.0, || {
         sketch.params_mut().set(&guess);
-        black_box(solver.solve(&mut sketch, &mut freedoms));
+        solver.solve(&mut sketch, &mut outcome);
+        black_box(&outcome);
     });
 
     // Re-solving a sketch already at its answer, which is what most frames of
     // a drag actually are: the geometry has barely moved since the last one.
     let mut sketch = fixture();
     let mut solver = Solver::default();
-    let mut freedoms = Freedoms::default();
-    solver.solve(&mut sketch, &mut freedoms);
+    let mut outcome = Outcome::default();
+    solver.solve(&mut sketch, &mut outcome);
     let mut solved = Vec::new();
     sketch.params().write(&mut solved);
     bench.step("solve-converged", 0.0, || {
         sketch.params_mut().set(&solved);
-        black_box(solver.solve(&mut sketch, &mut freedoms));
+        solver.solve(&mut sketch, &mut outcome);
+        black_box(&outcome);
     });
 
     bench.finish();
