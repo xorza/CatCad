@@ -12,6 +12,7 @@ use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::freedoms::Freedoms;
 use crate::sketch::solver::workspace::Workspace;
 use crate::sketch::{PointId, Sketch};
+use glam::DVec2;
 
 /// Damping starts here and moves by these factors on an accepted or rejected
 /// step. Rejections back off harder than acceptances close in, which keeps a
@@ -61,6 +62,14 @@ pub struct Solver {
     /// constraints cannot take can be put back whole. Outside [`Workspace`]
     /// because it outlives a solve rather than serving one.
     before: Snapshot,
+    /// The sketch as the edit left it, before any solve saw it — what the user
+    /// actually asked for. [`Solver::edit_holding`] tries twice, and the second
+    /// try has to start from here rather than from where the first gave up.
+    asked: Snapshot,
+    /// Where the points a drag has hold of stood before it, so the second
+    /// attempt can be asked whether it moved them at all. Refilled per call,
+    /// which is what keeps a drag off the heap.
+    grabbed: Vec<DVec2>,
 }
 
 impl Default for Solver {
@@ -70,6 +79,8 @@ impl Default for Solver {
             tolerance: 1e-10,
             work: Workspace::default(),
             before: Snapshot::default(),
+            asked: Snapshot::default(),
+            grabbed: Vec::new(),
         }
     }
 }
@@ -212,6 +223,24 @@ impl Solver {
     /// whole is what makes a drag the constraints refuse simply not move
     /// anything, which is the truth about it.
     ///
+    /// Two attempts, because holding is a demand and not a preference. Held,
+    /// the grabbed point does not move at all and the rest of the sketch swings
+    /// under it — which is what makes an ordinary drag track the pointer
+    /// exactly, and what a caller wants whenever the constraints can take it.
+    /// When they cannot, the same demand is what would freeze the drawing: a
+    /// point tied to an edge is never *exactly* under a cursor, so held it can
+    /// never move at all. So the second attempt asks the same edit holding
+    /// nothing, and lets the geometry settle back onto what the constraints
+    /// allow — which lands it as near what was asked for as it may go. A point
+    /// on an edge slides along it; an arm the pointer has outrun reaches as far
+    /// as it can.
+    ///
+    /// The second attempt is a free solve from where the cursor asked, so it
+    /// may in principle settle on a different branch of a mechanism that admits
+    /// more than one. It runs only where the first was refused, which is where
+    /// nothing moved at all, so nothing that works today can be made worse by
+    /// it.
+    ///
     /// Judged on the residual rather than on convergence alone, so a sketch
     /// whose constraints already conflict can still be dragged: what is refused
     /// is a step that leaves the sketch *less* satisfied than it was, not one
@@ -234,6 +263,8 @@ impl Solver {
         // only judged against what the edit leaves.
         let was = self.residual_at_rest(sketch);
         sketch.snapshot_into(&mut self.before);
+        self.grabbed.clear();
+        self.grabbed.extend(held.iter().map(|&id| sketch.point(id)));
 
         edit(sketch);
         debug_assert!(
@@ -241,11 +272,43 @@ impl Solver {
             "an edit may move a sketch's geometry, not add to or remove from it"
         );
 
+        sketch.snapshot_into(&mut self.asked);
+
+        // Held first, which is what makes an ordinary drag track the pointer
+        // exactly: the grabbed point does not move, and the rest of the sketch
+        // swings to accommodate it.
         let iterations = self.iterate(sketch, held);
         let report = self.measure_taking(sketch, into, iterations);
         if report.converged || report.max_residual <= was {
             return report;
         }
+
+        // Held, that was impossible — the cursor asked for somewhere the
+        // constraints do not reach. So ask again without holding anything, from
+        // what the edit asked for rather than from where the first attempt gave
+        // up: the geometry is then free to settle back onto what the
+        // constraints allow, which lands it as near the cursor as it may go. A
+        // point held to an edge slides along it, and an arm outrun by the
+        // pointer reaches as far as it can rather than freezing where it was.
+        sketch.restore(&self.asked);
+        let iterations = self.iterate(sketch, &[]);
+        let report = self.measure_taking(sketch, into, iterations);
+        // Kept only where it moved what the drag had hold of. A sketch with
+        // nowhere to go answers this attempt by putting the grabbed point back
+        // where it always had to be — and landing there again after a solve is
+        // not landing there *exactly*, so a step recorded on that would be a
+        // step to take back that nobody took. Judged in sketch units against
+        // the solver's own tolerance, because near enough to have not moved is
+        // what the rest of this call already means by equal.
+        let moved = self
+            .grabbed
+            .iter()
+            .zip(held)
+            .any(|(&was, &id)| (sketch.point(id) - was).length() > self.tolerance);
+        if moved && (report.converged || report.max_residual <= was) {
+            return report;
+        }
+
         sketch.restore(&self.before);
         // Measured again, because `into` now describes the attempt rather than
         // what survived it. A refused edit has to leave the caller holding the

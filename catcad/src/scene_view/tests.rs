@@ -735,7 +735,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     raised.frame();
 
     let sketch = raised.document.drawing().sketch();
-    let (_, at) = sketch.points().last().expect("a point was just added");
+    let (placed, at) = sketch.points().last().expect("a point was just added");
     // On the edge's infinite line, which is what `PointOnSegment` says: the
     // cross product of the edge's direction with the way to the point is zero.
     let held = sketch.segment(edge);
@@ -757,6 +757,46 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     assert!(
         raised.document.drawing().report().converged,
         "the solve that puts the point on the edge did not converge"
+    );
+
+    // And it slides. A cursor is never exactly on the line, so a drag that
+    // demanded the point be exactly where the pointer is could never move it at
+    // all — what makes this work is the second attempt `edit_holding` makes,
+    // which lets the point settle back onto the edge as near the cursor as it
+    // can get.
+    let plane = raised.document.drawing().plane();
+    // Along the edge on screen, so the drag unarguably asks the point to travel
+    // rather than nudging it across a line it is already on.
+    let ends = [a, b].map(|end| raised.cursor_on(plane.point(end).as_vec3()));
+    let along = (ends[1] - ends[0]).normalize();
+    let grab = raised.cursor_on(plane.point(at).as_vec3());
+
+    // The tool goes down first: a press with one in hand turns the view rather
+    // than taking hold of anything.
+    raised.tool = Tool::Pointer;
+    // And the pointer has to arrive a frame before it presses: what a press
+    // finds is the hit index the last frame left behind.
+    raised.harness.move_to(grab);
+    raised.frame();
+    raised.harness.press_at(grab);
+    raised.frame();
+    raised.harness.drag_to(grab + along * 60.0);
+    raised.frame();
+    raised.harness.release();
+    raised.frame();
+
+    let sketch = raised.document.drawing().sketch();
+    let now = sketch.point(placed);
+    assert!(
+        (now - at).length() > 1e-3,
+        "the drag never moved the point, so it proves nothing"
+    );
+    let held = sketch.segment(edge);
+    let (a, b) = (sketch.point(held.a), sketch.point(held.b));
+    let across = (b - a).perp_dot(now - a) / (b - a).length();
+    assert!(
+        across.abs() < 1e-6,
+        "the drag took the point {across} off the edge it was held to"
     );
 }
 

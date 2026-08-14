@@ -254,7 +254,7 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
 
 /// Holding a point of a fully-determined sketch asks for a motion its
 /// constraints forbid, and the report says so rather than pretending — and the
-/// same request made as an edit is refused whole rather than half-taken.
+/// same request made as an edit leaves the sketch exactly as it found it.
 ///
 /// The compromise the first half measures is exactly what an edit must never
 /// keep: it satisfies nothing, and it stands up only while the point that
@@ -303,14 +303,71 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
     });
 
     // Compared as a snapshot rather than as a list of points, because that is
-    // the comparison an undo stack will make: a refused edit has to read as the
-    // nothing it was, or it would be recorded as a step to take back.
+    // the comparison an undo stack makes: an edit that came to nothing has to
+    // read as the nothing it was, or it would be recorded as a step to take
+    // back.
+    //
+    // Nothing is what it comes to, though not by being refused. Held, the
+    // request is impossible; asked again holding nothing, the constraints
+    // answer it by putting the point back where it always had to be — which is
+    // exactly where it started. So the report converged, and the sketch did not
+    // move.
     let mut now = Snapshot::default();
     sketch.snapshot_into(&mut now);
-    assert_eq!(now, was, "a refused edit moved the sketch");
+    assert_eq!(now, was, "an impossible edit moved the sketch");
     assert!(refused.converged, "{refused:?}");
     assert_eq!(freedoms.degrees_of_freedom(), 0, "{refused:?}");
-    assert_eq!(refused.iterations, 0, "a refused edit kept an iteration");
+}
+
+/// A point the constraints leave somewhere to go is taken as near what was
+/// asked for as it may go, rather than not moving at all.
+///
+/// The other side of holding. Held, the grabbed point may not move at all, so a
+/// point tied to an edge could never be dragged: a cursor is never *exactly* on
+/// the line, and the edge cannot come to meet it. Asked again holding nothing,
+/// the same request slides the point along the edge to the nearest place the
+/// constraints allow — which is the foot of the perpendicular from where the
+/// cursor asked.
+#[test]
+fn a_drag_the_constraints_cannot_take_exactly_lands_as_near_as_they_allow() {
+    let mut sketch = Sketch::default();
+    let left = sketch.add_point(DVec2::ZERO);
+    let right = sketch.add_point(DVec2::new(10.0, 0.0));
+    sketch.fix(left);
+    sketch.fix(right);
+    let edge = sketch.add_segment(left, right);
+    let sliding = sketch.add_point(DVec2::new(3.0, 0.0));
+    sketch.add_constraint(Constraint::PointOnSegment {
+        point: sliding,
+        segment: edge,
+    });
+
+    let mut solver = Solver::default();
+    let mut freedoms = Freedoms::default();
+    assert!(solver.solve(&mut sketch, &mut freedoms).converged);
+    assert_eq!(
+        freedoms.degrees_of_freedom(),
+        1,
+        "the point should be free along the edge and nowhere else"
+    );
+
+    // Two and a half units off the line, which is where a cursor always is.
+    // The edge runs along y = 0, so the nearest place on it is straight below.
+    let asked = DVec2::new(7.0, 2.5);
+    let report = solver.edit_holding(&mut sketch, &[sliding], &mut freedoms, |sketch| {
+        sketch.set_point(sliding, asked)
+    });
+    assert!(report.converged, "{report:?}");
+
+    let landed = sketch.point(sliding);
+    assert!(
+        (landed - DVec2::new(7.0, 0.0)).length() < EPSILON,
+        "asked for {asked:?} and landed {landed:?}, not the foot of the perpendicular"
+    );
+    // And the edge it slid along did not come to meet it: both ends are pinned,
+    // so a solve that had moved them would be answering a different question.
+    assert_eq!(sketch.point(left), DVec2::ZERO);
+    assert_eq!(sketch.point(right), DVec2::new(10.0, 0.0));
 }
 
 /// Holding nothing is solving, exactly — the general entry point cannot drift
