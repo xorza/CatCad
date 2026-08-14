@@ -3,8 +3,12 @@
 use crate::sketch::constraint::ConstraintId;
 use crate::sketch::{CircleId, PointId, Sketch};
 
-/// Stale answers are a caller mistake rather than bad data: the sketch that was
-/// measured is the sketch that has to be asked.
+/// A slot past what was measured — the sketch having grown since — which is the
+/// whole of what the lookups below can tell apart.
+///
+/// A handle whose slot is in range is answered, whether or not it still names
+/// what it did when the measurement was taken: a slot is all of a handle that
+/// reaches in here. [`Sketch::holds`] is where a caller unsure of one asks.
 const UNMEASURED: &str = "this sketch has geometry the freedoms were not taken over";
 
 /// How many independent ways an entity can still move.
@@ -40,6 +44,13 @@ pub enum Freedom {
 /// Filled rather than returned, so a drawing measured every frame keeps its own
 /// instead of being handed a new one. It arrives inside an
 /// [`Outcome`](crate::Outcome), which every entry point the solver has fills.
+///
+/// Answers for the sketch it was measured over, and handles from that sketch are
+/// what it takes. One from anywhere else is answered by slot alone: a handle
+/// carries a generation, but only its slot reaches in here, so a stale one whose
+/// position has since been filled again reads as whatever now sits there.
+/// Panicking is kept for a slot past the end, which is the one case a lookup can
+/// tell apart — pairing a measurement with its sketch is the caller's.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Freedoms {
     /// By point slot, so a handle indexes straight in.
