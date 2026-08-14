@@ -335,7 +335,7 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
     raised.frame();
     let at_rest = raised.markers();
     assert!(
-        raised.document.drawing().report().converged,
+        raised.document.drawing().outcome().converged(),
         "the demo has to open solved for this to mean anything"
     );
 
@@ -356,7 +356,7 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
         "a drag the constraints forbid deformed the drawing"
     );
     assert!(
-        raised.document.drawing().report().converged,
+        raised.document.drawing().outcome().converged(),
         "a refused drag left the drawing unsolved"
     );
     raised.harness.release();
@@ -727,7 +727,7 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
 fn a_point_clicked_onto_an_edge_is_held_to_it() {
     let mut raised = Raised::new();
     raised.frame();
-    let free = raised.document.drawing().freedoms().degrees_of_freedom();
+    let free = raised.document.drawing().outcome().degrees_of_freedom();
 
     let over_edge = raised
         .over(|grip| matches!(grip, Grip::Segment { .. }))
@@ -757,12 +757,12 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     // more degree of freedom than it had — the point may slide along the edge
     // and do nothing else.
     assert_eq!(
-        raised.document.drawing().freedoms().degrees_of_freedom(),
+        raised.document.drawing().outcome().degrees_of_freedom(),
         free + 1,
         "a point on an edge should be free along it and nowhere else"
     );
     assert!(
-        raised.document.drawing().report().converged,
+        raised.document.drawing().outcome().converged(),
         "the solve that puts the point on the edge did not converge"
     );
 

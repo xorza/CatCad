@@ -37,22 +37,14 @@ pub enum Freedom {
     Free,
 }
 
-/// What a sketch's constraints leave undecided, entity by entity — the
-/// breakdown behind [`Freedoms::degrees_of_freedom`], which counts the same
-/// freedoms without saying whose they are.
+/// One label per entity, by slot.
 ///
-/// Filled rather than returned, so a drawing measured every frame keeps its own
-/// instead of being handed a new one. It arrives inside an
-/// [`Outcome`](crate::Outcome), which every entry point the solver has fills.
-///
-/// Answers for the sketch it was measured over, and handles from that sketch are
-/// what it takes. One from anywhere else is answered by slot alone: a handle
-/// carries a generation, but only its slot reaches in here, so a stale one whose
-/// position has since been filled again reads as whatever now sits there.
-/// Panicking is kept for a slot past the end, which is the one case a lookup can
-/// tell apart — pairing a measurement with its sketch is the caller's.
+/// The table behind [`Outcome`](crate::Outcome)'s per-entity answers, and no
+/// wider than that: it holds whose freedom is whose, where the totals it breaks
+/// down are the outcome's own. Sized to the sketch and refilled rather than
+/// rebuilt, so a drawing measured every frame allocates nothing.
 #[derive(Debug, Clone, Default, PartialEq)]
-pub struct Freedoms {
+pub(super) struct Freedoms {
     /// By point slot, so a handle indexes straight in.
     points: Vec<Freedom>,
     /// By circle slot. Never [`Freedom::Partly`] — a radius is one parameter,
@@ -64,73 +56,24 @@ pub struct Freedoms {
     /// and which says of a constraint worth two equations that it is redundant
     /// rather than saying so twice.
     redundant: Vec<bool>,
-    degrees_of_freedom: usize,
-    redundant_equations: usize,
 }
 
 impl Freedoms {
-    /// Free parameters the constraints leave undetermined. Zero is a fully
-    /// constrained sketch; higher means it can still be dragged, by exactly
-    /// this many independent motions.
-    ///
-    /// The total the labels below break down, and here rather than on a solve's
-    /// report because it is the same measurement read at a coarser resolution.
-    /// One rank decides both, so the count and the labels cannot disagree about
-    /// what the sketch can do.
-    pub fn degrees_of_freedom(&self) -> usize {
-        self.degrees_of_freedom
-    }
-
-    /// Equations beyond the rank of the system. On a satisfied sketch these are
-    /// consistent duplicates; on an unsatisfiable one they are the conflict.
-    ///
-    /// The total [`Freedoms::is_redundant`] breaks down, and the two can differ:
-    /// this counts equations, that flags constraints, and a coincidence is worth
-    /// two equations.
-    pub fn redundant_equations(&self) -> usize {
-        self.redundant_equations
-    }
-
-    /// Whether this constraint is one the system could do without where the
-    /// sketch stands.
-    ///
-    /// What a drawing paints an over-constrained sketch by, and what an editor
-    /// offers to delete. Redundant is not the same as wrong: on a satisfied
-    /// sketch these are consistent duplicates, saying again what is already
-    /// true; on an unsatisfiable one they are where the conflict shows.
-    ///
-    /// **Which** of a dependent group is flagged is not a fact about the sketch.
-    /// The elimination takes the largest coefficient as its pivot, so of two
-    /// constraints saying one thing the one flagged is whichever it did not
-    /// choose — and moving the geometry can move the flag between them. What is
-    /// stable is that the group is over-determined and that one of them is named
-    /// for it; a caller telling a user *this constraint is the problem* would be
-    /// claiming more than this knows.
-    pub fn is_redundant(&self, id: ConstraintId) -> bool {
-        *self.redundant.get(id.slot()).expect(UNMEASURED)
-    }
-
-    /// What the constraints leave of a point.
-    pub fn point(&self, id: PointId) -> Freedom {
+    pub(super) fn point(&self, id: PointId) -> Freedom {
         *self.points.get(id.slot()).expect(UNMEASURED)
     }
 
-    /// What the constraints leave of a circle's radius — not of the circle,
-    /// which also moves with its centre.
-    pub fn radius(&self, id: CircleId) -> Freedom {
+    pub(super) fn radius(&self, id: CircleId) -> Freedom {
         *self.radii.get(id.slot()).expect(UNMEASURED)
+    }
+
+    pub(super) fn is_redundant(&self, id: ConstraintId) -> bool {
+        *self.redundant.get(id.slot()).expect(UNMEASURED)
     }
 
     /// Size to `sketch` and start everything determined, ready to be told
     /// otherwise. Keeps whatever room it has grown to.
-    pub(super) fn reset(
-        &mut self,
-        sketch: &Sketch,
-        degrees_of_freedom: usize,
-        redundant_equations: usize,
-    ) {
-        self.degrees_of_freedom = degrees_of_freedom;
-        self.redundant_equations = redundant_equations;
+    pub(super) fn reset(&mut self, sketch: &Sketch) {
         self.points.clear();
         self.points
             .resize(sketch.point_slot_count(), Freedom::Determined);

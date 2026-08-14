@@ -8,7 +8,7 @@
 
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::elimination::Elimination;
-use crate::sketch::solver::outcome::{Outcome, Settled, SolveReport};
+use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::solver::stepper::Stepper;
 use crate::sketch::solver::system::System;
 use crate::sketch::{PointId, Sketch};
@@ -78,7 +78,7 @@ impl Solver {
     /// cannot take rather than reporting the compromise it settled for.
     pub fn solve(&mut self, sketch: &mut Sketch, into: &mut Outcome) {
         let iterations = self.iterate(sketch, &[]);
-        self.describe(sketch, into, Settled::Freely, iterations);
+        self.describe(sketch, into, iterations);
     }
 
     /// Step the sketch's geometry with `held` pinned, and answer how many steps
@@ -107,7 +107,7 @@ impl Solver {
     /// cursor — so the second attempt asks the same edit holding nothing, and
     /// lets the geometry settle as near what was asked for as it may go. A point
     /// on an edge slides along it; an arm the pointer has outrun reaches as far
-    /// as it can. [`Outcome::settled`](crate::Outcome) says which happened.
+    /// as it can.
     ///
     /// The second attempt is a free solve from where the cursor asked, so it may
     /// in principle settle on a different branch of a mechanism that admits more
@@ -149,7 +149,7 @@ impl Solver {
         // exactly: the grabbed point does not move, and the rest of the sketch
         // swings to accommodate it.
         let iterations = self.iterate(sketch, held);
-        if self.take(sketch, was, into, Settled::Holding, iterations) {
+        if self.take(sketch, was, into, iterations) {
             return;
         }
 
@@ -181,9 +181,7 @@ impl Solver {
             // moves need not be one: driving a radius holds the circle's centre,
             // and the centre staying put says nothing about whether the circle
             // grew.
-            if !self.before.within(sketch, UNMOVED)
-                && self.take(sketch, was, into, Settled::Freely, iterations)
-            {
+            if !self.before.within(sketch, UNMOVED) && self.take(sketch, was, into, iterations) {
                 return;
             }
         }
@@ -196,7 +194,7 @@ impl Solver {
     /// and which they pin down completely.
     ///
     /// The breakdown behind
-    /// [`Freedoms::degrees_of_freedom`](crate::Freedoms::degrees_of_freedom):
+    /// [`Outcome::degrees_of_freedom`](crate::Outcome::degrees_of_freedom):
     /// that counts the freedoms a sketch has left and this says whose they are,
     /// which is what lets a drawing show the difference rather than only total
     /// it.
@@ -204,7 +202,7 @@ impl Solver {
     /// Fills `into` rather than returning it, so a drawing measuring itself
     /// after every edit keeps one buffer instead of being handed a new one.
     pub fn measure(&mut self, sketch: &Sketch, into: &mut Outcome) {
-        self.describe(sketch, into, Settled::AtRest, 0);
+        self.describe(sketch, into, 0);
     }
 
     /// Assemble the sketch as it stands with nothing held.
@@ -229,9 +227,9 @@ impl Solver {
     /// to be holding, and this is what puts the sketch's own there. Every way of
     /// describing a sketch is one of the three calls that pair them: this,
     /// [`Solver::take`] and [`Solver::describe_as_found`].
-    fn describe(&mut self, sketch: &Sketch, into: &mut Outcome, settled: Settled, iterations: u32) {
+    fn describe(&mut self, sketch: &Sketch, into: &mut Outcome, iterations: u32) {
         self.assemble_at_rest(sketch);
-        self.read_at_rest(sketch, into, settled, iterations);
+        self.read_at_rest(sketch, into, iterations);
     }
 
     /// Assemble the sketch at rest, describe it if it is one to keep, and answer
@@ -246,20 +244,13 @@ impl Solver {
     /// Judged and described off the one assembly, and never described unless it
     /// is kept: working out what a refused attempt could still do would be
     /// working it out for a sketch about to be put back.
-    fn take(
-        &mut self,
-        sketch: &Sketch,
-        was: f64,
-        into: &mut Outcome,
-        settled: Settled,
-        iterations: u32,
-    ) -> bool {
+    fn take(&mut self, sketch: &Sketch, was: f64, into: &mut Outcome, iterations: u32) -> bool {
         self.assemble_at_rest(sketch);
         let residual = self.system.max_residual();
         if residual > TOLERANCE && residual > was {
             return false;
         }
-        self.read_at_rest(sketch, into, settled, iterations);
+        self.read_at_rest(sketch, into, iterations);
         true
     }
 
@@ -271,11 +262,13 @@ impl Solver {
     /// so reducing the one is reducing the other. The sketch must be back where
     /// it started, which on the one path that calls this it is.
     ///
-    /// [`Settled::Refused`] is the only part of what comes out that a report of
-    /// a sketch standing at its own solution could not say.
+    /// What comes out is a report of a sketch standing at its own solution,
+    /// because that is what the sketch now is — a caller telling a refusal from
+    /// an edit that had nothing to do compares the sketch, which is the only
+    /// thing the two differ in.
     fn describe_as_found(&mut self, sketch: &Sketch, into: &mut Outcome) {
         std::mem::swap(&mut self.system, &mut self.spare);
-        self.read_at_rest(sketch, into, Settled::Refused, 0);
+        self.read_at_rest(sketch, into, 0);
     }
 
     /// Read the whole of what the assembly in hand says the sketch can do.
@@ -287,27 +280,15 @@ impl Solver {
     /// [`Solver::describe_as_found`]'s, one of which every description goes
     /// through; the assert below is the half of their promise that is cheap
     /// enough to check.
-    fn read_at_rest(
-        &mut self,
-        sketch: &Sketch,
-        into: &mut Outcome,
-        settled: Settled,
-        iterations: u32,
-    ) {
+    fn read_at_rest(&mut self, sketch: &Sketch, into: &mut Outcome, iterations: u32) {
         debug_assert_eq!(
             self.system.width(),
             sketch.params().count(),
             "the assembly being described is of another sketch"
         );
-        self.elimination
-            .measure(sketch, &self.system, &mut into.freedoms);
-        let max_residual = self.system.max_residual();
-        into.report = SolveReport {
-            converged: max_residual <= TOLERANCE,
-            iterations,
-            max_residual,
-        };
-        into.settled = settled;
+        self.elimination.measure(sketch, &self.system, into);
+        into.converged = self.system.max_residual() <= TOLERANCE;
+        into.iterations = iterations;
     }
 }
 
@@ -323,7 +304,7 @@ pub(crate) mod bench;
 #[cfg(test)]
 pub(crate) mod internals {
     use crate::sketch::solver::Solver;
-    use crate::sketch::solver::freedoms::Freedoms;
+    use crate::sketch::solver::outcome::Outcome;
     use crate::sketch::{PointId, Sketch};
 
     impl Solver {
@@ -342,10 +323,9 @@ pub(crate) mod internals {
         /// they agree, each says the other is right.
         pub(super) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
             self.system.assemble_holding(sketch, held);
-            let mut freedoms = Freedoms::default();
-            self.elimination
-                .measure(sketch, &self.system, &mut freedoms);
-            freedoms.degrees_of_freedom()
+            let mut outcome = Outcome::default();
+            self.elimination.measure(sketch, &self.system, &mut outcome);
+            outcome.degrees_of_freedom()
         }
     }
 }

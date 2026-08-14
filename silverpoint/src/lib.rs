@@ -21,8 +21,8 @@
 //!
 //! let mut outcome = Outcome::default();
 //! Solver::default().solve(&mut sketch, &mut outcome);
-//! assert!(outcome.report().converged);
-//! assert_eq!(outcome.freedoms().degrees_of_freedom(), 0);
+//! assert!(outcome.converged());
+//! assert_eq!(outcome.degrees_of_freedom(), 0);
 //! assert!((sketch.point(end).position - DVec2::new(5.0, 0.0)).length() < 1e-9);
 //! ```
 //!
@@ -45,6 +45,6 @@ pub use sketch::solver::Solver;
 /// where it can reach what it measures.
 #[cfg(feature = "bench")]
 pub use sketch::solver::bench::alloc_bench;
-pub use sketch::solver::freedoms::{Freedom, Freedoms};
-pub use sketch::solver::outcome::{Outcome, Settled, SolveReport};
+pub use sketch::solver::freedoms::Freedom;
+pub use sketch::solver::outcome::Outcome;
 pub use sketch::{Circle, CircleId, Point, PointId, Segment, SegmentId, Sketch};

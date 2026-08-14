@@ -332,7 +332,7 @@ impl Sketch {
     /// Positions the constraints occupy. Not part of the parameter layout —
     /// constraints contribute equations rather than unknowns — but the width
     /// anything keyed by constraint has to cover, which is what
-    /// [`Freedoms`](crate::Freedoms) is for the redundant ones.
+    /// [`Outcome::is_redundant`](crate::Outcome) is for the redundant ones.
     fn constraint_slot_count(&self) -> usize {
         self.constraints.slot_count()
     }

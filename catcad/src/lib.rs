@@ -28,7 +28,7 @@ pub use bench::alloc_bench;
 use std::fmt;
 
 use palantir::{App, Configure, HostHandle, Key, Panel, Shortcut, Sizing, Ui, WindowToken};
-use silverpoint::{Entity, SolveReport, Solver};
+use silverpoint::{Entity, Solver};
 
 use crate::document::Document;
 use crate::history::History;
@@ -211,10 +211,12 @@ impl CatCad {
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
         let drawing = self.document.drawing();
+        let outcome = drawing.outcome();
         Status {
-            report: drawing.report(),
-            degrees_of_freedom: drawing.freedoms().degrees_of_freedom(),
-            redundant_equations: drawing.freedoms().redundant_equations(),
+            converged: outcome.converged(),
+            iterations: outcome.iterations(),
+            degrees_of_freedom: outcome.degrees_of_freedom(),
+            redundant_equations: outcome.redundant_equations(),
             hovered: self.view.hovered(),
         }
     }
@@ -235,9 +237,10 @@ impl CatCad {
 /// one a test can read without raising a `Ui` to do it.
 #[derive(Debug)]
 struct Status {
-    report: SolveReport,
-    /// Read off the freedoms rather than the report, because they are what the
-    /// sketch can still do — where the report is only how the last run went.
+    converged: bool,
+    iterations: u32,
+    /// What the sketch can still do, where the two above are only how the last
+    /// run getting it there went.
     degrees_of_freedom: usize,
     redundant_equations: usize,
     hovered: Option<Entity>,
@@ -260,15 +263,11 @@ fn noun(entity: Entity) -> &'static str {
 
 impl fmt::Display for Status {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let state = if self.report.converged {
-            "solved"
-        } else {
-            "unsolved"
-        };
+        let state = if self.converged { "solved" } else { "unsolved" };
         write!(
             f,
             "{state} · {} dof · {} redundant · {} iterations",
-            self.degrees_of_freedom, self.redundant_equations, self.report.iterations,
+            self.degrees_of_freedom, self.redundant_equations, self.iterations,
         )?;
         match self.hovered {
             Some(entity) => write!(f, " · {}", noun(entity)),

@@ -4,7 +4,7 @@ use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, Key, Modifiers, WindowToken};
-use silverpoint::{Entity, Freedom, Outcome, Plane, PointId, Settled, SolveReport, Solver};
+use silverpoint::{Entity, Freedom, Outcome, Plane, PointId, Solver};
 
 use crate::demo;
 use crate::tool::Tool;
@@ -38,24 +38,14 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     let mut outcome = Outcome::default();
     Solver::default().solve(&mut sketch, &mut outcome);
 
-    assert!(outcome.report().converged, "{:?}", outcome.report());
+    assert!(outcome.converged(), "{:?}", outcome);
     // Eighteen free parameters — nine unpinned points and two radii — against
     // thirteen equations. Six of those determine the rectangle and two the hub,
     // leaving the five that make the drawing worth dragging: the arm's three
     // (it can travel and turn as one piece), the rail's one (it stretches), and
     // the unconstrained radius of the circle.
-    assert_eq!(
-        outcome.freedoms().degrees_of_freedom(),
-        5,
-        "{:?}",
-        outcome.report()
-    );
-    assert_eq!(
-        outcome.freedoms().redundant_equations(),
-        0,
-        "{:?}",
-        outcome.report()
-    );
+    assert_eq!(outcome.degrees_of_freedom(), 5, "{:?}", outcome);
+    assert_eq!(outcome.redundant_equations(), 0, "{:?}", outcome);
 
     let at: Vec<DVec2> = sketch.points().map(|(_, point)| point.position).collect();
     let expected = [
@@ -94,7 +84,7 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     Solver::default().edit_holding(&mut sketch, &[id[8]], &mut outcome, |sketch| {
         sketch.set_point(id[8], sent)
     });
-    assert!(outcome.report().converged, "{:?}", outcome.report());
+    assert!(outcome.converged(), "{:?}", outcome);
 
     let now: Vec<DVec2> = sketch.points().map(|(_, point)| point.position).collect();
     assert_eq!(now[8], sent, "the arm would not go where it was sent");
@@ -118,10 +108,9 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     Solver::default().edit_holding(&mut sketch, &[id[4]], &mut outcome, |sketch| {
         sketch.set_radius(hole, 2.2)
     });
-    assert!(outcome.report().converged, "{:?}", outcome.report());
+    assert!(outcome.converged(), "{:?}", outcome);
     // Driving the radius is a change the constraints can take with the centre
     // still held, so this is the ordinary ending rather than the fallback.
-    assert_eq!(outcome.settled(), Settled::Holding);
     assert_eq!(
         sketch.circle(hole).radius,
         2.2,
@@ -141,21 +130,21 @@ fn the_demo_shows_every_state_a_drawing_can_be_painted_in() {
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
     solver.solve(&mut sketch, &mut outcome);
-    assert!(outcome.report().converged);
+    assert!(outcome.converged());
 
     let id: Vec<PointId> = sketch.points().map(|(point, _)| point).collect();
     // The frame is settled to the last corner, and the arm is free to the last
     // joint. Points 0..5 are the rectangle and the hub, 5..9 the rail and arm.
     for (index, point) in id.iter().enumerate().take(5) {
         assert_eq!(
-            outcome.freedoms().point(*point),
+            outcome.point(*point),
             Freedom::Determined,
             "the frame's point {index} was left something to decide"
         );
     }
     for (index, point) in id.iter().enumerate().skip(5) {
         assert_eq!(
-            outcome.freedoms().point(*point),
+            outcome.point(*point),
             Freedom::Free,
             "the arm's point {index} cannot be put where it is asked for"
         );
@@ -164,8 +153,8 @@ fn the_demo_shows_every_state_a_drawing_can_be_painted_in() {
     // The circle nothing sized can still be resized; the eye that was given a
     // size cannot. Between them that is both states a rim can be in.
     let circle: Vec<_> = sketch.circles().map(|(id, _)| id).collect();
-    assert_eq!(outcome.freedoms().radius(circle[0]), Freedom::Free);
-    assert_eq!(outcome.freedoms().radius(circle[1]), Freedom::Determined);
+    assert_eq!(outcome.radius(circle[0]), Freedom::Free);
+    assert_eq!(outcome.radius(circle[1]), Freedom::Determined);
 }
 
 /// What the status line reads, in every shape it takes.
@@ -176,14 +165,10 @@ fn the_demo_shows_every_state_a_drawing_can_be_painted_in() {
 /// — swapping a separator in it leaves all ten passing.
 #[test]
 fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
-    let solved = SolveReport {
-        converged: true,
-        iterations: 4,
-        max_residual: 0.0,
-    };
     assert_eq!(
         Status {
-            report: solved,
+            converged: true,
+            iterations: 4,
             degrees_of_freedom: 0,
             redundant_equations: 0,
             hovered: None,
@@ -205,7 +190,8 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     ] {
         assert_eq!(
             Status {
-                report: solved,
+                converged: true,
+                iterations: 4,
                 degrees_of_freedom: 0,
                 redundant_equations: 0,
                 hovered: Some(hovered),
@@ -216,14 +202,10 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     }
 
     // An unsolved sketch says so, and says what it left free.
-    let stuck = SolveReport {
-        converged: false,
-        iterations: 100,
-        max_residual: 0.5,
-    };
     assert_eq!(
         Status {
-            report: stuck,
+            converged: false,
+            iterations: 100,
             degrees_of_freedom: 3,
             redundant_equations: 2,
             hovered: None,

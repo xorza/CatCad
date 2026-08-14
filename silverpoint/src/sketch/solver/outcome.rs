@@ -1,91 +1,95 @@
-//! What a settle leaves behind: how the run went, which ending it had, and the
-//! [`Outcome`] that carries the two of them beside what the sketch can still do.
+//! What a settle leaves behind: how the run went, and what the sketch it
+//! settled on can still be asked to do.
 
-use crate::sketch::solver::freedoms::Freedoms;
+use crate::sketch::solver::freedoms::{Freedom, Freedoms};
+use crate::sketch::{CircleId, ConstraintId, PointId};
 
-/// What a solve achieved.
+/// Everything a settle leaves behind: how the run that got here went, how much
+/// the sketch's constraints still leave undecided, and whose freedom that is.
 ///
-/// How *determined* the answer was is not here: that is a property of the sketch
-/// rather than of the run, and it rides beside this in the [`Outcome`] every
-/// entry point fills — see
-/// [`Freedoms::degrees_of_freedom`](crate::Freedoms::degrees_of_freedom).
-/// Neither is *which ending* the run had, which is [`Settled`]'s:
-/// a refused edit leaves the sketch exactly as it was found, so it reports
-/// converged in nought iterations and reads from here like an edit that was
-/// taken and had nothing to do. Splitting the three is what stops them
-/// describing different moments, which is what a report carrying a count
-/// measured against a *held* system used to do.
+/// Filled rather than returned, so a drawing settling every frame of a drag
+/// keeps one of these instead of being handed a new one.
 ///
-/// Defaults to what an unsolved sketch would report — nothing converged, in
-/// nought iterations — which is what a caller holding a report before it has one
-/// to hold should read.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct SolveReport {
-    /// Every residual landed within the solver's tolerance.
-    pub converged: bool,
-    pub iterations: u32,
-    /// Largest absolute residual left over.
-    pub max_residual: f64,
-}
-
-/// Which ending a settle had.
+/// One type rather than a report beside a table, because they describe one
+/// moment. A caller holding the report of one settle beside the freedoms of
+/// another would be painting a drawing in the colours of where it used to be,
+/// and there is no way to take one without the other from here.
 ///
-/// The one thing [`SolveReport`] cannot say. A refused edit leaves the sketch
-/// exactly as it was found, and a sketch as it was found is a *satisfied* one —
-/// so a refusal reports `converged` in nought iterations, and an edit that was
-/// taken but had nothing to solve reports exactly the same. Reading the two
-/// apart is what this is for.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum Settled {
-    /// Measured where it stood: nothing was asked of the constraints, and
-    /// nothing moved. What [`Solver::measure`](crate::Solver::measure) answers,
-    /// and what an [`Outcome`] nothing has been written into yet reads as.
-    #[default]
-    AtRest,
-    /// Settled with nothing pinned, so the sketch is wherever the constraints
-    /// took it. What [`Solver::solve`](crate::Solver::solve) answers, and what
-    /// an edit falls back to when holding proves impossible.
-    Freely,
-    /// Settled with the edit's geometry pinned exactly where it was put, the
-    /// rest of the sketch moved to accommodate it. What an ordinary drag
-    /// answers.
-    Holding,
-    /// The constraints could take neither attempt, so the sketch is exactly as
-    /// it was found and nothing was done.
-    Refused,
-}
-
-/// Everything a settle leaves behind: which ending it had, what the sketch's
-/// constraints leave undecided, and how the run that got there went.
-///
-/// Filled rather than returned, for the reason [`Freedoms`] alone was: a
-/// drawing settling every frame of a drag keeps one of these instead of being
-/// handed a new one.
-///
-/// The three together rather than separately, because they describe one moment.
-/// A caller holding the report of one settle beside the freedoms of another
-/// would be painting a drawing in the colours of where it used to be, and there
-/// is no way to take one without the other from here.
-#[derive(Debug, Default, PartialEq)]
+/// Defaults to what an unsolved sketch would read as — nothing converged, in
+/// nought iterations, with no geometry to be asked about.
+#[derive(Debug, Clone, Default, PartialEq)]
 pub struct Outcome {
     pub(super) freedoms: Freedoms,
-    pub(super) report: SolveReport,
-    pub(super) settled: Settled,
+    pub(super) converged: bool,
+    pub(super) iterations: u32,
+    pub(super) degrees_of_freedom: usize,
+    pub(super) redundant_equations: usize,
 }
 
 impl Outcome {
-    /// Which ending the settle had.
-    pub fn settled(&self) -> Settled {
-        self.settled
+    /// Every residual landed within the solver's tolerance.
+    ///
+    /// Says nothing about whether the run *did* anything: an edit the
+    /// constraints refused leaves the sketch exactly as it was found, and a
+    /// sketch as it was found is a satisfied one — so a refusal reads the same
+    /// as an edit that was taken and had nothing to solve. A caller that needs
+    /// the two apart compares the sketch, which is the only thing that differs.
+    pub fn converged(&self) -> bool {
+        self.converged
     }
 
-    /// What the constraints leave undecided, entity by entity.
-    pub fn freedoms(&self) -> &Freedoms {
-        &self.freedoms
+    /// How many steps the run kept.
+    pub fn iterations(&self) -> u32 {
+        self.iterations
     }
 
-    /// How the run that got here went.
-    pub fn report(&self) -> SolveReport {
-        self.report
+    /// Free parameters the constraints leave undetermined. Zero is a fully
+    /// constrained sketch; higher means it can still be dragged, by exactly this
+    /// many independent motions.
+    ///
+    /// The total the per-entity answers below break down. One rank decides both,
+    /// so the count and the labels cannot disagree about what the sketch can do.
+    pub fn degrees_of_freedom(&self) -> usize {
+        self.degrees_of_freedom
+    }
+
+    /// Equations beyond the rank of the system. On a satisfied sketch these are
+    /// consistent duplicates; on an unsatisfiable one they are the conflict.
+    ///
+    /// The total [`Outcome::is_redundant`] breaks down, and the two can differ:
+    /// this counts equations, that flags constraints, and a coincidence is worth
+    /// two equations.
+    pub fn redundant_equations(&self) -> usize {
+        self.redundant_equations
+    }
+
+    /// What the constraints leave of a point.
+    pub fn point(&self, id: PointId) -> Freedom {
+        self.freedoms.point(id)
+    }
+
+    /// What the constraints leave of a circle's radius — not of the circle,
+    /// which also moves with its centre.
+    pub fn radius(&self, id: CircleId) -> Freedom {
+        self.freedoms.radius(id)
+    }
+
+    /// Whether this constraint is one the system could do without where the
+    /// sketch stands.
+    ///
+    /// What a drawing paints an over-constrained sketch by, and what an editor
+    /// offers to delete. Redundant is not the same as wrong: on a satisfied
+    /// sketch these are consistent duplicates, saying again what is already
+    /// true; on an unsatisfiable one they are where the conflict shows.
+    ///
+    /// **Which** of a dependent group is flagged is not a fact about the sketch.
+    /// The elimination takes the largest coefficient as its pivot, so of two
+    /// constraints saying one thing the one flagged is whichever it did not
+    /// choose — and moving the geometry can move the flag between them. What is
+    /// stable is that the group is over-determined and that one of them is named
+    /// for it; a caller telling a user *this constraint is the problem* would be
+    /// claiming more than this knows.
+    pub fn is_redundant(&self, id: ConstraintId) -> bool {
+        self.freedoms.is_redundant(id)
     }
 }

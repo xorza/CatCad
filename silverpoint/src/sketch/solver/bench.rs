@@ -16,17 +16,18 @@
 //! that caller, not about the solver, so there is nothing here to gate.
 //!
 //! The drag steps matter most: they are what the application runs every frame a
-//! pointer is down, and the only path that copies whole sketches — one into
-//! `before` on every call, a second into `asked` on every held edit. Both are
-//! `clone_from` into a buffer the solver keeps, so both should reuse the room
-//! they have; nothing said so until these.
+//! pointer is down, and the only path that copies a whole sketch — into `before`
+//! on every call, so a refusal has something to put back. It is a `clone_from`
+//! into a buffer the solver keeps, so it should reuse the room it has; nothing
+//! said so until these.
 //!
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.
 
 use crate::sketch::constraint::Constraint;
+use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::Solver;
-use crate::sketch::solver::outcome::{Outcome, Settled};
+use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::{PointId, Sketch};
 use common::AllocBench;
 use glam::DVec2;
@@ -98,6 +99,15 @@ fn fixture() -> Sketch {
         radius: 1.5,
     });
     sketch
+}
+
+/// Where the sketch stands, which is what says whether a drag was taken: one
+/// that was moves geometry, and one the constraints refuse leaves every last bit
+/// of it alone.
+fn taken_down(sketch: &Sketch) -> Snapshot {
+    let mut at = Snapshot::default();
+    sketch.snapshot_into(&mut at);
+    at
 }
 
 /// A chain and the end of it, which is what a drag takes hold of.
@@ -180,12 +190,13 @@ pub fn alloc_bench() {
     sketch.params().write(&mut settled);
     // Within reach: √72 from the anchor against an arm that extends to ten.
     let reachable = DVec2::new(6.0, 6.0);
+    let before = taken_down(&sketch);
     solver.edit_holding(&mut sketch, &[wrist], &mut outcome, |sketch| {
         sketch.set_point(wrist, reachable)
     });
-    assert_eq!(
-        outcome.settled(),
-        Settled::Holding,
+    assert_ne!(
+        taken_down(&sketch),
+        before,
         "this step stopped measuring a drag that is taken"
     );
     bench.step("drag-taken", 0.0, || {
@@ -216,12 +227,13 @@ pub fn alloc_bench() {
         .map(|(id, _)| id)
         .expect("the fixture has four corners");
     let nowhere = sketch.point(corner).position + DVec2::splat(0.25);
+    let before = taken_down(&sketch);
     solver.edit_holding(&mut sketch, &[corner], &mut outcome, |sketch| {
         sketch.set_point(corner, nowhere)
     });
     assert_eq!(
-        outcome.settled(),
-        Settled::Refused,
+        taken_down(&sketch),
+        before,
         "this step stopped measuring a refusal"
     );
     bench.step("drag-refused", 0.0, || {

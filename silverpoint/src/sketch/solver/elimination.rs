@@ -8,7 +8,8 @@
 
 use crate::math::dense::square_norm;
 use crate::sketch::Sketch;
-use crate::sketch::solver::freedoms::{Freedom, Freedoms};
+use crate::sketch::solver::freedoms::Freedom;
+use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::solver::system::System;
 
 /// Relative threshold below which a pivot counts as zero when measuring the
@@ -76,25 +77,24 @@ impl Elimination {
     ///
     /// `system` must be the assembly of `sketch`: the rows being reduced are the
     /// ones it built, and the entities walked here are the ones that built them.
-    pub(super) fn measure(&mut self, sketch: &Sketch, system: &System, into: &mut Freedoms) {
+    pub(super) fn measure(&mut self, sketch: &Sketch, system: &System, into: &mut Outcome) {
         self.null_space(system);
         // Both totals read off the partition itself rather than by counting the
         // movable columns again and subtracting the rank: the freedoms are the
         // columns that took no pivot, and the redundant equations are the rows
         // left over once every pivot has one. Neither can drift from the
         // reduction it describes.
-        into.reset(
-            sketch,
-            self.free.len(),
-            self.origin.len() - self.pivots.len(),
-        );
+        into.degrees_of_freedom = self.free.len();
+        into.redundant_equations = self.origin.len() - self.pivots.len();
+        into.freedoms.reset(sketch);
         let params = sketch.params();
         for (id, _) in sketch.points() {
             let [x, y] = params.of_point(id);
-            into.set_point(id, self.spread(x, y));
+            into.freedoms.set_point(id, self.spread(x, y));
         }
         for (id, _) in sketch.circles() {
-            into.set_radius(id, self.travel(params.of_radius(id)));
+            into.freedoms
+                .set_radius(id, self.travel(params.of_radius(id)));
         }
         // The same rank read the other way round: the rows the reduction had
         // nothing left to do with are the equations the rest of the system
@@ -108,7 +108,7 @@ impl Elimination {
         // equations can be named twice, when both of its rows died; flagging by
         // constraint is what makes saying it twice say it once.
         for &equation in &self.origin[self.pivots.len()..] {
-            into.set_redundant(system.equations[equation]);
+            into.freedoms.set_redundant(system.equations[equation]);
         }
     }
 

@@ -70,8 +70,8 @@ fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
     let sent = on(plane, DVec2::new(0.0, 4.0));
     linkage.drag_to(Grip::Point(linkage.grip), sent);
 
-    let report = linkage.drawing.report();
-    assert!(report.converged, "{report:?}");
+    let outcome = linkage.drawing.outcome();
+    assert!(outcome.converged(), "{outcome:?}");
     assert!(
         linkage.world_of(linkage.grip).abs_diff_eq(sent, 1e-5),
         "the held point ended at {:?}",
@@ -203,7 +203,7 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let sent = on(plane, DVec2::new(4.0, 6.0));
     drawing.drag_to(&mut solver, Grip::Rim(hole), sent);
 
-    assert!(drawing.report().converged, "{:?}", drawing.report());
+    assert!(drawing.outcome().converged(), "{:?}", drawing.outcome());
     let circle = drawing.sketch.circle(hole);
     assert!((circle.radius - 5.0).abs() < 1e-9, "{}", circle.radius);
     assert_eq!(
@@ -405,7 +405,7 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
     let level = offers[2];
     assert!(matches!(level, Constraint::Horizontal { .. }));
     drawing.constrain(&mut solver, level);
-    assert!(drawing.report().converged, "{:?}", drawing.report());
+    assert!(drawing.outcome().converged(), "{:?}", drawing.outcome());
     let apart = drawing.sketch().point(pa).position.y - drawing.sketch().point(pb).position.y;
     assert!(apart.abs() < 1e-9, "{apart}");
 

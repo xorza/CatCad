@@ -210,7 +210,7 @@ pub(crate) fn redraw(
 /// geometry it is about is — which is the whole of how an over-constrained
 /// sketch gets un-stuck.
 fn write_marks(drawing: &Drawing, names: &mut Names, marks: &mut Batch<Text>) {
-    let freedoms = drawing.freedoms();
+    let outcome = drawing.outcome();
     marks.refill(drawing.sketch().constraints(), |mark, (id, constraint)| {
         // Rewritten in place rather than assigned, so a drawing whose marks are
         // laid out every frame keeps the string it already has — which is what
@@ -233,7 +233,7 @@ fn write_marks(drawing: &Drawing, names: &mut Names, marks: &mut Batch<Text>) {
         // Above the middle of what it names, so the mark clears the geometry it
         // is about rather than sitting on top of it.
         mark.anchor = Vec2::new(0.5, 1.6);
-        mark.color = if freedoms.is_redundant(id) {
+        mark.color = if outcome.is_redundant(id) {
             REDUNDANT
         } else {
             MARK
@@ -297,7 +297,7 @@ fn write_curves(
     curves: &mut Batch<Curve>,
 ) {
     let sketch = drawing.sketch();
-    let freedoms = drawing.freedoms();
+    let outcome = drawing.outcome();
     let plane = drawing.plane();
     // The drawing rides on one plane and above the solids as one thing, and
     // nothing in it outranks the rest — so the bias and the plane are the same
@@ -324,7 +324,7 @@ fn write_curves(
                     let b = plane.point(sketch.point(edge.b).position).as_vec3();
                     // An edge is only as settled as its looser end: one end
                     // free to travel is an edge free to travel with it.
-                    let freedom = freedoms.point(edge.a).max(freedoms.point(edge.b));
+                    let freedom = outcome.point(edge.a).max(outcome.point(edge.b));
                     curve.set_segment(a, b);
                     curve.color = colour(freedom);
                     curve.tag = Some(names.tag(Entity::Segment(id)));
@@ -359,7 +359,7 @@ enum Stroke {
 /// is sliced wherever the plane is seen at an angle.
 fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>) {
     let sketch = drawing.sketch();
-    let freedoms = drawing.freedoms();
+    let outcome = drawing.outcome();
     let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
     points.refill(sketch.points(), |marker, (id, point)| {
@@ -369,7 +369,7 @@ fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>)
         let (color, size) = if point.fixed {
             (PINNED, FIXED_MARKER)
         } else {
-            (colour(freedoms.point(id)), FREE_MARKER)
+            (colour(outcome.point(id)), FREE_MARKER)
         };
         // Assigned whole where a stroke is edited in place: a marker owns
         // nothing, so replacing one costs what overwriting it would.
@@ -393,7 +393,7 @@ fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>)
 /// own plane, so the depth it carries is already the surface's.
 fn write_rings(drawing: &Drawing, names: &mut Names, band: Option<Ends>, rings: &mut Batch<Ring>) {
     let sketch = drawing.sketch();
-    let freedoms = drawing.freedoms();
+    let outcome = drawing.outcome();
     let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
     rings.refill(
@@ -410,7 +410,7 @@ fn write_rings(drawing: &Drawing, names: &mut Names, band: Option<Ends>, rings: 
                     // it is settled only when both are — the demo's is pinned
                     // to the middle of a rigid frame and still has its rim to
                     // give.
-                    let freedom = freedoms.point(circle.center).max(freedoms.radius(id));
+                    let freedom = outcome.point(circle.center).max(outcome.radius(id));
                     Ring::new(
                         plane.point(sketch.point(circle.center).position).as_vec3(),
                         circle.radius.abs() as f32,

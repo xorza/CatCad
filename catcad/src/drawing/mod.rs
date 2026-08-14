@@ -3,8 +3,8 @@
 use aperture::{HitAt, Motion};
 use glam::{DVec2, Vec3};
 use silverpoint::{
-    CircleId, Constraint, ConstraintId, Entity, Freedoms, Outcome, Plane, PointId, SegmentId,
-    Sketch, Snapshot, SolveReport, Solver,
+    CircleId, Constraint, ConstraintId, Entity, Outcome, Plane, PointId, SegmentId, Sketch,
+    Snapshot, Solver,
 };
 
 use crate::drawing::anchor::Anchor;
@@ -23,8 +23,8 @@ pub(crate) mod anchor;
 pub(crate) struct Drawing {
     sketch: Sketch,
     plane: Plane,
-    /// What the last settle left behind: how it went, which ending it had, and
-    /// which geometry the constraints have decided — which is what the drawing
+    /// What the last settle left behind: how it went, and which geometry the
+    /// constraints have decided — which is what the drawing
     /// is painted in the colour of. Taken afresh whenever the sketch moves,
     /// because moving it is what changes the answer.
     outcome: Outcome,
@@ -54,13 +54,12 @@ impl Drawing {
 
     /// Solve, and record everything the drawing then says about itself.
     ///
-    /// The one place `report`, `freedoms` and `revision` are written, and the
-    /// reason it takes the solve rather than its answer: the three describe one
-    /// moment, and a caller that solved for itself and then reported would be a
-    /// caller who could do either half and skip the other. Both misses are
-    /// silent — a report stored without the freedoms paints the drawing in the
-    /// colours of where it used to be, and a revision left alone leaves the
-    /// picture on screen unrepainted.
+    /// The one place `outcome` and `revision` are written, and the reason it
+    /// takes the solve rather than its answer: the two describe one moment, and
+    /// a caller that solved for itself and then reported would be a caller who
+    /// could do either half and skip the other. Both misses are silent — an
+    /// outcome left stale paints the drawing in the colours of where it used to
+    /// be, and a revision left alone leaves the picture on screen unrepainted.
     ///
     /// `solve` is handed the sketch and the buffer to fill; every entry point
     /// the solver has fits, because each of them fills the whole outcome from
@@ -335,11 +334,6 @@ impl Drawing {
         anchor.built_on().is_none_or(|entity| self.holds(entity))
     }
 
-    /// What the last solve made of it.
-    pub(crate) fn report(&self) -> SolveReport {
-        self.outcome.report()
-    }
-
     /// Which version of the drawing this is.
     ///
     /// What a caller holding a layout of it compares against its own, to tell
@@ -356,12 +350,13 @@ impl Drawing {
         self.sketch.snapshot_into(into);
     }
 
-    /// What the constraints have decided, and how much is left undecided.
+    /// What the last settle made of the drawing: how the run went, and what its
+    /// constraints have and have not decided.
     ///
     /// Only ever handed out beside the sketch it was measured over — they are
     /// two readings of one moment, and the drawing is what holds them together.
-    pub(crate) fn freedoms(&self) -> &Freedoms {
-        self.outcome.freedoms()
+    pub(crate) fn outcome(&self) -> &Outcome {
+        &self.outcome
     }
 
     /// The sketch the drawing is of.
