@@ -55,8 +55,8 @@ pub(super) struct Elimination {
     /// Row-major.
     null: Vec<f64>,
     /// The columns that took no pivot, which are the null space's own axes.
-    /// Filled by [`Elimination::rank`] beside [`Elimination::pivots`], the other
-    /// half of the same partition.
+    /// Filled by [`Elimination::eliminate`] beside [`Elimination::pivots`], the
+    /// other half of the same partition.
     free: Vec<usize>,
 }
 
@@ -88,13 +88,14 @@ impl Elimination {
             self.free.len(),
             self.origin.len() - self.pivots.len(),
         );
+        let params = sketch.params();
         for (id, _) in sketch.points() {
             // A point's two parameters are adjacent, x first.
-            let x = sketch.params().of_point(id);
+            let x = params.of_point(id);
             into.set_point(id, self.spread(x, x + 1));
         }
         for (id, _) in sketch.circles() {
-            into.set_radius(id, self.travel(sketch.params().of_radius(id)));
+            into.set_radius(id, self.travel(params.of_radius(id)));
         }
         // The same rank read the other way round: the rows the reduction had
         // nothing left to do with are the equations the rest of the system
@@ -112,14 +113,17 @@ impl Elimination {
         }
     }
 
-    /// Rank of the Jacobian over its free columns — the number of independent
-    /// constraints actually acting on the sketch.
-    ///
-    /// Leaves the reduction in row echelon form and the movable columns split in
+    /// Reduce the Jacobian to row echelon form, and split the movable columns in
     /// two: `pivots` naming those a row turned on, `free` naming those none did.
+    ///
     /// Both are decided as the walk reaches each column, so neither has to be
     /// searched for in the other afterwards.
-    fn rank(&mut self, system: &System) -> usize {
+    ///
+    /// The rank falls out as `pivots.len()` and is read from there rather than
+    /// handed back. One place for it: a count returned alongside the pivots is
+    /// one that can reach a caller from a different reduction than the rows it
+    /// would index.
+    fn eliminate(&mut self, system: &System) {
         let n = system.width();
         self.pivots.clear();
         self.origin.clear();
@@ -128,7 +132,7 @@ impl Elimination {
             // Nothing to eliminate, so every column the sketch can move is one
             // it is still free to choose.
             self.free.extend((0..n).filter(|&col| system.movable[col]));
-            return 0;
+            return;
         }
         self.rows.clear();
         self.rows.extend_from_slice(&system.jacobian);
@@ -179,7 +183,6 @@ impl Elimination {
             self.pivots.push(col);
             rank += 1;
         }
-        rank
     }
 
     /// Reduce the Jacobian to row echelon form and then to *reduced* row echelon
@@ -204,7 +207,8 @@ impl Elimination {
     /// no freedom to have.
     fn null_space(&mut self, system: &System) {
         let n = system.width();
-        let rank = self.rank(system);
+        self.eliminate(system);
+        let rank = self.pivots.len();
 
         let a = &mut self.rows;
         // Backwards, so each row is cleared of every pivot below it before it is

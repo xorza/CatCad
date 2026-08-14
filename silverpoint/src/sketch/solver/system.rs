@@ -103,6 +103,16 @@ impl System {
         }
     }
 
+    /// Hold for `held` and assemble in one call.
+    ///
+    /// What every caller that is not stepping wants: a run holds once and
+    /// assembles per step, but anything asking a single question of the sketch
+    /// decides what may move and reads what that leaves in the same breath.
+    pub(super) fn assemble_holding(&mut self, sketch: &Sketch, held: &[PointId]) {
+        self.hold(sketch, held);
+        self.assemble(sketch);
+    }
+
     /// How many parameters wide the system is — one column per parameter of the
     /// sketch it was held for, so the mask is what says how wide a Jacobian row
     /// is without anyone having to ask the sketch again.

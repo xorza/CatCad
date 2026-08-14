@@ -24,8 +24,9 @@ const MAX_DAMPING: f64 = 1e12;
 /// Below this much of itself, the reduction an accepted step makes in the
 /// residual counts as no reduction at all, and the iteration stops.
 ///
-/// Not [`Limits::tolerance`], which asks whether the sketch is *solved*. This
-/// asks whether solving it any further is possible. A system the constraints
+/// Not the `tolerance` [`Stepper::iterate`] is given, which asks whether the
+/// sketch is *solved*. This asks whether solving it any further is possible —
+/// two different questions. A system the constraints
 /// cannot satisfy still has a least-squares answer, and its residual never
 /// reaches any tolerance — so the loop's one test can never fire, and without
 /// this it grinds on against a minimum it reached long ago until the damping
@@ -36,20 +37,6 @@ const MAX_DAMPING: f64 = 1e12;
 /// the smallest reduction a converging solve was measured to make — a margin
 /// wide enough that no sketch is going to fall in it.
 const STALLED: f64 = 1e-12;
-
-/// Where a run stops: the residual it is trying to get every equation under,
-/// and how many steps it may take trying.
-///
-/// Handed in rather than held, because these are [`Solver`](crate::Solver)'s to
-/// publish and a stepper has no business owning what a caller may set.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Limits {
-    pub(super) max_iterations: u32,
-    /// Converged once every residual is within this of zero. Residuals are in
-    /// sketch units (lengths) or their squares (angles), so this is an absolute
-    /// tolerance on the geometry, not a relative one.
-    pub(super) tolerance: f64,
-}
 
 /// The room a Levenberg-Marquardt run works in.
 ///
@@ -74,8 +61,12 @@ pub(super) struct Stepper {
 }
 
 impl Stepper {
-    /// Take steps until the residuals are inside tolerance or the damping gives
-    /// out, and answer how many were kept.
+    /// Take up to `max_iterations` steps, stopping early once every residual is
+    /// within `tolerance` of zero or the damping gives out, and answer how many
+    /// were kept.
+    ///
+    /// Residuals are in sketch units (lengths) or their squares (angles), so
+    /// `tolerance` is an absolute bound on the geometry, not a relative one.
     ///
     /// `system` is held for `held` and left holding the sketch as the last kept
     /// step made it, so a caller judging the attempt has the assembly it needs
@@ -90,7 +81,8 @@ impl Stepper {
         sketch: &mut Sketch,
         system: &mut System,
         held: &[PointId],
-        limits: Limits,
+        max_iterations: u32,
+        tolerance: f64,
     ) -> u32 {
         system.hold(sketch, held);
         let n = system.width();
@@ -106,7 +98,7 @@ impl Stepper {
         let mut iterations = 0;
 
         system.assemble(sketch);
-        while iterations < limits.max_iterations && system.max_residual() > limits.tolerance {
+        while iterations < max_iterations && system.max_residual() > tolerance {
             iterations += 1;
             self.normal.fill(0.0);
             self.step.fill(0.0);

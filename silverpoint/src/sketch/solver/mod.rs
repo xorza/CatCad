@@ -9,7 +9,7 @@
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::elimination::Elimination;
 use crate::sketch::solver::outcome::{Outcome, Settled};
-use crate::sketch::solver::stepper::{Limits, Stepper};
+use crate::sketch::solver::stepper::Stepper;
 use crate::sketch::solver::system::System;
 use crate::sketch::{PointId, Sketch};
 
@@ -139,10 +139,8 @@ impl Solver {
             sketch,
             &mut self.system,
             held,
-            Limits {
-                max_iterations: self.max_iterations,
-                tolerance: self.tolerance,
-            },
+            self.max_iterations,
+            self.tolerance,
         )
     }
 
@@ -297,8 +295,7 @@ impl Solver {
     /// with a point held would say the sketch had less freedom than it does for
     /// as long as someone was holding it.
     fn assemble_at_rest(&mut self, sketch: &Sketch) {
-        self.system.hold(sketch, &[]);
-        self.system.assemble(sketch);
+        self.system.assemble_holding(sketch, &[]);
     }
 
     /// Whether the assembly in hand is one to keep: satisfied outright, or at
@@ -370,8 +367,7 @@ pub(crate) mod internals {
         /// Goes through the measurement itself rather than round it, so what
         /// varies between the two routes is only what was held.
         pub(super) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
-            self.system.hold(sketch, held);
-            self.system.assemble(sketch);
+            self.system.assemble_holding(sketch, held);
             let mut freedoms = Freedoms::default();
             self.elimination
                 .measure(sketch, &self.system, &mut freedoms);
