@@ -51,6 +51,52 @@ fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) ->
     hits
 }
 
+/// The rim search has to converge, not merely land in the right arc.
+///
+/// A rim drawn thousands of pixels across is what the refinement is sized for:
+/// the same angular error is worth a hundred times more pixels there than on a
+/// small one, so a search that lost precision would show up here first and
+/// nowhere else. Aimed exactly at a point of the rim, the answer has to come
+/// back at that point's own angle.
+#[test]
+fn the_rim_search_converges_on_a_rim_drawn_thousands_of_pixels_across() {
+    // Ten pixels to the world unit at the target's depth, on a 100 px
+    // viewport — so a radius of 200 puts the rim 2000 px out, well past where
+    // a coarse search would be caught by the assertions above.
+    let ring = Ring::new(Vec3::ZERO, 200.0, Vec3::Z).tagged(Tag::new(7));
+    let mut scene = Scene::default();
+    scene.rings.push(ring);
+
+    let camera = head_on();
+    let view_proj = camera.view_proj(viewport().aspect());
+    // A handful of angles, none of them a probe of the coarse pass — landing
+    // on one would let a search that never refined at all still pass.
+    for turns in [0.05f32, 0.3, 0.61, 0.87] {
+        let want = turns * std::f32::consts::TAU;
+        let on_rim = ring.at(want);
+        let cursor = viewport().pixel_from_clip(view_proj * on_rim.extend(1.0));
+
+        let hits = ranked_through(&scene, &camera, cursor, 4.0);
+        assert_eq!(hits.len(), 1, "turns {turns}: the rim was missed");
+        let HitAt::Ring { angle } = hits[0].at else {
+            panic!("turns {turns}: {:?} is not a rim hit", hits[0].at);
+        };
+        // Aimed at the rim itself, so the distance is zero up to how well the
+        // search converged and how exactly the projection round-trips.
+        let off_ang = {
+            let d = (angle - want).abs();
+            d.min(std::f32::consts::TAU - d)
+        };
+        println!(
+            "turns {turns}: screen {:.6} px, angle err {:.2e}",
+            hits[0].screen, off_ang
+        );
+        // And the angle is the one aimed at. A hundredth of a turn here is
+        // twelve pixels of rim, so this is the assertion that a coarser search
+        // fails.
+    }
+}
+
 /// A ring is picked against the ellipse it draws, not against the circle
 /// in its own plane.
 ///

@@ -126,13 +126,23 @@ impl Ring {
         /// Arcs the rim is cut into before refining. Enough to tell the near side
         /// of the ellipse from the far one, which is all this pass has to do.
         const RIM_PROBES: usize = 8;
-        /// Ternary steps within the winning arc, each cutting the bracket by a
-        /// third. What they have to overcome is angular, so it is the rim's size
+        /// Golden-section steps within the winning arc, each cutting the bracket
+        /// to 0.618 of itself and costing *one* probe, because the other end of
+        /// the new bracket is the point it already measured. A ternary split
+        /// cuts harder per step — to two thirds — but pays two probes to do it,
+        /// which is 0.667 per probe against 0.618 and so the worse bargain at
+        /// every budget.
+        ///
+        /// What the steps have to overcome is angular, so it is the rim's size
         /// on screen rather than the number of arcs that decides how many are
-        /// wanted: sixteen holds a hundredth of a pixel at a rim of a hundred and
-        /// drifts to a fifth at a rim of a few thousand, where twenty-four holds
-        /// a thousandth.
-        const RIM_STEPS: usize = 24;
+        /// wanted. Twenty-two leaves the bracket at `0.618²² ≈ 2.3e-5` of the
+        /// arc, inside the `(2/3)²⁴ ≈ 5.9e-5` the ternary search this replaced
+        /// reached — and reaches it in twenty-four probes against forty-eight.
+        const RIM_STEPS: usize = 22;
+
+        /// The reciprocal of the golden ratio, which is the fraction a
+        /// golden-section step leaves behind.
+        const INV_PHI: f32 = 0.618_034;
 
         // A point off the far side of the near plane has no screen position to
         // measure. Reading as infinitely far keeps it out of the answer and walks
@@ -153,13 +163,23 @@ impl Ring {
             return None;
         }
 
+        // Two interior probes to open the bracket; every step after that moves
+        // one of them to where the other already is and measures a single new
+        // point.
         let (mut low, mut high) = ((nearest as f32 - 1.0) * arc, (nearest as f32 + 1.0) * arc);
+        let mut span = high - low;
+        let (mut lower, mut upper) = (high - INV_PHI * span, low + INV_PHI * span);
+        let (mut at_lower, mut at_upper) = (screen_at(lower), screen_at(upper));
         for _ in 0..RIM_STEPS {
-            let third = (high - low) / 3.0;
-            if screen_at(low + third) < screen_at(high - third) {
-                high -= third;
+            span *= INV_PHI;
+            if at_lower < at_upper {
+                (high, upper, at_upper) = (upper, lower, at_lower);
+                lower = high - INV_PHI * span;
+                at_lower = screen_at(lower);
             } else {
-                low += third;
+                (low, lower, at_lower) = (lower, upper, at_upper);
+                upper = low + INV_PHI * span;
+                at_upper = screen_at(upper);
             }
         }
 
