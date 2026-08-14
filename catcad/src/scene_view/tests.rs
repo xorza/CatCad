@@ -83,7 +83,7 @@ impl Raised {
                 }
             }
             history.apply(document, solver, intents);
-            selection.retain(|named| document.drawing().holds(named));
+            selection.retain(|entity| document.drawing().holds(entity));
             view.settle(document, selection);
         });
     }
@@ -160,8 +160,8 @@ impl Raised {
                         HOVER_REACH,
                     ))
                     .is_some_and(|hit| {
-                        let named = self.view.named(hit.tag);
-                        keep(named.and_then(|named| self.document.drawing().grip(named, hit.at)))
+                        let under = self.view.named(hit.tag);
+                        keep(under.and_then(|entity| self.document.drawing().grip(entity, hit.at)))
                     })
             })
     }

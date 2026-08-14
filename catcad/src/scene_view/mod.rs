@@ -305,7 +305,7 @@ impl SceneView {
                 (Tool::Pointer, _) | (_, None) => {
                     match under {
                         // Shift adds to what is picked out.
-                        Some(named) if adding => intents.push(Choice::Include(named)),
+                        Some(entity) if adding => intents.push(Choice::Include(entity)),
                         // A shift-click on empty space adds nothing, and
                         // clearing is the plain click's business.
                         None if adding => {}
@@ -414,8 +414,8 @@ impl SceneView {
         // Asked of the names rather than of the selection, because the walk has
         // to go the other way: what is picked out are the sketch's own handles,
         // and what is lit are the tags this layout gave them.
-        for (tag, named) in self.names.iter() {
-            if Some(tag) != under && selection.contains(named) {
+        for (tag, entity) in self.names.iter() {
+            if Some(tag) != under && selection.contains(entity) {
                 self.lit.push(Lit {
                     tag,
                     look: SELECTED,

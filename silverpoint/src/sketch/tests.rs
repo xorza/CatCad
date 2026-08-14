@@ -205,17 +205,17 @@ fn removing_a_point_takes_what_was_built_on_it_and_nothing_else() {
 
     sketch.remove_point(doomed);
 
-    assert!(!sketch.contains_point(doomed));
+    assert!(!sketch.holds(doomed));
     for point in [before, after, near, far] {
-        assert!(sketch.contains_point(point), "a bystanding point went");
+        assert!(sketch.holds(point), "a bystanding point went");
     }
 
-    assert!(!sketch.contains_segment(leading));
-    assert!(!sketch.contains_segment(trailing));
-    assert!(sketch.contains_segment(aside));
+    assert!(!sketch.holds(leading));
+    assert!(!sketch.holds(trailing));
+    assert!(sketch.holds(aside));
 
-    assert!(!sketch.contains_circle(hole));
-    assert!(sketch.contains_circle(elsewhere));
+    assert!(!sketch.holds(hole));
+    assert!(sketch.holds(elsewhere));
 
     for constraint in [by_point, by_segment, by_circle, twice_over] {
         assert!(
@@ -258,22 +258,22 @@ fn removing_an_edge_or_a_circle_leaves_the_points_it_was_drawn_over() {
     let over_points = sketch.add_constraint(Constraint::Horizontal { a, b });
 
     sketch.remove_segment(edge);
-    assert!(!sketch.contains_segment(edge));
+    assert!(!sketch.holds(edge));
     assert!(!sketch.contains_constraint(on_edge));
-    assert!(sketch.contains_point(a) && sketch.contains_point(b));
+    assert!(sketch.holds(a) && sketch.holds(b));
     assert!(sketch.contains_constraint(on_circle));
 
     sketch.remove_circle(circle);
-    assert!(!sketch.contains_circle(circle));
+    assert!(!sketch.holds(circle));
     assert!(!sketch.contains_constraint(on_circle));
-    assert!(sketch.contains_point(a), "the centre went with its circle");
+    assert!(sketch.holds(a), "the centre went with its circle");
 
     // The constraint over two bare points outlived both, and goes only when it
     // is asked for by name — which is the one removal that cascades to nothing.
     assert_eq!(sketch.constraints().count(), 1);
     sketch.remove_constraint(over_points);
     assert_eq!(sketch.constraints().count(), 0);
-    assert!(sketch.contains_point(a) && sketch.contains_point(b));
+    assert!(sketch.holds(a) && sketch.holds(b));
 }
 
 /// A constraint over geometry the sketch no longer holds is the caller's

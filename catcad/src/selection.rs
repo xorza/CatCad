@@ -11,8 +11,8 @@ use silverpoint::Entity;
 ///
 /// Sketch entities rather than tags, deliberately. A tag is an index into one
 /// layout of the drawing and is minted afresh whenever the drawing is laid out
-/// again — which a drag does every frame — where a [`Entity`] holds the sketch's
-/// own handle and survives it.
+/// again — which a drag does every frame — where an [`Entity`] holds the
+/// sketch's own handle and survives it.
 ///
 /// In the order things were added, and no entity twice. Order is not used for
 /// anything yet and is kept because it is free: the first thing picked is the
@@ -60,7 +60,7 @@ impl Selection {
     /// without anyone having picked it. So the selection is put back against
     /// the drawing whenever the drawing might have moved.
     pub(crate) fn retain(&mut self, keep: impl Fn(Entity) -> bool) {
-        self.picked.retain(|&named| keep(named));
+        self.picked.retain(|&entity| keep(entity));
     }
 }
 

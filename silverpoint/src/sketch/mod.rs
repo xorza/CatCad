@@ -27,7 +27,6 @@ pub type CircleId = Id<Circle>;
 const REMOVED_POINT: &str = "this point is no longer in the sketch";
 const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
 const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
-const REMOVED_CONSTRAINT: &str = "this constraint is no longer in the sketch";
 
 /// A point's position, and whether the solver may move it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -181,7 +180,7 @@ impl Sketch {
     /// the line that made it than deep inside a solve.
     pub fn add_constraint(&mut self, constraint: Constraint) -> ConstraintId {
         assert!(
-            constraint.referents().all(|named| self.holds(named)),
+            constraint.referents().all(|entity| self.holds(entity)),
             "a constraint needs geometry the sketch still holds"
         );
         self.constraints.insert(constraint)
@@ -245,52 +244,32 @@ impl Sketch {
         self.points.get(id).expect(REMOVED_POINT).fixed
     }
 
-    /// Whether the sketch still holds what these name.
+    /// Whether the sketch still holds `entity`.
     ///
-    /// For a caller keeping handles across an edit, which is the one way a
-    /// handle can stop naming anything: nothing removes geometry, but
-    /// [`Sketch::restore`] puts back a sketch that never had it. And a handle
-    /// left over from that is worse than merely refused — a restore rewinds the
+    /// For a caller keeping handles across an edit, which is how a handle stops
+    /// naming anything: a removal takes what was built on what went, and
+    /// [`Sketch::restore`] puts back a sketch that never had it. A handle left
+    /// over from either is worse than merely refused — a restore rewinds the
     /// arenas whole, generations included, so the *next* entity added takes the
     /// very same handle. Asking is how a caller avoids mistaking one for the
     /// other; every other accessor here expects to be handed a live one and
     /// panics rather than guessing.
-    pub fn contains_point(&self, id: PointId) -> bool {
-        self.points.contains(id)
-    }
-
-    /// See [`Sketch::contains_point`].
-    pub fn contains_segment(&self, id: SegmentId) -> bool {
-        self.segments.contains(id)
-    }
-
-    /// See [`Sketch::contains_point`].
-    pub fn contains_circle(&self, id: CircleId) -> bool {
-        self.circles.contains(id)
-    }
-
-    /// See [`Sketch::contains_point`].
-    pub fn contains_constraint(&self, id: ConstraintId) -> bool {
-        self.constraints.contains(id)
-    }
-
-    /// Whether the sketch still holds `entity`.
     ///
-    /// The three [`Sketch::contains_point`] questions asked as one, for a
-    /// caller holding a piece of geometry whose kind it does not know — what a
-    /// constraint named, or what a cursor is over. Takes anything that names
-    /// geometry, so a caller with a bare [`PointId`] need not spell out which
-    /// of the three it has.
+    /// One question over the three kinds rather than one apiece, because a
+    /// caller that knows which kind it holds already said so by holding that
+    /// handle — and one that does not is exactly who has to ask.
     pub fn holds(&self, entity: impl Into<Entity>) -> bool {
         match entity.into() {
-            Entity::Point(id) => self.contains_point(id),
-            Entity::Segment(id) => self.contains_segment(id),
-            Entity::Circle(id) => self.contains_circle(id),
+            Entity::Point(id) => self.points.contains(id),
+            Entity::Segment(id) => self.segments.contains(id),
+            Entity::Circle(id) => self.circles.contains(id),
         }
     }
 
-    pub fn constraint(&self, id: ConstraintId) -> Constraint {
-        *self.constraints.get(id).expect(REMOVED_CONSTRAINT)
+    /// [`Sketch::holds`] for a constraint, which [`Entity`] does not cover: it
+    /// is geometry only, so that a removal cascade terminates.
+    pub fn contains_constraint(&self, id: ConstraintId) -> bool {
+        self.constraints.contains(id)
     }
 
     /// Every constraint in insertion order, each with the handle that names it.
