@@ -2,7 +2,7 @@
 
 use crate::overlay::Overlay;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::batch::{Batch, Rebuilt};
+use crate::renderer::batch::{Rebuilt, Records};
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{CurveInstance, GpuVertex, PointInstance, RingInstance};
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
@@ -102,7 +102,7 @@ impl Attachments {
 /// The two passes one overlay kind is drawn through: its own, and the same
 /// pipeline again holding only what a caller has singled out.
 ///
-/// Paired for the reason [`Batch`] pairs the buffers that feed them — the two
+/// Paired for the reason [`Records`] pairs the buffers that feed them — the two
 /// are built together, uploaded together and drawn one after the other, and
 /// `sharing` already makes the second the first's pipeline with a vertex buffer
 /// of its own.
@@ -125,7 +125,7 @@ impl GpuBatch {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        batch: &Batch<O>,
+        batch: &Records<O>,
         rebuilt: Rebuilt,
     ) {
         if rebuilt.instances {

@@ -1,5 +1,4 @@
 use super::*;
-use aperture::Batch;
 use glam::DVec2;
 use silverpoint::{Plane, Sketch, Solver};
 

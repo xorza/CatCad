@@ -1,4 +1,4 @@
-//! One overlay kind's CPU-side batch, and what a refresh of it rewrote.
+//! What a scene flattens to on the CPU, and what a refresh of it rewrote.
 
 use crate::curve::Curve;
 use crate::highlight::{Highlight, Lit};
@@ -10,20 +10,25 @@ use crate::ring::Ring;
 use crate::tag::Tag;
 use glam::Mat3;
 
-/// One overlay kind's whole CPU-side state: what it flattens to, what a
+/// What one overlay kind ships as: the records it flattens to, the records a
 /// highlight over it flattens to, and whether either needs rebuilding.
 ///
+/// The GPU-facing mirror of the [`Batch`](crate::Batch) it is flattened from,
+/// and named apart from it because the two are a scene's two sides — one holds
+/// the primitives a caller draws, this holds what they become on the way to a
+/// buffer.
+///
 /// Held between frames for the same reason the GPU buffers they feed are: an
-/// edit that moves one vertex should not discard and rebuild a whole batch.
-/// Both vectors are emptied and refilled in place, so once one has grown to fit
-/// the scene it stops allocating — which is what keeps a hover, whose only work
-/// is rebuilding `lit`, off the heap entirely.
+/// edit that moves one vertex should not discard and rebuild the lot. Both
+/// vectors are emptied and refilled in place, so once one has grown to fit the
+/// scene it stops allocating — which is what keeps a hover, whose only work is
+/// rebuilding `lit`, off the heap entirely.
 ///
 /// One per kind rather than one triple per stage: the flag, the instances and
 /// the highlights of a kind are only ever touched together, and keeping them
 /// apart is what used to mean five separate triples.
 #[derive(Debug)]
-pub(super) struct Batch<O: Overlay> {
+pub(super) struct Records<O: Overlay> {
     pub(super) instances: Vec<O::Record>,
     pub(super) lit: Vec<O::Record>,
     /// Whether the scene's own list has been edited since this was flattened.
@@ -46,7 +51,7 @@ pub(super) struct Rebuilt {
     pub(super) lit: bool,
 }
 
-impl<O: Overlay> Default for Batch<O> {
+impl<O: Overlay> Default for Records<O> {
     /// Dirty from the start: nothing has been flattened yet, so everything is
     /// outstanding.
     fn default() -> Self {
@@ -58,7 +63,7 @@ impl<O: Overlay> Default for Batch<O> {
     }
 }
 
-impl<O: Overlay> Batch<O> {
+impl<O: Overlay> Records<O> {
     /// Bring both buffers up to date with `items`, and say which moved.
     ///
     /// `relight` is the caller's own flag: what is lit can change without the
@@ -107,9 +112,9 @@ fn look_of(highlights: &[Lit], tag: Option<Tag>) -> Option<Highlight> {
 #[derive(Debug, Default)]
 pub(super) struct Batches {
     pub(super) meshes: MeshData,
-    pub(super) curves: Batch<Curve>,
-    pub(super) rings: Batch<Ring>,
-    pub(super) points: Batch<Point>,
+    pub(super) curves: Records<Curve>,
+    pub(super) rings: Records<Ring>,
+    pub(super) points: Records<Point>,
 }
 
 /// The mesh batch flattened on the CPU, before upload. The overlays need no
@@ -185,7 +190,7 @@ impl MeshData {
 }
 
 /// What has been edited since it was last uploaded, for the two things no
-/// [`Batch`] owns.
+/// [`Records`] owns.
 ///
 /// Per batch rather than one flag for the scene, because they are edited on
 /// completely different schedules: markers move as the solver runs while the
