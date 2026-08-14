@@ -26,7 +26,7 @@ mod aimed;
 /// Radians of orbit per logical pixel of drag.
 const ORBIT_RATE: f32 = 0.008;
 
-/// Distance multiplier per wheel notch.
+/// Distance multiplier per wheel notch scrolled down.
 const ZOOM_RATE: f32 = 1.12;
 
 /// How far from the cursor a thing may be and still count as under it, in
@@ -380,10 +380,15 @@ impl SceneView {
             });
         }
 
+        // Scrolling down takes the eye out, which is the way round every
+        // scroll-driven zoom goes: the number palantir hands over is a scroll
+        // offset moving *forward* through what is being looked at, and reading
+        // it the other way would leave the wheel disagreeing with the pinch
+        // beside it about which way is closer.
         let notches = scroll.lines.y;
         if notches != 0.0 {
             intents.push(Change::Dolly {
-                factor: ZOOM_RATE.powf(-notches),
+                factor: ZOOM_RATE.powf(notches),
             });
         }
 
