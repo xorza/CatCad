@@ -274,8 +274,9 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
 
     // Drag the middle point straight up. It has to stay exactly there.
     let dragged = DVec2::new(3.0, 4.0);
-    sketch.set_point(held, dragged);
-    Solver::default().solve_holding(&mut sketch, &[held], &mut outcome);
+    Solver::default().edit_holding(&mut sketch, &[held], &mut outcome, |sketch| {
+        sketch.set_point(held, dragged)
+    });
 
     assert!(outcome.report().converged, "{:?}", outcome.report());
     assert_eq!(outcome.settled(), Settled::Holding);
@@ -338,16 +339,18 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     assert_eq!(sketch.point(trailing).position, was_trailing);
 }
 
-/// Holding a point of a fully-determined sketch asks for a motion its
-/// constraints forbid, and the report says so rather than pretending — and the
-/// same request made as an edit leaves the sketch exactly as it found it.
+/// An edit a fully-determined sketch's constraints forbid leaves it exactly as
+/// it was found, and says so — which the report alone cannot.
 ///
-/// The compromise the first half measures is exactly what an edit must never
-/// keep: it satisfies nothing, and it stands up only while the point that
-/// caused it is held, so the next solve that holds something else lets go of it
-/// and the sketch springs back to where it always had to be.
+/// Held, the point is asked for somewhere its constraints do not reach; asked
+/// again holding nothing, they answer by putting it back where it always had to
+/// be. Neither attempt is worth keeping, so the sketch is restored whole. The
+/// compromise the held attempt reached is exactly what must never survive: it
+/// satisfies nothing, and it stands up only while the point that caused it is
+/// held, so the next solve holding something else would let go of it and the
+/// sketch would spring back.
 #[test]
-fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
+fn an_impossible_edit_is_refused_and_reads_as_the_nothing_it_was() {
     let mut sketch = Sketch::default();
     let anchor = sketch.add_point(DVec2::ZERO);
     let pinned = sketch.add_point(DVec2::new(5.0, 0.0));
@@ -370,25 +373,11 @@ fn holding_a_point_a_determined_sketch_cannot_move_reports_unsolved() {
     );
 
     // Somewhere the constraints cannot reach with that point held. The anchor
-    // is fixed and this one is held, so every column is zeroed and nothing can
-    // move at all: the distance is satisfied exactly where it was put — 3-4-5
-    // — and the horizontal is out by the whole of its four.
-    sketch.set_point(pinned, DVec2::new(3.0, 4.0));
-    Solver::default().solve_holding(&mut sketch, &[pinned], &mut outcome);
-    assert!(!outcome.report().converged, "{:?}", outcome.report());
-    assert_eq!(outcome.settled(), Settled::Holding, "a solve never refuses");
-    assert_eq!(outcome.report().max_residual, 4.0, "{:?}", outcome.report());
-    assert_eq!(
-        sketch.point(pinned).position,
-        DVec2::new(3.0, 4.0),
-        "{:?}",
-        outcome.report()
-    );
-
-    // Back to rest, and then the same request as an edit. Nothing of it
-    // survives: not the geometry, and not the report either.
+    // is fixed and this one would be held, so every column is zeroed and nothing
+    // can move at all: the distance is satisfied exactly where the cursor put it
+    // — 3-4-5 — and the horizontal is out by the whole of its four. Nothing of
+    // that request survives: not the geometry, and not the report either.
     let mut solver = Solver::default();
-    solver.solve(&mut sketch, &mut Outcome::default());
     let mut was = Snapshot::default();
     sketch.snapshot_into(&mut was);
     solver.edit_holding(&mut sketch, &[pinned], &mut outcome, |sketch| {
@@ -479,34 +468,6 @@ fn a_drag_the_constraints_cannot_take_exactly_lands_as_near_as_they_allow() {
     // so a solve that had moved them would be answering a different question.
     assert_eq!(sketch.point(left).position, DVec2::ZERO);
     assert_eq!(sketch.point(right).position, DVec2::new(10.0, 0.0));
-}
-
-/// Holding nothing is solving, exactly — the general entry point cannot drift
-/// from the one every caller uses.
-#[test]
-fn holding_nothing_is_the_same_solve() {
-    let build = || {
-        let mut sketch = Sketch::default();
-        let anchor = sketch.add_point(DVec2::ZERO);
-        let free = sketch.add_point(DVec2::new(1.0, 0.5));
-        sketch.fix(anchor);
-        sketch.add_constraint(Constraint::Distance {
-            a: anchor,
-            b: free,
-            distance: 5.0,
-        });
-        sketch
-    };
-    let mut plain = build();
-    let mut empty_hold = build();
-    let mut plainly = Outcome::default();
-    Solver::default().solve(&mut plain, &mut plainly);
-    let mut holding_nothing = Outcome::default();
-    Solver::default().solve_holding(&mut empty_hold, &[], &mut holding_nothing);
-    assert_eq!(plainly, holding_nothing);
-    let moved: Vec<DVec2> = plain.points().map(|(_, at)| at.position).collect();
-    let same: Vec<DVec2> = empty_hold.points().map(|(_, at)| at.position).collect();
-    assert_eq!(moved, same);
 }
 
 /// A solver keeps the buffers a solve works in, so nothing one solve leaves
@@ -973,10 +934,13 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
 ///
 /// Holding a point and asking again is the other way to learn the same thing:
 /// pinning a coordinate that was already decided costs the sketch nothing,
-/// where pinning one it was free to choose spends a degree of freedom. That is
-/// a different route through the solver — the count comes from `free_params`
-/// against the rank, the labels from the reduced elimination — so where the two
-/// agree across sketches of every shape, both are doing what they claim.
+/// where pinning one it was free to choose spends a degree of freedom.
+///
+/// Two calculations rather than one asked twice. Both reductions come out of the
+/// same elimination, but under different masks: a label is a Gram determinant
+/// over the point's two null-space rows, and what pinning it costs is the rank
+/// of the whole system with those two columns struck out. So where they agree
+/// across sketches of every shape, both are doing what they claim.
 #[test]
 fn the_freedoms_agree_with_what_holding_each_point_costs() {
     let mut outcome = Outcome::default();

@@ -100,34 +100,14 @@ impl Solver {
     /// The sketch is left at the best position found, converged or not — a
     /// failed solve still leaves it closer than it started, which is what a UI
     /// wants to draw.
+    ///
+    /// Holds nothing. Pinning geometry for the length of a gesture is
+    /// [`Solver::edit_holding`]'s, which also refuses a hold the constraints
+    /// cannot take rather than reporting the compromise it settled for.
     pub fn solve(&mut self, sketch: &mut Sketch, into: &mut Outcome) {
-        self.solve_holding(sketch, &[], into);
-    }
-
-    /// Solve with `held` pinned where they are, whatever their own
-    /// [`Point::fixed`](crate::Point) says.
-    ///
-    /// The settling half of a drag: the point under the cursor stays where the
-    /// cursor put it and the rest of the sketch moves to accommodate it, which
-    /// is the difference between dragging a drawing and watching it snap back.
-    ///
-    /// Held rather than fixed, because [`Sketch::fix`] is the user's statement
-    /// about the drawing: a point does not become pinned because someone is
-    /// holding it, and anything reading that flag — the marker it is drawn with,
-    /// the degrees of freedom reported at rest — would be told it did.
-    ///
-    /// A sketch with nothing left to give reports `converged: false`, and is
-    /// left at the compromise that reached it. Only half an answer, which is why
-    /// this is not the crate's way of dragging one: what a caller wants is
-    /// [`Solver::edit_holding`], which throws that compromise away.
-    fn solve_holding(&mut self, sketch: &mut Sketch, held: &[PointId], into: &mut Outcome) {
-        let iterations = self.iterate(sketch, held);
-        let settled = if held.is_empty() {
-            Settled::Freely
-        } else {
-            Settled::Holding
-        };
-        self.measure_taking(sketch, into, settled, iterations);
+        let iterations = self.iterate(sketch, &[]);
+        self.assemble_at_rest(sketch);
+        self.read_at_rest(sketch, into, Settled::Freely, iterations);
     }
 
     /// Step the sketch's geometry with `held` pinned, and answer how many steps
@@ -248,7 +228,8 @@ impl Solver {
         // that was there all along rather than either attempt on it — and
         // [`Settled::Refused`] is the only part of this that a report of a sketch
         // standing at its own solution could not say.
-        self.measure_taking(sketch, into, Settled::Refused, 0);
+        self.assemble_at_rest(sketch);
+        self.read_at_rest(sketch, into, Settled::Refused, 0);
     }
 
     /// Which of the sketch's geometry its constraints leave anything to decide,
@@ -263,24 +244,8 @@ impl Solver {
     /// Fills `into` rather than returning it, so a drawing measuring itself
     /// after every edit keeps one buffer instead of being handed a new one.
     pub fn measure(&mut self, sketch: &Sketch, into: &mut Outcome) {
-        self.measure_taking(sketch, into, Settled::AtRest, 0);
-    }
-
-    /// Assemble the sketch at rest and read the whole of what it says about
-    /// itself, with `iterations` recorded as how it got there.
-    ///
-    /// The two halves together, which is what every entry point that is not
-    /// judging an edit wants. An edit has to decide whether an attempt is worth
-    /// keeping before it is worth describing, so it calls them separately.
-    fn measure_taking(
-        &mut self,
-        sketch: &Sketch,
-        into: &mut Outcome,
-        settled: Settled,
-        iterations: u32,
-    ) {
         self.assemble_at_rest(sketch);
-        self.read_at_rest(sketch, into, settled, iterations);
+        self.read_at_rest(sketch, into, Settled::AtRest, 0);
     }
 
     /// Assemble the sketch as it stands with nothing held.
@@ -358,14 +323,16 @@ pub(crate) mod internals {
         /// How many degrees of freedom the sketch has left with `held` pinned.
         ///
         /// Against the system a drag on those points would solve, which nothing
-        /// in the API reports any more: what a caller wants to know is what the
-        /// *sketch* can do, not what it could do while someone is holding it.
-        /// Kept because holding a point and asking again is a second route to
-        /// the answer the freedoms give, and two routes agreeing is what says
-        /// either is right.
+        /// in the API reports: what a caller wants to know is what the *sketch*
+        /// can do, not what it could do while someone is holding it.
         ///
-        /// Goes through the measurement itself rather than round it, so what
-        /// varies between the two routes is only what was held.
+        /// What this is for is checking the per-entity labels against the total
+        /// they break down. Both come out of the same reduction, but under
+        /// different masks, so they are two calculations rather than one asked
+        /// twice: how far a point travels along the null space is a Gram
+        /// determinant over two of its rows, and what pinning it costs is the
+        /// rank of the whole system with those two columns struck out. Where
+        /// they agree, each says the other is right.
         pub(super) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
             self.system.assemble_holding(sketch, held);
             let mut freedoms = Freedoms::default();
