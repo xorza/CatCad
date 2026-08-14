@@ -294,11 +294,18 @@ impl SceneView {
         // which of the two a gesture was, and a drag suppresses the click it
         // began as — so dragging a point leaves the selection alone.
         if response.left.clicked() {
+            // Picked afresh rather than read off `hovered`, which is what the
+            // *last* frame's settle found: a click can land on the first frame
+            // the pointer reached something, and what was under it before that
+            // is the wrong thing to answer with. Once, because both the anchor a
+            // tool builds on and the entity a click picks out are this same
+            // question, and asking the scene twice would be asking it twice.
+            let under = self.named_under(&response, document);
             // A tool in hand takes every click, whatever it landed on: what was
             // clicked is what the new geometry is *held to*, so a click on the
             // drawing is worth more to a tool than one beside it. Nothing is
             // picked out by a click a tool took — selecting is the pointer's.
-            match (tool, self.anchor(&response, document)) {
+            match (tool, self.anchor(&response, document, under)) {
                 // One click. On a point already there it adds nothing, and the
                 // drawing comes out of it unchanged.
                 (Tool::Point, Some(at)) => intents.push(Intent::AddPoint(at)),
@@ -330,11 +337,6 @@ impl SceneView {
                 // click names nowhere on it, where there is nothing to build
                 // from and picking out what was clicked is all that is left.
                 (Tool::Pointer, _) | (_, None) => {
-                    // Picked afresh rather than read off `hovered`, which is
-                    // what the *last* frame's settle found: a click can land on
-                    // the first frame the pointer reached something, and what
-                    // was under it before that is the wrong thing to select.
-                    let under = self.named_under(&response, document);
                     match under {
                         // Shift adds to what is picked out.
                         Some(named) if adding => intents.push(Intent::Include(named)),
@@ -486,9 +488,18 @@ impl SceneView {
     ///
     /// `None` only where the plane cannot be resolved at all — seen edge-on,
     /// there is nowhere on it for a click to mean.
-    fn anchor(&self, response: &Response<'_>, document: &Document) -> Option<Anchor> {
+    ///
+    /// `under` is handed in rather than asked for, because the caller has
+    /// already asked: what a click picks out and what it builds on are the same
+    /// question about the same pixel.
+    fn anchor(
+        &self,
+        response: &Response<'_>,
+        document: &Document,
+        under: Option<Named>,
+    ) -> Option<Anchor> {
         let at = landing(response, document, document.drawing().motion());
-        match self.named_under(response, document) {
+        match under {
             Some(Named::Point(id)) => Some(Anchor::On(id)),
             Some(Named::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
             Some(Named::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
