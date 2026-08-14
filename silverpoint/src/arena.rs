@@ -165,13 +165,25 @@ impl<T> Arena<T> {
     /// Take what `id` names, freeing its position. `None` if it was already
     /// gone, which is also what keeps a position off the free list twice.
     pub(crate) fn remove(&mut self, id: Id<T>) -> Option<T> {
-        let entry = self.slots.get_mut(id.slot())?;
+        let entry = self.slots.get(id.slot())?;
         if entry.generation != id.generation {
             return None;
         }
+        self.vacate(id.slot())
+    }
+
+    /// Empty a position and put it back on the free list, handing back whatever
+    /// was in it.
+    ///
+    /// The one place those three steps are written, because they only make
+    /// sense together: a position offered for reuse without the generation
+    /// bumped would answer a handle to what used to be in it, and one bumped
+    /// without being offered would leak.
+    fn vacate(&mut self, slot: usize) -> Option<T> {
+        let entry = self.slots.get_mut(slot)?;
         let value = entry.value.take()?;
         entry.generation += 1;
-        self.free.push(id.slot);
+        self.free.push(slot as u32);
         Some(value)
     }
 
@@ -182,11 +194,13 @@ impl<T> Arena<T> {
     /// whatever matches would otherwise collect the handles first, because the
     /// iteration borrows what the removal writes.
     pub(crate) fn retain(&mut self, keep: impl Fn(&T) -> bool) {
-        for (slot, entry) in self.slots.iter_mut().enumerate() {
-            if entry.value.as_ref().is_some_and(|value| !keep(value)) {
-                entry.value = None;
-                entry.generation += 1;
-                self.free.push(slot as u32);
+        for slot in 0..self.slots.len() {
+            if self.slots[slot]
+                .value
+                .as_ref()
+                .is_some_and(|value| !keep(value))
+            {
+                let _ = self.vacate(slot);
             }
         }
     }

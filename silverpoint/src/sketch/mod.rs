@@ -24,9 +24,9 @@ pub type SegmentId = Id<Segment>;
 /// Handle to a circle in a [`Sketch`].
 pub type CircleId = Id<Circle>;
 
-/// What a handle to something the sketch no longer holds reports. Reaching one
-/// means a caller kept a handle across a removal, which is a mistake in the
-/// caller rather than anything the sketch can answer.
+// What a handle to something the sketch no longer holds reports — all four of
+// them. Reaching one means a caller kept a handle across a removal, which is a
+// mistake in the caller rather than anything the sketch can answer.
 const REMOVED_POINT: &str = "this point is no longer in the sketch";
 const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
 const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
