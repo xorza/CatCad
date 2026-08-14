@@ -1,5 +1,6 @@
 //! The scene flattened into what the GPU takes, held on the CPU between frames.
 
+use crate::batch::Batch;
 use crate::curve::Curve;
 use crate::highlight::{Highlight, Lit};
 use crate::object::Object;
@@ -60,13 +61,15 @@ pub(super) struct Rebuilt {
     pub(super) lit: bool,
 }
 
-/// What one overlay kind flattens to: the records it ships, the records a
-/// highlight over it ships, and whether the scene's own batch has been edited
-/// since either was written.
+/// What one overlay kind flattens to: the records it ships, and the records a
+/// highlight over it ships.
 ///
-/// One per kind rather than one triple per stage: the flag, the records and the
-/// highlights of a kind are only ever touched together, and keeping them apart
-/// is what used to mean five separate triples.
+/// One per kind rather than one triple per stage: the records and the highlights
+/// of a kind are only ever touched together, and keeping them apart is what used
+/// to mean five separate triples.
+///
+/// It carries no dirty flag of its own. What has changed is the scene's
+/// business, and a [`Batch`](crate::Batch) already answers for itself.
 #[derive(Debug)]
 pub(super) struct Records<O: Overlay> {
     /// The kind drawn as itself.
@@ -74,32 +77,35 @@ pub(super) struct Records<O: Overlay> {
     /// The same records again in a highlight's look, for whatever a caller has
     /// singled out — and empty whenever nothing is lit.
     pub(super) lit: Vec<O::Record>,
-    /// Whether the scene's own [`Batch`](crate::Batch) has been edited since
-    /// this was flattened.
-    pub(super) dirty: bool,
 }
 
 impl<O: Overlay> Default for Records<O> {
-    /// Dirty from the start: nothing has been flattened yet, so everything is
-    /// outstanding.
+    /// Hand-written because deriving would demand `O: Default`, which is a
+    /// claim about primitives that nothing here needs.
     fn default() -> Self {
         Self {
             ordinary: Vec::new(),
             lit: Vec::new(),
-            dirty: true,
         }
     }
 }
 
 impl<O: Overlay> Records<O> {
-    /// Bring both buffers up to date with `items`, and say which moved.
+    /// Bring both buffers up to date with `batch`, and say which moved.
     ///
-    /// `relight` is the caller's own flag: what is lit can change without the
-    /// scene changing at all, which is what a pointer moving across a drawing
-    /// does. The scene changing forces both, since an edit can add or remove
-    /// whatever a tag named.
-    pub(super) fn refresh(&mut self, items: &[O], highlights: &[Lit], relight: bool) -> Rebuilt {
-        let moved = std::mem::take(&mut self.dirty);
+    /// Takes the batch's mark as it goes, which is the whole of how this knows
+    /// the scene changed. `relight` is the caller's own flag alongside it: what
+    /// is lit can change without the scene changing at all, which is what a
+    /// pointer moving across a drawing does. The scene changing forces both,
+    /// since an edit can add or remove whatever a tag named.
+    pub(super) fn refresh(
+        &mut self,
+        batch: &mut Batch<O>,
+        highlights: &[Lit],
+        relight: bool,
+    ) -> Rebuilt {
+        let moved = batch.take_dirty();
+        let items: &[O] = batch;
         if moved {
             self.ordinary.clear();
             self.ordinary
@@ -140,30 +146,19 @@ fn look_of(highlights: &[Lit], tag: Option<Tag>) -> Option<Highlight> {
 ///
 /// What the overlays need no equivalent of: a record is already what gets
 /// uploaded, where a mesh has to be baked out of its transform first.
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub(super) struct Triangles {
     pub(super) vertices: Vec<GpuVertex>,
     pub(super) indices: Vec<u32>,
-    /// Whether the scene's own objects have been edited since this was
-    /// flattened. The same flag [`Records`] carries, for the same reason.
-    pub(super) dirty: bool,
-}
-
-impl Default for Triangles {
-    /// Dirty from the start, like [`Records`]: nothing has been flattened yet.
-    fn default() -> Self {
-        Self {
-            vertices: Vec::new(),
-            indices: Vec::new(),
-            dirty: true,
-        }
-    }
 }
 
 impl Triangles {
     /// Bring the list up to date with `objects`, and say whether it moved.
-    pub(super) fn refresh(&mut self, objects: &[Object]) -> bool {
-        let moved = std::mem::take(&mut self.dirty);
+    ///
+    /// Takes the batch's mark, like [`Records::refresh`] — solids answer for
+    /// their own edits the same way strokes do.
+    pub(super) fn refresh(&mut self, objects: &mut Batch<Object>) -> bool {
+        let moved = objects.take_dirty();
         if moved {
             self.flatten(objects);
         }

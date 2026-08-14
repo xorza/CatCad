@@ -459,8 +459,12 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
     // Emptied — rings too, since the sketch's circle is one and would still be
     // ink in the column. The buffers stay behind, so anything still drawn here
     // is a ghost read out of bytes the removed batch left in them.
-    app.renderer().borrow_mut().curves_mut().clear();
-    app.renderer().borrow_mut().rings_mut().clear();
+    {
+        let mut view = app.renderer().borrow_mut();
+        let scene = view.scene_mut();
+        scene.curves.clear();
+        scene.rings.clear();
+    }
     let cleared = capture(size, &mut app);
     assert!(
         strokes(&cleared, 430).is_empty(),
@@ -471,11 +475,11 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
     // the new geometry has to land in the buffer that replaces it.
     {
         let mut view = app.renderer().borrow_mut();
-        let curves = view.curves_mut();
-        curves.extend(original.iter().cloned());
-        curves.extend(original);
+        let scene = view.scene_mut();
+        scene.curves.extend(original.iter().cloned());
+        scene.curves.extend(original);
+        scene.rings.extend(rings);
     }
-    app.renderer().borrow_mut().rings_mut().extend(rings);
     let refilled = capture(size, &mut app);
     assert_eq!(
         strokes(&refilled, 430).len(),
@@ -505,14 +509,15 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
     {
         let mut view = app.renderer().borrow_mut();
         // Nothing else in the frame, so every lit pixel is the rim.
-        view.objects_mut().clear();
-        view.curves_mut().clear();
-        view.points_mut().clear();
+        let scene = view.scene_mut();
+        scene.objects.clear();
+        scene.curves.clear();
+        scene.points.clear();
         // Square to the eye, so the circle projects to a circle and roundness
         // is what the distances measure. Straight down would do it too, but
         // that is the one pitch where a Y-up view has no side to stand on.
         let (sin, cos) = PITCH.sin_cos();
-        let rings = view.rings_mut();
+        let rings = &mut scene.rings;
         rings.clear();
         rings.push(
             Ring::new(Vec3::ZERO, 1.0, Vec3::new(0.0, sin, cos))
@@ -612,10 +617,11 @@ fn deposited(pitch: f32, overlay: Overlay) -> f32 {
         let mut renderer = app.renderer().borrow_mut();
         // The markers go in both cases: they are neither of the two, and they
         // sit on the ends of every edge the column crosses.
-        renderer.points_mut().clear();
+        let scene = renderer.scene_mut();
+        scene.points.clear();
         match overlay {
-            Overlay::Curves => renderer.rings_mut().clear(),
-            Overlay::Rings => renderer.curves_mut().clear(),
+            Overlay::Curves => scene.rings.clear(),
+            Overlay::Rings => scene.curves.clear(),
         }
     }
 

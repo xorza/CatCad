@@ -1,9 +1,13 @@
 use super::*;
 use crate::camera::Projection;
+use crate::curve::Curve;
 use crate::highlight::Highlight;
 use crate::mesh::{Mesh, Vertex};
+use crate::object::Object;
+use crate::point::Point;
 use crate::renderer::band::QUAD_INDICES;
 use crate::renderer::uniforms::Uniforms;
+use crate::ring::Ring;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Mat4, Vec3};
@@ -86,6 +90,51 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
     // Transforming the normal directly would have tipped it the other way.
     let naive = Vec3::new(2.0, 1.0, 0.0).normalize();
     assert!(!actual.abs_diff_eq(naive, 1e-3));
+}
+
+/// A refresh takes each batch's mark, so a frame that changed nothing owes the
+/// GPU nothing — and a frame that changed one kind owes only that kind.
+///
+/// The claim the whole design rests on, and the one that would break silently:
+/// every mark left behind re-flattens and re-uploads a list nobody touched, on
+/// every frame, for the rest of the run. Nothing would look wrong.
+#[test]
+fn a_refresh_owes_the_gpu_only_what_was_written_to() {
+    let mut scene = Scene::default();
+    scene.objects.push(Object::new(Mesh::cube(2.0)));
+    scene.curves.push(Curve::segment(Vec3::ZERO, Vec3::X));
+    scene.rings.push(Ring::new(Vec3::ZERO, 1.0, Vec3::Y));
+    scene.points.push(Point::new(Vec3::X));
+    let mut renderer = Renderer::new(scene);
+
+    // Everything was written to build it, so everything is owed once.
+    let first = renderer.refresh(false);
+    assert!(first.meshes);
+    assert!(first.curves.ordinary && first.rings.ordinary && first.points.ordinary);
+
+    // And nothing twice. A still frame is the common case, not the odd one.
+    let second = renderer.refresh(false);
+    assert!(!second.meshes);
+    assert!(!second.curves.ordinary && !second.rings.ordinary && !second.points.ordinary);
+    assert!(
+        !second.curves.lit && !second.rings.lit && !second.points.lit,
+        "nothing was relit either"
+    );
+
+    // One kind written, one kind owed. This is what `scene_mut` costs: reaching
+    // for the whole scene and moving a stroke is a stroke's worth of work, and
+    // the solids beside it are not re-flattened.
+    renderer
+        .scene_mut()
+        .curves
+        .push(Curve::segment(Vec3::ZERO, Vec3::Y));
+    let third = renderer.refresh(false);
+    assert!(third.curves.ordinary);
+    assert!(
+        !third.meshes,
+        "adding a stroke asked for every mesh to be flattened again"
+    );
+    assert!(!third.rings.ordinary && !third.points.ordinary);
 }
 
 #[test]
@@ -242,7 +291,7 @@ fn refilled_records_hold_only_what_the_scene_holds_now() {
     let grown = renderer.cpu.curves.ordinary.capacity();
 
     // Down to one: the other three must be gone, not merely overwritten.
-    renderer.curves_mut().truncate(1);
+    renderer.scene_mut().curves.truncate(1);
     renderer.refresh(false);
     assert_eq!(renderer.cpu.curves.ordinary.len(), 1);
     assert_eq!(

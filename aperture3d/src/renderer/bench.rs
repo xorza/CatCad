@@ -253,12 +253,15 @@ pub fn alloc_bench() {
         black_box(renderer.refresh(true));
     });
 
-    // What a scene edit costs: every kind re-flattened from the scene.
+    // What a scene edit costs: every kind re-flattened from the scene. Marked
+    // the way an editing caller marks them — by writing, which is the only way
+    // there is.
     bench.step("flatten-scene", 0.0, || {
-        renderer.cpu.meshes.dirty = true;
-        renderer.cpu.curves.dirty = true;
-        renderer.cpu.rings.dirty = true;
-        renderer.cpu.points.dirty = true;
+        let scene = renderer.scene_mut();
+        scene.objects.mark();
+        scene.curves.mark();
+        scene.rings.mark();
+        scene.points.mark();
         black_box(renderer.refresh(false));
         black_box(&renderer.cpu);
     });

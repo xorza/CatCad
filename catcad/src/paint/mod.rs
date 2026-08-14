@@ -7,7 +7,7 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Object, Overlays, Point, Ring, Scene, Styled};
+use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled};
 use glam::Vec3;
 use silverpoint::{Circle, CircleId, Freedom, Segment, SegmentId};
 
@@ -98,7 +98,7 @@ pub(crate) fn scene(document: &Document, names: &mut Names) -> Scene {
     let mut scene = Scene::default();
     write_solids(document.solids(), &mut scene.objects);
     // No band. Nothing can be half-drawn in a document nobody has looked at yet.
-    redraw(document.drawing(), names, None, scene.overlays_mut());
+    redraw(document.drawing(), names, None, &mut scene);
     scene
 }
 
@@ -113,11 +113,9 @@ fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
 /// `names`.
 ///
 /// The half of a picture that moves. A drawing is edited and the solids beside
-/// it are not, so this touches the three overlay batches and nothing else —
-/// which is why it takes [`Overlays`] rather than the scene those came out of.
-/// The narrower borrow is the whole point: a renderer re-uploads whatever it
-/// lends out, so a per-frame call that could reach the solids would re-upload
-/// every mesh on every frame of a drag.
+/// it are not, so this writes the three overlay batches and leaves `into.objects`
+/// untouched — which is what keeps a drag from re-uploading every mesh in the
+/// model, since a batch nobody wrote to reports nothing to upload.
 ///
 /// Fills buffers rather than returning them, so a drag refills what the renderer
 /// already holds instead of handing it new vectors every frame. The tags come
@@ -139,12 +137,22 @@ pub(crate) fn redraw(
     drawing: &Drawing,
     names: &mut Names,
     band: Option<Preview>,
-    into: Overlays<'_>,
+    into: &mut Scene,
 ) {
     names.clear();
-    write_curves(drawing, names, band.and_then(Preview::line), into.curves);
-    write_rings(drawing, names, band.and_then(Preview::ring), into.rings);
-    write_points(drawing, names, into.points);
+    write_curves(
+        drawing,
+        names,
+        band.and_then(Preview::line),
+        &mut into.curves,
+    );
+    write_rings(
+        drawing,
+        names,
+        band.and_then(Preview::ring),
+        &mut into.rings,
+    );
+    write_points(drawing, names, &mut into.points);
 }
 
 /// The sketch's straight strokes, one edge per segment, biased clear of

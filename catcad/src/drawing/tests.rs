@@ -229,7 +229,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     let mut scene = Scene::default();
 
     let mut names = Names::default();
-    paint::redraw(&linkage.drawing, &mut names, None, scene.overlays_mut());
+    paint::redraw(&linkage.drawing, &mut names, None, &mut scene);
     let before: Vec<Option<Named>> = scene
         .points
         .iter()
@@ -241,7 +241,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     // Move something, so the rewrite has different geometry to emit.
     let plane = linkage.drawing.plane;
     linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
-    paint::redraw(&linkage.drawing, &mut names, None, scene.overlays_mut());
+    paint::redraw(&linkage.drawing, &mut names, None, &mut scene);
 
     let after: Vec<Option<Named>> = scene
         .points

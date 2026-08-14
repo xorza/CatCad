@@ -18,12 +18,7 @@ fn once(intent: Intent) -> Intents {
 /// has to put back.
 fn markers(document: &Document) -> Vec<Vec3> {
     let mut scene = Scene::default();
-    paint::redraw(
-        document.drawing(),
-        &mut Names::default(),
-        None,
-        scene.overlays_mut(),
-    );
+    paint::redraw(document.drawing(), &mut Names::default(), None, &mut scene);
     scene.points.iter().map(|point| point.position).collect()
 }
 

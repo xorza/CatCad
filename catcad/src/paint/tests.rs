@@ -218,7 +218,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let drawing = drawn(demo::sketch());
     let mut scene = Scene::default();
     let mut names = Names::default();
-    redraw(&drawing, &mut names, None, scene.overlays_mut());
+    redraw(&drawing, &mut names, None, &mut scene);
 
     // Seven segments — four sides, the rail, and the arm's two bars — two
     // circles, and a marker on each of the nine points.
@@ -238,7 +238,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
 
     // Written again into the same scene, it says the same thing rather than
     // adding to it.
-    redraw(&drawing, &mut names, None, scene.overlays_mut());
+    redraw(&drawing, &mut names, None, &mut scene);
     assert_eq!(scene.curves.len(), 7);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);

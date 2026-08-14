@@ -417,12 +417,7 @@ impl SceneView {
         if self.laid_out != drawing.revision() || self.laid_band != self.preview {
             // Into the batches the renderer already holds, so a drag rewrites
             // the drawing every frame without asking the heap for anything.
-            paint::redraw(
-                drawing,
-                &mut self.names,
-                self.preview,
-                renderer.overlays_mut(),
-            );
+            paint::redraw(drawing, &mut self.names, self.preview, renderer.scene_mut());
             self.laid_out = drawing.revision();
             self.laid_band = self.preview;
         }

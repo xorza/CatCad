@@ -22,9 +22,21 @@ use std::ops::{Deref, DerefMut};
 /// rest are all there, and everything downstream — picking, bounds, the records
 /// the renderer flattens these into — keeps taking `&[T]` and never names this
 /// at all.
+///
+/// It also reports its own edits, which is what lets a [`Scene`](crate::Scene)
+/// be handed out whole. Every way of writing to one marks it, reads leave it
+/// alone, and a [`Renderer`](crate::Renderer) takes the mark when it flattens —
+/// so touching the markers re-uploads the markers, and a caller reaching for the
+/// scene pays for what it actually wrote rather than for what it could have.
 #[derive(Debug, Clone, Default)]
 pub struct Batch<T> {
     items: Vec<T>,
+    /// Whether anything has been written since a renderer last took the mark.
+    ///
+    /// Taken rather than read, so exactly one thing may act on it — which is the
+    /// renderer that owns the scene. Clean from the start because an empty batch
+    /// has nothing to flatten, and set by the first thing put in one.
+    dirty: bool,
 }
 
 impl<T> Batch<T> {
@@ -35,7 +47,17 @@ impl<T> Batch<T> {
     /// was always going to reach the heap, so there is nothing to protect here
     /// — it is emptying that this type exists to refuse.
     pub fn push(&mut self, item: T) {
+        self.dirty = true;
         self.items.push(item);
+    }
+
+    /// Whether it has been written since this last said so, clearing the mark
+    /// as it answers.
+    ///
+    /// Consuming rather than peeking, so a second caller cannot be told about an
+    /// edit the first has already dealt with. The renderer is the one caller.
+    pub(crate) fn take_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.dirty)
     }
 }
 
@@ -56,6 +78,7 @@ impl<T: Default> Batch<T> {
     /// caller walks an arena to produce them, and a length taken first would
     /// walk it twice.
     pub fn refill<I: IntoIterator>(&mut self, items: I, mut write: impl FnMut(&mut T, I::Item)) {
+        self.dirty = true;
         let mut filled = 0;
         for item in items {
             if filled == self.items.len() {
@@ -77,13 +100,21 @@ impl<T> Deref for Batch<T> {
 }
 
 impl<T> DerefMut for Batch<T> {
+    /// Marks it, without knowing whether anything was written.
+    ///
+    /// The one place the mark is conservative: a caller that takes `&mut` and
+    /// then only reads pays a re-upload for it. Worth it — this is how a caller
+    /// edits an element in place, and there is no distinguishing that from
+    /// reading one through the same reference.
     fn deref_mut(&mut self) -> &mut [T] {
+        self.dirty = true;
         &mut self.items
     }
 }
 
 impl<T> Extend<T> for Batch<T> {
     fn extend<I: IntoIterator<Item = T>>(&mut self, items: I) {
+        self.dirty = true;
         self.items.extend(items);
     }
 }
@@ -102,12 +133,22 @@ pub(crate) mod internals {
     impl<T> Batch<T> {
         /// Throw away everything in it.
         pub fn clear(&mut self) {
+            self.dirty = true;
             self.items.clear();
         }
 
         /// Throw away everything past the first `len`.
         pub fn truncate(&mut self, len: usize) {
+            self.dirty = true;
             self.items.truncate(len);
+        }
+
+        /// Say it was edited without editing it.
+        ///
+        /// For a bench measuring what re-flattening a scene costs, which wants
+        /// the flatten and not the write that would ordinarily ask for one.
+        pub fn mark(&mut self) {
+            self.dirty = true;
         }
     }
 }
@@ -174,5 +215,49 @@ mod tests {
         // And none at all empties it, which is the one way to empty one.
         batch.refill([] as [(Vec3, Vec3); 0], write);
         assert!(batch.is_empty());
+    }
+
+    /// Writing marks it, reading does not, and the mark is taken rather than
+    /// read.
+    ///
+    /// The whole of what lets a [`Scene`](crate::Scene) be handed out whole:
+    /// touching one batch has to cost that batch and nothing else, and a mark
+    /// left behind after a renderer took it would re-upload the same list every
+    /// frame for the rest of the run.
+    ///
+    /// Indexing is the pair that decides it, because the two halves are the same
+    /// syntax through two different traits: reading `[0].color` goes through
+    /// `Deref` and writing it through `DerefMut`. Anything that marked on both
+    /// would pass every other assertion here.
+    #[test]
+    fn a_batch_is_marked_by_writing_to_it_and_not_by_reading_it() {
+        let mut batch: Batch<Curve> = Batch::default();
+        assert!(
+            !batch.take_dirty(),
+            "an empty batch has nothing to flatten and should say so"
+        );
+
+        batch.push(Curve::segment(Vec3::ZERO, Vec3::X));
+        assert!(batch.take_dirty(), "the first thing put in went unreported");
+        assert!(
+            !batch.take_dirty(),
+            "the mark was still there after being taken"
+        );
+
+        // Every way of reading one.
+        assert_eq!(batch.len(), 1);
+        assert_eq!(batch.iter().count(), 1);
+        let _ = batch[0].color;
+        assert!(!batch.take_dirty(), "reading marked it");
+
+        // The same index, written instead of read.
+        batch[0].color = Vec3::Y;
+        assert!(batch.take_dirty(), "an edit in place went unreported");
+
+        // And the two bulk writers, each on its own.
+        batch.extend([Curve::segment(Vec3::ZERO, Vec3::Y)]);
+        assert!(batch.take_dirty());
+        batch.refill([Vec3::X], |curve, at| curve.set_segment(Vec3::ZERO, at));
+        assert!(batch.take_dirty());
     }
 }

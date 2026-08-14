@@ -6,14 +6,9 @@
 //! shader builds its four corners, since the corners differed only in ways the
 //! index already says.
 
-use crate::batch::Batch;
 use crate::camera::Camera;
-use crate::curve::Curve;
 use crate::highlight::Lit;
-use crate::object::Object;
-use crate::point::Point;
-use crate::ring::Ring;
-use crate::scene::{Overlays, Scene};
+use crate::scene::Scene;
 use crate::viewport::Viewport;
 use glam::UVec2;
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
@@ -88,41 +83,14 @@ impl Renderer {
         &mut self.camera
     }
 
-    /// Edit the scene's objects, re-uploading the batch on the next paint.
-    pub fn objects_mut(&mut self) -> &mut Batch<Object> {
-        self.cpu.meshes.dirty = true;
-        &mut self.scene.objects
-    }
-
-    /// Edit the scene's curves, re-uploading the batch on the next paint.
-    pub fn curves_mut(&mut self) -> &mut Batch<Curve> {
-        self.cpu.curves.dirty = true;
-        &mut self.scene.curves
-    }
-
-    /// Edit the scene's rings, re-uploading the batch on the next paint.
-    pub fn rings_mut(&mut self) -> &mut Batch<Ring> {
-        self.cpu.rings.dirty = true;
-        &mut self.scene.rings
-    }
-
-    /// Edit the scene's markers, re-uploading the batch on the next paint.
-    pub fn points_mut(&mut self) -> &mut Batch<Point> {
-        self.cpu.points.dirty = true;
-        &mut self.scene.points
-    }
-
-    /// Edit all three overlay batches at once, re-uploading them on the next
-    /// paint. See [`Scene::overlays_mut`].
+    /// Edit the scene, re-uploading on the next paint whatever was touched.
     ///
-    /// The objects are deliberately out of reach. Lending them out would mark
-    /// the meshes for re-flattening, and this is what a caller redrawing a
-    /// drawing calls every frame.
-    pub fn overlays_mut(&mut self) -> Overlays<'_> {
-        self.cpu.curves.dirty = true;
-        self.cpu.rings.dirty = true;
-        self.cpu.points.dirty = true;
-        self.scene.overlays_mut()
+    /// One door rather than one per batch, because each [`Batch`] says for
+    /// itself what was written to it — so a caller handed the whole scene and
+    /// moving one marker pays for one marker, and nothing here has to guess from
+    /// which accessor was called what the caller was about to do.
+    pub fn scene_mut(&mut self) -> &mut Scene {
+        &mut self.scene
     }
 
     /// Draw everything named by `lit.tag` a second time, in `lit.look`, over
@@ -191,8 +159,13 @@ impl Renderer {
     ///
     /// `relight` is a change of *which* primitives are lit, which can happen
     /// with the scene untouched — a pointer crossing a drawing does exactly
-    /// that. Each kind also answers for its own edits, so a marker moving leaves
-    /// the strokes, the rims and the solids alone.
+    /// that. Every other answer comes off the batches themselves, one mark
+    /// apiece, so a marker moving leaves the strokes, the rims and the solids
+    /// alone.
+    ///
+    /// The scene is borrowed mutably to be *read*: taking a batch's mark is what
+    /// clears it, and a mark left behind would re-flatten the same list every
+    /// frame for the rest of the run.
     fn refresh(&mut self, relight: bool) -> Owed {
         let Self {
             scene,
@@ -201,10 +174,10 @@ impl Renderer {
             ..
         } = self;
         Owed {
-            meshes: cpu.meshes.refresh(&scene.objects),
-            curves: cpu.curves.refresh(&scene.curves, highlights, relight),
-            rings: cpu.rings.refresh(&scene.rings, highlights, relight),
-            points: cpu.points.refresh(&scene.points, highlights, relight),
+            meshes: cpu.meshes.refresh(&mut scene.objects),
+            curves: cpu.curves.refresh(&mut scene.curves, highlights, relight),
+            rings: cpu.rings.refresh(&mut scene.rings, highlights, relight),
+            points: cpu.points.refresh(&mut scene.points, highlights, relight),
         }
     }
 }

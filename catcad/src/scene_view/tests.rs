@@ -117,7 +117,7 @@ impl Raised {
             self.document.drawing(),
             &mut Names::default(),
             None,
-            scene.overlays_mut(),
+            &mut scene,
         );
         scene.points.iter().map(|point| point.position).collect()
     }

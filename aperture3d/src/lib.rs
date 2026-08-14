@@ -110,7 +110,7 @@ pub use point::Point;
 pub use ray::Ray;
 pub use renderer::Renderer;
 pub use ring::Ring;
-pub use scene::{Overlays, Scene};
+pub use scene::Scene;
 pub use styled::Styled;
 pub use tag::Tag;
 pub use viewport::Viewport;
