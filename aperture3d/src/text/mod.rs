@@ -6,7 +6,8 @@ use crate::hit::{Hit, HitAt};
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Vec2, Vec3};
-use palantir::{GlyphFont, Rect};
+use palantir::{GlyphFont, Rect, Size, TextShaper};
+use std::cell::Cell;
 
 /// Something written in the scene: a label on a point, a dimension on a
 /// drawing.
@@ -51,14 +52,24 @@ pub struct Text {
     /// The plane this run lies on, as a unit normal, when it lies on one. See
     /// [overlays](crate#overlays).
     pub plane_normal: Option<Vec3>,
-    /// How far the run reaches on screen, in logical pixels.
+    /// How far the run reaches on screen, in logical pixels — remembered from
+    /// the last time it was laid out.
     ///
     /// Private because it is not the caller's to state: what a string measures
     /// depends on the faces it is shaped in, which only the renderer's shaper
-    /// knows. It is written when the run is laid out and read by picking, which
+    /// knows. It is filled when the run is laid out and read by picking, which
     /// is why a run that has never been drawn cannot be picked — it has no box
     /// on screen to have been clicked in.
-    extent: Vec2,
+    ///
+    /// A [`Cell`] because it is a memo and not state. What a run *is* — where it
+    /// is anchored, what it says, how it is styled — is the caller's, and a
+    /// [`Batch`] marks itself whenever any of that is written so the renderer
+    /// knows to flatten it again. How wide the run came out is the answer to
+    /// that flatten rather than a part of it, and recording it through `&mut`
+    /// would mark the batch, so every measured batch would ask to be measured
+    /// again on the next frame, forever. Writing it through a shared reference
+    /// is what keeps the mark meaning what it says.
+    extent: Cell<Vec2>,
 }
 
 impl Default for Text {
@@ -72,7 +83,7 @@ impl Default for Text {
             z_offset: 0,
             tag: None,
             plane_normal: None,
-            extent: Vec2::ZERO,
+            extent: Cell::new(Vec2::ZERO),
         }
     }
 }
@@ -91,7 +102,7 @@ impl Text {
     /// How far the run reaches on screen, in logical pixels, or zero where it
     /// has not been laid out.
     pub fn extent(&self) -> Vec2 {
-        self.extent
+        self.extent.get()
     }
 
     /// The run's box on screen, in logical pixels from the top-left corner, or
@@ -101,16 +112,12 @@ impl Text {
     /// projection does not draw, and an extent nothing has measured — a run
     /// that has never been laid out, or one that says nothing.
     fn box_on_screen(&self, aim: &Aim) -> Option<Rect> {
-        if self.extent.x <= 0.0 || self.extent.y <= 0.0 {
+        let extent = self.extent.get();
+        if extent.x <= 0.0 || extent.y <= 0.0 {
             return None;
         }
-        let top_left = aim.screen_of(self.position)? - self.anchor * self.extent;
-        Some(Rect::new(
-            top_left.x,
-            top_left.y,
-            self.extent.x,
-            self.extent.y,
-        ))
+        let top_left = aim.screen_of(self.position)? - self.anchor * extent;
+        Some(Rect::new(top_left.x, top_left.y, extent.x, extent.y))
     }
 
     /// Whether the cursor landed on this run.
@@ -182,6 +189,28 @@ fn distance_to(rect: Rect, point: Vec2) -> f32 {
     past.max(Vec2::ZERO).length()
 }
 
+/// Take every run's extent from `shaper`, so that what has been laid out knows
+/// how far it reaches.
+///
+/// Reads the runs and writes only their memo, which is why it takes them shared
+/// — see [`Text::extent`]. A measuring pass that needed `&mut` would be a pass
+/// that marked the batch it measured, and a marked batch is one the renderer
+/// lays out again.
+///
+/// Measured unscaled, so the answer is in logical pixels like every other
+/// overlay's size — a label's extent is what it will be drawn at, and how many
+/// device pixels that is belongs to whoever rasterizes it.
+///
+/// One lease for the whole batch rather than one per run: taking one is the
+/// shaper's exclusive borrow, and a hundred labels should pay for it once.
+pub(crate) fn measure_all(texts: &[Text], shaper: &TextShaper) {
+    let mut glyphs = shaper.glyphs();
+    for text in texts {
+        let Size { w, h } = glyphs.measure(&text.content, text.font, 1.0);
+        text.extent.set(Vec2::new(w, h));
+    }
+}
+
 /// Standing in for the renderer, which is the only thing that lays a run out.
 ///
 /// `cfg(test)` rather than the `internals` feature: a caller outside the crate
@@ -189,8 +218,8 @@ fn distance_to(rect: Rect, point: Vec2) -> f32 {
 /// asking what a *pick* does about a box, which wants a box and no GPU.
 #[cfg(test)]
 impl Text {
-    pub(crate) fn measured(mut self, extent: Vec2) -> Self {
-        self.extent = extent;
+    pub(crate) fn measured(self, extent: Vec2) -> Self {
+        self.extent.set(extent);
         self
     }
 }

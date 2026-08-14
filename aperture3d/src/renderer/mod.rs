@@ -9,9 +9,10 @@
 use crate::camera::Camera;
 use crate::highlight::Lit;
 use crate::scene::Scene;
+use crate::text;
 use crate::viewport::Viewport;
 use glam::UVec2;
-use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
+use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
 pub(crate) mod band;
 #[cfg(feature = "bench")]
@@ -54,6 +55,16 @@ pub struct Renderer {
     relight: bool,
     cpu: Cpu,
     gpu: Option<Gpu>,
+    /// The window's own shaper, taken at [`GpuPaint::init`].
+    ///
+    /// Held rather than asked for per frame because it is a handle — cloning one
+    /// is a refcount, and what it points at is the font stack the rest of the
+    /// window is already drawing with, so a label in the scene comes out in the
+    /// same faces as the UI around it.
+    ///
+    /// `None` only before the first paint. Nothing reads it earlier: laying text
+    /// out is part of flattening a scene, which is what a paint does.
+    text: Option<TextShaper>,
 }
 
 impl Renderer {
@@ -67,6 +78,7 @@ impl Renderer {
             relight: true,
             cpu: Cpu::default(),
             gpu: None,
+            text: None,
         }
     }
 
@@ -173,12 +185,26 @@ impl Renderer {
             scene,
             highlights,
             cpu,
+            text,
             ..
         } = self;
         cpu.meshes.refresh(&mut scene.objects);
         cpu.curves.refresh(&mut scene.curves, highlights, relight);
         cpu.rings.refresh(&mut scene.rings, highlights, relight);
         cpu.points.refresh(&mut scene.points, highlights, relight);
+        // Before anything reads a run's extent, and after nothing: a label is
+        // laid out here and picked against that layout for the rest of the
+        // frame.
+        //
+        // The shaper is asked for inside the guard rather than above it, so a
+        // scene with nothing written in it never needs one — which is what lets
+        // a caller flatten one without a window having handed a font stack over.
+        if scene.texts.take_dirty() {
+            let shaper = text
+                .as_ref()
+                .expect("laying text out needs the shaper `init` is handed");
+            text::measure_all(&scene.texts, shaper);
+        }
     }
 }
 
@@ -189,6 +215,10 @@ impl GpuPaint for Renderer {
         if self.gpu.is_none() {
             self.gpu = Some(Gpu::new(ctx.device, ctx.target_format));
         }
+        // Re-taken rather than guarded, unlike the pipelines above: it is a
+        // clone of a handle, and a view whose target was reclaimed should come
+        // back holding whatever shaper the window has now.
+        self.text = Some(ctx.text.clone());
     }
 
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::batch::Batch;
 use crate::camera::{Camera, Projection};
 use crate::viewport::Viewport;
 use glam::UVec2;
@@ -133,6 +134,52 @@ fn a_label_outranks_an_edge_and_yields_to_a_marker() {
     assert!(marker < label, "a marker should beat a label");
     assert!(label < edge, "a label should beat an edge");
     assert_eq!(edge, rim, "an edge is an edge however it curves");
+}
+
+/// Measuring a batch fills in what picking needs, and leaves the batch clean.
+///
+/// The clean half is the one that matters. A renderer re-flattens whatever is
+/// marked, so a measuring pass that marked what it measured would ask to be run
+/// again on every frame for the rest of the program — an extent is derived
+/// *from* a run, not a change to one.
+#[test]
+fn measuring_a_batch_fills_extents_without_marking_it() {
+    let mut texts = Batch::default();
+    texts.push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(Tag::new(7)));
+    texts.push(Text::new(Vec3::ZERO, "", 16.0).tagged(Tag::new(8)));
+    // Pushing marked it, which is the mark a renderer takes when it flattens.
+    assert!(texts.take_dirty());
+
+    measure_all(&texts, &TextShaper::new());
+
+    assert!(!texts.take_dirty(), "measuring asked to be measured again");
+    let measured = texts[0].extent();
+    assert!(measured.x > 0.0 && measured.y > 0.0, "{measured:?}");
+    // A run that says nothing measures nothing, and so stays unpickable — the
+    // same rule an unmeasured run answers by.
+    assert_eq!(texts[1].extent(), Vec2::ZERO);
+    assert!(texts[1].pick(&aim_at(CENTRE, 20.0)).is_none());
+}
+
+/// A run measured by a real shaper is picked across exactly the width it
+/// measured.
+///
+/// What ties the two halves together: the extent a shaper hands back is the box
+/// a pick tests against, so a label is grabbable over the pixels it is drawn on
+/// and not a hand-picked constant either side of them.
+#[test]
+fn a_measured_run_is_picked_across_the_width_it_measured() {
+    let mut texts = Batch::default();
+    texts.push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(Tag::new(7)));
+    measure_all(&texts, &TextShaper::new());
+    let extent = texts[0].extent();
+
+    // Anchored at its top-left, so the box runs right and down from centre.
+    let inside = CENTRE + Vec2::new(extent.x - 0.5, extent.y - 0.5);
+    assert!(texts[0].pick(&aim_at(inside, 0.0)).is_some(), "{extent:?}");
+    // A pixel past the far corner, with no reach to cover it.
+    let outside = CENTRE + Vec2::new(extent.x + 1.0, extent.y + 1.0);
+    assert!(texts[0].pick(&aim_at(outside, 0.0)).is_none(), "{extent:?}");
 }
 
 /// A run behind the camera is not drawn, so it is not picked either.
