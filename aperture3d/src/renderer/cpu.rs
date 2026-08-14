@@ -1,14 +1,13 @@
 //! The scene flattened into what the GPU takes, held on the CPU between frames.
 
 use crate::batch::Batch;
-use crate::highlight::{Highlight, Lit};
+use crate::highlight::Highlights;
 use crate::object::Object;
 use crate::primitive::{Flatten, Primitive};
 use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
 use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, Instance, PointInstance, RingInstance,
 };
-use crate::tag::Tag;
 use crate::text::{self, Text};
 use glam::Mat3;
 use palantir::{PlacedGlyph, TextGlyphs};
@@ -95,7 +94,7 @@ impl TextRecords {
         atlas: &mut GlyphAtlas,
         glyphs: &mut TextGlyphs<'_>,
         scale: f32,
-        highlights: &[Lit],
+        highlights: &Highlights,
         relight: bool,
     ) {
         // The sheet is restarted before anything is laid out on it, so nothing
@@ -262,7 +261,7 @@ impl<R> Records<R> {
     pub(super) fn refill<P: Primitive>(
         &mut self,
         items: &[P],
-        highlights: &[Lit],
+        highlights: &Highlights,
         moved: bool,
         relight: bool,
         reserve: Option<usize>,
@@ -286,7 +285,7 @@ impl<R> Records<R> {
             // hovering and stops allocating there.
             let lit = self.lit_to_fill();
             for item in items {
-                let Some(look) = look_of(highlights, item.tag()) else {
+                let Some(look) = highlights.look_of(item.tag()) else {
                     continue;
                 };
                 let from = lit.len();
@@ -310,7 +309,7 @@ impl<R> Records<R> {
     pub(super) fn refill_from<O: Flatten<Record = R>>(
         &mut self,
         batch: &mut Batch<O>,
-        highlights: &[Lit],
+        highlights: &Highlights,
         relight: bool,
     ) where
         R: Instance,
@@ -327,14 +326,6 @@ impl<R> Records<R> {
             |item, into| into.extend(item.records()),
         );
     }
-}
-
-/// The look a tag was given, if any.
-fn look_of(highlights: &[Lit], tag: Option<Tag>) -> Option<Highlight> {
-    let tag = tag?;
-    highlights
-        .iter()
-        .find_map(|lit| (lit.tag == tag).then_some(lit.look))
 }
 
 /// The objects flattened to one world-space triangle list.

@@ -8,7 +8,7 @@
 //! that is what a run comes to once the shaper has placed it.
 
 use crate::camera::Camera;
-use crate::highlight::Lit;
+use crate::highlight::{Highlights, Lit};
 use crate::scene::Scene;
 use crate::viewport::Viewport;
 use glam::UVec2;
@@ -47,7 +47,7 @@ pub struct Renderer {
     camera: Camera,
     /// At most one entry per tag, which is what lets a lookup stop at the
     /// first match rather than having to find the last.
-    highlights: Vec<Lit>,
+    highlights: Highlights,
     /// Whether *which* primitives are lit has changed since the last refresh.
     ///
     /// The renderer's own flag rather than one of `cpu`'s, because it is the one
@@ -78,7 +78,7 @@ impl Renderer {
         Self {
             scene,
             camera: Camera::default(),
-            highlights: Vec::new(),
+            highlights: Highlights::default(),
             relight: true,
             cpu: Cpu::default(),
             gpu: None,
@@ -117,12 +117,7 @@ impl Renderer {
     /// re-asking for a look already in force, which is what lets a caller drive
     /// this from a pointer that has not moved.
     pub fn highlight(&mut self, lit: Lit) {
-        match self.highlights.iter_mut().find(|had| had.tag == lit.tag) {
-            Some(had) if *had == lit => return,
-            Some(had) => *had = lit,
-            None => self.highlights.push(lit),
-        }
-        self.relight = true;
+        self.relight |= self.highlights.upsert(lit);
     }
 
     /// Light `lit` and nothing else, dropping whatever was lit before.
@@ -149,12 +144,7 @@ impl Renderer {
     /// every frame, and is the whole reason it takes the set rather than being
     /// a clear followed by a run of [`Renderer::highlight`].
     pub fn highlight_all(&mut self, lit: &[Lit]) {
-        if self.highlights == lit {
-            return;
-        }
-        self.highlights.clear();
-        self.highlights.extend_from_slice(lit);
-        self.relight = true;
+        self.relight |= self.highlights.set_all(lit);
     }
 
     /// Drop every highlight, leaving the scene drawn as nothing but itself.
@@ -163,11 +153,7 @@ impl Renderer {
     /// [`Lit`] to name — and free in the same way when there was nothing lit to
     /// drop.
     pub fn clear_highlights(&mut self) {
-        if self.highlights.is_empty() {
-            return;
-        }
-        self.highlights.clear();
-        self.relight = true;
+        self.relight |= self.highlights.clear();
     }
 
     /// Bring the CPU mirror up to date with the scene, and the scene's own
