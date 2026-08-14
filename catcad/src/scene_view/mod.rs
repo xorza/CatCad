@@ -12,7 +12,7 @@ use palantir::{
 use crate::document::Document;
 use crate::drawing::anchor::Anchor;
 use crate::drawing::{Grip, Revision};
-use crate::intent::{Intent, Intents};
+use crate::intent::{Change, Intents, Session, Step};
 use crate::named::{Named, Names};
 use crate::paint;
 use crate::preview::{Ends, Preview};
@@ -264,7 +264,7 @@ impl SceneView {
                 let step = delta - was;
                 // Dragging right turns the model right, which means orbiting
                 // the camera the other way.
-                intents.push(Intent::Orbit {
+                intents.push(Change::Orbit {
                     yaw: -step.x * ORBIT_RATE,
                     pitch: step.y * ORBIT_RATE,
                 });
@@ -273,7 +273,7 @@ impl SceneView {
                 // Where the entity should end up, which is where the cursor
                 // lands plus however far off centre it was grabbed.
                 if let Some(to) = landing(&response, document, held.motion) {
-                    intents.push(Intent::Drag {
+                    intents.push(Change::Drag {
                         grip: held.grip,
                         to: to + held.offset,
                     });
@@ -284,7 +284,7 @@ impl SceneView {
                 // Whatever the gesture was. An orbit has nothing open for this
                 // to close, and saying so costs less than remembering which
                 // kind of gesture it was in order not to.
-                intents.push(Intent::Release);
+                intents.push(Step::Release);
             }
             _ => {}
         }
@@ -309,19 +309,19 @@ impl SceneView {
             match (tool, self.anchor(&response, document, under)) {
                 // One click. On a point already there it adds nothing, and the
                 // drawing comes out of it unchanged.
-                (Tool::Point, Some(at)) => intents.push(Intent::AddPoint(at)),
+                (Tool::Point, Some(at)) => intents.push(Change::AddPoint(at)),
                 // Two clicks each. The first is remembered in the tool and
                 // reaches the document not at all; the second commits the whole
                 // shape as one step.
                 (Tool::Line { from: None }, Some(start)) => {
-                    intents.push(Intent::Hold(Tool::Line { from: Some(start) }));
+                    intents.push(Session::Hold(Tool::Line { from: Some(start) }));
                 }
                 (Tool::Line { from: Some(from) }, Some(to)) => {
-                    intents.push(Intent::AddSegment { from, to });
-                    intents.push(Intent::Hold(Tool::Line { from: None }));
+                    intents.push(Change::AddSegment { from, to });
+                    intents.push(Session::Hold(Tool::Line { from: None }));
                 }
                 (Tool::Circle { center: None }, Some(middle)) => {
-                    intents.push(Intent::Hold(Tool::Circle {
+                    intents.push(Session::Hold(Tool::Circle {
                         center: Some(middle),
                     }));
                 }
@@ -331,8 +331,8 @@ impl SceneView {
                     },
                     Some(rim),
                 ) => {
-                    intents.push(Intent::AddCircle { center, rim });
-                    intents.push(Intent::Hold(Tool::Circle { center: None }));
+                    intents.push(Change::AddCircle { center, rim });
+                    intents.push(Session::Hold(Tool::Circle { center: None }));
                 }
                 // Nothing in hand — or a plane seen so nearly edge-on that a
                 // click names nowhere on it, where there is nothing to build
@@ -340,13 +340,13 @@ impl SceneView {
                 (Tool::Pointer, _) | (_, None) => {
                     match under {
                         // Shift adds to what is picked out.
-                        Some(named) if adding => intents.push(Intent::Include(named)),
+                        Some(named) if adding => intents.push(Session::Include(named)),
                         // A shift-click on empty space adds nothing, and
                         // clearing is the plain click's business.
                         None if adding => {}
                         // A plain click starts over with whatever is under the
                         // cursor — which is nothing, when it is over nothing.
-                        _ => intents.push(Intent::Select(under)),
+                        _ => intents.push(Session::Select(under)),
                     }
                 }
             }
@@ -357,7 +357,7 @@ impl SceneView {
         // bar. A click rather than a press, like placing, so a right-drag is
         // left to whatever later wants one.
         if response.right.clicked() {
-            intents.push(Intent::Hold(Tool::Pointer));
+            intents.push(Session::Hold(Tool::Pointer));
         }
 
         // What the second click would commit, following the cursor. Kept on the
@@ -383,7 +383,7 @@ impl SceneView {
 
         let notches = response.scroll.lines.y;
         if notches != 0.0 {
-            intents.push(Intent::Dolly {
+            intents.push(Change::Dolly {
                 factor: ZOOM_RATE.powf(-notches),
             });
         }

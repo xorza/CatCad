@@ -1,7 +1,7 @@
 use super::*;
 use crate::demo;
 use crate::history::History;
-use crate::intent::{Intent, Intents};
+use crate::intent::{Intent, Intents, Session};
 use crate::paint;
 use crate::selection::Selection;
 use crate::tool::Tool;
@@ -76,10 +76,10 @@ impl Raised {
             // the session owns comes off the inbox before the history reads it.
             for intent in intents.iter() {
                 match intent {
-                    Intent::Hold(held) => *tool = held,
-                    Intent::Select(what) => selection.select(what),
-                    Intent::Include(what) => selection.include(what),
-                    _ => {}
+                    Intent::Session(Session::Hold(held)) => *tool = held,
+                    Intent::Session(Session::Select(what)) => selection.select(what),
+                    Intent::Session(Session::Include(what)) => selection.include(what),
+                    Intent::Step(_) | Intent::Change(_) => {}
                 }
             }
             history.apply(document, solver, intents);
@@ -449,7 +449,7 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     raised.ask();
     let asked: Vec<Intent> = raised.intents.iter().collect();
     assert!(
-        matches!(asked[..], [Intent::Drag { .. }]),
+        matches!(asked[..], [Intent::Change(Change::Drag { .. })]),
         "a drag frame asked for {asked:?}"
     );
     assert_eq!(
@@ -485,7 +485,7 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     raised.ask();
     let asked: Vec<Intent> = raised.intents.iter().collect();
     assert!(
-        matches!(asked[..], [Intent::Orbit { .. }]),
+        matches!(asked[..], [Intent::Change(Change::Orbit { .. })]),
         "an orbit frame asked for {asked:?}"
     );
     assert_eq!(raised.camera(), camera, "the view turned the camera itself");

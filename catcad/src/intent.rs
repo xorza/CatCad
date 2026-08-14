@@ -25,19 +25,61 @@ use crate::tool::Tool;
 /// toggle names the projection it wants, and the toolbar names the tool it
 /// wants held rather than saying that it was pressed.
 ///
+/// **Which of the three it is decides where it lands**, and the type says so.
+/// A [`Change`] is the document's to answer, a [`Step`] the history's and a
+/// [`Session`] the application's; each of the three is handed its own payload
+/// and can neither be given nor forget one of the others. One enum over the
+/// three rather than three inboxes, because order is promised across all of
+/// them: a dolly and a drag in one frame must land the way the pointer made
+/// them — see [`Intents::iter`].
+///
 /// `Copy`, so applying one can lift it out of the inbox and let go of the
 /// borrow before touching what it lands on.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Intent {
+    /// The document's to answer — see [`Document::apply`](crate::document::Document).
+    Change(Change),
+    /// The history's.
+    Step(Step),
+    /// The application's, and nobody else's: none of it is in the document, and
+    /// none of it is a step to take back.
+    Session(Session),
+}
+
+impl From<Change> for Intent {
+    fn from(change: Change) -> Self {
+        Intent::Change(change)
+    }
+}
+
+impl From<Step> for Intent {
+    fn from(step: Step) -> Self {
+        Intent::Step(step)
+    }
+}
+
+impl From<Session> for Intent {
+    fn from(session: Session) -> Self {
+        Intent::Session(session)
+    }
+}
+
+/// What the document answers, and the whole of what it answers.
+///
+/// One of exactly two ways a document changes, the other being an undo putting
+/// a snapshot back. Everything here reaches
+/// [`Document::apply`](crate::document::Document), which matches it exhaustively
+/// — so a new one added to this enum is a compile error until the document says
+/// what to do with it, where a new one added beside it in [`Intent`] cannot
+/// reach the document at all.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Change {
     /// Take what a drag has hold of to a point in the world.
     ///
     /// Names where the entity should end up rather than how far to move it,
     /// which is what lets a settling frame apply the same drag twice and land
     /// in the same place. See the note on clearing the inbox in `CatCad::record`.
-    Drag {
-        grip: Grip,
-        to: Vec3,
-    },
+    Drag { grip: Grip, to: Vec3 },
     /// Put a point where this click landed, held to whatever it landed on.
     ///
     /// An [`Anchor`] rather than a place, because where a click landed is only
@@ -51,35 +93,59 @@ pub(crate) enum Intent {
     /// second click, so a line abandoned half-drawn leaves no stray point
     /// behind — and the one that is finished is one step to take back rather
     /// than three.
-    AddSegment {
-        from: Anchor,
-        to: Anchor,
-    },
+    AddSegment { from: Anchor, to: Anchor },
     /// Put a circle about `center`, out as far as `rim`.
     ///
     /// The rim says how big and nothing else: a radius is a number, so no point
     /// is made out there however the click that gave it landed.
-    AddCircle {
-        center: Anchor,
-        rim: Anchor,
-    },
+    AddCircle { center: Anchor, rim: Anchor },
+    /// Turn the camera about what it is looking at, in radians.
+    Orbit { yaw: f32, pitch: f32 },
+    /// Move the camera in or out by a multiple of how far off it is.
+    Dolly { factor: f32 },
+    /// Look through this projection.
+    Project(Projection),
+}
+
+impl Change {
+    /// Whether this belongs to a gesture already under way, so a history
+    /// extends the step it is recording rather than starting another.
+    ///
+    /// A drag is the whole of it. It arrives a frame at a time and is one thing
+    /// the user did, so sixty of them are one step back — where a point put
+    /// down, or anything else that happens once, stands alone.
+    pub(crate) fn coalesces(self) -> bool {
+        matches!(self, Change::Drag { .. })
+    }
+}
+
+/// What the history answers: where in what has been done the document stands.
+///
+/// None of it changes what the document *says* — an undo puts a snapshot back,
+/// and the other two do not touch it at all — which is why they are the
+/// history's and reach the document only through it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Step {
     /// The drag let go.
     ///
     /// Changes nothing by itself — it closes the step the drag has been
     /// extending, so a gesture is one thing to take back rather than one per
     /// frame it lasted.
     Release,
-    /// Turn the camera about what it is looking at, in radians.
-    Orbit {
-        yaw: f32,
-        pitch: f32,
-    },
-    /// Move the camera in or out by a multiple of how far off it is.
-    Dolly {
-        factor: f32,
-    },
-    /// Look through this projection.
-    Project(Projection),
+    /// Take back the last step, and put it back.
+    Undo,
+    Redo,
+}
+
+/// What the application answers: what is in hand, and what is picked out.
+///
+/// Neither is in the document and neither is a step to take back — an undo puts
+/// back a point the tool placed and leaves what is in your hand alone. Asked for
+/// through the same inbox all the same, because the order still matters and
+/// because three things can put a tool down: a replayed pass that flipped it
+/// where it was pressed would arm it and put it straight back down.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Session {
     /// Pick out this entity and nothing else, or nothing at all when it is
     /// `None`.
     ///
@@ -91,7 +157,7 @@ pub(crate) enum Intent {
     Select(Option<Named>),
     /// Pick this out as well as whatever already is.
     ///
-    /// What a shift-click asks for. Names an addition where [`Intent::Select`]
+    /// What a shift-click asks for. Names an addition where [`Session::Select`]
     /// names the whole, and is safe to land twice for a different reason: an
     /// entity already picked out is not picked out again.
     Include(Named),
@@ -103,21 +169,6 @@ pub(crate) enum Intent {
     /// works out what that leaves and names it, rather than asking for a flip a
     /// replayed pass would perform twice. See the note on naming above.
     Hold(Tool),
-    /// Take back the last step, and put it back.
-    Undo,
-    Redo,
-}
-
-impl Intent {
-    /// Whether this belongs to a gesture already under way, so a history
-    /// extends the step it is recording rather than starting another.
-    ///
-    /// A drag is the whole of it. It arrives a frame at a time and is one thing
-    /// the user did, so sixty of them are one step back — where a point put
-    /// down, or anything else that happens once, stands alone.
-    pub(crate) fn coalesces(self) -> bool {
-        matches!(self, Intent::Drag { .. })
-    }
 }
 
 /// Everything asked for during one frame.
@@ -136,8 +187,11 @@ impl Intents {
         self.queue.clear();
     }
 
-    pub(crate) fn push(&mut self, intent: Intent) {
-        self.queue.push(intent);
+    /// Takes what an intent is *made of* rather than the intent, so a caller
+    /// pushes `Change::Dolly { .. }` and the group it belongs to comes along
+    /// with the type instead of being restated at every call site.
+    pub(crate) fn push(&mut self, intent: impl Into<Intent>) {
+        self.queue.push(intent.into());
     }
 
     /// Everything asked for, in the order it was asked for.

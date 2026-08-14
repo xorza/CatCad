@@ -32,7 +32,7 @@ use silverpoint::{SolveReport, Solver};
 use crate::document::Document;
 use crate::history::History;
 use crate::hud::Hud;
-use crate::intent::{Intent, Intents};
+use crate::intent::{Intent, Intents, Session, Step};
 use crate::named::Named;
 use crate::scene_view::SceneView;
 use crate::selection::Selection;
@@ -140,10 +140,10 @@ impl CatCad {
         // so one left unread on the frame another fired would stop waking a
         // frame of its own.
         if ui.key_pressed(UNDO) {
-            self.intents.push(Intent::Undo);
+            self.intents.push(Step::Undo);
         }
         if ui.key_pressed(REDO) {
-            self.intents.push(Intent::Redo);
+            self.intents.push(Step::Redo);
         }
         // Escape puts down whatever is in hand wherever the pointer happens to
         // be. The view answers for the right button over the drawing, which is
@@ -151,7 +151,7 @@ impl CatCad {
         // bar for a second press of a tool's own button — three ways to ask for
         // the same thing, and none of them does it.
         if ui.escape_pressed() {
-            self.intents.push(Intent::Hold(Tool::Pointer));
+            self.intents.push(Session::Hold(Tool::Pointer));
         }
         self.view
             .ask(ui, &self.document, self.tool, &mut self.intents);
@@ -183,10 +183,12 @@ impl CatCad {
     fn apply(&mut self) {
         for intent in self.intents.iter() {
             match intent {
-                Intent::Hold(tool) => self.tool = tool,
-                Intent::Select(what) => self.selection.select(what),
-                Intent::Include(what) => self.selection.include(what),
-                _ => {}
+                Intent::Session(Session::Hold(tool)) => self.tool = tool,
+                Intent::Session(Session::Select(what)) => self.selection.select(what),
+                Intent::Session(Session::Include(what)) => self.selection.include(what),
+                // The history's, and the document's through it — landed just
+                // below, in the order the pointer made them.
+                Intent::Step(_) | Intent::Change(_) => {}
             }
         }
         self.history

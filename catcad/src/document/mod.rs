@@ -3,7 +3,7 @@
 use aperture::{Bounds, Camera, Object};
 
 use crate::drawing::Drawing;
-use crate::intent::Intent;
+use crate::intent::Change;
 use silverpoint::Plane;
 use silverpoint::{Sketch, Snapshot, Solver};
 
@@ -93,7 +93,7 @@ impl Document {
         self.drawing.restore(solver, snapshot);
     }
 
-    /// Land what `intent` asks for.
+    /// Land what `change` asks for.
     ///
     /// The one place an intent becomes a change, which is the point of there
     /// being intents at all: every edit a *gesture* asks for passes through
@@ -101,6 +101,12 @@ impl Document {
     /// watches is [`History`](crate::history::History), which is also what
     /// drives this — it takes each of a frame's intents in turn and notes what
     /// this did.
+    ///
+    /// Takes a [`Change`] rather than an [`Intent`](crate::intent::Intent), so
+    /// the match below is exhaustive over exactly what a document can answer.
+    /// What is in hand, what is picked out and where in the history the document
+    /// stands are each somebody else's, and none of them can be handed here to
+    /// be refused at runtime — the type refuses them.
     ///
     /// One of exactly two ways a document changes, the other being
     /// [`Document::restore`], and the pair is the whole of it: what someone
@@ -111,31 +117,15 @@ impl Document {
     /// a solve wants room to work in that is worth keeping across a drag and
     /// worth nothing in a saved file — so the room belongs to whoever is doing
     /// the editing, and the document borrows it for the length of the call.
-    pub(crate) fn apply(&mut self, solver: &mut Solver, intent: Intent) {
-        match intent {
-            Intent::Drag { grip, to } => self.drawing.drag_to(solver, grip, to),
-            Intent::AddPoint(at) => self.drawing.add_point(solver, at),
-            Intent::AddSegment { from, to } => self.drawing.add_segment(solver, from, to),
-            Intent::AddCircle { center, rim } => self.drawing.add_circle(solver, center, rim),
-            Intent::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
-            Intent::Dolly { factor } => self.camera.dolly(factor),
-            Intent::Project(projection) => self.camera.projection = projection,
-            // None of these is a change to what the document *is*. Which step
-            // of the history is current is a question about what has been done,
-            // and which tool is in hand and what is picked out are about the
-            // session doing it — where a document is only ever what is, whoever
-            // happens to be looking at it. Each is answered before this runs, by
-            // whichever of `History::apply` and `CatCad::apply` owns it, and
-            // neither forwards one — so arriving here is a caller that went
-            // round both, which is worth a crash rather than a silent nothing.
-            Intent::Release
-            | Intent::Undo
-            | Intent::Redo
-            | Intent::Hold(_)
-            | Intent::Select(_)
-            | Intent::Include(_) => {
-                unreachable!("{intent:?} is not a document's to answer")
-            }
+    pub(crate) fn apply(&mut self, solver: &mut Solver, change: Change) {
+        match change {
+            Change::Drag { grip, to } => self.drawing.drag_to(solver, grip, to),
+            Change::AddPoint(at) => self.drawing.add_point(solver, at),
+            Change::AddSegment { from, to } => self.drawing.add_segment(solver, from, to),
+            Change::AddCircle { center, rim } => self.drawing.add_circle(solver, center, rim),
+            Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
+            Change::Dolly { factor } => self.camera.dolly(factor),
+            Change::Project(projection) => self.camera.projection = projection,
         }
     }
 }

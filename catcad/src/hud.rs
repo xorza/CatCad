@@ -7,7 +7,7 @@ use palantir::{
     Ui,
 };
 
-use crate::intent::{Intent, Intents};
+use crate::intent::{Change, Intents, Session};
 use crate::tool::Tool;
 
 /// Logical pixels of breathing room inside a floating panel, and between the
@@ -27,7 +27,8 @@ const GAP: f32 = 8.0;
 /// record pass is gated at zero allocations.
 ///
 /// Shows and does not act — the whole of it. Every control reads app state and
-/// asks for what it wants as an [`Intent`]: one that turned the camera itself
+/// asks for what it wants as an [`Intent`](crate::intent::Intent): one that
+/// turned the camera itself
 /// would be one that had to be handed a camera, and one that armed a tool itself
 /// would arm it and put it straight back down on a replayed pass.
 #[derive(Debug)]
@@ -92,7 +93,7 @@ impl Hud {
             button = button.style(&self.armed);
         }
         if button.show(ui).left.clicked() {
-            intents.push(Intent::Hold(tool.toggled(arms)));
+            intents.push(Session::Hold(tool.toggled(arms)));
         }
     }
 }
@@ -127,7 +128,7 @@ fn projection_toggle(ui: &mut Ui, projection: Projection, intents: &mut Intents)
         Projection::Orthographic => "Orthographic",
     };
     if Button::new().auto_id().label(label).show(ui).left.clicked() {
-        intents.push(Intent::Project(projection.toggled()));
+        intents.push(Change::Project(projection.toggled()));
     }
 }
 

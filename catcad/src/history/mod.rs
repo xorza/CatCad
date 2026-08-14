@@ -1,7 +1,7 @@
 //! What has been done to the document, and how to take it back.
 
 use crate::document::Document;
-use crate::intent::{Intent, Intents};
+use crate::intent::{Change, Intent, Intents, Step};
 use silverpoint::{Snapshot, Solver};
 
 /// How many steps back the history goes.
@@ -58,14 +58,14 @@ impl History {
     ) {
         for intent in intents.iter() {
             match intent {
-                Intent::Undo => self.undo(document, solver),
-                Intent::Redo => self.redo(document, solver),
-                Intent::Release => self.close(),
+                Intent::Step(Step::Undo) => self.undo(document, solver),
+                Intent::Step(Step::Redo) => self.redo(document, solver),
+                Intent::Step(Step::Release) => self.close(),
+                Intent::Change(change) => self.edit(document, solver, change),
                 // Taken before this ran, by the app that owns them. What is in
                 // hand and what is picked out are not steps to take back — see
                 // `CatCad::apply`.
-                Intent::Hold(_) | Intent::Select(_) | Intent::Include(_) => {}
-                edit => self.step(document, solver, edit),
+                Intent::Session(_) => {}
             }
         }
     }
@@ -80,7 +80,7 @@ impl History {
         self.applied < self.edits.len()
     }
 
-    /// Do what `intent` asks, and record it if it moved the drawing.
+    /// Do what `change` asks, and record an [`Edit`] if it moved the drawing.
     ///
     /// The comparison is the whole of what decides that, and it earns two
     /// things at once rather than being told either. Turning the camera records
@@ -90,13 +90,13 @@ impl History {
     /// refuse records nothing, because
     /// [`Solver::edit_holding`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
-    fn step(&mut self, document: &mut Document, solver: &mut Solver, intent: Intent) {
-        let extending = self.open && intent.coalesces();
+    fn edit(&mut self, document: &mut Document, solver: &mut Solver, change: Change) {
+        let extending = self.open && change.coalesces();
         if !extending {
             self.close();
             document.drawing().snapshot_into(&mut self.before);
         }
-        document.apply(solver, intent);
+        document.apply(solver, change);
         document.drawing().snapshot_into(&mut self.after);
 
         if extending {
@@ -119,7 +119,7 @@ impl History {
             after: self.after.clone(),
         });
         self.applied = self.edits.len();
-        self.open = intent.coalesces();
+        self.open = change.coalesces();
         self.forget_the_oldest();
     }
 
