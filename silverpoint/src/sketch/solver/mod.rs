@@ -149,7 +149,7 @@ impl Solver {
 
         assemble(
             sketch,
-            &work.held,
+            &work.movable,
             &mut work.residuals,
             &mut work.jacobian,
             &mut work.equations,
@@ -178,7 +178,7 @@ impl Solver {
             // minimum-norm, so free geometry stays where the user left it.
             let curvature = (0..n).fold(1.0f64, |acc, a| acc.max(work.normal[a * n + a]));
             for a in 0..n {
-                if movable(sketch, &work.held, a) {
+                if work.movable[a] {
                     work.normal[a * n + a] += damping * curvature;
                 } else {
                     // A fixed parameter has an all-zero column, which would
@@ -202,7 +202,7 @@ impl Solver {
             sketch.params_mut().set(&work.trial);
             assemble(
                 sketch,
-                &work.held,
+                &work.movable,
                 &mut work.trial_residuals,
                 &mut work.trial_jacobian,
                 &mut work.equations,
@@ -372,11 +372,9 @@ impl Solver {
     ) -> SolveReport {
         let n = sketch.params().count();
         self.assemble_at_rest(sketch);
-        let rank = self.work.null_space(n, sketch);
+        let rank = self.work.null_space(n);
 
-        let free_params = (0..n)
-            .filter(|&p| movable(sketch, &self.work.held, p))
-            .count();
+        let free_params = self.work.movable.iter().filter(|&&free| free).count();
         into.reset(sketch, free_params - rank, self.work.residuals.len() - rank);
         for (id, _) in sketch.points() {
             // A point's two parameters are adjacent, x first.
@@ -415,10 +413,10 @@ impl Solver {
     /// nothing held — the state every question about the sketch itself, rather
     /// than about a drag on it, has to be asked of.
     fn assemble_at_rest(&mut self, sketch: &Sketch) {
-        self.work.held.clear();
+        self.work.hold(sketch, &[]);
         assemble(
             sketch,
-            &self.work.held,
+            &self.work.movable,
             &mut self.work.residuals,
             &mut self.work.jacobian,
             &mut self.work.equations,
@@ -428,7 +426,7 @@ impl Solver {
 
 /// Build the residual vector and its row-major Jacobian for the sketch as it
 /// currently stands, noting in `equations` which constraint wrote each row.
-/// Columns of fixed parameters are zeroed, which is what holds those points
+/// Columns `movable` refuses are zeroed, which is what holds those points
 /// still.
 ///
 /// The three are filled together because they are one walk, and because this is
@@ -444,12 +442,13 @@ impl Solver {
 /// in the same numbers, and it buys one code path instead of two.
 fn assemble(
     sketch: &Sketch,
-    held: &[usize],
+    movable: &[bool],
     residuals: &mut Vec<f64>,
     jacobian: &mut Vec<f64>,
     equations: &mut Vec<ConstraintId>,
 ) {
     let n = sketch.params().count();
+    debug_assert_eq!(movable.len(), n, "this mask was taken of another sketch");
     residuals.clear();
     jacobian.clear();
     equations.clear();
@@ -460,22 +459,13 @@ fn assemble(
             let mut row = JacobianRow::new(sketch.params(), &mut jacobian[start..]);
             residuals.push(equation.evaluate(sketch, &mut row));
             equations.push(id);
-            for (param, partial) in jacobian[start..].iter_mut().enumerate() {
-                if !movable(sketch, held, param) {
+            for (partial, &may_move) in jacobian[start..].iter_mut().zip(movable) {
+                if !may_move {
                     *partial = 0.0;
                 }
             }
         }
     }
-}
-
-/// Whether the solve may move this parameter: free in the sketch, and not
-/// pinned for the duration of a drag.
-///
-/// The one place the two reasons a column stays put are put together, so the
-/// Jacobian, the damping and the rank all describe the same system.
-fn movable(sketch: &Sketch, held: &[usize], param: usize) -> bool {
-    sketch.params().is_free(param) && !held.contains(&param)
 }
 
 pub(crate) mod freedoms;
@@ -486,7 +476,7 @@ pub(crate) mod bench;
 
 #[cfg(test)]
 pub(crate) mod internals {
-    use crate::sketch::solver::{Solver, assemble, movable};
+    use crate::sketch::solver::{Solver, assemble};
     use crate::sketch::{PointId, Sketch};
 
     impl Solver {
@@ -503,16 +493,13 @@ pub(crate) mod internals {
             self.work.reset(sketch, n, held);
             assemble(
                 sketch,
-                &self.work.held,
+                &self.work.movable,
                 &mut self.work.residuals,
                 &mut self.work.jacobian,
                 &mut self.work.equations,
             );
-            let rank = self.work.rank(n, sketch);
-            (0..n)
-                .filter(|&p| movable(sketch, &self.work.held, p))
-                .count()
-                - rank
+            let rank = self.work.rank(n);
+            self.work.movable.iter().filter(|&&free| free).count() - rank
         }
     }
 }

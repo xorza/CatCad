@@ -5,7 +5,6 @@
 //! do. What builds the system, and what drives it, is [`Solver`](crate::Solver).
 
 use crate::sketch::constraint::ConstraintId;
-use crate::sketch::solver;
 use crate::sketch::solver::freedoms::Freedom;
 use crate::sketch::{PointId, Sketch};
 
@@ -64,9 +63,15 @@ pub(super) struct Workspace {
     pub(super) null: Vec<f64>,
     /// The columns that took no pivot, which are the null space's own axes.
     pub(super) free: Vec<usize>,
-    /// Parameter indices the caller is holding, two per point. Kept as indices
-    /// rather than handles so the inner loops compare integers.
-    pub(super) held: Vec<usize>,
+    /// Whether the solve may move each parameter, one entry per parameter.
+    ///
+    /// The one place the two reasons a column stays put are put together — fixed
+    /// in the sketch, or pinned for the length of a drag — so the Jacobian, the
+    /// damping and the rank all describe the same system. Worked out once per
+    /// phase by [`Workspace::hold`] rather than asked of the sketch per column
+    /// per row: it cannot change while a phase runs, and asking cost more than
+    /// everything it was asked about.
+    pub(super) movable: Vec<bool>,
 }
 
 impl Workspace {
@@ -83,12 +88,27 @@ impl Workspace {
         self.step.resize(n, 0.0);
         self.params.clear();
         sketch.params().write(&mut self.params);
-        self.held.clear();
-        self.held.reserve_exact(held.len() * 2);
+        self.hold(sketch, held);
+    }
+
+    /// Work out what the phase ahead may move, with `held` pinned on top of
+    /// whatever the sketch already fixes.
+    ///
+    /// Its own call because a solve has two phases and they hold different
+    /// things: the iteration pins what the drag is holding, and the measurement
+    /// after it asks the sketch at rest — determinacy is a property of the
+    /// sketch rather than of the drag being attempted on it.
+    pub(super) fn hold(&mut self, sketch: &Sketch, held: &[PointId]) {
+        let params = sketch.params();
+        self.movable.clear();
+        self.movable.reserve_exact(params.count());
+        self.movable
+            .extend((0..params.count()).map(|index| params.is_free(index)));
         for &point in held {
             // A point's two parameters are adjacent, x first.
-            let x = sketch.params().of_point(point);
-            self.held.extend([x, x + 1]);
+            let x = params.of_point(point);
+            self.movable[x] = false;
+            self.movable[x + 1] = false;
         }
     }
 
@@ -100,7 +120,7 @@ impl Workspace {
     /// [`Workspace::null_space`] carries on from and what nothing else looks
     /// at. So the answer is always `pivots.len()`, and callers that need both
     /// take it from here rather than keeping their own count.
-    pub(super) fn rank(&mut self, n: usize, sketch: &Sketch) -> usize {
+    pub(super) fn rank(&mut self, n: usize) -> usize {
         self.pivots.clear();
         self.origin.clear();
         if n == 0 || self.jacobian.is_empty() {
@@ -117,7 +137,7 @@ impl Workspace {
         let tolerance = RANK_TOLERANCE * scale;
         let mut rank = 0;
         for col in 0..n {
-            if !solver::movable(sketch, &self.held, col) || rank == m {
+            if !self.movable[col] || rank == m {
                 continue;
             }
             let mut pivot = rank;
@@ -171,12 +191,11 @@ impl Workspace {
     /// A column that could never move — a pinned point, or the hole a removal
     /// left — has a row of zeros, which is the honest answer for something with
     /// no freedom to have.
-    pub(super) fn null_space(&mut self, n: usize, sketch: &Sketch) -> usize {
-        let rank = self.rank(n, sketch);
+    pub(super) fn null_space(&mut self, n: usize) -> usize {
+        let rank = self.rank(n);
         self.free.clear();
-        self.free.extend((0..n).filter(|&col| {
-            solver::movable(sketch, &self.held, col) && !self.pivots.contains(&col)
-        }));
+        self.free
+            .extend((0..n).filter(|&col| self.movable[col] && !self.pivots.contains(&col)));
 
         let a = &mut self.elimination;
         // Backwards, so each row is cleared of every pivot below it before it
