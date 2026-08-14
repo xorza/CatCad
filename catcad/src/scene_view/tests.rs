@@ -172,7 +172,7 @@ impl Raised {
 
     /// What the drawing has at `cursor`, asked of the very scene the view picks
     /// against — so a test knows what a click there would have found.
-    fn named_at(&self, cursor: Vec2) -> Option<Named> {
+    fn named_at(&self, cursor: Vec2) -> Option<Entity> {
         let renderer = self.view.renderer().borrow();
         let viewport = Viewport::new(SIZE);
         let hit = renderer.scene().nearest(Aim::new(
@@ -732,7 +732,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     let over_edge = raised
         .over(|grip| matches!(grip, Grip::Segment { .. }))
         .expect("the demo draws an edge");
-    let Some(Named::Segment(edge)) = raised.named_at(over_edge) else {
+    let Some(Entity::Segment(edge)) = raised.named_at(over_edge) else {
         panic!("the sweep found something that is not an edge");
     };
 
@@ -848,7 +848,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
     let cursor = (on_screen[0] + on_screen[1]) / 2.0 + across * 3.0;
     assert_eq!(
         raised.named_at(cursor),
-        Some(Named::Segment(edge)),
+        Some(Entity::Segment(edge)),
         "the cursor did not land near the bar it was aimed at"
     );
 

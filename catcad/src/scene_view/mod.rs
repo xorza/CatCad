@@ -8,12 +8,13 @@ use glam::{Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
 };
+use silverpoint::Entity;
 
 use crate::document::Document;
 use crate::drawing::anchor::Anchor;
 use crate::drawing::{Grip, Revision};
 use crate::intent::{Change, Choice, Intents, Step};
-use crate::named::{Named, Names};
+use crate::names::Names;
 use crate::paint;
 use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
@@ -115,7 +116,7 @@ pub(crate) struct SceneView {
     laid_out: Revision,
     gesture: Gesture,
     /// The sketch entity under the pointer, if any.
-    hovered: Option<Named>,
+    hovered: Option<Entity>,
     /// The shape a two-click tool is half-way through, if one is.
     preview: Option<Preview>,
     /// The band the last layout was written with, compared like the revision
@@ -171,7 +172,7 @@ impl SceneView {
     }
 
     /// The sketch entity under the pointer, if any.
-    pub(crate) fn hovered(&self) -> Option<Named> {
+    pub(crate) fn hovered(&self) -> Option<Entity> {
         self.hovered
     }
 
@@ -440,7 +441,7 @@ impl SceneView {
     /// What a click asks, where [`SceneView::grab`] asks the fuller question —
     /// a press needs where on the primitive it landed and where that is in the
     /// world, and a click needs only what the thing is.
-    fn named_under(&self, response: &Response<'_>, document: &Document) -> Option<Named> {
+    fn named_under(&self, response: &Response<'_>, document: &Document) -> Option<Entity> {
         let aimed = Aimed::of(response).filter(|_| response.hovered)?;
         let renderer = self.renderer.borrow();
         let aim = aimed.aim(&document.camera());
@@ -465,13 +466,13 @@ impl SceneView {
         &self,
         response: &Response<'_>,
         document: &Document,
-        under: Option<Named>,
+        under: Option<Entity>,
     ) -> Option<Anchor> {
         let at = aimed::landing(response, document, document.drawing().motion());
         match under {
-            Some(Named::Point(id)) => Some(Anchor::On(id)),
-            Some(Named::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
-            Some(Named::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
+            Some(Entity::Point(id)) => Some(Anchor::On(id)),
+            Some(Entity::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
+            Some(Entity::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
             None => at.map(Anchor::At),
         }
     }
@@ -542,9 +543,9 @@ pub(crate) mod internals {
     /// nothing outside can call.
     #[cfg(test)]
     mod picking {
-        use crate::named::Named;
         use crate::scene_view::SceneView;
         use aperture::Tag;
+        use silverpoint::Entity;
 
         impl SceneView {
             /// What `tag` stands for in the layout this view last made.
@@ -552,7 +553,7 @@ pub(crate) mod internals {
             /// For a test sweeping candidate cursors to find one that would
             /// grab something — which asks what a press would find without a
             /// press to ask it through.
-            pub(crate) fn named(&self, tag: Tag) -> Option<Named> {
+            pub(crate) fn named(&self, tag: Tag) -> Option<Entity> {
                 self.names.get(tag)
             }
         }

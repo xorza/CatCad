@@ -1,5 +1,5 @@
 use super::*;
-use crate::named::Names;
+use crate::names::Names;
 use crate::paint;
 use aperture::Scene;
 use glam::DVec2;
@@ -115,19 +115,19 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let drawing = Drawing::new(&mut Solver::default(), sketch, Plane::GROUND);
 
     assert_eq!(
-        drawing.grip(Named::Point(free), HitAt::Point),
+        drawing.grip(Entity::Point(free), HitAt::Point),
         Some(Grip::Point(free))
     );
 
     // `fix` is the user saying where it goes, and a drag is not an argument.
-    assert_eq!(drawing.grip(Named::Point(pinned), HitAt::Point), None);
+    assert_eq!(drawing.grip(Entity::Point(pinned), HitAt::Point), None);
 
     // An edge slides only if both its ends can: one pinned end would pivot it
     // rather than translate it, which is not what a grab on an edge means.
     let along = |t| HitAt::Segment { index: 0, t };
-    assert_eq!(drawing.grip(Named::Segment(anchored), along(0.5)), None);
+    assert_eq!(drawing.grip(Entity::Segment(anchored), along(0.5)), None);
     assert_eq!(
-        drawing.grip(Named::Segment(floating), along(0.25)),
+        drawing.grip(Entity::Segment(floating), along(0.25)),
         Some(Grip::Segment {
             id: floating,
             t: 0.25
@@ -136,7 +136,7 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
 
     // A rim drives the radius, so where round it was grabbed does not matter.
     assert_eq!(
-        drawing.grip(Named::Circle(hole), HitAt::Ring { angle: 1.2 }),
+        drawing.grip(Entity::Circle(hole), HitAt::Ring { angle: 1.2 }),
         Some(Grip::Rim(hole))
     );
 
@@ -230,7 +230,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
 
     let mut names = Names::default();
     paint::redraw(&linkage.drawing, &mut names, None, &mut scene);
-    let before: Vec<Option<Named>> = scene
+    let before: Vec<Option<Entity>> = scene
         .points
         .iter()
         .map(|point| point.tag.and_then(|tag| names.get(tag)))
@@ -243,7 +243,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
     paint::redraw(&linkage.drawing, &mut names, None, &mut scene);
 
-    let after: Vec<Option<Named>> = scene
+    let after: Vec<Option<Entity>> = scene
         .points
         .iter()
         .map(|point| point.tag.and_then(|tag| names.get(tag)))

@@ -1,53 +1,7 @@
 //! What a pick reports, turned back into the sketch entity it came from.
 
 use aperture::Tag;
-use silverpoint::{CircleId, PointId, SegmentId};
-
-/// A sketch entity a drawn primitive stands for.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Named {
-    Point(PointId),
-    Segment(SegmentId),
-    Circle(CircleId),
-}
-
-impl Named {
-    /// What to call this where a person will read it.
-    ///
-    /// A segment reads as an edge: what the drawing shows is the boundary of
-    /// something, and "segment" is the solver's word for it rather than the
-    /// draughtsman's.
-    pub(crate) fn noun(&self) -> &'static str {
-        match self {
-            Self::Point(_) => "point",
-            Self::Segment(_) => "edge",
-            Self::Circle(_) => "circle",
-        }
-    }
-}
-
-// Every sketch handle names itself, so a caller holding one need not say which
-// kind it is twice — the type already did. Three impls rather than one, because
-// `Id` is generic over what it points at and the three are genuinely different
-// types; nothing here could be written once without a trait silverpoint does
-// not have.
-impl From<PointId> for Named {
-    fn from(id: PointId) -> Self {
-        Named::Point(id)
-    }
-}
-
-impl From<SegmentId> for Named {
-    fn from(id: SegmentId) -> Self {
-        Named::Segment(id)
-    }
-}
-
-impl From<CircleId> for Named {
-    fn from(id: CircleId) -> Self {
-        Named::Circle(id)
-    }
-}
+use silverpoint::Entity;
 
 /// Every entity the drawing named, in the order it was drawn.
 ///
@@ -63,19 +17,19 @@ impl From<CircleId> for Named {
 /// order things were pushed in.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Names {
-    entities: Vec<Named>,
+    entities: Vec<Entity>,
 }
 
 impl Names {
     /// Name `entity`, and hand back the tag that will report it.
-    pub(crate) fn tag(&mut self, entity: Named) -> Tag {
+    pub(crate) fn tag(&mut self, entity: Entity) -> Tag {
         self.entities.push(entity);
         Tag::new((self.entities.len() - 1) as u64)
     }
 
     /// What `tag` was given to, or `None` if it came from a drawing older than
     /// this one.
-    pub(crate) fn get(&self, tag: Tag) -> Option<Named> {
+    pub(crate) fn get(&self, tag: Tag) -> Option<Entity> {
         self.entities.get(usize::try_from(tag.get()).ok()?).copied()
     }
 
@@ -87,11 +41,11 @@ impl Names {
     /// A walk rather than a lookup, because there is nothing to look up in — a
     /// tag *is* a position here — and because a caller asking this is asking it
     /// of every entity anyway.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (Tag, Named)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (Tag, Entity)> {
         self.entities
             .iter()
             .enumerate()
-            .map(|(index, named)| (Tag::new(index as u64), *named))
+            .map(|(index, entity)| (Tag::new(index as u64), *entity))
     }
 
     /// Forget every name, keeping the room they took.

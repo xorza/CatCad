@@ -164,11 +164,6 @@ impl<T> Arena<T> {
 
     /// Take what `id` names, freeing its position. `None` if it was already
     /// gone, which is also what keeps a position off the free list twice.
-    // Kept ahead of a production caller: the generation on every handle exists
-    // for this, and `Sketch` can't expose removal until it can cascade to the
-    // segments, circles and constraints naming whatever went. The tests on
-    // both sides of that boundary drive it.
-    #[allow(dead_code)]
     pub(crate) fn remove(&mut self, id: Id<T>) -> Option<T> {
         let entry = self.slots.get_mut(id.slot())?;
         if entry.generation != id.generation {
@@ -178,6 +173,22 @@ impl<T> Arena<T> {
         entry.generation += 1;
         self.free.push(id.slot);
         Some(value)
+    }
+
+    /// Drop everything `keep` refuses.
+    ///
+    /// What [`Self::remove`] would come to over a walk of the store, without
+    /// the walk having to end before the removing starts: a caller sweeping out
+    /// whatever matches would otherwise collect the handles first, because the
+    /// iteration borrows what the removal writes.
+    pub(crate) fn retain(&mut self, keep: impl Fn(&T) -> bool) {
+        for (slot, entry) in self.slots.iter_mut().enumerate() {
+            if entry.value.as_ref().is_some_and(|value| !keep(value)) {
+                entry.value = None;
+                entry.generation += 1;
+                self.free.push(slot as u32);
+            }
+        }
     }
 
     /// Positions in use or waiting to be reused — the width anything indexing

@@ -37,7 +37,8 @@ pub(crate) mod sketch;
 
 pub use arena::Id;
 pub use math::plane::Plane;
-pub use sketch::constraint::Constraint;
+pub use sketch::constraint::{Constraint, ConstraintId};
+pub use sketch::entity::Entity;
 pub use sketch::snapshot::Snapshot;
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.

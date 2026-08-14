@@ -12,7 +12,7 @@ mod drawing;
 mod history;
 mod hud;
 mod intent;
-mod named;
+mod names;
 mod paint;
 mod preview;
 mod scene_view;
@@ -28,13 +28,12 @@ pub use bench::alloc_bench;
 use std::fmt;
 
 use palantir::{App, Configure, HostHandle, Panel, Shortcut, Sizing, Ui, WindowToken};
-use silverpoint::{SolveReport, Solver};
+use silverpoint::{Entity, SolveReport, Solver};
 
 use crate::document::Document;
 use crate::history::History;
 use crate::hud::Hud;
 use crate::intent::{Choice, Intents, Step};
-use crate::named::Named;
 use crate::scene_view::SceneView;
 use crate::selection::Selection;
 use crate::session::Session;
@@ -220,7 +219,21 @@ struct Status {
     /// sketch can still do — where the report is only how the last run went.
     degrees_of_freedom: usize,
     redundant_equations: usize,
-    hovered: Option<Named>,
+    hovered: Option<Entity>,
+}
+
+/// What to call a sketch entity where a person will read it.
+///
+/// Here rather than on [`Entity`], which is silverpoint's: what a thing is
+/// called is this crate's business, and a segment reads as an *edge* — what the
+/// drawing shows is the boundary of something, and "segment" is the solver's
+/// word for it rather than the draughtsman's.
+fn noun(entity: Entity) -> &'static str {
+    match entity {
+        Entity::Point(_) => "point",
+        Entity::Segment(_) => "edge",
+        Entity::Circle(_) => "circle",
+    }
 }
 
 impl fmt::Display for Status {
@@ -236,7 +249,7 @@ impl fmt::Display for Status {
             self.degrees_of_freedom, self.redundant_equations, self.report.iterations,
         )?;
         match self.hovered {
-            Some(named) => write!(f, " · {}", named.noun()),
+            Some(entity) => write!(f, " · {}", noun(entity)),
             None => Ok(()),
         }
     }

@@ -5,8 +5,13 @@
 //! is fully described by its residual and the partial derivatives of that
 //! residual with respect to the parameters it touches.
 
+use crate::arena::Id;
+use crate::sketch::entity::Entity;
 use crate::sketch::{CircleId, PointId, SegmentId, Sketch};
 use glam::DVec2;
+
+/// Handle to a constraint in a [`Sketch`].
+pub type ConstraintId = Id<Constraint>;
 
 /// Below this length a direction can't be recovered from a difference of
 /// points, so the derivative is taken along +x instead: any direction will do,
@@ -68,6 +73,44 @@ pub enum Constraint {
 }
 
 impl Constraint {
+    /// The geometry this constraint is about.
+    ///
+    /// The one place that knows what each variant holds, which is what a
+    /// removal cascade walks: geometry taken out of a sketch has to take the
+    /// constraints naming it along, or the next solve reads a handle to
+    /// something that is no longer there. A variant added to the enum above is
+    /// a variant this has to answer for, and nothing else has to be taught
+    /// about it.
+    ///
+    /// No constraint names more than two things, so the pair is built on the
+    /// stack and flattened — the same shape [`Self::equations`] uses, for the
+    /// same reason.
+    pub fn referents(&self) -> impl Iterator<Item = Entity> {
+        let named = match *self {
+            Constraint::Coincident { a, b }
+            | Constraint::Distance { a, b, .. }
+            | Constraint::Horizontal { a, b }
+            | Constraint::Vertical { a, b } => [Some(Entity::Point(a)), Some(Entity::Point(b))],
+            Constraint::Parallel { first, second }
+            | Constraint::Perpendicular { first, second } => {
+                [Some(Entity::Segment(first)), Some(Entity::Segment(second))]
+            }
+            Constraint::PointOnSegment { point, segment } => {
+                [Some(Entity::Point(point)), Some(Entity::Segment(segment))]
+            }
+            Constraint::Radius { circle, .. } => [Some(Entity::Circle(circle)), None],
+            Constraint::PointOnCircle { point, circle } => {
+                [Some(Entity::Point(point)), Some(Entity::Circle(circle))]
+            }
+        };
+        named.into_iter().flatten()
+    }
+
+    /// Whether this constraint is about `entity`.
+    pub fn names(&self, entity: Entity) -> bool {
+        self.referents().any(|named| named == entity)
+    }
+
     /// The single-equation constraints this one is assembled from.
     ///
     /// Every variant but [`Self::Coincident`] is already one equation and

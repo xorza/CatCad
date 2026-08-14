@@ -3,12 +3,11 @@
 use aperture::{HitAt, Motion};
 use glam::Vec3;
 use silverpoint::{
-    CircleId, Constraint, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot, SolveReport,
-    Solver,
+    CircleId, Constraint, Entity, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot,
+    SolveReport, Solver,
 };
 
 use crate::drawing::anchor::Anchor;
-use crate::named::Named;
 
 pub(crate) mod anchor;
 
@@ -190,7 +189,7 @@ impl Drawing {
     /// Bare plane is always somewhere; a point taken back by an undo is not —
     /// see [`Drawing::holds`].
     pub(crate) fn holds_anchor(&self, anchor: Anchor) -> bool {
-        anchor.built_on().is_none_or(|named| self.holds(named))
+        anchor.built_on().is_none_or(|entity| self.holds(entity))
     }
 
     /// What the last solve made of it.
@@ -232,22 +231,20 @@ impl Drawing {
         self.plane
     }
 
-    /// Whether the drawing still holds what `named` names.
+    /// Whether the drawing still holds `entity`.
     ///
     /// What anything keeping handles across an edit has to ask. A handle
     /// outlives what it names whenever a step that *created* geometry is taken
     /// back, and it does not merely stop resolving: [`Drawing::restore`] puts
     /// the sketch back arenas and all, so the next entity created takes the
     /// very same handle and would be mistaken for the one that went.
-    /// Takes anything that names one, which is every sketch handle as well as a
-    /// [`Named`]: a caller holding a `PointId` has already said which kind it
-    /// is by holding that type.
-    pub(crate) fn holds(&self, named: impl Into<Named>) -> bool {
-        match named.into() {
-            Named::Point(id) => self.sketch.contains_point(id),
-            Named::Segment(id) => self.sketch.contains_segment(id),
-            Named::Circle(id) => self.sketch.contains_circle(id),
-        }
+    ///
+    /// The sketch's own answer, forwarded. Here as well because what a caller
+    /// holds is a drawing — reaching through to the sketch to ask whether its
+    /// own handles are still good would be every caller knowing that a drawing
+    /// has one.
+    pub(crate) fn holds(&self, entity: impl Into<Entity>) -> bool {
+        self.sketch.holds(entity)
     }
 
     /// Put the drawing back the way `snapshot` found it.
@@ -263,7 +260,7 @@ impl Drawing {
         self.measured(solver, |sketch| sketch.restore(snapshot));
     }
 
-    /// What a press on `named`, landing `at`, takes hold of — or `None` if it
+    /// What a press on `entity`, landing `at`, takes hold of — or `None` if it
     /// takes hold of nothing.
     ///
     /// Whether a drag may start and what it would have hold of are one
@@ -276,17 +273,17 @@ impl Drawing {
     /// because both of them travel. A rim asks for neither — it drives the
     /// radius and leaves the centre where it is, so resizing about a pinned
     /// centre is as good a drag as any other.
-    pub(crate) fn grip(&self, named: Named, at: HitAt) -> Option<Grip> {
-        match (named, at) {
-            (Named::Point(id), HitAt::Point) => {
+    pub(crate) fn grip(&self, entity: Entity, at: HitAt) -> Option<Grip> {
+        match (entity, at) {
+            (Entity::Point(id), HitAt::Point) => {
                 (!self.sketch.is_fixed(id)).then_some(Grip::Point(id))
             }
-            (Named::Segment(id), HitAt::Segment { t, .. }) => {
+            (Entity::Segment(id), HitAt::Segment { t, .. }) => {
                 let held = self.sketch.segment(id);
                 let free = !self.sketch.is_fixed(held.a) && !self.sketch.is_fixed(held.b);
                 free.then_some(Grip::Segment { id, t: t as f64 })
             }
-            (Named::Circle(id), HitAt::Ring { .. }) => Some(Grip::Rim(id)),
+            (Entity::Circle(id), HitAt::Ring { .. }) => Some(Grip::Rim(id)),
             _ => None,
         }
     }

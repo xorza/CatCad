@@ -1,9 +1,7 @@
 //! Where a click landed on the drawing, and what building there ties it to.
 
 use glam::{DVec2, Vec3};
-use silverpoint::{CircleId, Constraint, Plane, PointId, SegmentId, Sketch};
-
-use crate::named::Named;
+use silverpoint::{CircleId, Constraint, Entity, Plane, PointId, SegmentId, Sketch};
 
 /// Where a click a tool can build from landed, and what that ties it to.
 ///
@@ -54,14 +52,14 @@ impl Anchor {
     /// where it names bare plane and so depends on nothing.
     ///
     /// The way back from what [`SceneView::anchor`] does, which reads a
-    /// [`Named`] under the cursor and builds one of these from it.
+    /// [`Entity`] under the cursor and builds one of these from it.
     ///
     /// [`SceneView::anchor`]: crate::scene_view::SceneView
-    pub(super) fn built_on(self) -> Option<Named> {
+    pub(super) fn built_on(self) -> Option<Entity> {
         match self {
-            Anchor::On(id) => Some(Named::Point(id)),
-            Anchor::OnSegment { segment, .. } => Some(Named::Segment(segment)),
-            Anchor::OnCircle { circle, .. } => Some(Named::Circle(circle)),
+            Anchor::On(id) => Some(Entity::Point(id)),
+            Anchor::OnSegment { segment, .. } => Some(Entity::Segment(segment)),
+            Anchor::OnCircle { circle, .. } => Some(Entity::Circle(circle)),
             Anchor::At(_) => None,
         }
     }

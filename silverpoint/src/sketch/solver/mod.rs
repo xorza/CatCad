@@ -417,7 +417,7 @@ fn assemble(sketch: &Sketch, held: &[usize], residuals: &mut Vec<f64>, jacobian:
     let n = sketch.param_count();
     residuals.clear();
     jacobian.clear();
-    for constraint in sketch.constraints() {
+    for (_, constraint) in sketch.constraints() {
         for equation in constraint.equations() {
             let start = jacobian.len();
             jacobian.resize(start + n, 0.0);

@@ -2,10 +2,10 @@
 
 use aperture::Projection;
 use glam::Vec3;
+use silverpoint::Entity;
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
-use crate::named::Named;
 use crate::tool::Tool;
 
 /// One thing the user asked for.
@@ -159,13 +159,13 @@ pub(crate) enum Choice {
     /// A plain click raises one whatever it landed on: `None` is what a click
     /// on empty space asks for, by the same rule that a click on a point asks
     /// for that point.
-    Select(Option<Named>),
+    Select(Option<Entity>),
     /// Pick this out as well as whatever already is.
     ///
     /// What a shift-click asks for. Names an addition where [`Choice::Select`]
     /// names the whole, and is safe to land twice for a different reason: an
     /// entity already picked out is not picked out again.
-    Include(Named),
+    Include(Entity),
     /// Take up this tool, or put down whatever is in hand by naming
     /// [`Tool::Pointer`].
     ///

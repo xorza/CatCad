@@ -9,11 +9,11 @@
 
 use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled};
 use glam::Vec3;
-use silverpoint::{Circle, CircleId, Freedom, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Entity, Freedom, Segment, SegmentId};
 
 use crate::document::Document;
 use crate::drawing::Drawing;
-use crate::named::{Named, Names};
+use crate::names::Names;
 use crate::preview::{Ends, Preview};
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
@@ -195,7 +195,7 @@ fn write_curves(
                     let freedom = freedoms.point(edge.a).max(freedoms.point(edge.b));
                     curve.set_segment(a, b);
                     curve.color = colour(freedom);
-                    curve.tag = Some(names.tag(Named::Segment(id)));
+                    curve.tag = Some(names.tag(Entity::Segment(id)));
                 }
                 // Untagged, which is what keeps the band out of the way: a pick
                 // skips a primitive with no tag, so it cannot be hovered,
@@ -246,7 +246,7 @@ fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>)
             .size(size)
             .z_offset(MARKER_LIFT)
             .in_plane(normal)
-            .tagged(names.tag(Named::Point(id)));
+            .tagged(names.tag(Entity::Point(id)));
     });
 }
 
@@ -285,7 +285,7 @@ fn write_rings(drawing: &Drawing, names: &mut Names, band: Option<Ends>, rings: 
                         normal,
                     )
                     .colored(colour(freedom))
-                    .tagged(names.tag(Named::Circle(id)))
+                    .tagged(names.tag(Entity::Circle(id)))
                 }
                 // Through the cursor rather than out to it: the second click
                 // says how big by naming somewhere on the rim. Untagged, like

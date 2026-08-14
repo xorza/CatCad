@@ -2,11 +2,13 @@
 //! together.
 
 pub(crate) mod constraint;
+pub(crate) mod entity;
 pub(crate) mod snapshot;
 pub(crate) mod solver;
 
 use crate::arena::{Arena, Id};
-use crate::sketch::constraint::Constraint;
+use crate::sketch::constraint::{Constraint, ConstraintId};
+use crate::sketch::entity::Entity;
 use crate::sketch::snapshot::Snapshot;
 use glam::DVec2;
 
@@ -25,6 +27,7 @@ pub type CircleId = Id<Circle>;
 const REMOVED_POINT: &str = "this point is no longer in the sketch";
 const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
 const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
+const REMOVED_CONSTRAINT: &str = "this constraint is no longer in the sketch";
 
 /// A point's position, and whether the solver may move it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -107,7 +110,7 @@ pub struct Sketch {
     points: Arena<Point>,
     segments: Arena<Segment>,
     circles: Arena<Circle>,
-    constraints: Vec<Constraint>,
+    constraints: Arena<Constraint>,
 }
 
 // Written out for `clone_from`, exactly as [`Arena`]'s is and for the same
@@ -170,8 +173,18 @@ impl Sketch {
         self.circles.insert(Circle { center, radius })
     }
 
-    pub fn add_constraint(&mut self, constraint: Constraint) {
-        self.constraints.push(constraint);
+    /// State a relation over geometry the sketch holds.
+    ///
+    /// Checked here rather than where the residual is next assembled, exactly
+    /// as [`Sketch::add_segment`] is and for the same reason: a constraint
+    /// outliving what it names is the caller's mistake, and it is worth more at
+    /// the line that made it than deep inside a solve.
+    pub fn add_constraint(&mut self, constraint: Constraint) -> ConstraintId {
+        assert!(
+            constraint.referents().all(|named| self.holds(named)),
+            "a constraint needs geometry the sketch still holds"
+        );
+        self.constraints.insert(constraint)
     }
 
     pub fn point(&self, id: PointId) -> DVec2 {
@@ -256,8 +269,107 @@ impl Sketch {
         self.circles.contains(id)
     }
 
-    pub fn constraints(&self) -> &[Constraint] {
-        &self.constraints
+    /// See [`Sketch::contains_point`].
+    pub fn contains_constraint(&self, id: ConstraintId) -> bool {
+        self.constraints.contains(id)
+    }
+
+    /// Whether the sketch still holds `entity`.
+    ///
+    /// The three [`Sketch::contains_point`] questions asked as one, for a
+    /// caller holding a piece of geometry whose kind it does not know — what a
+    /// constraint named, or what a cursor is over. Takes anything that names
+    /// geometry, so a caller with a bare [`PointId`] need not spell out which
+    /// of the three it has.
+    pub fn holds(&self, entity: impl Into<Entity>) -> bool {
+        match entity.into() {
+            Entity::Point(id) => self.contains_point(id),
+            Entity::Segment(id) => self.contains_segment(id),
+            Entity::Circle(id) => self.contains_circle(id),
+        }
+    }
+
+    pub fn constraint(&self, id: ConstraintId) -> Constraint {
+        *self.constraints.get(id).expect(REMOVED_CONSTRAINT)
+    }
+
+    /// Every constraint in insertion order, each with the handle that names it.
+    pub fn constraints(&self) -> impl Iterator<Item = (ConstraintId, Constraint)> {
+        self.constraints
+            .iter()
+            .map(|(id, constraint)| (id, *constraint))
+    }
+
+    /// Take a point out of the sketch, with everything built on it.
+    ///
+    /// The segments it ends, the circles it centres, and every constraint
+    /// naming any of them go with it — the cascade, and the reason removal is
+    /// four calls rather than a handle handed to an arena. What is left has to
+    /// be a sketch that still solves, and a segment whose endpoint has gone is
+    /// not: the next assembly would read a handle to nothing and panic.
+    ///
+    /// Doing nothing where the point has already gone, like every removal here:
+    /// a cascade reaches the same geometry by more than one route — a
+    /// constraint on both a doomed segment and its doomed endpoint is named
+    /// twice — and one that had to be told which route was first would be one
+    /// its caller had to reason about.
+    pub fn remove_point(&mut self, id: PointId) {
+        // Collected before anything is taken out, because the walk borrows the
+        // arena the removal writes. Cold — this is a keypress, not a frame.
+        let ended: Vec<SegmentId> = self
+            .segments
+            .iter()
+            .filter(|(_, segment)| segment.a == id || segment.b == id)
+            .map(|(segment, _)| segment)
+            .collect();
+        for segment in ended {
+            self.remove_segment(segment);
+        }
+        let centred: Vec<CircleId> = self
+            .circles
+            .iter()
+            .filter(|(_, circle)| circle.center == id)
+            .map(|(circle, _)| circle)
+            .collect();
+        for circle in centred {
+            self.remove_circle(circle);
+        }
+        self.unconstrain(id);
+        self.points.remove(id);
+    }
+
+    /// Take a segment out of the sketch, with every constraint naming it.
+    ///
+    /// Its endpoints stay. A segment is drawn *between* points rather than
+    /// owning them — they may end other segments, centre circles, or carry
+    /// constraints of their own — so removing one is removing the edge and
+    /// nothing else.
+    pub fn remove_segment(&mut self, id: SegmentId) {
+        self.unconstrain(id);
+        self.segments.remove(id);
+    }
+
+    /// Take a circle out of the sketch, with every constraint naming it. Its
+    /// centre stays, for the reason a segment's endpoints do.
+    pub fn remove_circle(&mut self, id: CircleId) {
+        self.unconstrain(id);
+        self.circles.remove(id);
+    }
+
+    /// Take a constraint out of the sketch.
+    ///
+    /// The one removal that cascades to nothing: constraints are the leaves —
+    /// geometry never names one — so this frees whatever the constraint was
+    /// deciding and touches nothing else.
+    pub fn remove_constraint(&mut self, id: ConstraintId) {
+        self.constraints.remove(id);
+    }
+
+    /// Drop every constraint about `entity`.
+    fn unconstrain(&mut self, entity: impl Into<Entity>) {
+        let entity = entity.into();
+        self.constraints
+            .retain(|constraint| !constraint.names(entity));
     }
 
     /// Size of the solver's parameter vector.

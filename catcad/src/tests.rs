@@ -4,10 +4,9 @@ use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, Key, Modifiers, WindowToken};
-use silverpoint::{Freedom, Freedoms, Plane, PointId, SolveReport, Solver};
+use silverpoint::{Entity, Freedom, Freedoms, Plane, PointId, SolveReport, Solver};
 
 use crate::demo;
-use crate::named::Named;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
 
@@ -187,9 +186,9 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     let segment = sketch.segments().next().unwrap().0;
     let circle = sketch.circles().next().unwrap().0;
     for (hovered, tail) in [
-        (Named::Point(point), " · point"),
-        (Named::Segment(segment), " · edge"),
-        (Named::Circle(circle), " · circle"),
+        (Entity::Point(point), " · point"),
+        (Entity::Segment(segment), " · edge"),
+        (Entity::Circle(circle), " · circle"),
     ] {
         assert_eq!(
             Status {
@@ -517,7 +516,7 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         .expect("the sketch holds points")
         .0;
     assert!(
-        !app.session.selection().contains(Named::Point(newest)),
+        !app.session.selection().contains(Entity::Point(newest)),
         "a point nobody picked came up selected, on a handle left over from an undo"
     );
 }

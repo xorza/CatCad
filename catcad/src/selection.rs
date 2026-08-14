@@ -1,6 +1,6 @@
 //! What the user has picked out, and the collection of it.
 
-use crate::named::Named;
+use silverpoint::Entity;
 
 /// The sketch entities currently picked out.
 ///
@@ -9,9 +9,9 @@ use crate::named::Named;
 /// the drawing is. So nothing here is written down by saving, and an undo puts
 /// geometry back without disturbing what is picked out around it.
 ///
-/// Named entities rather than tags, deliberately. A tag is an index into one
+/// Sketch entities rather than tags, deliberately. A tag is an index into one
 /// layout of the drawing and is minted afresh whenever the drawing is laid out
-/// again — which a drag does every frame — where a [`Named`] holds the sketch's
+/// again — which a drag does every frame — where a [`Entity`] holds the sketch's
 /// own handle and survives it.
 ///
 /// In the order things were added, and no entity twice. Order is not used for
@@ -20,7 +20,7 @@ use crate::named::Named;
 /// thrown that away before there was anything to ask it.
 #[derive(Debug, Default)]
 pub(crate) struct Selection {
-    picked: Vec<Named>,
+    picked: Vec<Entity>,
 }
 
 impl Selection {
@@ -29,7 +29,7 @@ impl Selection {
     ///
     /// What a plain click asks for, whether or not it landed on anything: one
     /// rule, which is that a click selects exactly what is under it.
-    pub(crate) fn select(&mut self, what: Option<Named>) {
+    pub(crate) fn select(&mut self, what: Option<Entity>) {
         self.picked.clear();
         self.picked.extend(what);
     }
@@ -40,14 +40,14 @@ impl Selection {
     /// asks a second time and the answer does not move. See [`Intent`].
     ///
     /// [`Intent`]: crate::intent::Intent
-    pub(crate) fn include(&mut self, what: Named) {
+    pub(crate) fn include(&mut self, what: Entity) {
         if !self.contains(what) {
             self.picked.push(what);
         }
     }
 
     /// Whether `what` is picked out.
-    pub(crate) fn contains(&self, what: Named) -> bool {
+    pub(crate) fn contains(&self, what: Entity) -> bool {
         self.picked.contains(&what)
     }
 
@@ -59,7 +59,7 @@ impl Selection {
     /// next entity created takes the very same one and would come up selected
     /// without anyone having picked it. So the selection is put back against
     /// the drawing whenever the drawing might have moved.
-    pub(crate) fn retain(&mut self, keep: impl Fn(Named) -> bool) {
+    pub(crate) fn retain(&mut self, keep: impl Fn(Entity) -> bool) {
         self.picked.retain(|&named| keep(named));
     }
 }
@@ -95,8 +95,8 @@ mod tests {
         let mut sketch = Sketch::default();
         let start = sketch.add_point(DVec2::ZERO);
         let end = sketch.add_point(DVec2::new(1.0, 0.0));
-        let (a, b) = (Named::Point(start), Named::Point(end));
-        let c = Named::Segment(sketch.add_segment(start, end));
+        let (a, b) = (Entity::Point(start), Entity::Point(end));
+        let c = Entity::Segment(sketch.add_segment(start, end));
 
         let mut selection = Selection::default();
         assert!(!selection.contains(a));

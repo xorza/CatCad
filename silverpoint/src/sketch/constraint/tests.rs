@@ -172,6 +172,100 @@ fn analytic_partials_match_central_differences() {
     }
 }
 
+/// What each variant is about, against hand-written handles.
+///
+/// The sweep the removal cascade rests on: a variant that under-reports its
+/// geometry leaves a constraint behind holding a handle to what went, and the
+/// next assembly reads it. Every variant appears, so a new one added to the
+/// enum has to be given a line here before this compiles.
+#[test]
+fn every_constraint_names_the_geometry_it_is_about() {
+    let Fixture {
+        point,
+        segment,
+        circle,
+        ..
+    } = Fixture::new();
+    let [p0, p1, p2, p3] = point;
+    let [s0, s1] = segment;
+    let cases: [(Constraint, &[Entity]); 9] = [
+        (
+            Constraint::Coincident { a: p0, b: p1 },
+            &[Entity::Point(p0), Entity::Point(p1)],
+        ),
+        (
+            Constraint::Distance {
+                a: p0,
+                b: p2,
+                distance: 2.5,
+            },
+            &[Entity::Point(p0), Entity::Point(p2)],
+        ),
+        (
+            Constraint::Horizontal { a: p1, b: p3 },
+            &[Entity::Point(p1), Entity::Point(p3)],
+        ),
+        (
+            Constraint::Vertical { a: p0, b: p3 },
+            &[Entity::Point(p0), Entity::Point(p3)],
+        ),
+        (
+            Constraint::Parallel {
+                first: s0,
+                second: s1,
+            },
+            &[Entity::Segment(s0), Entity::Segment(s1)],
+        ),
+        (
+            Constraint::Perpendicular {
+                first: s0,
+                second: s1,
+            },
+            &[Entity::Segment(s0), Entity::Segment(s1)],
+        ),
+        (
+            Constraint::PointOnSegment {
+                point: p2,
+                segment: s0,
+            },
+            &[Entity::Point(p2), Entity::Segment(s0)],
+        ),
+        // The one constraint about a single thing, so the pair the others are
+        // built as has to come out one long.
+        (
+            Constraint::Radius {
+                circle,
+                radius: 0.9,
+            },
+            &[Entity::Circle(circle)],
+        ),
+        (
+            Constraint::PointOnCircle { point: p0, circle },
+            &[Entity::Point(p0), Entity::Circle(circle)],
+        ),
+    ];
+
+    for (constraint, names) in cases {
+        let referents: Vec<Entity> = constraint.referents().collect();
+        assert_eq!(referents, names, "{constraint:?}");
+        for &named in names {
+            assert!(constraint.names(named), "{constraint:?} disowns {named:?}");
+        }
+    }
+
+    // And says no to what it is not about, which is the half the cascade reads:
+    // a constraint that claimed everything would be swept up by every removal.
+    let radius = Constraint::Radius {
+        circle,
+        radius: 0.9,
+    };
+    assert!(!radius.names(Entity::Point(p0)));
+    assert!(!radius.names(Entity::Segment(s0)));
+    // Kinds are told apart by more than the position they index: two handles
+    // minted at the same slot in different arenas name different things.
+    assert!(!Constraint::Vertical { a: p0, b: p1 }.names(Entity::Segment(s0)));
+}
+
 /// A coincidence is the one constraint worth more than one equation, and what
 /// it expands to has to be exactly the two it stands for — the sweep above
 /// only checks whatever comes out of here.

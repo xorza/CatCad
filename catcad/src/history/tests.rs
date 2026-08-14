@@ -1,7 +1,7 @@
 use super::*;
 use crate::demo;
 use crate::drawing::Grip;
-use crate::named::Names;
+use crate::names::Names;
 use crate::paint;
 use aperture::Scene;
 use glam::{DVec2, Vec3};

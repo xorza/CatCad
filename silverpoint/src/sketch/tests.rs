@@ -107,9 +107,9 @@ fn a_removed_points_parameters_stay_put_and_never_move() {
     let circle = sketch.add_circle(b, 0.5);
     assert_eq!(sketch.param_count(), 5);
 
-    // Reaching past the public API on purpose: removal isn't exposed until
-    // it can cascade, and this is the behaviour that has to be right first.
-    sketch.points.remove(a);
+    // Nothing is built on it — the circle is centred on `b` — so the cascade
+    // has nothing to take and this is the bare removal.
+    sketch.remove_point(a);
 
     assert_eq!(sketch.param_count(), 5);
     assert_eq!(sketch.param(0), None);
@@ -151,6 +151,142 @@ fn a_removed_points_parameters_stay_put_and_never_move() {
     assert_eq!(sketch.point_param(c), 0);
     assert_ne!(c, a);
     assert_eq!(sketch.points().count(), 2);
+}
+
+/// Removing a point takes everything that was built on it — the segments it
+/// ends, the circles it centres, and every constraint naming any of those —
+/// and leaves the rest of the sketch untouched.
+///
+/// Both halves matter equally. What is left has to be a sketch that still
+/// solves, so nothing may survive holding a handle to what went; and a removal
+/// that swept up more than it had to would be one nobody could predict.
+#[test]
+fn removing_a_point_takes_what_was_built_on_it_and_nothing_else() {
+    let mut sketch = Sketch::default();
+    let doomed = sketch.add_point(DVec2::new(1.0, 1.0));
+    let [before, after, near, far] = [
+        sketch.add_point(DVec2::new(0.0, 0.0)),
+        sketch.add_point(DVec2::new(2.0, 0.0)),
+        sketch.add_point(DVec2::new(0.0, 3.0)),
+        sketch.add_point(DVec2::new(2.0, 3.0)),
+    ];
+    // Two edges meeting at the doomed point, one from either end, so the walk
+    // has to look at both of a segment's endpoints and not just the first.
+    let leading = sketch.add_segment(before, doomed);
+    let trailing = sketch.add_segment(doomed, after);
+    let aside = sketch.add_segment(near, far);
+    let hole = sketch.add_circle(doomed, 0.5);
+    let elsewhere = sketch.add_circle(near, 0.25);
+
+    let by_point = sketch.add_constraint(Constraint::Horizontal {
+        a: before,
+        b: doomed,
+    });
+    let by_segment = sketch.add_constraint(Constraint::Parallel {
+        first: leading,
+        second: aside,
+    });
+    let by_circle = sketch.add_constraint(Constraint::Radius {
+        circle: hole,
+        radius: 0.5,
+    });
+    // Named by both routes at once — the point going and the segment going —
+    // so the cascade reaches it twice and has to take that as calmly as once.
+    let twice_over = sketch.add_constraint(Constraint::PointOnSegment {
+        point: doomed,
+        segment: trailing,
+    });
+    let survivor = sketch.add_constraint(Constraint::Vertical { a: near, b: far });
+    let spanning = sketch.add_constraint(Constraint::Distance {
+        a: before,
+        b: after,
+        distance: 2.0,
+    });
+
+    sketch.remove_point(doomed);
+
+    assert!(!sketch.contains_point(doomed));
+    for point in [before, after, near, far] {
+        assert!(sketch.contains_point(point), "a bystanding point went");
+    }
+
+    assert!(!sketch.contains_segment(leading));
+    assert!(!sketch.contains_segment(trailing));
+    assert!(sketch.contains_segment(aside));
+
+    assert!(!sketch.contains_circle(hole));
+    assert!(sketch.contains_circle(elsewhere));
+
+    for constraint in [by_point, by_segment, by_circle, twice_over] {
+        assert!(
+            !sketch.contains_constraint(constraint),
+            "a constraint over what went survived it"
+        );
+    }
+    // The two naming nothing that went, and no others: the count is what says
+    // the sweep stopped where it should have.
+    assert_eq!(sketch.constraints().count(), 2);
+    assert!(sketch.contains_constraint(survivor));
+    assert!(sketch.contains_constraint(spanning));
+
+    // Idempotent, which is what lets the cascade reach one thing by two routes:
+    // asking again for what has already gone changes nothing.
+    sketch.remove_point(doomed);
+    sketch.remove_segment(leading);
+    sketch.remove_circle(hole);
+    assert_eq!(sketch.points().count(), 4);
+    assert_eq!(sketch.segments().count(), 1);
+    assert_eq!(sketch.circles().count(), 1);
+    assert_eq!(sketch.constraints().count(), 2);
+}
+
+/// An edge and a circle are drawn *over* points rather than owning them, so
+/// removing either leaves the points behind — and takes only the constraints
+/// that named the thing removed.
+#[test]
+fn removing_an_edge_or_a_circle_leaves_the_points_it_was_drawn_over() {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(3.0, 0.0));
+    let edge = sketch.add_segment(a, b);
+    let circle = sketch.add_circle(a, 1.0);
+    let on_edge = sketch.add_constraint(Constraint::PointOnSegment {
+        point: b,
+        segment: edge,
+    });
+    let on_circle = sketch.add_constraint(Constraint::PointOnCircle { point: b, circle });
+    let over_points = sketch.add_constraint(Constraint::Horizontal { a, b });
+
+    sketch.remove_segment(edge);
+    assert!(!sketch.contains_segment(edge));
+    assert!(!sketch.contains_constraint(on_edge));
+    assert!(sketch.contains_point(a) && sketch.contains_point(b));
+    assert!(sketch.contains_constraint(on_circle));
+
+    sketch.remove_circle(circle);
+    assert!(!sketch.contains_circle(circle));
+    assert!(!sketch.contains_constraint(on_circle));
+    assert!(sketch.contains_point(a), "the centre went with its circle");
+
+    // The constraint over two bare points outlived both, and goes only when it
+    // is asked for by name — which is the one removal that cascades to nothing.
+    assert_eq!(sketch.constraints().count(), 1);
+    sketch.remove_constraint(over_points);
+    assert_eq!(sketch.constraints().count(), 0);
+    assert!(sketch.contains_point(a) && sketch.contains_point(b));
+}
+
+/// A constraint over geometry the sketch no longer holds is the caller's
+/// mistake, caught where it is made rather than deep inside the next solve —
+/// which is where the handle would otherwise be read.
+#[test]
+#[should_panic = "a constraint needs geometry the sketch still holds"]
+fn a_constraint_over_geometry_that_has_gone_is_refused() {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(1.0, 0.0));
+    sketch.remove_point(b);
+    sketch.add_constraint(Constraint::Horizontal { a, b });
 }
 
 /// A snapshot is exact in both directions: it puts the sketch back exactly as

@@ -33,6 +33,59 @@ fn distance_moves_a_point_along_its_own_direction() {
     assert_eq!(freedoms.redundant_equations(), 0);
 }
 
+/// A removal leaves a sketch the solver can still work on, and gives back
+/// exactly the freedom it took away.
+///
+/// The end-to-end check on the hole a removal leaves: the parameters a removed
+/// point occupied stay in the vector, and what keeps the solver off them is
+/// that they read as unfree. So a solve after a removal has to reach the same
+/// geometry as one before it, and the degrees of freedom have to fall by the
+/// two the point was carrying rather than by nothing or by everything.
+#[test]
+fn a_sketch_solves_the_same_once_geometry_and_constraints_are_removed() {
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::ZERO);
+    let end = sketch.add_point(DVec2::new(1.0, 0.2));
+    // Constrained by nothing, so the two freedoms it carries are its own and
+    // go when it does.
+    let spare = sketch.add_point(DVec2::new(4.0, 4.0));
+    sketch.fix(anchor);
+    let level = sketch.add_constraint(Constraint::Horizontal { a: anchor, b: end });
+    sketch.add_constraint(Constraint::Distance {
+        a: anchor,
+        b: end,
+        distance: 5.0,
+    });
+
+    let mut solver = Solver::default();
+    let mut freedoms = Freedoms::default();
+
+    let report = solver.solve(&mut sketch, &mut freedoms);
+    assert!(report.converged, "{report:?}");
+    assert!((sketch.point(end) - DVec2::new(5.0, 0.0)).length() < EPSILON);
+    // Six parameters, two of them the anchor's and pinned: four free against a
+    // rank of two, so the spare point's pair is what is left.
+    assert_eq!(freedoms.degrees_of_freedom(), 2);
+
+    sketch.remove_point(spare);
+    let report = solver.solve(&mut sketch, &mut freedoms);
+    assert!(report.converged, "{report:?}");
+    // The vector is as wide as it was — the hole keeps its two positions — so
+    // this is the same solve reaching the same place with nothing left over.
+    assert_eq!(sketch.param_count(), 6);
+    assert!((sketch.point(end) - DVec2::new(5.0, 0.0)).length() < EPSILON);
+    assert_eq!(freedoms.degrees_of_freedom(), 0);
+    assert_eq!(freedoms.redundant_equations(), 0);
+
+    // Taking the level away hands `end` back the freedom it was spending: it
+    // keeps its distance from the anchor and may swing about it.
+    sketch.remove_constraint(level);
+    let report = solver.solve(&mut sketch, &mut freedoms);
+    assert!(report.converged, "{report:?}");
+    assert_eq!(freedoms.degrees_of_freedom(), 1);
+    assert!((sketch.point(end).length() - 5.0).abs() < EPSILON);
+}
+
 #[test]
 fn the_requested_distance_is_what_changes_the_answer() {
     let solve_for = |distance: f64| {
