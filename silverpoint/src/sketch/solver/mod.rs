@@ -111,8 +111,7 @@ impl Solver {
     /// cannot take rather than reporting the compromise it settled for.
     pub fn solve(&mut self, sketch: &mut Sketch, into: &mut Outcome) {
         let iterations = self.iterate(sketch, &[]);
-        self.assemble_at_rest(sketch);
-        self.read_at_rest(sketch, into, Settled::Freely, iterations);
+        self.describe(sketch, into, Settled::Freely, iterations);
     }
 
     /// Step the sketch's geometry with `held` pinned, and answer how many steps
@@ -169,16 +168,14 @@ impl Solver {
         into: &mut Outcome,
         edit: impl Fn(&mut Sketch),
     ) {
-        // Only the residual, so the pre-edit look costs one assembly and no
-        // reduction: nothing is being reported about the sketch as it stands,
-        // only judged against what the edit leaves.
-        self.assemble_at_rest(sketch);
-        let was = self.system.max_residual();
-        // Set aside whole, because a refusal has to describe exactly this
-        // sketch and this is already its assembly. A swap rather than a copy:
-        // whatever the attempt leaves in its place is cleared and refilled by
-        // the next assembly, so the buffers it hands over need hold nothing.
-        std::mem::swap(&mut self.system, &mut self.spare);
+        // Built straight into the one buffer the attempt ahead will not touch,
+        // because a refusal has to describe exactly this sketch and this is
+        // already its assembly. Only the residual is wanted now — nothing is
+        // being reported about the sketch as it stands, only judged against what
+        // the edit leaves — but keeping the rest costs nothing and saves
+        // building it again over geometry that never moved.
+        self.spare.assemble_holding(sketch, &[]);
+        let was = self.spare.max_residual();
         sketch.snapshot_into(&mut self.before);
 
         edit(sketch);
@@ -190,16 +187,9 @@ impl Solver {
         // Held first, which is what makes an ordinary drag track the pointer
         // exactly: the grabbed point does not move, and the rest of the sketch
         // swings to accommodate it.
-        //
-        // Then assembled at rest, judged, and only then described. The assembly
-        // is what both of the calls after it read, which is why it is taken here
-        // rather than inside either: an attempt that is not kept is one nothing
-        // will be asked about, and working out what the sketch could still do
-        // would be working it out for a sketch about to be put back.
         let iterations = self.iterate(sketch, held);
-        self.assemble_at_rest(sketch);
-        if self.takes(was) {
-            return self.read_at_rest(sketch, into, Settled::Holding, iterations);
+        if self.take(sketch, was, into, Settled::Holding, iterations) {
+            return;
         }
 
         // Held, that was impossible — the cursor asked for somewhere the
@@ -230,22 +220,15 @@ impl Solver {
             // moves need not be one: driving a radius holds the circle's centre,
             // and the centre staying put says nothing about whether the circle
             // grew.
-            if !self.before.within(sketch, UNMOVED) {
-                self.assemble_at_rest(sketch);
-                if self.takes(was) {
-                    return self.read_at_rest(sketch, into, Settled::Freely, iterations);
-                }
+            if !self.before.within(sketch, UNMOVED)
+                && self.take(sketch, was, into, Settled::Freely, iterations)
+            {
+                return;
             }
         }
 
         sketch.restore(&self.before);
-        // Taken back rather than built again: this is the sketch the assembly
-        // set aside at the top was taken of, restored to the bit, so reducing
-        // that one is reducing this one. [`Settled::Refused`] is the only part
-        // of what comes out that a report of a sketch standing at its own
-        // solution could not say.
-        std::mem::swap(&mut self.system, &mut self.spare);
-        self.read_at_rest(sketch, into, Settled::Refused, 0);
+        self.describe_as_found(sketch, into);
     }
 
     /// Which of the sketch's geometry its constraints leave anything to decide,
@@ -260,16 +243,14 @@ impl Solver {
     /// Fills `into` rather than returning it, so a drawing measuring itself
     /// after every edit keeps one buffer instead of being handed a new one.
     pub fn measure(&mut self, sketch: &Sketch, into: &mut Outcome) {
-        self.assemble_at_rest(sketch);
-        self.read_at_rest(sketch, into, Settled::AtRest, 0);
+        self.describe(sketch, into, Settled::AtRest, 0);
     }
 
     /// Assemble the sketch as it stands with nothing held.
     ///
     /// The state every question about the sketch itself, rather than about a
-    /// drag on it, has to be asked of. [`Solver::takes`] judges the assembly
-    /// this leaves and [`Solver::read_at_rest`] describes it, so a caller that
-    /// does both pays for one assembly and reduces it once.
+    /// drag on it, has to be asked of — so [`Solver::take`] both judges what
+    /// this leaves and describes it, off the one assembly.
     ///
     /// Always at rest, whatever a run was holding. Determinacy is a property of
     /// the sketch and not of the drag being attempted on it, and a count taken
@@ -279,28 +260,72 @@ impl Solver {
         self.system.assemble_holding(sketch, &[]);
     }
 
-    /// Whether the assembly in hand is one to keep: satisfied outright, or at
-    /// least no less satisfied than it was at `was`.
+    /// Assemble the sketch at rest and write the whole of what it says about
+    /// itself into `into`.
     ///
-    /// Reads the system where it stands rather than assembling one, so the
-    /// caller says which moment is being judged — and the assembly it answers
-    /// about is the same one [`Solver::read_at_rest`] goes on to describe.
+    /// The two halves are only ever right together — what
+    /// [`Solver::read_at_rest`] reduces is whichever assembly the solver happens
+    /// to be holding, and this is what puts the sketch's own there. Every way of
+    /// describing a sketch is one of the three calls that pair them: this,
+    /// [`Solver::take`] and [`Solver::describe_as_found`].
+    fn describe(&mut self, sketch: &Sketch, into: &mut Outcome, settled: Settled, iterations: u32) {
+        self.assemble_at_rest(sketch);
+        self.read_at_rest(sketch, into, settled, iterations);
+    }
+
+    /// Assemble the sketch at rest, describe it if it is one to keep, and answer
+    /// whether it was.
     ///
-    /// Judged on the residual rather than on convergence alone, so a sketch
-    /// whose constraints already conflict can still be edited: what is refused
-    /// is a step that leaves it *less* satisfied than it was, not one that
-    /// merely fails to finish the job.
-    fn takes(&self, was: f64) -> bool {
+    /// Kept when it is satisfied outright, or at least no less satisfied than it
+    /// was at `was`. Judged on the residual rather than on convergence alone, so
+    /// a sketch whose constraints already conflict can still be edited: what is
+    /// refused is a step that leaves it *less* satisfied than it was, not one
+    /// that merely fails to finish the job.
+    ///
+    /// Judged and described off the one assembly, and never described unless it
+    /// is kept: working out what a refused attempt could still do would be
+    /// working it out for a sketch about to be put back.
+    fn take(
+        &mut self,
+        sketch: &Sketch,
+        was: f64,
+        into: &mut Outcome,
+        settled: Settled,
+        iterations: u32,
+    ) -> bool {
+        self.assemble_at_rest(sketch);
         let residual = self.system.max_residual();
-        residual <= self.tolerance || residual <= was
+        if residual > self.tolerance && residual > was {
+            return false;
+        }
+        self.read_at_rest(sketch, into, settled, iterations);
+        true
+    }
+
+    /// Describe the sketch as it was found, off the assembly set aside before
+    /// the edit rather than one built again.
+    ///
+    /// Taken back rather than rebuilt: [`Solver::spare`] holds the assembly of
+    /// the sketch as it arrived, and a refusal restores that sketch to the bit —
+    /// so reducing the one is reducing the other. The sketch must be back where
+    /// it started, which on the one path that calls this it is.
+    ///
+    /// [`Settled::Refused`] is the only part of what comes out that a report of
+    /// a sketch standing at its own solution could not say.
+    fn describe_as_found(&mut self, sketch: &Sketch, into: &mut Outcome) {
+        std::mem::swap(&mut self.system, &mut self.spare);
+        self.read_at_rest(sketch, into, Settled::Refused, 0);
     }
 
     /// Read the whole of what the assembly in hand says the sketch can do.
     ///
-    /// Carries on from [`Solver::assemble_at_rest`] rather than assembling
-    /// again, so a caller that has already judged the residual pays for the
-    /// reduction alone. Nothing may have moved the sketch in between: the rows
-    /// being reduced are the ones that assembly built.
+    /// Reduces whichever assembly the solver is holding rather than building
+    /// one, so a caller that has already judged the residual pays for the
+    /// reduction alone — and so this is never called on its own. Getting the
+    /// right assembly there is [`Solver::describe`], [`Solver::take`] and
+    /// [`Solver::describe_as_found`]'s, one of which every description goes
+    /// through; the assert below is the half of their promise that is cheap
+    /// enough to check.
     fn read_at_rest(
         &mut self,
         sketch: &Sketch,
@@ -308,6 +333,11 @@ impl Solver {
         settled: Settled,
         iterations: u32,
     ) {
+        debug_assert_eq!(
+            self.system.width(),
+            sketch.params().count(),
+            "the assembly being described is of another sketch"
+        );
         self.elimination
             .measure(sketch, &self.system, &mut into.freedoms);
         let max_residual = self.system.max_residual();
