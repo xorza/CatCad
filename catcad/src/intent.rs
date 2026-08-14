@@ -4,8 +4,9 @@ use aperture::Projection;
 use glam::Vec3;
 
 use crate::drawing::Grip;
+use crate::drawing::anchor::Anchor;
 use crate::named::Named;
-use crate::tool::{Anchor, Tool};
+use crate::tool::Tool;
 
 /// One thing the user asked for.
 ///

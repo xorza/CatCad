@@ -1,14 +1,16 @@
 //! The sketch being edited, where it sits in the world, and what it draws.
 
 use aperture::{HitAt, Motion};
-use glam::{DVec2, Vec3};
+use glam::Vec3;
 use silverpoint::{
     CircleId, Constraint, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot, SolveReport,
     Solver,
 };
 
+use crate::drawing::anchor::Anchor;
 use crate::named::Named;
-use crate::tool::Anchor;
+
+pub(crate) mod anchor;
 
 /// A sketch, the plane it lies on, and what the last solve made of the two.
 ///
@@ -131,7 +133,7 @@ impl Drawing {
     pub(crate) fn add_point(&mut self, solver: &mut Solver, at: Anchor) {
         let plane = self.plane;
         self.solved(solver, |sketch| {
-            anchored(sketch, plane, at);
+            at.point_in(sketch, plane);
         });
     }
 
@@ -143,7 +145,7 @@ impl Drawing {
             // Both ends resolved before either is used, so an edge drawn from a
             // point back to itself is the degenerate thing the user asked for
             // rather than two points in the same place.
-            let (a, b) = (anchored(sketch, plane, from), anchored(sketch, plane, to));
+            let (a, b) = (from.point_in(sketch, plane), to.point_in(sketch, plane));
             sketch.add_segment(a, b);
         });
     }
@@ -161,10 +163,10 @@ impl Drawing {
         // and this reads the sketch as the clicks found it.
         let through = plane.flatten(self.at(rim).as_dvec3());
         self.solved(solver, |sketch| {
-            let middle = anchored(sketch, plane, center);
+            let middle = center.point_in(sketch, plane);
             let radius = (through - sketch.point(middle)).length();
             let circle = sketch.add_circle(middle, radius);
-            if let Anchor::On(point) = rim {
+            if let Some(point) = rim.point() {
                 sketch.add_constraint(Constraint::PointOnCircle { point, circle });
             }
         });
@@ -179,7 +181,7 @@ impl Drawing {
     /// pixel the first one happened to hit.
     pub(crate) fn at(&self, anchor: Anchor) -> Vec3 {
         self.plane
-            .point(on_sketch(&self.sketch, self.plane, anchor))
+            .point(anchor.on_sketch(&self.sketch, self.plane))
             .as_vec3()
     }
 
@@ -188,12 +190,7 @@ impl Drawing {
     /// Bare plane is always somewhere; a point taken back by an undo is not —
     /// see [`Drawing::holds`].
     pub(crate) fn holds_anchor(&self, anchor: Anchor) -> bool {
-        match anchor {
-            Anchor::On(id) => self.holds(id),
-            Anchor::OnSegment { segment, .. } => self.holds(segment),
-            Anchor::OnCircle { circle, .. } => self.holds(circle),
-            Anchor::At(_) => true,
-        }
+        anchor.built_on().is_none_or(|named| self.holds(named))
     }
 
     /// What the last solve made of it.
@@ -375,77 +372,6 @@ impl Revision {
 /// Settled once, when the press lands. Where on a primitive it was grabbed is
 /// what tells moving a circle from resizing it, and asking again mid-drag
 /// would be asking of geometry that has since moved.
-/// Where on the sketch `anchor` names — *on* whatever it landed on, not merely
-/// near it.
-///
-/// The pointer reaches a few pixels and a constraint is exact, so a click that
-/// lit an edge is a little off the edge. Which of the two moves to close that
-/// gap is the whole of what this decides: snapping the click onto the edge
-/// makes it the new point, and leaves the drawing that was already there
-/// exactly where it stood. Left unsnapped, the solve would answer the same
-/// constraint by moving whichever geometry *could* move — nudging a free edge
-/// to meet the cursor, which is the opposite of what clicking on it means.
-fn on_sketch(sketch: &Sketch, plane: Plane, anchor: Anchor) -> DVec2 {
-    match anchor {
-        Anchor::On(id) => sketch.point(id),
-        Anchor::OnSegment { segment, at } => {
-            let edge = sketch.segment(segment);
-            let (from, along) = (
-                sketch.point(edge.a),
-                sketch.point(edge.b) - sketch.point(edge.a),
-            );
-            let click = plane.flatten(at.as_dvec3());
-            // The foot of the perpendicular, on the edge's own infinite line —
-            // which is what `PointOnSegment` says and all it says. An edge whose
-            // ends have met has no line to speak of, and one of them will do.
-            let reach = along.length_squared();
-            if reach > 0.0 {
-                from + along * ((click - from).dot(along) / reach)
-            } else {
-                from
-            }
-        }
-        Anchor::OnCircle { circle, at } => {
-            let ring = sketch.circle(circle);
-            let middle = sketch.point(ring.center);
-            let click = plane.flatten(at.as_dvec3());
-            // Straight out from the centre through the click. A click *at* the
-            // centre points nowhere, so any direction will do — what matters is
-            // landing on the rim.
-            middle + (click - middle).normalize_or(DVec2::X) * ring.radius
-        }
-        Anchor::At(world) => plane.flatten(world.as_dvec3()),
-    }
-}
-
-/// The point `anchor` names, made where it names bare plane and held to
-/// whatever else it names.
-///
-/// A free fn rather than a method, because it is wanted inside the closure the
-/// edit runs in: the drawing has lent its sketch out for the length of that,
-/// and cannot be asked anything while it is gone.
-fn anchored(sketch: &mut Sketch, plane: Plane, anchor: Anchor) -> PointId {
-    // Already a point, so there is nothing to make and nothing to say: two
-    // pieces of geometry sharing one point are held together by being the same
-    // point, which no constraint could state more strongly.
-    if let Anchor::On(id) = anchor {
-        return id;
-    }
-    // On what it landed on, so the constraint below is satisfied the moment it
-    // is stated and the solve that follows has nothing to negotiate.
-    let point = sketch.add_point(on_sketch(sketch, plane, anchor));
-    match anchor {
-        Anchor::OnSegment { segment, .. } => {
-            sketch.add_constraint(Constraint::PointOnSegment { point, segment });
-        }
-        Anchor::OnCircle { circle, .. } => {
-            sketch.add_constraint(Constraint::PointOnCircle { point, circle });
-        }
-        Anchor::On(_) | Anchor::At(_) => {}
-    }
-    point
-}
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Grip {
     /// The point itself.

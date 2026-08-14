@@ -10,13 +10,14 @@ use palantir::{
 };
 
 use crate::document::Document;
+use crate::drawing::anchor::Anchor;
 use crate::drawing::{Grip, Revision};
 use crate::intent::{Intent, Intents};
 use crate::named::{Named, Names};
 use crate::paint;
 use crate::preview::{Ends, Preview};
 use crate::selection::Selection;
-use crate::tool::{Anchor, Tool};
+use crate::tool::Tool;
 
 /// Radians of orbit per logical pixel of drag.
 const ORBIT_RATE: f32 = 0.008;

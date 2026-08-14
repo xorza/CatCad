@@ -1,36 +1,6 @@
 //! What the pointer is holding, and so what a click in the viewport means.
 
-use glam::Vec3;
-use silverpoint::{CircleId, PointId, SegmentId};
-
-/// Where a click a tool can build from landed, and what that ties it to.
-///
-/// The difference between a sketch that is connected and one that merely looks
-/// it. Whatever a click lands on, the geometry built from it is *held* there:
-/// on a point, by being that point; on an edge or a rim, by a constraint that
-/// keeps it there however either is dragged afterwards. Only a click on bare
-/// plane leaves something free.
-///
-/// That is what makes a click on something already drawn worth more than a
-/// click beside it, and why a tool takes one rather than putting itself down.
-///
-/// World positions rather than places on the plane, like every other intent
-/// that names somewhere: what the pointer resolves is a ray against a motion,
-/// and where that lands on the *sketch* is the drawing's to say.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Anchor {
-    /// A point already drawn, which whatever is built will share. The strongest
-    /// tie there is, and the only one that needs no constraint to say so.
-    On(PointId),
-    /// An edge, at this point along it. A point goes here and is held to the
-    /// edge's line.
-    OnSegment { segment: SegmentId, at: Vec3 },
-    /// A circle's rim, at this point around it. A point goes here and is held
-    /// to the circumference.
-    OnCircle { circle: CircleId, at: Vec3 },
-    /// Bare plane, in world space. Nothing to hold to, so nothing holds it.
-    At(Vec3),
-}
+use crate::drawing::anchor::Anchor;
 
 /// The tool in hand, and how far through it is.
 ///
