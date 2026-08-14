@@ -1,8 +1,8 @@
 //! One pipeline, the buffers it draws from, and how one is built.
 
 use crate::renderer::band;
-use crate::renderer::batch::MeshData;
-use crate::renderer::record::BatchRecord;
+use crate::renderer::cpu::Triangles;
+use crate::renderer::record::Record;
 use crate::renderer::retained::Retained;
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 
@@ -38,7 +38,7 @@ pub(super) struct Pipelines<'a> {
 }
 
 impl Pipelines<'_> {
-    pub(super) fn build<R: BatchRecord>(&self, spec: PassSpec) -> Pass {
+    pub(super) fn build<R: Record>(&self, spec: PassSpec) -> Pass {
         let () = R::LAYOUT_SPANS_STRUCT;
         let compilation_options = wgpu::PipelineCompilationOptions {
             constants: &OVERRIDES,
@@ -137,25 +137,25 @@ impl Pass {
         }
     }
 
-    /// Refill from a mesh batch: its own triangle list, drawn once.
+    /// Refill from the flattened solids: one triangle list, drawn once.
     pub(super) fn upload_mesh(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        data: &MeshData,
+        triangles: &Triangles,
     ) {
         self.records
-            .write(device, queue, bytemuck::cast_slice(&data.vertices));
+            .write(device, queue, bytemuck::cast_slice(&triangles.vertices));
         self.indices
-            .write(device, queue, bytemuck::cast_slice(&data.indices));
-        self.index_count = data.indices.len() as u32;
+            .write(device, queue, bytemuck::cast_slice(&triangles.indices));
+        self.index_count = triangles.indices.len() as u32;
         self.instances = 1;
     }
 
     /// Refill from overlay instances, every one of them drawn through the
     /// triangle list this pass was built holding — which is why only the
     /// count of instances moves.
-    pub(super) fn upload_instances<R: BatchRecord>(
+    pub(super) fn upload_instances<R: Record>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -166,7 +166,7 @@ impl Pass {
         self.instances = records.len() as u32;
     }
 
-    /// Draw, or do nothing while the pass has nothing in it. An emptied batch
+    /// Draw, or do nothing while the pass has nothing in it. An emptied pass
     /// keeps its buffer — the point of retaining one is not to give it back.
     pub(super) fn draw(&self, pass: &mut wgpu::RenderPass<'_>) {
         let (Some(records), Some(indices)) = (self.records.buffer(), self.indices.buffer()) else {

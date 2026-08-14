@@ -2,7 +2,7 @@
 
 use crate::overlay::Overlay;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::batch::{Rebuilt, Records};
+use crate::renderer::cpu::{Rebuilt, Records};
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{CurveInstance, GpuVertex, PointInstance, RingInstance};
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
@@ -102,17 +102,17 @@ impl Attachments {
 /// The two passes one overlay kind is drawn through: its own, and the same
 /// pipeline again holding only what a caller has singled out.
 ///
-/// Paired for the reason [`Records`] pairs the buffers that feed them — the two
-/// are built together, uploaded together and drawn one after the other, and
-/// `sharing` already makes the second the first's pipeline with a vertex buffer
-/// of its own.
+/// Paired for the reason [`Records`] pairs the buffers that feed them, and named
+/// for the same two halves — the two are built together, uploaded together and
+/// drawn one after the other, and `sharing` already makes the second the first's
+/// pipeline with a vertex buffer of its own.
 #[derive(Debug)]
-pub(super) struct GpuBatch {
+pub(super) struct Passes {
     pub(super) ordinary: Pass,
     pub(super) lit: Pass,
 }
 
-impl GpuBatch {
+impl Passes {
     fn new(ordinary: Pass, lit: &'static str) -> Self {
         Self {
             lit: ordinary.sharing(lit),
@@ -125,15 +125,15 @@ impl GpuBatch {
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        batch: &Records<O>,
+        records: &Records<O>,
         rebuilt: Rebuilt,
     ) {
-        if rebuilt.instances {
+        if rebuilt.ordinary {
             self.ordinary
-                .upload_instances(device, queue, &batch.instances);
+                .upload_instances(device, queue, &records.ordinary);
         }
         if rebuilt.lit {
-            self.lit.upload_instances(device, queue, &batch.lit);
+            self.lit.upload_instances(device, queue, &records.lit);
         }
     }
 }
@@ -142,9 +142,9 @@ impl GpuBatch {
 #[derive(Debug)]
 pub(super) struct Gpu {
     pub(super) meshes: Pass,
-    pub(super) curves: GpuBatch,
-    pub(super) rings: GpuBatch,
-    pub(super) points: GpuBatch,
+    pub(super) curves: Passes,
+    pub(super) rings: Passes,
+    pub(super) points: Passes,
     pub(super) uniforms: wgpu::Buffer,
     pub(super) bind_group: wgpu::BindGroup,
     pub(super) attachments: Option<Attachments>,
@@ -226,7 +226,7 @@ impl Gpu {
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
         });
-        let curves = GpuBatch::new(
+        let curves = Passes::new(
             pipelines.build::<CurveInstance>(PassSpec {
                 name: "curve",
                 records_label: "aperture.curves.instances",
@@ -237,7 +237,7 @@ impl Gpu {
             }),
             "aperture.curves.highlighted",
         );
-        let rings = GpuBatch::new(
+        let rings = Passes::new(
             pipelines.build::<RingInstance>(PassSpec {
                 name: "ring",
                 records_label: "aperture.rings.instances",
@@ -248,7 +248,7 @@ impl Gpu {
             }),
             "aperture.rings.highlighted",
         );
-        let points = GpuBatch::new(
+        let points = Passes::new(
             pipelines.build::<PointInstance>(PassSpec {
                 name: "point",
                 records_label: "aperture.points.instances",

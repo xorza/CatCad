@@ -1,6 +1,6 @@
-//! The wgpu half: flattens a scene into one world-space triangle batch and two
-//! instanced overlay batches, and draws them into the off-screen target
-//! palantir hands over each frame.
+//! The wgpu half: flattens a scene into one world-space triangle list and three
+//! instanced overlay buffers, and draws them into the off-screen target palantir
+//! hands over each frame.
 //!
 //! Meshes ship a vertex apiece; a stroke or a marker ships once and the vertex
 //! shader builds its four corners, since the corners differed only in ways the
@@ -19,9 +19,9 @@ use glam::UVec2;
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint};
 
 pub(crate) mod band;
-pub(crate) mod batch;
 #[cfg(feature = "bench")]
 pub(crate) mod bench;
+pub(crate) mod cpu;
 pub(crate) mod gpu;
 pub(crate) mod pass;
 pub(crate) mod record;
@@ -29,17 +29,16 @@ pub(crate) mod retained;
 pub(crate) mod target;
 pub(crate) mod uniforms;
 
-use crate::renderer::batch::{Batches, Dirty, Refreshed};
+use crate::renderer::cpu::{Cpu, Owed};
 use crate::renderer::gpu::{Attachments, Gpu};
 use crate::renderer::uniforms::Uniforms;
 
-/// A GPU buffer that outlives the data in it.
+/// A scene, where it is looked at from, and the two mirrors of it that get
+/// drawn.
 ///
-/// Written in place for as long as what arrives still fits, which is what stops
-/// an edit discarding and reallocating a whole batch to move one vertex.
-///
-/// Absent until something is written: wgpu rejects a zero-sized buffer, and a
-/// pass can go a whole run with nothing to draw.
+/// Nothing is uploaded when it is edited. An edit marks only what it touched,
+/// and the next paint flattens and uploads only that — which is what lets a drag
+/// that moves one marker leave every triangle in the model alone.
 #[derive(Debug)]
 pub struct Renderer {
     scene: Scene,
@@ -52,8 +51,13 @@ pub struct Renderer {
     /// At most one entry per tag, which is what lets a lookup stop at the
     /// first match rather than having to find the last.
     highlights: Vec<Lit>,
-    batches: Batches,
-    dirty: Dirty,
+    /// Whether *which* primitives are lit has changed since the last refresh.
+    ///
+    /// The renderer's own flag rather than one of `cpu`'s, because it is the one
+    /// edit that leaves every batch in the scene untouched: a pointer crossing a
+    /// drawing relights it without moving anything in it.
+    relight: bool,
+    cpu: Cpu,
     gpu: Option<Gpu>,
 }
 
@@ -65,8 +69,8 @@ impl Renderer {
             scene,
             camera: Camera::default(),
             highlights: Vec::new(),
-            batches: Batches::default(),
-            dirty: Dirty::all(),
+            relight: true,
+            cpu: Cpu::default(),
             gpu: None,
         }
     }
@@ -86,51 +90,55 @@ impl Renderer {
 
     /// Edit the scene's objects, re-uploading the batch on the next paint.
     pub fn objects_mut(&mut self) -> &mut Batch<Object> {
-        self.dirty.meshes = true;
+        self.cpu.meshes.dirty = true;
         &mut self.scene.objects
     }
 
     /// Edit the scene's curves, re-uploading the batch on the next paint.
     pub fn curves_mut(&mut self) -> &mut Batch<Curve> {
-        self.batches.curves.dirty = true;
+        self.cpu.curves.dirty = true;
         &mut self.scene.curves
     }
 
     /// Edit the scene's rings, re-uploading the batch on the next paint.
     pub fn rings_mut(&mut self) -> &mut Batch<Ring> {
-        self.batches.rings.dirty = true;
+        self.cpu.rings.dirty = true;
         &mut self.scene.rings
     }
 
     /// Edit the scene's markers, re-uploading the batch on the next paint.
     pub fn points_mut(&mut self) -> &mut Batch<Point> {
-        self.batches.points.dirty = true;
+        self.cpu.points.dirty = true;
         &mut self.scene.points
     }
 
     /// Edit all three overlay batches at once, re-uploading them on the next
     /// paint. See [`Scene::overlays_mut`].
+    ///
+    /// The objects are deliberately out of reach. Lending them out would mark
+    /// the meshes for re-flattening, and this is what a caller redrawing a
+    /// drawing calls every frame.
     pub fn overlays_mut(&mut self) -> Overlays<'_> {
-        self.batches.curves.dirty = true;
-        self.batches.rings.dirty = true;
-        self.batches.points.dirty = true;
+        self.cpu.curves.dirty = true;
+        self.cpu.rings.dirty = true;
+        self.cpu.points.dirty = true;
         self.scene.overlays_mut()
     }
 
     /// Draw everything named by `lit.tag` a second time, in `lit.look`, over
     /// the top of its ordinary self — replacing whatever look that tag had.
     ///
-    /// Only the highlight batches are rebuilt; the scene's own are untouched,
-    /// so this costs nothing proportional to the scene. Nor does re-asking for
-    /// a look already in force, which is what lets a caller drive this from a
-    /// pointer that has not moved.
+    /// Only the `lit` records are rebuilt; the scene's own batches are
+    /// untouched, so this costs nothing proportional to the scene. Nor does
+    /// re-asking for a look already in force, which is what lets a caller drive
+    /// this from a pointer that has not moved.
     pub fn highlight(&mut self, lit: Lit) {
         match self.highlights.iter_mut().find(|had| had.tag == lit.tag) {
             Some(had) if *had == lit => return,
             Some(had) => *had = lit,
             None => self.highlights.push(lit),
         }
-        self.dirty.highlights = true;
+        self.relight = true;
     }
 
     /// Light `lit` and nothing else, dropping whatever was lit before.
@@ -162,7 +170,7 @@ impl Renderer {
         }
         self.highlights.clear();
         self.highlights.extend_from_slice(lit);
-        self.dirty.highlights = true;
+        self.relight = true;
     }
 
     /// Drop every highlight, leaving the scene drawn as nothing but itself.
@@ -175,27 +183,28 @@ impl Renderer {
             return;
         }
         self.highlights.clear();
-        self.dirty.highlights = true;
+        self.relight = true;
     }
 
-    /// Bring every overlay batch up to date, and say what each now owes the
-    /// GPU.
+    /// Bring the CPU mirror up to date with the scene, and say what that now
+    /// owes the GPU.
     ///
     /// `relight` is a change of *which* primitives are lit, which can happen
     /// with the scene untouched — a pointer crossing a drawing does exactly
-    /// that. Each batch also answers for its own edits, so a marker moving
-    /// leaves the strokes and rims alone.
-    fn refresh_overlays(&mut self, relight: bool) -> Refreshed {
+    /// that. Each kind also answers for its own edits, so a marker moving leaves
+    /// the strokes, the rims and the solids alone.
+    fn refresh(&mut self, relight: bool) -> Owed {
         let Self {
             scene,
             highlights,
-            batches,
+            cpu,
             ..
         } = self;
-        Refreshed {
-            curves: batches.curves.refresh(&scene.curves, highlights, relight),
-            rings: batches.rings.refresh(&scene.rings, highlights, relight),
-            points: batches.points.refresh(&scene.points, highlights, relight),
+        Owed {
+            meshes: cpu.meshes.refresh(&scene.objects),
+            curves: cpu.curves.refresh(&scene.curves, highlights, relight),
+            rings: cpu.rings.refresh(&scene.rings, highlights, relight),
+            points: cpu.points.refresh(&scene.points, highlights, relight),
         }
     }
 }
@@ -203,7 +212,7 @@ impl Renderer {
 impl GpuPaint for Renderer {
     fn init(&mut self, ctx: &GpuInitCtx<'_>) {
         // Re-runs whenever palantir reclaims the view's target. The pipelines
-        // and the uploaded batches both outlive that, so build once.
+        // and the uploaded buffers both outlive that, so build once.
         if self.gpu.is_none() {
             self.gpu = Some(Gpu::new(ctx.device, ctx.target_format));
         }
@@ -212,29 +221,25 @@ impl GpuPaint for Renderer {
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {
         let size = ctx.size_px.max(UVec2::ONE);
         let uniforms = Uniforms::of(&self.camera, Viewport::new(size), ctx.raster_scale);
-        // Refilled before the GPU is borrowed, since both want `self`. Each
-        // batch answers for itself, so a hover over a marker no longer rebuilds
-        // the highlights of the strokes and rims it passed over.
-        let dirty = std::mem::take(&mut self.dirty);
-        if dirty.meshes {
-            self.batches.meshes.flatten(&self.scene.objects);
-        }
-        let rebuilt = self.refresh_overlays(dirty.highlights);
+        // Refilled before the GPU is borrowed, since both want `self`. Each kind
+        // answers for itself, so a hover over a marker no longer rebuilds the
+        // highlights of the strokes and rims it passed over.
+        let relight = std::mem::take(&mut self.relight);
+        let owed = self.refresh(relight);
 
-        // Split so the batches and the GPU are borrowed apart: the uploads
-        // read one while writing the other.
-        let Self { batches, gpu, .. } = self;
+        // Split so the two mirrors are borrowed apart: the uploads read one
+        // while writing the other.
+        let Self { cpu, gpu, .. } = self;
         let gpu = gpu.as_mut().expect("init runs before paint");
-        if dirty.meshes {
-            gpu.meshes
-                .upload_mesh(ctx.device, ctx.queue, &batches.meshes);
+        if owed.meshes {
+            gpu.meshes.upload_mesh(ctx.device, ctx.queue, &cpu.meshes);
         }
         gpu.curves
-            .upload(ctx.device, ctx.queue, &batches.curves, rebuilt.curves);
+            .upload(ctx.device, ctx.queue, &cpu.curves, owed.curves);
         gpu.rings
-            .upload(ctx.device, ctx.queue, &batches.rings, rebuilt.rings);
+            .upload(ctx.device, ctx.queue, &cpu.rings, owed.rings);
         gpu.points
-            .upload(ctx.device, ctx.queue, &batches.points, rebuilt.points);
+            .upload(ctx.device, ctx.queue, &cpu.points, owed.points);
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
         }
@@ -253,7 +258,7 @@ impl GpuPaint for Renderer {
         // Overlays after solids: all three write depth, so what hides what is
         // the depth test's answer either way, and this order keeps the
         // pipeline switch to one per pass.
-        // Reached through rather than looped over a batch at a time: the
+        // Reached through rather than looped over a kind at a time: the
         // highlights go last as a group, so one reads over anything it doubles
         // whatever kind that is, and not merely over its own kind.
         for layer in [

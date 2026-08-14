@@ -7,12 +7,12 @@
 //! | step | measures | limit |
 //! |---|---|---|
 //! | `nearest-hit` | what is under the cursor, answered with one hit | strict zero |
-//! | `flatten-highlights` | rebuilding the highlight batches, which a hover does every frame | strict zero |
-//! | `flatten-batches` | re-flattening every scene batch, which only a scene edit does | strict zero |
+//! | `flatten-highlights` | rebuilding the `lit` records, which a hover does every frame | strict zero |
+//! | `flatten-scene` | re-flattening every kind from the scene, which only a scene edit does | strict zero |
 //!
 //! `nearest-hit` and `flatten-highlights` are the two a hover pays every
 //! frame, and both are strict zero — so pointing at the drawing costs the heap
-//! nothing at all. `flatten-batches` runs only on a frame where a batch is
+//! nothing at all. `flatten-scene` runs only on a frame where something is
 //! dirty, but it is the one that scales with the model, so it is worth
 //! watching.
 //!
@@ -64,8 +64,8 @@ use std::rc::Rc;
 /// a `CommandBuffer`, the queue's in-flight bookkeeping and per-pass scratch
 /// inside `wgpu_hal`, and beginning a render pass allocates again — none of it
 /// ours, and none of it reachable from here. Aperture's own contribution to a
-/// still frame is zero: every batch is retained, so a frame with nothing dirty
-/// builds nothing.
+/// still frame is zero: every record buffer is retained, so a frame with
+/// nothing dirty builds nothing.
 ///
 /// So this gate catches *drift* rather than presence. If a wgpu or palantir
 /// upgrade legitimately moves the baseline, bump it; otherwise it has caught
@@ -240,8 +240,8 @@ pub fn alloc_bench() {
         black_box(scene.nearest(Aim::new(&camera(), ON_THE_DRAWING, viewport, 6.0)));
     });
 
-    // What a hover costs the renderer: the lit set changes, so the highlight
-    // batches are rebuilt while the scene's own are left alone.
+    // What a hover costs the renderer: the lit set changes, so the `lit` records
+    // are rebuilt while the ordinary ones are left alone.
     let mut renderer = Renderer::new(scene);
     let mut lit = 0u64;
     bench.step("flatten-highlights", 0.0, || {
@@ -250,17 +250,17 @@ pub fn alloc_bench() {
             tag: Tag::new(lit),
             look: Highlight::new(Vec3::Y),
         });
-        black_box(renderer.refresh_overlays(true));
+        black_box(renderer.refresh(true));
     });
 
-    // What a scene edit costs: every batch re-flattened from the scene.
-    bench.step("flatten-batches", 0.0, || {
-        renderer.batches.meshes.flatten(&renderer.scene.objects);
-        renderer.batches.curves.dirty = true;
-        renderer.batches.rings.dirty = true;
-        renderer.batches.points.dirty = true;
-        black_box(renderer.refresh_overlays(false));
-        black_box(&renderer.batches);
+    // What a scene edit costs: every kind re-flattened from the scene.
+    bench.step("flatten-scene", 0.0, || {
+        renderer.cpu.meshes.dirty = true;
+        renderer.cpu.curves.dirty = true;
+        renderer.cpu.rings.dirty = true;
+        renderer.cpu.points.dirty = true;
+        black_box(renderer.refresh(false));
+        black_box(&renderer.cpu);
     });
 
     paint(&mut bench);

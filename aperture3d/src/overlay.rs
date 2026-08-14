@@ -23,10 +23,10 @@ pub(crate) trait Overlay {
 
     /// How many records it ships.
     ///
-    /// Known before the walk, so a batch takes the room for a whole scene in
-    /// one go. This is where the three stop agreeing: a stroke ships one record
-    /// per segment, where a rim and a marker ship one apiece however large they
-    /// are drawn.
+    /// Known before the walk, so the record buffer takes the room for a whole
+    /// scene in one go. This is where the three stop agreeing: a stroke ships
+    /// one record per segment, where a rim and a marker ship one apiece however
+    /// large they are drawn.
     fn record_count(&self) -> usize;
 
     /// The records themselves, in the order they are drawn.

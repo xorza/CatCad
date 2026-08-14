@@ -54,7 +54,7 @@ impl Look {
 /// and all three inherit it.
 ///
 /// [`Styled`]: crate::styled::Styled
-pub(crate) trait Instance: BatchRecord {
+pub(crate) trait Instance: Record {
     fn look_mut(&mut self) -> &mut Look;
 
     /// Drawn again in `look`, over the top of its ordinary self.
@@ -174,7 +174,7 @@ impl Instance for PointInstance {
     }
 }
 
-/// A record the renderer batches and uploads: one per vertex for modelled
+/// A record the renderer ships in a vertex buffer: one per vertex for modelled
 /// geometry, one per primitive for the overlays, which build their own
 /// corners.
 ///
@@ -182,7 +182,7 @@ impl Instance for PointInstance {
 /// evaluated per implementor, so putting records behind `dyn` to spare the
 /// renderer naming each kind would drop that check without a word — which is
 /// why `paint` names three and stops there.
-pub(crate) trait BatchRecord: bytemuck::Pod {
+pub(crate) trait Record: bytemuck::Pod {
     /// Whether the buffer advances per vertex or per instance.
     const STEP_MODE: wgpu::VertexStepMode;
 
@@ -216,13 +216,13 @@ pub(crate) trait BatchRecord: bytemuck::Pod {
     };
 }
 
-impl BatchRecord for GpuVertex {
+impl Record for GpuVertex {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Vertex;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] =
         &wgpu::vertex_attr_array![0 => Float32x3, 1 => Float32x3, 2 => Float32x3];
 }
 
-impl BatchRecord for CurveInstance {
+impl Record for CurveInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32x3,
@@ -230,14 +230,14 @@ impl BatchRecord for CurveInstance {
     ];
 }
 
-impl BatchRecord for PointInstance {
+impl Record for PointInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32, 3 => Float32, 4 => Float32x3
     ];
 }
 
-impl BatchRecord for RingInstance {
+impl Record for RingInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32,
