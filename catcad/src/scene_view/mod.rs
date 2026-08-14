@@ -57,7 +57,8 @@ const SELECTED: Highlight = Highlight {
 
 /// Where the pointer is over the view, and the viewport that measures it.
 ///
-/// `pointer_local` is already what [`Scene::nearest`] asks for — logical
+/// `pointer_local` is already what [`Scene::nearest`](aperture::Scene::nearest)
+/// asks for — logical
 /// pixels from the widget's own top-left — so nothing is converted. It is
 /// measured against `layout_rect` rather than the visible `rect`, and the
 /// viewport is built from that same rect, or the two would disagree the moment

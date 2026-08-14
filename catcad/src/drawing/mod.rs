@@ -109,7 +109,7 @@ impl Drawing {
     ///
     /// It ought to have nothing to do. What is added arrives already satisfying
     /// what it states — a point put on an edge is *placed* on the edge, by
-    /// [`on_sketch`] — and what was there was satisfied before, so the solve
+    /// [`Anchor::on_sketch`] — and what was there was satisfied before, so the solve
     /// takes no step and nothing moves. That is what a solve is for here: it is
     /// the check, not the fix. A future addition that could not place itself
     /// exactly would be settled by it, and until then it costs one assembly to

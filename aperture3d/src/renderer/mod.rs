@@ -85,8 +85,8 @@ impl Renderer {
 
     /// Edit the scene, re-uploading on the next paint whatever was touched.
     ///
-    /// One door rather than one per batch, because each [`Batch`] says for
-    /// itself what was written to it — so a caller handed the whole scene and
+    /// One door rather than one per batch, because each [`Batch`](crate::Batch)
+    /// says for itself what was written to it — so a caller handed the whole scene and
     /// moving one marker pays for one marker, and nothing here has to guess from
     /// which accessor was called what the caller was about to do.
     pub fn scene_mut(&mut self) -> &mut Scene {
