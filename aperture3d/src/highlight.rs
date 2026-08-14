@@ -29,6 +29,11 @@ pub struct Highlight {
 
 impl Highlight {
     /// A wider, brighter version of the primitive, one step further forward.
+    ///
+    /// Three fields, and a builder for each, so the two that a caller has not
+    /// wanted yet are still reachable the way the one it does is. They are sugar
+    /// over public fields rather than capability, which is why they cost nothing
+    /// to keep and would be an odd gap to leave.
     pub fn new(color: Vec3) -> Self {
         Self {
             color,
