@@ -134,9 +134,9 @@ fn a_removed_points_parameters_stay_put_and_never_move() {
     sketch.write_params(&mut params);
     assert_eq!(params, [0.0, 0.0, 9.0, 9.0, 9.0]);
 
-    // A snapshot rides the same hole: it records the zero, writes the zero
-    // back, and resurrects nothing. Undoing across a removal is the one thing
-    // it must not attempt, and this is the half of that it can promise.
+    // A snapshot rides the same hole: taken with the position already freed, it
+    // puts back a sketch that still has the hole in it rather than one that has
+    // quietly closed up around it.
     let mut over_the_hole = Snapshot::default();
     sketch.snapshot_into(&mut over_the_hole);
     sketch.set_point(b, DVec2::new(1.0, 1.0));
@@ -153,15 +153,15 @@ fn a_removed_points_parameters_stay_put_and_never_move() {
     assert_eq!(sketch.points().count(), 2);
 }
 
-/// A snapshot is exact in both directions: it puts every parameter back the
-/// `f64` it was, and it compares equal to one taken of the same geometry.
+/// A snapshot is exact in both directions: it puts the sketch back exactly as
+/// it stood, and it compares equal to one taken of the same sketch.
 ///
 /// The comparison is the sharp half. It is what will tell an edit that changed
 /// something from one that changed nothing — a drag the constraints refused, an
 /// orbit that never touched the drawing — so an answer that were merely nearly
 /// equal would record edits that never happened.
 #[test]
-fn a_snapshot_puts_every_parameter_back_and_says_whether_anything_moved() {
+fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     let mut sketch = Sketch::default();
     let a = sketch.add_point(DVec2::new(1.0, 2.0));
     let b = sketch.add_point(DVec2::new(3.0, 4.0));
@@ -170,18 +170,16 @@ fn a_snapshot_puts_every_parameter_back_and_says_whether_anything_moved() {
 
     let mut was = Snapshot::default();
     sketch.snapshot_into(&mut was);
-    assert_eq!(was.at, [1.0, 2.0, 3.0, 4.0, 0.5]);
 
-    // A point, a radius, and a *pinned* point: between them everything a
-    // snapshot holds. Being fixed is a statement to the solver, so a snapshot
-    // records where the geometry is rather than what is allowed to move it.
+    // A point, a radius, and a *pinned* point: between them everything moving
+    // the geometry can reach. Being fixed is a statement to the solver rather
+    // than a position, and a pinned point still travels when it is set.
     sketch.set_point(a, DVec2::new(-7.5, 0.25));
     sketch.set_point(b, DVec2::new(3.0, 4.5));
     sketch.set_radius(circle, 2.5);
 
     let mut now = Snapshot::default();
     sketch.snapshot_into(&mut now);
-    assert_eq!(now.at, [-7.5, 0.25, 3.0, 4.5, 2.5]);
     assert_ne!(now, was, "a moved sketch snapshots as it stood before");
 
     sketch.restore(&was);
@@ -189,13 +187,29 @@ fn a_snapshot_puts_every_parameter_back_and_says_whether_anything_moved() {
     assert_eq!(sketch.point(b), DVec2::new(3.0, 4.0));
     assert_eq!(sketch.circle(circle).radius, 0.5);
 
-    // Taken again into a buffer that already held one: refilled, not appended
-    // to — appending would leave it twice the width, describing nothing.
+    // Taken again into a buffer that already held one: refilled, not added to.
     sketch.snapshot_into(&mut now);
     assert_eq!(now, was, "a restored sketch snapshots differently");
 
-    // And it knows what it no longer describes. One more point and the sketch
-    // is two parameters wider than either snapshot naming its geometry.
-    sketch.add_point(DVec2::ZERO);
+    // Adding geometry is a change like any other, and one a snapshot can put
+    // back — which is what a history needs to take a creation back. The sketch
+    // is two parameters wider while the point is there and exactly as wide as
+    // it was once it has gone, down to the handle the next point is minted
+    // with: `c` is added twice and comes out the same both times.
+    let c = sketch.add_point(DVec2::new(6.0, 7.0));
+    assert_eq!(sketch.param_count(), 7);
     assert!(!was.fits(&sketch));
+    sketch.snapshot_into(&mut now);
+    assert_ne!(now, was, "an added point snapshots as if it were not there");
+
+    sketch.restore(&was);
+    assert_eq!(sketch.param_count(), 5);
+    assert_eq!(sketch.points().count(), 2);
+    assert_eq!(sketch.add_point(DVec2::new(6.0, 7.0)), c);
+
+    // And put back again, which is the redo half: a snapshot of the wider
+    // sketch restores into the narrower one it was taken from.
+    sketch.restore(&now);
+    assert_eq!(sketch.param_count(), 7);
+    assert_eq!(sketch.point(c), DVec2::new(6.0, 7.0));
 }

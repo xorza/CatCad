@@ -8,7 +8,11 @@ use silverpoint::{Freedom, Freedoms, Plane, PointId, SolveReport, Solver};
 
 use crate::demo;
 use crate::named::Named;
+use crate::tool::Tool;
 use crate::{CatCad, Status};
+
+/// The surface every test that records frames raises the app at.
+const SIZE: UVec2 = UVec2::new(800, 600);
 
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
@@ -225,19 +229,15 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
 /// drawn.
 #[test]
 fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
-    const SIZE: UVec2 = UVec2::new(800, 600);
-
     let mut app = CatCad::build();
     let mut harness = UiHarness::new(SIZE);
     frame(&mut app, &mut harness);
 
     // The far end of the arm, which is drawn last and is the freest thing the
-    // demo has — aimed at through the very camera the frame was drawn with.
+    // demo has.
     let at_rest = markers(&app);
     let world = *at_rest.last().expect("the demo draws markers");
-    let viewport = Viewport::new(SIZE);
-    let clip = app.camera_mut().view_proj(viewport.aspect()) * world.extend(1.0);
-    let cursor = viewport.pixel_from_clip(clip);
+    let cursor = cursor_on(&mut app, world);
 
     // Press, travel past palantir's four-pixel latch, release.
     harness.move_to(cursor);
@@ -283,12 +283,135 @@ fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
     assert_eq!(markers(&app), dragged);
 }
 
+/// The whole of the point tool, through the real application: pressed on the
+/// toolbar, clicked into the viewport, and taken back with the keyboard.
+///
+/// The undo is the half worth the frames. Taking back a drag puts geometry
+/// where it was; taking back a *creation* has to make geometry that exists stop
+/// existing, which a snapshot of the solver's parameter vector could not
+/// express — it names parameters by position, so one taken before the point was
+/// added names the wrong ones after it. What this pins is that the whole path
+/// agrees on that: the sketch comes back the width it was, the freedoms are
+/// counted again over what is left, and the picture on screen is relaid out.
+#[test]
+fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
+    // The middle of the toolbar's one button. The bar hugs its contents and is
+    // centred on the top edge, so the button straddles the middle of the window
+    // a dozen pixels down, and is about thirty tall — this has room either
+    // side, and the assertion under each press is what says the aim landed.
+    const POINT_BUTTON: Vec2 = Vec2::new(400.0, 26.0);
+
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+    let at_rest = markers(&app);
+    assert_eq!(app.tool, Tool::Select, "the app opened with a tool in hand");
+
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.tool,
+        Tool::Point,
+        "the toolbar did not arm the point tool"
+    );
+
+    // Aimed at the far end of the arm, which lies on the sketch plane as every
+    // point of the drawing does — so the ray through the pixel showing it meets
+    // the plane exactly there, and where the new point belongs is known rather
+    // than read back off the thing that placed it.
+    let wrist = *at_rest.last().expect("the demo draws markers");
+    let cursor = cursor_on(&mut app, wrist);
+
+    harness.click_at(cursor);
+    frame(&mut app, &mut harness);
+    let placed = markers(&app);
+    assert_eq!(placed.len(), at_rest.len() + 1, "the click placed nothing");
+    assert!(
+        placed
+            .last()
+            .expect("a point was just added")
+            .abs_diff_eq(wrist, 1e-3),
+        "placed at {:?} rather than under the cursor at {wrist:?}",
+        placed.last()
+    );
+    // A free point is two more things the drawing can decide, and the status
+    // line is where that shows — so the freedoms were measured again over the
+    // sketch as it now stands rather than carried over from before.
+    assert!(
+        app.status()
+            .to_string()
+            .starts_with("solved · 7 dof · 0 redundant"),
+        "the demo's five degrees of freedom did not become seven: {}",
+        app.status()
+    );
+
+    // Taken back: the point is gone, and so are the freedoms it brought.
+    harness.set_modifiers(Modifiers {
+        ctrl: true,
+        ..Modifiers::NONE
+    });
+    harness.key(Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the point back");
+    assert!(
+        app.status()
+            .to_string()
+            .starts_with("solved · 5 dof · 0 redundant"),
+        "the drawing kept the freedoms of a point it no longer holds: {}",
+        app.status()
+    );
+
+    // And put back, which is the harder direction: the redo has to widen a
+    // sketch that has since been narrowed.
+    harness.set_modifiers(Modifiers {
+        ctrl: true,
+        shift: true,
+        ..Modifiers::NONE
+    });
+    harness.key(Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        markers(&app),
+        placed,
+        "Ctrl+Shift+Z did not put the point back"
+    );
+
+    // Escape is the way out of an armed tool that does not involve finding its
+    // button again — and the button itself is the other way, because pressing
+    // the tool in hand puts it down.
+    harness.set_modifiers(Modifiers::NONE);
+    harness.key(Key::Escape);
+    frame(&mut app, &mut harness);
+    assert_eq!(app.tool, Tool::Select, "Escape did not put the tool down");
+
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(app.tool, Tool::Point);
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.tool,
+        Tool::Select,
+        "pressing the armed tool re-armed it rather than putting it down"
+    );
+}
+
 /// One recorded frame of the real application.
 ///
 /// Both halves by argument rather than captured in a closure, so a caller can
 /// still read the app between frames.
 fn frame(app: &mut CatCad, harness: &mut UiHarness) {
     harness.frame(|ui| app.record(WindowToken(0), ui));
+}
+
+/// The cursor that aims at `world` — where it lands on screen, through the very
+/// camera the last frame was drawn with.
+///
+/// `&mut CatCad` for the camera alone, which caches the matrix it is asked for.
+fn cursor_on(app: &mut CatCad, world: Vec3) -> Vec2 {
+    let viewport = Viewport::new(SIZE);
+    let clip = app.camera_mut().view_proj(viewport.aspect()) * world.extend(1.0);
+    viewport.pixel_from_clip(clip)
 }
 
 /// Where every marker the app is drawing sits, in the order it draws them.
@@ -346,7 +469,6 @@ fn the_app_opens_looking_at_the_whole_of_what_it_draws() {
 /// the colours the same geometry is painted in, which were always at rest.
 #[test]
 fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
-    const SIZE: UVec2 = UVec2::new(800, 600);
     const AT_REST: &str = "solved · 5 dof · 0 redundant";
 
     let mut app = CatCad::build();
@@ -359,9 +481,7 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
     );
 
     let world = *markers(&app).last().expect("the demo draws markers");
-    let viewport = Viewport::new(SIZE);
-    let clip = app.camera_mut().view_proj(viewport.aspect()) * world.extend(1.0);
-    let cursor = viewport.pixel_from_clip(clip);
+    let cursor = cursor_on(&mut app, world);
 
     harness.move_to(cursor);
     frame(&mut app, &mut harness);

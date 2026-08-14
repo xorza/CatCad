@@ -2,6 +2,7 @@ use super::*;
 use crate::demo;
 use crate::history::History;
 use crate::intent::{Intent, Intents};
+use crate::tool::Tool;
 use aperture::Aim;
 use palantir::internals::UiHarness;
 use silverpoint::Solver;
@@ -17,6 +18,10 @@ struct Raised {
     intents: Intents,
     view: SceneView,
     harness: UiHarness,
+    /// What the bar would be showing as in hand. Set straight rather than
+    /// pressed, because the bar is the application's and this raises the view
+    /// alone.
+    tool: Tool,
 }
 
 impl Raised {
@@ -35,6 +40,7 @@ impl Raised {
             intents: Intents::default(),
             view,
             harness: UiHarness::new(SIZE),
+            tool: Tool::Select,
         }
     }
 
@@ -51,10 +57,11 @@ impl Raised {
             intents,
             view,
             harness,
+            tool,
         } = self;
         harness.frame(|ui| {
             intents.clear();
-            view.ask(ui, document, intents);
+            view.ask(ui, document, *tool, intents);
             history.apply(document, solver, intents);
             view.settle(document);
         });
@@ -72,11 +79,12 @@ impl Raised {
             intents,
             view,
             harness,
+            tool,
             ..
         } = self;
         harness.frame(|ui| {
             intents.clear();
-            view.ask(ui, document, intents);
+            view.ask(ui, document, *tool, intents);
         });
     }
 
@@ -482,6 +490,68 @@ fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
 
     assert_ne!(raised.camera(), camera, "a press on scenery has to orbit");
     assert_eq!(raised.markers(), before, "a pinned point was dragged");
+}
+
+/// With the point tool in hand, a click puts a point on the sketch plane where
+/// it landed — and a press that travels turns the view instead of taking hold
+/// of what it started on.
+///
+/// The two halves are one decision. The tool is in hand for the whole gesture,
+/// so what it must not do is exactly what the select tool exists to do, and the
+/// cursor here is aimed at the arm's wrist — the freest thing the demo draws,
+/// and so the one thing most likely to be picked up by mistake.
+#[test]
+fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
+    let mut raised = Raised::new();
+    raised.frame();
+    // The wrist lies on the sketch plane, like every point of the drawing, so
+    // the ray through the pixel that shows it meets the plane exactly there —
+    // which is what makes the placed point's expected position hand-known
+    // rather than whatever the picker happened to answer.
+    let wrist = raised.wrist();
+    let cursor = raised.cursor_on(wrist);
+    let before = raised.markers();
+
+    raised.tool = Tool::Point;
+    raised.harness.move_to(cursor);
+    raised.frame();
+    raised.harness.click_at(cursor);
+    raised.frame();
+
+    let placed = raised.markers();
+    assert_eq!(
+        placed.len(),
+        before.len() + 1,
+        "the click placed nothing at all"
+    );
+    let point = *placed.last().expect("a point was just added");
+    assert!(
+        point.abs_diff_eq(wrist, 1e-3),
+        "placed at {point:?} rather than under the cursor at {wrist:?}"
+    );
+    // A placement adds; it does not edit what it lands on. The point goes down
+    // free and unconstrained, so nothing the solver already settled moves.
+    assert_eq!(&placed[..before.len()], &before[..]);
+
+    // Still in hand afterwards, so a row of points is a row of clicks.
+    assert_eq!(raised.tool, Tool::Point);
+
+    // And a press that travels orbits: the drawing stays put, and the click
+    // palantir suppresses in favour of the drag places nothing on release.
+    let camera = raised.camera();
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(50.0, 0.0));
+    raised.frame();
+    raised.harness.release();
+    raised.frame();
+
+    assert_ne!(raised.camera(), camera, "an armed press has to still orbit");
+    assert_eq!(
+        raised.markers(),
+        placed,
+        "an armed press dragged the drawing, or its release placed a second point"
+    );
 }
 
 /// The camera the document holds is the one the renderer paints through.

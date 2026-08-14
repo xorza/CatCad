@@ -70,7 +70,7 @@ impl<T> Hash for Id<T> {
 }
 
 /// One position in an [`Arena`].
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 struct Slot<T> {
     /// Bumped when the value is removed, so handles minted before that stop
     /// resolving even once the position is filled again.
@@ -83,7 +83,7 @@ struct Slot<T> {
 /// Positions are reused once freed, so the store stays about as wide as what
 /// is in it. The generation is what makes reuse safe: a stale handle carries
 /// the count the position held before it was recycled, and no longer matches.
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq)]
 pub(crate) struct Arena<T> {
     slots: Vec<Slot<T>>,
     /// Positions whose value was removed. Popping one before growing is what
@@ -97,6 +97,26 @@ impl<T> Default for Arena<T> {
             slots: Vec::new(),
             free: Vec::new(),
         }
+    }
+}
+
+// Written out rather than derived, for `clone_from` alone: `derive(Clone)`
+// leaves it at the trait's default, which is `*self = source.clone()` — a fresh
+// pair of vectors every call. Both of these are cloned into a
+// [`Snapshot`](crate::Snapshot) on every frame of a drag, so the two lines
+// below are the difference between an editing gesture that reaches the heap
+// sixty times a second and one that reaches it not at all.
+impl<T: Clone> Clone for Arena<T> {
+    fn clone(&self) -> Self {
+        Self {
+            slots: self.slots.clone(),
+            free: self.free.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.slots.clone_from(&source.slots);
+        self.free.clone_from(&source.free);
     }
 }
 

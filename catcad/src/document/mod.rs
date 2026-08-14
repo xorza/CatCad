@@ -86,6 +86,7 @@ impl Document {
     pub(crate) fn apply(&mut self, solver: &mut Solver, intent: Intent) {
         match intent {
             Intent::Drag { grip, to } => self.drawing.drag_to(solver, grip, to),
+            Intent::AddPoint { at } => self.drawing.add_point(solver, at),
             Intent::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Intent::Dolly { factor } => self.camera.dolly(factor),
             Intent::Project(projection) => self.camera.projection = projection,

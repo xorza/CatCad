@@ -57,9 +57,9 @@ pub struct Solver {
     /// absolute tolerance on the geometry, not a relative one.
     pub tolerance: f64,
     work: Workspace,
-    /// Where the geometry stood before the edit being attempted, so one the
-    /// constraints cannot take can be put back. Outside [`Workspace`] because
-    /// it outlives a solve rather than serving one.
+    /// The sketch as it stood before the edit being attempted, so one the
+    /// constraints cannot take can be put back whole. Outside [`Workspace`]
+    /// because it outlives a solve rather than serving one.
     before: Snapshot,
 }
 
@@ -217,9 +217,11 @@ impl Solver {
     /// is a step that leaves the sketch *less* satisfied than it was, not one
     /// that merely fails to finish the job.
     ///
-    /// `edit` may move geometry. It may not add or remove any: what is put back
-    /// is a [`Snapshot`], and a sketch that has grown or lost a parameter is no
-    /// longer described by one taken before it did.
+    /// `edit` may move geometry. It may not add or remove any: `held` and the
+    /// residual this is judged against were both taken of the sketch as it
+    /// arrived, so an edit that changed what the sketch *is* would be settled
+    /// against a system that no longer exists. Adding geometry is
+    /// [`Solver::solve`]'s, with nothing held.
     pub fn edit_holding(
         &mut self,
         sketch: &mut Sketch,

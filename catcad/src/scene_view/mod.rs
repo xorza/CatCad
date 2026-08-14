@@ -13,6 +13,7 @@ use crate::document::Document;
 use crate::drawing::{Grip, Revision};
 use crate::intent::{Intent, Intents};
 use crate::named::{Named, Names};
+use crate::tool::Tool;
 
 /// Radians of orbit per logical pixel of drag.
 const ORBIT_RATE: f32 = 0.008;
@@ -174,15 +175,24 @@ impl SceneView {
     /// Show the view, and put what the pointer over it asks for in `intents`.
     ///
     /// Asks and does not act: `document` is read to resolve what the cursor is
-    /// aiming at and never written, so orbiting, zooming and dragging all leave
-    /// as intents. What they do is [`Document::apply`]'s, and what that leaves
-    /// is [`SceneView::settle`]'s.
+    /// aiming at and never written, so orbiting, zooming, dragging and placing
+    /// all leave as intents. What they do is [`Document::apply`]'s, and what
+    /// that leaves is [`SceneView::settle`]'s.
+    ///
+    /// `tool` is read and never written, for the same reason `document` is: what
+    /// is in hand is settled before the frame starts, by the bar that shows it.
     ///
     /// Named for that rather than for the widget it emits. A palantir `show`
     /// answers its caller with a [`Response`] and leaves the deciding to it;
     /// this reads the response itself and posts what it found, which is the
     /// asking half of a frame and not a widget at all.
-    pub(crate) fn ask(&mut self, ui: &mut Ui, document: &Document, intents: &mut Intents) {
+    pub(crate) fn ask(
+        &mut self,
+        ui: &mut Ui,
+        document: &Document,
+        tool: Tool,
+        intents: &mut Intents,
+    ) {
         // A bare pointer move only wakes a frame for a widget that asked for
         // one: palantir skips a `PointerMoved` that crosses no boundary and
         // latches no press, and a viewport filling the window has no boundary
@@ -193,14 +203,14 @@ impl SceneView {
         let paint: Rc<RefCell<dyn GpuPaint>> = self.renderer.clone();
         let response = GpuView::new(paint)
             .auto_id()
-            .sense(Sense::DRAG | Sense::SCROLL)
+            .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL)
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui);
 
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
         if matches!(response.left.phase, ButtonPhase::Down { .. }) {
-            self.gesture = self.grab(&response, document);
+            self.gesture = self.grab(&response, document, tool);
         }
         match (self.gesture, response.left.drag) {
             (Gesture::Orbit { travel: was }, Drag::Started { delta } | Drag::Active { delta }) => {
@@ -214,10 +224,12 @@ impl SceneView {
                 });
             }
             (Gesture::Move(held), Drag::Started { .. } | Drag::Active { .. }) => {
-                if let Some(to) = landing(&response, document, held) {
+                // Where the entity should end up, which is where the cursor
+                // lands plus however far off centre it was grabbed.
+                if let Some(to) = landing(&response, document, held.motion) {
                     intents.push(Intent::Drag {
                         grip: held.grip,
-                        to,
+                        to: to + held.offset,
                     });
                 }
             }
@@ -229,6 +241,17 @@ impl SceneView {
                 intents.push(Intent::Release);
             }
             _ => {}
+        }
+
+        // A click rather than a press: the tool places where the pointer let go
+        // without having travelled, so the view can still be turned with the
+        // same button while something is armed. Palantir decides which of the
+        // two a gesture was, and a drag suppresses the click it began as.
+        if tool == Tool::Point
+            && response.left.clicked()
+            && let Some(at) = landing(&response, document, document.drawing().motion())
+        {
+            intents.push(Intent::AddPoint { at });
         }
 
         // Asking whether the pointer is actually over the view is what stops
@@ -306,7 +329,13 @@ impl SceneView {
     /// else — empty space, a solid, a point the drawing pins — turns the
     /// camera. Grabbing nothing has to stay the way the view is orbited, or
     /// the pointer would lose its only way to look around.
-    fn grab(&self, response: &Response<'_>, document: &Document) -> Gesture {
+    fn grab(&self, response: &Response<'_>, document: &Document, tool: Tool) -> Gesture {
+        if tool != Tool::Select {
+            // A tool with something to put down has no business picking up what
+            // is already there. The view is still turned under it, so a point
+            // can be aimed at from wherever it needs to be seen from.
+            return Gesture::Orbit { travel: Vec2::ZERO };
+        }
         let Some(held) = Aimed::of(response)
             .filter(|_| response.hovered)
             .and_then(|aimed| {
@@ -340,19 +369,20 @@ impl SceneView {
     }
 }
 
-/// Where the cursor is asking `held`'s entity to go, or `None` if it cannot
-/// say.
+/// Where the cursor lands on `motion`, or `None` if it cannot say.
 ///
-/// A motion the cursor cannot resolve against — a plane gone edge-on — asks for
-/// nothing rather than jumping, which is what makes turning the view mid-drag
-/// survivable.
+/// A motion the cursor cannot resolve against — a plane gone edge-on — answers
+/// with nothing rather than jumping, which is what makes turning the view
+/// mid-drag survivable and what keeps a click across an edge-on sketch from
+/// putting a point somewhere nobody asked for.
 ///
-/// No `hovered` filter, unlike hovering and grabbing: a drag that outruns the
-/// view keeps hold of what it grabbed.
-fn landing(response: &Response<'_>, document: &Document, held: Held) -> Option<Vec3> {
+/// No `hovered` filter, unlike hovering and grabbing. A drag that outruns the
+/// view keeps hold of what it grabbed, and a click is already the view's by the
+/// time palantir calls it one.
+fn landing(response: &Response<'_>, document: &Document, motion: Motion) -> Option<Vec3> {
     let aim = Aimed::of(response)?;
     let ray = document.camera().ray_through(aim.cursor, aim.viewport);
-    Some(held.motion.resolve(ray)? + held.offset)
+    motion.resolve(ray)
 }
 
 #[cfg(any(test, feature = "internals"))]

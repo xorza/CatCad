@@ -80,6 +80,41 @@ impl Drawing {
         self.settled(|sketch, freedoms| solver.edit_holding(sketch, held, freedoms, edit));
     }
 
+    /// Change the sketch with `edit`, and take everything measuring what that
+    /// leaves decides.
+    ///
+    /// The other shape of edit beside [`Drawing::dragged`], and what separates
+    /// them is what the solver is asked for. A drag asks the constraints to
+    /// settle around it, so it solves; this asks nothing of them, so it only
+    /// measures — and measuring moves nothing. That is the whole of what it is
+    /// for: an edit whose result is already the answer, where a solve would be
+    /// free to wander off it.
+    fn measured(&mut self, solver: &mut Solver, edit: impl FnOnce(&mut Sketch)) {
+        self.settled(|sketch, freedoms| {
+            edit(sketch);
+            solver.measure(sketch, freedoms)
+        });
+    }
+
+    /// Put a free point on the plane, under where `world` lands on it.
+    ///
+    /// Measured rather than solved. A free point adds two parameters and no
+    /// equations, so nothing the constraints say has changed and there is
+    /// nothing for a solve to move — where a solve *may* move things, and the
+    /// demo's own hub is proof that a re-solve can find a different answer than
+    /// the one on screen. What has changed is how much the drawing is free to
+    /// do, and measuring is what says so.
+    ///
+    /// Not [`Drawing::dragged`], which is the other half of the same fact:
+    /// [`Solver::edit_holding`] settles an edit against the sketch it was
+    /// handed and refuses one that adds to it.
+    pub(crate) fn add_point(&mut self, solver: &mut Solver, world: Vec3) {
+        let at = self.plane.flatten(world.as_dvec3());
+        self.measured(solver, |sketch| {
+            sketch.add_point(at);
+        });
+    }
+
     /// What the last solve made of it.
     pub(crate) fn report(&self) -> SolveReport {
         self.report
@@ -119,20 +154,17 @@ impl Drawing {
         self.plane
     }
 
-    /// Put the drawing back the way `standing` found it.
+    /// Put the drawing back the way `snapshot` found it.
     ///
     /// Restored rather than re-solved. Solving from the restored geometry would
     /// derive the report through the one path that already produces one, but a
     /// solve is free to *move* what it is given — and an undo that landed the
-    /// drawing near where it was rather than on it would not be an undo. So the
-    /// report is carried instead, which costs forty bytes and cannot drift.
+    /// drawing near where it was rather than on it would not be an undo. So it
+    /// goes through [`Drawing::measured`] instead, which is that shape of edit
+    /// exactly: the exactness a restore promises survives it, and a step no
+    /// longer has to carry a report it would otherwise be storing twice over.
     pub(crate) fn restore(&mut self, solver: &mut Solver, snapshot: &Snapshot) {
-        self.sketch.restore(snapshot);
-        // Measured rather than remembered. Measuring moves nothing — it is one
-        // assembly over the geometry as it now stands — so the exactness a
-        // restore promises survives it, and a step no longer has to carry a
-        // report it would otherwise be storing twice over.
-        self.settled(|sketch, freedoms| solver.measure(sketch, freedoms));
+        self.measured(solver, |sketch| sketch.restore(snapshot));
     }
 
     /// Write the drawn primitives, and name each of them into `names`.

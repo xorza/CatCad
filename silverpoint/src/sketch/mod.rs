@@ -27,7 +27,7 @@ const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
 const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
 
 /// A point's position, and whether the solver may move it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
     pub position: DVec2,
     /// The solver leaves it where it is. Anchors the sketch so a
@@ -37,7 +37,7 @@ pub struct Point {
 
 /// A straight edge between two points. Carries no parameters of its own — it
 /// is entirely defined by its endpoints.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Segment {
     pub a: PointId,
     pub b: PointId,
@@ -45,7 +45,7 @@ pub struct Segment {
 
 /// A circle about a point. The radius is a solver parameter, so a
 /// [`Constraint::Radius`] can pin it or a tangency can drive it.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Circle {
     pub center: PointId,
     pub radius: f64,
@@ -102,12 +102,33 @@ enum Param {
 /// point in insertion order, then one radius per circle. Handles index
 /// straight into it, so nothing needs to be looked up by name — see `Param`,
 /// which is where that layout is stated.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Default, PartialEq)]
 pub struct Sketch {
     points: Arena<Point>,
     segments: Arena<Segment>,
     circles: Arena<Circle>,
     constraints: Vec<Constraint>,
+}
+
+// Written out for `clone_from`, exactly as [`Arena`]'s is and for the same
+// reason — see the note there. A sketch is what a [`Snapshot`] holds, so this
+// is the call a drag makes every frame.
+impl Clone for Sketch {
+    fn clone(&self) -> Self {
+        Self {
+            points: self.points.clone(),
+            segments: self.segments.clone(),
+            circles: self.circles.clone(),
+            constraints: self.constraints.clone(),
+        }
+    }
+
+    fn clone_from(&mut self, source: &Self) {
+        self.points.clone_from(&source.points);
+        self.segments.clone_from(&source.segments);
+        self.circles.clone_from(&source.circles);
+        self.constraints.clone_from(&source.constraints);
+    }
 }
 
 impl Sketch {
@@ -220,8 +241,10 @@ impl Sketch {
     /// Counts positions rather than what is in them: a removed point keeps its
     /// two entries, so every surviving handle keeps indexing where it did.
     ///
-    /// Crate-internal: the width of that vector is the layout, and publishing
-    /// it is what [`Snapshot`] exists to avoid.
+    /// Crate-internal: the width of that vector is the layout, and a caller
+    /// that knew it would be a caller the layout could no longer be changed
+    /// under. What a caller outside wants of it, [`Snapshot`] answers without
+    /// naming a single parameter.
     pub(crate) fn param_count(&self) -> usize {
         self.radius_base() + self.circle_slot_count()
     }
@@ -375,31 +398,28 @@ impl Sketch {
         }
     }
 
-    /// Take down where the geometry stands, so it can be put back later.
+    /// Take down where the sketch stands, so it can be put back later.
     ///
     /// Fills `into` rather than returning it, so a caller keeping one across a
     /// drag refills the same buffer sixty times a second instead of being
     /// handed a new one. Whatever was in it is gone, not appended to.
     pub fn snapshot_into(&self, into: &mut Snapshot) {
-        into.at.clear();
-        self.write_params(&mut into.at);
+        into.sketch.clone_from(self);
     }
 
-    /// Put the geometry back where `snapshot` says it stood.
+    /// Put the sketch back the way `snapshot` found it.
     ///
-    /// Exact, parameter for parameter, which is what makes this an undo rather
-    /// than an approximation of one: a sketch restored and a sketch never
-    /// touched compare equal.
+    /// Exact, which is what makes this an undo rather than an approximation of
+    /// one: a sketch restored and a sketch never touched compare equal, down to
+    /// the generation on every handle — so a handle that named something before
+    /// the step names the same thing after it is taken back.
     ///
-    /// Positions and radii only. Everything else a snapshot cannot reach —
-    /// which points exist, what is pinned, what the constraints say — has to be
-    /// the same as when it was taken, and only its width is checked.
+    /// The whole sketch, not only where its geometry stood: what exists, what
+    /// is pinned, and what the constraints say all come back too. That is what
+    /// lets a step that *added* geometry be taken back at all, and it is why a
+    /// snapshot need not be the same width as what it is put into.
     pub fn restore(&mut self, snapshot: &Snapshot) {
-        debug_assert!(
-            snapshot.fits(self),
-            "this snapshot was taken of a sketch with different geometry in it"
-        );
-        self.set_params(&snapshot.at);
+        self.clone_from(&snapshot.sketch);
     }
 }
 

@@ -15,6 +15,8 @@ pub mod named;
 mod overlay;
 mod paint;
 mod scene_view;
+mod tool;
+mod toolbar;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
@@ -31,6 +33,8 @@ use crate::history::History;
 use crate::intent::{Intent, Intents};
 use crate::named::Named;
 use crate::scene_view::SceneView;
+use crate::tool::Tool;
+use crate::toolbar::Toolbar;
 
 /// Take back the last step, and put it back.
 ///
@@ -66,6 +70,12 @@ pub struct CatCad {
     /// What draws that, and what the pointer over it is in the middle of. Owns
     /// nothing the document would be saved without.
     view: SceneView,
+    /// What a click in the viewport means. Beside the document rather than in
+    /// it, like the history above: what a session is drawing *with* is not part
+    /// of what it has drawn.
+    tool: Tool,
+    /// The bar that shows the tools and picks between them.
+    toolbar: Toolbar,
 }
 
 impl CatCad {
@@ -107,18 +117,20 @@ impl CatCad {
             intents: Intents::default(),
             solver,
             view,
+            tool: Tool::default(),
+            toolbar: Toolbar::default(),
         }
     }
 
     /// Show everything this frame draws, and collect what it asks for.
     ///
-    /// Reads the document and writes only the inbox. Three sources of intent —
-    /// the keyboard, the view, and the overlay's own controls — and none of
-    /// them is allowed to act on what it asks.
+    /// Reads the document and writes only the inbox and the tool in hand. Three
+    /// sources of intent — the keyboard, the view, and the overlay's own
+    /// controls — and none of them is allowed to act on what it asks.
     fn ask(&mut self, ui: &mut Ui) {
         // Polled unconditionally rather than short-circuited: reading a chord
         // is also what subscribes it for the wake that delivers the next one,
-        // so one left unread on the frame the other fired would stop waking a
+        // so one left unread on the frame another fired would stop waking a
         // frame of its own.
         if ui.key_pressed(UNDO) {
             self.intents.push(Intent::Undo);
@@ -126,7 +138,14 @@ impl CatCad {
         if ui.key_pressed(REDO) {
             self.intents.push(Intent::Redo);
         }
-        self.view.ask(ui, &self.document, &mut self.intents);
+        // Escape puts down whatever is in hand, which is the way out of an
+        // armed tool that does not involve finding its button again. Written
+        // rather than raised as an intent — see [`Tool`].
+        if ui.escape_pressed() {
+            self.tool = Tool::Select;
+        }
+        self.view
+            .ask(ui, &self.document, self.tool, &mut self.intents);
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
@@ -137,6 +156,10 @@ impl CatCad {
             self.document.camera().projection,
             &mut self.intents,
         );
+        // Last, so it is the topmost thing in the zstack and takes its own
+        // presses. What it arms is read by the *next* frame's view, which is
+        // what keeps the press that armed a tool from also placing with it.
+        self.toolbar.show(ui, &mut self.tool);
     }
 
     /// A sketch is only as useful as it is determined, so the report reads

@@ -26,6 +26,14 @@ pub(crate) enum Intent {
         grip: Grip,
         to: Vec3,
     },
+    /// Put a free point on the drawing's plane, under this point in the world.
+    ///
+    /// Where in the world rather than where on the plane, like the drag above
+    /// and for the same reason: what the pointer resolves is a ray against a
+    /// motion, and where that lands on the *sketch* is the drawing's to say.
+    AddPoint {
+        at: Vec3,
+    },
     /// The drag let go.
     ///
     /// Changes nothing by itself — it closes the step the drag has been
@@ -53,8 +61,8 @@ impl Intent {
     /// extends the step it is recording rather than starting another.
     ///
     /// A drag is the whole of it. It arrives a frame at a time and is one thing
-    /// the user did, so sixty of them are one step back — where a dimension
-    /// typed in, or anything else that happens once, stands alone.
+    /// the user did, so sixty of them are one step back — where a point put
+    /// down, or anything else that happens once, stands alone.
     pub(crate) fn coalesces(self) -> bool {
         matches!(self, Intent::Drag { .. })
     }
