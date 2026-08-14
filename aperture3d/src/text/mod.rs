@@ -6,7 +6,7 @@ use crate::hit::{Hit, HitAt};
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Vec2, Vec3};
-use palantir::{GlyphFont, Rect, Size, TextShaper};
+use palantir::{GlyphFont, Rect, Size, TextGlyphs};
 use std::cell::Cell;
 
 /// Something written in the scene: a label on a point, a dimension on a
@@ -201,10 +201,11 @@ fn distance_to(rect: Rect, point: Vec2) -> f32 {
 /// overlay's size — a label's extent is what it will be drawn at, and how many
 /// device pixels that is belongs to whoever rasterizes it.
 ///
-/// One lease for the whole batch rather than one per run: taking one is the
-/// shaper's exclusive borrow, and a hundred labels should pay for it once.
-pub(crate) fn measure_all(texts: &[Text], shaper: &TextShaper) {
-    let mut glyphs = shaper.glyphs();
+/// Takes the caller's lease rather than the shaper, because measuring is half
+/// of laying a run out and the other half needs the same one: a lease is the
+/// shaper's exclusive borrow, so a caller that opened one to place glyphs cannot
+/// hand over a shaper for this to open another from.
+pub(crate) fn measure_all(texts: &[Text], glyphs: &mut TextGlyphs<'_>) {
     for text in texts {
         let Size { w, h } = glyphs.measure(&text.content, text.font, 1.0);
         text.extent.set(Vec2::new(w, h));

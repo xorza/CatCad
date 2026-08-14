@@ -3,7 +3,9 @@
 use crate::curve::Curve;
 use crate::highlight::Highlight;
 use crate::point::Point;
+use crate::renderer::atlas::GlyphQuad;
 use crate::ring::Ring;
+use crate::text::Text;
 use glam::Vec3;
 
 /// What every overlay record ends with, whatever shape carries it.
@@ -174,6 +176,57 @@ impl Instance for PointInstance {
     }
 }
 
+/// One glyph, shipped once. Its quad spans 0..1 either way — unlike a marker's,
+/// which is symmetric about its anchor — because a glyph hangs off the run's
+/// origin by a bearing rather than being centred on anything.
+#[repr(C)]
+#[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
+pub(crate) struct GlyphInstance {
+    /// The run's anchor in the world. Every glyph of a run carries the same
+    /// one, so the whole run keeps one depth and one place to be projected
+    /// from — a label is a thing pinned to a point, not a strip of geometry.
+    pub(super) anchor: [f32; 3],
+    /// The quad's top-left corner and its size, in logical pixels from the
+    /// anchor. Where the run's own box hangs is already folded in, so the
+    /// shader adds one offset rather than composing two.
+    pub(super) offset: [f32; 2],
+    pub(super) size: [f32; 2],
+    /// Where to read the coverage sheet, as a fraction of it.
+    pub(super) uv_min: [f32; 2],
+    pub(super) uv_size: [f32; 2],
+    /// Colour and depth bias, as every overlay ends.
+    ///
+    /// Its `half_extent` is unused and always zero: a glyph's size was decided
+    /// when the run was shaped, so there is nothing here to spread. That also
+    /// makes a highlight's `scale` a no-op on text, which is the honest answer
+    /// — larger type is a different shaping, not a larger quad over the same
+    /// pixels.
+    pub(super) look: Look,
+    /// Unit normal of the plane the run lies on, or all-zero for one that
+    /// names none.
+    pub(super) plane: [f32; 3],
+}
+
+impl GlyphInstance {
+    pub(super) fn of(quad: GlyphQuad, text: &Text) -> Self {
+        Self {
+            anchor: text.position.to_array(),
+            offset: quad.offset.to_array(),
+            size: quad.size.to_array(),
+            uv_min: quad.uv_min.to_array(),
+            uv_size: quad.uv_size.to_array(),
+            look: Look::of(text.color, 0.0, text.z_offset),
+            plane: text.plane_normal.unwrap_or(Vec3::ZERO).to_array(),
+        }
+    }
+}
+
+impl Instance for GlyphInstance {
+    fn look_mut(&mut self) -> &mut Look {
+        &mut self.look
+    }
+}
+
 /// A record the renderer ships in a vertex buffer: one per vertex for modelled
 /// geometry, one per primitive for the overlays, which build their own
 /// corners.
@@ -235,6 +288,14 @@ impl Record for PointInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32, 3 => Float32, 4 => Float32x3
+    ];
+}
+
+impl Record for GlyphInstance {
+    const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
+    const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
+        0 => Float32x3, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x2,
+        5 => Float32x3, 6 => Float32, 7 => Float32, 8 => Float32x3
     ];
 }
 

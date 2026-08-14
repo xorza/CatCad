@@ -14,8 +14,10 @@
 
 use std::sync::mpsc;
 
-use aperture::{Camera, Curve, Highlight, Lit, Projection, Ring, Styled, Viewport};
-use glam::{UVec2, Vec2, Vec3};
+use aperture::{
+    Camera, Curve, Highlight, Lit, Mesh, Object, Projection, Ring, Scene, Styled, Text, Viewport,
+};
+use glam::{Mat4, UVec2, Vec2, Vec3};
 use image::RgbaImage;
 use palantir::internals::headless_test_gpu;
 use palantir::{App, Configure, GpuPaint, GpuView, OffscreenHost, Sizing, Ui, WindowToken, wgpu};
@@ -922,4 +924,91 @@ fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     let cleared = capture(size, &mut pane);
     assert_eq!(magenta(&cleared), 0);
     assert_eq!(cleared.image, plain.image, "clearing left something behind");
+}
+
+/// A run of text is drawn where it is anchored, and a solid in front of it
+/// hides it.
+///
+/// The whole of the text pass, end to end and on a real device: the shaper is
+/// asked for glyphs, the sheet is packed and uploaded, the quads are built in
+/// the vertex shader off one projected anchor, and the coverage is blended.
+/// None of that is visible to a headless test — a scene can be flattened
+/// without a GPU, but glyphs only become pixels here.
+///
+/// The occlusion half is why the pass tests depth at all. A label in a scene is
+/// something standing in the world rather than an annotation floating over it,
+/// so a solid between it and the eye has to cover it — while the pass still
+/// writes no depth of its own, since two blended glyphs have no order a depth
+/// test could enforce.
+#[test]
+fn a_label_is_drawn_at_its_anchor_and_hidden_by_what_is_in_front_of_it() {
+    let size = UVec2::new(400, 400);
+    // Straight down −Z from five away, so the anchor at the origin lands dead
+    // centre and the plate below sits between the two.
+    let camera = Camera {
+        target: Vec3::ZERO,
+        distance: 5.0,
+        yaw: 0.0,
+        pitch: 0.0,
+        fov_y: std::f32::consts::FRAC_PI_2,
+        near_ratio: 1.0 / 5.0,
+        projection: Projection::Perspective,
+    };
+    // A colour nothing else in these scenes wears, so counting it counts glyph
+    // coverage and nothing else.
+    let ink = Vec3::new(1.0, 0.0, 1.0);
+    let magenta = |frame: &Frame| {
+        let mut count = 0;
+        let mut sum = Vec2::ZERO;
+        for y in 0..frame.size.y {
+            for x in 0..frame.size.x {
+                let [r, g, b, _] = frame.pixel(UVec2::new(x, y));
+                if r > 150 && b > 150 && g < 90 {
+                    count += 1;
+                    sum += Vec2::new(x as f32, y as f32);
+                }
+            }
+        }
+        (count, sum / count.max(1) as f32)
+    };
+
+    let paint = |scene: Scene| {
+        let mut renderer = Renderer::new(scene);
+        *renderer.camera_mut() = camera;
+        let mut pane = ScenePane {
+            view: Rc::new(RefCell::new(renderer)),
+        };
+        capture(size, &mut pane)
+    };
+
+    // Nothing but the label, centred on its anchor.
+    let mut alone = Scene::default();
+    alone.texts.push(
+        Text::new(Vec3::ZERO, "125", 48.0)
+            .anchored(Vec2::splat(0.5))
+            .colored(ink),
+    );
+    let (drawn, at) = magenta(&paint(alone.clone()));
+    assert!(drawn > 200, "three digits at 48px drew {drawn} px");
+    // Centred on the anchor, which projects to the middle of the target. A
+    // generous tolerance: what is being pinned is that the run hangs off its
+    // anchor at all, not the metrics of a particular face.
+    let centre = Vec2::new(size.x as f32, size.y as f32) * 0.5;
+    assert!(
+        (at - centre).length() < 20.0,
+        "the run's ink sat at {at:?}, not about {centre:?}",
+    );
+
+    // The same label behind a plate. Thin, so it is wholly between the eye at
+    // five and the anchor at zero rather than straddling either.
+    let mut behind = alone.clone();
+    behind.objects.push(Object {
+        mesh: Mesh::cube(1.0),
+        transform: Mat4::from_translation(Vec3::new(0.0, 0.0, 2.0))
+            * Mat4::from_scale(Vec3::new(8.0, 8.0, 0.2)),
+        color: Vec3::new(0.3, 0.3, 0.35),
+        tag: None,
+    });
+    let (hidden, _) = magenta(&paint(behind));
+    assert_eq!(hidden, 0, "the plate did not hide the label");
 }

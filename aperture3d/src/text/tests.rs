@@ -3,6 +3,7 @@ use crate::batch::Batch;
 use crate::camera::{Camera, Projection};
 use crate::viewport::Viewport;
 use glam::UVec2;
+use palantir::TextShaper;
 
 /// Looking straight down −Z from 5 away with a 90° fov, so a 100×100 viewport
 /// puts the origin dead centre — the same fixture the scene's own picking tests
@@ -150,7 +151,8 @@ fn measuring_a_batch_fills_extents_without_marking_it() {
     // Pushing marked it, which is the mark a renderer takes when it flattens.
     assert!(texts.take_dirty());
 
-    measure_all(&texts, &TextShaper::new());
+    let shaper = TextShaper::new();
+    measure_all(&texts, &mut shaper.glyphs());
 
     assert!(!texts.take_dirty(), "measuring asked to be measured again");
     let measured = texts[0].extent();
@@ -171,7 +173,8 @@ fn measuring_a_batch_fills_extents_without_marking_it() {
 fn a_measured_run_is_picked_across_the_width_it_measured() {
     let mut texts = Batch::default();
     texts.push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(Tag::new(7)));
-    measure_all(&texts, &TextShaper::new());
+    let shaper = TextShaper::new();
+    measure_all(&texts, &mut shaper.glyphs());
     let extent = texts[0].extent();
 
     // Anchored at its top-left, so the box runs right and down from centre.

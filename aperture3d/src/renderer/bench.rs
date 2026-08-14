@@ -250,7 +250,7 @@ pub fn alloc_bench() {
             tag: Tag::new(lit),
             look: Highlight::new(Vec3::Y),
         });
-        renderer.refresh(true);
+        renderer.refresh(true, 1.0);
         black_box(&renderer.cpu);
     });
 
@@ -263,7 +263,7 @@ pub fn alloc_bench() {
         scene.curves.mark();
         scene.rings.mark();
         scene.points.mark();
-        renderer.refresh(false);
+        renderer.refresh(false, 1.0);
         black_box(&renderer.cpu);
     });
 

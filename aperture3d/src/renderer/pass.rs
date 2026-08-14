@@ -25,6 +25,19 @@ pub(super) struct PassSpec {
     /// Whether the fragment stage reports partial coverage in alpha, for a
     /// shape that does not fill the triangles it is drawn on.
     pub(super) alpha_to_coverage: bool,
+    /// How the pass's fragments combine with what is already there. `None` is
+    /// every pass that shades its own coverage and lets the sample mask sort it
+    /// out; text is the exception, because a glyph's antialiasing is a smooth
+    /// alpha and quantizing it to the sample count is what makes small type look
+    /// stippled.
+    pub(super) blend: Option<wgpu::BlendState>,
+    /// Whether the pass writes what it draws into the depth buffer.
+    ///
+    /// Every opaque pass does, and the blended one must not: two blended
+    /// fragments have no order the depth test could enforce, so writing would
+    /// let whichever was drawn first hide the other. It still *tests*, which is
+    /// what puts a label behind the solid in front of it.
+    pub(super) depth_write: bool,
 }
 
 /// The parts of a pipeline every pass shares, so each pass states only what
@@ -65,7 +78,7 @@ impl Pipelines<'_> {
                     compilation_options,
                     targets: &[Some(wgpu::ColorTargetState {
                         format: self.target_format,
-                        blend: None,
+                        blend: spec.blend,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),
@@ -76,7 +89,7 @@ impl Pipelines<'_> {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: Some(true),
+                    depth_write_enabled: Some(spec.depth_write),
                     // Reversed depth: the camera puts the near plane at 1, so
                     // nearer is greater. See [`Camera::view_proj`].
                     depth_compare: Some(wgpu::CompareFunction::Greater),

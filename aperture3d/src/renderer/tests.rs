@@ -22,7 +22,7 @@ fn flatten_bakes_transforms_into_world_space() {
             .colored(Vec3::new(1.0, 0.0, 0.0)),
     );
     let mut renderer = Renderer::new(scene);
-    renderer.refresh(false);
+    renderer.refresh(false, 1.0);
     let triangles = &renderer.cpu.meshes;
 
     // Two cubes: 24 corners and 36 indices each.
@@ -77,7 +77,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
         tag: None,
     });
     let mut renderer = Renderer::new(scene);
-    renderer.refresh(false);
+    renderer.refresh(false, 1.0);
     let triangles = &renderer.cpu.meshes;
 
     // Scaling x by 2 flattens the surface toward the x axis, so its normal
@@ -109,24 +109,33 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
 
     // Everything was written to build it, so everything is owed once. Asking
     // takes the mark, which is what the second refresh below then relies on.
-    renderer.refresh(false);
+    renderer.refresh(false, 1.0);
     let cpu = &mut renderer.cpu;
     assert!(cpu.meshes.take_dirty());
-    assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(1));
-    assert_eq!(cpu.rings.ordinary_to_upload().map(<[_]>::len), Some(1));
-    assert_eq!(cpu.points.ordinary_to_upload().map(<[_]>::len), Some(1));
+    assert_eq!(
+        cpu.curves.pair.ordinary_to_upload().map(<[_]>::len),
+        Some(1)
+    );
+    assert_eq!(cpu.rings.pair.ordinary_to_upload().map(<[_]>::len), Some(1));
+    assert_eq!(
+        cpu.points.pair.ordinary_to_upload().map(<[_]>::len),
+        Some(1)
+    );
     // Empty, and owed anyway: a pass left holding what was lit last time would
     // go on drawing it.
-    assert_eq!(cpu.curves.lit_to_upload().map(<[_]>::len), Some(0));
+    assert_eq!(cpu.curves.pair.lit_to_upload().map(<[_]>::len), Some(0));
 
     // And nothing twice. A still frame is the common case, not the odd one.
-    renderer.refresh(false);
+    renderer.refresh(false, 1.0);
     let cpu = &mut renderer.cpu;
     assert!(!cpu.meshes.take_dirty());
-    assert!(cpu.curves.ordinary_to_upload().is_none());
-    assert!(cpu.rings.ordinary_to_upload().is_none());
-    assert!(cpu.points.ordinary_to_upload().is_none());
-    assert!(cpu.curves.lit_to_upload().is_none(), "nothing was relit");
+    assert!(cpu.curves.pair.ordinary_to_upload().is_none());
+    assert!(cpu.rings.pair.ordinary_to_upload().is_none());
+    assert!(cpu.points.pair.ordinary_to_upload().is_none());
+    assert!(
+        cpu.curves.pair.lit_to_upload().is_none(),
+        "nothing was relit"
+    );
 
     // One kind written, one kind owed. This is what `scene_mut` costs: reaching
     // for the whole scene and adding a stroke is a stroke's worth of work, and
@@ -135,27 +144,30 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
         .scene_mut()
         .curves
         .push(Curve::segment(Vec3::ZERO, Vec3::Y));
-    renderer.refresh(false);
+    renderer.refresh(false, 1.0);
     let cpu = &mut renderer.cpu;
-    assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(2));
+    assert_eq!(
+        cpu.curves.pair.ordinary_to_upload().map(<[_]>::len),
+        Some(2)
+    );
     assert!(
         !cpu.meshes.take_dirty(),
         "adding a stroke asked for every mesh to be flattened again"
     );
-    assert!(cpu.rings.ordinary_to_upload().is_none());
-    assert!(cpu.points.ordinary_to_upload().is_none());
+    assert!(cpu.rings.pair.ordinary_to_upload().is_none());
+    assert!(cpu.points.pair.ordinary_to_upload().is_none());
 }
 
 #[test]
 fn flatten_of_an_empty_scene_uploads_nothing() {
     let mut renderer = Renderer::new(Scene::default());
-    renderer.refresh(false);
+    renderer.refresh(false, 1.0);
 
     let cpu = &renderer.cpu;
     assert!(cpu.meshes.vertices.is_empty());
     assert!(cpu.meshes.indices.is_empty());
-    assert!(cpu.curves.ordinary.is_empty());
-    assert!(cpu.points.ordinary.is_empty());
+    assert!(cpu.curves.pair.ordinary.is_empty());
+    assert!(cpu.points.pair.ordinary.is_empty());
 }
 
 #[test]
@@ -169,8 +181,8 @@ fn flatten_curves_ships_one_instance_per_segment() {
             .z_offset(64),
     );
     let mut renderer = Renderer::new(scene);
-    renderer.refresh(false);
-    let records = &renderer.cpu.curves.ordinary;
+    renderer.refresh(false, 1.0);
+    let records = &renderer.cpu.curves.pair.ordinary;
 
     // Three points, two segments, one record each — the four corners are the
     // shader's business now.
@@ -247,8 +259,8 @@ fn flatten_curves_normalizes_and_spreads_a_named_plane() {
             .z_offset(32),
     );
     let mut renderer = Renderer::new(scene);
-    renderer.refresh(false);
-    let records = &renderer.cpu.curves.ordinary;
+    renderer.refresh(false, 1.0);
+    let records = &renderer.cpu.curves.pair.ordinary;
 
     assert_eq!(records.len(), 1);
     assert_eq!(records[0].plane, [0.0, 1.0, 0.0], "{records:?}");
@@ -265,8 +277,8 @@ fn flatten_curves_strokes_the_closing_segment_too() {
     let mut scene = Scene::default();
     scene.curves.push(Curve::new(corners.clone()).closed());
     let mut renderer = Renderer::new(scene);
-    renderer.refresh(false);
-    let closed = &renderer.cpu.curves.ordinary;
+    renderer.refresh(false, 1.0);
+    let closed = &renderer.cpu.curves.pair.ordinary;
     // Four corners closed is four segments; open would be three.
     assert_eq!(closed.len(), 4);
     // The closing segment runs from the last point back to the first.
@@ -276,8 +288,8 @@ fn flatten_curves_strokes_the_closing_segment_too() {
     let mut scene = Scene::default();
     scene.curves.push(Curve::new(corners));
     let mut renderer = Renderer::new(scene);
-    renderer.refresh(false);
-    assert_eq!(renderer.cpu.curves.ordinary.len(), 3);
+    renderer.refresh(false, 1.0);
+    assert_eq!(renderer.cpu.curves.pair.ordinary.len(), 3);
 }
 
 /// The records are held between frames now, so refilling them has to leave no
@@ -295,21 +307,21 @@ fn refilled_records_hold_only_what_the_scene_holds_now() {
             .push(Curve::segment(Vec3::X * i as f32, Vec3::Y).tagged(Tag::new(i)));
     }
     let mut renderer = Renderer::new(scene);
-    renderer.refresh(false);
-    assert_eq!(renderer.cpu.curves.ordinary.len(), 4);
-    let grown = renderer.cpu.curves.ordinary.capacity();
+    renderer.refresh(false, 1.0);
+    assert_eq!(renderer.cpu.curves.pair.ordinary.len(), 4);
+    let grown = renderer.cpu.curves.pair.ordinary.capacity();
 
     // Down to one: the other three must be gone, not merely overwritten.
     renderer.scene_mut().curves.truncate(1);
-    renderer.refresh(false);
-    assert_eq!(renderer.cpu.curves.ordinary.len(), 1);
+    renderer.refresh(false, 1.0);
+    assert_eq!(renderer.cpu.curves.pair.ordinary.len(), 1);
     assert_eq!(
-        renderer.cpu.curves.ordinary[0].start,
+        renderer.cpu.curves.pair.ordinary[0].start,
         Vec3::ZERO.to_array(),
         "the surviving instance is the surviving curve's"
     );
     assert_eq!(
-        renderer.cpu.curves.ordinary.capacity(),
+        renderer.cpu.curves.pair.ordinary.capacity(),
         grown,
         "the room it grew to is the point of holding it"
     );
@@ -319,12 +331,12 @@ fn refilled_records_hold_only_what_the_scene_holds_now() {
         tag: Tag::new(0),
         look: Highlight::new(Vec3::Y),
     });
-    renderer.refresh(true);
-    assert_eq!(renderer.cpu.curves.lit.len(), 1);
+    renderer.refresh(true, 1.0);
+    assert_eq!(renderer.cpu.curves.pair.lit.len(), 1);
     renderer.clear_highlights();
-    renderer.refresh(true);
+    renderer.refresh(true, 1.0);
     assert!(
-        renderer.cpu.curves.lit.is_empty(),
+        renderer.cpu.curves.pair.lit.is_empty(),
         "unlighting has to empty what lighting filled"
     );
 }
@@ -375,44 +387,55 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     let mut renderer = Renderer::new(scene);
 
     // Nothing named, nothing doubled.
-    renderer.refresh(true);
+    renderer.refresh(true, 1.0);
     let cpu = &renderer.cpu;
-    assert!(cpu.curves.lit.is_empty() && cpu.rings.lit.is_empty() && cpu.points.lit.is_empty());
+    assert!(
+        cpu.curves.pair.lit.is_empty()
+            && cpu.rings.pair.lit.is_empty()
+            && cpu.points.pair.lit.is_empty()
+    );
 
     let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0).lift(64);
     renderer.highlight(Lit {
         tag: Tag::new(1),
         look,
     });
-    renderer.refresh(true);
+    renderer.refresh(true, 1.0);
     let cpu = &renderer.cpu;
 
     // Tag 1 is the three-point curve and the ring: two segments and one rim.
     // The curve tagged 2 and the marker tagged 2 are left alone.
-    assert_eq!(cpu.curves.lit.len(), 2);
-    assert_eq!(cpu.rings.lit.len(), 1);
-    assert!(cpu.points.lit.is_empty());
+    assert_eq!(cpu.curves.pair.lit.len(), 2);
+    assert_eq!(cpu.rings.pair.lit.len(), 1);
+    assert!(cpu.points.pair.lit.is_empty());
 
     // The look replaces the colour, multiplies the width, and adds to the
     // bias rather than replacing it — a highlight has to clear the lift the
     // primitive already carried.
     assert!(
         cpu.curves
+            .pair
             .lit
             .iter()
             .all(|i| i.look.color == [1.0, 0.0, 0.0])
     );
-    assert!(cpu.curves.lit.iter().all(|i| i.look.half_extent == 3.0)); // 2.0/2 × 3
-    assert!(cpu.curves.lit.iter().all(|i| i.look.z_offset == 74.0)); // 10 + 64
-    assert_eq!(cpu.rings.lit[0].look.half_extent, 4.5); // 3.0/2 × 3
-    assert_eq!(cpu.rings.lit[0].look.z_offset, 64.0);
+    assert!(
+        cpu.curves
+            .pair
+            .lit
+            .iter()
+            .all(|i| i.look.half_extent == 3.0)
+    ); // 2.0/2 × 3
+    assert!(cpu.curves.pair.lit.iter().all(|i| i.look.z_offset == 74.0)); // 10 + 64
+    assert_eq!(cpu.rings.pair.lit[0].look.half_extent, 4.5); // 3.0/2 × 3
+    assert_eq!(cpu.rings.pair.lit[0].look.z_offset, 64.0);
 
     // The geometry is the primitive's own, untouched. Copied out first: the
     // records are held on the renderer now, so flattening another one needs
     // it back.
-    let doubled = cpu.curves.lit[0];
-    renderer.refresh(false);
-    let plain = &renderer.cpu.curves.ordinary;
+    let doubled = cpu.curves.pair.lit[0];
+    renderer.refresh(false, 1.0);
+    let plain = &renderer.cpu.curves.pair.ordinary;
     assert_eq!(doubled.start, plain[0].start);
     assert_eq!(doubled.end, plain[0].end);
 
@@ -422,24 +445,36 @@ fn a_highlight_repeats_only_what_its_tag_names() {
         tag: Tag::new(1),
         look: Highlight::new(Vec3::Y).scale(1.0).lift(0),
     });
-    renderer.refresh(true);
+    renderer.refresh(true, 1.0);
     let cpu = &renderer.cpu;
-    assert_eq!(cpu.curves.lit.len(), 2, "still doubled once, not twice");
-    assert_eq!(cpu.rings.lit[0].look.half_extent, 1.5);
-    assert_eq!(cpu.rings.lit[0].look.color, [0.0, 1.0, 0.0]);
+    assert_eq!(
+        cpu.curves.pair.lit.len(),
+        2,
+        "still doubled once, not twice"
+    );
+    assert_eq!(cpu.rings.pair.lit[0].look.half_extent, 1.5);
+    assert_eq!(cpu.rings.pair.lit[0].look.color, [0.0, 1.0, 0.0]);
 
     // Lighting one thing alone drops the rest, and clearing drops everything.
     renderer.highlight_only(Lit {
         tag: Tag::new(2),
         look,
     });
-    renderer.refresh(true);
+    renderer.refresh(true, 1.0);
     let cpu = &renderer.cpu;
-    assert!(cpu.curves.lit.len() == 1 && cpu.points.lit.len() == 1 && cpu.rings.lit.is_empty());
+    assert!(
+        cpu.curves.pair.lit.len() == 1
+            && cpu.points.pair.lit.len() == 1
+            && cpu.rings.pair.lit.is_empty()
+    );
     renderer.clear_highlights();
-    renderer.refresh(true);
+    renderer.refresh(true, 1.0);
     let cpu = &renderer.cpu;
-    assert!(cpu.curves.lit.is_empty() && cpu.rings.lit.is_empty() && cpu.points.lit.is_empty());
+    assert!(
+        cpu.curves.pair.lit.is_empty()
+            && cpu.rings.pair.lit.is_empty()
+            && cpu.points.pair.lit.is_empty()
+    );
 }
 
 /// Re-asking for a look already in force leaves the records alone, which is

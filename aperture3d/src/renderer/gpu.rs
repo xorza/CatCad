@@ -1,10 +1,12 @@
 //! Everything that cannot exist before the device does.
 
-use crate::overlay::Overlay;
+use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::cpu::Records;
+use crate::renderer::cpu::Pair;
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
-use crate::renderer::record::{CurveInstance, GpuVertex, PointInstance, RingInstance};
+use crate::renderer::record::{
+    CurveInstance, GlyphInstance, GpuVertex, PointInstance, Record, RingInstance,
+};
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::renderer::uniforms::Uniforms;
 use glam::UVec2;
@@ -134,11 +136,16 @@ impl Passes {
     /// Asks the records rather than being told: each buffer says whether it was
     /// rewritten and hands itself over in the same breath, so a still frame
     /// reaches the queue for neither.
-    pub(super) fn upload<O: Overlay>(
+    /// Takes the [`Pair`] rather than whatever holds one, which is what lets
+    /// this be written once: three kinds keep theirs in a
+    /// [`Records`](crate::renderer::cpu::Records) and text keeps its beside a
+    /// raster scale and a scratch buffer, and none of that is any of this
+    /// method's business.
+    pub(super) fn upload<R: Record>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        records: &mut Records<O>,
+        records: &mut Pair<R>,
     ) {
         if let Some(instances) = records.ordinary_to_upload() {
             self.ordinary.upload_instances(device, queue, instances);
@@ -156,7 +163,13 @@ pub(super) struct Gpu {
     pub(super) curves: Passes,
     pub(super) rings: Passes,
     pub(super) points: Passes,
+    pub(super) texts: Passes,
     pub(super) uniforms: wgpu::Buffer,
+    /// Kept so the bind group can be built again when the glyph sheet is
+    /// replaced by a larger one — everything else about the group survives.
+    sampler: wgpu::Sampler,
+    bgl: wgpu::BindGroupLayout,
+    sheet: Sheet,
     pub(super) bind_group: wgpu::BindGroup,
     pub(super) attachments: Option<Attachments>,
     /// Kept from init: the multisampled colour buffer has to match what it
@@ -165,7 +178,13 @@ pub(super) struct Gpu {
 }
 
 impl Gpu {
-    pub(super) fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
+    /// `atlas` is the sheet the CPU side has already started packing, so the
+    /// texture is built to match it rather than to a size stated twice.
+    pub(super) fn new(
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+        atlas: &GlyphAtlas,
+    ) -> Self {
         // One module out of four files. WGSL has no include, so the choice is
         // this or a copy of `lift` and `plane_depth_shift` in each — and the
         // whole point of those is that there is one of each. Every pipeline
@@ -181,6 +200,7 @@ impl Gpu {
             include_str!("shader/curve.wgsl"),
             include_str!("shader/ring.wgsl"),
             include_str!("shader/point.wgsl"),
+            include_str!("shader/text.wgsl"),
         ]
         .concat();
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -193,27 +213,56 @@ impl Gpu {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        // One layout for every pipeline, so the glyph sheet is declared even on
+        // the three passes that never sample it. Two bindings they ignore cost
+        // them nothing, and the alternative is a second layout and a second bind
+        // group set per frame for one pass's sake.
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("aperture.bgl"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
+            entries: &[
+                wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::VERTEX,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Uniform,
+                        has_dynamic_offset: false,
+                        min_binding_size: None,
+                    },
+                    count: None,
                 },
-                count: None,
-            }],
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
         });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("aperture.bind_group"),
-            layout: &bgl,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniforms.as_entire_binding(),
-            }],
+        // Linear, and clamped. A glyph is blitted at the size it will be drawn,
+        // so sampling is nearly one-to-one and the filter only softens the
+        // fraction of a pixel the projection puts it out by. The clamp is belt
+        // and braces over the gutter the packer already leaves.
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("aperture.sheet_sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            address_mode_w: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
         });
+        let sheet = Sheet::new(device, atlas.side());
+        let bind_group = sheet.bind(device, &bgl, &uniforms, &sampler);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("aperture.pipeline_layout"),
             bind_group_layouts: &[Some(&bgl)],
@@ -236,6 +285,8 @@ impl Gpu {
             indices: None,
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
+            blend: None,
+            depth_write: true,
         });
         let curves = Passes::new(
             pipelines.build::<CurveInstance>(PassSpec {
@@ -245,6 +296,8 @@ impl Gpu {
                 indices: Some(&QUAD_INDICES),
                 cull: None,
                 alpha_to_coverage: true,
+                blend: None,
+                depth_write: true,
             }),
             "aperture.curves.highlighted",
         );
@@ -256,6 +309,8 @@ impl Gpu {
                 indices: Some(&RING_INDICES),
                 cull: None,
                 alpha_to_coverage: true,
+                blend: None,
+                depth_write: true,
             }),
             "aperture.rings.highlighted",
         );
@@ -267,18 +322,154 @@ impl Gpu {
                 indices: Some(&QUAD_INDICES),
                 cull: None,
                 alpha_to_coverage: true,
+                blend: None,
+                depth_write: true,
             }),
             "aperture.points.highlighted",
+        );
+        // Last in the pass and the only blended one, so it reads over whatever
+        // it overlaps rather than punching a hole in it — and it does not write
+        // depth, so two labels crossing blend instead of one hiding the other.
+        let texts = Passes::new(
+            pipelines.build::<GlyphInstance>(PassSpec {
+                name: "text",
+                records_label: "aperture.texts.instances",
+                indices_label: "aperture.texts.quad",
+                indices: Some(&QUAD_INDICES),
+                cull: None,
+                alpha_to_coverage: false,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                depth_write: false,
+            }),
+            "aperture.texts.highlighted",
         );
         Self {
             meshes,
             curves,
             rings,
             points,
+            texts,
             uniforms,
+            sampler,
+            bgl,
+            sheet,
             bind_group,
             attachments: None,
             target_format,
         }
+    }
+
+    /// Bring the glyph sheet on the GPU up to date with the one on the CPU,
+    /// rebuilding the texture when it has been started again at a new size.
+    ///
+    /// The bind group is rebuilt with it: it names a view of the old texture,
+    /// which no longer exists. That is the whole reason the layout and the
+    /// sampler are kept — everything else about the group is unchanged.
+    pub(super) fn upload_sheet(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        atlas: &mut GlyphAtlas,
+    ) {
+        if self.sheet.side != atlas.side() {
+            self.sheet = Sheet::new(device, atlas.side());
+            self.bind_group = self
+                .sheet
+                .bind(device, &self.bgl, &self.uniforms, &self.sampler);
+        }
+        if atlas.take_dirty() {
+            self.sheet.write(queue, atlas.pixels());
+        }
+    }
+}
+
+/// The glyph sheet as the GPU holds it.
+///
+/// Its side travels with it because that is what says whether it still matches
+/// the sheet being packed on the CPU — the one thing that can invalidate it, and
+/// the one thing a texture cannot be asked.
+#[derive(Debug)]
+pub(super) struct Sheet {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    side: u32,
+}
+
+impl Sheet {
+    fn new(device: &wgpu::Device, side: u32) -> Self {
+        let texture = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("aperture.sheet"),
+            size: wgpu::Extent3d {
+                width: side,
+                height: side,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            // Coverage, one byte a pixel. Not sRGB: what is stored is how much
+            // of the pixel the glyph covers, which is a fraction of an area and
+            // not a colour to be decoded.
+            format: wgpu::TextureFormat::R8Unorm,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+        Self {
+            texture,
+            view,
+            side,
+        }
+    }
+
+    fn bind(
+        &self,
+        device: &wgpu::Device,
+        bgl: &wgpu::BindGroupLayout,
+        uniforms: &wgpu::Buffer,
+        sampler: &wgpu::Sampler,
+    ) -> wgpu::BindGroup {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("aperture.bind_group"),
+            layout: bgl,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniforms.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&self.view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        })
+    }
+
+    /// Write the whole sheet.
+    ///
+    /// Whole rather than the rectangle that changed, because a side is a power
+    /// of two from 256 up and one row is therefore already a multiple of the 256
+    /// bytes a copy has to be aligned to — so the only thing tracking dirty
+    /// rectangles would buy is skipping rows, on a texture that is rewritten
+    /// when a glyph is *first* seen and never after.
+    fn write(&self, queue: &wgpu::Queue, pixels: &[u8]) {
+        queue.write_texture(
+            self.texture.as_image_copy(),
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(self.side),
+                rows_per_image: Some(self.side),
+            },
+            wgpu::Extent3d {
+                width: self.side,
+                height: self.side,
+                depth_or_array_layers: 1,
+            },
+        );
     }
 }

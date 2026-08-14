@@ -1,19 +1,20 @@
-//! The wgpu half: flattens a scene into one world-space triangle list and three
+//! The wgpu half: flattens a scene into one world-space triangle list and four
 //! instanced overlay buffers, and draws them into the off-screen target palantir
 //! hands over each frame.
 //!
-//! Meshes ship a vertex apiece; a stroke or a marker ships once and the vertex
-//! shader builds its four corners, since the corners differed only in ways the
-//! index already says.
+//! Meshes ship a vertex apiece; a stroke, a rim or a marker ships once and the
+//! vertex shader builds its four corners, since the corners differed only in
+//! ways the index already says. Text ships one of those per *glyph*, because
+//! that is what a run comes to once the shaper has placed it.
 
 use crate::camera::Camera;
 use crate::highlight::Lit;
 use crate::scene::Scene;
-use crate::text;
 use crate::viewport::Viewport;
 use glam::UVec2;
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
+pub(crate) mod atlas;
 pub(crate) mod band;
 #[cfg(feature = "bench")]
 pub(crate) mod bench;
@@ -190,7 +191,7 @@ impl Renderer {
     /// it, so it is remembered on the run — through a memo rather than the batch,
     /// which is what keeps recording it from reading as an edit. See
     /// [`Text::extent`](crate::Text::extent).
-    fn refresh(&mut self, relight: bool) {
+    fn refresh(&mut self, relight: bool, raster_scale: f32) {
         let Self {
             scene,
             highlights,
@@ -202,19 +203,27 @@ impl Renderer {
         cpu.curves.refresh(&mut scene.curves, highlights, relight);
         cpu.rings.refresh(&mut scene.rings, highlights, relight);
         cpu.points.refresh(&mut scene.points, highlights, relight);
-        // Before anything reads a run's extent, and after nothing: a label is
-        // laid out here and picked against that layout for the rest of the
-        // frame.
-        //
-        // The shaper is asked for inside the guard rather than above it, so a
-        // scene with nothing written in it never needs one — which is what lets
-        // a caller flatten one without a window having handed a font stack over.
-        if scene.texts.take_dirty() {
-            let shaper = shaper
-                .as_ref()
-                .expect("laying text out needs the shaper `init` is handed");
-            text::measure_all(&scene.texts, shaper);
+        // A scene with nothing written in it is left alone entirely, so it needs
+        // no font stack — which is what lets one be flattened without a window
+        // having handed one over.
+        if scene.texts.is_empty() {
+            return;
         }
+        let shaper = shaper
+            .as_ref()
+            .expect("laying text out needs the shaper `init` is handed");
+        // One lease for the whole scene's text. Measuring and placing are two
+        // halves of laying a run out and both go through it — a second would be
+        // a second borrow of the same shaper, which panics.
+        let mut glyphs = shaper.glyphs();
+        cpu.texts.refresh(
+            &mut scene.texts,
+            &mut cpu.atlas,
+            &mut glyphs,
+            raster_scale,
+            highlights,
+            relight,
+        );
     }
 }
 
@@ -223,7 +232,7 @@ impl GpuPaint for Renderer {
         // Re-runs whenever palantir reclaims the view's target. The pipelines
         // and the uploaded buffers both outlive that, so build once.
         if self.gpu.is_none() {
-            self.gpu = Some(Gpu::new(ctx.device, ctx.target_format));
+            self.gpu = Some(Gpu::new(ctx.device, ctx.target_format, &self.cpu.atlas));
         }
         // Re-taken rather than guarded, unlike the pipelines above: it is a
         // clone of a handle, and a view whose target was reclaimed should come
@@ -238,7 +247,7 @@ impl GpuPaint for Renderer {
         // answers for itself, so a hover over a marker no longer rebuilds the
         // highlights of the strokes and rims it passed over.
         let relight = std::mem::take(&mut self.relight);
-        self.refresh(relight);
+        self.refresh(relight, ctx.raster_scale);
 
         // Split so the two mirrors are borrowed apart: the uploads read one
         // while writing the other. Unconditional, all four — each takes what it
@@ -247,9 +256,15 @@ impl GpuPaint for Renderer {
         let gpu = gpu.as_mut().expect("init runs before paint");
         gpu.meshes
             .upload_mesh(ctx.device, ctx.queue, &mut cpu.meshes);
-        gpu.curves.upload(ctx.device, ctx.queue, &mut cpu.curves);
-        gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings);
-        gpu.points.upload(ctx.device, ctx.queue, &mut cpu.points);
+        gpu.curves
+            .upload(ctx.device, ctx.queue, &mut cpu.curves.pair);
+        gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings.pair);
+        gpu.points
+            .upload(ctx.device, ctx.queue, &mut cpu.points.pair);
+        // The sheet before the records that read it: a restart replaces the
+        // texture, and the records name places on the new one.
+        gpu.upload_sheet(ctx.device, ctx.queue, &mut cpu.atlas);
+        gpu.texts.upload(ctx.device, ctx.queue, &mut cpu.texts.pair);
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
         }
@@ -265,8 +280,8 @@ impl GpuPaint for Renderer {
         pass.set_viewport(0.0, 0.0, size.x as f32, size.y as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, size.x, size.y);
         pass.set_bind_group(0, &gpu.bind_group, &[]);
-        // Overlays after solids: all three write depth, so what hides what is
-        // the depth test's answer either way, and this order keeps the
+        // Overlays after solids: the opaque three write depth, so what hides
+        // what is the depth test's answer either way, and this order keeps the
         // pipeline switch to one per pass.
         // Reached through rather than looped over a kind at a time: the
         // highlights go last as a group, so one reads over anything it doubles
@@ -279,6 +294,11 @@ impl GpuPaint for Renderer {
             &gpu.curves.lit,
             &gpu.rings.lit,
             &gpu.points.lit,
+            // Text last of all. It is the one blended pass, so what it reads
+            // over has to be there already — and it writes no depth, so
+            // nothing after it could be sorted against it anyway.
+            &gpu.texts.ordinary,
+            &gpu.texts.lit,
         ] {
             layer.draw(&mut pass);
         }
