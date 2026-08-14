@@ -3,18 +3,28 @@
 use image::RgbaImage;
 use palantir::golden::{Goldens, Tolerance};
 
-/// Looser than Palantir's default, and for a reason that is about what CatCad
-/// draws rather than about how careful anyone is being.
+/// Exact, which is tighter than Palantir's own default and possible for the
+/// same reason it is necessary.
 ///
-/// Two of the renderer's four passes ask for alpha-to-coverage, and WebGPU
-/// leaves the mapping from alpha to a sample mask implementation-defined —
-/// only "0 covers nothing" and "1 covers everything" are promised. Every
-/// antialiased marker edge and circle rim is therefore the driver's to decide,
-/// and a scene of strokes and rims is very nearly all edge. Palantir's 0.1%
-/// suits flat axis-aligned UI; one rim here is already more pixels than that.
+/// These goldens are not committed — see this crate's `.gitignore` — so a
+/// golden is only ever compared against frames from the machine that wrote it.
+/// The driver that decides how alpha becomes a sample mask is therefore a
+/// constant rather than a variable, and what is left is deterministic:
+/// re-rendering the demo twice over gives back the same bytes.
+///
+/// It has to be exact to be worth anything. A budget measured against the whole
+/// frame cannot see a change to one primitive, because no one primitive is much
+/// of a frame: correcting how a ring converts its radius to pixels moved every
+/// pixel of every rim in the demo and scored 0.22% against the 1% that used to
+/// be allowed. A golden that passes when the thing it is watching changes
+/// entirely is only a slow way of rendering.
+///
+/// What this costs is that every deliberate change to what is drawn is a
+/// `UPDATE_GOLDEN=1` run, and so is a driver or OS update. That is the trade a
+/// golden is for — see the note at the top of `main.rs` on keeping them few.
 const TOLERANCE: Tolerance = Tolerance {
-    per_channel: 2,
-    max_ratio: 0.01,
+    per_channel: 0,
+    max_ratio: 0.0,
 };
 
 pub(crate) fn assert_matches_golden(name: &str, frame: &RgbaImage) {

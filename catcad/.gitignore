@@ -1,2 +1,8 @@
 tests/visual/output/
+# Deliberately not committed. A golden here is held to an exact match, which is
+# only possible because it never leaves the machine that wrote it: the driver
+# deciding how alpha becomes a sample mask stays put, so the only thing that can
+# move the bytes is the code. Committing them would mean loosening that to
+# whatever the widest driver disagreement is, which is how a budget wide enough
+# to pass a primitive that changed entirely gets set.
 tests/visual/golden/
