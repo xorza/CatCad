@@ -5,6 +5,7 @@
 //! do. What fills those buffers is [`System::assemble`]; what drives the whole
 //! of it is [`Solver`](crate::Solver).
 
+use crate::math::dense::square_norm;
 use crate::sketch::constraint::ConstraintId;
 use crate::sketch::solver::freedoms::Freedom;
 use crate::sketch::solver::system::System;
@@ -215,7 +216,7 @@ impl Workspace {
     /// A column that could never move — a pinned point, or the hole a removal
     /// left — has a row of zeros, which is the honest answer for something with
     /// no freedom to have.
-    pub(super) fn null_space(&mut self, n: usize) -> usize {
+    pub(super) fn null_space(&mut self, n: usize) {
         let rank = self.rank(n);
 
         let a = &mut self.elimination;
@@ -249,12 +250,32 @@ impl Workspace {
                 self.null[pivot * axes + axis] = -self.elimination[row * n + col];
             }
         }
-        rank
+    }
+
+    /// How many independent ways the sketch can still move: one per column the
+    /// elimination left without a pivot.
+    ///
+    /// The same count [`Freedoms::degrees_of_freedom`](crate::Freedoms) reports,
+    /// read off the partition itself rather than by counting the movable
+    /// columns again and subtracting the rank. Two routes to one number, and
+    /// this is the one that cannot drift from the elimination it describes.
+    pub(super) fn degrees_of_freedom(&self) -> usize {
+        self.free.len()
+    }
+
+    /// How many equations the rest of the system already implies — the rows the
+    /// elimination had nothing left to do with.
+    ///
+    /// Exactly as many as [`Workspace::dependent`] names, off the same two
+    /// lengths, so the count and the names cannot disagree about how many there
+    /// were.
+    pub(super) fn redundant_equations(&self) -> usize {
+        self.origin.len() - self.pivots.len()
     }
 
     /// How many independent ways a parameter can move: none, or the one it has.
     pub(super) fn travel(&self, param: usize) -> Freedom {
-        if square_length(self.row(param)) <= DEAD {
+        if square_norm(self.row(param)) <= DEAD {
             Freedom::Determined
         } else {
             Freedom::Free
@@ -276,7 +297,7 @@ impl Workspace {
     /// threshold is on the sine.
     pub(super) fn spread(&self, first: usize, second: usize) -> Freedom {
         let (a, b) = (self.row(first), self.row(second));
-        let (aa, bb) = (square_length(a), square_length(b));
+        let (aa, bb) = (square_norm(a), square_norm(b));
         if aa <= DEAD && bb <= DEAD {
             return Freedom::Determined;
         }
@@ -322,8 +343,4 @@ impl Workspace {
         let axes = self.free.len();
         &self.null[param * axes..][..axes]
     }
-}
-
-fn square_length(row: &[f64]) -> f64 {
-    row.iter().map(|v| v * v).sum()
 }

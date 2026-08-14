@@ -120,22 +120,11 @@ impl Constraint {
     /// seven state a relation that has no magnitude — parallel is parallel, and
     /// there is nothing to type.
     ///
-    /// Spelled out over all nine rather than falling through, so a tenth
-    /// carrying a value — an angle, most obviously — has to say here that it
-    /// does. One that quietly answered `None` would be a dimension the drawing
-    /// showed as a symbol and refused to edit.
+    /// Read off the same list `value_mut` matches on, so which variants carry
+    /// a magnitude is stated once rather than in two lists free to disagree.
     pub fn value(&self) -> Option<f64> {
-        match *self {
-            Constraint::Distance { distance, .. } => Some(distance),
-            Constraint::Radius { radius, .. } => Some(radius),
-            Constraint::Coincident { .. }
-            | Constraint::Horizontal { .. }
-            | Constraint::Vertical { .. }
-            | Constraint::Parallel { .. }
-            | Constraint::Perpendicular { .. }
-            | Constraint::PointOnSegment { .. }
-            | Constraint::PointOnCircle { .. } => None,
-        }
+        let mut copy = *self;
+        copy.value_mut().copied()
     }
 
     /// The magnitude, to restate it at something else.
@@ -144,6 +133,12 @@ impl Constraint {
     /// changes one through the sketch that holds it — see
     /// [`Sketch::set_value`](crate::Sketch::set_value). Editing a constraint in
     /// a caller's own hand would leave the sketch it came from unsolved.
+    ///
+    /// The one list of which variants carry a magnitude, spelled out over all
+    /// nine rather than falling through: a tenth carrying a value — an angle,
+    /// most obviously — has to say here that it does, and one that quietly
+    /// answered `None` would be a dimension the drawing showed as a symbol and
+    /// refused to edit.
     pub(crate) fn value_mut(&mut self) -> Option<&mut f64> {
         match self {
             Constraint::Distance { distance, .. } => Some(distance),

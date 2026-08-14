@@ -61,8 +61,14 @@ pub(crate) fn max_abs(values: &[f64]) -> f64 {
     values.iter().fold(0.0f64, |acc, v| acc.max(v.abs()))
 }
 
+/// Sum of squares — a norm with its square root left off, for a caller
+/// comparing against a squared threshold rather than reading a length.
+pub(crate) fn square_norm(values: &[f64]) -> f64 {
+    values.iter().map(|v| v * v).sum()
+}
+
 pub(crate) fn norm(values: &[f64]) -> f64 {
-    values.iter().map(|v| v * v).sum::<f64>().sqrt()
+    square_norm(values).sqrt()
 }
 
 #[cfg(test)]

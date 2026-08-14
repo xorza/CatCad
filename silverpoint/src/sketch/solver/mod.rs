@@ -423,14 +423,11 @@ impl Solver {
         settled: Settled,
         iterations: u32,
     ) {
-        let n = sketch.params().count();
-        let rank = self.work.null_space(n);
-
-        let free_params = self.work.movable.iter().filter(|&&free| free).count();
+        self.work.null_space(sketch.params().count());
         into.freedoms.reset(
             sketch,
-            free_params - rank,
-            self.work.system.residuals.len() - rank,
+            self.work.degrees_of_freedom(),
+            self.work.redundant_equations(),
         );
         for (id, _) in sketch.points() {
             // A point's two parameters are adjacent, x first.
@@ -508,15 +505,13 @@ pub(crate) mod internals {
         /// the answer the freedoms give, and two routes agreeing is what says
         /// either is right.
         ///
-        /// Reaches the rank through the null space, which is more than it needs
-        /// and deliberately so: the rank on its own is `Workspace`'s business,
-        /// and a test is not reason enough to publish it.
+        /// Asks the same buffers the measurement does, so what it agrees with
+        /// is the answer itself rather than a second calculation of it.
         pub(crate) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
-            let n = sketch.params().count();
             self.work.reset(sketch, held);
             self.work.system.assemble(sketch, &self.work.movable);
-            let rank = self.work.null_space(n);
-            self.work.movable.iter().filter(|&&free| free).count() - rank
+            self.work.null_space(sketch.params().count());
+            self.work.degrees_of_freedom()
         }
     }
 }
