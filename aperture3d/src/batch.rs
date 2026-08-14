@@ -56,6 +56,13 @@ impl<T> Batch<T> {
     ///
     /// Consuming rather than peeking, so a second caller cannot be told about an
     /// edit the first has already dealt with. The renderer is the one caller.
+    ///
+    /// Three more marks downstream keep this discipline by hand rather than
+    /// sharing a type with it — the flattened records, the triangle list and the
+    /// glyph sheet. A `Dirty(bool)` exposing only `mark` and `take` was measured
+    /// against them: seventeen sites rewritten one for one, every wrapper still
+    /// wanted for its own name and doc, and fifteen lines added for a rule the
+    /// four already hold.
     pub(crate) fn take_dirty(&mut self) -> bool {
         std::mem::take(&mut self.dirty)
     }

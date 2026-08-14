@@ -866,3 +866,18 @@ fn a_frame_uploads_every_kind() {
     assert_eq!(built.curves.ordinary.instances, 1);
     assert_eq!(built.meshes.instances, 1);
 }
+
+#[test]
+fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
+    let mut renderer = Renderer::new(Scene::default());
+    renderer.shape_with(palantir::TextShaper::new());
+
+    // Written to and left empty, which is what a caller refilling a batch from
+    // an arena that turned out to hold nothing does.
+    renderer.scene_mut().texts.mark();
+    renderer.refresh(1.0);
+    assert!(
+        !renderer.scene_mut().texts.take_dirty(),
+        "the mark outlived the refresh that had nothing to do with it"
+    );
+}

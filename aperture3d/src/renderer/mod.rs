@@ -205,6 +205,13 @@ impl Renderer {
         // flattened from is the one failure a retained renderer has to answer
         // for, and emptying is the only way to reach it.
         if scene.texts.is_empty() && cpu.texts.is_empty() {
+            // Taken on the way out, because a mark is a claim that someone
+            // wrote to the batch and this is the one path that answers that
+            // claim by doing nothing. Left standing it would outlive the edit
+            // it stands for — a batch refilled to empty while no text is drawn
+            // would still be reporting that write on whatever later frame first
+            // had a run to lay out.
+            scene.texts.take_dirty();
             return;
         }
         let shaper = shaper
