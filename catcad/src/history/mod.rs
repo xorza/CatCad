@@ -130,9 +130,7 @@ impl History {
             return;
         }
         self.applied -= 1;
-        document
-            .drawing_mut()
-            .restore(solver, &self.edits[self.applied].before);
+        document.restore(solver, &self.edits[self.applied].before);
     }
 
     /// Put back the last step taken away, if there is one.
@@ -141,9 +139,7 @@ impl History {
         if !self.can_redo() {
             return;
         }
-        document
-            .drawing_mut()
-            .restore(solver, &self.edits[self.applied].after);
+        document.restore(solver, &self.edits[self.applied].after);
         self.applied += 1;
     }
 

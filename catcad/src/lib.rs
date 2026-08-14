@@ -11,7 +11,7 @@ mod document;
 mod drawing;
 mod history;
 mod intent;
-pub mod named;
+mod named;
 mod overlay;
 mod paint;
 mod preview;
@@ -107,7 +107,7 @@ impl CatCad {
         // itself would be a second copy of all of that, free to drift.
         let mut view = SceneView::new(&document);
         if let Some(bounds) = view.bounds() {
-            document.camera_mut().frame(bounds);
+            document.frame(bounds);
         }
         // Aiming the camera is not something the view was watching for, so it
         // is handed on here rather than left to the first frame. Not for the

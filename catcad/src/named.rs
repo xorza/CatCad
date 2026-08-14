@@ -5,7 +5,7 @@ use silverpoint::{CircleId, PointId, SegmentId};
 
 /// A sketch entity a drawn primitive stands for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Named {
+pub(crate) enum Named {
     Point(PointId),
     Segment(SegmentId),
     Circle(CircleId),
@@ -17,7 +17,7 @@ impl Named {
     /// A segment reads as an edge: what the drawing shows is the boundary of
     /// something, and "segment" is the solver's word for it rather than the
     /// draughtsman's.
-    pub fn noun(&self) -> &'static str {
+    pub(crate) fn noun(&self) -> &'static str {
         match self {
             Self::Point(_) => "point",
             Self::Segment(_) => "edge",
@@ -62,20 +62,20 @@ impl From<CircleId> for Named {
 /// have moved — and in exchange nothing has to agree about anything but the
 /// order things were pushed in.
 #[derive(Debug, Clone, Default)]
-pub struct Names {
+pub(crate) struct Names {
     entities: Vec<Named>,
 }
 
 impl Names {
     /// Name `entity`, and hand back the tag that will report it.
-    pub fn tag(&mut self, entity: Named) -> Tag {
+    pub(crate) fn tag(&mut self, entity: Named) -> Tag {
         self.entities.push(entity);
         Tag::new((self.entities.len() - 1) as u64)
     }
 
     /// What `tag` was given to, or `None` if it came from a drawing older than
     /// this one.
-    pub fn get(&self, tag: Tag) -> Option<Named> {
+    pub(crate) fn get(&self, tag: Tag) -> Option<Named> {
         self.entities.get(usize::try_from(tag.get()).ok()?).copied()
     }
 
@@ -87,7 +87,7 @@ impl Names {
     /// A walk rather than a lookup, because there is nothing to look up in — a
     /// tag *is* a position here — and because a caller asking this is asking it
     /// of every entity anyway.
-    pub fn iter(&self) -> impl Iterator<Item = (Tag, Named)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (Tag, Named)> {
         self.entities
             .iter()
             .enumerate()
@@ -99,7 +99,7 @@ impl Names {
     /// A drawing is renamed wholesale whenever it is rewritten, which during a
     /// drag is every frame — so this empties rather than replaces, and the
     /// tags come out the same because the order they are pushed in does.
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.entities.clear();
     }
 }

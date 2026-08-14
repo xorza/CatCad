@@ -18,7 +18,8 @@ use crate::tool::Anchor;
 /// write down. Nothing here is scratch: the [`Solver`] that does the work is
 /// borrowed for the length of a call and belongs to whoever is doing the
 /// editing, because the buffers it keeps are worth keeping for the length of a
-/// drag and worth nothing at all in a file.
+/// drag and worth nothing at all in a file — and because a document holding
+/// many drawings wants one solver between them, not one apiece.
 #[derive(Debug)]
 pub(crate) struct Drawing {
     sketch: Sketch,

@@ -1,12 +1,12 @@
 //! What a saved file would hold, and the one thing that owns it.
 
-use aperture::{Camera, Object, Scene};
+use aperture::{Bounds, Camera, Object, Scene};
 
 use crate::drawing::Drawing;
 use crate::intent::Intent;
 use crate::named::Names;
 use silverpoint::Plane;
-use silverpoint::{Sketch, Solver};
+use silverpoint::{Sketch, Snapshot, Solver};
 
 /// A drawing, the solids modelled beside it, and how it is being looked at —
 /// everything a session would have to write down to be opened again.
@@ -58,26 +58,50 @@ impl Document {
         &self.drawing
     }
 
-    pub(crate) fn drawing_mut(&mut self) -> &mut Drawing {
-        &mut self.drawing
-    }
-
     /// Where the document is being looked at from.
     pub(crate) fn camera(&self) -> Camera {
         self.camera
     }
 
-    pub(crate) fn camera_mut(&mut self) -> &mut Camera {
-        &mut self.camera
+    /// Aim the camera to take `bounds` in.
+    ///
+    /// Named rather than handing out the camera, for the same reason everything
+    /// below is: a document that lent out `&mut Camera` would be a document
+    /// whose every change no longer passed a place that could be watched. This
+    /// is the one aiming nobody asked for — what a document does on being opened,
+    /// before anyone has looked at it.
+    pub(crate) fn frame(&mut self, bounds: Bounds) {
+        self.camera.frame(bounds);
+    }
+
+    /// Put the drawing back the way `snapshot` found it.
+    ///
+    /// The history's, and only the history's. It sits beside [`Document::apply`]
+    /// rather than inside it because a snapshot is not an intent: undoing is a
+    /// question about what has been *done*, which the inbox has no vocabulary
+    /// for — see the refusal at the end of `apply`.
+    ///
+    /// Named here rather than reached through a borrowed drawing, so that the
+    /// two ways a document changes are two calls on the document. An undo is the
+    /// path that most wants watching — it is the one that can make geometry stop
+    /// existing — and it would have been the one going round the back.
+    pub(crate) fn restore(&mut self, solver: &mut Solver, snapshot: &Snapshot) {
+        self.drawing.restore(solver, snapshot);
     }
 
     /// Land what `intent` asks for.
     ///
     /// The one place an intent becomes a change, which is the point of there
-    /// being intents at all: every edit to a document passes through here, so
-    /// there is one place to watch rather than one per gesture. What watches is
-    /// [`History`](crate::history::History), which is also what drives this —
-    /// it takes each of a frame's intents in turn and notes what this did.
+    /// being intents at all: every edit a *gesture* asks for passes through
+    /// here, so there is one place to watch rather than one per gesture. What
+    /// watches is [`History`](crate::history::History), which is also what
+    /// drives this — it takes each of a frame's intents in turn and notes what
+    /// this did.
+    ///
+    /// One of exactly two ways a document changes, the other being
+    /// [`Document::restore`], and the pair is the whole of it: what someone
+    /// asked for, and what the history puts back. Everything else a document
+    /// hands out is `&self`.
     ///
     /// `solver` is the caller's. Solving is what an edit to a drawing *is*, and
     /// a solve wants room to work in that is worth keeping across a drag and
@@ -138,6 +162,23 @@ impl Document {
             .objects
             .refill(&self.solids, |object, solid| object.clone_from(solid));
         self.drawing.write_into(names, None, scene.overlays_mut());
+    }
+}
+
+/// What a harness reaches past the document for.
+///
+/// Turning the camera by hand is standing outside a frame: the application only
+/// ever moves it through an intent, so a caller wanting the camera itself is a
+/// test or a bench aiming one without a pointer to aim it with.
+#[cfg(any(test, feature = "internals"))]
+pub(crate) mod internals {
+    use crate::document::Document;
+    use aperture::Camera;
+
+    impl Document {
+        pub(crate) fn camera_mut(&mut self) -> &mut Camera {
+            &mut self.camera
+        }
     }
 }
 
