@@ -233,6 +233,7 @@ fn noun(entity: Entity) -> &'static str {
         Entity::Point(_) => "point",
         Entity::Segment(_) => "edge",
         Entity::Circle(_) => "circle",
+        Entity::Constraint(_) => "constraint",
     }
 }
 

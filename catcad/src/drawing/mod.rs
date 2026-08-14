@@ -268,6 +268,11 @@ impl Drawing {
     /// teach about a new kind of grip, and a drag would begin on whichever was
     /// taught first.
     ///
+    /// Nothing a constraint names, either: a constraint is a statement about
+    /// geometry rather than a place, so what a drag on one would move is
+    /// whatever it is about — and dragging that is what the arms below are
+    /// already for.
+    ///
     /// Nothing the drawing pins: `fix` is the user saying where a point goes,
     /// and a drag is not an argument. A segment needs both its ends free,
     /// because both of them travel. A rim asks for neither — it drives the

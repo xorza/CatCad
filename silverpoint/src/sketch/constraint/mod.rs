@@ -82,6 +82,12 @@ impl Constraint {
     /// a variant this has to answer for, and nothing else has to be taught
     /// about it.
     ///
+    /// Answers in [`Entity`], which is wider than what any variant here yields:
+    /// none of the nine names another constraint, so the cascade is two levels
+    /// deep and stops without being made to. That is a property of the list
+    /// below rather than of the type — see [`Entity`] — and the sweep in
+    /// `every_constraint_names_the_geometry_it_is_about` is what holds it.
+    ///
     /// No constraint names more than two things, so the pair is built on the
     /// stack and flattened — the same shape [`Self::equations`] uses, for the
     /// same reason.

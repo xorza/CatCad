@@ -456,6 +456,12 @@ impl SceneView {
     /// to by a constraint, so it stays there however either is dragged
     /// afterwards; and bare plane is the only click that leaves anything free.
     ///
+    /// A constraint is the one thing that can be under the cursor and offer
+    /// nothing to build on. It is a statement about geometry rather than a place
+    /// on the drawing, so a click that lands on one is a click on the plane
+    /// behind it — which is what leaves it free to be *selected* while a tool is
+    /// down without the tool treating it as somewhere to put a point.
+    ///
     /// `None` only where the plane cannot be resolved at all — seen edge-on,
     /// there is nowhere on it for a click to mean.
     ///
@@ -473,7 +479,7 @@ impl SceneView {
             Some(Entity::Point(id)) => Some(Anchor::On(id)),
             Some(Entity::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
             Some(Entity::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
-            None => at.map(Anchor::At),
+            Some(Entity::Constraint(_)) | None => at.map(Anchor::At),
         }
     }
 

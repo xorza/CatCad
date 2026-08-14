@@ -251,6 +251,18 @@ fn every_constraint_names_the_geometry_it_is_about() {
         for &named in names {
             assert!(constraint.names(named), "{constraint:?} disowns {named:?}");
         }
+        // What the removal cascade rests on. [`Entity`] is wide enough to hold a
+        // constraint — a user picks one out and deletes it — so nothing but this
+        // says the cascade is two levels deep rather than a graph walk. A
+        // variant that named one would have to be added to the table above, and
+        // this is what would refuse it.
+        assert!(
+            !referents
+                .iter()
+                .any(|named| matches!(named, Entity::Constraint(_))),
+            "{constraint:?} names a constraint, so removal is no longer two \
+             levels deep — see the note on `Constraint::referents`",
+        );
     }
 
     // And says no to what it is not about, which is the half the cascade reads:

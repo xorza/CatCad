@@ -255,21 +255,16 @@ impl Sketch {
     /// other; every other accessor here expects to be handed a live one and
     /// panics rather than guessing.
     ///
-    /// One question over the three kinds rather than one apiece, because a
-    /// caller that knows which kind it holds already said so by holding that
-    /// handle — and one that does not is exactly who has to ask.
+    /// One question over the kinds rather than one apiece, because a caller that
+    /// knows which kind it holds already said so by holding that handle — and
+    /// one that does not is exactly who has to ask.
     pub fn holds(&self, entity: impl Into<Entity>) -> bool {
         match entity.into() {
             Entity::Point(id) => self.points.contains(id),
             Entity::Segment(id) => self.segments.contains(id),
             Entity::Circle(id) => self.circles.contains(id),
+            Entity::Constraint(id) => self.constraints.contains(id),
         }
-    }
-
-    /// [`Sketch::holds`] for a constraint, which [`Entity`] does not cover: it
-    /// is geometry only, so that a removal cascade terminates.
-    pub fn contains_constraint(&self, id: ConstraintId) -> bool {
-        self.constraints.contains(id)
     }
 
     /// Every constraint in insertion order, each with the handle that names it.

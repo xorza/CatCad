@@ -219,15 +219,15 @@ fn removing_a_point_takes_what_was_built_on_it_and_nothing_else() {
 
     for constraint in [by_point, by_segment, by_circle, twice_over] {
         assert!(
-            !sketch.contains_constraint(constraint),
+            !sketch.holds(constraint),
             "a constraint over what went survived it"
         );
     }
     // The two naming nothing that went, and no others: the count is what says
     // the sweep stopped where it should have.
     assert_eq!(sketch.constraints().count(), 2);
-    assert!(sketch.contains_constraint(survivor));
-    assert!(sketch.contains_constraint(spanning));
+    assert!(sketch.holds(survivor));
+    assert!(sketch.holds(spanning));
 
     // Idempotent, which is what lets the cascade reach one thing by two routes:
     // asking again for what has already gone changes nothing.
@@ -259,19 +259,24 @@ fn removing_an_edge_or_a_circle_leaves_the_points_it_was_drawn_over() {
 
     sketch.remove_segment(edge);
     assert!(!sketch.holds(edge));
-    assert!(!sketch.contains_constraint(on_edge));
+    assert!(!sketch.holds(on_edge));
     assert!(sketch.holds(a) && sketch.holds(b));
-    assert!(sketch.contains_constraint(on_circle));
+    assert!(sketch.holds(on_circle));
 
     sketch.remove_circle(circle);
     assert!(!sketch.holds(circle));
-    assert!(!sketch.contains_constraint(on_circle));
+    assert!(!sketch.holds(on_circle));
     assert!(sketch.holds(a), "the centre went with its circle");
 
     // The constraint over two bare points outlived both, and goes only when it
     // is asked for by name — which is the one removal that cascades to nothing.
     assert_eq!(sketch.constraints().count(), 1);
+    assert!(
+        sketch.holds(over_points),
+        "a constraint is a thing the sketch holds, like the geometry it is about"
+    );
     sketch.remove_constraint(over_points);
+    assert!(!sketch.holds(over_points));
     assert_eq!(sketch.constraints().count(), 0);
     assert!(sketch.holds(a) && sketch.holds(b));
 }
