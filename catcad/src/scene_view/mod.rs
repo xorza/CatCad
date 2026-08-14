@@ -13,8 +13,9 @@ use crate::document::Document;
 use crate::drawing::{Grip, Revision};
 use crate::intent::{Intent, Intents};
 use crate::named::{Named, Names};
+use crate::preview::{Ends, Preview};
 use crate::selection::Selection;
-use crate::tool::Tool;
+use crate::tool::{Anchor, Tool};
 
 /// Radians of orbit per logical pixel of drag.
 const ORBIT_RATE: f32 = 0.008;
@@ -149,6 +150,13 @@ pub(crate) struct SceneView {
     gesture: Gesture,
     /// The sketch entity under the pointer, if any.
     hovered: Option<Named>,
+    /// The shape a two-click tool is half-way through, if one is.
+    preview: Option<Preview>,
+    /// The band the last layout was written with, compared like the revision
+    /// beside it: a band is written among the strokes and rims, so there is no
+    /// rewriting one without the rest — and a band that has not moved is a
+    /// frame that need not.
+    laid_band: Option<Preview>,
     /// What the renderer was last told to light: the hover and the selection,
     /// rebuilt every settle. Kept for its room rather than its contents, so a
     /// frame that lights the same set as the last asks the heap for nothing.
@@ -179,6 +187,8 @@ impl SceneView {
             laid_out: document.drawing().revision(),
             gesture: Gesture::None,
             hovered: None,
+            preview: None,
+            laid_band: None,
             lit: Vec::new(),
             aimed: None,
         }
@@ -289,31 +299,56 @@ impl SceneView {
             // the pointer reached something, and answering with what was under
             // it before that would select the wrong thing.
             let under = self.named_under(&response, document);
-            let armed = tool != Tool::Pointer;
+            // What the tool in hand could build from where this landed, if it
+            // could build at all. A tool handed `None` has no use for the click
+            // and goes down instead — which is the whole of the rule that a
+            // tool is cancelled by clicking something it cannot draw on.
+            let anchor = self.anchor(&response, document, tool, under);
 
-            if armed && under.is_none() {
-                // Empty space with a tool in hand is the one click that draws.
-                // It leaves the selection alone: what was picked out is not
-                // what was just added.
-                if let Some(at) = landing(&response, document, document.drawing().motion()) {
-                    intents.push(Intent::AddPoint { at });
+            match (tool, anchor) {
+                // One click each, and both leave the selection alone: what was
+                // picked out is not what was just drawn.
+                (Tool::Point, Some(Anchor::At(at))) => intents.push(Intent::AddPoint { at }),
+                // Two clicks each. The first is remembered in the tool and
+                // reaches the document not at all; the second commits the whole
+                // shape as one step.
+                (Tool::Line { from: None }, Some(start)) => {
+                    intents.push(Intent::Hold(Tool::Line { from: Some(start) }));
                 }
-            } else {
-                // Everything else selects. A tool in hand puts itself down on
-                // anything already drawn rather than drawing over it, and the
-                // click goes on to pick that thing out like any other.
-                if armed {
-                    intents.push(Intent::Hold(Tool::Pointer));
+                (Tool::Line { from: Some(from) }, Some(to)) => {
+                    intents.push(Intent::AddSegment { from, to });
+                    intents.push(Intent::Hold(Tool::Line { from: None }));
                 }
-                match under {
-                    // Shift adds to what is picked out.
-                    Some(named) if adding => intents.push(Intent::Include(named)),
-                    // A shift-click on empty space adds nothing, and clearing
-                    // is the plain click's business.
-                    None if adding => {}
-                    // A plain click starts over with whatever is under the
-                    // cursor — which is nothing, when it is over nothing.
-                    _ => intents.push(Intent::Select(under)),
+                (Tool::Circle { center: None }, Some(middle)) => {
+                    intents.push(Intent::Hold(Tool::Circle {
+                        center: Some(middle),
+                    }));
+                }
+                (
+                    Tool::Circle {
+                        center: Some(center),
+                    },
+                    Some(rim),
+                ) => {
+                    intents.push(Intent::AddCircle { center, rim });
+                    intents.push(Intent::Hold(Tool::Circle { center: None }));
+                }
+                // Nothing in hand, or a tool with no use for what was clicked.
+                // Either way the click selects, and a tool goes down first.
+                _ => {
+                    if tool != Tool::Pointer {
+                        intents.push(Intent::Hold(Tool::Pointer));
+                    }
+                    match under {
+                        // Shift adds to what is picked out.
+                        Some(named) if adding => intents.push(Intent::Include(named)),
+                        // A shift-click on empty space adds nothing, and
+                        // clearing is the plain click's business.
+                        None if adding => {}
+                        // A plain click starts over with whatever is under the
+                        // cursor — which is nothing, when it is over nothing.
+                        _ => intents.push(Intent::Select(under)),
+                    }
                 }
             }
         }
@@ -325,6 +360,23 @@ impl SceneView {
         if response.right.clicked() {
             intents.push(Intent::Hold(Tool::Pointer));
         }
+
+        // What the second click would commit, following the cursor. Kept on the
+        // view rather than raised as an intent, because it is not in the
+        // document and never will be — see [`Preview`].
+        self.preview = tool
+            .started()
+            .zip(landing(&response, document, document.drawing().motion()))
+            .map(|(started, at)| {
+                let ends = Ends {
+                    from: document.drawing().at(started),
+                    to: at,
+                };
+                match tool {
+                    Tool::Circle { .. } => Preview::Circle(ends),
+                    _ => Preview::Line(ends),
+                }
+            });
 
         // Asking whether the pointer is actually over the view is what stops
         // the overlay's own controls from lighting what is behind them.
@@ -359,11 +411,17 @@ impl SceneView {
     pub(crate) fn settle(&mut self, document: &Document, selection: &Selection) {
         let mut renderer = self.renderer.borrow_mut();
         let drawing = document.drawing();
-        if self.laid_out != drawing.revision() {
+        // A rubber band is written after the drawing and wiped out by the next
+        // rewrite of it, so a live one is laid out every frame — and the frame
+        // it stops being live has to lay out once more to take it away. That is
+        // what a drag already costs, and refilling reaches the heap for none of
+        // it.
+        if self.laid_out != drawing.revision() || self.laid_band != self.preview {
             // Into the batches the renderer already holds, so a drag rewrites
             // the drawing every frame without asking the heap for anything.
-            drawing.write_into(&mut self.names, renderer.overlays_mut());
+            drawing.write_into(&mut self.names, self.preview, renderer.overlays_mut());
             self.laid_out = drawing.revision();
+            self.laid_band = self.preview;
         }
 
         // Only one thing lights: a marker sits on the end of every edge that
@@ -419,6 +477,34 @@ impl SceneView {
         let renderer = self.renderer.borrow();
         let aim = aimed.aim(&document.camera());
         self.names.get(renderer.scene().nearest(aim)?.tag)
+    }
+
+    /// What `tool` could build from where this click landed, or `None` where it
+    /// could build nothing.
+    ///
+    /// The one rule the drawing tools share. A point the drawing already holds
+    /// is one to share, so edges meet at it and dragging it moves both; bare
+    /// plane is somewhere a point will go when the shape is finished. An edge
+    /// or a rim is neither — there is nothing to attach to and nothing to make
+    /// — and neither is anything at all when nothing is in hand.
+    ///
+    /// The point tool is the exception, and it is the same rule read strictly:
+    /// it puts a point *down*, so a point already there is not something it can
+    /// use but something it would lay a second one over.
+    fn anchor(
+        &self,
+        response: &Response<'_>,
+        document: &Document,
+        tool: Tool,
+        under: Option<Named>,
+    ) -> Option<Anchor> {
+        match (tool, under) {
+            (Tool::Pointer, _) => None,
+            (Tool::Point, Some(_)) => None,
+            (_, Some(Named::Point(id))) => Some(Anchor::On(id)),
+            (_, Some(_)) => None,
+            (_, None) => landing(response, document, document.drawing().motion()).map(Anchor::At),
+        }
     }
 
     /// Decide what this press is the start of.

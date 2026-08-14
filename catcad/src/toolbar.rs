@@ -35,6 +35,8 @@ impl Toolbar {
             .gap(8.0)
             .show(ui, |ui| {
                 self.tool(ui, tool, Tool::Point, "Point", intents);
+                self.tool(ui, tool, Tool::Line { from: None }, "Line", intents);
+                self.tool(ui, tool, Tool::Circle { center: None }, "Circle", intents);
             });
     }
 
@@ -44,7 +46,10 @@ impl Toolbar {
     /// on the bar the one id of this call site.
     fn tool(&self, ui: &mut Ui, tool: Tool, arms: Tool, label: &str, intents: &mut Intents) {
         let mut button = Button::new().id_salt(label).label(label);
-        if tool == arms {
+        // The same tool, however far through it is — a line half drawn is still
+        // the line tool, and a button that went dark between its two clicks
+        // would be saying the opposite.
+        if tool.is(arms) {
             button = button.style(&self.armed);
         }
         if button.show(ui).left.clicked() {

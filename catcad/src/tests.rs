@@ -14,11 +14,15 @@ use crate::{CatCad, Status};
 /// The surface every test that records frames raises the app at.
 const SIZE: UVec2 = UVec2::new(800, 600);
 
-/// The middle of the toolbar's one button. The bar hugs its contents and is
-/// centred on the top edge, so the button straddles the middle of the window a
-/// dozen pixels down, and is about thirty tall — this has room either side, and
-/// the assertion under each press is what says the aim landed.
-const POINT_BUTTON: Vec2 = Vec2::new(400.0, 26.0);
+/// The middle of each button on the toolbar, measured by sweeping the bar and
+/// reading back which tool a click at each pixel armed.
+///
+/// Hand-written numbers, and safe ones: every press below is followed by an
+/// assertion about what ended up in hand, so a layout that moved a button fails
+/// there rather than quietly testing the gap between two.
+const POINT_BUTTON: Vec2 = Vec2::new(325.0, 26.0);
+const LINE_BUTTON: Vec2 = Vec2::new(395.0, 26.0);
+const CIRCLE_BUTTON: Vec2 = Vec2::new(470.0, 26.0);
 
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
@@ -503,6 +507,149 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
     assert!(
         !app.selection.contains(Named::Point(newest)),
         "a point nobody picked came up selected, on a handle left over from an undo"
+    );
+}
+
+/// The line and circle tools take two clicks, reach the document only on the
+/// second, and share a point the first click landed on.
+///
+/// The sharing is the half that matters. An edge drawn onto a point already
+/// there is what makes a sketch a sketch rather than a heap of unrelated
+/// coordinates — drag that point and both edges follow — so what this pins is
+/// that the second line has *three* new points between two edges and not four.
+///
+/// And that nothing lands until the shape is finished: a line abandoned after
+/// one click leaves no stray point behind, which is what lets the whole edge be
+/// one step to take back.
+#[test]
+fn a_line_takes_two_clicks_and_shares_the_point_it_started_on() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+    let at_rest = app.document.drawing().sketch().points().count();
+    let edges = app.document.drawing().sketch().segments().count();
+
+    // Three spots on bare plane, left of the demo's frame.
+    let plane = app.document.drawing().plane();
+    let corner = [
+        plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
+        plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
+        plane.point(DVec2::new(-4.0, 3.5)).as_vec3(),
+    ];
+    let at = corner.map(|world| cursor_on(&mut app, world));
+
+    // One click starts the line and puts nothing in the document.
+    harness.click_at(LINE_BUTTON);
+    frame(&mut app, &mut harness);
+    harness.click_at(at[0]);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.document.drawing().sketch().points().count(),
+        at_rest,
+        "the first click of a line reached the document"
+    );
+    assert!(
+        app.tool.started().is_some(),
+        "the first click was not remembered"
+    );
+
+    // The second finishes it: two points and the edge between them, and the
+    // tool starts over ready for another.
+    harness.click_at(at[1]);
+    frame(&mut app, &mut harness);
+    let sketch = app.document.drawing().sketch();
+    assert_eq!(sketch.points().count(), at_rest + 2);
+    assert_eq!(sketch.segments().count(), edges + 1);
+    assert!(app.tool.started().is_none(), "the tool did not start over");
+    assert!(app.tool.is(Tool::Line { from: None }), "it left the hand");
+
+    // A second line begun on the first one's far end shares that point, so this
+    // one costs a single new point rather than two.
+    harness.click_at(at[1]);
+    frame(&mut app, &mut harness);
+    harness.click_at(at[2]);
+    frame(&mut app, &mut harness);
+    let sketch = app.document.drawing().sketch();
+    assert_eq!(
+        sketch.points().count(),
+        at_rest + 3,
+        "the second line laid a new point over the one it started on"
+    );
+    assert_eq!(sketch.segments().count(), edges + 2);
+
+    // The two edges name one point between them, which is what "shared" means.
+    let mut ends: Vec<PointId> = sketch
+        .segments()
+        .skip(edges)
+        .flat_map(|(_, edge)| [edge.a, edge.b])
+        .collect();
+    ends.sort_by_key(|id| format!("{id:?}"));
+    ends.dedup();
+    assert_eq!(ends.len(), 3, "the two edges share no point: {ends:?}");
+
+    // Ctrl+Z takes back a whole edge, both its points with it.
+    harness.set_modifiers(Modifiers {
+        ctrl: true,
+        ..Modifiers::NONE
+    });
+    harness.key(Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    harness.set_modifiers(Modifiers::NONE);
+    let sketch = app.document.drawing().sketch();
+    assert_eq!(
+        sketch.segments().count(),
+        edges + 1,
+        "half an edge came back"
+    );
+    assert_eq!(sketch.points().count(), at_rest + 2);
+}
+
+/// The circle tool takes its centre from the first click and its size from the
+/// second, and makes a point only at the centre.
+///
+/// A radius is a number rather than a place, which is the whole of why this is
+/// not two points: the second click says how far, and the sketch is left with
+/// nothing out there to drag.
+#[test]
+fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+    let at_rest = app.document.drawing().sketch().points().count();
+    let rings = app.document.drawing().sketch().circles().count();
+
+    // Centre and rim two units apart on the plane, so the radius is known.
+    let plane = app.document.drawing().plane();
+    let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
+    let rim = plane.point(DVec2::new(-1.0, 2.5)).as_vec3();
+    let (at_middle, at_rim) = (cursor_on(&mut app, middle), cursor_on(&mut app, rim));
+
+    harness.click_at(CIRCLE_BUTTON);
+    frame(&mut app, &mut harness);
+    harness.click_at(at_middle);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.document.drawing().sketch().circles().count(),
+        rings,
+        "the first click of a circle reached the document"
+    );
+
+    harness.click_at(at_rim);
+    frame(&mut app, &mut harness);
+    let sketch = app.document.drawing().sketch();
+    assert_eq!(sketch.circles().count(), rings + 1);
+    // One point, at the centre. Nothing was made out on the rim.
+    assert_eq!(sketch.points().count(), at_rest + 1);
+
+    let (_, circle) = sketch.circles().last().expect("a circle was just added");
+    assert!(
+        (circle.radius - 2.0).abs() < 1e-2,
+        "two units apart on the plane made a radius of {}",
+        circle.radius
+    );
+    assert!(
+        (sketch.point(circle.center) - DVec2::new(-3.0, 2.5)).length() < 1e-2,
+        "the centre did not land where it was clicked"
     );
 }
 

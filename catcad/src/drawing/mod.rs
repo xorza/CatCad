@@ -8,6 +8,8 @@ use silverpoint::{
 
 use crate::named::{Named, Names};
 use crate::paint;
+use crate::preview::Preview;
+use crate::tool::Anchor;
 
 /// A sketch, the plane it lies on, and what the last solve made of the two.
 ///
@@ -115,6 +117,65 @@ impl Drawing {
         });
     }
 
+    /// Put a straight edge between `from` and `to`, making a point at either
+    /// end that did not land on one.
+    ///
+    /// Measured rather than solved, like every other addition here: a segment
+    /// carries no parameters of its own and states no relation — it is entirely
+    /// its two ends — so there is nothing for a solve to move. What changes is
+    /// how much the drawing is free to do, and measuring is what says so.
+    pub(crate) fn add_segment(&mut self, solver: &mut Solver, from: Anchor, to: Anchor) {
+        let plane = self.plane;
+        self.measured(solver, |sketch| {
+            // Both ends resolved before either is used, so an edge drawn from a
+            // point back to itself is the degenerate thing the user asked for
+            // rather than two points in the same place.
+            let (a, b) = (anchored(sketch, plane, from), anchored(sketch, plane, to));
+            sketch.add_segment(a, b);
+        });
+    }
+
+    /// Put a circle about `center` reaching as far as `rim`, making a point at
+    /// the centre if the click did not land on one.
+    ///
+    /// Nothing is made at the rim. A radius is a number rather than a place, so
+    /// what the second click gives is a distance and the point it may have
+    /// landed on is left as it was.
+    pub(crate) fn add_circle(&mut self, solver: &mut Solver, center: Anchor, rim: Anchor) {
+        let plane = self.plane;
+        // Taken before the edit, because resolving the centre may add a point
+        // and this reads the sketch as the clicks found it.
+        let through = plane.flatten(self.at(rim).as_dvec3());
+        self.measured(solver, |sketch| {
+            let middle = anchored(sketch, plane, center);
+            let radius = (through - sketch.point(middle)).length();
+            sketch.add_circle(middle, radius);
+        });
+    }
+
+    /// Where `anchor` sits in the world.
+    ///
+    /// A point already drawn is wherever the solver last left it, which is not
+    /// where the click that named it landed — so this is asked afresh rather
+    /// than remembered, and a rubber band from it follows the geometry.
+    pub(crate) fn at(&self, anchor: Anchor) -> Vec3 {
+        match anchor {
+            Anchor::On(id) => self.plane.point(self.sketch.point(id)).as_vec3(),
+            Anchor::At(world) => world,
+        }
+    }
+
+    /// Whether the drawing still holds what `anchor` is built on.
+    ///
+    /// Bare plane is always somewhere; a point taken back by an undo is not —
+    /// see [`Drawing::holds`].
+    pub(crate) fn holds_anchor(&self, anchor: Anchor) -> bool {
+        match anchor {
+            Anchor::On(id) => self.sketch.contains_point(id),
+            Anchor::At(_) => true,
+        }
+    }
+
     /// What the last solve made of it.
     pub(crate) fn report(&self) -> SolveReport {
         self.report
@@ -196,10 +257,10 @@ impl Drawing {
     /// and whoever laid the drawing out is who has to be able to read its tags
     /// back. Emptied here rather than by the caller, because a name list half
     /// from one layout and half from another names nothing.
-    pub(crate) fn write_into(&self, names: &mut Names, into: Overlays<'_>) {
+    pub(crate) fn write_into(&self, names: &mut Names, band: Option<Preview>, into: Overlays<'_>) {
         names.clear();
-        paint::write_curves(self, names, into.curves);
-        paint::write_rings(self, names, into.rings);
+        paint::write_curves(self, names, band.and_then(Preview::line), into.curves);
+        paint::write_rings(self, names, band.and_then(Preview::ring), into.rings);
         paint::write_points(self, names, into.points);
     }
 
@@ -312,6 +373,18 @@ impl Revision {
 /// Settled once, when the press lands. Where on a primitive it was grabbed is
 /// what tells moving a circle from resizing it, and asking again mid-drag
 /// would be asking of geometry that has since moved.
+/// The point `anchor` names, made where it names bare plane.
+///
+/// A free fn rather than a method, because it is wanted inside the closure the
+/// edit runs in: the drawing has lent its sketch out for the length of that,
+/// and cannot be asked anything while it is gone.
+fn anchored(sketch: &mut Sketch, plane: Plane, anchor: Anchor) -> PointId {
+    match anchor {
+        Anchor::On(id) => id,
+        Anchor::At(world) => sketch.add_point(plane.flatten(world.as_dvec3())),
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Grip {
     /// The point itself.

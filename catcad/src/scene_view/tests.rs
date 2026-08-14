@@ -207,6 +207,12 @@ impl Raised {
             .as_vec3()
     }
 
+    /// How many strokes the scene holds — the drawing's edges, plus a rubber
+    /// band when a tool is half-way through one.
+    fn strokes(&self) -> usize {
+        self.view.renderer().borrow().scene().curves.len()
+    }
+
     /// Where every marker in the scene sits, in the order they are drawn.
     fn markers(&self) -> Vec<Vec3> {
         self.view
@@ -700,6 +706,94 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
         "it drew over what it was told not to"
     );
     assert!(raised.selection.contains(point));
+}
+
+/// A half-drawn line is a stroke on screen and nothing in the document, hanging
+/// from where it started to wherever the cursor is.
+///
+/// The band is the only thing this view draws that the drawing did not write, so
+/// what it has to prove is that it is *both*: one more stroke in the scene than
+/// the sketch has edges, ending under the cursor, and gone the moment the tool
+/// is put down — with the sketch untouched throughout.
+#[test]
+fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let edges = raised.document.drawing().sketch().segments().count();
+    let strokes = raised.strokes();
+
+    let from = raised.empty_spot();
+    let start = raised.cursor_on(from);
+    raised.tool = Tool::Line { from: None };
+    raised.harness.click_at(start);
+    raised.frame();
+    assert_eq!(
+        raised.document.drawing().sketch().segments().count(),
+        edges,
+        "the first click of a line reached the document"
+    );
+
+    // Away from where it started, so the band has somewhere to reach.
+    let to = raised
+        .document
+        .drawing()
+        .plane()
+        .point(DVec2::new(-4.0, 0.5))
+        .as_vec3();
+    raised.harness.move_to(raised.cursor_on(to));
+    raised.frame();
+
+    assert_eq!(
+        raised.strokes(),
+        strokes + 1,
+        "the band was not drawn, or was drawn into the document"
+    );
+    // The stroke it added runs from the click to the cursor. It is written
+    // after everything the drawing wrote, so it is the last one.
+    let renderer = raised.view.renderer().borrow();
+    let band = renderer.scene().curves.last().expect("a band was drawn");
+    assert!(
+        band.points[0].abs_diff_eq(from, 1e-3) && band.points[1].abs_diff_eq(to, 1e-3),
+        "the band runs {:?}, not from {from:?} to {to:?}",
+        band.points
+    );
+    // Untagged, so it cannot be hovered, grabbed or picked out — it is not
+    // there yet.
+    assert_eq!(band.tag, None);
+    drop(renderer);
+
+    // Put the tool down and it goes, leaving the drawing exactly as it was.
+    raised.harness.right_click_at(raised.cursor_on(to));
+    raised.frame();
+    assert_eq!(raised.tool, Tool::Pointer);
+    assert_eq!(raised.strokes(), strokes, "the band outlived the tool");
+    assert_eq!(raised.document.drawing().sketch().segments().count(), edges);
+
+    // A circle bands the same way, as a rim rather than a stroke: its size is
+    // how far the cursor is from where the first click landed, so a cursor two
+    // and a half units out is a band of that radius.
+    let rims = raised.view.renderer().borrow().scene().rings.len();
+    raised.tool = Tool::Circle { center: None };
+    raised.harness.click_at(raised.cursor_on(from));
+    raised.frame();
+    let out = raised
+        .document
+        .drawing()
+        .plane()
+        .point(DVec2::new(-1.5 + 2.5, 2.5))
+        .as_vec3();
+    raised.harness.move_to(raised.cursor_on(out));
+    raised.frame();
+
+    let renderer = raised.view.renderer().borrow();
+    assert_eq!(renderer.scene().rings.len(), rims + 1, "no rim was banded");
+    let band = renderer.scene().rings.last().expect("a band was drawn");
+    assert!(
+        (band.radius - 2.5).abs() < 1e-2,
+        "the band came out {} across rather than 2.5",
+        band.radius
+    );
+    assert_eq!(band.tag, None);
 }
 
 /// The camera the document holds is the one the renderer paints through.

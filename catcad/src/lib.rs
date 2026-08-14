@@ -14,6 +14,7 @@ mod intent;
 pub mod named;
 mod overlay;
 mod paint;
+mod preview;
 mod scene_view;
 mod selection;
 mod tool;
@@ -197,6 +198,17 @@ impl CatCad {
         // without anyone having picked it.
         self.selection
             .retain(|named| self.document.drawing().holds(named));
+        // A half-drawn shape hangs off a handle in exactly the same way, and
+        // the undo that takes its first point away leaves it hanging off
+        // nothing. The tool stays in hand and starts over rather than going
+        // down: what was taken back is the point, not the intention to draw.
+        if self
+            .tool
+            .started()
+            .is_some_and(|anchor| !self.document.drawing().holds_anchor(anchor))
+        {
+            self.tool = self.tool.restarted();
+        }
     }
 
     /// A sketch is only as useful as it is determined, so the report reads

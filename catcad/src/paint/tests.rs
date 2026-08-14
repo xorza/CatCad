@@ -23,7 +23,7 @@ fn every_entity_becomes_a_curve() {
     // One edge. Circles are rings now, and markers were never strokes.
     let mut curves = Batch::default();
     let drawing = drawn(sketch);
-    write_curves(&drawing, &mut Names::default(), &mut curves);
+    write_curves(&drawing, &mut Names::default(), None, &mut curves);
     assert_eq!(curves.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
@@ -53,7 +53,7 @@ fn every_entity_becomes_a_curve() {
     let d = fewer.add_point(DVec2::new(4.0, 0.0));
     fewer.add_segment(c, d);
     fewer.add_segment(d, c);
-    write_curves(&drawn(fewer), &mut Names::default(), &mut curves);
+    write_curves(&drawn(fewer), &mut Names::default(), None, &mut curves);
     assert_eq!(curves.len(), 2, "the list did not grow to the new sketch");
     // The ground plane's +y runs to world −Z, so a sketch x-axis stays x.
     assert_eq!(
@@ -65,7 +65,7 @@ fn every_entity_becomes_a_curve() {
         [Vec3::new(4.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]
     );
 
-    write_curves(&drawing, &mut Names::default(), &mut curves);
+    write_curves(&drawing, &mut Names::default(), None, &mut curves);
     assert_eq!(curves.len(), 1, "the list did not shrink back");
     assert_eq!(
         curves[0].points,
@@ -78,7 +78,7 @@ fn every_entity_becomes_a_curve() {
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
     let mut rings = Batch::default();
-    write_rings(&drawing, &mut Names::default(), &mut rings);
+    write_rings(&drawing, &mut Names::default(), None, &mut rings);
     assert_eq!(rings.len(), 1);
     let ring = rings[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
@@ -178,8 +178,8 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     let mut curves = Batch::default();
     let mut rings = Batch::default();
     write_points(&drawing, &mut Names::default(), &mut points);
-    write_curves(&drawing, &mut Names::default(), &mut curves);
-    write_rings(&drawing, &mut Names::default(), &mut rings);
+    write_curves(&drawing, &mut Names::default(), None, &mut curves);
+    write_rings(&drawing, &mut Names::default(), None, &mut rings);
 
     // Three markers, three different things to say about them.
     assert_eq!(points[0].color, PINNED, "the anchor was pinned by hand");

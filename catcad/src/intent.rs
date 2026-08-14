@@ -5,7 +5,7 @@ use glam::Vec3;
 
 use crate::drawing::Grip;
 use crate::named::Named;
-use crate::tool::Tool;
+use crate::tool::{Anchor, Tool};
 
 /// One thing the user asked for.
 ///
@@ -44,6 +44,25 @@ pub(crate) enum Intent {
     /// motion, and where that lands on the *sketch* is the drawing's to say.
     AddPoint {
         at: Vec3,
+    },
+    /// Put a straight edge between these two ends.
+    ///
+    /// One intent for the whole edge, though it is asked for by two clicks and
+    /// may make two points on the way. Nothing reaches the document until the
+    /// second click, so a line abandoned half-drawn leaves no stray point
+    /// behind — and the one that is finished is one step to take back rather
+    /// than three.
+    AddSegment {
+        from: Anchor,
+        to: Anchor,
+    },
+    /// Put a circle about `center`, out as far as `rim`.
+    ///
+    /// The rim says how big and nothing else: a radius is a number, so no point
+    /// is made out there however the click that gave it landed.
+    AddCircle {
+        center: Anchor,
+        rim: Anchor,
     },
     /// The drag let go.
     ///

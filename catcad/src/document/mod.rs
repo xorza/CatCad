@@ -87,16 +87,17 @@ impl Document {
         match intent {
             Intent::Drag { grip, to } => self.drawing.drag_to(solver, grip, to),
             Intent::AddPoint { at } => self.drawing.add_point(solver, at),
+            Intent::AddSegment { from, to } => self.drawing.add_segment(solver, from, to),
+            Intent::AddCircle { center, rim } => self.drawing.add_circle(solver, center, rim),
             Intent::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Intent::Dolly { factor } => self.camera.dolly(factor),
             Intent::Project(projection) => self.camera.projection = projection,
             // None of these is a change to what the document *is*. Which step
             // of the history is current is a question about what has been done,
             // and which tool is in hand and what is picked out are about the
-            // session doing it — where a document is only ever what is,
-            // whoever happens to be looking at it. Each is answered before this
-            // runs,
-            // by whichever of `History::apply` and `CatCad::apply` owns it, and
+            // session doing it — where a document is only ever what is, whoever
+            // happens to be looking at it. Each is answered before this runs, by
+            // whichever of `History::apply` and `CatCad::apply` owns it, and
             // neither forwards one — so arriving here is a caller that went
             // round both, which is worth a crash rather than a silent nothing.
             Intent::Release
@@ -136,7 +137,7 @@ impl Document {
         scene
             .objects
             .refill(&self.solids, |object, solid| object.clone_from(solid));
-        self.drawing.write_into(names, scene.overlays_mut());
+        self.drawing.write_into(names, None, scene.overlays_mut());
     }
 }
 

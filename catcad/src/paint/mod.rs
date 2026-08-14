@@ -10,9 +10,11 @@
 use aperture::{Batch, Curve, Point, Ring, Styled};
 use glam::Vec3;
 use silverpoint::Freedom;
+use silverpoint::{Circle, CircleId, Segment, SegmentId};
 
 use crate::drawing::Drawing;
 use crate::named::{Named, Names};
+use crate::preview::Ends;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -33,6 +35,11 @@ const DETERMINED: Vec3 = Vec3::new(0.35, 0.55, 0.80);
 const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
 const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
 const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
+
+/// What a shape still being drawn is drawn in — a grey that belongs to none of
+/// the states above, because a rubber band has no freedom to report: it is not
+/// geometry yet, and the constraints have not been asked about it.
+const GHOST: Vec3 = Vec3::new(0.72, 0.74, 0.78);
 
 /// What geometry with this much freedom left is drawn in.
 fn colour(freedom: Freedom) -> Vec3 {
@@ -78,7 +85,12 @@ const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 /// The sketch's straight strokes, one edge per segment, biased clear of
 /// the solids in depth so the drawing reads over them. Circles are not
 /// strokes — see [`write_rings`].
-pub(crate) fn write_curves(drawing: &Drawing, names: &mut Names, curves: &mut Batch<Curve>) {
+pub(crate) fn write_curves(
+    drawing: &Drawing,
+    names: &mut Names,
+    band: Option<Ends>,
+    curves: &mut Batch<Curve>,
+) {
     let sketch = drawing.sketch();
     let freedoms = drawing.freedoms();
     let plane = drawing.plane();
@@ -88,20 +100,50 @@ pub(crate) fn write_curves(drawing: &Drawing, names: &mut Names, curves: &mut Ba
     let normal = plane.normal().as_vec3();
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
-    // one that does not — see `Batch::refill`.
-    curves.refill(sketch.segments(), |curve, (id, segment)| {
-        let a = plane.point(sketch.point(segment.a)).as_vec3();
-        let b = plane.point(sketch.point(segment.b)).as_vec3();
-        // An edge is only as settled as its looser end: one end free to
-        // travel is an edge free to travel with it.
-        let freedom = freedoms.point(segment.a).max(freedoms.point(segment.b));
-        curve.set_segment(a, b);
-        curve.color = colour(freedom);
-        curve.width = EDGE_WIDTH;
-        curve.z_offset = STROKE_LIFT;
-        curve.plane_normal = Some(normal);
-        curve.tag = Some(names.tag(Named::Segment(id)));
-    });
+    // one that does not — see `Batch::refill`. The band is chained on rather
+    // than pushed after for the same reason: appended, it would be dropped by
+    // the next rewrite of the drawing and allocated afresh by the one after,
+    // once a frame for as long as a line is being drawn.
+    curves.refill(
+        sketch
+            .segments()
+            .map(|(id, edge)| Stroke::Edge(id, edge))
+            .chain(band.map(Stroke::Band)),
+        |curve, stroke| {
+            curve.width = EDGE_WIDTH;
+            curve.z_offset = STROKE_LIFT;
+            curve.plane_normal = Some(normal);
+            match stroke {
+                Stroke::Edge(id, edge) => {
+                    let a = plane.point(sketch.point(edge.a)).as_vec3();
+                    let b = plane.point(sketch.point(edge.b)).as_vec3();
+                    // An edge is only as settled as its looser end: one end
+                    // free to travel is an edge free to travel with it.
+                    let freedom = freedoms.point(edge.a).max(freedoms.point(edge.b));
+                    curve.set_segment(a, b);
+                    curve.color = colour(freedom);
+                    curve.tag = Some(names.tag(Named::Segment(id)));
+                }
+                // Untagged, which is what keeps the band out of the way: a pick
+                // skips a primitive with no tag, so it cannot be hovered,
+                // grabbed or picked out, and the click that finishes the line
+                // resolves against the geometry behind it.
+                Stroke::Band(ends) => {
+                    curve.set_segment(ends.from, ends.to);
+                    curve.color = GHOST;
+                    curve.tag = None;
+                }
+            }
+        },
+    );
+}
+
+/// One stroke to write: an edge the sketch holds, or the band a tool is in the
+/// middle of drawing.
+#[derive(Debug)]
+enum Stroke {
+    Edge(SegmentId, Segment),
+    Band(Ends),
 }
 
 /// The sketch's points, one marker apiece — larger and pinned-coloured
@@ -144,28 +186,58 @@ pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Ba
 ///
 /// No plane named, unlike the strokes — a ring's band is widened in its
 /// own plane, so the depth it carries is already the surface's.
-pub(crate) fn write_rings(drawing: &Drawing, names: &mut Names, rings: &mut Batch<Ring>) {
+pub(crate) fn write_rings(
+    drawing: &Drawing,
+    names: &mut Names,
+    band: Option<Ends>,
+    rings: &mut Batch<Ring>,
+) {
     let sketch = drawing.sketch();
     let freedoms = drawing.freedoms();
     let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
-    rings.refill(sketch.circles(), |ring, (id, circle)| {
-        // A circle can move with its centre or grow on its own, so it is
-        // settled only when both are — the demo's is pinned to the middle
-        // of a rigid frame and still has its rim to give.
-        let freedom = freedoms.point(circle.center).max(freedoms.radius(id));
-        // Assigned whole, like a marker and unlike a stroke: a rim owns
-        // nothing either.
-        *ring = Ring::new(
-            plane.point(sketch.point(circle.center)).as_vec3(),
-            circle.radius.abs() as f32,
-            normal,
-        )
-        .colored(colour(freedom))
-        .width(EDGE_WIDTH)
-        .z_offset(STROKE_LIFT)
-        .tagged(names.tag(Named::Circle(id)));
-    });
+    rings.refill(
+        sketch
+            .circles()
+            .map(|(id, circle)| Rim::Circle(id, circle))
+            .chain(band.map(Rim::Band)),
+        |ring, rim| {
+            // Assigned whole, like a marker and unlike a stroke: a rim owns
+            // nothing either.
+            *ring = match rim {
+                Rim::Circle(id, circle) => {
+                    // A circle can move with its centre or grow on its own, so
+                    // it is settled only when both are — the demo's is pinned
+                    // to the middle of a rigid frame and still has its rim to
+                    // give.
+                    let freedom = freedoms.point(circle.center).max(freedoms.radius(id));
+                    Ring::new(
+                        plane.point(sketch.point(circle.center)).as_vec3(),
+                        circle.radius.abs() as f32,
+                        normal,
+                    )
+                    .colored(colour(freedom))
+                    .tagged(names.tag(Named::Circle(id)))
+                }
+                // Through the cursor rather than out to it: the second click
+                // says how big by naming somewhere on the rim. Untagged, like
+                // the band among the strokes.
+                Rim::Band(ends) => {
+                    Ring::new(ends.from, ends.from.distance(ends.to), normal).colored(GHOST)
+                }
+            }
+            .width(EDGE_WIDTH)
+            .z_offset(STROKE_LIFT);
+        },
+    );
+}
+
+/// One rim to write: a circle the sketch holds, or the band a tool is in the
+/// middle of drawing.
+#[derive(Debug)]
+enum Rim {
+    Circle(CircleId, Circle),
+    Band(Ends),
 }
 
 #[cfg(test)]
