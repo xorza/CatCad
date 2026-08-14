@@ -240,6 +240,15 @@ fn capture<A: App + Viewed>(size: UVec2, app: &mut A) -> Frame {
 /// deposits `n * p` whether that lands on two pixels or four. That only holds
 /// where ink is proportional to coverage, which is why the channels are
 /// linearised first — see [`linear`].
+///
+/// And where `p` is what a *covered* pixel is worth, which is the floor under
+/// what this can measure. A stroke narrower than a pixel never fully covers
+/// one, so the brightest it reaches is itself a partial reading and dividing by
+/// it reports more width than is there: authored at 1.0 the demo's curves
+/// measure 1.538 and its rings 1.291, both of which are the estimator and not
+/// the geometry. From about 1.5 up some pixel is covered whatever the stroke's
+/// phase against the grid, and the number means what it says. Below that, widen
+/// what you are measuring rather than trusting it.
 #[derive(Debug, PartialEq)]
 struct Stroke {
     row: u32,
