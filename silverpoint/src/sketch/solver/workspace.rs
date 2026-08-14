@@ -4,6 +4,7 @@
 //! assembled into them, and reads what that reduction says the sketch can still
 //! do. What builds the system, and what drives it, is [`Solver`](crate::Solver).
 
+use crate::sketch::constraint::ConstraintId;
 use crate::sketch::solver;
 use crate::sketch::solver::freedoms::Freedom;
 use crate::sketch::{PointId, Sketch};
@@ -43,6 +44,19 @@ pub(super) struct Workspace {
     /// rank. What tells a parameter the constraints resolve from one they
     /// leave to be chosen — see [`Solver::freedoms`].
     pub(super) pivots: Vec<usize>,
+    /// Which equation each row of the elimination started life as, permuted in
+    /// step with the row swaps partial pivoting makes.
+    ///
+    /// Without it a row is anonymous the moment it is swapped, and the rows
+    /// past the rank — the ones the elimination found nothing left to do with —
+    /// could be counted but not named. With it they can be traced back to the
+    /// constraints that wrote them, which is the difference between telling a
+    /// user that their sketch is over-constrained and telling them by what.
+    pub(super) origin: Vec<usize>,
+    /// Which constraint wrote each equation, one entry per row of the
+    /// Jacobian. Filled by `assemble` as it walks, since that is the one place
+    /// that knows a coincidence is worth two rows and everything else one.
+    pub(super) equations: Vec<ConstraintId>,
     /// The null space of the Jacobian, one row of `free.len()` per parameter:
     /// how far that parameter travels along each way the sketch can still
     /// move. Row-major, and meaningless until [`Workspace::null_space`] fills
@@ -88,6 +102,7 @@ impl Workspace {
     /// take it from here rather than keeping their own count.
     pub(super) fn rank(&mut self, n: usize, sketch: &Sketch) -> usize {
         self.pivots.clear();
+        self.origin.clear();
         if n == 0 || self.jacobian.is_empty() {
             return 0;
         }
@@ -95,6 +110,9 @@ impl Workspace {
         self.elimination.extend_from_slice(&self.jacobian);
         let a = &mut self.elimination;
         let m = a.len() / n;
+        // Every row starts as the equation it was assembled from, and follows
+        // its row through every swap below.
+        self.origin.extend(0..m);
         let scale = a.iter().fold(0.0f64, |acc, v| acc.max(v.abs())).max(1.0);
         let tolerance = RANK_TOLERANCE * scale;
         let mut rank = 0;
@@ -115,6 +133,7 @@ impl Workspace {
                 for c in 0..n {
                     a.swap(pivot * n + c, rank * n + c);
                 }
+                self.origin.swap(pivot, rank);
             }
             let diagonal = a[rank * n + col];
             for row in (rank + 1)..m {
@@ -230,6 +249,32 @@ impl Workspace {
         } else {
             Freedom::Free
         }
+    }
+
+    /// The constraints behind the equations the elimination had nothing left to
+    /// do with — everything past the rank, which is what
+    /// [`Freedoms::redundant_equations`] counts without saying whose they are.
+    ///
+    /// Reads the rank off [`Workspace::pivots`] rather than being told it, for
+    /// the reason stated there: the pivots *are* the rank, and a count handed in
+    /// beside them is one that can arrive from a different elimination than the
+    /// rows it would index.
+    ///
+    /// *Which* member of a dependent group comes out here is decided by pivot
+    /// order rather than by anything about the sketch: partial pivoting takes
+    /// the largest coefficient first, so of two constraints saying the same
+    /// thing the one left over is whichever was not chosen. That is honest —
+    /// the pair is redundant, not either one of them — and naming one of them
+    /// is what lets a drawing point at the trouble.
+    ///
+    /// A constraint worth two equations can appear twice, when both of its rows
+    /// died. The caller flags by constraint, so saying it twice says it once.
+    ///
+    /// [`Freedoms::redundant_equations`]: crate::Freedoms::redundant_equations
+    pub(super) fn dependent(&self) -> impl Iterator<Item = ConstraintId> {
+        self.origin[self.pivots.len()..]
+            .iter()
+            .map(|&equation| self.equations[equation])
     }
 
     /// How far one parameter travels along each of the sketch's freedoms.

@@ -374,6 +374,14 @@ impl Sketch {
         self.circles.slot_count()
     }
 
+    /// Positions the constraints occupy. Not part of the parameter layout —
+    /// constraints contribute equations rather than unknowns — but the width
+    /// anything keyed by constraint has to cover, which is what
+    /// [`Freedoms`](crate::Freedoms) is for the redundant ones.
+    pub(crate) fn constraint_slot_count(&self) -> usize {
+        self.constraints.slot_count()
+    }
+
     /// Where the radii start, which is the boundary the whole layout turns on.
     fn radius_base(&self) -> usize {
         self.point_slot_count() * 2

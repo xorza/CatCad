@@ -8,6 +8,7 @@
 //! it saves.
 
 use crate::math::dense::{max_abs, norm, solve_in_place};
+use crate::sketch::constraint::ConstraintId;
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::freedoms::Freedoms;
 use crate::sketch::solver::workspace::Workspace;
@@ -145,7 +146,13 @@ impl Solver {
         let mut damping = INITIAL_DAMPING;
         let mut iterations = 0;
 
-        assemble(sketch, &work.held, &mut work.residuals, &mut work.jacobian);
+        assemble(
+            sketch,
+            &work.held,
+            &mut work.residuals,
+            &mut work.jacobian,
+            &mut work.equations,
+        );
         while iterations < max_iterations && max_abs(&work.residuals) > tolerance {
             iterations += 1;
             work.normal.fill(0.0);
@@ -197,6 +204,7 @@ impl Solver {
                 &work.held,
                 &mut work.trial_residuals,
                 &mut work.trial_jacobian,
+                &mut work.equations,
             );
             if norm(&work.trial_residuals) < norm(&work.residuals) {
                 // Swapped rather than assigned: the loser's buffer becomes the
@@ -377,6 +385,12 @@ impl Solver {
         for (id, _) in sketch.circles() {
             into.set_radius(id, self.work.travel(sketch.radius_param(id)));
         }
+        // The same rank read the other way round: the rows it left behind are
+        // the equations the rest of the system already implies, and each one
+        // names the constraint that wrote it.
+        for id in self.work.dependent() {
+            into.set_redundant(id);
+        }
 
         let max_residual = max_abs(&self.work.residuals);
         SolveReport {
@@ -406,23 +420,45 @@ impl Solver {
             &self.work.held,
             &mut self.work.residuals,
             &mut self.work.jacobian,
+            &mut self.work.equations,
         );
     }
 }
 
 /// Build the residual vector and its row-major Jacobian for the sketch as it
-/// currently stands. Columns of fixed parameters are zeroed, which is what
-/// holds those points still.
-fn assemble(sketch: &Sketch, held: &[usize], residuals: &mut Vec<f64>, jacobian: &mut Vec<f64>) {
+/// currently stands, noting in `equations` which constraint wrote each row.
+/// Columns of fixed parameters are zeroed, which is what holds those points
+/// still.
+///
+/// The three are filled together because they are one walk, and because this is
+/// the only place that knows how many rows a constraint is worth — a coincidence
+/// two, everything else one. A caller rebuilding the mapping for itself would be
+/// a second copy of that, free to fall out of step with this one and silently
+/// blame the wrong constraint.
+///
+/// `equations` is refilled by every assembly, including the trial ones a solve
+/// takes per iteration, where nothing reads it. It is the same answer every time
+/// — what geometry is doing cannot change which constraint an equation came
+/// from — so that is a few tens of writes against an elimination that is cubic
+/// in the same numbers, and it buys one code path instead of two.
+fn assemble(
+    sketch: &Sketch,
+    held: &[usize],
+    residuals: &mut Vec<f64>,
+    jacobian: &mut Vec<f64>,
+    equations: &mut Vec<ConstraintId>,
+) {
     let n = sketch.param_count();
     residuals.clear();
     jacobian.clear();
-    for (_, constraint) in sketch.constraints() {
+    equations.clear();
+    for (id, constraint) in sketch.constraints() {
         for equation in constraint.equations() {
             let start = jacobian.len();
             jacobian.resize(start + n, 0.0);
             let row = &mut jacobian[start..];
             residuals.push(equation.evaluate(sketch, row));
+            equations.push(id);
             for (param, partial) in row.iter_mut().enumerate() {
                 if !movable(sketch, held, param) {
                     *partial = 0.0;
@@ -469,6 +505,7 @@ pub(crate) mod internals {
                 &self.work.held,
                 &mut self.work.residuals,
                 &mut self.work.jacobian,
+                &mut self.work.equations,
             );
             let rank = self.work.rank(n, sketch);
             (0..n)

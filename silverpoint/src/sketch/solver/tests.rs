@@ -560,8 +560,8 @@ fn a_duplicate_constraint_is_reported_as_redundant() {
         b: free,
         distance: 5.0,
     };
-    sketch.add_constraint(distance);
-    sketch.add_constraint(distance);
+    let first = sketch.add_constraint(distance);
+    let second = sketch.add_constraint(distance);
 
     let mut freedoms = Freedoms::default();
     let report = Solver::default().solve(&mut sketch, &mut freedoms);
@@ -571,6 +571,67 @@ fn a_duplicate_constraint_is_reported_as_redundant() {
     assert!(report.converged, "{report:?}");
     assert!((sketch.point(free) - DVec2::new(5.0, 0.0)).length() < EPSILON);
     assert_eq!(freedoms.redundant_equations(), 1);
+    assert_eq!(freedoms.degrees_of_freedom(), 1);
+
+    // And the count is broken down to the constraint that carries it. Exactly
+    // one of the pair, never both: they are redundant *together*, and the one
+    // named is whichever the elimination did not pivot on — so which of the two
+    // it is, is not something to assert.
+    assert_ne!(
+        freedoms.is_redundant(first),
+        freedoms.is_redundant(second),
+        "a duplicated pair should name one of its members, not both or neither"
+    );
+}
+
+/// Redundancy is reported per constraint rather than per equation, and only
+/// where the system really has a spare.
+///
+/// Two coincidences over one pair of points make four equations against a rank
+/// of two, so *two* rows die — and both belong to whichever coincidence lost, so
+/// it is named once rather than twice. The distance beside them is needed, and
+/// is left alone.
+///
+/// The sharp half is the distance. Its row is the last one assembled and the
+/// elimination swaps it forward to pivot on it, so a run that did not carry the
+/// row permutation alongside the swap would read the dead rows off the wrong
+/// equations and blame the one constraint here that is doing work.
+#[test]
+fn redundancy_names_constraints_and_leaves_the_needed_ones_alone() {
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::ZERO);
+    let free = sketch.add_point(DVec2::new(1.0, 0.5));
+    let other = sketch.add_point(DVec2::new(3.0, 0.0));
+    sketch.fix(anchor);
+    let together = Constraint::Coincident { a: anchor, b: free };
+    let first = sketch.add_constraint(together);
+    let second = sketch.add_constraint(together);
+    let apart = sketch.add_constraint(Constraint::Distance {
+        a: anchor,
+        b: other,
+        distance: 2.0,
+    });
+
+    let mut freedoms = Freedoms::default();
+    let report = Solver::default().solve(&mut sketch, &mut freedoms);
+    assert!(report.converged, "{report:?}");
+
+    // Five equations, rank three: the coincidence pair spends two and the
+    // distance one, leaving two rows over.
+    assert_eq!(freedoms.redundant_equations(), 2);
+    // Both of those rows belong to one coincidence, which is named once.
+    assert_ne!(freedoms.is_redundant(first), freedoms.is_redundant(second));
+    assert!(
+        !freedoms.is_redundant(apart),
+        "the one constraint holding a point down was called redundant"
+    );
+    // It is holding it down, which is what says the distance was load-bearing.
+    assert!((sketch.point(other).length() - 2.0).abs() < EPSILON);
+    assert!(
+        sketch.point(free).length() < EPSILON,
+        "the coincidence broke"
+    );
+    // `other` still slides around its circle; `free` is pinned to the anchor.
     assert_eq!(freedoms.degrees_of_freedom(), 1);
 }
 

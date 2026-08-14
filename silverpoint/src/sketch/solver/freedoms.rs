@@ -1,5 +1,6 @@
 //! What a sketch's constraints leave undecided, entity by entity.
 
+use crate::sketch::constraint::ConstraintId;
 use crate::sketch::{CircleId, PointId, Sketch};
 
 /// Stale answers are a caller mistake rather than bad data: the sketch that was
@@ -49,6 +50,12 @@ pub struct Freedoms {
     /// By circle slot. Never [`Freedom::Partly`] — a radius is one parameter,
     /// and one parameter is either decided or not.
     radii: Vec<Freedom>,
+    /// By constraint slot, like the two above. A flag rather than a list, so a
+    /// caller walking the constraints to draw them asks about each in turn
+    /// rather than searching — which is the way round every reader wants it,
+    /// and which says of a constraint worth two equations that it is redundant
+    /// rather than saying so twice.
+    redundant: Vec<bool>,
     degrees_of_freedom: usize,
     redundant_equations: usize,
 }
@@ -68,8 +75,31 @@ impl Freedoms {
 
     /// Equations beyond the rank of the system. On a satisfied sketch these are
     /// consistent duplicates; on an unsatisfiable one they are the conflict.
+    ///
+    /// The total [`Freedoms::is_redundant`] breaks down, and the two can differ:
+    /// this counts equations, that flags constraints, and a coincidence is worth
+    /// two equations.
     pub fn redundant_equations(&self) -> usize {
         self.redundant_equations
+    }
+
+    /// Whether this constraint is one the system could do without where the
+    /// sketch stands.
+    ///
+    /// What a drawing paints an over-constrained sketch by, and what an editor
+    /// offers to delete. Redundant is not the same as wrong: on a satisfied
+    /// sketch these are consistent duplicates, saying again what is already
+    /// true; on an unsatisfiable one they are where the conflict shows.
+    ///
+    /// **Which** of a dependent group is flagged is not a fact about the sketch.
+    /// The elimination takes the largest coefficient as its pivot, so of two
+    /// constraints saying one thing the one flagged is whichever it did not
+    /// choose — and moving the geometry can move the flag between them. What is
+    /// stable is that the group is over-determined and that one of them is named
+    /// for it; a caller telling a user *this constraint is the problem* would be
+    /// claiming more than this knows.
+    pub fn is_redundant(&self, id: ConstraintId) -> bool {
+        *self.redundant.get(id.slot()).expect(UNMEASURED)
     }
 
     /// What the constraints leave of a point.
@@ -99,6 +129,8 @@ impl Freedoms {
         self.radii.clear();
         self.radii
             .resize(sketch.circle_slot_count(), Freedom::Determined);
+        self.redundant.clear();
+        self.redundant.resize(sketch.constraint_slot_count(), false);
     }
 
     pub(crate) fn set_point(&mut self, id: PointId, freedom: Freedom) {
@@ -107,5 +139,11 @@ impl Freedoms {
 
     pub(crate) fn set_radius(&mut self, id: CircleId, freedom: Freedom) {
         self.radii[id.slot()] = freedom;
+    }
+
+    /// Flag a constraint the system could do without. Idempotent, because a
+    /// constraint worth two equations can be named once per row that died.
+    pub(crate) fn set_redundant(&mut self, id: ConstraintId) {
+        self.redundant[id.slot()] = true;
     }
 }
