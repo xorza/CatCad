@@ -161,6 +161,13 @@ impl Solver {
         let max_iterations = self.max_iterations;
         let tolerance = self.tolerance;
         let n = sketch.params().count();
+        // A sketch with no parameters can hold no constraints either, so there
+        // would be nothing to step towards — and `chunks_exact` below panics on
+        // a zero width. Said here rather than left to fall out of an empty
+        // residual, which is how it used to hold.
+        if n == 0 {
+            return 0;
+        }
         let work = &mut self.work;
         work.reset(sketch, held);
         let mut damping = INITIAL_DAMPING;

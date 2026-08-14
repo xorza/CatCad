@@ -269,4 +269,18 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     assert_eq!(sketch.point(b), DVec2::new(3.0, 4.0));
     assert_eq!(sketch.points().count(), 2);
     assert_eq!(sketch.params().count(), 7);
+
+    // One taken out and another put in its place. Every tally the sketch keeps
+    // is unchanged — the arena hands the freed position straight back — and it
+    // is not the sketch that was recorded: the replacement carries a later
+    // generation, which is the only thing that says so.
+    sketch.remove_point(c);
+    let replacement = sketch.add_point(DVec2::new(6.0, 7.0));
+    assert_eq!(sketch.params().count(), 7, "the tally is unchanged");
+    assert_eq!(sketch.points().count(), 2, "and so is the count");
+    assert_ne!(replacement, c);
+    assert!(
+        !now.fits(&sketch),
+        "a replaced point read as the one it replaced"
+    );
 }

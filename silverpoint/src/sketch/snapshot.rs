@@ -27,20 +27,35 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// Whether this describes a sketch holding as much as `sketch` does,
-    /// wherever that geometry has since moved to.
+    /// Whether `sketch` still holds exactly what this recorded, wherever that
+    /// geometry has since moved to.
     ///
     /// Not what makes a restore safe, which is nothing: a snapshot carries a
     /// whole sketch and can be put into one of any width. It answers the
     /// narrower question [`Solver::edit_holding`](crate::Solver) asks, which is
     /// whether an edit that promised only to *move* geometry kept its word.
     ///
-    /// Positions the arenas occupy rather than what is in them, and counted per
-    /// kind rather than totalled: a sketch that lost a point and gained a circle
-    /// can total the same either way, and is not the sketch that was recorded.
+    /// The handles rather than a count of them, because a count cannot tell a
+    /// sketch from one that lost a point and gained another: an arena hands the
+    /// freed position straight back, so the tally is unchanged and the
+    /// replacement is a different point. Its handle carries a later generation,
+    /// which is what makes it show up here.
+    ///
+    /// All four arenas, not only the two that carry parameters. A constraint
+    /// added part-way through an edit changes the very system the edit is about
+    /// to be judged against, which is as much a broken promise as a point that
+    /// went missing.
+    ///
+    /// The occupied positions as well, since handles alone say nothing about a
+    /// position freed and left empty — geometry added and taken away again is
+    /// still geometry that came and went.
     pub(super) fn fits(&self, sketch: &Sketch) -> bool {
         self.sketch.point_slot_count() == sketch.point_slot_count()
             && self.sketch.circle_slot_count() == sketch.circle_slot_count()
+            && names(self.sketch.points()).eq(names(sketch.points()))
+            && names(self.sketch.segments()).eq(names(sketch.segments()))
+            && names(self.sketch.circles()).eq(names(sketch.circles()))
+            && names(self.sketch.constraints()).eq(names(sketch.constraints()))
     }
 
     /// Whether `sketch` stands where this says, to within `epsilon` in every
@@ -57,27 +72,29 @@ impl Snapshot {
     /// Positions and radii both, so a drag that drives a circle's size counts
     /// as much as one that moves a point.
     ///
-    /// The handles are compared alongside the geometry, which is what says the
-    /// two walks are pairing the same entities: [`Snapshot::fits`] has already
-    /// matched the widths, and a handle that differs means the holes fall
-    /// elsewhere and no comparison of the values would have meant anything.
+    /// [`Snapshot::fits`] first, which is what says the two walks are pairing
+    /// the same entities: without it a sketch holding something else would be
+    /// compared value against value in whatever order the two happened to line
+    /// up.
     pub(super) fn within(&self, sketch: &Sketch, epsilon: f64) -> bool {
         self.fits(sketch)
             && self
                 .sketch
                 .points()
                 .zip(sketch.points())
-                .all(|((was, at), (now, moved))| {
-                    was == now && (moved - at).abs().max_element() <= epsilon
-                })
+                .all(|((_, at), (_, moved))| (moved - at).abs().max_element() <= epsilon)
             && self
                 .sketch
                 .circles()
                 .zip(sketch.circles())
-                .all(|((was, at), (now, grown))| {
-                    was == now && (grown.radius - at.radius).abs() <= epsilon
-                })
+                .all(|((_, at), (_, grown))| (grown.radius - at.radius).abs() <= epsilon)
     }
+}
+
+/// The handles out of one of [`Sketch`]'s walks, which is all
+/// [`Snapshot::fits`] wants of them.
+fn names<Id, T>(entities: impl Iterator<Item = (Id, T)>) -> impl Iterator<Item = Id> {
+    entities.map(|(id, _)| id)
 }
 
 // Written out for `clone_from`, as [`Sketch`]'s own is — see the note there. A
