@@ -86,7 +86,7 @@ impl Document {
     pub(crate) fn apply(&mut self, solver: &mut Solver, intent: Intent) {
         match intent {
             Intent::Drag { grip, to } => self.drawing.drag_to(solver, grip, to),
-            Intent::AddPoint { at } => self.drawing.add_point(solver, at),
+            Intent::AddPoint(at) => self.drawing.add_point(solver, at),
             Intent::AddSegment { from, to } => self.drawing.add_segment(solver, from, to),
             Intent::AddCircle { center, rim } => self.drawing.add_circle(solver, center, rim),
             Intent::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),

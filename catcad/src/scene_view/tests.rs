@@ -692,20 +692,72 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     raised.frame();
     assert_eq!(raised.selection.count(), 0);
 
-    // With a tool in hand, a click on something already drawn puts the tool
-    // down instead of drawing over it — and still picks that thing out, since
-    // that is what a click on a primitive always does.
+    // A tool in hand takes the click instead: nothing is picked out by it, and
+    // the tool stays in hand. A point already there is the one click that
+    // builds nothing — there is a point there.
     raised.tool = Tool::Point;
     let before = raised.markers();
     raised.harness.click_at(over_point);
     raised.frame();
-    assert_eq!(raised.tool, Tool::Pointer, "the tool stayed in hand");
+    assert_eq!(raised.tool, Tool::Point, "the tool went out of hand");
+    assert_eq!(raised.markers(), before, "it laid a point over a point");
     assert_eq!(
-        raised.markers(),
-        before,
-        "it drew over what it was told not to"
+        raised.selection.count(),
+        0,
+        "a click the tool took picked something out"
     );
-    assert!(raised.selection.contains(point));
+}
+
+/// A point put down on an edge is held to it, and one put down on a rim is held
+/// to that.
+///
+/// The whole of what a click on something already drawn buys. A click reaches
+/// six pixels, so where it lands is *near* the edge and not on it — what makes
+/// the point belong to the edge is the constraint, and what proves the
+/// constraint is that the solve pulled the point onto the line. Measured
+/// against the edge's own two ends, so the answer is the geometry's rather than
+/// the picker's.
+#[test]
+fn a_point_clicked_onto_an_edge_is_held_to_it() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let free = raised.document.drawing().freedoms().degrees_of_freedom();
+
+    let over_edge = raised
+        .over(|grip| matches!(grip, Grip::Segment { .. }))
+        .expect("the demo draws an edge");
+    let Some(Named::Segment(edge)) = raised.named_at(over_edge) else {
+        panic!("the sweep found something that is not an edge");
+    };
+
+    raised.tool = Tool::Point;
+    raised.harness.click_at(over_edge);
+    raised.frame();
+
+    let sketch = raised.document.drawing().sketch();
+    let (_, at) = sketch.points().last().expect("a point was just added");
+    // On the edge's infinite line, which is what `PointOnSegment` says: the
+    // cross product of the edge's direction with the way to the point is zero.
+    let held = sketch.segment(edge);
+    let (a, b) = (sketch.point(held.a), sketch.point(held.b));
+    let across = (b - a).perp_dot(at - a) / (b - a).length();
+    assert!(
+        across.abs() < 1e-6,
+        "the point sits {across} off the edge it was put on"
+    );
+
+    // Two parameters added and one equation with them, so the drawing has one
+    // more degree of freedom than it had — the point may slide along the edge
+    // and do nothing else.
+    assert_eq!(
+        raised.document.drawing().freedoms().degrees_of_freedom(),
+        free + 1,
+        "a point on an edge should be free along it and nowhere else"
+    );
+    assert!(
+        raised.document.drawing().report().converged,
+        "the solve that puts the point on the edge did not converge"
+    );
 }
 
 /// A half-drawn line is a stroke on screen and nothing in the document, hanging

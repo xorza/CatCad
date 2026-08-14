@@ -37,14 +37,12 @@ pub(crate) enum Intent {
         grip: Grip,
         to: Vec3,
     },
-    /// Put a free point on the drawing's plane, under this point in the world.
+    /// Put a point where this click landed, held to whatever it landed on.
     ///
-    /// Where in the world rather than where on the plane, like the drag above
-    /// and for the same reason: what the pointer resolves is a ray against a
-    /// motion, and where that lands on the *sketch* is the drawing's to say.
-    AddPoint {
-        at: Vec3,
-    },
+    /// An [`Anchor`] rather than a place, because where a click landed is only
+    /// half of what it said: on an edge or a rim it also said what the new point
+    /// is to be held to, and a position alone would have thrown that away.
+    AddPoint(Anchor),
     /// Put a straight edge between these two ends.
     ///
     /// One intent for the whole edge, though it is asked for by two clicks and

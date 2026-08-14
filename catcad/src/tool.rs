@@ -1,24 +1,34 @@
 //! What the pointer is holding, and so what a click in the viewport means.
 
 use glam::Vec3;
-use silverpoint::PointId;
+use silverpoint::{CircleId, PointId, SegmentId};
 
-/// Where a click a tool can build from landed.
+/// Where a click a tool can build from landed, and what that ties it to.
 ///
 /// The difference between a sketch that is connected and one that merely looks
-/// it. A click on a point the drawing already holds shares that point, so the
-/// edges meeting there move together and the constraints have something to say;
-/// a click on bare plane is somewhere a point will go when the shape is
-/// finished, and not before.
+/// it. Whatever a click lands on, the geometry built from it is *held* there:
+/// on a point, by being that point; on an edge or a rim, by a constraint that
+/// keeps it there however either is dragged afterwards. Only a click on bare
+/// plane leaves something free.
 ///
-/// A world position rather than a place on the plane, like every other intent
+/// That is what makes a click on something already drawn worth more than a
+/// click beside it, and why a tool takes one rather than putting itself down.
+///
+/// World positions rather than places on the plane, like every other intent
 /// that names somewhere: what the pointer resolves is a ray against a motion,
 /// and where that lands on the *sketch* is the drawing's to say.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Anchor {
-    /// A point already drawn, which whatever is built will share.
+    /// A point already drawn, which whatever is built will share. The strongest
+    /// tie there is, and the only one that needs no constraint to say so.
     On(PointId),
-    /// Bare plane, in world space.
+    /// An edge, at this point along it. A point goes here and is held to the
+    /// edge's line.
+    OnSegment { segment: SegmentId, at: Vec3 },
+    /// A circle's rim, at this point around it. A point goes here and is held
+    /// to the circumference.
+    OnCircle { circle: CircleId, at: Vec3 },
+    /// Bare plane, in world space. Nothing to hold to, so nothing holds it.
     At(Vec3),
 }
 
@@ -51,11 +61,10 @@ pub(crate) enum Tool {
     /// lines apart in the click that raises both.
     #[default]
     Pointer,
-    /// Put a free point where the next click lands.
+    /// Put a point where the next click lands, held to whatever it landed on.
     ///
-    /// One click, and the only tool with nothing to remember. It wants bare
-    /// plane: a click on something already drawn puts it down rather than
-    /// laying a second point over the first.
+    /// One click, and the only tool with nothing to remember. A click on a point
+    /// already there makes nothing: there is one there.
     Point,
     /// Draw a straight edge, one end per click.
     Line { from: Option<Anchor> },

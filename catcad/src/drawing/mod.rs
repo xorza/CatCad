@@ -3,7 +3,8 @@
 use aperture::{HitAt, Motion, Overlays};
 use glam::Vec3;
 use silverpoint::{
-    CircleId, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot, SolveReport, Solver,
+    CircleId, Constraint, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot, SolveReport,
+    Solver,
 };
 
 use crate::named::{Named, Names};
@@ -98,35 +99,47 @@ impl Drawing {
         });
     }
 
-    /// Put a free point on the plane, under where `world` lands on it.
+    /// Add to the sketch with `edit`, and settle everything around what that
+    /// left.
     ///
-    /// Measured rather than solved. A free point adds two parameters and no
-    /// equations, so nothing the constraints say has changed and there is
-    /// nothing for a solve to move — where a solve *may* move things, and the
-    /// demo's own hub is proof that a re-solve can find a different answer than
-    /// the one on screen. What has changed is how much the drawing is free to
-    /// do, and measuring is what says so.
+    /// The third shape of edit, between the two above. A drag holds what the
+    /// pointer has and asks the constraints to accommodate it; a measure asks
+    /// them nothing. This asks them everything, holding nothing: an addition
+    /// lands where a click did, which is a few pixels from what it was aimed at
+    /// and exact only after a solve — a point put on an edge has to *reach* the
+    /// edge.
     ///
-    /// Not [`Drawing::dragged`], which is the other half of the same fact:
-    /// [`Solver::edit_holding`] settles an edit against the sketch it was
-    /// handed and refuses one that adds to it.
-    pub(crate) fn add_point(&mut self, solver: &mut Solver, world: Vec3) {
-        let at = self.plane.flatten(world.as_dvec3());
-        self.measured(solver, |sketch| {
-            sketch.add_point(at);
+    /// Nothing held, unlike a drag, because there is nothing yet to hold: what
+    /// was added is new, and what was there was already satisfied, so a solve
+    /// from here moves the new geometry and leaves the rest where it stands.
+    fn solved(&mut self, solver: &mut Solver, edit: impl FnOnce(&mut Sketch)) {
+        self.settled(|sketch, freedoms| {
+            edit(sketch);
+            solver.solve(sketch, freedoms)
+        });
+    }
+
+    /// Put a point where `at` names, held to whatever it landed on.
+    ///
+    /// A click on a point already there adds nothing — there is one — and the
+    /// sketch comes out of this unchanged, which is what leaves nothing for a
+    /// history to record.
+    ///
+    /// Not [`Drawing::dragged`], which is the other half of what makes this its
+    /// own call: [`Solver::edit_holding`] settles an edit against the sketch it
+    /// was handed and refuses one that adds to it.
+    pub(crate) fn add_point(&mut self, solver: &mut Solver, at: Anchor) {
+        let plane = self.plane;
+        self.solved(solver, |sketch| {
+            anchored(sketch, plane, at);
         });
     }
 
     /// Put a straight edge between `from` and `to`, making a point at either
-    /// end that did not land on one.
-    ///
-    /// Measured rather than solved, like every other addition here: a segment
-    /// carries no parameters of its own and states no relation — it is entirely
-    /// its two ends — so there is nothing for a solve to move. What changes is
-    /// how much the drawing is free to do, and measuring is what says so.
+    /// end that did not land on one and holding it to whatever it did.
     pub(crate) fn add_segment(&mut self, solver: &mut Solver, from: Anchor, to: Anchor) {
         let plane = self.plane;
-        self.measured(solver, |sketch| {
+        self.solved(solver, |sketch| {
             // Both ends resolved before either is used, so an edge drawn from a
             // point back to itself is the degenerate thing the user asked for
             // rather than two points in the same place.
@@ -138,18 +151,22 @@ impl Drawing {
     /// Put a circle about `center` reaching as far as `rim`, making a point at
     /// the centre if the click did not land on one.
     ///
-    /// Nothing is made at the rim. A radius is a number rather than a place, so
-    /// what the second click gives is a distance and the point it may have
-    /// landed on is left as it was.
+    /// Nothing is made at the rim: a radius is a number rather than a place, so
+    /// what the second click gives is a distance. But a rim landing on a point
+    /// already there is held to it — the circle is then as big as that point
+    /// says, and stays so however either is dragged.
     pub(crate) fn add_circle(&mut self, solver: &mut Solver, center: Anchor, rim: Anchor) {
         let plane = self.plane;
         // Taken before the edit, because resolving the centre may add a point
         // and this reads the sketch as the clicks found it.
         let through = plane.flatten(self.at(rim).as_dvec3());
-        self.measured(solver, |sketch| {
+        self.solved(solver, |sketch| {
             let middle = anchored(sketch, plane, center);
             let radius = (through - sketch.point(middle)).length();
-            sketch.add_circle(middle, radius);
+            let circle = sketch.add_circle(middle, radius);
+            if let Anchor::On(point) = rim {
+                sketch.add_constraint(Constraint::PointOnCircle { point, circle });
+            }
         });
     }
 
@@ -161,7 +178,7 @@ impl Drawing {
     pub(crate) fn at(&self, anchor: Anchor) -> Vec3 {
         match anchor {
             Anchor::On(id) => self.plane.point(self.sketch.point(id)).as_vec3(),
-            Anchor::At(world) => world,
+            Anchor::OnSegment { at, .. } | Anchor::OnCircle { at, .. } | Anchor::At(at) => at,
         }
     }
 
@@ -172,6 +189,8 @@ impl Drawing {
     pub(crate) fn holds_anchor(&self, anchor: Anchor) -> bool {
         match anchor {
             Anchor::On(id) => self.holds(id),
+            Anchor::OnSegment { segment, .. } => self.holds(segment),
+            Anchor::OnCircle { circle, .. } => self.holds(circle),
             Anchor::At(_) => true,
         }
     }
@@ -382,10 +401,37 @@ impl Revision {
 /// edit runs in: the drawing has lent its sketch out for the length of that,
 /// and cannot be asked anything while it is gone.
 fn anchored(sketch: &mut Sketch, plane: Plane, anchor: Anchor) -> PointId {
-    match anchor {
-        Anchor::On(id) => id,
-        Anchor::At(world) => sketch.add_point(plane.flatten(world.as_dvec3())),
+    let (world, held) = match anchor {
+        // Already a point, so there is nothing to make and nothing to say: two
+        // pieces of geometry sharing one point are held together by being the
+        // same point, which no constraint could state more strongly.
+        Anchor::On(id) => return id,
+        Anchor::OnSegment { segment, at } => (at, Some(Tie::Segment(segment))),
+        Anchor::OnCircle { circle, at } => (at, Some(Tie::Circle(circle))),
+        Anchor::At(world) => (world, None),
+    };
+    // Where the click landed, which is near what it landed on rather than on
+    // it: the pointer reaches a few pixels and a constraint is exact. The solve
+    // that follows is what closes that gap, and it is why adding geometry
+    // solves rather than only measuring.
+    let point = sketch.add_point(plane.flatten(world.as_dvec3()));
+    match held {
+        Some(Tie::Segment(segment)) => {
+            sketch.add_constraint(Constraint::PointOnSegment { point, segment });
+        }
+        Some(Tie::Circle(circle)) => {
+            sketch.add_constraint(Constraint::PointOnCircle { point, circle });
+        }
+        None => {}
     }
+    point
+}
+
+/// What a new point is held to, once it is known which of the two it is.
+#[derive(Debug, Clone, Copy)]
+enum Tie {
+    Segment(SegmentId),
+    Circle(CircleId),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

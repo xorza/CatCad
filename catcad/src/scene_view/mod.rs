@@ -298,17 +298,14 @@ impl SceneView {
             // *last* frame's settle found: a click can land on the first frame
             // the pointer reached something, and answering with what was under
             // it before that would select the wrong thing.
-            let under = self.named_under(&response, document);
-            // What the tool in hand could build from where this landed, if it
-            // could build at all. A tool handed `None` has no use for the click
-            // and goes down instead — which is the whole of the rule that a
-            // tool is cancelled by clicking something it cannot draw on.
-            let anchor = self.anchor(&response, document, tool, under);
-
-            match (tool, anchor) {
-                // One click each, and both leave the selection alone: what was
-                // picked out is not what was just drawn.
-                (Tool::Point, Some(Anchor::At(at))) => intents.push(Intent::AddPoint { at }),
+            // A tool in hand takes every click, whatever it landed on: what was
+            // clicked is what the new geometry is *held to*, so a click on the
+            // drawing is worth more to a tool than one beside it. Nothing is
+            // picked out by a click a tool took — selecting is the pointer's.
+            match (tool, self.anchor(&response, document)) {
+                // One click. On a point already there it adds nothing, and the
+                // drawing comes out of it unchanged.
+                (Tool::Point, Some(at)) => intents.push(Intent::AddPoint(at)),
                 // Two clicks each. The first is remembered in the tool and
                 // reaches the document not at all; the second commits the whole
                 // shape as one step.
@@ -333,12 +330,15 @@ impl SceneView {
                     intents.push(Intent::AddCircle { center, rim });
                     intents.push(Intent::Hold(Tool::Circle { center: None }));
                 }
-                // Nothing in hand, or a tool with no use for what was clicked.
-                // Either way the click selects, and a tool goes down first.
-                _ => {
-                    if tool != Tool::Pointer {
-                        intents.push(Intent::Hold(Tool::Pointer));
-                    }
+                // Nothing in hand — or a plane seen so nearly edge-on that a
+                // click names nowhere on it, where there is nothing to build
+                // from and picking out what was clicked is all that is left.
+                (Tool::Pointer, _) | (_, None) => {
+                    // Picked afresh rather than read off `hovered`, which is
+                    // what the *last* frame's settle found: a click can land on
+                    // the first frame the pointer reached something, and what
+                    // was under it before that is the wrong thing to select.
+                    let under = self.named_under(&response, document);
                     match under {
                         // Shift adds to what is picked out.
                         Some(named) if adding => intents.push(Intent::Include(named)),
@@ -479,31 +479,23 @@ impl SceneView {
         self.names.get(renderer.scene().nearest(aim)?.tag)
     }
 
-    /// What `tool` could build from where this click landed, or `None` where it
-    /// could build nothing.
+    /// What a click here would build on: what it landed on and where.
     ///
-    /// The one rule the drawing tools share. A point the drawing already holds
-    /// is one to share, so edges meet at it and dragging it moves both; bare
-    /// plane is somewhere a point will go when the shape is finished. An edge
-    /// or a rim is neither — there is nothing to attach to and nothing to make
-    /// — and neither is anything at all when nothing is in hand.
+    /// The one rule the drawing tools share, and it is that a click on
+    /// something already drawn is worth *more* than one beside it. A point is
+    /// shared outright; an edge or a rim is something the new geometry is held
+    /// to by a constraint, so it stays there however either is dragged
+    /// afterwards; and bare plane is the only click that leaves anything free.
     ///
-    /// The point tool is the exception, and it is the same rule read strictly:
-    /// it puts a point *down*, so a point already there is not something it can
-    /// use but something it would lay a second one over.
-    fn anchor(
-        &self,
-        response: &Response<'_>,
-        document: &Document,
-        tool: Tool,
-        under: Option<Named>,
-    ) -> Option<Anchor> {
-        match (tool, under) {
-            (Tool::Pointer, _) => None,
-            (Tool::Point, Some(_)) => None,
-            (_, Some(Named::Point(id))) => Some(Anchor::On(id)),
-            (_, Some(_)) => None,
-            (_, None) => landing(response, document, document.drawing().motion()).map(Anchor::At),
+    /// `None` only where the plane cannot be resolved at all — seen edge-on,
+    /// there is nowhere on it for a click to mean.
+    fn anchor(&self, response: &Response<'_>, document: &Document) -> Option<Anchor> {
+        let at = landing(response, document, document.drawing().motion());
+        match self.named_under(response, document) {
+            Some(Named::Point(id)) => Some(Anchor::On(id)),
+            Some(Named::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
+            Some(Named::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
+            None => at.map(Anchor::At),
         }
     }
 
