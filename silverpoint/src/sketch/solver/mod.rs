@@ -268,11 +268,6 @@ impl Solver {
     /// nothing moved at all, so nothing that works today can be made worse by
     /// it.
     ///
-    /// Judged on the residual rather than on convergence alone, so a sketch
-    /// whose constraints already conflict can still be dragged: what is refused
-    /// is a step that leaves the sketch *less* satisfied than it was, not one
-    /// that merely fails to finish the job.
-    ///
     /// `edit` may move geometry. It may not add or remove any: `held` and the
     /// residual this is judged against were both taken of the sketch as it
     /// arrived, so an edit that changed what the sketch *is* would be settled
@@ -288,7 +283,7 @@ impl Solver {
         // Only the residual, so the pre-edit look costs one assembly and no
         // elimination: nothing is being reported about the sketch as it stands,
         // only judged against what the edit leaves.
-        let was = self.residual_at_rest(sketch);
+        let was = self.assemble_at_rest(sketch);
         sketch.snapshot_into(&mut self.before);
 
         edit(sketch);
@@ -354,9 +349,11 @@ impl Solver {
     /// Which of the sketch's geometry its constraints leave anything to
     /// decide, and which they pin down completely.
     ///
-    /// The breakdown behind [`SolveReport::degrees_of_freedom`]: that counts
-    /// the freedoms a sketch has left and this says whose they are, which is
-    /// what lets a drawing show the difference rather than only total it.
+    /// The breakdown behind
+    /// [`Freedoms::degrees_of_freedom`](crate::Freedoms::degrees_of_freedom):
+    /// that counts the freedoms a sketch has left and this says whose they are,
+    /// which is what lets a drawing show the difference rather than only total
+    /// it.
     ///
     /// Measured where the sketch currently stands, and so only as good as that:
     /// determinacy is a property of the constraints *linearised here*, and a
@@ -369,18 +366,12 @@ impl Solver {
         self.measure_taking(sketch, into, Settled::AtRest, 0);
     }
 
-    /// The whole of what the sketch says about itself where it stands, with
-    /// `iterations` recorded as how it got there.
+    /// Assemble the sketch at rest and read the whole of what it says about
+    /// itself, with `iterations` recorded as how it got there.
     ///
-    /// One assembly and one elimination for all of it. The rank the null space
-    /// is read from is the same rank the degrees of freedom are counted
-    /// against, so the total and the per-entity labels are two resolutions of
-    /// one answer rather than two answers that have to be kept in step.
-    ///
-    /// Always at rest, whatever a solve was holding. Determinacy is a property
-    /// of the sketch and not of the drag being attempted on it, and a count
-    /// taken with a point held would say the sketch had less freedom than it
-    /// does for as long as someone was holding it.
+    /// The two halves together, which is what every entry point that is not
+    /// judging an edit wants. An edit has to decide whether an attempt is worth
+    /// keeping before it is worth describing, so it calls them separately.
     fn measure_taking(
         &mut self,
         sketch: &Sketch,
@@ -388,16 +379,26 @@ impl Solver {
         settled: Settled,
         iterations: u32,
     ) {
-        self.residual_at_rest(sketch);
+        self.assemble_at_rest(sketch);
         self.read_at_rest(sketch, into, settled, iterations);
     }
 
     /// Read what the assembly already in the workspace says the sketch can do.
     ///
-    /// Carries on from [`Solver::residual_at_rest`] rather than assembling
+    /// Carries on from [`Solver::assemble_at_rest`] rather than assembling
     /// again, so a caller that has already judged the residual pays for the
     /// elimination alone. Nothing may have moved the sketch in between: the
     /// rows being reduced are the ones that assembly built.
+    ///
+    /// One elimination for all of it. The rank the null space is read from is
+    /// the same rank the degrees of freedom are counted against, so the total
+    /// and the per-entity labels are two resolutions of one answer rather than
+    /// two answers that have to be kept in step.
+    ///
+    /// Always at rest, whatever a solve was holding. Determinacy is a property
+    /// of the sketch and not of the drag being attempted on it, and a count
+    /// taken with a point held would say the sketch had less freedom than it
+    /// does for as long as someone was holding it.
     fn read_at_rest(
         &mut self,
         sketch: &Sketch,
@@ -445,7 +446,7 @@ impl Solver {
     /// the workspace, so a caller that decides to keep the answer reads the
     /// rest of it off with [`Solver::read_at_rest`] instead of building it
     /// again.
-    fn residual_at_rest(&mut self, sketch: &Sketch) -> f64 {
+    fn assemble_at_rest(&mut self, sketch: &Sketch) -> f64 {
         self.work.hold(sketch, &[]);
         assemble(
             sketch,
@@ -465,7 +466,7 @@ impl Solver {
     /// is a step that leaves it *less* satisfied than it was, not one that
     /// merely fails to finish the job.
     fn takes(&mut self, sketch: &Sketch, was: f64) -> bool {
-        let residual = self.residual_at_rest(sketch);
+        let residual = self.assemble_at_rest(sketch);
         residual <= self.tolerance || residual <= was
     }
 }
