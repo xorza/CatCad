@@ -2,7 +2,8 @@
 //!
 //! Holds the buffers the iteration next door works in, reduces the Jacobian
 //! assembled into them, and reads what that reduction says the sketch can still
-//! do. What builds the system, and what drives it, is [`Solver`](crate::Solver).
+//! do. What fills those buffers is [`System::assemble`]; what drives the whole
+//! of it is [`Solver`](crate::Solver).
 
 use crate::sketch::constraint::ConstraintId;
 use crate::sketch::solver::freedoms::Freedom;
@@ -45,7 +46,7 @@ pub(super) struct Workspace {
     /// points [`Workspace::system`] and [`Workspace::trial_system`] are the
     /// assemblies of.
     pub(super) params: Vec<f64>,
-    pub(super) trial: Vec<f64>,
+    pub(super) trial_params: Vec<f64>,
     /// Measuring rank destroys what it eliminates, so it runs on a copy of
     /// the Jacobian rather than on the Jacobian.
     elimination: Vec<f64>,
@@ -86,9 +87,9 @@ impl Workspace {
     /// Size the fixed-length buffers to `sketch` and load its current values,
     /// keeping whatever room everything has grown to.
     ///
-    /// The variable-length ones are left alone: `assemble` clears the two
-    /// residual/Jacobian pairs as it fills them, and `trial` and `elimination`
-    /// are cleared where they are written.
+    /// The variable-length ones are left alone: a [`System`] clears itself as
+    /// it assembles, and `trial_params` and `elimination` are cleared where they
+    /// are written.
     pub(super) fn reset(&mut self, sketch: &Sketch, held: &[PointId]) {
         let n = sketch.params().count();
         self.normal.clear();

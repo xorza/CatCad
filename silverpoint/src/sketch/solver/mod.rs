@@ -219,10 +219,10 @@ impl Solver {
                 continue;
             }
 
-            work.trial.clear();
-            work.trial
+            work.trial_params.clear();
+            work.trial_params
                 .extend(work.params.iter().zip(&work.step).map(|(p, d)| p + d));
-            sketch.params_mut().set(&work.trial);
+            sketch.params_mut().set(&work.trial_params);
             work.trial_system.assemble(sketch, &work.movable);
             let (residual, trial) = (
                 norm(&work.system.residuals),
@@ -231,7 +231,7 @@ impl Solver {
             if trial < residual {
                 // Swapped rather than assigned: the loser's buffers become the
                 // next round's scratch, so nothing is ever rebuilt.
-                std::mem::swap(&mut work.params, &mut work.trial);
+                std::mem::swap(&mut work.params, &mut work.trial_params);
                 std::mem::swap(&mut work.system, &mut work.trial_system);
                 damping = (damping * DAMPING_DECAY).max(f64::MIN_POSITIVE);
                 // Kept, and the last worth taking: a step that improves on its
@@ -507,6 +507,10 @@ pub(crate) mod internals {
         /// Kept because holding a point and asking again is a second route to
         /// the answer the freedoms give, and two routes agreeing is what says
         /// either is right.
+        ///
+        /// Reaches the rank through the null space, which is more than it needs
+        /// and deliberately so: the rank on its own is `Workspace`'s business,
+        /// and a test is not reason enough to publish it.
         pub(crate) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
             let n = sketch.params().count();
             self.work.reset(sketch, held);
