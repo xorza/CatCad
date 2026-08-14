@@ -26,6 +26,29 @@ impl Named {
     }
 }
 
+// Every sketch handle names itself, so a caller holding one need not say which
+// kind it is twice — the type already did. Three impls rather than one, because
+// `Id` is generic over what it points at and the three are genuinely different
+// types; nothing here could be written once without a trait silverpoint does
+// not have.
+impl From<PointId> for Named {
+    fn from(id: PointId) -> Self {
+        Named::Point(id)
+    }
+}
+
+impl From<SegmentId> for Named {
+    fn from(id: SegmentId) -> Self {
+        Named::Segment(id)
+    }
+}
+
+impl From<CircleId> for Named {
+    fn from(id: CircleId) -> Self {
+        Named::Circle(id)
+    }
+}
+
 /// Every entity the drawing named, in the order it was drawn.
 ///
 /// A [`Tag`] is one opaque `u64`, and a sketch handle no longer fits in one:

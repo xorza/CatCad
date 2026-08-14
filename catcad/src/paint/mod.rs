@@ -9,8 +9,7 @@
 
 use aperture::{Batch, Curve, Point, Ring, Styled};
 use glam::Vec3;
-use silverpoint::Freedom;
-use silverpoint::{Circle, CircleId, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Freedom, Segment, SegmentId};
 
 use crate::drawing::Drawing;
 use crate::named::{Named, Names};

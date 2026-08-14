@@ -578,14 +578,19 @@ fn a_line_takes_two_clicks_and_shares_the_point_it_started_on() {
     assert_eq!(sketch.segments().count(), edges + 2);
 
     // The two edges name one point between them, which is what "shared" means.
-    let mut ends: Vec<PointId> = sketch
+    // Counted rather than sorted: a handle carries no order, only whether it is
+    // the same handle, and that is the whole of the question here.
+    let ends: Vec<PointId> = sketch
         .segments()
         .skip(edges)
         .flat_map(|(_, edge)| [edge.a, edge.b])
         .collect();
-    ends.sort_by_key(|id| format!("{id:?}"));
-    ends.dedup();
-    assert_eq!(ends.len(), 3, "the two edges share no point: {ends:?}");
+    let distinct = ends
+        .iter()
+        .enumerate()
+        .filter(|(seen, id)| !ends[..*seen].contains(id))
+        .count();
+    assert_eq!(distinct, 3, "the two edges share no point: {ends:?}");
 
     // Ctrl+Z takes back a whole edge, both its points with it.
     harness.set_modifiers(Modifiers {

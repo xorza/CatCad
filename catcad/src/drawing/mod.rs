@@ -171,7 +171,7 @@ impl Drawing {
     /// see [`Drawing::holds`].
     pub(crate) fn holds_anchor(&self, anchor: Anchor) -> bool {
         match anchor {
-            Anchor::On(id) => self.sketch.contains_point(id),
+            Anchor::On(id) => self.holds(id),
             Anchor::At(_) => true,
         }
     }
@@ -222,8 +222,11 @@ impl Drawing {
     /// back, and it does not merely stop resolving: [`Drawing::restore`] puts
     /// the sketch back arenas and all, so the next entity created takes the
     /// very same handle and would be mistaken for the one that went.
-    pub(crate) fn holds(&self, named: Named) -> bool {
-        match named {
+    /// Takes anything that names one, which is every sketch handle as well as a
+    /// [`Named`]: a caller holding a `PointId` has already said which kind it
+    /// is by holding that type.
+    pub(crate) fn holds(&self, named: impl Into<Named>) -> bool {
+        match named.into() {
             Named::Point(id) => self.sketch.contains_point(id),
             Named::Segment(id) => self.sketch.contains_segment(id),
             Named::Circle(id) => self.sketch.contains_circle(id),
