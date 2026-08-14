@@ -51,9 +51,15 @@ pub(super) struct Stepper {
     /// What a step would make of the system, assembled under the same mask so
     /// the two can be swapped when the step is worth keeping.
     trial: System,
-    /// `JᵀJ + λD`, `n × n` row-major.
+    /// `JᵀJ + λD`, `n × n` row-major, and only ever the lower triangle of it:
+    /// the matrix is symmetric and the Cholesky it is handed to reads nothing
+    /// above the diagonal, so the other half is left at the zero
+    /// [`Stepper::iterate`] clears it to.
     normal: Vec<f64>,
     step: Vec<f64>,
+    /// Which columns the Jacobian row being folded in has anything in, gathered
+    /// once per row and read twice — once per pair of them.
+    touched: Vec<usize>,
     /// Where the run stands, and where a step would put it — the two points the
     /// system it was handed and [`Stepper::trial`] are the assemblies of.
     params: Vec<f64>,
@@ -98,17 +104,27 @@ impl Stepper {
         let mut iterations = 0;
 
         system.assemble(sketch);
+        // How far the residual vector reaches, carried rather than measured
+        // afresh each round: after a step worth keeping it is the trial length
+        // just taken, and after one that was not it has not moved.
+        let mut magnitude = norm(&system.residuals);
         while iterations < max_iterations && system.max_residual() > tolerance {
             iterations += 1;
             self.normal.fill(0.0);
             self.step.fill(0.0);
             for (row, residual) in system.jacobian.chunks_exact(n).zip(&system.residuals) {
-                for a in 0..n {
-                    if row[a] == 0.0 {
-                        continue;
-                    }
+                // A constraint names two entities at most, so a row is four
+                // cells of work in a sketch of any width — and every cell of
+                // `JᵀJ` this row reaches is a pair of them. Gathered once,
+                // because walking the row per nonzero costs the whole width
+                // again to find the same four.
+                self.touched.clear();
+                self.touched.extend((0..n).filter(|&col| row[col] != 0.0));
+                for (taken, &a) in self.touched.iter().enumerate() {
                     self.step[a] -= row[a] * residual;
-                    for b in 0..n {
+                    // The lower triangle alone, since that is all the Cholesky
+                    // reads. `touched` climbs, so `..=taken` is exactly `b <= a`.
+                    for &b in &self.touched[..=taken] {
                         self.normal[a * n + b] += row[a] * row[b];
                     }
                 }
@@ -145,18 +161,20 @@ impl Stepper {
                 .extend(self.params.iter().zip(&self.step).map(|(p, d)| p + d));
             sketch.params_mut().set(&self.trial_params);
             self.trial.assemble(sketch);
-            let (residual, trial) = (norm(&system.residuals), norm(&self.trial.residuals));
-            if trial < residual {
+            let trial = norm(&self.trial.residuals);
+            if trial < magnitude {
                 // Swapped rather than assigned: the loser's buffers become the
                 // next round's scratch, so nothing is ever rebuilt.
                 std::mem::swap(&mut self.params, &mut self.trial_params);
                 std::mem::swap(system, &mut self.trial);
                 damping = (damping * DAMPING_DECAY).max(f64::MIN_POSITIVE);
+                let reached = magnitude;
+                magnitude = trial;
                 // Kept, and the last worth taking: a step that improves on its
                 // predecessor by nothing is one whose successors improve on it
                 // by nothing either, and the residual test above can only stop a
                 // system that has an answer to reach.
-                if residual - trial <= STALLED * residual {
+                if reached - trial <= STALLED * reached {
                     break;
                 }
             } else {
