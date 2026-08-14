@@ -1,6 +1,7 @@
 //! A mesh placed in the world.
 
 use crate::mesh::Mesh;
+use crate::primitive::Primitive;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Mat4, Vec3};
@@ -80,6 +81,26 @@ impl Styled for Object {
 
     fn tag_mut(&mut self) -> &mut Option<Tag> {
         &mut self.tag
+    }
+}
+
+/// A solid is a primitive like the overlays, and not a [`Flatten`]: a mesh is
+/// baked into a shared triangle list rather than shipped as a record apiece,
+/// and its vertices and indices go to the GPU together.
+///
+/// [`Flatten`]: crate::primitive::Flatten
+impl Primitive for Object {
+    fn tag(&self) -> Option<Tag> {
+        self.tag
+    }
+
+    /// Measured after the transform, so this is where the geometry actually
+    /// lands — and the one kind whose extent is the model rather than a claim
+    /// about legibility.
+    fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
+        for vertex in &self.mesh.vertices {
+            include(self.transform.transform_point3(vertex.position));
+        }
     }
 }
 

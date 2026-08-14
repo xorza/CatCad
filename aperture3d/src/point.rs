@@ -2,7 +2,7 @@
 
 use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
-use crate::overlay::Overlay;
+use crate::primitive::{Flatten, Primitive};
 use crate::renderer::record::PointInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
@@ -104,7 +104,7 @@ impl Styled for Point {
     }
 }
 
-impl Overlay for Point {
+impl Flatten for Point {
     type Record = PointInstance;
 
     fn record_count(&self) -> usize {
@@ -114,13 +114,13 @@ impl Overlay for Point {
     fn records(&self) -> impl Iterator<Item = Self::Record> {
         std::iter::once(PointInstance::of(self))
     }
+}
 
+impl Primitive for Point {
     fn tag(&self) -> Option<Tag> {
         self.tag
     }
 
-    /// The glyph is screen-sized, so like a stroke's width it says nothing
-    /// about where the world reaches — only the anchor counts.
     fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
         include(self.position);
     }

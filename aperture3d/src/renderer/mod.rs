@@ -180,7 +180,8 @@ impl Renderer {
     ///
     /// `relight` is the one thing no buffer can answer for: which primitives are
     /// lit can change with the scene untouched, which is what a pointer crossing
-    /// a drawing does.
+    /// a drawing does. Taken here rather than passed in, on the same terms as
+    /// every batch's own mark — a flag read twice is a flag that relights twice.
     ///
     /// The scene is borrowed mutably to be *read*: taking a batch's mark is what
     /// clears it, and a mark left behind would re-flatten the same list every
@@ -191,18 +192,22 @@ impl Renderer {
     /// it, so it is remembered on the run — through a memo rather than the batch,
     /// which is what keeps recording it from reading as an edit. See
     /// [`Text::extent`](crate::Text::extent).
-    fn refresh(&mut self, relight: bool, raster_scale: f32) {
+    fn refresh(&mut self, raster_scale: f32) {
         let Self {
             scene,
             highlights,
+            relight,
             cpu,
             shaper,
             ..
         } = self;
+        let relight = std::mem::take(relight);
         cpu.meshes.refresh(&mut scene.objects);
-        cpu.curves.refresh(&mut scene.curves, highlights, relight);
-        cpu.rings.refresh(&mut scene.rings, highlights, relight);
-        cpu.points.refresh(&mut scene.points, highlights, relight);
+        cpu.curves
+            .refill_from(&mut scene.curves, highlights, relight);
+        cpu.rings.refill_from(&mut scene.rings, highlights, relight);
+        cpu.points
+            .refill_from(&mut scene.points, highlights, relight);
         // Nothing to lay out, and nothing left over from when there was. The
         // first half is what lets a scene with no text in it be flattened
         // without a window having handed a font stack over.
@@ -253,8 +258,7 @@ impl GpuPaint for Renderer {
         // Refilled before the GPU is borrowed, since both want `self`. Each kind
         // answers for itself, so a hover over a marker no longer rebuilds the
         // highlights of the strokes and rims it passed over.
-        let relight = std::mem::take(&mut self.relight);
-        self.refresh(relight, ctx.raster_scale);
+        self.refresh(ctx.raster_scale);
 
         // Split so the two mirrors are borrowed apart: the uploads read one
         // while writing the other. Unconditional, all four — each takes what it
@@ -263,15 +267,14 @@ impl GpuPaint for Renderer {
         let gpu = gpu.as_mut().expect("init runs before paint");
         gpu.meshes
             .upload_mesh(ctx.device, ctx.queue, &mut cpu.meshes);
-        gpu.curves
-            .upload(ctx.device, ctx.queue, &mut cpu.curves.pair);
-        gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings.pair);
-        gpu.points
-            .upload(ctx.device, ctx.queue, &mut cpu.points.pair);
+        gpu.curves.upload(ctx.device, ctx.queue, &mut cpu.curves);
+        gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings);
+        gpu.points.upload(ctx.device, ctx.queue, &mut cpu.points);
         // The sheet before the records that read it: a restart replaces the
         // texture, and the records name places on the new one.
         gpu.upload_sheet(ctx.device, ctx.queue, &mut cpu.atlas);
-        gpu.texts.upload(ctx.device, ctx.queue, &mut cpu.texts.pair);
+        gpu.texts
+            .upload(ctx.device, ctx.queue, &mut cpu.texts.records);
         if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
             gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
         }

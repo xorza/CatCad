@@ -2,7 +2,7 @@
 
 use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
-use crate::overlay::Overlay;
+use crate::primitive::{Flatten, Primitive};
 use crate::renderer::record::RingInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
@@ -215,7 +215,7 @@ struct NearestOnRing {
     screen: f32,
 }
 
-impl Overlay for Ring {
+impl Flatten for Ring {
     type Record = RingInstance;
 
     /// One, however large it is drawn — the fragment stage resolves the circle
@@ -227,7 +227,9 @@ impl Overlay for Ring {
     fn records(&self) -> impl Iterator<Item = Self::Record> {
         std::iter::once(RingInstance::of(self))
     }
+}
 
+impl Primitive for Ring {
     fn tag(&self) -> Option<Tag> {
         self.tag
     }

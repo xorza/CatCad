@@ -2,7 +2,7 @@
 
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::cpu::Pair;
+use crate::renderer::cpu::Records;
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, PointInstance, Record, RingInstance,
@@ -124,7 +124,14 @@ pub(super) struct Passes {
 }
 
 impl Passes {
-    fn new(ordinary: Pass, lit: &'static str) -> Self {
+    /// One pipeline, pointed at two record buffers.
+    ///
+    /// The highlight's label is derived here rather than handed in, so a kind
+    /// names itself once — in the `spec` — and the pipeline, the entry points
+    /// and all three buffers follow from that one name.
+    fn build<R: Record>(pipelines: &Pipelines<'_>, spec: PassSpec) -> Self {
+        let lit = format!("aperture.{}.highlighted", spec.name);
+        let ordinary = pipelines.build::<R>(spec);
         Self {
             lit: ordinary.sharing(lit),
             ordinary,
@@ -136,16 +143,15 @@ impl Passes {
     /// Asks the records rather than being told: each buffer says whether it was
     /// rewritten and hands itself over in the same breath, so a still frame
     /// reaches the queue for neither.
-    /// Takes the [`Pair`] rather than whatever holds one, which is what lets
-    /// this be written once: three kinds keep theirs in a
-    /// [`Records`](crate::renderer::cpu::Records) and text keeps its beside a
-    /// raster scale and a scratch buffer, and none of that is any of this
+    /// Takes the [`Records`] rather than whatever holds one, which is what lets
+    /// this be written once: three kinds are a bare `Records` and text keeps its
+    /// beside a raster scale and a scratch buffer, and neither is any of this
     /// method's business.
     pub(super) fn upload<R: Record>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        records: &mut Pair<R>,
+        records: &mut Records<R>,
     ) {
         if let Some(instances) = records.ordinary_to_upload() {
             self.ordinary.upload_instances(device, queue, instances);
@@ -178,22 +184,18 @@ pub(super) struct Gpu {
 }
 
 impl Gpu {
-    /// `atlas` is the sheet the CPU side has already started packing, so the
-    /// texture is built to match it rather than to a size stated twice.
-    pub(super) fn new(
-        device: &wgpu::Device,
-        target_format: wgpu::TextureFormat,
-        atlas: &GlyphAtlas,
-    ) -> Self {
-        // One module out of four files. WGSL has no include, so the choice is
-        // this or a copy of `lift` and `plane_depth_shift` in each — and the
-        // whole point of those is that there is one of each. Every pipeline
-        // still names an entry point in the same module, so the split costs a
-        // string join at startup and nothing after it.
-        //
-        // The catch: naga reports errors as offsets into the joined text, so a
-        // line number from it belongs to no file on disk. Count from the top of
-        // `common.wgsl` in the order below.
+    /// Every shader in the crate, compiled as one module.
+    ///
+    /// One module out of six files. WGSL has no include, so the choice is this
+    /// or a copy of `lift` and `plane_depth_shift` in each — and the whole
+    /// point of those is that there is one of each. Every pipeline still names
+    /// an entry point in the same module, so the split costs a string join at
+    /// startup and nothing after it.
+    ///
+    /// The catch: naga reports errors as offsets into the joined text, so a
+    /// line number from it belongs to no file on disk. Count from the top of
+    /// `common.wgsl` in the order below.
+    fn shader_module(device: &wgpu::Device) -> wgpu::ShaderModule {
         let source = [
             include_str!("shader/common.wgsl"),
             include_str!("shader/mesh.wgsl"),
@@ -203,21 +205,18 @@ impl Gpu {
             include_str!("shader/text.wgsl"),
         ]
         .concat();
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("aperture.shader"),
             source: wgpu::ShaderSource::Wgsl(source.into()),
-        });
-        let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("aperture.uniforms"),
-            size: std::mem::size_of::<Uniforms>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
-        });
-        // One layout for every pipeline, so the glyph sheet is declared even on
-        // the three passes that never sample it. Two bindings they ignore cost
-        // them nothing, and the alternative is a second layout and a second bind
-        // group set per frame for one pass's sake.
-        let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+        })
+    }
+
+    /// One layout for every pipeline, so the glyph sheet is declared even on
+    /// the passes that never sample it. Two bindings they ignore cost them
+    /// nothing, and the alternative is a second layout and a second bind group
+    /// set per frame for one pass's sake.
+    fn bind_group_layout(device: &wgpu::Device) -> wgpu::BindGroupLayout {
+        device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("aperture.bgl"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
@@ -247,12 +246,15 @@ impl Gpu {
                     count: None,
                 },
             ],
-        });
-        // Linear, and clamped. A glyph is blitted at the size it will be drawn,
-        // so sampling is nearly one-to-one and the filter only softens the
-        // fraction of a pixel the projection puts it out by. The clamp is belt
-        // and braces over the gutter the packer already leaves.
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+        })
+    }
+
+    /// Linear, and clamped. A glyph is blitted at the size it will be drawn, so
+    /// sampling is nearly one-to-one and the filter only softens the fraction
+    /// of a pixel the projection puts it out by. The clamp is belt and braces
+    /// over the gutter the packer already leaves.
+    fn sheet_sampler(device: &wgpu::Device) -> wgpu::Sampler {
+        device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("aperture.sheet_sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
             address_mode_v: wgpu::AddressMode::ClampToEdge,
@@ -260,7 +262,25 @@ impl Gpu {
             mag_filter: wgpu::FilterMode::Linear,
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
+        })
+    }
+
+    /// `atlas` is the sheet the CPU side has already started packing, so the
+    /// texture is built to match it rather than to a size stated twice.
+    pub(super) fn new(
+        device: &wgpu::Device,
+        target_format: wgpu::TextureFormat,
+        atlas: &GlyphAtlas,
+    ) -> Self {
+        let shader = Self::shader_module(device);
+        let uniforms = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("aperture.uniforms"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
         });
+        let bgl = Self::bind_group_layout(device);
+        let sampler = Self::sheet_sampler(device);
         let sheet = Sheet::new(device, atlas.side());
         let bind_group = sheet.bind(device, &bgl, &uniforms, &sampler);
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -274,74 +294,35 @@ impl Gpu {
             shader: &shader,
             target_format,
         };
-        // Solids cull their back faces; the overlays are built in screen space
-        // and wind whichever way the viewport takes them. All three of them
-        // shade their own coverage and leave part of their geometry uncovered,
-        // so all three ask for alpha-to-coverage — see `coverage_px`.
+        // Solids are the one pass that culls — they are modelled geometry, wound
+        // counter-clockwise from outside — and the one whose triangle list grows
+        // rather than being built once. The three below take
+        // [`PassSpec::overlay`] whole; text takes it and says how it differs.
         let meshes = pipelines.build::<GpuVertex>(PassSpec {
             name: "mesh",
-            records_label: "aperture.meshes.vertices",
-            indices_label: "aperture.meshes.indices",
             indices: None,
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
             blend: None,
             depth_write: true,
         });
-        let curves = Passes::new(
-            pipelines.build::<CurveInstance>(PassSpec {
-                name: "curve",
-                records_label: "aperture.curves.instances",
-                indices_label: "aperture.curves.quad",
-                indices: Some(&QUAD_INDICES),
-                cull: None,
-                alpha_to_coverage: true,
-                blend: None,
-                depth_write: true,
-            }),
-            "aperture.curves.highlighted",
-        );
-        let rings = Passes::new(
-            pipelines.build::<RingInstance>(PassSpec {
-                name: "ring",
-                records_label: "aperture.rings.instances",
-                indices_label: "aperture.rings.band",
-                indices: Some(&RING_INDICES),
-                cull: None,
-                alpha_to_coverage: true,
-                blend: None,
-                depth_write: true,
-            }),
-            "aperture.rings.highlighted",
-        );
-        let points = Passes::new(
-            pipelines.build::<PointInstance>(PassSpec {
-                name: "point",
-                records_label: "aperture.points.instances",
-                indices_label: "aperture.points.quad",
-                indices: Some(&QUAD_INDICES),
-                cull: None,
-                alpha_to_coverage: true,
-                blend: None,
-                depth_write: true,
-            }),
-            "aperture.points.highlighted",
-        );
+        let curves =
+            Passes::build::<CurveInstance>(&pipelines, PassSpec::overlay("curve", &QUAD_INDICES));
+        let rings =
+            Passes::build::<RingInstance>(&pipelines, PassSpec::overlay("ring", &RING_INDICES));
+        let points =
+            Passes::build::<PointInstance>(&pipelines, PassSpec::overlay("point", &QUAD_INDICES));
         // Last in the pass and the only blended one, so it reads over whatever
         // it overlaps rather than punching a hole in it — and it does not write
         // depth, so two labels crossing blend instead of one hiding the other.
-        let texts = Passes::new(
-            pipelines.build::<GlyphInstance>(PassSpec {
-                name: "text",
-                records_label: "aperture.texts.instances",
-                indices_label: "aperture.texts.quad",
-                indices: Some(&QUAD_INDICES),
-                cull: None,
+        let texts = Passes::build::<GlyphInstance>(
+            &pipelines,
+            PassSpec {
                 alpha_to_coverage: false,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 depth_write: false,
-            }),
-            "aperture.texts.highlighted",
+                ..PassSpec::overlay("text", &QUAD_INDICES)
+            },
         );
         Self {
             meshes,

@@ -6,8 +6,8 @@ use crate::bounds::Bounds;
 use crate::curve::Curve;
 use crate::hit::Hit;
 use crate::object::Object;
-use crate::overlay;
 use crate::point::Point;
+use crate::primitive;
 use crate::ring::Ring;
 use crate::text::Text;
 
@@ -35,39 +35,20 @@ pub struct Scene {
 
 impl Scene {
     /// What the scene occupies in world space, or `None` when there is
-    /// nothing in it. Mesh vertices are measured after their object's
-    /// transform, so this is where the geometry actually lands.
-    ///
-    /// Curve stroke width doesn't count: it is a screen-space quantity, and
-    /// the distance that would satisfy it is the one being solved for.
+    /// nothing in it.
     pub fn bounds(&self) -> Option<Bounds> {
+        // Each kind knows how far it reaches, so there is nothing to decide
+        // here but which batches to ask. A solid's extent is its transformed
+        // vertices; an overlay's is its anchors alone, because a stroke's
+        // width, a marker's glyph and a label's box are screen-space
+        // quantities, and the distance that would satisfy one of those is the
+        // distance being solved for.
         let mut bounds: Option<Bounds> = None;
-        for object in self.objects.iter() {
-            for vertex in &object.mesh.vertices {
-                let at = object.transform.transform_point3(vertex.position);
-                match bounds.as_mut() {
-                    Some(bounds) => bounds.include(at),
-                    None => bounds = Some(Bounds::point(at)),
-                }
-            }
-        }
-        // Each overlay kind knows how far it reaches, and none of them counts
-        // what it is drawn *as*: a stroke's width and a marker's glyph are
-        // screen-space quantities, and the distance that would satisfy them is
-        // the one being solved for.
-        overlay::bounds(&self.curves, &mut bounds);
-        overlay::bounds(&self.rings, &mut bounds);
-        overlay::bounds(&self.points, &mut bounds);
-        // Written out rather than reached through [`Overlay`], which a run of
-        // text cannot implement: the trait's other half is flattening itself
-        // into records, and a run cannot do that from `&self` alone — how many
-        // glyphs it is worth is the shaper's answer, not the string's.
-        for text in self.texts.iter() {
-            text.extend_bounds(|at| match bounds.as_mut() {
-                Some(bounds) => bounds.include(at),
-                None => bounds = Some(Bounds::point(at)),
-            });
-        }
+        primitive::bounds(&self.objects, &mut bounds);
+        primitive::bounds(&self.curves, &mut bounds);
+        primitive::bounds(&self.rings, &mut bounds);
+        primitive::bounds(&self.points, &mut bounds);
+        primitive::bounds(&self.texts, &mut bounds);
         bounds
     }
 

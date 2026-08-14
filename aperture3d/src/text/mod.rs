@@ -3,6 +3,7 @@
 
 use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
+use crate::primitive::Primitive;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Vec2, Vec3};
@@ -132,10 +133,19 @@ impl Text {
         let screen = distance_to(self.box_on_screen(aim)?, aim.cursor);
         (screen <= aim.radius).then(|| aim.hit(tag, HitAt::Text, self.position, screen))
     }
+}
 
-    /// The run is screen-sized, so like a stroke's width it says nothing about
-    /// where the world reaches — only the anchor counts.
-    pub(crate) fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
+/// A run is an overlay like the other three, and not a [`Flatten`]: how many
+/// glyphs it comes to is the shaper's answer rather than the run's. See
+/// [`Flatten`].
+///
+/// [`Flatten`]: crate::primitive::Flatten
+impl Primitive for Text {
+    fn tag(&self) -> Option<Tag> {
+        self.tag
+    }
+
+    fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
         include(self.position);
     }
 }

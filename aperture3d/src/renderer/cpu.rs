@@ -1,14 +1,13 @@
 //! The scene flattened into what the GPU takes, held on the CPU between frames.
 
 use crate::batch::Batch;
-use crate::curve::Curve;
 use crate::highlight::{Highlight, Lit};
 use crate::object::Object;
-use crate::overlay::Overlay;
-use crate::point::Point;
+use crate::primitive::Flatten;
 use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
-use crate::renderer::record::{GlyphInstance, GpuVertex, Instance};
-use crate::ring::Ring;
+use crate::renderer::record::{
+    CurveInstance, GlyphInstance, GpuVertex, Instance, PointInstance, RingInstance,
+};
 use crate::tag::Tag;
 use crate::text::{self, Text};
 use glam::Mat3;
@@ -29,14 +28,14 @@ use palantir::{PlacedGlyph, TextGlyphs};
 ///
 /// Not named `Batches`, though it holds one flattening per [`Batch`]: a batch
 /// is the primitives a *caller* writes, and nothing in here is one. The three
-/// tiers are `Batch` → [`Records`] → [`Passes`](crate::renderer::gpu::Passes),
-/// and each is a different word.
+/// tiers are `Batch` → [`Records`] → [`Passes`](crate::renderer::gpu::Passes), and
+/// each is a different word.
 #[derive(Debug, Default)]
 pub(super) struct Cpu {
     pub(super) meshes: Triangles,
-    pub(super) curves: Records<Curve>,
-    pub(super) rings: Records<Ring>,
-    pub(super) points: Records<Point>,
+    pub(super) curves: Records<CurveInstance>,
+    pub(super) rings: Records<RingInstance>,
+    pub(super) points: Records<PointInstance>,
     pub(super) texts: TextRecords,
     /// The coverage every glyph in `texts` is drawn from. Beside the records
     /// rather than inside them because it outlives any one flatten: the records
@@ -45,17 +44,17 @@ pub(super) struct Cpu {
     pub(super) atlas: GlyphAtlas,
 }
 
-/// What the scene's text flattens to, on the same terms as [`Records`] — and
-/// not one of them, because a run cannot flatten itself.
+/// What the scene's text flattens to: a [`Records`] like every other kind's, and
+/// the two things filling it needs that a `Records` alone cannot ask for.
 ///
-/// Every other overlay answers `records()` from `&self`, so [`Records`] needs
-/// nothing but the batch. A run needs the shaper to know how many glyphs it is
-/// worth and the atlas to know where each one is read from, and neither is
-/// something a `Text` holds. So what the two share is the [`Pair`] of buffers
-/// each holds and not the way either is filled.
+/// Every other overlay answers `records()` from `&self`, so its `Records` needs
+/// nothing but the batch — see [`Records::refill_from`]. A run needs the shaper to
+/// know how many glyphs it is worth and the atlas to know where each one is
+/// read from, and neither is something a `Text` holds. So what the four kinds
+/// share is the buffers and not the way any of them is filled.
 #[derive(Debug, Default)]
 pub(super) struct TextRecords {
-    pub(super) pair: Pair<GlyphInstance>,
+    pub(super) records: Records<GlyphInstance>,
     /// The raster scale the glyphs were laid out at, so a window dragged to a
     /// denser display lays them out again — the sheet's copies are rasterized
     /// at device pixels, and every quad's size and reading of the sheet follow
@@ -74,7 +73,7 @@ impl TextRecords {
     /// away — the second still owes the GPU an empty buffer, and saying so is
     /// how it stops drawing what it was last given.
     pub(super) fn is_empty(&self) -> bool {
-        self.pair.ordinary.is_empty() && self.pair.lit.is_empty()
+        self.records.ordinary.is_empty() && self.records.lit.is_empty()
     }
 
     /// Bring both buffers up to date with `texts`.
@@ -93,25 +92,32 @@ impl TextRecords {
         highlights: &[Lit],
         relight: bool,
     ) {
-        // Before anything is laid out on it, so nothing this frame names a slot
-        // that is about to be thrown away.
+        // The sheet is restarted before anything is laid out on it, so nothing
+        // this frame names a slot that is about to be thrown away. All three
+        // are taken whether or not they are acted on: each clears a mark, and a
+        // mark left behind is one that fires again next frame.
         let restarted = atlas.restart_if_full();
         let rescaled = self.scale != scale;
         let moved = texts.take_dirty();
         self.scale = scale;
+        // The name is the point: it is asked twice, and a second spelling of it
+        // is a second chance to leave one of the three out.
+        let relaid = moved || restarted || rescaled;
 
-        let Self { pair, placed, .. } = self;
-        if moved || restarted || rescaled {
+        let Self {
+            records, placed, ..
+        } = self;
+        if relaid {
             // Measured before it is laid out, because where a run's glyphs sit
             // depends on where its box hangs, and that is what the extent says.
             text::measure_all(texts, glyphs);
-            let ordinary = pair.ordinary_to_fill();
+            let ordinary = records.ordinary_to_fill();
             for text in texts.iter() {
                 flatten(text, atlas, glyphs, scale, placed, ordinary);
             }
         }
-        if moved || restarted || rescaled || relight {
-            let lit = pair.lit_to_fill();
+        if relaid || relight {
+            let lit = records.lit_to_fill();
             for text in texts.iter() {
                 // Only what is lit is laid out again, so a pointer crossing a
                 // drawing full of labels reshapes the one it stopped on.
@@ -170,7 +176,7 @@ fn flatten(
 /// buffers refilled in place, a mark apiece, and a mark that is *taken* rather
 /// than read so exactly one thing can act on it.
 #[derive(Debug)]
-pub(super) struct Pair<R> {
+pub(super) struct Records<R> {
     /// The kind drawn as itself.
     pub(super) ordinary: Vec<R>,
     /// The same records again in a highlight's look, for whatever a caller has
@@ -180,7 +186,7 @@ pub(super) struct Pair<R> {
     lit_dirty: bool,
 }
 
-impl<R> Default for Pair<R> {
+impl<R> Default for Records<R> {
     /// Hand-written because deriving would demand `R: Default`, which is a
     /// claim about records that nothing here needs.
     ///
@@ -196,7 +202,7 @@ impl<R> Default for Pair<R> {
     }
 }
 
-impl<R> Pair<R> {
+impl<R> Records<R> {
     /// The ordinary buffer, emptied and marked, to be filled again.
     ///
     /// Emptying and marking are one act rather than two a caller has to
@@ -238,34 +244,7 @@ impl<R> Pair<R> {
     pub(super) fn lit_to_upload(&mut self) -> Option<&[R]> {
         std::mem::take(&mut self.lit_dirty).then(|| &self.lit[..])
     }
-}
 
-/// What one overlay kind flattens to: the records it ships, and the records a
-/// highlight over it ships.
-///
-/// One per kind rather than one triple per stage: the records and the highlights
-/// of a kind are only ever touched together, and keeping them apart is what used
-/// to mean five separate triples.
-///
-/// The buffers themselves are a [`Pair`], which is what this shares with the
-/// text beside it: what differs between the four kinds is how a buffer gets
-/// filled, and nothing about how one reports having been.
-#[derive(Debug)]
-pub(super) struct Records<O: Overlay> {
-    pub(super) pair: Pair<O::Record>,
-}
-
-impl<O: Overlay> Default for Records<O> {
-    /// Hand-written because deriving would demand `O: Default`, which is a
-    /// claim about primitives that nothing here needs.
-    fn default() -> Self {
-        Self {
-            pair: Pair::default(),
-        }
-    }
-}
-
-impl<O: Overlay> Records<O> {
     /// Bring both buffers up to date with `batch`.
     ///
     /// Takes the batch's mark as it goes, which is the whole of how this knows
@@ -274,12 +253,22 @@ impl<O: Overlay> Records<O> {
     /// scene changing at all, which is what a pointer moving across a drawing
     /// does. The scene changing forces both, since an edit can add or remove
     /// whatever a tag named.
-    pub(super) fn refresh(&mut self, batch: &mut Batch<O>, highlights: &[Lit], relight: bool) {
+    ///
+    /// The three kinds that can flatten themselves come through here. Text
+    /// cannot — a run's glyphs are the shaper's answer rather than the run's —
+    /// and fills the same two buffers its own way; see [`TextRecords::refresh`].
+    pub(super) fn refill_from<O: Flatten<Record = R>>(
+        &mut self,
+        batch: &mut Batch<O>,
+        highlights: &[Lit],
+        relight: bool,
+    ) where
+        R: Instance,
+    {
         let moved = batch.take_dirty();
         let items: &[O] = batch;
-        let pair = &mut self.pair;
         if moved {
-            let ordinary = pair.ordinary_to_fill();
+            let ordinary = self.ordinary_to_fill();
             ordinary.reserve_exact(items.iter().map(O::record_count).sum());
             for item in items {
                 ordinary.extend(item.records());
@@ -290,7 +279,7 @@ impl<O: Overlay> Records<O> {
             // on what the caller lit — so this is the one buffer that grows
             // rather than reserving exactly. It settles after a few frames of
             // hovering and stops allocating there.
-            let lit = pair.lit_to_fill();
+            let lit = self.lit_to_fill();
             for item in items {
                 if let Some(look) = look_of(highlights, item.tag()) {
                     lit.extend(item.records().map(|record| record.highlighted(look)));
@@ -325,7 +314,7 @@ pub(super) struct Triangles {
 impl Triangles {
     /// Bring the list up to date with `objects`.
     ///
-    /// Takes the batch's mark and leaves its own, like [`Records::refresh`] —
+    /// Takes the batch's mark and leaves its own, like [`Records::refill_from`] —
     /// solids answer for their own edits the same way strokes do.
     pub(super) fn refresh(&mut self, objects: &mut Batch<Object>) {
         if objects.take_dirty() {

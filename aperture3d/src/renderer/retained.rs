@@ -2,10 +2,17 @@
 
 use wgpu::util::DeviceExt;
 
+/// A buffer that outlives the data in it: emptied and refilled in place, grown
+/// when what it is handed no longer fits, and never given back — an overlay
 /// pass can go a whole run with nothing to draw.
+///
+/// The label is owned rather than borrowed because it is *derived*, from the
+/// name of the pass that holds the buffer, and there is nowhere to borrow a
+/// derived string from. It costs one allocation per buffer at startup and is
+/// read again only when the buffer grows.
 #[derive(Debug, Clone)]
 pub(super) struct Retained {
-    label: &'static str,
+    label: String,
     usage: wgpu::BufferUsages,
     buffer: Option<wgpu::Buffer>,
     /// Bytes there is room for, which is at least what is in it.
@@ -14,7 +21,7 @@ pub(super) struct Retained {
 
 impl Retained {
     /// Empty, to be filled and grown by [`Retained::write`].
-    pub(super) fn growable(label: &'static str, usage: wgpu::BufferUsages) -> Self {
+    pub(super) fn growable(label: String, usage: wgpu::BufferUsages) -> Self {
         Self {
             label,
             usage,
@@ -27,20 +34,20 @@ impl Retained {
     /// no queue, which is what lets it be built before the first frame.
     pub(super) fn filled(
         device: &wgpu::Device,
-        label: &'static str,
+        label: String,
         usage: wgpu::BufferUsages,
         contents: &[u8],
     ) -> Self {
         Self {
-            label,
-            usage,
             buffer: Some(
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some(label),
+                    label: Some(&label),
                     contents,
                     usage,
                 }),
             ),
+            label,
+            usage,
             capacity: contents.len() as u64,
         }
     }
@@ -61,7 +68,7 @@ impl Retained {
             // which is the whole of what this type exists to avoid.
             self.capacity = needed.next_power_of_two();
             self.buffer = Some(device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(self.label),
+                label: Some(&self.label),
                 size: self.capacity,
                 usage: self.usage | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,

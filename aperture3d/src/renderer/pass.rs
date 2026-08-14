@@ -12,11 +12,12 @@ use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 const OVERRIDES: [(&str, f64); 1] = [("RING_STEPS", band::RING_STEPS as f64)];
 
 pub(super) struct PassSpec {
-    /// Names the pipeline and both its entry points: `mesh` finds `mesh_vs`
-    /// and `mesh_fs`.
+    /// Names the pipeline, both its entry points and all three of its buffers:
+    /// `mesh` finds `mesh_vs` and `mesh_fs`, and labels `aperture.mesh.records`
+    /// and the rest. Nothing reads a buffer label but a capture tool, so they
+    /// are derived rather than stated — three strings per pass that said only
+    /// what this one already does.
     pub(super) name: &'static str,
-    pub(super) records_label: &'static str,
-    pub(super) indices_label: &'static str,
     /// The pass's triangle list, for a pass whose list never changes: it is
     /// built holding these and never rewrites them. `None` grows one instead,
     /// which is meshes and only meshes.
@@ -38,6 +39,28 @@ pub(super) struct PassSpec {
     /// let whichever was drawn first hide the other. It still *tests*, which is
     /// what puts a label behind the solid in front of it.
     pub(super) depth_write: bool,
+}
+
+impl PassSpec {
+    /// What an overlay pass is unless it says otherwise: unculled, because the
+    /// shape is built in screen space and winds whichever way the viewport
+    /// takes it; reporting its own coverage in alpha, because it does not fill
+    /// the triangles it is drawn on; and writing depth like every other opaque
+    /// pass.
+    ///
+    /// Text takes this and overrides the middle two — a glyph's antialiasing is
+    /// a smooth alpha, and quantizing it to the sample count is what makes
+    /// small type look stippled.
+    pub(super) fn overlay(name: &'static str, indices: &'static [u32]) -> Self {
+        Self {
+            name,
+            indices: Some(indices),
+            cull: None,
+            alpha_to_coverage: true,
+            blend: None,
+            depth_write: true,
+        }
+    }
 }
 
 /// The parts of a pipeline every pass shares, so each pass states only what
@@ -104,17 +127,21 @@ impl Pipelines<'_> {
                 multiview_mask: None,
                 cache: None,
             });
+        let indices_label = format!("aperture.{}.indices", spec.name);
         Pass {
             pipeline,
-            records: Retained::growable(spec.records_label, wgpu::BufferUsages::VERTEX),
+            records: Retained::growable(
+                format!("aperture.{}.records", spec.name),
+                wgpu::BufferUsages::VERTEX,
+            ),
             indices: match spec.indices {
                 Some(contents) => Retained::filled(
                     self.device,
-                    spec.indices_label,
+                    indices_label,
                     wgpu::BufferUsages::INDEX,
                     bytemuck::cast_slice(contents),
                 ),
-                None => Retained::growable(spec.indices_label, wgpu::BufferUsages::INDEX),
+                None => Retained::growable(indices_label, wgpu::BufferUsages::INDEX),
             },
             index_count: spec.indices.map_or(0, |contents| contents.len() as u32),
             instances: 0,
@@ -140,7 +167,7 @@ impl Pass {
     /// Only the records differ, so the pipeline and the triangle list are
     /// shared rather than rebuilt — both are handles, and cloning one costs a
     /// refcount.
-    pub(super) fn sharing(&self, records_label: &'static str) -> Self {
+    pub(super) fn sharing(&self, records_label: String) -> Self {
         Self {
             pipeline: self.pipeline.clone(),
             records: Retained::growable(records_label, wgpu::BufferUsages::VERTEX),
