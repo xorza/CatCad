@@ -68,6 +68,15 @@ pub(super) struct TextRecords {
 }
 
 impl TextRecords {
+    /// Whether there is nothing here for the GPU to draw.
+    ///
+    /// What tells a scene that has never had text from one whose text was taken
+    /// away — the second still owes the GPU an empty buffer, and saying so is
+    /// how it stops drawing what it was last given.
+    pub(super) fn is_empty(&self) -> bool {
+        self.pair.ordinary.is_empty() && self.pair.lit.is_empty()
+    }
+
     /// Bring both buffers up to date with `texts`.
     ///
     /// Four things can move them, where the other overlays have two. The batch

@@ -11,6 +11,7 @@ use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text};
 use glam::{Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Entity, Freedom, Segment, SegmentId};
+use std::fmt::Write;
 
 use crate::document::Document;
 use crate::drawing::Drawing;
@@ -212,9 +213,21 @@ fn write_marks(drawing: &Drawing, names: &mut Names, marks: &mut Batch<Text>) {
     let freedoms = drawing.freedoms();
     marks.refill(drawing.sketch().constraints(), |mark, (id, constraint)| {
         // Rewritten in place rather than assigned, so a drawing whose marks are
-        // laid out every frame keeps the string it already has.
+        // laid out every frame keeps the string it already has — which is what
+        // keeps a scrubbed dimension off the heap sixty times a second.
         mark.content.clear();
-        mark.content.push_str(symbol(constraint));
+        match constraint.value() {
+            // A dimension reads as its measurement. That *is* the mark: a
+            // number beside a length says both that the length is stated and
+            // what it is stated as, where a symbol would say only the first and
+            // leave the drawing unreadable.
+            Some(value) => {
+                let unit = radius_prefix(constraint);
+                write!(mark.content, "{unit}{value:.*}", DECIMALS)
+                    .expect("writing to a string cannot fail");
+            }
+            None => mark.content.push_str(symbol(constraint)),
+        }
         mark.position = drawing.mark_at(constraint);
         mark.font = mark_font();
         // Above the middle of what it names, so the mark clears the geometry it
@@ -229,6 +242,26 @@ fn write_marks(drawing: &Drawing, names: &mut Names, marks: &mut Batch<Text>) {
         mark.plane_normal = Some(drawing.plane().normal().as_vec3());
         mark.tag = Some(names.tag(Entity::Constraint(id)));
     });
+}
+
+/// Decimal places a dimension is read out to.
+///
+/// Two, which is a hundredth of a sketch unit — fine enough to draw with and
+/// coarse enough that a solve's own drift never shows. What a *unit* is remains
+/// the document's to decide; until it decides, a number is a number.
+pub(crate) const DECIMALS: usize = 2;
+
+/// What a dimension's number is prefixed with, where the kind is not obvious
+/// from where it sits.
+///
+/// A radius is the one that needs it: a bare number beside a circle would read
+/// as a diameter to half of everyone, and `R` is what a drawing puts there. A
+/// distance needs nothing — it is written along the span it measures.
+fn radius_prefix(constraint: Constraint) -> &'static str {
+    match constraint {
+        Constraint::Radius { .. } => "R",
+        _ => "",
+    }
 }
 
 /// The symbol a relation is drawn as.

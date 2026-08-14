@@ -2,7 +2,7 @@
 
 use aperture::Projection;
 use glam::Vec3;
-use silverpoint::{Constraint, Entity};
+use silverpoint::{Constraint, ConstraintId, Entity};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -107,6 +107,13 @@ pub(crate) enum Change {
     /// already an answer, so a replayed pass states the same relation twice
     /// rather than reading a selection that has since moved on.
     Constrain(Constraint),
+    /// Restate a dimension at a new magnitude, and let the drawing settle onto
+    /// it.
+    ///
+    /// Names the value it wants rather than a step to take, like everything
+    /// here: a scrub sends one of these a frame and a replayed pass restates the
+    /// same number, where "a bit larger" would grow twice over.
+    Resize { constraint: ConstraintId, to: f64 },
     /// Take this out of the drawing, with whatever was built on it.
     ///
     /// Names what to remove rather than saying "the selection", for the same
@@ -128,8 +135,13 @@ impl Change {
     /// A drag is the whole of it. It arrives a frame at a time and is one thing
     /// the user did, so sixty of them are one step back — where a point put
     /// down, or anything else that happens once, stands alone.
+    ///
+    /// Scrubbing a dimension is the same shape by the same argument: the
+    /// pointer travels, the number follows it, and what the user did was set a
+    /// value once. Both are closed by a [`Step::Release`], which the widget
+    /// driving them raises when its gesture ends.
     pub(crate) fn coalesces(self) -> bool {
-        matches!(self, Change::Drag { .. })
+        matches!(self, Change::Drag { .. } | Change::Resize { .. })
     }
 }
 

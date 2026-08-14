@@ -3,15 +3,16 @@
 
 use aperture::Projection;
 use palantir::{
-    Align, Background, Button, ButtonTheme, Configure, InternedStr, Palette, Panel, Sizing, Text,
-    Ui,
+    Align, Background, Button, ButtonTheme, Configure, DragValue, InternedStr, Palette, Panel,
+    Sizing, Text, Ui,
 };
 
 use crate::drawing::Drawing;
-use crate::intent::{Change, Choice, Intents};
+use crate::intent::{Change, Choice, Intents, Step};
+use crate::paint::DECIMALS;
 use crate::selection::Selection;
 use crate::tool::Tool;
-use silverpoint::Constraint;
+use silverpoint::{Constraint, ConstraintId, Entity};
 
 /// Logical pixels of breathing room inside a floating panel, and between the
 /// things standing on one.
@@ -42,6 +43,11 @@ pub(crate) struct Hud {
     /// bar rebuilt sixty times a second would otherwise ask the heap for a list
     /// each time.
     offers: Vec<Constraint>,
+    /// The number the field is showing, re-seeded from the drawing every frame
+    /// and written over by the widget when it is being edited. Scratch: what a
+    /// dimension *is* lives in the sketch, and this is only what one gesture has
+    /// made of it so far.
+    editing: f64,
 }
 
 impl Hud {
@@ -73,10 +79,38 @@ impl Hud {
         intents: &mut Intents,
     ) {
         drawing.offers(selection.picked(), &mut self.offers);
-        if self.offers.is_empty() {
+        let dimension = dimension_picked(drawing, selection);
+        if self.offers.is_empty() && dimension.is_none() {
             return;
         }
+        // Seeded from the drawing every frame rather than remembered, which is
+        // what makes the field a *view* of the dimension: an undo, a drag that
+        // moved it, or picking a different one all show up here without anything
+        // having to notice. The widget writes its draft over the seed and says
+        // so, and that is the only frame anything is asked for.
+        if let Some((_, value)) = dimension {
+            self.editing = value;
+        }
         floating(Panel::hstack(), "constraints", Align::BOTTOM).show(ui, |ui| {
+            if let Some((id, _)) = dimension {
+                let edited = DragValue::new(&mut self.editing)
+                    .auto_id()
+                    .speed(DIMENSION_SPEED)
+                    .decimals(DECIMALS)
+                    .show(ui);
+                if edited.changed {
+                    intents.push(Change::Resize {
+                        constraint: id,
+                        to: self.editing,
+                    });
+                }
+                // One gesture, one step to take back. `Resize` coalesces, so
+                // the run of them a scrub sends is one open step — and this is
+                // what closes it, the same signal a drag's release gives.
+                if edited.committed {
+                    intents.push(Step::Release);
+                }
+            }
             for &constraint in &self.offers {
                 let label = label(constraint);
                 if Button::new()
@@ -171,6 +205,26 @@ pub(crate) struct Shown<'a> {
     pub(crate) selection: &'a Selection,
 }
 
+/// Sketch units per pixel of scrub. A hundredth, so a drag reads a dimension
+/// out at the same precision the drawing prints it to and a slow pull can land
+/// on a round number.
+const DIMENSION_SPEED: f64 = 0.01;
+
+/// The one dimension picked out, if what is picked is exactly that.
+///
+/// One rather than any, because the field edits a value and two values have no
+/// single answer. A selection holding a dimension *and* something else is
+/// someone part-way through picking a pair, so the field stays away.
+fn dimension_picked(drawing: &Drawing, selection: &Selection) -> Option<(ConstraintId, f64)> {
+    let [Entity::Constraint(id)] = *selection.picked() else {
+        return None;
+    };
+    drawing
+        .holds(id)
+        .then(|| drawing.sketch().constraint(id).value().map(|at| (id, at)))
+        .flatten()
+}
+
 /// What the button that states a relation is captioned.
 ///
 /// The user's word rather than the solver's: a `PointOnSegment` is "on edge" to
@@ -220,6 +274,7 @@ impl Default for Hud {
         Self {
             armed,
             offers: Vec::new(),
+            editing: 0.0,
         }
     }
 }

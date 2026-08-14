@@ -203,10 +203,17 @@ impl Renderer {
         cpu.curves.refresh(&mut scene.curves, highlights, relight);
         cpu.rings.refresh(&mut scene.rings, highlights, relight);
         cpu.points.refresh(&mut scene.points, highlights, relight);
-        // A scene with nothing written in it is left alone entirely, so it needs
-        // no font stack — which is what lets one be flattened without a window
-        // having handed one over.
-        if scene.texts.is_empty() {
+        // Nothing to lay out, and nothing left over from when there was. The
+        // first half is what lets a scene with no text in it be flattened
+        // without a window having handed a font stack over.
+        //
+        // The second half is what a batch emptied *after* it was drawn needs.
+        // Returning on the batch alone leaves the records — and the buffers
+        // behind them — holding glyphs nobody asked for any more, and they go on
+        // being drawn for the rest of the run. Records outliving what they were
+        // flattened from is the one failure a retained renderer has to answer
+        // for, and emptying is the only way to reach it.
+        if scene.texts.is_empty() && cpu.texts.is_empty() {
             return;
         }
         let shaper = shaper
@@ -302,6 +309,15 @@ impl GpuPaint for Renderer {
         ] {
             layer.draw(&mut pass);
         }
+    }
+}
+
+/// The shaper [`GpuPaint::init`] would hand over, for a test laying text out
+/// without a device to hand one over.
+#[cfg(test)]
+impl Renderer {
+    pub(crate) fn shape_with(&mut self, shaper: TextShaper) {
+        self.shaper = Some(shaper);
     }
 }
 

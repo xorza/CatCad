@@ -112,6 +112,51 @@ impl Constraint {
         named.into_iter().flatten()
     }
 
+    /// The number this relation states, where it states one.
+    ///
+    /// A *dimension* is exactly this: a constraint carrying a magnitude, which
+    /// is what a drawing shows as a number and lets a user retype. The other
+    /// seven state a relation that has no magnitude — parallel is parallel, and
+    /// there is nothing to type.
+    ///
+    /// Spelled out over all nine rather than falling through, so a tenth
+    /// carrying a value — an angle, most obviously — has to say here that it
+    /// does. One that quietly answered `None` would be a dimension the drawing
+    /// showed as a symbol and refused to edit.
+    pub fn value(&self) -> Option<f64> {
+        match *self {
+            Constraint::Distance { distance, .. } => Some(distance),
+            Constraint::Radius { radius, .. } => Some(radius),
+            Constraint::Coincident { .. }
+            | Constraint::Horizontal { .. }
+            | Constraint::Vertical { .. }
+            | Constraint::Parallel { .. }
+            | Constraint::Perpendicular { .. }
+            | Constraint::PointOnSegment { .. }
+            | Constraint::PointOnCircle { .. } => None,
+        }
+    }
+
+    /// The magnitude, to restate it at something else.
+    ///
+    /// Crate-internal where [`Self::value`] is public, because a caller outside
+    /// changes one through the sketch that holds it — see
+    /// [`Sketch::set_value`](crate::Sketch::set_value). Editing a constraint in
+    /// a caller's own hand would leave the sketch it came from unsolved.
+    pub(crate) fn value_mut(&mut self) -> Option<&mut f64> {
+        match self {
+            Constraint::Distance { distance, .. } => Some(distance),
+            Constraint::Radius { radius, .. } => Some(radius),
+            Constraint::Coincident { .. }
+            | Constraint::Horizontal { .. }
+            | Constraint::Vertical { .. }
+            | Constraint::Parallel { .. }
+            | Constraint::Perpendicular { .. }
+            | Constraint::PointOnSegment { .. }
+            | Constraint::PointOnCircle { .. } => None,
+        }
+    }
+
     /// Whether this constraint is about `entity`.
     pub(crate) fn names(&self, entity: Entity) -> bool {
         self.referents().any(|referent| referent == entity)

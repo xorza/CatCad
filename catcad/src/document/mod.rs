@@ -124,6 +124,7 @@ impl Document {
             Change::AddSegment { from, to } => self.drawing.add_segment(solver, from, to),
             Change::AddCircle { center, rim } => self.drawing.add_circle(solver, center, rim),
             Change::Constrain(constraint) => self.drawing.constrain(solver, constraint),
+            Change::Resize { constraint, to } => self.drawing.resize(solver, constraint, to),
             Change::Delete(entity) => self.drawing.remove(solver, entity),
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),

@@ -3,8 +3,8 @@
 use aperture::{HitAt, Motion};
 use glam::{DVec2, Vec3};
 use silverpoint::{
-    CircleId, Constraint, Entity, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot,
-    SolveReport, Solver,
+    CircleId, Constraint, ConstraintId, Entity, Freedoms, Plane, PointId, SegmentId, Sketch,
+    Snapshot, SolveReport, Solver,
 };
 
 use crate::drawing::anchor::Anchor;
@@ -182,6 +182,16 @@ impl Drawing {
         self.solved(solver, |sketch| {
             sketch.add_constraint(constraint);
         });
+    }
+
+    /// Restate a dimension at `value`, and let the geometry follow it.
+    ///
+    /// Solved, because that is the whole of what a dimension is for: the number
+    /// is what the drawing is *told*, and moving onto it is the answer. A
+    /// distance retyped from 8 to 12 lengthens the thing it measures, and
+    /// everything the constraints tie to that follows.
+    pub(crate) fn resize(&mut self, solver: &mut Solver, constraint: ConstraintId, value: f64) {
+        self.solved(solver, |sketch| sketch.set_value(constraint, value));
     }
 
     /// Take `entity` out of the drawing, with whatever was built on it.

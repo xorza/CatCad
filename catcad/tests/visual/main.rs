@@ -449,6 +449,11 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
     let size = UVec2::new(800, 628);
     let mut app = CatCad::build();
     edge_on(1.4)(app.camera_mut());
+    // The constraint marks go before anything is measured. This is about the
+    // two batches the column is counted in, and a dimension set as a number is
+    // ink in that column that belongs to neither — so it would show up as a
+    // stroke that appeared or vanished for reasons nothing here is testing.
+    app.renderer().borrow_mut().scene_mut().texts.clear();
 
     let first = capture(size, &mut app);
     assert!(

@@ -10,6 +10,7 @@ use crate::renderer::uniforms::Uniforms;
 use crate::ring::Ring;
 use crate::styled::Styled;
 use crate::tag::Tag;
+use crate::text::Text;
 use glam::{Mat4, Vec3};
 
 #[test]
@@ -518,4 +519,48 @@ fn re_lighting_what_is_already_lit_dirties_nothing() {
     renderer.relight = false;
     renderer.clear_highlights();
     assert!(!renderer.relight, "nothing was lit to drop");
+}
+
+/// Emptying the scene's text owes the GPU an empty buffer, not silence.
+///
+/// The one way a retained renderer draws what nobody asked for: the records
+/// outlive the batch they were flattened from, and the buffers behind them go
+/// on being drawn for the rest of the run. Nothing looks wrong at the point the
+/// mistake is made.
+///
+/// Text reaches it by a route the other overlays do not. Laying a run out needs
+/// a shaper, so the flatten is guarded — and a guard that asked only whether
+/// there was anything *to* lay out skipped the clearing along with the work.
+#[test]
+fn emptying_the_text_owes_the_gpu_an_empty_buffer() {
+    let mut scene = Scene::default();
+    scene
+        .texts
+        .push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(Tag::new(1)));
+    let mut renderer = Renderer::new(scene);
+    renderer.shape_with(palantir::TextShaper::new());
+
+    renderer.refresh(false, 1.0);
+    let drawn = renderer
+        .cpu
+        .texts
+        .pair
+        .ordinary_to_upload()
+        .expect("the first flatten owes the glyphs")
+        .len();
+    assert!(drawn > 0, "five characters flattened to {drawn} glyphs");
+
+    // Taken away after it was drawn, which is the only way to reach the bug:
+    // a scene that never had text has nothing left over to clear.
+    renderer.scene_mut().texts.clear();
+    renderer.refresh(false, 1.0);
+    assert_eq!(
+        renderer.cpu.texts.pair.ordinary_to_upload().map(<[_]>::len),
+        Some(0),
+        "an emptied batch owes the GPU an empty buffer, not nothing at all",
+    );
+
+    // And having said so once, it is quiet again.
+    renderer.refresh(false, 1.0);
+    assert!(renderer.cpu.texts.pair.ordinary_to_upload().is_none());
 }

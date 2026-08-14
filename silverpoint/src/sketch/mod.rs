@@ -27,6 +27,7 @@ pub type CircleId = Id<Circle>;
 const REMOVED_POINT: &str = "this point is no longer in the sketch";
 const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
 const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
+const REMOVED_CONSTRAINT: &str = "this constraint is no longer in the sketch";
 
 /// A point's position, and whether the solver may move it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -267,6 +268,11 @@ impl Sketch {
         }
     }
 
+    /// What `id` names.
+    pub fn constraint(&self, id: ConstraintId) -> Constraint {
+        *self.constraints.get(id).expect(REMOVED_CONSTRAINT)
+    }
+
     /// Every constraint in insertion order, each with the handle that names it.
     pub fn constraints(&self) -> impl Iterator<Item = (ConstraintId, Constraint)> {
         self.constraints
@@ -328,6 +334,23 @@ impl Sketch {
     pub fn remove_circle(&mut self, id: CircleId) {
         self.unconstrain(id);
         self.circles.remove(id);
+    }
+
+    /// Restate a dimension at a new magnitude.
+    ///
+    /// A starting point for the next solve rather than a fact about where the
+    /// geometry is, exactly as [`Sketch::set_point`] is: what the constraint now
+    /// says is `value`, and moving the drawing onto it is the solve's to do.
+    ///
+    /// Panics on a constraint that states no magnitude, which is a caller
+    /// asking for something that does not exist rather than data being wrong —
+    /// [`Constraint::value`] is how a caller finds out which those are.
+    pub fn set_value(&mut self, id: ConstraintId, value: f64) {
+        let constraint = self.constraints.get_mut(id).expect(REMOVED_CONSTRAINT);
+        let magnitude = constraint
+            .value_mut()
+            .expect("this relation states no magnitude to set");
+        *magnitude = value;
     }
 
     /// Take a constraint out of the sketch.
