@@ -2,7 +2,7 @@
 
 use crate::aim::{Aim, Inside};
 use crate::hit::{Hit, HitAt};
-use crate::primitive::{Flatten, Primitive};
+use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::CurveInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
@@ -16,9 +16,6 @@ const MIN_RUN_PX2: f32 = 1e-6;
 /// Floor under the sum of reciprocal depths that undoes the perspective
 /// squeeze. Only a segment with both ends astronomically far off gets near it.
 const MIN_RECIP_W: f32 = 1e-6;
-
-/// Default stroke width, in logical pixels.
-const DEFAULT_WIDTH: f32 = 1.5;
 
 /// A polyline through world-space points, stroked at a constant width in
 /// logical pixels — an [overlay](crate#overlays), so a sketch edge stays
@@ -61,7 +58,7 @@ impl Curve {
             points,
             closed: false,
             color: Vec3::ONE,
-            width: DEFAULT_WIDTH,
+            width: DEFAULT_STROKE_WIDTH,
             z_offset: 0,
             plane_normal: None,
             tag: None,

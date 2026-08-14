@@ -2,14 +2,11 @@
 
 use crate::aim::Aim;
 use crate::hit::{Hit, HitAt};
-use crate::primitive::{Flatten, Primitive};
+use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::RingInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::Vec3;
-
-/// Default stroke width, in logical pixels.
-const DEFAULT_WIDTH: f32 = 1.5;
 
 /// A stroked circle lying in a plane, resolved in the fragment shader rather
 /// than tessellated — an [overlay](crate#overlays), like [`Curve`](crate::Curve).
@@ -79,7 +76,7 @@ impl Ring {
             x_axis,
             y_axis: normal.cross(x_axis),
             color: Vec3::ONE,
-            width: DEFAULT_WIDTH,
+            width: DEFAULT_STROKE_WIDTH,
             z_offset: 0,
             tag: None,
         }

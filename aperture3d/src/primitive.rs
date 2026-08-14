@@ -5,6 +5,20 @@ use crate::renderer::record::Instance;
 use crate::tag::Tag;
 use glam::Vec3;
 
+/// What a stroke is drawn at unless it is told otherwise, in logical pixels.
+///
+/// Here rather than beside either kind that reads it, because a [`Curve`] and a
+/// [`Ring`] are both strokes and the number is one decision: tuning what an
+/// unstyled edge looks like should not be a thing to remember to do twice.
+///
+/// A marker's diameter is *not* this. It is a different quantity that happens to
+/// be a length, so it stays [`Point`]'s own.
+///
+/// [`Curve`]: crate::Curve
+/// [`Ring`]: crate::Ring
+/// [`Point`]: crate::Point
+pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 1.5;
+
 /// Anything a [`Scene`](crate::Scene) holds: a solid, a stroke, a rim, a
 /// marker, a label.
 ///
