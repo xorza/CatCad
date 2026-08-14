@@ -108,29 +108,19 @@ impl TextRecords {
             records, placed, ..
         } = self;
         if relaid {
-            // Measured before it is laid out, because where a run's glyphs sit
-            // depends on where its box hangs, and that is what the extent says.
+            // Measured before anything is laid out, because where a run's glyphs
+            // sit depends on where its box hangs, and that is what the extent
+            // says. Only when the runs are being laid out again — a frame that
+            // merely relit one reads the extent it measured last time.
             text::measure_all(texts, glyphs);
-            let ordinary = records.ordinary_to_fill();
-            for text in texts.iter() {
-                flatten(text, atlas, glyphs, scale, placed, ordinary);
-            }
         }
-        if relaid || relight {
-            let lit = records.lit_to_fill();
-            for text in texts.iter() {
-                // Only what is lit is laid out again, so a pointer crossing a
-                // drawing full of labels reshapes the one it stopped on.
-                let Some(look) = look_of(highlights, text.tag()) else {
-                    continue;
-                };
-                let from = lit.len();
-                flatten(text, atlas, glyphs, scale, placed, lit);
-                for record in &mut lit[from..] {
-                    *record = record.highlighted(look);
-                }
-            }
-        }
+        // No count to reserve: how many glyphs a run comes to is the shaper's
+        // answer, and asking would be laying it out twice. Only what is lit is
+        // laid out a second time, so a pointer crossing a drawing full of labels
+        // reshapes the one it stopped on.
+        records.refill(texts, highlights, relaid, relight, None, |text, into| {
+            flatten(text, atlas, glyphs, scale, placed, into)
+        });
     }
 }
 
@@ -245,7 +235,68 @@ impl<R> Records<R> {
         std::mem::take(&mut self.lit_dirty).then(|| &self.lit[..])
     }
 
-    /// Bring both buffers up to date with `batch`.
+    /// Refill both buffers from `items`, `append` putting one item's records
+    /// into whichever is being filled.
+    ///
+    /// The whole of what the four kinds do alike: fill the ordinary buffer when
+    /// the batch moved, fill the highlight buffer when it moved *or* what is lit
+    /// changed, and give the second one the look the first does not carry. Only
+    /// how an item becomes records differs, and that is what `append` is.
+    ///
+    /// A closure rather than a method on [`Flatten`], because what appending
+    /// needs is not the same for all four: a stroke, a rim and a marker answer
+    /// from `&self`, and a run needs the shaper, the sheet and a scratch buffer.
+    /// Carrying those through the trait would put two lifetimes on an associated
+    /// type — `&mut TextGlyphs<'_>` is invariant, so one will not do — where a
+    /// closure simply captures them at the one call site that has them.
+    ///
+    /// `reserve` is the record count when it is known before the walk, which it
+    /// is for everything but text: a run's glyph count is the shaper's answer.
+    ///
+    /// The highlight buffer is filled by appending and then going back over what
+    /// was appended, rather than by mapping on the way in, because that is the
+    /// only form text can use — `append` hands back no iterator to map.
+    pub(super) fn refill<P: Primitive>(
+        &mut self,
+        items: &[P],
+        highlights: &[Lit],
+        moved: bool,
+        relight: bool,
+        reserve: Option<usize>,
+        mut append: impl FnMut(&P, &mut Vec<R>),
+    ) where
+        R: Instance,
+    {
+        if moved {
+            let ordinary = self.ordinary_to_fill();
+            if let Some(exact) = reserve {
+                ordinary.reserve_exact(exact);
+            }
+            for item in items {
+                append(item, ordinary);
+            }
+        }
+        if moved || relight {
+            // How many there will be is not known before the walk — it depends
+            // on what the caller lit — so this is the one buffer that grows
+            // rather than reserving exactly. It settles after a few frames of
+            // hovering and stops allocating there.
+            let lit = self.lit_to_fill();
+            for item in items {
+                let Some(look) = look_of(highlights, item.tag()) else {
+                    continue;
+                };
+                let from = lit.len();
+                append(item, lit);
+                for record in &mut lit[from..] {
+                    *record = record.highlighted(look);
+                }
+            }
+        }
+    }
+
+    /// Bring both buffers up to date with `batch`, for a kind that can flatten
+    /// itself.
     ///
     /// Takes the batch's mark as it goes, which is the whole of how this knows
     /// the scene changed, and leaves its own for whoever uploads. `relight` is
@@ -253,10 +304,6 @@ impl<R> Records<R> {
     /// scene changing at all, which is what a pointer moving across a drawing
     /// does. The scene changing forces both, since an edit can add or remove
     /// whatever a tag named.
-    ///
-    /// The three kinds that can flatten themselves come through here. Text
-    /// cannot — a run's glyphs are the shaper's answer rather than the run's —
-    /// and fills the same two buffers its own way; see [`TextRecords::refresh`].
     pub(super) fn refill_from<O: Flatten<Record = R>>(
         &mut self,
         batch: &mut Batch<O>,
@@ -267,25 +314,15 @@ impl<R> Records<R> {
     {
         let moved = batch.take_dirty();
         let items: &[O] = batch;
-        if moved {
-            let ordinary = self.ordinary_to_fill();
-            ordinary.reserve_exact(items.iter().map(O::record_count).sum());
-            for item in items {
-                ordinary.extend(item.records());
-            }
-        }
-        if moved || relight {
-            // How many there will be is not known before the walk — it depends
-            // on what the caller lit — so this is the one buffer that grows
-            // rather than reserving exactly. It settles after a few frames of
-            // hovering and stops allocating there.
-            let lit = self.lit_to_fill();
-            for item in items {
-                if let Some(look) = look_of(highlights, item.tag()) {
-                    lit.extend(item.records().map(|record| record.highlighted(look)));
-                }
-            }
-        }
+        let exact = items.iter().map(O::record_count).sum();
+        self.refill(
+            items,
+            highlights,
+            moved,
+            relight,
+            Some(exact),
+            |item, into| into.extend(item.records()),
+        );
     }
 }
 

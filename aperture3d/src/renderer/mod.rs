@@ -290,28 +290,29 @@ impl GpuPaint for Renderer {
         pass.set_viewport(0.0, 0.0, size.x as f32, size.y as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, size.x, size.y);
         pass.set_bind_group(0, &gpu.bind_group, &[]);
-        // Overlays after solids: the opaque three write depth, so what hides
+        // Overlays after solids: the opaque kinds write depth, so what hides
         // what is the depth test's answer either way, and this order keeps the
         // pipeline switch to one per pass.
-        // Reached through rather than looped over a kind at a time: the
-        // highlights go last as a group, so one reads over anything it doubles
-        // whatever kind that is, and not merely over its own kind.
-        for layer in [
-            &gpu.meshes,
-            &gpu.curves.ordinary,
-            &gpu.rings.ordinary,
-            &gpu.points.ordinary,
-            &gpu.curves.lit,
-            &gpu.rings.lit,
-            &gpu.points.lit,
-            // Text last of all. It is the one blended pass, so what it reads
-            // over has to be there already — and it writes no depth, so
-            // nothing after it could be sorted against it anyway.
-            &gpu.texts.ordinary,
-            &gpu.texts.lit,
-        ] {
-            layer.draw(&mut pass);
+        gpu.meshes.draw(&mut pass);
+        // Every ordinary pass before any highlight, rather than each kind's two
+        // together: a highlight has to read over anything it doubles whatever
+        // kind that is, and not merely over its own kind.
+        //
+        // Named once and walked twice, so the two halves cannot disagree. A
+        // kind listed in one and forgotten in the other is invisible — it
+        // flattens, it uploads, and it is simply never drawn.
+        let opaque = [&gpu.curves, &gpu.rings, &gpu.points];
+        for kind in opaque {
+            kind.ordinary.draw(&mut pass);
         }
+        for kind in opaque {
+            kind.lit.draw(&mut pass);
+        }
+        // Text last of all. It is the one blended pass, so what it reads over
+        // has to be there already — and it writes no depth, so nothing after it
+        // could be sorted against it anyway.
+        gpu.texts.ordinary.draw(&mut pass);
+        gpu.texts.lit.draw(&mut pass);
     }
 }
 
@@ -326,10 +327,11 @@ impl Renderer {
 
 /// What a harness painting whole frames needs, and an application never does.
 ///
-/// The tests and the allocation bench both drive a real device, and both need
-/// the same thing to do it with — the `bench` feature carries `internals`, so
-/// one gate reaches both.
-#[cfg(any(test, feature = "internals"))]
+/// Gated on `bench` rather than on `internals`, though `bench` carries it: the
+/// two callers are this crate's own tests and its allocation bench, and a
+/// consumer that turns `internals` on — catcad's test targets do — wants the
+/// reach-ins into [`Batch`](crate::Batch) and not a pane it never paints.
+#[cfg(any(test, feature = "bench"))]
 pub(crate) mod internals {
     use crate::renderer::Renderer;
     use palantir::{App, Configure, GpuPaint, GpuView, Sizing, Ui, WindowToken};
