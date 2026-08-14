@@ -27,15 +27,20 @@ pub struct Snapshot {
 }
 
 impl Snapshot {
-    /// Whether this describes a sketch as wide as `sketch` — the same count of
-    /// solver parameters, however they are arranged.
+    /// Whether this describes a sketch holding as much as `sketch` does,
+    /// wherever that geometry has since moved to.
     ///
     /// Not what makes a restore safe, which is nothing: a snapshot carries a
     /// whole sketch and can be put into one of any width. It answers the
     /// narrower question [`Solver::edit_holding`](crate::Solver) asks, which is
     /// whether an edit that promised only to *move* geometry kept its word.
+    ///
+    /// Positions the arenas occupy rather than what is in them, and counted per
+    /// kind rather than totalled: a sketch that lost a point and gained a circle
+    /// can total the same either way, and is not the sketch that was recorded.
     pub(super) fn fits(&self, sketch: &Sketch) -> bool {
-        self.sketch.param_count() == sketch.param_count()
+        self.sketch.point_slot_count() == sketch.point_slot_count()
+            && self.sketch.circle_slot_count() == sketch.circle_slot_count()
     }
 
     /// Whether `sketch` stands where this says, to within `epsilon` in every
@@ -49,15 +54,29 @@ impl Snapshot {
     /// answer geometrically and rarely the same bits, so a solve that put
     /// everything back where it belonged would otherwise read as a change.
     ///
-    /// Every parameter, so a radius counts alongside a position — a drag that
-    /// drives one is as much a change as a drag that moves the other.
+    /// Positions and radii both, so a drag that drives a circle's size counts
+    /// as much as one that moves a point.
+    ///
+    /// The handles are compared alongside the geometry, which is what says the
+    /// two walks are pairing the same entities: [`Snapshot::fits`] has already
+    /// matched the widths, and a handle that differs means the holes fall
+    /// elsewhere and no comparison of the values would have meant anything.
     pub(super) fn within(&self, sketch: &Sketch, epsilon: f64) -> bool {
         self.fits(sketch)
             && self
                 .sketch
-                .params()
-                .zip(sketch.params())
-                .all(|(was, now)| (now - was).abs() <= epsilon)
+                .points()
+                .zip(sketch.points())
+                .all(|((was, at), (now, moved))| {
+                    was == now && (moved - at).abs().max_element() <= epsilon
+                })
+            && self
+                .sketch
+                .circles()
+                .zip(sketch.circles())
+                .all(|((was, at), (now, grown))| {
+                    was == now && (grown.radius - at.radius).abs() <= epsilon
+                })
     }
 }
 

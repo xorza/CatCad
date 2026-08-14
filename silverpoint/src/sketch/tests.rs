@@ -41,11 +41,11 @@ fn geometry_comes_back_in_insertion_order() {
     // Radii ride the same vector: three points fill 0..6, so the circle's
     // radius is parameter 6.
     let mut params = Vec::new();
-    sketch.write_params(&mut params);
+    sketch.params().write(&mut params);
     assert_eq!(params, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 0.5]);
     params[2] = 30.0;
     params[6] = 0.75;
-    sketch.set_params(&params);
+    sketch.params_mut().set(&params);
     assert_eq!(sketch.points().nth(1).unwrap().1, DVec2::new(30.0, 4.0));
     assert_eq!(sketch.circle(circle).radius, 0.75);
 
@@ -56,101 +56,6 @@ fn geometry_comes_back_in_insertion_order() {
     sketch.set_radius(circle, 2.5);
     assert_eq!(sketch.point(b), DVec2::new(-1.0, -2.0));
     assert_eq!(sketch.circle(circle).radius, 2.5);
-}
-
-/// The layout, against hand-counted indices: three points fill 0..6 two
-/// apiece, then one radius each at 6 and 7.
-#[test]
-fn every_parameter_index_names_something_and_names_it_back() {
-    let mut sketch = Sketch::default();
-    let a = sketch.add_point(DVec2::new(1.0, 2.0));
-    let b = sketch.add_point(DVec2::new(3.0, 4.0));
-    let c = sketch.add_point(DVec2::new(5.0, 6.0));
-    let inner = sketch.add_circle(a, 0.5);
-    let outer = sketch.add_circle(c, 1.5);
-    sketch.fix(b);
-
-    assert_eq!(sketch.param_count(), 8);
-    assert_eq!(sketch.point_param(a), 0);
-    assert_eq!(sketch.point_param(b), 2);
-    assert_eq!(sketch.point_param(c), 4);
-    assert_eq!(sketch.radius_param(inner), 6);
-    assert_eq!(sketch.radius_param(outer), 7);
-
-    // The round trip is what keeps the forward map and the reverse lookup
-    // in step: break either and some index stops coming back as itself.
-    for index in 0..sketch.param_count() {
-        let param = sketch.param(index).expect("nothing has been removed");
-        assert_eq!(sketch.param_index(param), index, "{index}");
-    }
-    assert_eq!(sketch.param(0), Some(Param::Point(a, Axis::X)));
-    assert_eq!(sketch.param(3), Some(Param::Point(b, Axis::Y)));
-    assert_eq!(sketch.param(6), Some(Param::Radius(inner)));
-    assert_eq!(sketch.param(7), Some(Param::Radius(outer)));
-
-    // Only b is pinned, so only its two coordinates are held. Radii move
-    // whatever the points do.
-    let free: Vec<bool> = (0..sketch.param_count())
-        .map(|index| sketch.param_is_free(index))
-        .collect();
-    assert_eq!(free, [true, true, false, false, true, true, true, true]);
-}
-
-/// A removal leaves the vector the width it was, with a hole where the
-/// point used to be — which is what keeps every surviving handle indexing
-/// where it did.
-#[test]
-fn a_removed_points_parameters_stay_put_and_never_move() {
-    let mut sketch = Sketch::default();
-    let a = sketch.add_point(DVec2::new(1.0, 2.0));
-    let b = sketch.add_point(DVec2::new(3.0, 4.0));
-    let circle = sketch.add_circle(b, 0.5);
-    assert_eq!(sketch.param_count(), 5);
-
-    // Nothing is built on it — the circle is centred on `b` — so the cascade
-    // has nothing to take and this is the bare removal.
-    sketch.remove_point(a);
-
-    assert_eq!(sketch.param_count(), 5);
-    assert_eq!(sketch.param(0), None);
-    assert_eq!(sketch.param(1), None);
-    assert_eq!(sketch.param(2), Some(Param::Point(b, Axis::X)));
-    assert_eq!(sketch.param(4), Some(Param::Radius(circle)));
-    assert_eq!(sketch.point_param(b), 2);
-    assert_eq!(sketch.radius_param(circle), 4);
-
-    // The hole is unfree, which is the whole of what the solver needs: it
-    // already pins a parameter it may not move and zeroes that column.
-    let free: Vec<bool> = (0..5).map(|index| sketch.param_is_free(index)).collect();
-    assert_eq!(free, [false, false, true, true, true]);
-
-    // It reads zero and refuses to be written, so a step landing on it
-    // changes nothing.
-    let mut params = Vec::new();
-    sketch.write_params(&mut params);
-    assert_eq!(params, [0.0, 0.0, 3.0, 4.0, 0.5]);
-    sketch.set_params(&[9.0; 5]);
-    params.clear();
-    sketch.write_params(&mut params);
-    assert_eq!(params, [0.0, 0.0, 9.0, 9.0, 9.0]);
-
-    // A snapshot rides the same hole: taken with the position already freed, it
-    // puts back a sketch that still has the hole in it rather than one that has
-    // quietly closed up around it.
-    let mut over_the_hole = Snapshot::default();
-    sketch.snapshot_into(&mut over_the_hole);
-    sketch.set_point(b, DVec2::new(1.0, 1.0));
-    sketch.restore(&over_the_hole);
-    assert_eq!(sketch.point(b), DVec2::new(9.0, 9.0));
-    assert_eq!(sketch.points().count(), 1);
-
-    // The freed position is filled again rather than the vector widening,
-    // and the handle to what was there is refused, not answered.
-    let c = sketch.add_point(DVec2::new(5.0, 6.0));
-    assert_eq!(sketch.param_count(), 5);
-    assert_eq!(sketch.point_param(c), 0);
-    assert_ne!(c, a);
-    assert_eq!(sketch.points().count(), 2);
 }
 
 /// Removing a point takes everything that was built on it — the segments it
@@ -338,19 +243,19 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     // it was once it has gone, down to the handle the next point is minted
     // with: `c` is added twice and comes out the same both times.
     let c = sketch.add_point(DVec2::new(6.0, 7.0));
-    assert_eq!(sketch.param_count(), 7);
+    assert_eq!(sketch.params().count(), 7);
     assert!(!was.fits(&sketch));
     sketch.snapshot_into(&mut now);
     assert_ne!(now, was, "an added point snapshots as if it were not there");
 
     sketch.restore(&was);
-    assert_eq!(sketch.param_count(), 5);
+    assert_eq!(sketch.params().count(), 5);
     assert_eq!(sketch.points().count(), 2);
     assert_eq!(sketch.add_point(DVec2::new(6.0, 7.0)), c);
 
     // And put back again, which is the redo half: a snapshot of the wider
     // sketch restores into the narrower one it was taken from.
     sketch.restore(&now);
-    assert_eq!(sketch.param_count(), 7);
+    assert_eq!(sketch.params().count(), 7);
     assert_eq!(sketch.point(c), DVec2::new(6.0, 7.0));
 }

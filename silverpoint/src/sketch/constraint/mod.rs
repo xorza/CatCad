@@ -7,6 +7,7 @@
 
 use crate::arena::Id;
 use crate::sketch::entity::Entity;
+use crate::sketch::jacobian_row::JacobianRow;
 use crate::sketch::{CircleId, PointId, SegmentId, Sketch};
 use glam::DVec2;
 
@@ -185,31 +186,33 @@ impl Constraint {
         expanded.into_iter().flatten()
     }
 
-    /// Residual of this equation, with its partial derivatives written into
-    /// `row` — one entry per sketch parameter, zeroed by the caller.
+    /// Residual of this equation, with its partial derivatives added to `row`.
+    ///
+    /// Two views of the same sketch, because the two halves want different
+    /// things of it: `sketch` is the geometry the residual measures, and `row`
+    /// is where the derivatives of that measurement go.
     ///
     /// Only ever reached through [`Self::equations`], so every arm below is a
     /// single scalar equation and none of them needs to be told which.
-    pub(crate) fn evaluate(&self, sketch: &Sketch, row: &mut [f64]) -> f64 {
-        debug_assert_eq!(row.len(), sketch.param_count());
+    pub(super) fn evaluate(&self, sketch: &Sketch, row: &mut JacobianRow<'_>) -> f64 {
         match *self {
             Constraint::Coincident { .. } => {
                 unreachable!("`equations` expands a coincidence into its two axes")
             }
             Constraint::Distance { a, b, distance } => {
                 let apart = Direction::of(sketch.point(a) - sketch.point(b));
-                sketch.write_point_partials(row, a, apart.unit);
-                sketch.write_point_partials(row, b, -apart.unit);
+                row.point(a, apart.unit);
+                row.point(b, -apart.unit);
                 apart.length - distance
             }
             Constraint::Horizontal { a, b } => {
-                sketch.write_point_partials(row, a, DVec2::Y);
-                sketch.write_point_partials(row, b, -DVec2::Y);
+                row.point(a, DVec2::Y);
+                row.point(b, -DVec2::Y);
                 sketch.point(a).y - sketch.point(b).y
             }
             Constraint::Vertical { a, b } => {
-                sketch.write_point_partials(row, a, DVec2::X);
-                sketch.write_point_partials(row, b, -DVec2::X);
+                row.point(a, DVec2::X);
+                row.point(b, -DVec2::X);
                 sketch.point(a).x - sketch.point(b).x
             }
             Constraint::Parallel { first, second } => {
@@ -221,8 +224,8 @@ impl Constraint {
                 // circle — and each direction's partials are the *other* one
                 // turned, the opposite way round, because the cross product
                 // reverses when its arguments swap.
-                sketch.write_segment_partials(row, s1, DVec2::new(d2.y, -d2.x));
-                sketch.write_segment_partials(row, s2, DVec2::new(-d1.y, d1.x));
+                row.segment(s1, DVec2::new(d2.y, -d2.x));
+                row.segment(s2, DVec2::new(-d1.y, d1.x));
                 d1.perp_dot(d2)
             }
             Constraint::Perpendicular { first, second } => {
@@ -231,8 +234,8 @@ impl Constraint {
                 let d2 = sketch.point(s2.b) - sketch.point(s2.a);
                 // The residual is `dot(d1, d2)`, whose partial in either
                 // direction is simply the other direction.
-                sketch.write_segment_partials(row, s1, d2);
-                sketch.write_segment_partials(row, s2, d1);
+                row.segment(s1, d2);
+                row.segment(s2, d1);
                 d1.dot(d2)
             }
             Constraint::PointOnSegment { point, segment } => {
@@ -242,25 +245,21 @@ impl Constraint {
                 let offset = p - pa;
                 // The tail moves both `edge` and `offset`, which is why its
                 // gradient carries a term from each and the other two don't.
-                sketch.write_point_partials(row, point, DVec2::new(-edge.y, edge.x));
-                sketch.write_point_partials(
-                    row,
-                    s.a,
-                    DVec2::new(edge.y - offset.y, offset.x - edge.x),
-                );
-                sketch.write_point_partials(row, s.b, DVec2::new(offset.y, -offset.x));
+                row.point(point, DVec2::new(-edge.y, edge.x));
+                row.point(s.a, DVec2::new(edge.y - offset.y, offset.x - edge.x));
+                row.point(s.b, DVec2::new(offset.y, -offset.x));
                 edge.perp_dot(offset)
             }
             Constraint::Radius { circle, radius } => {
-                row[sketch.radius_param(circle)] += 1.0;
+                row.radius(circle, 1.0);
                 sketch.circle(circle).radius - radius
             }
             Constraint::PointOnCircle { point, circle } => {
                 let c = sketch.circle(circle);
                 let out = Direction::of(sketch.point(point) - sketch.point(c.center));
-                sketch.write_point_partials(row, point, out.unit);
-                sketch.write_point_partials(row, c.center, -out.unit);
-                row[sketch.radius_param(circle)] -= 1.0;
+                row.point(point, out.unit);
+                row.point(c.center, -out.unit);
+                row.radius(circle, -1.0);
                 out.length - c.radius
             }
         }

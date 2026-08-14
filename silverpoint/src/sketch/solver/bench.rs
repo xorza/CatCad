@@ -104,13 +104,13 @@ pub fn alloc_bench() {
     // solver's.
     let mut sketch = fixture();
     let mut guess = Vec::new();
-    sketch.write_params(&mut guess);
+    sketch.params().write(&mut guess);
     let mut solver = Solver::default();
     // Kept outside the window with the solver: a solve fills it rather than
     // handing one back, so it is the caller's buffer and pays for itself once.
     let mut freedoms = Freedoms::default();
     bench.step("solve-from-guess", 0.0, || {
-        sketch.set_params(&guess);
+        sketch.params_mut().set(&guess);
         black_box(solver.solve(&mut sketch, &mut freedoms));
     });
 
@@ -121,9 +121,9 @@ pub fn alloc_bench() {
     let mut freedoms = Freedoms::default();
     solver.solve(&mut sketch, &mut freedoms);
     let mut solved = Vec::new();
-    sketch.write_params(&mut solved);
+    sketch.params().write(&mut solved);
     bench.step("solve-converged", 0.0, || {
-        sketch.set_params(&solved);
+        sketch.params_mut().set(&solved);
         black_box(solver.solve(&mut sketch, &mut freedoms));
     });
 

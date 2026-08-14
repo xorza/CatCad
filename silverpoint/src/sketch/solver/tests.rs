@@ -72,7 +72,7 @@ fn a_sketch_solves_the_same_once_geometry_and_constraints_are_removed() {
     assert!(report.converged, "{report:?}");
     // The vector is as wide as it was — the hole keeps its two positions — so
     // this is the same solve reaching the same place with nothing left over.
-    assert_eq!(sketch.param_count(), 6);
+    assert_eq!(sketch.params().count(), 6);
     assert!((sketch.point(end) - DVec2::new(5.0, 0.0)).length() < EPSILON);
     assert_eq!(freedoms.degrees_of_freedom(), 0);
     assert_eq!(freedoms.redundant_equations(), 0);

@@ -82,12 +82,12 @@ impl Workspace {
         self.step.clear();
         self.step.resize(n, 0.0);
         self.params.clear();
-        sketch.write_params(&mut self.params);
+        sketch.params().write(&mut self.params);
         self.held.clear();
         self.held.reserve_exact(held.len() * 2);
         for &point in held {
             // A point's two parameters are adjacent, x first.
-            let x = sketch.point_param(point);
+            let x = sketch.params().of_point(point);
             self.held.extend([x, x + 1]);
         }
     }

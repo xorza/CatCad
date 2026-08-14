@@ -36,9 +36,15 @@ impl Fixture {
 }
 
 fn analytic(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
-    let mut row = vec![0.0; sketch.param_count()];
-    equation.evaluate(sketch, &mut row);
-    row
+    let mut cells = vec![0.0; sketch.params().count()];
+    equation.evaluate(sketch, &mut JacobianRow::new(sketch.params(), &mut cells));
+    cells
+}
+
+/// The residual alone, for a test that has nothing to say about the partials.
+fn residual(sketch: &Sketch, equation: Constraint) -> f64 {
+    let mut cells = vec![0.0; sketch.params().count()];
+    equation.evaluate(sketch, &mut JacobianRow::new(sketch.params(), &mut cells))
 }
 
 /// Central differences of the residual, which the analytic partials must
@@ -47,20 +53,26 @@ fn analytic(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
 fn numeric(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
     const H: f64 = 1e-6;
     let mut base = Vec::new();
-    sketch.write_params(&mut base);
+    sketch.params().write(&mut base);
     let mut scratch = sketch.clone();
+    // Never read: a central difference is two residuals, and the partials the
+    // rows carry are what this is checking those residuals against.
     let mut discard = vec![0.0; base.len()];
     let mut row = Vec::with_capacity(base.len());
     for i in 0..base.len() {
         let mut params = base.clone();
         params[i] = base[i] + H;
-        scratch.set_params(&params);
-        discard.fill(0.0);
-        let high = equation.evaluate(&scratch, &mut discard);
+        scratch.params_mut().set(&params);
+        let high = equation.evaluate(
+            &scratch,
+            &mut JacobianRow::new(scratch.params(), &mut discard),
+        );
         params[i] = base[i] - H;
-        scratch.set_params(&params);
-        discard.fill(0.0);
-        let low = equation.evaluate(&scratch, &mut discard);
+        scratch.params_mut().set(&params);
+        let low = equation.evaluate(
+            &scratch,
+            &mut JacobianRow::new(scratch.params(), &mut discard),
+        );
         row.push((high - low) / (2.0 * H));
     }
     row
@@ -304,13 +316,9 @@ fn only_a_coincidence_expands_and_it_expands_to_its_two_axes() {
     // measure the whole of the gap — which is what makes the pair a
     // coincidence rather than two unrelated relations.
     let offset = sketch.point(p0) - sketch.point(p1);
-    let mut row = vec![0.0; sketch.param_count()];
     let residuals: Vec<f64> = coincident
         .equations()
-        .map(|equation| {
-            row.fill(0.0);
-            equation.evaluate(&sketch, &mut row)
-        })
+        .map(|equation| residual(&sketch, equation))
         .collect();
     assert_eq!(residuals, [offset.x, offset.y]);
     // −3.4 against −1.2: a swapped pair would not survive this fixture.
@@ -340,7 +348,6 @@ fn residuals_read_zero_exactly_when_satisfied() {
     let b = sketch.add_point(DVec2::new(4.0, 6.0));
     let c = sketch.add_point(DVec2::new(1.0, 6.0));
     let segment = sketch.add_segment(a, b);
-    let mut row = vec![0.0; sketch.param_count()];
 
     // 3-4-5: the distance from (1,2) to (4,6) is exactly 5.
     let distance = Constraint::Distance {
@@ -348,8 +355,7 @@ fn residuals_read_zero_exactly_when_satisfied() {
         b,
         distance: 5.0,
     };
-    assert_eq!(distance.evaluate(&sketch, &mut row), 0.0);
-    row.fill(0.0);
+    assert_eq!(residual(&sketch, distance), 0.0);
 
     // Asking for 4 instead leaves a residual of exactly +1.
     let short = Constraint::Distance {
@@ -357,19 +363,16 @@ fn residuals_read_zero_exactly_when_satisfied() {
         b,
         distance: 4.0,
     };
-    assert_eq!(short.evaluate(&sketch, &mut row), 1.0);
-    row.fill(0.0);
+    assert_eq!(residual(&sketch, short), 1.0);
 
     // c shares b's y, so Horizontal is satisfied and Vertical is not:
     // c.x - b.x = 1 - 4 = -3.
     let horizontal = Constraint::Horizontal { a: c, b };
-    assert_eq!(horizontal.evaluate(&sketch, &mut row), 0.0);
-    row.fill(0.0);
+    assert_eq!(residual(&sketch, horizontal), 0.0);
     let vertical = Constraint::Vertical { a: c, b };
-    assert_eq!(vertical.evaluate(&sketch, &mut row), -3.0);
-    row.fill(0.0);
+    assert_eq!(residual(&sketch, vertical), -3.0);
 
     // c is off the a-b line: cross((3,4), (0,4)) = 3*4 - 4*0 = 12.
     let on_line = Constraint::PointOnSegment { point: c, segment };
-    assert_eq!(on_line.evaluate(&sketch, &mut row), 12.0);
+    assert_eq!(residual(&sketch, on_line), 12.0);
 }

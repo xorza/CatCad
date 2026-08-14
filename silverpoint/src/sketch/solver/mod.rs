@@ -9,6 +9,7 @@
 
 use crate::math::dense::{max_abs, norm, solve_in_place};
 use crate::sketch::constraint::ConstraintId;
+use crate::sketch::jacobian_row::JacobianRow;
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::freedoms::Freedoms;
 use crate::sketch::solver::workspace::Workspace;
@@ -140,7 +141,7 @@ impl Solver {
     fn iterate(&mut self, sketch: &mut Sketch, held: &[PointId]) -> u32 {
         let max_iterations = self.max_iterations;
         let tolerance = self.tolerance;
-        let n = sketch.param_count();
+        let n = sketch.params().count();
         let work = &mut self.work;
         work.reset(sketch, n, held);
         let mut damping = INITIAL_DAMPING;
@@ -198,7 +199,7 @@ impl Solver {
             work.trial.clear();
             work.trial
                 .extend(work.params.iter().zip(&work.step).map(|(p, d)| p + d));
-            sketch.set_params(&work.trial);
+            sketch.params_mut().set(&work.trial);
             assemble(
                 sketch,
                 &work.held,
@@ -214,7 +215,7 @@ impl Solver {
                 std::mem::swap(&mut work.jacobian, &mut work.trial_jacobian);
                 damping = (damping * DAMPING_DECAY).max(f64::MIN_POSITIVE);
             } else {
-                sketch.set_params(&work.params);
+                sketch.params_mut().set(&work.params);
                 damping *= DAMPING_GROWTH;
                 if damping > MAX_DAMPING {
                     break;
@@ -369,7 +370,7 @@ impl Solver {
         into: &mut Freedoms,
         iterations: u32,
     ) -> SolveReport {
-        let n = sketch.param_count();
+        let n = sketch.params().count();
         self.assemble_at_rest(sketch);
         let rank = self.work.null_space(n, sketch);
 
@@ -379,11 +380,11 @@ impl Solver {
         into.reset(sketch, free_params - rank, self.work.residuals.len() - rank);
         for (id, _) in sketch.points() {
             // A point's two parameters are adjacent, x first.
-            let x = sketch.point_param(id);
+            let x = sketch.params().of_point(id);
             into.set_point(id, self.work.spread(x, x + 1));
         }
         for (id, _) in sketch.circles() {
-            into.set_radius(id, self.work.travel(sketch.radius_param(id)));
+            into.set_radius(id, self.work.travel(sketch.params().of_radius(id)));
         }
         // The same rank read the other way round: the rows it left behind are
         // the equations the rest of the system already implies, and each one
@@ -448,7 +449,7 @@ fn assemble(
     jacobian: &mut Vec<f64>,
     equations: &mut Vec<ConstraintId>,
 ) {
-    let n = sketch.param_count();
+    let n = sketch.params().count();
     residuals.clear();
     jacobian.clear();
     equations.clear();
@@ -456,10 +457,10 @@ fn assemble(
         for equation in constraint.equations() {
             let start = jacobian.len();
             jacobian.resize(start + n, 0.0);
-            let row = &mut jacobian[start..];
-            residuals.push(equation.evaluate(sketch, row));
+            let mut row = JacobianRow::new(sketch.params(), &mut jacobian[start..]);
+            residuals.push(equation.evaluate(sketch, &mut row));
             equations.push(id);
-            for (param, partial) in row.iter_mut().enumerate() {
+            for (param, partial) in jacobian[start..].iter_mut().enumerate() {
                 if !movable(sketch, held, param) {
                     *partial = 0.0;
                 }
@@ -474,7 +475,7 @@ fn assemble(
 /// The one place the two reasons a column stays put are put together, so the
 /// Jacobian, the damping and the rank all describe the same system.
 fn movable(sketch: &Sketch, held: &[usize], param: usize) -> bool {
-    sketch.param_is_free(param) && !held.contains(&param)
+    sketch.params().is_free(param) && !held.contains(&param)
 }
 
 pub(crate) mod freedoms;
@@ -498,7 +499,7 @@ pub(crate) mod internals {
         /// the answer the freedoms give, and two routes agreeing is what says
         /// either is right.
         pub(crate) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
-            let n = sketch.param_count();
+            let n = sketch.params().count();
             self.work.reset(sketch, n, held);
             assemble(
                 sketch,
