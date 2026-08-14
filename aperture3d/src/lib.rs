@@ -1,11 +1,12 @@
 //! A small retained 3D scene renderer for [`palantir`] viewports.
 //!
-//! Build a [`Scene`] out of [`Object`]s, [`Curve`]s and [`Point`]s, hand it to
-//! a [`Renderer`], and give the renderer to a `GpuView` each frame:
+//! Build a [`Scene`] out of [`Object`]s, [`Curve`]s, [`Ring`]s, [`Point`]s and
+//! [`Text`], hand it to a [`Renderer`], and give the renderer to a `GpuView`
+//! each frame:
 //!
 //! ```no_run
 //! # use std::{cell::RefCell, rc::Rc};
-//! # use aperture::{Curve, Mesh, Object, Point, Renderer, Scene};
+//! # use aperture::{Curve, Mesh, Object, Point, Renderer, Scene, Text};
 //! # use glam::Vec3;
 //! # use palantir::{Configure, GpuPaint, GpuView, Sizing, Ui};
 //! # fn demo(ui: &mut Ui, renderer: &Rc<RefCell<Renderer>>) {
@@ -13,6 +14,7 @@
 //! scene.objects.push(Object::new(Mesh::cube(1.0)));
 //! scene.curves.push(Curve::segment(Vec3::ZERO, Vec3::X));
 //! scene.points.push(Point::new(Vec3::X));
+//! scene.texts.push(Text::new(Vec3::X, "1.0", 12.0));
 //!
 //! let paint: Rc<RefCell<dyn GpuPaint>> = renderer.clone();
 //! GpuView::new(paint)
@@ -33,11 +35,11 @@
 //! # Overlays
 //!
 //! An [`Object`] is modelled geometry: shaded, back-face culled, and measured
-//! in world units. A [`Curve`] and a [`Point`] are overlays — unlit, unculled,
-//! and sized in *logical pixels*, so a stroke holds its width and a marker its
-//! diameter however far the camera pulls back. That fixed size is what tells
-//! drawn geometry from modelled geometry: it is a claim about legibility, not
-//! about the model.
+//! in world units. A [`Curve`], a [`Ring`], a [`Point`] and a [`Text`] are
+//! overlays — unlit, unculled, and sized in *logical pixels*, so a stroke holds
+//! its width, a marker its diameter, and a label its type size however far the
+//! camera pulls back. That fixed size is what tells drawn geometry from modelled
+//! geometry: it is a claim about legibility, not about the model.
 //!
 //! An overlay drawn on the surface it describes is in a depth fight with that
 //! surface. Two fields settle it, and both kinds carry both.
@@ -89,6 +91,7 @@ pub(crate) mod ring;
 pub(crate) mod scene;
 pub(crate) mod styled;
 pub(crate) mod tag;
+pub(crate) mod text;
 pub(crate) mod viewport;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
@@ -113,4 +116,5 @@ pub use ring::Ring;
 pub use scene::Scene;
 pub use styled::Styled;
 pub use tag::Tag;
+pub use text::Text;
 pub use viewport::Viewport;

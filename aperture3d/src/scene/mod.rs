@@ -9,6 +9,7 @@ use crate::object::Object;
 use crate::overlay;
 use crate::point::Point;
 use crate::ring::Ring;
+use crate::text::Text;
 
 /// The whole of the drawable world: shaded meshes, stroked curves, rims and
 /// markers. Flat for now — hierarchy, if it earns its place, goes here.
@@ -29,6 +30,7 @@ pub struct Scene {
     pub curves: Batch<Curve>,
     pub rings: Batch<Ring>,
     pub points: Batch<Point>,
+    pub texts: Batch<Text>,
 }
 
 impl Scene {
@@ -56,6 +58,16 @@ impl Scene {
         overlay::bounds(&self.curves, &mut bounds);
         overlay::bounds(&self.rings, &mut bounds);
         overlay::bounds(&self.points, &mut bounds);
+        // Written out rather than reached through [`Overlay`], which a run of
+        // text cannot implement: the trait's other half is flattening itself
+        // into records, and a run cannot do that from `&self` alone — how many
+        // glyphs it is worth is the shaper's answer, not the string's.
+        for text in self.texts.iter() {
+            text.extend_bounds(|at| match bounds.as_mut() {
+                Some(bounds) => bounds.include(at),
+                None => bounds = Some(Bounds::point(at)),
+            });
+        }
         bounds
     }
 
@@ -109,6 +121,7 @@ impl Scene {
         self.points
             .iter()
             .filter_map(move |point| point.pick(&aim))
+            .chain(self.texts.iter().filter_map(move |text| text.pick(&aim)))
             .chain(self.curves.iter().filter_map(move |curve| curve.pick(&aim)))
             .chain(self.rings.iter().filter_map(move |ring| ring.pick(&aim)))
     }

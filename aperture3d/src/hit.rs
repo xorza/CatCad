@@ -7,10 +7,14 @@ use std::cmp::Ordering;
 /// Where on a primitive a pick landed.
 ///
 /// A marker has no interior, so there is nothing to say beyond that it was
-/// hit. A stroke does: which of its segments, and how far along.
+/// hit, and a label is the same — what a caller does with one is about the
+/// whole run. A stroke does have an interior: which of its segments, and how
+/// far along.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HitAt {
     Point,
+    /// A run of text, anywhere within the box it is drawn in.
+    Text,
     Segment {
         /// Index into the curve's segments, counting the closing one last.
         index: usize,
@@ -31,12 +35,19 @@ impl HitAt {
     /// at and so the one the aim was meant for. Sorting on depth alone would
     /// make the corner of a rectangle unselectable — every corner has two
     /// edges running through it.
+    ///
+    /// A label sits between the two. It is a larger target than a marker, so a
+    /// marker drawn over one still wins; but it is an opaque thing deliberately
+    /// placed, and the edge it labels usually runs right under it — a dimension
+    /// sits on its own dimension line — so an edge crossing a label must not
+    /// take the click meant for the label.
     pub(crate) fn rank(&self) -> u8 {
         match self {
             Self::Point => 0,
+            Self::Text => 1,
             // An edge is an edge however it curves, so a stroke and a rim rank
             // together and the cursor's distance decides between them.
-            Self::Segment { .. } | Self::Ring { .. } => 1,
+            Self::Segment { .. } | Self::Ring { .. } => 2,
         }
     }
 }

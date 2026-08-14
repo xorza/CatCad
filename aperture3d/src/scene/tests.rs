@@ -5,6 +5,7 @@ use crate::hit::HitAt;
 use crate::mesh::Mesh;
 use crate::styled::Styled;
 use crate::tag::Tag;
+use crate::text::Text;
 use crate::viewport::Viewport;
 use glam::UVec2;
 use glam::Vec2;
@@ -233,17 +234,37 @@ fn a_marker_outranks_the_strokes_running_through_it() {
     scene
         .points
         .push(Point::new(Vec3::ZERO).size(6.0).tagged(Tag::new(12)));
+    // And a label over the lot, centred on the same crossing: the middle rung,
+    // which a dimension sitting on its own line is exactly.
+    scene.texts.push(
+        Text::new(Vec3::ZERO, "125.4", 12.0)
+            .anchored(Vec2::splat(0.5))
+            .measured(Vec2::new(40.0, 12.0))
+            .tagged(Tag::new(13)),
+    );
 
     let hits = ranked(&scene, CENTRE, 3.0);
-    assert_eq!(hits.len(), 3);
+    assert_eq!(hits.len(), 4);
+    // Marker, then label, then the two edges — smallest target first.
     assert_eq!(
         hits[0].tag,
         Tag::new(12),
         "the marker comes first: {hits:?}"
     );
     assert_eq!(hits[0].at, HitAt::Point);
+    assert_eq!(
+        hits[1].tag,
+        Tag::new(13),
+        "the label comes second: {hits:?}"
+    );
+    assert_eq!(hits[1].at, HitAt::Text);
     // The strokes still come back — that is what lets a caller cycle.
-    assert!(hits[1..].iter().all(|hit| hit.at.rank() == 1));
+    assert!(
+        hits[2..]
+            .iter()
+            .all(|hit| matches!(hit.at, HitAt::Segment { .. })),
+        "{hits:?}"
+    );
 }
 
 /// `nearest` answers with the head of the ranking, wherever the cursor falls.
