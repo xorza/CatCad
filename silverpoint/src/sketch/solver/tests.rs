@@ -691,6 +691,13 @@ fn conflicting_distances_settle_at_the_least_squares_compromise() {
     // unit out. The solve reports failure rather than pretending.
     assert!(!outcome.report().converged, "{:?}", outcome.report());
     assert!((sketch.point(free).length() - 1.5).abs() < 1e-8);
+    // Two steps: the first takes the point to the compromise, the second finds
+    // nothing left to gain there and stops. That second test is the only one
+    // that can stop this solve at all — the residual it is told to drive to
+    // zero never reaches any tolerance, so without it the iteration grinds on
+    // against an answer it already had until the damping gives out, which on
+    // this sketch is twenty-four steps for the same result.
+    assert_eq!(outcome.report().iterations, 2);
     assert!(
         (outcome.report().max_residual - 0.5).abs() < 1e-8,
         "{:?}",

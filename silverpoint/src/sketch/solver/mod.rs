@@ -25,6 +25,22 @@ const DAMPING_GROWTH: f64 = 8.0;
 /// Past this the step is numerically zero, so no further damping can help.
 const MAX_DAMPING: f64 = 1e12;
 
+/// Below this much of itself, the reduction an accepted step makes in the
+/// residual counts as no reduction at all, and the iteration stops.
+///
+/// Not [`Solver::tolerance`], which asks whether the sketch is *solved*. This
+/// asks whether solving it any further is possible. A system the constraints
+/// cannot satisfy still has a least-squares answer, and its residual never
+/// reaches any tolerance — so the loop's one test can never fire, and without
+/// this it grinds on against a minimum it reached long ago until the damping
+/// gives out. Measured on the demo's own drawing under a drag it has to refuse:
+/// thirty-three steps taken, four of them useful.
+///
+/// Three decades above the noise an `f64` residual carries, and eleven below
+/// the smallest reduction a converging solve was measured to make — a margin
+/// wide enough that no sketch is going to fall in it.
+const STALLED: f64 = 1e-12;
+
 /// How far a parameter may differ and still count as not having moved, in
 /// sketch units.
 ///
@@ -217,13 +233,21 @@ impl Solver {
                 &mut work.trial_jacobian,
                 &mut work.equations,
             );
-            if norm(&work.trial_residuals) < norm(&work.residuals) {
+            let (residual, trial) = (norm(&work.residuals), norm(&work.trial_residuals));
+            if trial < residual {
                 // Swapped rather than assigned: the loser's buffer becomes the
                 // next round's scratch, so neither pair is ever rebuilt.
                 std::mem::swap(&mut work.params, &mut work.trial);
                 std::mem::swap(&mut work.residuals, &mut work.trial_residuals);
                 std::mem::swap(&mut work.jacobian, &mut work.trial_jacobian);
                 damping = (damping * DAMPING_DECAY).max(f64::MIN_POSITIVE);
+                // Kept, and the last worth taking: a step that improves on its
+                // predecessor by nothing is one whose successors improve on it
+                // by nothing either, and the residual test above can only stop a
+                // system that has an answer to reach.
+                if residual - trial <= STALLED * residual {
+                    break;
+                }
             } else {
                 sketch.params_mut().set(&work.params);
                 damping *= DAMPING_GROWTH;
