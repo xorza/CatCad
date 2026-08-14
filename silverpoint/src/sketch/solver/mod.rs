@@ -8,8 +8,6 @@
 //! it saves.
 
 use crate::math::dense::{max_abs, norm, solve_in_place};
-use crate::sketch::constraint::ConstraintId;
-use crate::sketch::jacobian_row::JacobianRow;
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::outcome::{Outcome, Settled};
 use crate::sketch::solver::workspace::Workspace;
@@ -86,7 +84,7 @@ pub struct SolveReport {
 /// for them once rather than once a frame. A throwaway
 /// `Solver::default().solve(..)` still works and still allocates — the room
 /// is only saved by keeping the solver.
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Solver {
     pub max_iterations: u32,
     /// Converged once every residual is within this of zero. Residuals are in
@@ -173,18 +171,17 @@ impl Solver {
         let mut damping = INITIAL_DAMPING;
         let mut iterations = 0;
 
-        assemble(
-            sketch,
-            &work.movable,
-            &mut work.residuals,
-            &mut work.jacobian,
-            &mut work.equations,
-        );
-        while iterations < max_iterations && max_abs(&work.residuals) > tolerance {
+        work.system.assemble(sketch, &work.movable);
+        while iterations < max_iterations && max_abs(&work.system.residuals) > tolerance {
             iterations += 1;
             work.normal.fill(0.0);
             work.step.fill(0.0);
-            for (row, residual) in work.jacobian.chunks_exact(n).zip(&work.residuals) {
+            for (row, residual) in work
+                .system
+                .jacobian
+                .chunks_exact(n)
+                .zip(&work.system.residuals)
+            {
                 for a in 0..n {
                     if row[a] == 0.0 {
                         continue;
@@ -226,20 +223,16 @@ impl Solver {
             work.trial
                 .extend(work.params.iter().zip(&work.step).map(|(p, d)| p + d));
             sketch.params_mut().set(&work.trial);
-            assemble(
-                sketch,
-                &work.movable,
-                &mut work.trial_residuals,
-                &mut work.trial_jacobian,
-                &mut work.equations,
+            work.trial_system.assemble(sketch, &work.movable);
+            let (residual, trial) = (
+                norm(&work.system.residuals),
+                norm(&work.trial_system.residuals),
             );
-            let (residual, trial) = (norm(&work.residuals), norm(&work.trial_residuals));
             if trial < residual {
-                // Swapped rather than assigned: the loser's buffer becomes the
-                // next round's scratch, so neither pair is ever rebuilt.
+                // Swapped rather than assigned: the loser's buffers become the
+                // next round's scratch, so nothing is ever rebuilt.
                 std::mem::swap(&mut work.params, &mut work.trial);
-                std::mem::swap(&mut work.residuals, &mut work.trial_residuals);
-                std::mem::swap(&mut work.jacobian, &mut work.trial_jacobian);
+                std::mem::swap(&mut work.system, &mut work.trial_system);
                 damping = (damping * DAMPING_DECAY).max(f64::MIN_POSITIVE);
                 // Kept, and the last worth taking: a step that improves on its
                 // predecessor by nothing is one whose successors improve on it
@@ -434,8 +427,11 @@ impl Solver {
         let rank = self.work.null_space(n);
 
         let free_params = self.work.movable.iter().filter(|&&free| free).count();
-        into.freedoms
-            .reset(sketch, free_params - rank, self.work.residuals.len() - rank);
+        into.freedoms.reset(
+            sketch,
+            free_params - rank,
+            self.work.system.residuals.len() - rank,
+        );
         for (id, _) in sketch.points() {
             // A point's two parameters are adjacent, x first.
             let x = sketch.params().of_point(id);
@@ -452,7 +448,7 @@ impl Solver {
             into.freedoms.set_redundant(id);
         }
 
-        let max_residual = max_abs(&self.work.residuals);
+        let max_residual = max_abs(&self.work.system.residuals);
         into.report = SolveReport {
             converged: max_residual <= self.tolerance,
             iterations,
@@ -472,14 +468,8 @@ impl Solver {
     /// again.
     fn assemble_at_rest(&mut self, sketch: &Sketch) -> f64 {
         self.work.hold(sketch, &[]);
-        assemble(
-            sketch,
-            &self.work.movable,
-            &mut self.work.residuals,
-            &mut self.work.jacobian,
-            &mut self.work.equations,
-        );
-        max_abs(&self.work.residuals)
+        self.work.system.assemble(sketch, &self.work.movable);
+        max_abs(&self.work.system.residuals)
     }
 
     /// Whether the sketch as it stands is one to keep: satisfied outright, or
@@ -495,52 +485,9 @@ impl Solver {
     }
 }
 
-/// Build the residual vector and its row-major Jacobian for the sketch as it
-/// currently stands, noting in `equations` which constraint wrote each row.
-/// Columns `movable` refuses are zeroed, which is what holds those points
-/// still.
-///
-/// The three are filled together because they are one walk, and because this is
-/// the only place that knows how many rows a constraint is worth — a coincidence
-/// two, everything else one. A caller rebuilding the mapping for itself would be
-/// a second copy of that, free to fall out of step with this one and silently
-/// blame the wrong constraint.
-///
-/// `equations` is refilled by every assembly, including the trial ones a solve
-/// takes per iteration, where nothing reads it. It is the same answer every time
-/// — what geometry is doing cannot change which constraint an equation came
-/// from — so that is a few tens of writes against an elimination that is cubic
-/// in the same numbers, and it buys one code path instead of two.
-fn assemble(
-    sketch: &Sketch,
-    movable: &[bool],
-    residuals: &mut Vec<f64>,
-    jacobian: &mut Vec<f64>,
-    equations: &mut Vec<ConstraintId>,
-) {
-    let n = sketch.params().count();
-    debug_assert_eq!(movable.len(), n, "this mask was taken of another sketch");
-    residuals.clear();
-    jacobian.clear();
-    equations.clear();
-    for (id, constraint) in sketch.constraints() {
-        for equation in constraint.equations() {
-            let start = jacobian.len();
-            jacobian.resize(start + n, 0.0);
-            let mut row = JacobianRow::new(sketch.params(), &mut jacobian[start..]);
-            residuals.push(equation.evaluate(sketch, &mut row));
-            equations.push(id);
-            for (partial, &may_move) in jacobian[start..].iter_mut().zip(movable) {
-                if !may_move {
-                    *partial = 0.0;
-                }
-            }
-        }
-    }
-}
-
 pub(crate) mod freedoms;
 pub(crate) mod outcome;
+mod system;
 mod workspace;
 
 #[cfg(feature = "bench")]
@@ -548,7 +495,7 @@ pub(crate) mod bench;
 
 #[cfg(test)]
 pub(crate) mod internals {
-    use crate::sketch::solver::{Solver, assemble};
+    use crate::sketch::solver::Solver;
     use crate::sketch::{PointId, Sketch};
 
     impl Solver {
@@ -563,14 +510,8 @@ pub(crate) mod internals {
         pub(crate) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
             let n = sketch.params().count();
             self.work.reset(sketch, held);
-            assemble(
-                sketch,
-                &self.work.movable,
-                &mut self.work.residuals,
-                &mut self.work.jacobian,
-                &mut self.work.equations,
-            );
-            let rank = self.work.rank(n);
+            self.work.system.assemble(sketch, &self.work.movable);
+            let rank = self.work.null_space(n);
             self.work.movable.iter().filter(|&&free| free).count() - rank
         }
     }

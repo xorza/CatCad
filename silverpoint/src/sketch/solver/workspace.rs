@@ -6,6 +6,7 @@
 
 use crate::sketch::constraint::ConstraintId;
 use crate::sketch::solver::freedoms::Freedom;
+use crate::sketch::solver::system::System;
 use crate::sketch::{PointId, Sketch};
 
 /// Relative threshold below which a pivot counts as zero when measuring the
@@ -23,26 +24,35 @@ const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
 ///
 /// Sized by the sketch and refilled rather than rebuilt, so a second solve of
 /// the same sketch — which is what dragging one is — allocates nothing at all.
-/// Nothing in here survives a solve as *meaning*; only as room.
-#[derive(Debug, Clone, Default)]
+///
+/// Two kinds of thing live here, and the visibility is what says which. The
+/// buffers the iteration next door works in are `pub(super)`, because that is
+/// where the working is done. What the elimination *found* is private, and is
+/// read back through [`Workspace::travel`], [`Workspace::spread`] and
+/// [`Workspace::dependent`] rather than by looking: those five mean nothing
+/// until [`Workspace::null_space`] has filled them, and nothing outside this
+/// file should be in a position to read them before it has.
+#[derive(Debug, Default)]
 pub(super) struct Workspace {
-    pub(super) residuals: Vec<f64>,
-    /// Row-major, one row of `n` per equation.
-    pub(super) jacobian: Vec<f64>,
-    pub(super) trial_residuals: Vec<f64>,
-    pub(super) trial_jacobian: Vec<f64>,
+    /// The sketch as it stands, and what a step would make of it. Swapped when
+    /// the step is worth keeping, so neither is ever rebuilt.
+    pub(super) system: System,
+    pub(super) trial_system: System,
     /// `JᵀJ + λD`, `n × n` row-major.
     pub(super) normal: Vec<f64>,
     pub(super) step: Vec<f64>,
+    /// Where the iteration stands, and where a step would put it — the two
+    /// points [`Workspace::system`] and [`Workspace::trial_system`] are the
+    /// assemblies of.
     pub(super) params: Vec<f64>,
     pub(super) trial: Vec<f64>,
     /// Measuring rank destroys what it eliminates, so it runs on a copy of
     /// the Jacobian rather than on the Jacobian.
-    pub(super) elimination: Vec<f64>,
+    elimination: Vec<f64>,
     /// Which column each row of the elimination took its pivot in, one per
     /// rank. What tells a parameter the constraints resolve from one they
-    /// leave to be chosen — see [`Solver::freedoms`].
-    pub(super) pivots: Vec<usize>,
+    /// leave to be chosen.
+    pivots: Vec<usize>,
     /// Which equation each row of the elimination started life as, permuted in
     /// step with the row swaps partial pivoting makes.
     ///
@@ -51,20 +61,16 @@ pub(super) struct Workspace {
     /// could be counted but not named. With it they can be traced back to the
     /// constraints that wrote them, which is the difference between telling a
     /// user that their sketch is over-constrained and telling them by what.
-    pub(super) origin: Vec<usize>,
-    /// Which constraint wrote each equation, one entry per row of the
-    /// Jacobian. Filled by `assemble` as it walks, since that is the one place
-    /// that knows a coincidence is worth two rows and everything else one.
-    pub(super) equations: Vec<ConstraintId>,
+    origin: Vec<usize>,
     /// The null space of the Jacobian, one row of `free.len()` per parameter:
     /// how far that parameter travels along each way the sketch can still
     /// move. Row-major, and meaningless until [`Workspace::null_space`] fills
     /// it.
-    pub(super) null: Vec<f64>,
+    null: Vec<f64>,
     /// The columns that took no pivot, which are the null space's own axes.
     /// Filled by [`Workspace::rank`] beside [`Workspace::pivots`], the other
     /// half of the same partition.
-    pub(super) free: Vec<usize>,
+    free: Vec<usize>,
     /// Whether the solve may move each parameter, one entry per parameter.
     ///
     /// The one place the two reasons a column stays put are put together — fixed
@@ -126,18 +132,18 @@ impl Workspace {
     /// [`Workspace::null_space`] carries on from and what nothing else looks at.
     /// So the answer is always `pivots.len()`, and callers that need both take
     /// it from here rather than keeping their own count.
-    pub(super) fn rank(&mut self, n: usize) -> usize {
+    fn rank(&mut self, n: usize) -> usize {
         self.pivots.clear();
         self.origin.clear();
         self.free.clear();
-        if n == 0 || self.jacobian.is_empty() {
+        if n == 0 || self.system.jacobian.is_empty() {
             // Nothing to eliminate, so every column the sketch can move is one
             // it is still free to choose.
             self.free.extend((0..n).filter(|&col| self.movable[col]));
             return 0;
         }
         self.elimination.clear();
-        self.elimination.extend_from_slice(&self.jacobian);
+        self.elimination.extend_from_slice(&self.system.jacobian);
         let a = &mut self.elimination;
         let m = a.len() / n;
         // Every row starts as the equation it was assembled from, and follows
@@ -307,7 +313,7 @@ impl Workspace {
     pub(super) fn dependent(&self) -> impl Iterator<Item = ConstraintId> {
         self.origin[self.pivots.len()..]
             .iter()
-            .map(|&equation| self.equations[equation])
+            .map(|&equation| self.system.equations[equation])
     }
 
     /// How far one parameter travels along each of the sketch's freedoms.
