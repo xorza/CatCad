@@ -40,11 +40,11 @@ pub use math::plane::Plane;
 pub use sketch::constraint::{Constraint, ConstraintId};
 pub use sketch::entity::Entity;
 pub use sketch::snapshot::Snapshot;
+pub use sketch::solver::Solver;
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
 #[cfg(feature = "bench")]
 pub use sketch::solver::bench::alloc_bench;
 pub use sketch::solver::freedoms::{Freedom, Freedoms};
-pub use sketch::solver::outcome::{Outcome, Settled};
-pub use sketch::solver::{SolveReport, Solver};
+pub use sketch::solver::outcome::{Outcome, Settled, SolveReport};
 pub use sketch::{Circle, CircleId, Point, PointId, Segment, SegmentId, Sketch};

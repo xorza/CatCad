@@ -1,7 +1,32 @@
-//! What a settle leaves behind, and which ending it had.
+//! What a settle leaves behind: how the run went, which ending it had, and the
+//! [`Outcome`] that carries the two of them beside what the sketch can still do.
 
-use crate::sketch::solver::SolveReport;
 use crate::sketch::solver::freedoms::Freedoms;
+
+/// What a solve achieved.
+///
+/// How *determined* the answer was is not here: that is a property of the sketch
+/// rather than of the run, and it rides beside this in the [`Outcome`] every
+/// entry point fills — see
+/// [`Freedoms::degrees_of_freedom`](crate::Freedoms::degrees_of_freedom).
+/// Neither is *which ending* the run had, which is [`Settled`]'s:
+/// a refused edit leaves the sketch exactly as it was found, so it reports
+/// converged in nought iterations and reads from here like an edit that was
+/// taken and had nothing to do. Splitting the three is what stops them
+/// describing different moments, which is what a report carrying a count
+/// measured against a *held* system used to do.
+///
+/// Defaults to what an unsolved sketch would report — nothing converged, in
+/// nought iterations — which is what a caller holding a report before it has one
+/// to hold should read.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct SolveReport {
+    /// Every residual landed within the solver's tolerance.
+    pub converged: bool,
+    pub iterations: u32,
+    /// Largest absolute residual left over.
+    pub max_residual: f64,
+}
 
 /// Which ending a settle had.
 ///

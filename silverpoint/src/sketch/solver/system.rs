@@ -78,12 +78,18 @@ impl System {
     /// for itself would be a second copy of that, free to fall out of step with
     /// this one and silently blame the wrong constraint.
     ///
-    /// `equations` is refilled by every assembly, including the trial ones a
-    /// solve takes per iteration, where nothing reads it. It is the same answer
-    /// every time — what geometry is doing cannot change which constraint an
-    /// equation came from — so that is a few tens of writes against an
-    /// elimination that is cubic in the same numbers, and it buys one code path
-    /// instead of two.
+    /// `equations` is refilled by every assembly, and every fill a run makes is
+    /// dead: the measurement that reads the mapping is taken off an assembly at
+    /// rest, which is built after the run has finished and overwrites whatever
+    /// the run left. So a settle of `k` steps fills it `2k + 1` times over and
+    /// reads the last.
+    ///
+    /// Kept because the cost is a fraction of the assembly it rides in rather
+    /// than of anything else — one handle per equation against a Jacobian row
+    /// per equation, so it shrinks as a share of the work as the sketch grows —
+    /// and because filling it only where it is read means a second walk that
+    /// works out how many rows a constraint is worth. That is the one thing this
+    /// function knows and nothing else should have to.
     pub(super) fn assemble(&mut self, sketch: &Sketch) {
         let n = sketch.params().count();
         debug_assert_eq!(

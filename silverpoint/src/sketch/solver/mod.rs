@@ -8,7 +8,7 @@
 
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::elimination::Elimination;
-use crate::sketch::solver::outcome::{Outcome, Settled};
+use crate::sketch::solver::outcome::{Outcome, Settled, SolveReport};
 use crate::sketch::solver::stepper::Stepper;
 use crate::sketch::solver::system::System;
 use crate::sketch::{PointId, Sketch};
@@ -26,31 +26,6 @@ use crate::sketch::{PointId, Sketch};
 /// mean: a pointer moving one pixel across a drawing on screen covers
 /// hundredths of a unit, never millionths.
 const UNMOVED: f64 = 1e-6;
-
-/// What a solve achieved.
-///
-/// How *determined* the answer was is not here: that is a property of the sketch
-/// rather than of the run, and it rides beside this in the
-/// [`Outcome`](crate::Outcome) every entry point fills — see
-/// [`Freedoms::degrees_of_freedom`](crate::Freedoms::degrees_of_freedom).
-/// Neither is *which ending* the run had, which is [`Settled`](crate::Settled)'s:
-/// a refused edit leaves the sketch exactly as it was found, so it reports
-/// converged in nought iterations and reads from here like an edit that was
-/// taken and had nothing to do. Splitting the three is what stops them
-/// describing different moments, which is what a report carrying a count
-/// measured against a *held* system used to do.
-///
-/// Defaults to what an unsolved sketch would report — nothing converged, in
-/// nought iterations — which is what a caller holding a report before it has one
-/// to hold should read.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub struct SolveReport {
-    /// Every residual landed within the solver's tolerance.
-    pub converged: bool,
-    pub iterations: u32,
-    /// Largest absolute residual left over.
-    pub max_residual: f64,
-}
 
 /// Solves a [`Sketch`] in place.
 ///
