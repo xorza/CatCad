@@ -72,6 +72,7 @@
 //! with [`Renderer::highlight`], which takes a [`Lit`].
 
 pub(crate) mod aim;
+pub(crate) mod batch;
 pub(crate) mod bounds;
 pub(crate) mod camera;
 pub(crate) mod curve;
@@ -96,6 +97,7 @@ pub(crate) mod viewport;
 pub use renderer::bench::alloc_bench;
 
 pub use aim::Aim;
+pub use batch::Batch;
 pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;

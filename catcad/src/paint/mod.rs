@@ -7,7 +7,7 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Curve, Point, Ring, Styled};
+use aperture::{Batch, Curve, Point, Ring, Styled};
 use glam::Vec3;
 use silverpoint::Freedom;
 
@@ -78,32 +78,30 @@ const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 /// The sketch's straight strokes, one edge per segment, biased clear of
 /// the solids in depth so the drawing reads over them. Circles are not
 /// strokes — see [`write_rings`].
-pub(crate) fn write_curves(drawing: &Drawing, names: &mut Names, curves: &mut Vec<Curve>) {
+pub(crate) fn write_curves(drawing: &Drawing, names: &mut Names, curves: &mut Batch<Curve>) {
     let sketch = drawing.sketch();
     let freedoms = drawing.freedoms();
     let plane = drawing.plane();
-    curves.clear();
-    for (id, segment) in sketch.segments() {
+    // The drawing rides on one plane and above the solids as one thing, and
+    // nothing in it outranks the rest — so the bias and the plane are the same
+    // for every stroke.
+    let normal = plane.normal().as_vec3();
+    // Written over the strokes already there rather than into fresh ones, which
+    // for a `Curve` is the difference between a frame that reaches the heap and
+    // one that does not — see `Batch::refill`.
+    curves.refill(sketch.segments(), |curve, (id, segment)| {
         let a = plane.point(sketch.point(segment.a)).as_vec3();
         let b = plane.point(sketch.point(segment.b)).as_vec3();
         // An edge is only as settled as its looser end: one end free to
         // travel is an edge free to travel with it.
         let freedom = freedoms.point(segment.a).max(freedoms.point(segment.b));
-        curves.push(
-            Curve::segment(a, b)
-                .colored(colour(freedom))
-                .width(EDGE_WIDTH)
-                .tagged(names.tag(Named::Segment(id))),
-        );
-    }
-    // Applied here rather than at each constructor: the drawing rides on
-    // one plane and above the solids as one thing, and nothing in it
-    // outranks the rest.
-    let normal = plane.normal().as_vec3();
-    for curve in curves.iter_mut() {
+        curve.set_segment(a, b);
+        curve.color = colour(freedom);
+        curve.width = EDGE_WIDTH;
         curve.z_offset = STROKE_LIFT;
         curve.plane_normal = Some(normal);
-    }
+        curve.tag = Some(names.tag(Named::Segment(id)));
+    });
 }
 
 /// The sketch's points, one marker apiece — larger and pinned-coloured
@@ -112,13 +110,12 @@ pub(crate) fn write_curves(drawing: &Drawing, names: &mut Names, curves: &mut Ve
 /// The plane comes along for the same reason a stroke's does: a disc is
 /// flat in depth and the surface under it is not, so without it the glyph
 /// is sliced wherever the plane is seen at an angle.
-pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Vec<Point>) {
+pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>) {
     let sketch = drawing.sketch();
     let freedoms = drawing.freedoms();
     let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
-    points.clear();
-    points.extend(sketch.points().map(|(id, position)| {
+    points.refill(sketch.points(), |point, (id, position)| {
         // Pinned by hand outranks pinned by consequence: a fixed point is
         // determined too, but saying so in the same colour would lose the
         // one thing about it the user chose.
@@ -127,13 +124,15 @@ pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Ve
         } else {
             (colour(freedoms.point(id)), FREE_MARKER)
         };
-        Point::new(plane.point(position).as_vec3())
+        // Assigned whole where a stroke is edited in place: a marker owns
+        // nothing, so replacing one costs what overwriting it would.
+        *point = Point::new(plane.point(position).as_vec3())
             .colored(color)
             .size(size)
             .z_offset(MARKER_LIFT)
             .in_plane(normal)
-            .tagged(names.tag(Named::Point(id)))
-    }));
+            .tagged(names.tag(Named::Point(id)));
+    });
 }
 
 /// The sketch's circles, one ring apiece.
@@ -145,18 +144,19 @@ pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Ve
 ///
 /// No plane named, unlike the strokes — a ring's band is widened in its
 /// own plane, so the depth it carries is already the surface's.
-pub(crate) fn write_rings(drawing: &Drawing, names: &mut Names, rings: &mut Vec<Ring>) {
+pub(crate) fn write_rings(drawing: &Drawing, names: &mut Names, rings: &mut Batch<Ring>) {
     let sketch = drawing.sketch();
     let freedoms = drawing.freedoms();
     let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
-    rings.clear();
-    rings.extend(sketch.circles().map(|(id, circle)| {
+    rings.refill(sketch.circles(), |ring, (id, circle)| {
         // A circle can move with its centre or grow on its own, so it is
         // settled only when both are — the demo's is pinned to the middle
         // of a rigid frame and still has its rim to give.
         let freedom = freedoms.point(circle.center).max(freedoms.radius(id));
-        Ring::new(
+        // Assigned whole, like a marker and unlike a stroke: a rim owns
+        // nothing either.
+        *ring = Ring::new(
             plane.point(sketch.point(circle.center)).as_vec3(),
             circle.radius.abs() as f32,
             normal,
@@ -164,8 +164,8 @@ pub(crate) fn write_rings(drawing: &Drawing, names: &mut Names, rings: &mut Vec<
         .colored(colour(freedom))
         .width(EDGE_WIDTH)
         .z_offset(STROKE_LIFT)
-        .tagged(names.tag(Named::Circle(id)))
-    }));
+        .tagged(names.tag(Named::Circle(id)));
+    });
 }
 
 #[cfg(test)]

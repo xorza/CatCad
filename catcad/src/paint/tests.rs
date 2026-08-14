@@ -1,4 +1,5 @@
 use super::*;
+use aperture::Batch;
 use glam::DVec2;
 use silverpoint::{Plane, Sketch, Solver};
 
@@ -21,7 +22,7 @@ fn every_entity_becomes_a_curve() {
     sketch.add_circle(b, 2.0);
 
     // One edge. Circles are rings now, and markers were never strokes.
-    let mut curves = Vec::new();
+    let mut curves = Batch::default();
     let drawing = drawn(sketch);
     write_curves(&drawing, &mut Names::default(), &mut curves);
     assert_eq!(curves.len(), 1);
@@ -42,9 +43,42 @@ fn every_entity_becomes_a_curve() {
     assert_eq!(edge.points, [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)]);
     assert!(!edge.closed);
 
+    // Written again into the buffer it already filled, which is what every
+    // frame of a drag does. The curves are rewritten where they lie rather
+    // than dropped and rebuilt — a `Curve` owns its points on the heap — so
+    // what has to hold is that nothing of the last drawing survives into the
+    // next: not a stale stroke past the end of a shorter sketch, and not a
+    // stale endpoint inside one that stayed the same length.
+    let mut fewer = Sketch::default();
+    let c = fewer.add_point(DVec2::new(1.0, 0.0));
+    let d = fewer.add_point(DVec2::new(4.0, 0.0));
+    fewer.add_segment(c, d);
+    fewer.add_segment(d, c);
+    write_curves(&drawn(fewer), &mut Names::default(), &mut curves);
+    assert_eq!(curves.len(), 2, "the list did not grow to the new sketch");
+    // The ground plane's +y runs to world −Z, so a sketch x-axis stays x.
+    assert_eq!(
+        curves[0].points,
+        [Vec3::new(1.0, 0.0, 0.0), Vec3::new(4.0, 0.0, 0.0)]
+    );
+    assert_eq!(
+        curves[1].points,
+        [Vec3::new(4.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]
+    );
+
+    write_curves(&drawing, &mut Names::default(), &mut curves);
+    assert_eq!(curves.len(), 1, "the list did not shrink back");
+    assert_eq!(
+        curves[0].points,
+        [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)],
+        "a reused curve kept an endpoint from the drawing before it"
+    );
+    assert_eq!(curves[0].z_offset, STROKE_LIFT);
+    assert_eq!(curves[0].plane_normal, Some(Vec3::Y));
+
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
-    let mut rings = Vec::new();
+    let mut rings = Batch::default();
     write_rings(&drawing, &mut Names::default(), &mut rings);
     assert_eq!(rings.len(), 1);
     let ring = rings[0];
@@ -68,7 +102,7 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     let b = sketch.add_point(DVec2::new(10.0, 0.0));
     sketch.fix(a);
 
-    let mut points = Vec::new();
+    let mut points = Batch::default();
     let drawing = drawn(sketch);
     write_points(&drawing, &mut Names::default(), &mut points);
     assert_eq!(points.len(), 2);
@@ -105,7 +139,7 @@ fn marker_size_ignores_how_big_the_drawing_is() {
     large.add_point(DVec2::new(0.0, 100.0));
 
     let sizes = |sketch: Sketch| -> Vec<f32> {
-        let mut points = Vec::new();
+        let mut points = Batch::default();
         write_points(&drawn(sketch), &mut Names::default(), &mut points);
         points.iter().map(|point| point.size).collect()
     };
@@ -141,9 +175,9 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     sketch.add_circle(anchor, 2.0);
 
     let drawing = drawn(sketch);
-    let mut points = Vec::new();
-    let mut curves = Vec::new();
-    let mut rings = Vec::new();
+    let mut points = Batch::default();
+    let mut curves = Batch::default();
+    let mut rings = Batch::default();
     write_points(&drawing, &mut Names::default(), &mut points);
     write_curves(&drawing, &mut Names::default(), &mut curves);
     write_rings(&drawing, &mut Names::default(), &mut rings);

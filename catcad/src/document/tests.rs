@@ -25,7 +25,7 @@ fn a_document_syncs_a_scene_to_its_solids_and_its_drawing() {
 
     // Every drawn part is named, and named as something the drawing holds: the
     // tags the scene carries are indices into what came back.
-    for point in &scene.points {
+    for point in scene.points.iter() {
         let tag = point.tag.expect("a marker is drawn to be picked");
         assert!(names.get(tag).is_some(), "{tag:?} names nothing");
     }

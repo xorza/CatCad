@@ -1,6 +1,7 @@
 //! What to draw, and where to look at it from.
 
 use crate::aim::Aim;
+use crate::batch::Batch;
 use crate::bounds::Bounds;
 use crate::curve::Curve;
 use crate::hit::Hit;
@@ -19,10 +20,10 @@ use crate::ring::Ring;
 /// picking and a caller drawing cannot silently use two.
 #[derive(Debug, Clone, Default)]
 pub struct Scene {
-    pub objects: Vec<Object>,
-    pub curves: Vec<Curve>,
-    pub rings: Vec<Ring>,
-    pub points: Vec<Point>,
+    pub objects: Batch<Object>,
+    pub curves: Batch<Curve>,
+    pub rings: Batch<Ring>,
+    pub points: Batch<Point>,
 }
 
 impl Scene {
@@ -48,7 +49,7 @@ impl Scene {
     /// the distance that would satisfy it is the one being solved for.
     pub fn bounds(&self) -> Option<Bounds> {
         let mut bounds: Option<Bounds> = None;
-        for object in &self.objects {
+        for object in self.objects.iter() {
             for vertex in &object.mesh.vertices {
                 let at = object.transform.transform_point3(vertex.position);
                 match bounds.as_mut() {
@@ -126,9 +127,9 @@ impl Scene {
 /// [`Scene::overlays_mut`].
 #[derive(Debug)]
 pub struct Overlays<'a> {
-    pub curves: &'a mut Vec<Curve>,
-    pub rings: &'a mut Vec<Ring>,
-    pub points: &'a mut Vec<Point>,
+    pub curves: &'a mut Batch<Curve>,
+    pub rings: &'a mut Batch<Ring>,
+    pub points: &'a mut Batch<Point>,
 }
 
 #[cfg(test)]

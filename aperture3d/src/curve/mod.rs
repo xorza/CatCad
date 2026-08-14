@@ -26,7 +26,12 @@ const DEFAULT_WIDTH: f32 = 1.5;
 ///
 /// Curves are unlit: they carry no normal, and their colour reaches the
 /// target unshaded.
-#[derive(Debug, Clone)]
+///
+/// `Default` draws nothing — it has no points. It is what [`refill`] stands a
+/// new slot up as before writing it, and nothing else should want one.
+///
+/// [`refill`]: crate::refill
+#[derive(Default, Debug, Clone)]
 pub struct Curve {
     /// Each neighbouring pair is one stroked segment. Fewer than two points
     /// draws nothing.
@@ -66,6 +71,24 @@ impl Curve {
     /// A single straight stroke.
     pub fn segment(a: Vec3, b: Vec3) -> Self {
         Self::new(vec![a, b])
+    }
+
+    /// Make an existing curve the stroke [`Curve::segment`] would have built,
+    /// keeping the room its points already have.
+    ///
+    /// The reason a caller redrawing every frame holds on to the curves it
+    /// drew last time. A `Curve` owns its points on the heap, so a list of
+    /// them emptied and refilled frees a vector per stroke and asks straight
+    /// back for one the same size — every frame a drag lasts.
+    ///
+    /// Geometry only. Colour, width, bias, plane and tag are left where they
+    /// were, because a caller rewriting one of these is redrawing the same
+    /// edge somewhere new rather than replacing it with a different one.
+    pub fn set_segment(&mut self, a: Vec3, b: Vec3) {
+        self.points.clear();
+        self.points.push(a);
+        self.points.push(b);
+        self.closed = false;
     }
 
     /// Whether the cursor landed on this stroke, and on which segment.

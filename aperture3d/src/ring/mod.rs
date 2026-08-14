@@ -25,7 +25,13 @@ const DEFAULT_WIDTH: f32 = 1.5;
 /// fragment stage measures each pixel's distance to the real circle. Round at
 /// every magnification, one record however large, and nothing to rebuild when
 /// the camera moves.
-#[derive(Debug, Clone, Copy)]
+///
+/// `Default` draws nothing — its radius is zero. It is what [`refill`] stands a
+/// new slot up as before writing it, and nothing else should want one; its axes
+/// are zero too, where a ring meant to be drawn carries a unit pair.
+///
+/// [`refill`]: crate::refill
+#[derive(Default, Debug, Clone, Copy)]
 pub struct Ring {
     pub center: Vec3,
     pub radius: f32,

@@ -24,6 +24,11 @@ common = { workspace = true, optional = true }
 # `tests/alloc.rs` makes. Off by default: nothing published depends on it.
 bench = ["dep:common", "common/bench"]
 
+# The reach-ins a harness assembling a scene by hand needs and an application
+# redrawing one does not: emptying a [`Batch`] and shortening it. Off by
+# default, so what the crate publishes is the refill an app actually wants.
+internals = []
+
 # Its own target because `dhat::Alloc` has to be *the* global allocator, which
 # is process-wide — anything sharing the binary pays a 10-30x allocator tax. A
 # test rather than a bench because that isolation is per *binary*, and an

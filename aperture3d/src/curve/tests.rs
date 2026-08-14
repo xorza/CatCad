@@ -47,3 +47,40 @@ fn segments_pair_up_neighbours_and_close_on_request() {
     assert_eq!(Curve::new(Vec::new()).closed().segment_count(), 0);
     assert_eq!(Curve::new(Vec::new()).segments().count(), 0);
 }
+
+/// Rewriting a curve as a segment leaves exactly what building one would have,
+/// keeps the room it already had, and leaves how it is drawn alone.
+///
+/// The three are one claim: a caller redrawing every frame holds its curves and
+/// refills them, so anything the old geometry left behind would be drawn as
+/// part of the new. The closed flag is the trap — a three-point loop rewritten
+/// as a segment would otherwise keep stroking its way back.
+#[test]
+fn rewriting_a_curve_as_a_segment_leaves_no_trace_of_the_last_one() {
+    let mut curve = Curve::new(vec![Vec3::ZERO, Vec3::X, Vec3::Y])
+        .closed()
+        .tagged(Tag::new(4))
+        .colored(Vec3::Y)
+        .width(3.0);
+    let room = curve.points.capacity();
+
+    curve.set_segment(Vec3::Z, Vec3::X);
+
+    assert_eq!(curve.points, [Vec3::Z, Vec3::X]);
+    assert!(!curve.closed, "a segment closed on itself strokes twice");
+    assert_eq!(curve.segment_count(), 1);
+    // Three points' worth of room, holding two: nothing was handed back and
+    // asked for again, which is the whole point of rewriting one.
+    assert_eq!(curve.points.capacity(), room);
+
+    // Untouched, because a rewritten curve is the same edge somewhere new.
+    assert_eq!(curve.tag, Some(Tag::new(4)));
+    assert_eq!(curve.color, Vec3::Y);
+    assert_eq!(curve.width, 3.0);
+
+    // And what it leaves is what the constructor would have built, geometry
+    // for geometry — so the two cannot drift apart.
+    let built = Curve::segment(Vec3::Z, Vec3::X);
+    assert_eq!(curve.points, built.points);
+    assert_eq!(curve.closed, built.closed);
+}

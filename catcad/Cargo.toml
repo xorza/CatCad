@@ -16,6 +16,9 @@ common = { workspace = true, optional = true }
 [dev-dependencies]
 image = { version = "0.25", default-features = false, features = ["png"] }
 palantir = { workspace = true, features = ["internals", "golden"] }
+# For emptying a `Batch` by hand, which the visual harness does to stage a
+# scene and the application never does — it refills.
+aperture3d = { workspace = true, features = ["internals"] }
 # The crate on itself, to turn `internals` on for its own test targets and
 # nowhere else. An integration test links the library built normally — `cfg(test)`
 # is set only for the crate's own unit tests — so the reach-ins it needs have to

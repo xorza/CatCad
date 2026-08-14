@@ -453,8 +453,8 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
         !strokes(&first, 430).is_empty(),
         "no strokes to begin with, so the rest proves nothing"
     );
-    let original: Vec<Curve> = app.renderer().borrow().scene().curves.clone();
-    let rings: Vec<Ring> = app.renderer().borrow().scene().rings.clone();
+    let original: Vec<Curve> = app.renderer().borrow().scene().curves.to_vec();
+    let rings: Vec<Ring> = app.renderer().borrow().scene().rings.to_vec();
 
     // Emptied — rings too, since the sketch's circle is one and would still be
     // ink in the column. The buffers stay behind, so anything still drawn here

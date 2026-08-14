@@ -6,6 +6,7 @@
 //! shader builds its four corners, since the corners differed only in ways the
 //! index already says.
 
+use crate::batch::Batch;
 use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::highlight::Lit;
@@ -84,25 +85,25 @@ impl Renderer {
     }
 
     /// Edit the scene's objects, re-uploading the batch on the next paint.
-    pub fn objects_mut(&mut self) -> &mut Vec<Object> {
+    pub fn objects_mut(&mut self) -> &mut Batch<Object> {
         self.dirty.meshes = true;
         &mut self.scene.objects
     }
 
     /// Edit the scene's curves, re-uploading the batch on the next paint.
-    pub fn curves_mut(&mut self) -> &mut Vec<Curve> {
+    pub fn curves_mut(&mut self) -> &mut Batch<Curve> {
         self.batches.curves.dirty = true;
         &mut self.scene.curves
     }
 
     /// Edit the scene's rings, re-uploading the batch on the next paint.
-    pub fn rings_mut(&mut self) -> &mut Vec<Ring> {
+    pub fn rings_mut(&mut self) -> &mut Batch<Ring> {
         self.batches.rings.dirty = true;
         &mut self.scene.rings
     }
 
     /// Edit the scene's markers, re-uploading the batch on the next paint.
-    pub fn points_mut(&mut self) -> &mut Vec<Point> {
+    pub fn points_mut(&mut self) -> &mut Batch<Point> {
         self.batches.points.dirty = true;
         &mut self.scene.points
     }

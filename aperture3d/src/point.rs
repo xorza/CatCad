@@ -22,7 +22,12 @@ const DEFAULT_SIZE: f32 = 8.0;
 /// Round because a disc is the one glyph with no orientation to get wrong: it
 /// reads the same however the camera is turned, and its silhouette is its own
 /// pick radius.
-#[derive(Debug, Clone)]
+///
+/// `Default` draws nothing — its diameter is zero. It is what [`refill`] stands
+/// a new slot up as before writing it, and nothing else should want one.
+///
+/// [`refill`]: crate::refill
+#[derive(Default, Debug, Clone)]
 pub struct Point {
     pub position: Vec3,
     /// Linear-RGB.

@@ -121,9 +121,12 @@ impl Document {
     /// The meshes are copied across, which makes this an opening-a-document
     /// call rather than a per-frame one — handing a renderer its objects again
     /// has it upload them again. What a frame refreshes is the drawing alone.
+    /// The copy itself is written over the objects the scene already holds, so
+    /// it is the upload that makes this expensive and not the vertices.
     pub(crate) fn sync(&self, scene: &mut Scene, names: &mut Names) {
-        scene.objects.clear();
-        scene.objects.extend_from_slice(&self.solids);
+        scene
+            .objects
+            .refill(&self.solids, |object, solid| object.clone_from(solid));
         self.drawing.write_into(names, scene.overlays_mut());
     }
 }
