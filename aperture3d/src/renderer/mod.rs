@@ -139,11 +139,29 @@ impl Renderer {
     /// answer is of no interest. Like [`Renderer::highlight`], a call that
     /// changes nothing dirties nothing.
     pub fn highlight_only(&mut self, lit: Lit) {
-        if self.highlights == [lit] {
+        self.highlight_all(&[lit]);
+    }
+
+    /// Light exactly these, dropping whatever was lit before.
+    ///
+    /// [`Renderer::highlight_only`] for an answer that is a *set* — a selection
+    /// alongside the one thing under the pointer — where the caller knows the
+    /// whole of it every frame and would otherwise be adding and removing
+    /// entries to arrive back at what it already has.
+    ///
+    /// Where two entries name one tag the first wins, so a caller that wants
+    /// one look to beat another puts it first.
+    ///
+    /// Compared before it is written, so re-asking for the set already in force
+    /// dirties nothing — which is what lets this be called unconditionally
+    /// every frame, and is the whole reason it takes the set rather than being
+    /// a clear followed by a run of [`Renderer::highlight`].
+    pub fn highlight_all(&mut self, lit: &[Lit]) {
+        if self.highlights == lit {
             return;
         }
         self.highlights.clear();
-        self.highlights.push(lit);
+        self.highlights.extend_from_slice(lit);
         self.dirty.highlights = true;
     }
 

@@ -61,9 +61,10 @@ impl History {
                 Intent::Undo => self.undo(document, solver),
                 Intent::Redo => self.redo(document, solver),
                 Intent::Release => self.close(),
-                // Picked up before this ran, by the app that owns it. What is
-                // in hand is not a step to take back — see `CatCad::apply`.
-                Intent::Hold(_) => {}
+                // Taken before this ran, by the app that owns them. What is in
+                // hand and what is picked out are not steps to take back — see
+                // `CatCad::apply`.
+                Intent::Hold(_) | Intent::Select(_) | Intent::Include(_) => {}
                 edit => self.step(document, solver, edit),
             }
         }

@@ -232,6 +232,30 @@ impl Sketch {
         self.points.get(id).expect(REMOVED_POINT).fixed
     }
 
+    /// Whether the sketch still holds what these name.
+    ///
+    /// For a caller keeping handles across an edit, which is the one way a
+    /// handle can stop naming anything: nothing removes geometry, but
+    /// [`Sketch::restore`] puts back a sketch that never had it. And a handle
+    /// left over from that is worse than merely refused — a restore rewinds the
+    /// arenas whole, generations included, so the *next* entity added takes the
+    /// very same handle. Asking is how a caller avoids mistaking one for the
+    /// other; every other accessor here expects to be handed a live one and
+    /// panics rather than guessing.
+    pub fn contains_point(&self, id: PointId) -> bool {
+        self.points.contains(id)
+    }
+
+    /// See [`Sketch::contains_point`].
+    pub fn contains_segment(&self, id: SegmentId) -> bool {
+        self.segments.contains(id)
+    }
+
+    /// See [`Sketch::contains_point`].
+    pub fn contains_circle(&self, id: CircleId) -> bool {
+        self.circles.contains(id)
+    }
+
     pub fn constraints(&self) -> &[Constraint] {
         &self.constraints
     }

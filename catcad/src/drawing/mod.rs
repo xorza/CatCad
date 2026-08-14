@@ -154,6 +154,21 @@ impl Drawing {
         self.plane
     }
 
+    /// Whether the drawing still holds what `named` names.
+    ///
+    /// What anything keeping handles across an edit has to ask. A handle
+    /// outlives what it names whenever a step that *created* geometry is taken
+    /// back, and it does not merely stop resolving: [`Drawing::restore`] puts
+    /// the sketch back arenas and all, so the next entity created takes the
+    /// very same handle and would be mistaken for the one that went.
+    pub(crate) fn holds(&self, named: Named) -> bool {
+        match named {
+            Named::Point(id) => self.sketch.contains_point(id),
+            Named::Segment(id) => self.sketch.contains_segment(id),
+            Named::Circle(id) => self.sketch.contains_circle(id),
+        }
+    }
+
     /// Put the drawing back the way `snapshot` found it.
     ///
     /// Restored rather than re-solved. Solving from the restored geometry would

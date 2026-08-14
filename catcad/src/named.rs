@@ -56,6 +56,21 @@ impl Names {
         self.entities.get(usize::try_from(tag.get()).ok()?).copied()
     }
 
+    /// Every entity named, each with the tag that reports it.
+    ///
+    /// The way back from an entity to its tag, which a caller lighting a
+    /// *selection* needs: what it holds are the sketch's own handles, which
+    /// survive a relayout, and what the renderer lights are tags, which do not.
+    /// A walk rather than a lookup, because there is nothing to look up in — a
+    /// tag *is* a position here — and because a caller asking this is asking it
+    /// of every entity anyway.
+    pub fn iter(&self) -> impl Iterator<Item = (Tag, Named)> {
+        self.entities
+            .iter()
+            .enumerate()
+            .map(|(index, named)| (Tag::new(index as u64), *named))
+    }
+
     /// Forget every name, keeping the room they took.
     ///
     /// A drawing is renamed wholesale whenever it is rewritten, which during a

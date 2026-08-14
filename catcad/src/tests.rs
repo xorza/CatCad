@@ -14,6 +14,12 @@ use crate::{CatCad, Status};
 /// The surface every test that records frames raises the app at.
 const SIZE: UVec2 = UVec2::new(800, 600);
 
+/// The middle of the toolbar's one button. The bar hugs its contents and is
+/// centred on the top edge, so the button straddles the middle of the window a
+/// dozen pixels down, and is about thirty tall — this has room either side, and
+/// the assertion under each press is what says the aim landed.
+const POINT_BUTTON: Vec2 = Vec2::new(400.0, 26.0);
+
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
 /// agree about what is determined and what is not.
@@ -295,17 +301,15 @@ fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
 /// counted again over what is left, and the picture on screen is relaid out.
 #[test]
 fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
-    // The middle of the toolbar's one button. The bar hugs its contents and is
-    // centred on the top edge, so the button straddles the middle of the window
-    // a dozen pixels down, and is about thirty tall — this has room either
-    // side, and the assertion under each press is what says the aim landed.
-    const POINT_BUTTON: Vec2 = Vec2::new(400.0, 26.0);
-
     let mut app = CatCad::build();
     let mut harness = UiHarness::new(SIZE);
     frame(&mut app, &mut harness);
     let at_rest = markers(&app);
-    assert_eq!(app.tool, Tool::Select, "the app opened with a tool in hand");
+    assert_eq!(
+        app.tool,
+        Tool::Pointer,
+        "the app opened with a tool in hand"
+    );
 
     harness.click_at(POINT_BUTTON);
     frame(&mut app, &mut harness);
@@ -315,12 +319,13 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
         "the toolbar did not arm the point tool"
     );
 
-    // Aimed at the far end of the arm, which lies on the sketch plane as every
-    // point of the drawing does — so the ray through the pixel showing it meets
-    // the plane exactly there, and where the new point belongs is known rather
-    // than read back off the thing that placed it.
-    let wrist = *at_rest.last().expect("the demo draws markers");
-    let cursor = cursor_on(&mut app, wrist);
+    // Empty plane, because a click on something already drawn puts the tool
+    // down instead of drawing over it. The spot lies on the sketch plane, so
+    // the ray through the pixel showing it meets the plane exactly there, and
+    // where the new point belongs is known rather than read back off the thing
+    // that placed it.
+    let empty = empty_spot(&app);
+    let cursor = cursor_on(&mut app, empty);
 
     harness.click_at(cursor);
     frame(&mut app, &mut harness);
@@ -330,8 +335,8 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
         placed
             .last()
             .expect("a point was just added")
-            .abs_diff_eq(wrist, 1e-3),
-        "placed at {:?} rather than under the cursor at {wrist:?}",
+            .abs_diff_eq(empty, 1e-3),
+        "placed at {:?} rather than under the cursor at {empty:?}",
         placed.last()
     );
     // A free point is two more things the drawing can decide, and the status
@@ -381,7 +386,7 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     harness.set_modifiers(Modifiers::NONE);
     harness.key(Key::Escape);
     frame(&mut app, &mut harness);
-    assert_eq!(app.tool, Tool::Select, "Escape did not put the tool down");
+    assert_eq!(app.tool, Tool::Pointer, "Escape did not put the tool down");
 
     // The right button over the drawing, which is the gesture a modeller
     // reaches for first.
@@ -391,7 +396,7 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     let held = markers(&app);
     harness.right_click_at(cursor);
     frame(&mut app, &mut harness);
-    assert_eq!(app.tool, Tool::Select, "the right button left it in hand");
+    assert_eq!(app.tool, Tool::Pointer, "the right button left it in hand");
     // And it is really down, not merely drawn as down: the click that follows
     // places nothing.
     harness.click_at(cursor);
@@ -410,8 +415,94 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     frame(&mut app, &mut harness);
     assert_eq!(
         app.tool,
-        Tool::Select,
+        Tool::Pointer,
         "pressing the armed tool re-armed it rather than putting it down"
+    );
+}
+
+/// Taking back the step that created something drops it from the selection, so
+/// the next thing created is not mistaken for it.
+///
+/// A handle is not made safe by the generation it carries here. That is what
+/// refuses a handle to something *removed*, and nothing removes geometry — an
+/// undo restores the sketch whole, arenas and generations alike, precisely so
+/// that a handle held across a step still names what it named. The cost is that
+/// the very next point added takes the handle the undone one had: measured, the
+/// two are both `Id(9#0)`. So a selection that kept the first would light the
+/// second, green and unasked for.
+#[test]
+fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+    let at_rest = markers(&app);
+
+    // Place a point on empty plane, put the tool down, and pick the point out.
+    let spot = empty_spot(&app);
+    let first = cursor_on(&mut app, spot);
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    harness.click_at(first);
+    frame(&mut app, &mut harness);
+    harness.key(Key::Escape);
+    frame(&mut app, &mut harness);
+    harness.click_at(first);
+    frame(&mut app, &mut harness);
+    assert_eq!(markers(&app).len(), at_rest.len() + 1);
+    assert_eq!(app.selection.count(), 1, "the new point was not picked out");
+
+    // Take the creation back. The point goes, and so does the handle to it.
+    harness.set_modifiers(Modifiers {
+        ctrl: true,
+        ..Modifiers::NONE
+    });
+    harness.key(Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    harness.set_modifiers(Modifiers::NONE);
+    assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the point back");
+    assert_eq!(
+        app.selection.count(),
+        0,
+        "a handle to what the undo removed is still picked out"
+    );
+
+    // Now a different point, somewhere else — minted with the handle the undone
+    // one had. Nobody picked it, so nothing is picked out.
+    let elsewhere = app
+        .document
+        .drawing()
+        .plane()
+        .point(DVec2::new(-1.5, 4.5))
+        .as_vec3();
+    let second = cursor_on(&mut app, elsewhere);
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    harness.click_at(second);
+    frame(&mut app, &mut harness);
+
+    let now = markers(&app);
+    assert_eq!(
+        now.len(),
+        at_rest.len() + 1,
+        "the second click placed nothing"
+    );
+    assert!(
+        now.last()
+            .expect("a point was just added")
+            .abs_diff_eq(elsewhere, 1e-3),
+        "the second point did not land where it was asked for"
+    );
+    let newest = app
+        .document
+        .drawing()
+        .sketch()
+        .points()
+        .last()
+        .expect("the sketch holds points")
+        .0;
+    assert!(
+        !app.selection.contains(Named::Point(newest)),
+        "a point nobody picked came up selected, on a handle left over from an undo"
     );
 }
 
@@ -421,6 +512,21 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
 /// still read the app between frames.
 fn frame(app: &mut CatCad, harness: &mut UiHarness) {
     harness.frame(|ui| app.record(WindowToken(0), ui));
+}
+
+/// A spot on the sketch plane with nothing drawn near it — where a tool has
+/// room to put something down.
+///
+/// A sketch coordinate rather than a screen one, so what a click there should
+/// produce is known by hand. The demo's rectangle starts at sketch x = 0 and
+/// its slab reaches to x = −2, so a unit and a half to the left of the frame is
+/// on the slab, on screen, and well clear of the nearest stroke.
+fn empty_spot(app: &CatCad) -> Vec3 {
+    app.document
+        .drawing()
+        .plane()
+        .point(DVec2::new(-1.5, 2.5))
+        .as_vec3()
 }
 
 /// The cursor that aims at `world` — where it lands on screen, through the very

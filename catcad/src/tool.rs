@@ -15,10 +15,15 @@
 /// where it was pressed was not.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub(crate) enum Tool {
-    /// Point at the drawing: hovering lights what is under the cursor, and a
-    /// press takes hold of whatever will move.
+    /// Nothing in hand: hovering lights what is under the cursor, a click picks
+    /// it out, and a press takes hold of whatever will move.
+    ///
+    /// Named for the pointer rather than for selecting, though selecting is
+    /// most of what it does, because [`Intent::Select`](crate::intent::Intent)
+    /// is the *selection* and the two would otherwise read as one thing two
+    /// lines apart in the click that raises both.
     #[default]
-    Select,
+    Pointer,
     /// Put a free point where the next click lands.
     ///
     /// Stays in hand once it has placed one, so a row of points is a row of
@@ -35,6 +40,6 @@ impl Tool {
     /// what makes the button the whole of the control — there is no second
     /// place to go to stop.
     pub(crate) fn toggled(self, tool: Tool) -> Tool {
-        if self == tool { Tool::Select } else { tool }
+        if self == tool { Tool::Pointer } else { tool }
     }
 }

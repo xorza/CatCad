@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Aim, Bounds, Highlight, Lit, Motion, Renderer, Scene, Viewport};
+use aperture::{Aim, Bounds, Camera, Highlight, Lit, Motion, Renderer, Scene, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
@@ -13,6 +13,7 @@ use crate::document::Document;
 use crate::drawing::{Grip, Revision};
 use crate::intent::{Intent, Intents};
 use crate::named::{Named, Names};
+use crate::selection::Selection;
 use crate::tool::Tool;
 
 /// Radians of orbit per logical pixel of drag.
@@ -35,6 +36,19 @@ const MARKER_LIFT_STEP: i32 = 2048;
 const HOVERED: Highlight = Highlight {
     color: Vec3::new(1.0, 0.85, 0.25),
     scale: 1.8,
+    lift: MARKER_LIFT_STEP,
+};
+
+/// What something picked out looks like.
+///
+/// Green, which is the one hue the drawing does not already use: its own
+/// colours run blue through yellow to orange for how much freedom is left, and
+/// red for pinned, and a selection that reused any of them would be saying two
+/// things in one colour. Lifted like the hover and drawn a little smaller, so
+/// that the thing under the cursor still reads over the rest of what is picked.
+const SELECTED: Highlight = Highlight {
+    color: Vec3::new(0.30, 0.95, 0.45),
+    scale: 1.5,
     lift: MARKER_LIFT_STEP,
 };
 
@@ -65,6 +79,15 @@ impl Aimed {
             cursor,
             viewport: Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32)),
         })
+    }
+
+    /// The pick this cursor makes, seen through `camera`.
+    ///
+    /// Everything that asks the scene a question about the cursor goes through
+    /// here — the hover, the press and the click alike — so all three reach the
+    /// same distance and none can be given a camera the others were not.
+    fn aim(self, camera: &Camera) -> Aim {
+        Aim::new(camera, self.cursor, self.viewport, HOVER_REACH)
     }
 }
 
@@ -126,6 +149,10 @@ pub(crate) struct SceneView {
     gesture: Gesture,
     /// The sketch entity under the pointer, if any.
     hovered: Option<Named>,
+    /// What the renderer was last told to light: the hover and the selection,
+    /// rebuilt every settle. Kept for its room rather than its contents, so a
+    /// frame that lights the same set as the last asks the heap for nothing.
+    lit: Vec<Lit>,
     /// Where the pointer was aiming when the view was last shown, or `None` if
     /// it was not over the view at all.
     ///
@@ -152,6 +179,7 @@ impl SceneView {
             laid_out: document.drawing().revision(),
             gesture: Gesture::None,
             hovered: None,
+            lit: Vec::new(),
             aimed: None,
         }
     }
@@ -201,6 +229,12 @@ impl SceneView {
         // way in and then sits stale until an unrelated event forces a frame.
         ui.watch_pointer(PointerWake::MOVE);
 
+        // Read before the view is shown, because the `Response` that comes back
+        // borrows `ui` for as long as it lives. `peek_modifiers` rather than
+        // `modifiers`: what shift is doing here only matters on the frame a
+        // click lands, and that frame was woken by the click.
+        let adding = ui.peek_modifiers().shift;
+
         let paint: Rc<RefCell<dyn GpuPaint>> = self.renderer.clone();
         let response = GpuView::new(paint)
             .auto_id()
@@ -244,15 +278,44 @@ impl SceneView {
             _ => {}
         }
 
-        // A click rather than a press: the tool places where the pointer let go
-        // without having travelled, so the view can still be turned with the
-        // same button while something is armed. Palantir decides which of the
-        // two a gesture was, and a drag suppresses the click it began as.
-        if tool == Tool::Point
-            && response.left.clicked()
-            && let Some(at) = landing(&response, document, document.drawing().motion())
-        {
-            intents.push(Intent::AddPoint { at });
+        // A click rather than a press: what it means is settled where the
+        // pointer let go without having travelled, so the view can still be
+        // turned with the same button whatever is in hand. Palantir decides
+        // which of the two a gesture was, and a drag suppresses the click it
+        // began as — so dragging a point leaves the selection alone.
+        if response.left.clicked() {
+            // Picked afresh rather than read off `hovered`, which is what the
+            // *last* frame's settle found: a click can land on the first frame
+            // the pointer reached something, and answering with what was under
+            // it before that would select the wrong thing.
+            let under = self.named_under(&response, document);
+            let armed = tool != Tool::Pointer;
+
+            if armed && under.is_none() {
+                // Empty space with a tool in hand is the one click that draws.
+                // It leaves the selection alone: what was picked out is not
+                // what was just added.
+                if let Some(at) = landing(&response, document, document.drawing().motion()) {
+                    intents.push(Intent::AddPoint { at });
+                }
+            } else {
+                // Everything else selects. A tool in hand puts itself down on
+                // anything already drawn rather than drawing over it, and the
+                // click goes on to pick that thing out like any other.
+                if armed {
+                    intents.push(Intent::Hold(Tool::Pointer));
+                }
+                match under {
+                    // Shift adds to what is picked out.
+                    Some(named) if adding => intents.push(Intent::Include(named)),
+                    // A shift-click on empty space adds nothing, and clearing
+                    // is the plain click's business.
+                    None if adding => {}
+                    // A plain click starts over with whatever is under the
+                    // cursor — which is nothing, when it is over nothing.
+                    _ => intents.push(Intent::Select(under)),
+                }
+            }
         }
 
         // The right button puts down whatever is in hand — the gesture every
@@ -260,7 +323,7 @@ impl SceneView {
         // bar. A click rather than a press, like placing, so a right-drag is
         // left to whatever later wants one.
         if response.right.clicked() {
-            intents.push(Intent::Hold(Tool::Select));
+            intents.push(Intent::Hold(Tool::Pointer));
         }
 
         // Asking whether the pointer is actually over the view is what stops
@@ -293,7 +356,7 @@ impl SceneView {
     /// command holding the renderer and calls it at submit, after the record
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
-    pub(crate) fn settle(&mut self, document: &Document) {
+    pub(crate) fn settle(&mut self, document: &Document, selection: &Selection) {
         let mut renderer = self.renderer.borrow_mut();
         let drawing = document.drawing();
         if self.laid_out != drawing.revision() {
@@ -310,19 +373,32 @@ impl SceneView {
         // the copy is written below, so a pick that read it would answer
         // through wherever the camera was before this frame's orbit.
         let under = self.aimed.and_then(|aimed| {
-            let aim = Aim::new(
-                &document.camera(),
-                aimed.cursor,
-                aimed.viewport,
-                HOVER_REACH,
-            );
+            let aim = aimed.aim(&document.camera());
             renderer.scene().nearest(aim).map(|hit| hit.tag)
         });
         self.hovered = under.and_then(|tag| self.names.get(tag));
-        match under {
-            Some(tag) => renderer.highlight_only(Lit { tag, look: HOVERED }),
-            None => renderer.clear_highlights(),
+
+        // The hover first, because where two entries name one tag the renderer
+        // takes the first: the thing under the cursor reads as hovered even
+        // when it is also picked out, which is what says the pointer would act
+        // on *it*.
+        self.lit.clear();
+        self.lit.extend(under.map(|tag| Lit { tag, look: HOVERED }));
+        // Asked of the names rather than of the selection, because the walk has
+        // to go the other way: what is picked out are the sketch's own handles,
+        // and what is lit are the tags this layout gave them.
+        for (tag, named) in self.names.iter() {
+            if Some(tag) != under && selection.contains(named) {
+                self.lit.push(Lit {
+                    tag,
+                    look: SELECTED,
+                });
+            }
         }
+        // Unconditionally, and cheap when nothing moved: the renderer compares
+        // the set before it rewrites anything, so a still frame over a settled
+        // selection dirties no batch.
+        renderer.highlight_all(&self.lit);
 
         // Wholesale rather than on change: the document owns the camera and the
         // scene holds the copy the next paint reads, so overwriting it every
@@ -332,6 +408,19 @@ impl SceneView {
         *renderer.camera_mut() = document.camera();
     }
 
+    /// The sketch entity under the cursor as the scene now stands, or `None`
+    /// where the cursor is over nothing or off the view.
+    ///
+    /// What a click asks, where [`SceneView::grab`] asks the fuller question —
+    /// a press needs where on the primitive it landed and where that is in the
+    /// world, and a click needs only what the thing is.
+    fn named_under(&self, response: &Response<'_>, document: &Document) -> Option<Named> {
+        let aimed = Aimed::of(response).filter(|_| response.hovered)?;
+        let renderer = self.renderer.borrow();
+        let aim = aimed.aim(&document.camera());
+        self.names.get(renderer.scene().nearest(aim)?.tag)
+    }
+
     /// Decide what this press is the start of.
     ///
     /// Something the drawing will let go of takes precedence, and everything
@@ -339,7 +428,7 @@ impl SceneView {
     /// camera. Grabbing nothing has to stay the way the view is orbited, or
     /// the pointer would lose its only way to look around.
     fn grab(&self, response: &Response<'_>, document: &Document, tool: Tool) -> Gesture {
-        if tool != Tool::Select {
+        if tool != Tool::Pointer {
             // A tool with something to put down has no business picking up what
             // is already there. The view is still turned under it, so a point
             // can be aimed at from wherever it needs to be seen from.
@@ -354,12 +443,7 @@ impl SceneView {
                 // the ray cannot come from two viewpoints — which is what they
                 // did when the hit was picked through the scene's own camera
                 // and the ray cast through the document's.
-                let aim = Aim::new(
-                    &document.camera(),
-                    aimed.cursor,
-                    aimed.viewport,
-                    HOVER_REACH,
-                );
+                let aim = aimed.aim(&document.camera());
                 let hit = scene.nearest(aim)?;
                 let grip = document.drawing().grip(self.names.get(hit.tag)?, hit.at)?;
                 let motion = document.drawing().motion();

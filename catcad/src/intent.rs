@@ -4,6 +4,7 @@ use aperture::Projection;
 use glam::Vec3;
 
 use crate::drawing::Grip;
+use crate::named::Named;
 use crate::tool::Tool;
 
 /// One thing the user asked for.
@@ -61,8 +62,23 @@ pub(crate) enum Intent {
     },
     /// Look through this projection.
     Project(Projection),
+    /// Pick out this entity and nothing else, or nothing at all when it is
+    /// `None`.
+    ///
+    /// The whole of what is selected rather than one addition to it, so a
+    /// replayed pass lands on the same answer — see the note on naming above.
+    /// A plain click raises one whatever it landed on: `None` is what a click
+    /// on empty space asks for, by the same rule that a click on a point asks
+    /// for that point.
+    Select(Option<Named>),
+    /// Pick this out as well as whatever already is.
+    ///
+    /// What a shift-click asks for. Names an addition where [`Intent::Select`]
+    /// names the whole, and is safe to land twice for a different reason: an
+    /// entity already picked out is not picked out again.
+    Include(Named),
     /// Take up this tool, or put down whatever is in hand by naming
-    /// [`Tool::Select`].
+    /// [`Tool::Pointer`].
     ///
     /// The tool the user wants held, not the button they pressed. Pressing an
     /// armed tool's button puts it down, which is a *toggle* — so the toolbar

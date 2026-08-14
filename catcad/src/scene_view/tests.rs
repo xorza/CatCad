@@ -2,8 +2,11 @@ use super::*;
 use crate::demo;
 use crate::history::History;
 use crate::intent::{Intent, Intents};
+use crate::selection::Selection;
 use crate::tool::Tool;
 use aperture::Aim;
+use glam::DVec2;
+use palantir::Modifiers;
 use palantir::internals::UiHarness;
 use silverpoint::Solver;
 
@@ -23,6 +26,9 @@ struct Raised {
     /// but taken off the inbox like the application's, so what the view asks
     /// for lands the same way here.
     tool: Tool,
+    /// What is picked out, taken off the inbox exactly as the application takes
+    /// it — which is the only way anything gets into it.
+    selection: Selection,
 }
 
 impl Raised {
@@ -33,7 +39,7 @@ impl Raised {
         if let Some(bounds) = view.bounds() {
             document.camera_mut().frame(bounds);
         }
-        view.settle(&document);
+        view.settle(&document, &Selection::default());
         Self {
             document,
             history: History::default(),
@@ -41,7 +47,8 @@ impl Raised {
             intents: Intents::default(),
             view,
             harness: UiHarness::new(SIZE),
-            tool: Tool::Select,
+            tool: Tool::Pointer,
+            selection: Selection::default(),
         }
     }
 
@@ -59,19 +66,24 @@ impl Raised {
             view,
             harness,
             tool,
+            selection,
         } = self;
         harness.frame(|ui| {
             intents.clear();
             view.ask(ui, document, *tool, intents);
-            // The app's own apply, minus the bar it has no toolbar for: the
-            // tool is taken off the inbox before the history reads it.
+            // The app's own apply, minus the bar it has no toolbar for: what
+            // the session owns comes off the inbox before the history reads it.
             for intent in intents.iter() {
-                if let Intent::Hold(held) = intent {
-                    *tool = held;
+                match intent {
+                    Intent::Hold(held) => *tool = held,
+                    Intent::Select(what) => selection.select(what),
+                    Intent::Include(what) => selection.include(what),
+                    _ => {}
                 }
             }
             history.apply(document, solver, intents);
-            view.settle(document);
+            selection.retain(|named| document.drawing().holds(named));
+            view.settle(document, selection);
         });
     }
 
@@ -152,6 +164,20 @@ impl Raised {
         self.document.camera()
     }
 
+    /// What the drawing has at `cursor`, asked of the very scene the view picks
+    /// against — so a test knows what a click there would have found.
+    fn named_at(&self, cursor: Vec2) -> Option<Named> {
+        let renderer = self.view.renderer().borrow();
+        let viewport = Viewport::new(SIZE);
+        let hit = renderer.scene().nearest(Aim::new(
+            &self.document.camera(),
+            cursor,
+            viewport,
+            HOVER_REACH,
+        ))?;
+        self.view.named(hit.tag)
+    }
+
     /// Where a world position lands on screen — the cursor that aims at it.
     fn cursor_on(&self, world: Vec3) -> Vec2 {
         let viewport = Viewport::new(SIZE);
@@ -163,6 +189,22 @@ impl Raised {
     /// arm's points are added last, so the wrist is drawn last of all.
     fn wrist(&self) -> Vec3 {
         *self.markers().last().expect("the demo draws markers")
+    }
+
+    /// A spot on the sketch plane with nothing drawn near it — where a tool has
+    /// room to put something down.
+    ///
+    /// A sketch coordinate rather than a screen one, so what a click there
+    /// should produce is known by hand. The demo's rectangle starts at sketch
+    /// x = 0 and its slab reaches to x = −2, so a unit and a half to the left of
+    /// the frame is on the slab, on screen, and the better part of a hundred
+    /// pixels clear of the nearest stroke.
+    fn empty_spot(&self) -> Vec3 {
+        self.document
+            .drawing()
+            .plane()
+            .point(DVec2::new(-1.5, 2.5))
+            .as_vec3()
     }
 
     /// Where every marker in the scene sits, in the order they are drawn.
@@ -505,19 +547,20 @@ fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
 /// of what it started on.
 ///
 /// The two halves are one decision. The tool is in hand for the whole gesture,
-/// so what it must not do is exactly what the select tool exists to do, and the
-/// cursor here is aimed at the arm's wrist — the freest thing the demo draws,
-/// and so the one thing most likely to be picked up by mistake.
+/// so what it must not do is exactly what the select tool exists to do — and
+/// the press below starts on empty space, where a tool that took hold of things
+/// would still find nothing, only to travel across the drawing.
 #[test]
 fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
     let mut raised = Raised::new();
     raised.frame();
-    // The wrist lies on the sketch plane, like every point of the drawing, so
-    // the ray through the pixel that shows it meets the plane exactly there —
-    // which is what makes the placed point's expected position hand-known
-    // rather than whatever the picker happened to answer.
-    let wrist = raised.wrist();
-    let cursor = raised.cursor_on(wrist);
+    // Empty plane, because a click on something already drawn puts the tool
+    // down instead of drawing over it — which is its own test. The spot lies on
+    // the sketch plane, so the ray through the pixel showing it meets the plane
+    // exactly there, and where the new point belongs is known rather than read
+    // back off the thing that placed it.
+    let empty = raised.empty_spot();
+    let cursor = raised.cursor_on(empty);
     let before = raised.markers();
 
     raised.tool = Tool::Point;
@@ -534,8 +577,8 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
     );
     let point = *placed.last().expect("a point was just added");
     assert!(
-        point.abs_diff_eq(wrist, 1e-3),
-        "placed at {point:?} rather than under the cursor at {wrist:?}"
+        point.abs_diff_eq(empty, 1e-3),
+        "placed at {point:?} rather than under the cursor at {empty:?}"
     );
     // A placement adds; it does not edit what it lands on. The point goes down
     // free and unconstrained, so nothing the solver already settled moves.
@@ -568,7 +611,7 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
     raised.frame();
     assert_eq!(
         raised.tool,
-        Tool::Select,
+        Tool::Pointer,
         "the right button left it in hand"
     );
 
@@ -579,6 +622,84 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
         placed,
         "a cancelled tool went on placing points"
     );
+}
+
+/// A click picks out exactly what it landed on, a shift-click adds to what is
+/// picked out, and a tool in hand puts itself down rather than drawing over
+/// something already there.
+///
+/// One rule and its two qualifiers, which is why they are one test: what a
+/// click selects is whatever is under it, so a click on empty space selects
+/// nothing and clears — and shift changes "instead of" to "as well as" without
+/// changing what was found. The tool is the exception that proves it: the only
+/// click that does *not* select is the one spent putting something down.
+#[test]
+fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let empty = raised.cursor_on(raised.empty_spot());
+    let over_point = raised
+        .over(|grip| matches!(grip, Grip::Point(_)))
+        .expect("the demo draws a point that can be grabbed");
+    let over_rim = raised
+        .over(|grip| matches!(grip, Grip::Rim(_)))
+        .expect("the demo draws a circle");
+
+    // Nothing is picked out until something is clicked.
+    raised.harness.click_at(empty);
+    raised.frame();
+    assert_eq!(raised.selection.count(), 0);
+
+    raised.harness.click_at(over_point);
+    raised.frame();
+    let point = raised.named_at(over_point).expect("a point is there");
+    assert!(raised.selection.contains(point));
+    assert_eq!(raised.selection.count(), 1);
+
+    // Shift adds, leaving what was already picked out where it was.
+    raised.harness.set_modifiers(Modifiers {
+        shift: true,
+        ..Modifiers::NONE
+    });
+    raised.harness.click_at(over_rim);
+    raised.frame();
+    let rim = raised.named_at(over_rim).expect("a circle is there");
+    assert!(raised.selection.contains(point), "shift dropped the first");
+    assert!(raised.selection.contains(rim));
+    assert_eq!(raised.selection.count(), 2);
+
+    // A shift-click on empty space adds nothing and clears nothing.
+    raised.harness.click_at(empty);
+    raised.frame();
+    assert_eq!(raised.selection.count(), 2, "shift on nothing changed it");
+
+    // A plain click starts over with what it landed on.
+    raised.harness.set_modifiers(Modifiers::NONE);
+    raised.harness.click_at(over_rim);
+    raised.frame();
+    assert!(raised.selection.contains(rim));
+    assert!(!raised.selection.contains(point), "the first survived");
+    assert_eq!(raised.selection.count(), 1);
+
+    // And on nothing, it clears.
+    raised.harness.click_at(empty);
+    raised.frame();
+    assert_eq!(raised.selection.count(), 0);
+
+    // With a tool in hand, a click on something already drawn puts the tool
+    // down instead of drawing over it — and still picks that thing out, since
+    // that is what a click on a primitive always does.
+    raised.tool = Tool::Point;
+    let before = raised.markers();
+    raised.harness.click_at(over_point);
+    raised.frame();
+    assert_eq!(raised.tool, Tool::Pointer, "the tool stayed in hand");
+    assert_eq!(
+        raised.markers(),
+        before,
+        "it drew over what it was told not to"
+    );
+    assert!(raised.selection.contains(point));
 }
 
 /// The camera the document holds is the one the renderer paints through.
@@ -601,13 +722,13 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
         turned,
         "nothing to prove otherwise"
     );
-    raised.view.settle(&raised.document);
+    raised.view.settle(&raised.document, &raised.selection);
     assert_eq!(*raised.view.renderer().borrow().camera(), turned);
 
     // The projection rides along with it, which is the toggle's whole path.
     let was = raised.camera().projection;
     raised.document.camera_mut().projection = was.toggled();
-    raised.view.settle(&raised.document);
+    raised.view.settle(&raised.document, &raised.selection);
     let now = raised.view.renderer().borrow().camera().projection;
     assert_eq!(now, was.toggled());
     assert_ne!(now, was);

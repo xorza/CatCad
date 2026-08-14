@@ -92,12 +92,19 @@ impl Document {
             Intent::Project(projection) => self.camera.projection = projection,
             // None of these is a change to what the document *is*. Which step
             // of the history is current is a question about what has been done,
-            // and which tool is in hand is about the session doing it — where a
-            // document is only ever what is. Each is answered before this runs,
+            // and which tool is in hand and what is picked out are about the
+            // session doing it — where a document is only ever what is,
+            // whoever happens to be looking at it. Each is answered before this
+            // runs,
             // by whichever of `History::apply` and `CatCad::apply` owns it, and
             // neither forwards one — so arriving here is a caller that went
             // round both, which is worth a crash rather than a silent nothing.
-            Intent::Release | Intent::Undo | Intent::Redo | Intent::Hold(_) => {
+            Intent::Release
+            | Intent::Undo
+            | Intent::Redo
+            | Intent::Hold(_)
+            | Intent::Select(_)
+            | Intent::Include(_) => {
                 unreachable!("{intent:?} is not a document's to answer")
             }
         }

@@ -15,6 +15,7 @@ pub mod named;
 mod overlay;
 mod paint;
 mod scene_view;
+mod selection;
 mod tool;
 mod toolbar;
 
@@ -33,6 +34,7 @@ use crate::history::History;
 use crate::intent::{Intent, Intents};
 use crate::named::Named;
 use crate::scene_view::SceneView;
+use crate::selection::Selection;
 use crate::tool::Tool;
 use crate::toolbar::Toolbar;
 
@@ -74,6 +76,9 @@ pub struct CatCad {
     /// it, like the history above: what a session is drawing *with* is not part
     /// of what it has drawn.
     tool: Tool,
+    /// What the next command would act on. Beside the document for the same
+    /// reason the tool is.
+    selection: Selection,
     /// The bar that shows the tools and picks between them.
     toolbar: Toolbar,
 }
@@ -110,7 +115,7 @@ impl CatCad {
         // but so that what `build` returns already agrees with itself, and a
         // caller can measure the view it was given without recording a frame to
         // make the answer true.
-        view.settle(&document);
+        view.settle(&document, &Selection::default());
         Self {
             document,
             history: History::default(),
@@ -118,6 +123,7 @@ impl CatCad {
             solver,
             view,
             tool: Tool::default(),
+            selection: Selection::default(),
             toolbar: Toolbar::default(),
         }
     }
@@ -144,7 +150,7 @@ impl CatCad {
         // bar for a second press of a tool's own button — three ways to ask for
         // the same thing, and none of them does it.
         if ui.escape_pressed() {
-            self.intents.push(Intent::Hold(Tool::Select));
+            self.intents.push(Intent::Hold(Tool::Pointer));
         }
         self.view
             .ask(ui, &self.document, self.tool, &mut self.intents);
@@ -166,20 +172,31 @@ impl CatCad {
     /// Land everything the frame asked for, on whichever of the three things a
     /// frame writes it belongs to.
     ///
-    /// The tool is taken here rather than in the history, because what is in
-    /// hand is not a step to take back: undoing a placed point should not put
-    /// the tool that placed it back in your hand. So the inbox is read twice
-    /// over, once for what the app owns and once for what the document does —
-    /// which costs a walk of a few entries, and means neither reader has to
-    /// know what the other's intents mean.
+    /// The tool and the selection are taken here rather than in the history,
+    /// because neither is a step to take back: undoing a placed point should
+    /// not put the tool that placed it back in your hand, nor disturb what is
+    /// picked out around it. So the inbox is read twice over, once for what the
+    /// app owns and once for what the document does — which costs a walk of a
+    /// few entries, and means neither reader has to know what the other's
+    /// intents mean.
     fn apply(&mut self) {
         for intent in self.intents.iter() {
-            if let Intent::Hold(tool) = intent {
-                self.tool = tool;
+            match intent {
+                Intent::Hold(tool) => self.tool = tool,
+                Intent::Select(what) => self.selection.select(what),
+                Intent::Include(what) => self.selection.include(what),
+                _ => {}
             }
         }
         self.history
             .apply(&mut self.document, &mut self.solver, &self.intents);
+        // After the history, because a step taken back can take geometry with
+        // it — and a handle left pointing at what has gone would not simply
+        // stop matching. The sketch is restored arenas and all, so the next
+        // entity created takes the very same handle and would come up selected
+        // without anyone having picked it.
+        self.selection
+            .retain(|named| self.document.drawing().holds(named));
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
@@ -257,7 +274,7 @@ impl App for CatCad {
                 // until everything has finished reading it.
                 self.ask(ui);
                 self.apply();
-                self.view.settle(&self.document);
+                self.view.settle(&self.document, &self.selection);
             });
     }
 }
