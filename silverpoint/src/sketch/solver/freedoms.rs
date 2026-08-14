@@ -115,7 +115,7 @@ impl Freedoms {
 
     /// Size to `sketch` and start everything determined, ready to be told
     /// otherwise. Keeps whatever room it has grown to.
-    pub(crate) fn reset(
+    pub(super) fn reset(
         &mut self,
         sketch: &Sketch,
         degrees_of_freedom: usize,
@@ -133,17 +133,17 @@ impl Freedoms {
         self.redundant.resize(sketch.constraint_slot_count(), false);
     }
 
-    pub(crate) fn set_point(&mut self, id: PointId, freedom: Freedom) {
+    pub(super) fn set_point(&mut self, id: PointId, freedom: Freedom) {
         self.points[id.slot()] = freedom;
     }
 
-    pub(crate) fn set_radius(&mut self, id: CircleId, freedom: Freedom) {
+    pub(super) fn set_radius(&mut self, id: CircleId, freedom: Freedom) {
         self.radii[id.slot()] = freedom;
     }
 
     /// Flag a constraint the system could do without. Idempotent, because a
     /// constraint worth two equations can be named once per row that died.
-    pub(crate) fn set_redundant(&mut self, id: ConstraintId) {
+    pub(super) fn set_redundant(&mut self, id: ConstraintId) {
         self.redundant[id.slot()] = true;
     }
 }

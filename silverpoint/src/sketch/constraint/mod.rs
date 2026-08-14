@@ -129,8 +129,8 @@ impl Constraint {
 
     /// The magnitude, to restate it at something else.
     ///
-    /// Crate-internal where [`Self::value`] is public, because a caller outside
-    /// changes one through the sketch that holds it — see
+    /// Kept inside `sketch` where [`Self::value`] is public, because a caller
+    /// outside changes one through the sketch that holds it — see
     /// [`Sketch::set_value`](crate::Sketch::set_value). Editing a constraint in
     /// a caller's own hand would leave the sketch it came from unsolved.
     ///
@@ -139,7 +139,7 @@ impl Constraint {
     /// most obviously — has to say here that it does, and one that quietly
     /// answered `None` would be a dimension the drawing showed as a symbol and
     /// refused to edit.
-    pub(crate) fn value_mut(&mut self) -> Option<&mut f64> {
+    pub(super) fn value_mut(&mut self) -> Option<&mut f64> {
         match self {
             Constraint::Distance { distance, .. } => Some(distance),
             Constraint::Radius { radius, .. } => Some(radius),
@@ -154,7 +154,7 @@ impl Constraint {
     }
 
     /// Whether this constraint is about `entity`.
-    pub(crate) fn names(&self, entity: Entity) -> bool {
+    pub(super) fn names(&self, entity: Entity) -> bool {
         self.referents().any(|referent| referent == entity)
     }
 
@@ -170,7 +170,7 @@ impl Constraint {
     /// Expanded here and nowhere earlier: the sketch still holds the
     /// coincidence the caller added, so [`Sketch::constraints`] can still say
     /// that these two equations are one relation.
-    pub(crate) fn equations(&self) -> impl Iterator<Item = Self> {
+    pub(super) fn equations(&self) -> impl Iterator<Item = Self> {
         let expanded = match *self {
             Constraint::Coincident { a, b } => [
                 Some(Constraint::Vertical { a, b }),

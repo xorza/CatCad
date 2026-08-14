@@ -140,12 +140,7 @@ impl Solver {
     /// left at the compromise that reached it. Only half an answer, which is
     /// why this is not the crate's way of dragging one: what a caller wants is
     /// [`Solver::edit_holding`], which throws that compromise away.
-    pub(crate) fn solve_holding(
-        &mut self,
-        sketch: &mut Sketch,
-        held: &[PointId],
-        into: &mut Outcome,
-    ) {
+    fn solve_holding(&mut self, sketch: &mut Sketch, held: &[PointId], into: &mut Outcome) {
         let iterations = self.iterate(sketch, held);
         let settled = if held.is_empty() {
             Settled::Freely
@@ -507,7 +502,7 @@ pub(crate) mod internals {
         ///
         /// Asks the same buffers the measurement does, so what it agrees with
         /// is the answer itself rather than a second calculation of it.
-        pub(crate) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
+        pub(super) fn freedom_holding(&mut self, sketch: &Sketch, held: &[PointId]) -> usize {
             self.work.reset(sketch, held);
             self.work.system.assemble(sketch, &self.work.movable);
             self.work.null_space(sketch.params().count());
