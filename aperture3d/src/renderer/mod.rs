@@ -64,7 +64,10 @@ pub struct Renderer {
     ///
     /// `None` only before the first paint. Nothing reads it earlier: laying text
     /// out is part of flattening a scene, which is what a paint does.
-    text: Option<TextShaper>,
+    ///
+    /// Named for what it holds rather than for what it is for, so that it does
+    /// not read as the [`text`](crate::text) module it is used beside.
+    shaper: Option<TextShaper>,
 }
 
 impl Renderer {
@@ -78,7 +81,7 @@ impl Renderer {
             relight: true,
             cpu: Cpu::default(),
             gpu: None,
-            text: None,
+            shaper: None,
         }
     }
 
@@ -166,7 +169,8 @@ impl Renderer {
         self.relight = true;
     }
 
-    /// Bring the CPU mirror up to date with the scene.
+    /// Bring the CPU mirror up to date with the scene, and the scene's own
+    /// measurements up to date with the shaper.
     ///
     /// Answers nothing, and nothing here has to. Each batch says whether it was
     /// written to and each buffer flattened from one says whether it was
@@ -180,12 +184,18 @@ impl Renderer {
     /// The scene is borrowed mutably to be *read*: taking a batch's mark is what
     /// clears it, and a mark left behind would re-flatten the same list every
     /// frame for the rest of the run.
+    ///
+    /// Text is the one thing written back into the scene rather than mirrored
+    /// out of it. How far a run reaches is the shaper's answer and picking needs
+    /// it, so it is remembered on the run — through a memo rather than the batch,
+    /// which is what keeps recording it from reading as an edit. See
+    /// [`Text::extent`](crate::Text::extent).
     fn refresh(&mut self, relight: bool) {
         let Self {
             scene,
             highlights,
             cpu,
-            text,
+            shaper,
             ..
         } = self;
         cpu.meshes.refresh(&mut scene.objects);
@@ -200,7 +210,7 @@ impl Renderer {
         // scene with nothing written in it never needs one — which is what lets
         // a caller flatten one without a window having handed a font stack over.
         if scene.texts.take_dirty() {
-            let shaper = text
+            let shaper = shaper
                 .as_ref()
                 .expect("laying text out needs the shaper `init` is handed");
             text::measure_all(&scene.texts, shaper);
@@ -218,7 +228,7 @@ impl GpuPaint for Renderer {
         // Re-taken rather than guarded, unlike the pipelines above: it is a
         // clone of a handle, and a view whose target was reclaimed should come
         // back holding whatever shaper the window has now.
-        self.text = Some(ctx.text.clone());
+        self.shaper = Some(ctx.text.clone());
     }
 
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {
