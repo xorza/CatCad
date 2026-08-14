@@ -10,15 +10,14 @@ mod demo;
 mod document;
 mod drawing;
 mod history;
+mod hud;
 mod intent;
 mod named;
-mod overlay;
 mod paint;
 mod preview;
 mod scene_view;
 mod selection;
 mod tool;
-mod toolbar;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
@@ -32,12 +31,12 @@ use silverpoint::{SolveReport, Solver};
 
 use crate::document::Document;
 use crate::history::History;
+use crate::hud::Hud;
 use crate::intent::{Intent, Intents};
 use crate::named::Named;
 use crate::scene_view::SceneView;
 use crate::selection::Selection;
 use crate::tool::Tool;
-use crate::toolbar::Toolbar;
 
 /// Take back the last step, and put it back.
 ///
@@ -80,8 +79,9 @@ pub struct CatCad {
     /// What the next command would act on. Beside the document for the same
     /// reason the tool is.
     selection: Selection,
-    /// The bar that shows the tools and picks between them.
-    toolbar: Toolbar,
+    /// What floats over the view: the tool bar, and the readout in the
+    /// corner.
+    hud: Hud,
 }
 
 impl CatCad {
@@ -125,7 +125,7 @@ impl CatCad {
             view,
             tool: Tool::default(),
             selection: Selection::default(),
-            toolbar: Toolbar::default(),
+            hud: Hud::default(),
         }
     }
 
@@ -159,15 +159,15 @@ impl CatCad {
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
         let status = ui.fmt(format_args!("{}", self.status()));
-        overlay::show(
+        // Last, so what floats over the view is the topmost thing in the zstack
+        // and takes its own presses rather than the view beneath it.
+        self.hud.show(
             ui,
+            self.tool,
             status,
             self.document.camera().projection,
             &mut self.intents,
         );
-        // Last, so it is the topmost thing in the zstack and takes its own
-        // presses rather than the view beneath it.
-        self.toolbar.show(ui, self.tool, &mut self.intents);
     }
 
     /// Land everything the frame asked for, on whichever of the three things a
