@@ -444,10 +444,10 @@ impl Drawing {
     /// it with: a plane is named by any point of it, so where on the drawing
     /// the origin sits makes no difference to what a ray resolves against.
     ///
-    /// A gizmo handle would answer with a [`Motion::Axis`], which *is* per
+    /// A gizmo handle would be held to a line rather than a plane, which *is* per
     /// handle — and that is when this grows an argument again.
     pub(crate) fn motion(&self) -> Motion {
-        Motion::Plane {
+        Motion {
             origin: self.plane.origin.as_vec3(),
             normal: self.plane.normal().as_vec3(),
         }

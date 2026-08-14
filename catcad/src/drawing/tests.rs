@@ -145,9 +145,7 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
 
     // Whatever the grip, the answer is the drawing's own plane — a plane is
     // named by any point of it, so there is nothing per-grip to say.
-    let Motion::Plane { origin, normal } = drawing.motion() else {
-        panic!("a sketch grip moves on the plane it was drawn on");
-    };
+    let Motion { origin, normal } = drawing.motion();
     assert_eq!(origin, drawing.plane.origin.as_vec3());
     assert_eq!(normal, drawing.plane.normal().as_vec3());
 }
