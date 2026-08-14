@@ -13,12 +13,21 @@ use glam::Vec3;
 /// The three fields that mean the same thing for a stroke, a rim and a marker,
 /// laid out once so they cannot drift.
 ///
-/// The plane a primitive lies in is *not* here, though two of the three carry
-/// one. A stroke and a marker are widened in screen space, so their corners
-/// leave the plane and the shader has to put their depth back on it; a ring's
-/// band is widened in its own plane and never leaves it. Sharing the field
-/// would ship a ring twelve bytes it has no use for and name something about it
-/// that is not true.
+/// The plane a primitive lies in is *not* here, though three of the four carry
+/// one. A stroke, a marker and a label are widened in screen space, so their
+/// corners leave the plane and the shader has to put their depth back on it; a
+/// ring's band is widened in its own plane and never leaves it. Sharing the
+/// field would ship a ring twelve bytes it has no use for and name something
+/// about it that is not true.
+///
+/// `half_extent` is here on the opposite reasoning, and the two are worth
+/// telling apart. A label has no use for it either — a glyph's size came from
+/// its shaping — so it ships four dead bytes in a seventy-six byte record. What
+/// buys them is that [`Instance::highlighted`] applies a highlight's `scale` to
+/// this field for every kind alike; pulling it out would put a per-kind hook in
+/// the one operation that is currently written once, to save five per cent of
+/// one record. The ring's twelve bytes were not worth that trade and the
+/// label's four are.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct Look {
@@ -40,12 +49,16 @@ impl Look {
         }
     }
 
-    /// Drawn again in `look`, over the top of its ordinary self.
-    fn highlighted(mut self, look: Highlight) -> Self {
+    /// Take on a highlight's look, in place of this one.
+    ///
+    /// Named for what it does to a `Look` rather than sharing
+    /// [`Instance::highlighted`]'s name: that one answers with a whole record,
+    /// this one edits the tail of one, and two things called `highlighted` on
+    /// either side of a `look_mut()` read as the same operation twice.
+    fn take_on(&mut self, look: Highlight) {
         self.color = look.color.to_array();
         self.half_extent *= look.scale;
         self.z_offset += look.lift as f32;
-        self
     }
 }
 
@@ -64,10 +77,20 @@ pub(crate) trait Instance: Record {
     where
         Self: Sized,
     {
-        let tail = self.look_mut();
-        *tail = tail.highlighted(look);
+        self.look_mut().take_on(look);
         self
     }
+}
+
+/// The plane a primitive named, in the form the shaders read.
+///
+/// A unit normal, or all-zero for one that named none — which is what
+/// `plane_depth_shift` tests with `dot(plane, plane) <= 0.5` before deciding
+/// whether it can read depth off the surface rather than off the primitive's
+/// own anchor. All-zero rather than a fourth float saying so, because a normal
+/// is already unit length and zero is the one value it can never take.
+fn plane_of(normal: Option<Vec3>) -> [f32; 3] {
+    normal.unwrap_or(Vec3::ZERO).to_array()
 }
 
 #[repr(C)]
@@ -90,9 +113,7 @@ pub(crate) struct CurveInstance {
     pub(super) start: [f32; 3],
     pub(super) end: [f32; 3],
     pub(super) look: Look,
-    /// Unit normal of the plane the curve lies in, or all-zero for a curve that
-    /// named none — which is what the shader tests to decide whether it can
-    /// read depth off the surface instead of off the centreline.
+    /// The plane the curve lies in, as [`plane_of`] encodes it.
     pub(super) plane: [f32; 3],
 }
 
@@ -114,7 +135,7 @@ impl CurveInstance {
     /// The instances one stroke ships, one per segment.
     pub(crate) fn of(curve: &Curve) -> impl Iterator<Item = Self> + '_ {
         let look = Look::of(curve.color, curve.width, curve.z_offset);
-        let plane = curve.plane_normal.unwrap_or(Vec3::ZERO).to_array();
+        let plane = plane_of(curve.plane_normal);
         curve.segments().map(move |(a, b)| Self {
             start: a.to_array(),
             end: b.to_array(),
@@ -155,8 +176,7 @@ impl Instance for RingInstance {
 pub(crate) struct PointInstance {
     pub(super) position: [f32; 3],
     pub(super) look: Look,
-    /// Unit normal of the plane the marker sits on, or all-zero for one that
-    /// names none.
+    /// The plane the marker sits on, as [`plane_of`] encodes it.
     pub(super) plane: [f32; 3],
 }
 
@@ -165,7 +185,7 @@ impl PointInstance {
         Self {
             position: point.position.to_array(),
             look: Look::of(point.color, point.size, point.z_offset),
-            plane: point.plane_normal.unwrap_or(Vec3::ZERO).to_array(),
+            plane: plane_of(point.plane_normal),
         }
     }
 }
@@ -202,8 +222,7 @@ pub(crate) struct GlyphInstance {
     /// — larger type is a different shaping, not a larger quad over the same
     /// pixels.
     pub(super) look: Look,
-    /// Unit normal of the plane the run lies on, or all-zero for one that
-    /// names none.
+    /// The plane the run lies on, as [`plane_of`] encodes it.
     pub(super) plane: [f32; 3],
 }
 
@@ -216,7 +235,7 @@ impl GlyphInstance {
             uv_min: quad.uv_min.to_array(),
             uv_size: quad.uv_size.to_array(),
             look: Look::of(text.color, 0.0, text.z_offset),
-            plane: text.plane_normal.unwrap_or(Vec3::ZERO).to_array(),
+            plane: plane_of(text.plane_normal),
         }
     }
 }
