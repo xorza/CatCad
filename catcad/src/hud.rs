@@ -78,7 +78,7 @@ impl Hud {
         }
         floating(Panel::hstack(), "constraints", Align::BOTTOM).show(ui, |ui| {
             for &constraint in &self.offers {
-                let label = noun(constraint);
+                let label = label(constraint);
                 if Button::new()
                     .id_salt(label)
                     .label(label)
@@ -171,12 +171,13 @@ pub(crate) struct Shown<'a> {
     pub(crate) selection: &'a Selection,
 }
 
-/// What to call a relation on the button that states it.
+/// What the button that states a relation is captioned.
 ///
-/// The user's word rather than the solver's, like
-/// [`noun`](crate::noun) for an entity: a `PointOnSegment` is "on edge" to
-/// whoever is drawing, and reads as a sentence about what was picked.
-fn noun(constraint: Constraint) -> &'static str {
+/// The user's word rather than the solver's: a `PointOnSegment` is "on edge" to
+/// whoever is drawing. A caption rather than a noun — which is why this is not
+/// [`noun`](crate::noun), whose answers are lowercase because they are read
+/// inside a sentence in the status line.
+fn label(constraint: Constraint) -> &'static str {
     match constraint {
         Constraint::Coincident { .. } => "Coincident",
         Constraint::Distance { .. } => "Distance",

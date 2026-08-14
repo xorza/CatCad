@@ -263,14 +263,23 @@ impl Drawing {
     /// — and that is a better drawing; it is also two glyphs per relation and a
     /// tag apiece, which is worth doing when the drawing is busy enough to need
     /// it rather than now.
-    pub(crate) fn mark_at(&self, constraint: Constraint) -> Option<Vec3> {
+    /// Answers a place rather than the absence of one, because there is no
+    /// arrangement in which a constraint the drawing holds has nothing to be
+    /// about: geometry taken away takes its constraints with it — see
+    /// [`Sketch::remove_point`] — and no constraint names another. A `None`
+    /// here would be one of those two broken, and drawing the mark at the
+    /// world origin instead is how that would go unnoticed.
+    pub(crate) fn mark_at(&self, constraint: Constraint) -> Vec3 {
         let mut sum = DVec2::ZERO;
         let mut count = 0.0;
         for entity in constraint.referents() {
-            sum += self.middle_of(entity)?;
+            sum += self
+                .middle_of(entity)
+                .expect("a constraint the drawing holds is about geometry it holds");
             count += 1.0;
         }
-        (count > 0.0).then(|| self.plane.point(sum / count).as_vec3())
+        assert!(count > 0.0, "every constraint is about something");
+        self.plane.point(sum / count).as_vec3()
     }
 
     /// The middle of one entity on the sketch plane, or `None` where the drawing

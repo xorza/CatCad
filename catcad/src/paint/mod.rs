@@ -211,12 +211,11 @@ pub(crate) fn redraw(
 fn write_marks(drawing: &Drawing, names: &mut Names, marks: &mut Batch<Text>) {
     let freedoms = drawing.freedoms();
     marks.refill(drawing.sketch().constraints(), |mark, (id, constraint)| {
-        let at = drawing.mark_at(constraint).unwrap_or_default();
         // Rewritten in place rather than assigned, so a drawing whose marks are
         // laid out every frame keeps the string it already has.
         mark.content.clear();
         mark.content.push_str(symbol(constraint));
-        mark.position = at;
+        mark.position = drawing.mark_at(constraint);
         mark.font = mark_font();
         // Above the middle of what it names, so the mark clears the geometry it
         // is about rather than sitting on top of it.

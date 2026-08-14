@@ -257,27 +257,43 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
 
 /// A drawing with one of everything, so a selection of any shape has something
 /// to be made of.
-fn assorted() -> (Drawing, Solver, [Entity; 5]) {
-    let mut sketch = Sketch::default();
-    let a = sketch.add_point(DVec2::new(0.0, 0.0));
-    let b = sketch.add_point(DVec2::new(3.0, 4.0));
-    let c = sketch.add_point(DVec2::new(6.0, 0.0));
-    let first = sketch.add_segment(a, b);
-    let second = sketch.add_segment(b, c);
-    let circle = sketch.add_circle(c, 2.5);
-    let mut solver = Solver::default();
-    let drawing = Drawing::new(&mut solver, sketch, Plane::GROUND);
-    (
-        drawing,
-        solver,
-        [
-            Entity::Point(a),
-            Entity::Point(b),
-            Entity::Segment(first),
-            Entity::Segment(second),
-            Entity::Circle(circle),
-        ],
-    )
+///
+/// Two points three-four-five apart, the edges between them, and a circle on
+/// the far one — every kind a relation can be stated over, with hand-checkable
+/// numbers between them.
+#[derive(Debug)]
+struct Assorted {
+    drawing: Drawing,
+    /// The room an edit's solve works in, kept beside the drawing for the same
+    /// reason [`Linkage`] keeps one.
+    solver: Solver,
+    a: Entity,
+    b: Entity,
+    first: Entity,
+    second: Entity,
+    circle: Entity,
+}
+
+impl Assorted {
+    fn new() -> Self {
+        let mut sketch = Sketch::default();
+        let a = sketch.add_point(DVec2::new(0.0, 0.0));
+        let b = sketch.add_point(DVec2::new(3.0, 4.0));
+        let c = sketch.add_point(DVec2::new(6.0, 0.0));
+        let first = sketch.add_segment(a, b);
+        let second = sketch.add_segment(b, c);
+        let circle = sketch.add_circle(c, 2.5);
+        let mut solver = Solver::default();
+        Self {
+            drawing: Drawing::new(&mut solver, sketch, Plane::GROUND),
+            solver,
+            a: Entity::Point(a),
+            b: Entity::Point(b),
+            first: Entity::Segment(first),
+            second: Entity::Segment(second),
+            circle: Entity::Circle(circle),
+        }
+    }
 }
 
 /// What each shape of selection admits, and what none of them do.
@@ -287,7 +303,15 @@ fn assorted() -> (Drawing, Solver, [Entity; 5]) {
 /// shows up. Nothing else in the crate knows the mapping.
 #[test]
 fn a_selection_admits_exactly_the_relations_it_can_bear() {
-    let (drawing, _, [a, b, first, second, circle]) = assorted();
+    let Assorted {
+        drawing,
+        a,
+        b,
+        first,
+        second,
+        circle,
+        ..
+    } = Assorted::new();
     let mut offers = Vec::new();
     // Named here rather than borrowed from the bar that draws them: what the
     // drawing offers is the drawing's, and a test reading the HUD's wording
@@ -361,7 +385,15 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
 /// what was built on it.
 #[test]
 fn constraining_settles_the_drawing_and_deleting_cascades() {
-    let (mut drawing, mut solver, [a, b, first, _, circle]) = assorted();
+    let Assorted {
+        mut drawing,
+        mut solver,
+        a,
+        b,
+        first,
+        circle,
+        ..
+    } = Assorted::new();
     let (Entity::Point(pa), Entity::Point(pb)) = (a, b) else {
         panic!("the fixture picks two points");
     };
