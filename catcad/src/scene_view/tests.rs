@@ -2,6 +2,7 @@ use super::*;
 use crate::demo;
 use crate::history::History;
 use crate::intent::{Intent, Intents};
+use crate::paint;
 use crate::selection::Selection;
 use crate::tool::Tool;
 use aperture::Aim;
@@ -112,7 +113,12 @@ impl Raised {
     /// question as where the scene the renderer holds still shows them.
     fn asked_for(&self) -> Vec<Vec3> {
         let mut scene = Scene::default();
-        self.document.sync(&mut scene, &mut Names::default());
+        paint::write(
+            self.document.drawing(),
+            &mut Names::default(),
+            None,
+            scene.overlays_mut(),
+        );
         scene.points.iter().map(|point| point.position).collect()
     }
 

@@ -1,4 +1,6 @@
 use super::*;
+use crate::named::Names;
+use crate::paint;
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Constraint, Plane, PointId, Solver};
@@ -227,9 +229,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     let mut scene = Scene::default();
 
     let mut names = Names::default();
-    linkage
-        .drawing
-        .write_into(&mut names, None, scene.overlays_mut());
+    paint::write(&linkage.drawing, &mut names, None, scene.overlays_mut());
     let before: Vec<Option<Named>> = scene
         .points
         .iter()
@@ -241,9 +241,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     // Move something, so the rewrite has different geometry to emit.
     let plane = linkage.drawing.plane;
     linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
-    linkage
-        .drawing
-        .write_into(&mut names, None, scene.overlays_mut());
+    paint::write(&linkage.drawing, &mut names, None, scene.overlays_mut());
 
     let after: Vec<Option<Named>> = scene
         .points

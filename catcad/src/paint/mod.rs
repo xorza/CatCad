@@ -7,13 +7,13 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Point, Ring, Styled};
+use aperture::{Batch, Curve, Overlays, Point, Ring, Styled};
 use glam::Vec3;
 use silverpoint::{Circle, CircleId, Freedom, Segment, SegmentId};
 
 use crate::drawing::Drawing;
 use crate::named::{Named, Names};
-use crate::preview::Ends;
+use crate::preview::{Ends, Preview};
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -81,10 +81,41 @@ const STROKE_LIFT: i32 = 512;
 /// disagree by and still three decades short of showing through the model.
 const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 
+/// Draw the whole of `drawing`, and `band` over it, naming each part into
+/// `names`.
+///
+/// Fills buffers rather than returning them, so a drag refills what the renderer
+/// already holds instead of handing it new vectors every frame. The tags come
+/// out the same across a rewrite, because they are positions in a list built in
+/// the same order — which is what lets a drag keep hold of what it grabbed.
+///
+/// `names` is the caller's, not the drawing's. A tag is an index into a list of
+/// what was drawn, so it describes a *layout* of a drawing and not the drawing
+/// itself — nothing here would be written down by saving, and whoever laid the
+/// drawing out is who has to be able to read its tags back. Emptied here rather
+/// than by the caller, because a name list half from one layout and half from
+/// another names nothing.
+///
+/// `band` is what a tool is half-way through and the drawing knows nothing
+/// about — which is why this is here rather than on [`Drawing`]. It is written
+/// among the strokes and rims and never named, so it cannot be picked; see the
+/// two writers below.
+pub(crate) fn write(
+    drawing: &Drawing,
+    names: &mut Names,
+    band: Option<Preview>,
+    into: Overlays<'_>,
+) {
+    names.clear();
+    write_curves(drawing, names, band.and_then(Preview::line), into.curves);
+    write_rings(drawing, names, band.and_then(Preview::ring), into.rings);
+    write_points(drawing, names, into.points);
+}
+
 /// The sketch's straight strokes, one edge per segment, biased clear of
 /// the solids in depth so the drawing reads over them. Circles are not
 /// strokes — see [`write_rings`].
-pub(crate) fn write_curves(
+fn write_curves(
     drawing: &Drawing,
     names: &mut Names,
     band: Option<Ends>,
@@ -151,7 +182,7 @@ enum Stroke {
 /// The plane comes along for the same reason a stroke's does: a disc is
 /// flat in depth and the surface under it is not, so without it the glyph
 /// is sliced wherever the plane is seen at an angle.
-pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>) {
+fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>) {
     let sketch = drawing.sketch();
     let freedoms = drawing.freedoms();
     let plane = drawing.plane();
@@ -185,12 +216,7 @@ pub(crate) fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Ba
 ///
 /// No plane named, unlike the strokes — a ring's band is widened in its
 /// own plane, so the depth it carries is already the surface's.
-pub(crate) fn write_rings(
-    drawing: &Drawing,
-    names: &mut Names,
-    band: Option<Ends>,
-    rings: &mut Batch<Ring>,
-) {
+fn write_rings(drawing: &Drawing, names: &mut Names, band: Option<Ends>, rings: &mut Batch<Ring>) {
     let sketch = drawing.sketch();
     let freedoms = drawing.freedoms();
     let plane = drawing.plane();

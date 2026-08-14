@@ -2,6 +2,7 @@ use super::*;
 use crate::demo;
 use crate::drawing::Grip;
 use crate::named::Names;
+use crate::paint;
 use aperture::Scene;
 use glam::{DVec2, Vec3};
 use silverpoint::{CircleId, Plane, PointId, Solver};
@@ -17,7 +18,12 @@ fn once(intent: Intent) -> Intents {
 /// has to put back.
 fn markers(document: &Document) -> Vec<Vec3> {
     let mut scene = Scene::default();
-    document.sync(&mut scene, &mut Names::default());
+    paint::write(
+        document.drawing(),
+        &mut Names::default(),
+        None,
+        scene.overlays_mut(),
+    );
     scene.points.iter().map(|point| point.position).collect()
 }
 

@@ -1,15 +1,13 @@
 //! The sketch being edited, where it sits in the world, and what it draws.
 
-use aperture::{HitAt, Motion, Overlays};
+use aperture::{HitAt, Motion};
 use glam::{DVec2, Vec3};
 use silverpoint::{
     CircleId, Constraint, Freedoms, Plane, PointId, SegmentId, Sketch, Snapshot, SolveReport,
     Solver,
 };
 
-use crate::named::{Named, Names};
-use crate::paint;
-use crate::preview::Preview;
+use crate::named::Named;
 use crate::tool::Anchor;
 
 /// A sketch, the plane it lies on, and what the last solve made of the two.
@@ -266,27 +264,6 @@ impl Drawing {
     /// longer has to carry a report it would otherwise be storing twice over.
     pub(crate) fn restore(&mut self, solver: &mut Solver, snapshot: &Snapshot) {
         self.measured(solver, |sketch| sketch.restore(snapshot));
-    }
-
-    /// Write the drawn primitives, and name each of them into `names`.
-    ///
-    /// Fills buffers rather than returning them, so a drag refills what the
-    /// renderer already holds instead of handing it new vectors every frame.
-    /// The tags come out the same across a rewrite, because they are positions
-    /// in a list built in the same order — which is what lets a drag keep hold
-    /// of what it grabbed.
-    ///
-    /// `names` is the caller's, not the drawing's. A tag is an index into a
-    /// list of what was drawn, so it describes a *layout* of this drawing and
-    /// not the drawing itself — nothing here would be written down by saving,
-    /// and whoever laid the drawing out is who has to be able to read its tags
-    /// back. Emptied here rather than by the caller, because a name list half
-    /// from one layout and half from another names nothing.
-    pub(crate) fn write_into(&self, names: &mut Names, band: Option<Preview>, into: Overlays<'_>) {
-        names.clear();
-        paint::write_curves(self, names, band.and_then(Preview::line), into.curves);
-        paint::write_rings(self, names, band.and_then(Preview::ring), into.rings);
-        paint::write_points(self, names, into.points);
     }
 
     /// What a press on `named`, landing `at`, takes hold of — or `None` if it

@@ -13,6 +13,7 @@ use crate::document::Document;
 use crate::drawing::{Grip, Revision};
 use crate::intent::{Intent, Intents};
 use crate::named::{Named, Names};
+use crate::paint;
 use crate::preview::{Ends, Preview};
 use crate::selection::Selection;
 use crate::tool::{Anchor, Tool};
@@ -180,7 +181,8 @@ impl SceneView {
     pub(crate) fn new(document: &Document) -> Self {
         let mut scene = Scene::default();
         let mut names = Names::default();
-        document.sync(&mut scene, &mut names);
+        document.write_solids(&mut scene.objects);
+        paint::write(document.drawing(), &mut names, None, scene.overlays_mut());
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             names,
@@ -417,7 +419,12 @@ impl SceneView {
         if self.laid_out != drawing.revision() || self.laid_band != self.preview {
             // Into the batches the renderer already holds, so a drag rewrites
             // the drawing every frame without asking the heap for anything.
-            drawing.write_into(&mut self.names, self.preview, renderer.overlays_mut());
+            paint::write(
+                drawing,
+                &mut self.names,
+                self.preview,
+                renderer.overlays_mut(),
+            );
             self.laid_out = drawing.revision();
             self.laid_band = self.preview;
         }

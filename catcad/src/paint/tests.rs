@@ -1,4 +1,6 @@
 use super::*;
+use crate::demo;
+use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Plane, Sketch, Solver};
 
@@ -202,4 +204,42 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
             assert_ne!(one, other, "two states share a colour");
         }
     }
+}
+
+/// The demo drawing lays out to exactly what it holds, and every part of it is
+/// named.
+///
+/// The fixture the rest of the suite leans on, checked once as a whole: the
+/// counts are what the demo's sketch contains, and the names are what makes any
+/// of it pickable. A part drawn without a name would be scenery — visible, and
+/// impossible to point at.
+#[test]
+fn the_demo_draws_every_part_it_holds_and_names_each_one() {
+    let drawing = drawn(demo::sketch());
+    let mut scene = Scene::default();
+    let mut names = Names::default();
+    write(&drawing, &mut names, None, scene.overlays_mut());
+
+    // Seven segments — four sides, the rail, and the arm's two bars — two
+    // circles, and a marker on each of the nine points.
+    assert_eq!(scene.curves.len(), 7);
+    assert_eq!(scene.rings.len(), 2);
+    assert_eq!(scene.points.len(), 9);
+
+    // Every drawn part is named, and named as something the drawing holds: the
+    // tags the scene carries are indices into what came back.
+    for tag in (scene.curves.iter().map(|curve| curve.tag))
+        .chain(scene.rings.iter().map(|ring| ring.tag))
+        .chain(scene.points.iter().map(|point| point.tag))
+    {
+        let tag = tag.expect("a part of the drawing is drawn to be picked");
+        assert!(names.get(tag).is_some(), "{tag:?} names nothing");
+    }
+
+    // Written again into the same scene, it says the same thing rather than
+    // adding to it.
+    write(&drawing, &mut names, None, scene.overlays_mut());
+    assert_eq!(scene.curves.len(), 7);
+    assert_eq!(scene.rings.len(), 2);
+    assert_eq!(scene.points.len(), 9);
 }

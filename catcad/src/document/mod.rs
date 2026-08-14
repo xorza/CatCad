@@ -1,10 +1,9 @@
 //! What a saved file would hold, and the one thing that owns it.
 
-use aperture::{Bounds, Camera, Object, Scene};
+use aperture::{Batch, Bounds, Camera, Object};
 
 use crate::drawing::Drawing;
 use crate::intent::Intent;
-use crate::named::Names;
 use silverpoint::Plane;
 use silverpoint::{Sketch, Snapshot, Solver};
 
@@ -135,33 +134,23 @@ impl Document {
         }
     }
 
-    /// Bring `scene` into agreement with this document: the solids it holds,
-    /// and its drawing turned into the strokes, rims and markers that show it.
+    /// Put the solids this document holds into `into`.
     ///
-    /// Fills a scene the caller owns rather than handing one back. A document
-    /// is the thing worth saving and a scene is one way of looking at it, so a
+    /// The whole of what a document draws by itself. Its *drawing* is drawn by
+    /// `paint`, for whoever laid it out — a document says what it holds, and
+    /// what that should look like is nobody's business but the view's.
+    ///
+    /// Fills a batch the caller owns rather than handing one back. A document is
+    /// the thing worth saving and a scene is one way of looking at it, so a
     /// document that *made* one would be a document that had to know what a
     /// renderer wants — where this only has to know how to describe itself.
     ///
-    /// `names` comes from the caller and goes back to it. The scene's tags are
-    /// indices into it, so the two are only meaningful together, and neither is
-    /// the document's.
-    ///
-    /// Says nothing about the camera, though a [`Scene`] carries one. Whoever
-    /// holds a renderer copies a camera into it every frame; what is written
-    /// here changes only when the drawing does, and those two cadences are why
-    /// they are not one call.
-    ///
-    /// The meshes are copied across, which makes this an opening-a-document
-    /// call rather than a per-frame one — handing a renderer its objects again
-    /// has it upload them again. What a frame refreshes is the drawing alone.
-    /// The copy itself is written over the objects the scene already holds, so
+    /// The meshes are copied across, which makes this an opening-a-document call
+    /// rather than a per-frame one: handing a renderer its objects again has it
+    /// upload them again. The copy is written over the objects already there, so
     /// it is the upload that makes this expensive and not the vertices.
-    pub(crate) fn sync(&self, scene: &mut Scene, names: &mut Names) {
-        scene
-            .objects
-            .refill(&self.solids, |object, solid| object.clone_from(solid));
-        self.drawing.write_into(names, None, scene.overlays_mut());
+    pub(crate) fn write_solids(&self, into: &mut Batch<Object>) {
+        into.refill(&self.solids, |object, solid| object.clone_from(solid));
     }
 }
 
