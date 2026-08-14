@@ -215,8 +215,9 @@ impl Gpu {
             target_format,
         };
         // Solids cull their back faces; the overlays are built in screen space
-        // and wind whichever way the viewport takes them. Only the markers
-        // leave part of their own quad uncovered.
+        // and wind whichever way the viewport takes them. All three of them
+        // shade their own coverage and leave part of their geometry uncovered,
+        // so all three ask for alpha-to-coverage — see `coverage_px`.
         let meshes = pipelines.build::<GpuVertex>(PassSpec {
             name: "mesh",
             records_label: "aperture.meshes.vertices",
@@ -232,7 +233,7 @@ impl Gpu {
                 indices_label: "aperture.curves.quad",
                 indices: Some(&QUAD_INDICES),
                 cull: None,
-                alpha_to_coverage: false,
+                alpha_to_coverage: true,
             }),
             "aperture.curves.highlighted",
         );

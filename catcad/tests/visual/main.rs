@@ -345,15 +345,29 @@ const MEASURED_COLUMNS: std::ops::Range<u32> = 415..446;
 /// were out by.
 const WIDTH_TOLERANCE: f32 = QUANTUM * 0.8;
 
-/// What a ring is allowed on top of that, and shouldn't be.
+/// What every overlay is allowed on top of that, and shouldn't be.
 ///
-/// It runs about a sixth of a pixel narrow at every angle — measured 1.47
-/// overhead and 1.39 at the last of them, against 1.6 authored — where a curve
-/// in the same frames centres on what it asked for. The narrowness is flat in
-/// the viewing angle, so it is not the grazing defect the test below is about;
-/// it is what is left after that one, and this records how much rather than
-/// letting the assertion pass in silence.
-const RING_SHORTFALL: f32 = 0.15;
+/// All three shade their own coverage and hand it to alpha-to-coverage, which
+/// quantises it to a sample mask — and the quantisation is not symmetric, so a
+/// stroke lands about an eighth of a pixel narrow whatever it asked for. It is
+/// flat in the viewing angle and flat in the width, and it cannot be dialled
+/// out: biasing the coverage to compensate only feeds the biased value to the
+/// same quantiser, which returned about a third of what was added when it was
+/// tried. What would move it is more samples.
+///
+/// Recorded here rather than folded quietly into the tolerance above, because
+/// the two say different things: one is how precisely the frame can be
+/// measured, the other is a defect with a known cause and a known size.
+const MASK_SHORTFALL: f32 = 0.15;
+
+/// How far two overlays may disagree with each other about one authored width.
+///
+/// The tightest claim in this file, and the point of them all answering
+/// coverage the same way: whatever a stroke costs in absolute terms, a rim
+/// beside it has to cost the same, or a drawing is not one weight of line. The
+/// two ran 0.19 apart when a curve counted samples and a rim shaded itself;
+/// they now run inside 0.11.
+const AGREEMENT: f32 = 0.2;
 
 /// How much a primitive's width may move between the steepest view and the
 /// shallowest.
@@ -614,21 +628,20 @@ fn deposited(pitch: f32, overlay: Overlay) -> f32 {
 /// changes fastest across a stroke lying on it — and where a ribbon widened in
 /// screen space has no depth of its own to follow it down.
 ///
-/// Both primitives, separately and by the same measure, because the two are
-/// widened in different spaces and shade their coverage by different rules, and
-/// the only claim worth making is the one they have to answer together: a width
-/// asked for is a width drawn. Before the ring took its pixel scale from the
-/// length of the radius gradient it read 1.75 overhead and 1.41 at the last of
-/// these angles, and no assertion over the two of them together saw it.
+/// Each primitive separately, and then against the other, because those are two
+/// different claims and only the second one is about them being one drawing.
+/// Before the rim took its pixel scale from the length of the radius gradient it
+/// read 1.75 overhead and 1.41 at the last of these angles, and no assertion
+/// over the two of them together saw it.
 #[test]
 fn overlays_keep_their_authored_width_at_grazing_angles() {
+    const PITCHES: [f32; 4] = [1.5, 0.6, 0.3, 0.15];
+    let allowed = WIDTH_TOLERANCE + MASK_SHORTFALL;
+    let mut by_overlay = Vec::new();
+
     for overlay in [Overlay::Curves, Overlay::Rings] {
-        let allowed = match overlay {
-            Overlay::Curves => WIDTH_TOLERANCE,
-            Overlay::Rings => WIDTH_TOLERANCE + RING_SHORTFALL,
-        };
         let mut measured = Vec::new();
-        for pitch in [1.5, 0.6, 0.3, 0.15] {
+        for pitch in PITCHES {
             let width = deposited(pitch, overlay);
             assert!(
                 (width - AUTHORED_WIDTH).abs() < allowed,
@@ -647,6 +660,20 @@ fn overlays_keep_their_authored_width_at_grazing_angles() {
         assert!(
             hi - lo < GRAZING_SPAN,
             "{overlay:?} runs {lo:.3}..{hi:.3} px across the angles, so it thins as the view grazes"
+        );
+        by_overlay.push(measured);
+    }
+
+    // And the claim the shared coverage rule exists to make: whatever a stroke
+    // is worth, a rim at the same authored width is worth the same. This is
+    // what a split between counting samples and shading coverage broke, and
+    // what no per-primitive assertion above can see.
+    for (index, pitch) in PITCHES.iter().enumerate() {
+        let (curve, ring) = (by_overlay[0][index], by_overlay[1][index]);
+        assert!(
+            (curve - ring).abs() < AGREEMENT,
+            "at pitch {pitch} a curve deposits {curve:.3} px and a ring {ring:.3}, \
+             so the two are not one weight of line"
         );
     }
 }

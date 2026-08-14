@@ -3,6 +3,12 @@
 struct CurveVsOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) color: vec3<f32>,
+    // How far across the ribbon this fragment sits, in pixels from the
+    // centreline. Linearly rather than perspective-correctly: it measures the
+    // screen, and a ribbon running away from the viewer has ends of very
+    // different `w` — dividing by it would bend a straight ramp.
+    @location(1) @interpolate(linear) across_px: f32,
+    @location(2) @interpolate(flat) half_px: f32,
 };
 
 // One instance per segment: it arrives knowing both ends, how wide the stroke
@@ -48,10 +54,13 @@ fn curve_vs(
     let across = vec2<f32>(-along.y, along.x);
 
     let half_px = half_width * u.raster_scale;
+    // A pixel of room past the edge for the fade to happen in. Across only:
+    // the cap stays square, because it is what two segments meeting at a corner
+    // overlap through, and a cap that faded would leave a seam down the join.
+    let edge_px = half_px + 1.0;
     // Every vertex also steps back from its own end by half a width, which
-    // squares off the cap. Two segments meeting at a corner then overlap
-    // instead of leaving a notch between them.
-    let offset_px = (across * side - along) * half_px;
+    // squares off that cap.
+    let offset_px = across * side * edge_px - along * half_px;
 
     // Widening moves the corner off its own centreline — half a width sideways
     // and, from the cap, half a width past its own end — while the depth it
@@ -98,10 +107,26 @@ fn curve_vs(
     );
     out.clip = lift(widened, z_offset);
     out.color = color;
+    // Which edge of the ribbon this corner is on, in a frame the whole quad
+    // agrees about. `across` is measured from each end toward the other, so it
+    // points opposite ways at the two ends and `side` alone names one edge at
+    // the start and the other at the far end — the ramp would then run *along*
+    // the ribbon rather than across it, and the stroke would come out as wide
+    // as its own padding.
+    out.across_px = side * select(1.0, -1.0, at_end) * edge_px;
+    out.half_px = half_px;
     return out;
 }
 
+// Coverage from the distance across, rather than from how many samples the
+// quad's own edges happen to catch.
+//
+// The quad is a pixel wider than the stroke on each side and the ramp inside it
+// is what draws the edge, so what lands is a stroke of exactly the authored
+// width wherever the hardware can express one — which is the same bargain the
+// rim and the marker already make, and the reason all three now say it the same
+// way.
 @fragment
 fn curve_fs(in: CurveVsOut) -> @location(0) vec4<f32> {
-    return vec4<f32>(in.color, 1.0);
+    return vec4<f32>(in.color, coverage_px(in.half_px - abs(in.across_px)));
 }

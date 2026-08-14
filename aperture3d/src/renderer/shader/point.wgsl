@@ -4,7 +4,14 @@ struct PointVsOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) color: vec3<f32>,
     // Where in the disc this fragment sits — the rim is at length 1.
-    @location(1) corner: vec2<f32>,
+    //
+    // Linearly rather than perspective-correctly, because it measures the
+    // screen and not the world: every corner carries the anchor's own `w`, so
+    // the two agree here anyway, and saying which is meant costs nothing.
+    @location(1) @interpolate(linear) corner: vec2<f32>,
+    // The instance's, so the fragment can turn the line above into pixels
+    // without asking the hardware what a fragment is worth.
+    @location(2) @interpolate(flat) half_px: f32,
 };
 
 // One instance per marker: a quad facing the screen, sized in pixels and hung
@@ -50,26 +57,26 @@ fn point_vs(
     );
     out.color = color;
     out.corner = corner;
+    out.half_px = half_px;
     return out;
 }
 
 // The quad is square and the marker is not, so the corners have to go
-// somewhere. Coverage falls off over one fragment's worth of radius, which is
-// what `fwidth` measures.
+// somewhere: how far inside the rim a fragment sits is what decides it, and
+// [`coverage_px`] decides the rest.
+//
+// The distance is exact and costs nothing to know. A corner of ±1 is half a
+// width away in screen space by construction, so the radius interpolated across
+// the quad is already in units of that half width — multiplying by it is the
+// whole conversion to pixels. Asking `fwidth` how far the radius moves across a
+// fragment answers the same question by measurement, at the price of shading in
+// lockstep quads and of being wrong wherever the quad straddles the rim, which
+// on a marker spanning a handful of pixels is most of it.
 //
 // Multisampling alone would only smooth the quad's own border, which is not
-// where the disc is. Alpha-to-coverage turns this into a sample mask instead,
-// which is why the pipeline asks for it and why nothing here blends: samples
-// outside the disc are never written, so depth stays clean and draw order
-// stays free.
+// where the disc is — hence the alpha-to-coverage the pipeline asks for.
 @fragment
 fn point_fs(in: PointVsOut) -> @location(0) vec4<f32> {
-    let radius = length(in.corner);
-    // How much the radius moves across one fragment, which is the width the
-    // rim has to fade over. Smoothstepping the whole of it instead would blur
-    // across two, and at the handful of pixels a marker spans that is most of
-    // the disc.
-    let per_fragment = fwidth(radius);
-    let coverage = clamp((1.0 - radius) / max(per_fragment, MIN_FADE) + 0.5, 0.0, 1.0);
-    return vec4<f32>(in.color, coverage);
+    let inside_px = (1.0 - length(in.corner)) * in.half_px;
+    return vec4<f32>(in.color, coverage_px(inside_px));
 }

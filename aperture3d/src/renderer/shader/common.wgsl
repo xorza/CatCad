@@ -78,6 +78,28 @@ const MIN_DET: f32 = 1e-6;
 // of the target approaches it, and the fade is then a hard edge either way.
 const MIN_FADE: f32 = 1e-6;
 
+// How much of a fragment a shape covers, given how far inside its own edge the
+// fragment sits — negative outside, in pixels.
+//
+// The one coverage rule the overlays have. What differs between a stroke, a rim
+// and a marker is how each measures that distance, which is irreducible: a
+// ribbon knows it across its width, a band from the radius in its own plane, a
+// disc from its centre. What must not differ is what the distance then *means*,
+// because that is what decides whether a width asked for is a width drawn —
+// and three statements of it are three chances to answer differently.
+//
+// The half pixel is the whole of the antialiasing: a fragment is shaded from
+// its centre, so an edge exactly on that centre covers half of it, and the ramp
+// either side spans the one pixel the edge is uncertain over. Integrating it
+// across a shape returns the shape's own width exactly.
+//
+// What comes back is alpha, and every pass that uses it asks for
+// alpha-to-coverage rather than blending, so it lands as a sample mask: nothing
+// blends, depth stays clean, and draw order stays free.
+fn coverage_px(inside_px: f32) -> f32 {
+    return clamp(inside_px + 0.5, 0.0, 1.0);
+}
+
 // NDC spans two units across the whole target, so one NDC unit is half the
 // viewport in pixels, and back the other way.
 //

@@ -11,17 +11,16 @@
 // other draws half of it. There is one of them, and this is not it.
 override RING_STEPS: u32;
 
-// How far along the radius to step when asking what a pixel is worth there.
-// A sixteenth is short enough that the projection barely bends over it and
-// long enough that the difference doesn't vanish into rounding.
-const RING_PROBE: f32 = 0.0625;
-
-// Pixels between two world positions. Both are divided by their own `w`, so a
-// position behind the eye answers with the floor rather than an infinity.
-fn pixels_between(start: vec3<f32>, end: vec3<f32>) -> f32 {
-    let a = ndc_from_clip(u.view_proj * vec4<f32>(start, 1.0));
-    let b = ndc_from_clip(u.view_proj * vec4<f32>(end, 1.0));
-    return length(px_from_ndc_delta(b.xy - a.xy));
+// How far a clip-space direction `d` moves the screen, in pixels, at a point
+// `at` whose own `w` is `w`.
+//
+// The quotient rule on the perspective divide: `ndc = clip / w`, so a step
+// along `d` moves it by `(d.xy*w - at.xy*d.w) / w²`. Exact, where differencing
+// two projected positions is exact only in the limit — and free here, because
+// the directions it is asked about are the ring's own axes, already in clip
+// space and already paid for.
+fn screen_rate(at: vec4<f32>, w: f32, d: vec4<f32>) -> vec2<f32> {
+    return px_from_ndc_delta((d.xy * w - at.xy * d.w) / (w * w));
 }
 
 struct RingVsOut {
@@ -35,6 +34,9 @@ struct RingVsOut {
     // rather than interpolating a constant.
     @location(2) @interpolate(flat) radius: f32,
     @location(3) @interpolate(flat) half_px: f32,
+    // Pixels per unit of in-plane radius, square to the rim. Linearly rather
+    // than perspective-correctly: it is a rate on the screen, not in the world.
+    @location(4) @interpolate(linear) px_per_radius: f32,
 };
 
 // A band around the rim, wide enough that the true circle is inside it at any
@@ -59,7 +61,23 @@ fn ring_vs(
     let angle = f32(vertex / 2u) / f32(RING_STEPS) * TAU;
     let outward = (vertex & 1u) != 0u;
     let turn = vec2<f32>(cos(angle), sin(angle));
-    let along = turn.x * x_axis + turn.y * y_axis;
+
+    // The ring's plane as a projective map: where its centre lands, and what
+    // its two axes become. Everything below is arithmetic on these three —
+    // where the vertex goes, which way the rim runs on screen, and what a pixel
+    // is worth there — so the whole instance costs three products and no
+    // probing at all.
+    let c = u.view_proj * vec4<f32>(center, 1.0);
+    let ex = u.view_proj * vec4<f32>(x_axis, 0.0);
+    let ey = u.view_proj * vec4<f32>(y_axis, 0.0);
+
+    // Clip-space directions along and around the rim, and the rim itself.
+    let radial = turn.x * ex + turn.y * ey;
+    let tangential = -turn.y * ex + turn.x * ey;
+    let at = c + radius * radial;
+    let w = max(at.w, MIN_W);
+    let radial_px = screen_rate(at, w, radial);
+    let tangential_px = screen_rate(at, w, tangential);
 
     // What a pixel is worth in world units here — the worst it is worth, in
     // any direction along the plane.
@@ -68,17 +86,11 @@ fn ring_vs(
     // and once the plane leans the circle projects to an ellipse whose normal
     // is nowhere near the projected radius. Sizing the band along the radius
     // alone leaves it too narrow exactly where the view grazes, and the outer
-    // edge starts cutting the stroke off. Two square probes bracket the worst
-    // direction to within a factor of root two, which is what pays for the
-    // `SQRT_2` below.
-    let tangent = -turn.y * x_axis + turn.x * y_axis;
-    let rim = center + along * radius;
-    let step = radius * RING_PROBE;
-    let spread = min(
-        pixels_between(rim, rim + along * step),
-        pixels_between(rim, rim + tangent * step),
-    );
-    let world_per_px = step / max(spread, MIN_PX);
+    // edge starts cutting the stroke off. The two directions bracket the worst
+    // one to within a factor of root two, which is what pays for the `SQRT_2`
+    // below.
+    let per_world = min(length(radial_px), length(tangential_px));
+    let world_per_px = 1.0 / max(per_world, MIN_PX);
 
     // How far past the rim the stroke reaches, in the plane. One pixel more
     // than half a width covers the edge the fragment stage fades over.
@@ -94,40 +106,43 @@ fn ring_vs(
     let offset = select(-reach, reach, outward);
     let out_radius = radius + offset;
 
+    // Pixels per unit of in-plane radius, measured square to the rim as it
+    // runs on screen — which is the direction the stroke's width is seen
+    // across, and nowhere near the projected radius once the plane leans.
+    // Handed to the fragment so it can turn its exact in-plane distance into
+    // an exact one in pixels without asking the hardware to difference
+    // neighbours for it.
+    let across = normalize(vec2<f32>(-tangential_px.y, tangential_px.x));
+    let px_per_radius = max(abs(dot(radial_px, across)), MIN_FADE);
+
     var out: RingVsOut;
-    out.clip = lift(
-        u.view_proj * vec4<f32>(center + along * out_radius, 1.0),
-        z_offset,
-    );
+    // In the plane, every vertex of it: the depth that comes out is then the
+    // plane's own exactly, and none of the gradient probing a stroke or a
+    // marker needs applies here.
+    out.clip = lift(c + out_radius * radial, z_offset);
     out.color = color;
     out.plane = turn * out_radius;
     out.radius = radius;
     out.half_px = half_px;
+    out.px_per_radius = px_per_radius;
     return out;
 }
 
 // The circle itself, measured rather than approximated.
 //
-// How far the in-plane radius moves across one fragment is exactly the factor
-// turning a distance in the plane into a distance in pixels — and it picks up
-// the foreshortening of a circle seen at an angle without being told the camera
-// is there at all.
+// The in-plane radius is exact — every vertex of the band lies in the plane, so
+// interpolating a position in it is exact too, and the circle stays a circle at
+// any `RING_STEPS`. Turning that into pixels is the vertex stage's answer,
+// carried in: the rate is smooth around the rim where the radius is not, so one
+// interpolates honestly and the other has to be measured where it is used.
 //
-// The length of the gradient rather than `fwidth`, which is `|dpdx| + |dpdy|`:
-// that sum is the diagonal of the box the two derivatives span where what is
-// wanted is its hypotenuse, so it runs up to `SQRT_2` long, and by the most
-// where the two are equal — a rim running diagonally across the pixel grid.
-// Distance to the rim is then understated in the same proportion and the band
-// is drawn wider than it was authored.
-//
-// Coverage in alpha for the same reason the markers use it: alpha-to-coverage
-// turns it into a sample mask, so nothing blends, depth stays clean and draw
-// order stays free.
+// Which is what this stopped asking `fwidth` for. That answers `|dpdx| +
+// |dpdy|` where the gradient's own length was wanted — the box's diagonal
+// against its hypotenuse, up to `SQRT_2` too long and longest exactly where a
+// rim runs diagonally across the grid — and a rate too large understates the
+// distance to the rim, which draws the band wider than it was authored.
 @fragment
 fn ring_fs(in: RingVsOut) -> @location(0) vec4<f32> {
-    let radius = length(in.plane);
-    let per_fragment = max(length(vec2<f32>(dpdx(radius), dpdy(radius))), MIN_FADE);
-    let from_rim = abs(radius - in.radius) / per_fragment;
-    let coverage = clamp(in.half_px - from_rim + 0.5, 0.0, 1.0);
-    return vec4<f32>(in.color, coverage);
+    let from_rim_px = abs(length(in.plane) - in.radius) * in.px_per_radius;
+    return vec4<f32>(in.color, coverage_px(in.half_px - from_rim_px));
 }
