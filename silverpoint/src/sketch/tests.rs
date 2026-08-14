@@ -213,39 +213,3 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     assert_eq!(sketch.param_count(), 7);
     assert_eq!(sketch.point(c), DVec2::new(6.0, 7.0));
 }
-
-#[test]
-fn scratch_drag_on_line() {
-    use crate::sketch::solver::freedoms::Freedoms;
-    use crate::sketch::solver::Solver;
-    use crate::sketch::constraint::Constraint;
-
-    // A horizontal edge from (0,0) to (10,0), both ends pinned, and a point
-    // constrained to lie on it.
-    let mut sketch = Sketch::default();
-    let a = sketch.add_point(DVec2::new(0.0, 0.0));
-    let b = sketch.add_point(DVec2::new(10.0, 0.0));
-    sketch.fix(a);
-    sketch.fix(b);
-    let edge = sketch.add_segment(a, b);
-    let p = sketch.add_point(DVec2::new(3.0, 0.0));
-    sketch.add_constraint(Constraint::PointOnSegment { point: p, segment: edge });
-
-    let mut solver = Solver::default();
-    let mut fr = Freedoms::default();
-    let r = solver.solve(&mut sketch, &mut fr);
-    println!("start: p={:?} converged={} dof={}", sketch.point(p), r.converged, fr.degrees_of_freedom());
-
-    // Drag it to (7, 2.5) — off the line, as a cursor always is.
-    let target = DVec2::new(7.0, 2.5);
-
-    // (1) Held, which is what the app does today.
-    let mut held_sketch = sketch.clone();
-    let r = solver.edit_holding(&mut held_sketch, &[p], &mut fr, |s| s.set_point(p, target));
-    println!("held:   p={:?} converged={} max_res={:.3e}", held_sketch.point(p), r.converged, r.max_residual);
-
-    // (2) Unheld: set it there and just solve.
-    let mut free_sketch = sketch.clone();
-    let r = solver.edit_holding(&mut free_sketch, &[], &mut fr, |s| s.set_point(p, target));
-    println!("unheld: p={:?} converged={} max_res={:.3e}", free_sketch.point(p), r.converged, r.max_residual);
-}
