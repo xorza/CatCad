@@ -34,15 +34,12 @@ pub enum Freedom {
 }
 
 /// What a sketch's constraints leave undecided, entity by entity — the
-/// breakdown behind [`SolveReport::degrees_of_freedom`], which counts the same
+/// breakdown behind [`Freedoms::degrees_of_freedom`], which counts the same
 /// freedoms without saying whose they are.
 ///
-/// Taken by [`Solver::freedoms`], which fills one rather than returning one so
-/// that a drawing measured every frame keeps its own instead of being handed a
-/// new one.
-///
-/// [`SolveReport::degrees_of_freedom`]: crate::SolveReport::degrees_of_freedom
-/// [`Solver::freedoms`]: crate::Solver::freedoms
+/// Filled rather than returned, so a drawing measured every frame keeps its own
+/// instead of being handed a new one. It arrives inside an
+/// [`Outcome`](crate::Outcome), which every entry point the solver has fills.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Freedoms {
     /// By point slot, so a handle indexes straight in.

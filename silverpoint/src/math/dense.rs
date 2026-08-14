@@ -11,10 +11,10 @@
 /// Cholesky rather than Gaussian elimination because the normal equations are
 /// SPD by construction: `JᵀJ` is positive semi-definite, damping adds a
 /// strictly positive amount to the diagonal of every free parameter, and a
-/// fixed one gets an identity row over a column [`assemble`] has already
-/// zeroed. That halves the arithmetic, and more to the point it removes
-/// pivoting — an SPD matrix needs none, so there is no pivot search and no row
-/// swapping here to disagree with the one in [`rank`].
+/// fixed one gets an identity row over a column the caller has already zeroed.
+/// That halves the arithmetic, and more to the point it removes pivoting — an
+/// SPD matrix needs none, so there is no pivot search here to disagree with the
+/// one a rank-revealing elimination makes.
 ///
 /// A non-positive pivot means the damping is too low to hold the matrix
 /// definite against rounding. That is the same answer a singular matrix used to

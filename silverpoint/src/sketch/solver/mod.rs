@@ -258,40 +258,31 @@ impl Solver {
     /// with `held` pinned — putting the sketch back exactly as it was found if
     /// the constraints cannot take the step.
     ///
-    /// What a drag is made of, and the reason it is one call rather than an
-    /// edit followed by a solve. Dragging geometry the
-    /// constraints already determine asks for a motion they forbid, and least
-    /// squares answers with a compromise: the drawing deforms under the cursor.
-    /// Keeping that would be bad enough on its own, but it is worse than it
-    /// looks — the compromise is held together only by what the drag pins, so
-    /// the *next* solve, holding something else, lets go of it and the drawing
-    /// springs back. Deform under one drag, snap on the next. Undoing the step
-    /// whole is what makes a drag the constraints refuse simply not move
-    /// anything, which is the truth about it.
+    /// What a drag is made of, and one call rather than an edit followed by a
+    /// solve because a refused drag has to move *nothing*. Least squares would
+    /// otherwise answer an impossible motion with a compromise, and the
+    /// compromise is held together only by what the drag pins — so the next
+    /// solve, holding something else, lets go of it and the drawing springs
+    /// back. Deform under one drag, snap on the next.
     ///
-    /// Two attempts, because holding is a demand and not a preference. Held,
-    /// the grabbed point does not move at all and the rest of the sketch swings
-    /// under it — which is what makes an ordinary drag track the pointer
-    /// exactly, and what a caller wants whenever the constraints can take it.
-    /// When they cannot, the same demand is what would freeze the drawing: a
-    /// point tied to an edge is never *exactly* under a cursor, so held it can
-    /// never move at all. So the second attempt asks the same edit holding
-    /// nothing, and lets the geometry settle back onto what the constraints
-    /// allow — which lands it as near what was asked for as it may go. A point
-    /// on an edge slides along it; an arm the pointer has outrun reaches as far
-    /// as it can.
+    /// Two attempts. Held, the grabbed point does not move at all and the rest
+    /// swings under it, which is what makes an ordinary drag track the pointer
+    /// exactly. Where the constraints cannot take that, the same demand would
+    /// freeze the drawing — a point tied to an edge is never *exactly* under a
+    /// cursor — so the second attempt asks the same edit holding nothing, and
+    /// lets the geometry settle as near what was asked for as it may go. A
+    /// point on an edge slides along it; an arm the pointer has outrun reaches
+    /// as far as it can. [`Outcome::settled`](crate::Outcome) says which
+    /// happened.
     ///
-    /// The second attempt is a free solve from where the cursor asked, so it
-    /// may in principle settle on a different branch of a mechanism that admits
-    /// more than one. It runs only where the first was refused, which is where
-    /// nothing moved at all, so nothing that works today can be made worse by
-    /// it.
+    /// The second attempt is a free solve from where the cursor asked, so it may
+    /// in principle settle on a different branch of a mechanism that admits more
+    /// than one. It runs only where the first was refused, which is where
+    /// nothing moved at all.
     ///
     /// `edit` may move geometry. It may not add or remove any: `held` and the
     /// residual this is judged against were both taken of the sketch as it
-    /// arrived, so an edit that changed what the sketch *is* would be settled
-    /// against a system that no longer exists. Adding geometry is
-    /// [`Solver::solve`]'s, with nothing held.
+    /// arrived. Adding geometry is [`Solver::solve`]'s, with nothing held.
     pub fn edit_holding(
         &mut self,
         sketch: &mut Sketch,

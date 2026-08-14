@@ -96,8 +96,7 @@ impl Constraint {
     /// `every_constraint_names_the_geometry_it_is_about` is what holds it.
     ///
     /// No constraint names more than two things, so the pair is built on the
-    /// stack and flattened — the same shape [`Self::equations`] uses, for the
-    /// same reason.
+    /// stack and flattened.
     pub fn referents(&self) -> impl Iterator<Item = Entity> {
         let named = match *self {
             Constraint::Coincident { a, b }

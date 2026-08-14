@@ -201,18 +201,14 @@ impl Sketch {
 
     /// Whether the sketch still holds `entity`.
     ///
-    /// For a caller keeping handles across an edit, which is how a handle stops
-    /// naming anything: a removal takes what was built on what went, and
-    /// [`Sketch::restore`] puts back a sketch that never had it. A handle left
-    /// over from either is worse than merely refused — a restore rewinds the
-    /// arenas whole, generations included, so the *next* entity added takes the
-    /// very same handle. Asking is how a caller avoids mistaking one for the
-    /// other; every other accessor here expects to be handed a live one and
-    /// panics rather than guessing.
+    /// For a caller keeping handles across an edit: a removal takes what was
+    /// built on what went, and [`Sketch::restore`] puts back a sketch that never
+    /// had it. Every other accessor expects a live handle and panics rather than
+    /// guessing.
     ///
-    /// One question over the kinds rather than one apiece, because a caller that
-    /// knows which kind it holds already said so by holding that handle — and
-    /// one that does not is exactly who has to ask.
+    /// A restore rewinds the generations too, so the next entity added takes the
+    /// very handle a removed one had — which is why this is worth asking rather
+    /// than inferring.
     pub fn holds(&self, entity: impl Into<Entity>) -> bool {
         match entity.into() {
             Entity::Point(id) => self.points.contains(id),
