@@ -124,6 +124,14 @@ pub(crate) enum Change {
     Orbit { yaw: f32, pitch: f32 },
     /// Move the camera in or out by a multiple of how far off it is.
     Dolly { factor: f32 },
+    /// Slide the camera across the view, without turning it or changing how
+    /// far off it is.
+    ///
+    /// A world step rather than the pixels the gesture was made of, like
+    /// [`Change::Drag`] and for the same reason: what a pixel is worth depends
+    /// on the viewport, and the viewport is the view's. The document has no
+    /// screen and is owed no chance to guess at one.
+    Pan { by: Vec3 },
     /// Look through this projection.
     Project(Projection),
 }

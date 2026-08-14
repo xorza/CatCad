@@ -506,6 +506,99 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     );
 }
 
+/// Two fingers travelling slide the view by exactly what they travelled, and
+/// change nothing else about it.
+///
+/// The whole of what a pan promises is that what you put your fingers on stays
+/// under them, so the check is where a fixed world point lands on screen rather
+/// than what the camera's numbers came out as. Palantir hands a trackpad's
+/// travel over as a scroll in logical pixels — the same delta a page would be
+/// scrolled by — and the viewport moving over the scene is what turns that into
+/// a camera step.
+#[test]
+fn two_fingers_travelling_pan_the_view_by_what_they_travelled() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let centre = Vec2::new(400.0, 300.0);
+    raised.harness.move_to(centre);
+    raised.frame();
+
+    // The target projects to the middle of the viewport, which is where the
+    // camera is by definition pointed.
+    let anchor = raised.camera().target;
+    assert!((raised.cursor_on(anchor) - centre).length() < 0.5);
+    let before = raised.camera();
+    let markers = raised.markers();
+
+    // Fingers going left and up: the viewport travels the other way over the
+    // scene, which is what a scroll delta already says.
+    let travelled = Vec2::new(-90.0, 40.0);
+    raised.harness.scroll_pixels_at(centre, travelled);
+    raised.frame();
+
+    let landed = raised.cursor_on(anchor);
+    assert!(
+        (landed - (centre - travelled)).length() < 0.5,
+        "a pan of {travelled:?} left the target at {landed:?}, not {:?}",
+        centre - travelled
+    );
+    assert_ne!(raised.camera().target, before.target, "nothing panned");
+    assert_eq!(
+        (
+            raised.camera().distance,
+            raised.camera().yaw,
+            raised.camera().pitch
+        ),
+        (before.distance, before.yaw, before.pitch),
+        "a pan turned or approached the scene as well as sliding it"
+    );
+    assert_eq!(raised.markers(), markers, "panning edited the drawing");
+
+    // And it lands once however many passes the frame recorded. A scroll is
+    // drained between them, so a pan that arrives as a step rather than as a
+    // destination is still applied exactly as far as it was asked for — which
+    // is what the pixel check above would catch doubling.
+    raised.frame();
+    assert!((raised.cursor_on(anchor) - (centre - travelled)).length() < 0.5);
+}
+
+/// Pinching zooms and does nothing else — the eye comes in, and where it is
+/// looking and from which side stay put.
+#[test]
+fn a_pinch_brings_the_eye_in_and_pushing_apart_takes_it_out() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let centre = Vec2::new(400.0, 300.0);
+    raised.harness.move_to(centre);
+    raised.frame();
+    let before = raised.camera();
+
+    // Fingers apart asks for a bigger picture, which is a shorter orbit.
+    raised.harness.pinch_at(centre, 1.25);
+    raised.frame();
+    let closer = raised.camera();
+    assert!(
+        (closer.distance - before.distance / 1.25).abs() < before.distance * 1e-5,
+        "a 1.25 pinch left the eye at {} from {}",
+        closer.distance,
+        before.distance
+    );
+    assert_eq!(
+        (closer.target, closer.yaw, closer.pitch),
+        (before.target, before.yaw, before.pitch),
+        "a pinch moved the view as well as zooming it"
+    );
+
+    // And the way back out, by the reciprocal, is the distance it started at.
+    raised.harness.pinch_at(centre, 0.8);
+    raised.frame();
+    assert!(
+        (raised.camera().distance - before.distance).abs() < before.distance * 1e-5,
+        "{:?} did not undo the pinch",
+        raised.camera()
+    );
+}
+
 /// Pressing where the drawing is not turns the camera, which is the only way
 /// the view can be looked around — so a drag has to fall back to it rather
 /// than swallow the gesture.

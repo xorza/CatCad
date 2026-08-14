@@ -336,6 +336,86 @@ fn frame_pulls_back_until_the_bounds_fit() {
     assert_eq!(camera.distance, MIN_DISTANCE);
 }
 
+/// A pan moves the picture by exactly the pixels it was asked for, and moves
+/// nothing else about the camera.
+///
+/// Checked against the projection rather than against the arithmetic that
+/// produced it, which is what makes it a cross-check: `pan_step` builds the
+/// screen basis out of the angles by hand, and `view_proj` builds its own out
+/// of `look_at`. A sign or an axis wrong in either shows up here as a point
+/// landing somewhere other than where the pan promised to put it.
+#[test]
+fn a_pan_moves_the_picture_by_the_pixels_it_was_given() {
+    let viewport = Viewport::new(UVec2::new(800, 600));
+    let centre = Vec2::new(400.0, 300.0);
+    // The pan travels in the plane through the target, so a point sitting on
+    // the target keeps its depth and its projection stays exact.
+    let pixel_of_origin = |camera: &Camera| {
+        viewport.pixel_from_clip(camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0))
+    };
+
+    for projection in [Projection::Perspective, Projection::Orthographic] {
+        for (yaw, pitch) in [(0.0, 0.0), (0.9, 0.0), (0.0, 0.7), (-2.3, -1.1)] {
+            for screen in [
+                Vec2::new(60.0, 0.0),
+                Vec2::new(0.0, -30.0),
+                Vec2::new(-150.0, 240.0),
+            ] {
+                let mut camera = Camera {
+                    projection,
+                    yaw,
+                    pitch,
+                    ..unit_camera()
+                };
+                assert!(
+                    (pixel_of_origin(&camera) - centre).length() < 1e-3,
+                    "{camera:?}"
+                );
+
+                camera.pan(camera.pan_step(screen, viewport));
+
+                // The viewport went `screen` one way, so what stayed put went
+                // the other — the page-under-a-scroll relationship, in pixels.
+                let moved = pixel_of_origin(&camera);
+                assert!(
+                    (moved - (centre - screen)).length() < 1e-3,
+                    "{screen:?} left the origin at {moved:?} under {camera:?}"
+                );
+                assert!((camera.distance - 5.0).abs() < 1e-6, "{camera:?}");
+                assert_eq!((camera.yaw, camera.pitch), (yaw, pitch));
+            }
+        }
+    }
+}
+
+/// Panning a whole viewport height covers exactly the world height the
+/// viewport spans at the target — the scale the pixel maths is built on,
+/// stated as a number rather than as a round trip through the projection.
+#[test]
+fn a_pan_of_one_viewport_covers_the_height_it_frames() {
+    // 90° fov at 5 units puts the half-extent at `5 * tan(45°) == 5`, so the
+    // viewport spans 10 world units and each of its 600 rows is worth 1/60.
+    let camera = unit_camera();
+    let viewport = Viewport::new(UVec2::new(800, 600));
+    assert!(
+        (camera.pan_step(Vec2::new(0.0, 600.0), viewport) - Vec3::new(0.0, -10.0, 0.0)).length()
+            < 1e-5
+    );
+    assert!(
+        (camera.pan_step(Vec2::new(60.0, 0.0), viewport) - Vec3::new(1.0, 0.0, 0.0)).length()
+            < 1e-5
+    );
+
+    // Halving the distance halves what a pixel is worth, so a pan covers the
+    // same fraction of the picture however far in the eye has dollied.
+    let mut close = camera;
+    close.dolly(0.5);
+    assert!(
+        (close.pan_step(Vec2::new(0.0, 600.0), viewport) - Vec3::new(0.0, -5.0, 0.0)).length()
+            < 1e-5
+    );
+}
+
 #[test]
 fn dolly_scales_distance_down_to_the_floor() {
     let mut camera = unit_camera();

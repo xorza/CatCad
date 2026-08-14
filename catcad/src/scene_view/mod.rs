@@ -214,7 +214,7 @@ impl SceneView {
         let paint: Rc<RefCell<dyn GpuPaint>> = self.renderer.clone();
         let response = GpuView::new(paint)
             .auto_id()
-            .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL)
+            .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL | Sense::PINCH)
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui);
 
@@ -350,10 +350,48 @@ impl SceneView {
         // the overlay's own controls from lighting what is behind them.
         self.aimed = Aimed::of(&response).filter(|_| response.hovered);
 
-        let notches = response.scroll.lines.y;
+        self.navigate(&response, document, intents);
+    }
+
+    /// What the wheel and the trackpad do to the camera: notches and a pinch
+    /// zoom, two fingers travelling pan.
+    ///
+    /// Split off `ask` because it is the one part of a frame that asks nothing
+    /// of the drawing — it never touches what is under the cursor, only where
+    /// the cursor's view is looking from.
+    ///
+    /// Pinch and wheel both dolly rather than one of them rescaling the
+    /// picture, so the two agree about what zooming means and neither has to be
+    /// undone by the other. Both come out as their own intent instead of one
+    /// combined factor: a frame carrying both asked for both, and a product
+    /// would say the same thing while hiding which gesture said it.
+    fn navigate(&self, response: &Response<'_>, document: &Document, intents: &mut Intents) {
+        let scroll = response.scroll;
+
+        // Straight through as the scroll delta arrives: a viewport travelling
+        // over a scene is what a scroll offset already means, so a pan wants no
+        // rate of its own and moves what is under the fingers exactly as far as
+        // they went.
+        if scroll.pixels != Vec2::ZERO
+            && let Some(aimed) = Aimed::of(response)
+        {
+            intents.push(Change::Pan {
+                by: aimed.pan_step(&document.camera(), scroll.pixels),
+            });
+        }
+
+        let notches = scroll.lines.y;
         if notches != 0.0 {
             intents.push(Change::Dolly {
                 factor: ZOOM_RATE.powf(-notches),
+            });
+        }
+
+        // Pinching apart asks for a bigger picture, which is the eye coming in
+        // — so the factor is inverted on the way to a distance.
+        if scroll.zoom != 1.0 {
+            intents.push(Change::Dolly {
+                factor: 1.0 / scroll.zoom,
             });
         }
     }

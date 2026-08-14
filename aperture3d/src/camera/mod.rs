@@ -235,6 +235,35 @@ impl Camera {
         self.distance = (self.distance * factor).max(MIN_DISTANCE);
     }
 
+    /// Slide what is being looked at, taking the eye with it. Neither angle
+    /// nor distance moves, so the scene keeps the pose it was turned to.
+    pub fn pan(&mut self, by: Vec3) {
+        self.target += by;
+    }
+
+    /// How far the target has to move for the picture to travel `screen`
+    /// pixels — what [`Camera::pan`] is handed to answer a gesture.
+    ///
+    /// `screen` counts the way a cursor does, x right and y down, and names
+    /// where the *viewport* goes rather than where the scene does: a page
+    /// scrolled down moves its content up, and a viewport handed a scroll
+    /// delta straight through moves a model the same way.
+    ///
+    /// Measured at the orbit target. Under perspective that is the one depth
+    /// where a pixel has a settled world size, and it is the depth the sketch
+    /// being panned is nearest to; the orthographic view has that size
+    /// everywhere and reads the same number.
+    pub fn pan_step(&self, screen: Vec2, viewport: Viewport) -> Vec3 {
+        let (sin_yaw, cos_yaw) = self.yaw.sin_cos();
+        let (sin_pitch, cos_pitch) = self.pitch.sin_cos();
+        // The screen basis in world space. Right is level whatever the pitch,
+        // because yaw turns about the world up axis and nothing else does.
+        let right = Vec3::new(cos_yaw, 0.0, -sin_yaw);
+        let up = Vec3::new(-sin_yaw * sin_pitch, cos_pitch, -cos_yaw * sin_pitch);
+        let world_per_pixel = 2.0 * self.half_extent() / viewport.extent().y;
+        (right * screen.x - up * screen.y) * world_per_pixel
+    }
+
     /// Look at `bounds` from the current angles, far enough back that all of
     /// it is in frame.
     ///

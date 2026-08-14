@@ -50,6 +50,21 @@ impl Aimed {
     pub(super) fn aim(self, camera: &Camera) -> Aim {
         Aim::new(camera, self.cursor, self.viewport, HOVER_REACH)
     }
+
+    /// The world step that slides the picture by `screen` logical pixels, seen
+    /// through `camera`.
+    ///
+    /// Here rather than on the camera's own call because the viewport is here:
+    /// a caller reaching for the viewport to hand it back would be one more
+    /// place the widget's rect is turned into one, and the two would disagree
+    /// the first time either was measured differently.
+    ///
+    /// The cursor is not read at all — a scroll carries no position of its own.
+    /// It arrives through an `Aimed` all the same, because that is where a
+    /// `Response` becomes a viewport.
+    pub(super) fn pan_step(self, camera: &Camera, screen: Vec2) -> Vec3 {
+        camera.pan_step(screen, self.viewport)
+    }
 }
 
 /// Where the cursor lands on `motion`, or `None` if it cannot say.
