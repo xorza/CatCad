@@ -30,10 +30,14 @@ pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 1.5;
 /// Turning one into records is [`Flatten`], a second trait rather than two more
 /// methods on this one, because it is the one thing the five do not share.
 ///
-/// Picking is deliberately absent, though a scene does ask four of them for it.
-/// Those are four genuinely different algorithms, so a trait method would move
-/// where they are spelled without reducing them, and would have no generic
-/// caller to justify itself.
+/// Picking is deliberately absent, though a scene asks four of them for it.
+/// Those are four different algorithms wearing a three-line frame — take the
+/// tag, compare against the reach, build the hit — and hoisting the frame onto a
+/// trait was tried and measured at forty-four lines *more* than it saved, since
+/// naming the result each kind hands back costs more than the frame does. If it
+/// is revisited: a label's bare `aim.radius` is exactly `aim.reach(0.0)`, and a
+/// stroke's reach test can leave its loop, because its nearest segment being out
+/// of reach means all of them were.
 pub(crate) trait Primitive {
     /// What a pick that lands on it reports, and what a highlight names.
     fn tag(&self) -> Option<Tag>;

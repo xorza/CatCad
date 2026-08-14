@@ -23,11 +23,8 @@ use glam::Vec3;
 /// every magnification, one record however large, and nothing to rebuild when
 /// the camera moves.
 ///
-/// `Default` draws nothing — its radius is zero. It is what [`refill`] stands a
-/// new slot up as before writing it, and nothing else should want one; its axes
-/// are zero too, where a ring meant to be drawn carries a unit pair.
-///
-/// [`refill`]: crate::Batch::refill
+/// `Default` draws nothing — its radius is zero, and its axes with it, where a
+/// ring meant to be drawn carries a unit pair.
 #[derive(Default, Debug, Clone, Copy)]
 pub struct Ring {
     pub center: Vec3,
@@ -175,9 +172,6 @@ impl Ring {
     }
 }
 
-/// The chainable setters, beside the two [`Styled`] already supplies. Kept
-/// apart from what the ring *does*, so neither has to be read past to reach
-/// the other.
 impl Ring {
     /// Set the stroke width in logical pixels.
     pub fn width(mut self, width: f32) -> Self {

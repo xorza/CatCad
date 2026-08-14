@@ -20,6 +20,12 @@ use palantir::{PlacedGlyph, TextGlyphs};
 /// themselves and exists before a device does; that side is the buffers they are
 /// written into, and cannot.
 ///
+/// Field for field by hand, and not a list either side could walk: a
+/// [`Records`] is generic over what one kind ships, so the fields have five
+/// different types and no array can hold them. Erasing the record type would
+/// buy the walk at the cost of the typed flatten, which is the wrong trade
+/// while there are five kinds.
+///
 /// Held between frames for the same reason those buffers are: an edit that moves
 /// one vertex should not discard and rebuild the lot. Every vector in here is
 /// emptied and refilled in place, so once one has grown to fit the scene it stops
@@ -163,8 +169,8 @@ fn flatten(
 /// Held apart from what fills either, because the filling is the one thing the
 /// kinds disagree about — three of them flatten themselves from a batch and text
 /// needs a shaper and a sheet — while this half is the same for all four: two
-/// buffers refilled in place, a mark apiece, and a mark that is *taken* rather
-/// than read so exactly one thing can act on it.
+/// buffers refilled in place, and a mark apiece on the terms
+/// [`Batch::take_dirty`] sets.
 #[derive(Debug)]
 pub(super) struct Records<R> {
     /// The kind drawn as itself.
@@ -179,9 +185,6 @@ pub(super) struct Records<R> {
 impl<R> Default for Records<R> {
     /// Hand-written because deriving would demand `R: Default`, which is a
     /// claim about records that nothing here needs.
-    ///
-    /// Clean, like an empty [`Batch`]: there is nothing in either buffer, and
-    /// nothing in the pass it feeds either.
     fn default() -> Self {
         Self {
             ordinary: Vec::new(),

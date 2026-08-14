@@ -22,9 +22,7 @@ use std::cell::Cell;
 /// a screen measurement, which nothing outside a renderer can take — see
 /// [`Text::extent`].
 ///
-/// `Default` draws nothing: an empty string in a font of no size. It is what
-/// [`refill`](crate::Batch::refill) stands a new slot up as, and nothing else
-/// should want one.
+/// `Default` draws nothing: an empty string in a font of no size.
 #[derive(Debug, Clone)]
 pub struct Text {
     /// Where the run is anchored in the world.
@@ -150,7 +148,6 @@ impl Primitive for Text {
     }
 }
 
-/// The chainable setters, beside the two [`Styled`] already supplies.
 impl Text {
     /// Put `position` at this fraction of the run's own box — see
     /// [`Text::anchor`].

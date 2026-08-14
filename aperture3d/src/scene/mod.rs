@@ -11,19 +11,18 @@ use crate::primitive;
 use crate::ring::Ring;
 use crate::text::Text;
 
-/// The whole of the drawable world: shaded meshes, stroked curves, rims and
-/// markers. Flat for now — hierarchy, if it earns its place, goes here.
+/// The whole of the drawable world: shaded meshes, stroked curves, rims,
+/// markers and labels. Flat for now — hierarchy, if it earns its place, goes
+/// here.
 ///
 /// Every field is public and writable, because each [`Batch`] reports its own
 /// edits: a caller handed the whole scene and writing to one of them costs
 /// exactly that one being re-uploaded. There is nothing to bundle or to keep out
 /// of reach.
 ///
-/// What there is, and not where it is seen from. A camera used to travel with
-/// it, which meant every producer of a scene was invited to supply a viewpoint
-/// it had no opinion about, and every consumer could read one without saying
-/// which. [`Scene::nearest`] takes the camera it queries through, so a caller
-/// picking and a caller drawing cannot silently use two.
+/// What there is, and not where it is seen from — [`Scene::nearest`] takes the
+/// camera it queries through, so a caller picking and a caller drawing cannot
+/// silently use two.
 #[derive(Debug, Clone, Default)]
 pub struct Scene {
     pub objects: Batch<Object>,
@@ -52,48 +51,19 @@ impl Scene {
         bounds
     }
 
-    /// What the aim was most likely meant for, within `radius` of `cursor` on
-    /// screen, or `None` if nothing is near enough, seen `through` a camera.
+    /// What the aim was most likely meant for, or `None` if nothing is near
+    /// enough.
     ///
-    /// The camera is asked for rather than held, because a query is not a
-    /// drawing: what a scene *is* does not depend on where it is looked at
-    /// from, and a caller that picks through one viewpoint and paints through
-    /// another has to be made to say so.
+    /// Chosen by how specific the hit is, then how near the cursor it fell,
+    /// then how near the eye. A marker beats a stroke running through it,
+    /// because the smaller thing is the harder one to aim at and so the one the
+    /// aim was meant for. Untagged primitives are scenery and never answer.
     ///
-    /// `cursor` and `radius` are in **logical** pixels, as is the
-    /// [`Viewport`](crate::Viewport) they are measured against, and `cursor` counts down from the top-left
-    /// corner.
-    ///
-    /// Not a free choice, unlike everywhere else a cursor and a viewport meet:
-    /// what counts as a hit depends on how wide the thing is drawn, and a
-    /// stroke's width and a marker's diameter are always logical — scaling
-    /// them to the target is the renderer's job and happens after this. Aiming
-    /// in physical pixels on a scaled display would ask for everything within
-    /// a reach the glyph has already outgrown.
-    ///
-    /// Tested in screen space rather than against the world, because that is
-    /// where the aim happened: a stroke is a pixel and a half wide however far
-    /// off it is, and a marker is a fixed disc, so the distance that decides
-    /// whether the cursor was on one is a distance in pixels. Anything drawn
-    /// wider than `radius` is pickable anywhere it is visible — you can always
+    /// Tested in screen space, because that is where the aim happened: a stroke
+    /// is a pixel and a half wide however far off it is. Anything drawn wider
+    /// than the aim's radius is pickable anywhere it is visible — you can always
     /// grab what you can see.
-    ///
-    /// Chosen by how specific the hit is, then how near the cursor, then how
-    /// near the eye: a marker beats a stroke running through it, because the
-    /// smaller thing is the harder one to aim at and so the one the aim was
-    /// meant for. Untagged primitives are scenery and never answer.
-    ///
-    /// One answer rather than the list of everything under the cursor. The
-    /// list is the better question for a *click* — cycling through what
-    /// overlaps, or ignoring kinds the current tool cannot use, both need it —
-    /// but nothing asks it yet, and a query that hands back an owned `Vec`
-    /// would allocate on every frame a pointer moves. When something does ask,
-    /// it wants a `pick_into` filling a buffer the caller keeps, not this
-    /// returning one.
     pub fn nearest(&self, aim: Aim) -> Option<Hit> {
-        // `min_by` keeps the first of equally-ordered hits, which is the one a
-        // stable sort would put first — so this answers as the head of that
-        // list, and a `pick_into` added later cannot disagree with it.
         self.hits(aim).min_by(Hit::aim_order)
     }
 

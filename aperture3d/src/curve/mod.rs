@@ -24,10 +24,7 @@ const MIN_RECIP_W: f32 = 1e-6;
 /// Curves are unlit: they carry no normal, and their colour reaches the
 /// target unshaded.
 ///
-/// `Default` draws nothing — it has no points. It is what [`refill`] stands a
-/// new slot up as before writing it, and nothing else should want one.
-///
-/// [`refill`]: crate::Batch::refill
+/// `Default` draws nothing — it has no points.
 #[derive(Default, Debug, Clone)]
 pub struct Curve {
     /// Each neighbouring pair is one stroked segment. Fewer than two points
@@ -132,9 +129,6 @@ impl Curve {
     }
 }
 
-/// The chainable setters, beside the two [`Styled`] already supplies. Kept
-/// apart from what the curve *does*, so neither has to be read past to reach
-/// the other.
 impl Curve {
     /// Join the last point back to the first.
     pub fn closed(mut self) -> Self {

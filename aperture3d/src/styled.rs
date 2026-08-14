@@ -8,8 +8,9 @@ use glam::Vec3;
 ///
 /// Two rather than three: an overlay's depth bias would be the obvious third,
 /// but [`Object`](crate::Object) is styled too and a solid has no bias to give.
-/// The three overlays restate `z_offset` because the alternative is a second
-/// public trait for one setter, or a field on solids that nothing reads.
+/// The four overlays restate `z_offset` instead, which measured cheaper — a
+/// setter needs a *public* trait, and the only one covering those four kinds
+/// would publish the crate's private picking vocabulary behind it.
 ///
 /// The setters live here rather than being restated on each primitive, so that
 /// "colour it" and "name it" mean one thing across the crate and cannot drift

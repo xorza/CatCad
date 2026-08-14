@@ -9,9 +9,7 @@ use glam::{Mat4, Vec3};
 /// Geometry plus where it sits and what colour it is. Colour is flat per
 /// object and linear-RGB, matching palantir's CPU-side colour space.
 ///
-/// `Default` draws nothing — its mesh is empty. It is what
-/// [`refill`](crate::Batch::refill) stands a new slot up as before writing it,
-/// and nothing else should want one.
+/// `Default` draws nothing — its mesh is empty.
 #[derive(Debug)]
 pub struct Object {
     pub mesh: Mesh,

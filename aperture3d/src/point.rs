@@ -23,10 +23,7 @@ const DEFAULT_SIZE: f32 = 8.0;
 /// reads the same however the camera is turned, and its silhouette is its own
 /// pick radius.
 ///
-/// `Default` draws nothing — its diameter is zero. It is what [`refill`] stands
-/// a new slot up as before writing it, and nothing else should want one.
-///
-/// [`refill`]: crate::Batch::refill
+/// `Default` draws nothing — its diameter is zero.
 #[derive(Default, Debug, Clone)]
 pub struct Point {
     pub position: Vec3,
@@ -70,9 +67,6 @@ impl Point {
     }
 }
 
-/// The chainable setters, beside the two [`Styled`] already supplies. Kept
-/// apart from what the marker *does*, so neither has to be read past to reach
-/// the other.
 impl Point {
     /// Set the diameter in logical pixels.
     pub fn size(mut self, size: f32) -> Self {
