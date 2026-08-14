@@ -218,7 +218,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let drawing = drawn(demo::sketch());
     let mut scene = Scene::default();
     let mut names = Names::default();
-    write(&drawing, &mut names, None, scene.overlays_mut());
+    redraw(&drawing, &mut names, None, scene.overlays_mut());
 
     // Seven segments — four sides, the rail, and the arm's two bars — two
     // circles, and a marker on each of the nine points.
@@ -238,8 +238,29 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
 
     // Written again into the same scene, it says the same thing rather than
     // adding to it.
-    write(&drawing, &mut names, None, scene.overlays_mut());
+    redraw(&drawing, &mut names, None, scene.overlays_mut());
     assert_eq!(scene.curves.len(), 7);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
+}
+
+/// A scene is the document's solids and its drawing over them, and nothing that
+/// is not in the document.
+///
+/// What this pins is that the picture is *derived* — nothing stands in it that
+/// the document does not hold, which is the whole reason saving the document is
+/// enough. The overlay counts are the fixture above's, laid out from the same
+/// sketch by the same writer, so what this adds is the solids and the fact that
+/// one call produces both halves.
+#[test]
+fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
+    let document = demo::document(&mut Solver::default());
+    let mut names = Names::default();
+    let picture = scene(&document, &mut names);
+
+    // The slab and the three boxes standing on it.
+    assert_eq!(picture.objects.len(), 4);
+    assert_eq!(picture.curves.len(), 7);
+    assert_eq!(picture.rings.len(), 2);
+    assert_eq!(picture.points.len(), 9);
 }

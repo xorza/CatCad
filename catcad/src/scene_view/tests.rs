@@ -5,7 +5,7 @@ use crate::intent::{Intent, Intents};
 use crate::paint;
 use crate::selection::Selection;
 use crate::tool::Tool;
-use aperture::Aim;
+use aperture::{Aim, Scene};
 use glam::DVec2;
 use palantir::Modifiers;
 use palantir::internals::UiHarness;
@@ -113,7 +113,7 @@ impl Raised {
     /// question as where the scene the renderer holds still shows them.
     fn asked_for(&self) -> Vec<Vec3> {
         let mut scene = Scene::default();
-        paint::write(
+        paint::redraw(
             self.document.drawing(),
             &mut Names::default(),
             None,

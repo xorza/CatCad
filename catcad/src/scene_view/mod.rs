@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Aim, Bounds, Camera, Highlight, Lit, Motion, Renderer, Scene, Viewport};
+use aperture::{Aim, Bounds, Camera, Highlight, Lit, Motion, Renderer, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
@@ -179,10 +179,8 @@ impl SceneView {
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
     pub(crate) fn new(document: &Document) -> Self {
-        let mut scene = Scene::default();
         let mut names = Names::default();
-        document.write_solids(&mut scene.objects);
-        paint::write(document.drawing(), &mut names, None, scene.overlays_mut());
+        let scene = paint::scene(document, &mut names);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             names,
@@ -419,7 +417,7 @@ impl SceneView {
         if self.laid_out != drawing.revision() || self.laid_band != self.preview {
             // Into the batches the renderer already holds, so a drag rewrites
             // the drawing every frame without asking the heap for anything.
-            paint::write(
+            paint::redraw(
                 drawing,
                 &mut self.names,
                 self.preview,

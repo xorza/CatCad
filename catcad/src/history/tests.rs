@@ -18,7 +18,7 @@ fn once(intent: Intent) -> Intents {
 /// has to put back.
 fn markers(document: &Document) -> Vec<Vec3> {
     let mut scene = Scene::default();
-    paint::write(
+    paint::redraw(
         document.drawing(),
         &mut Names::default(),
         None,

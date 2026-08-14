@@ -1,6 +1,6 @@
 //! What a saved file would hold, and the one thing that owns it.
 
-use aperture::{Batch, Bounds, Camera, Object};
+use aperture::{Bounds, Camera, Object};
 
 use crate::drawing::Drawing;
 use crate::intent::Intent;
@@ -55,6 +55,11 @@ impl Document {
     /// The model, which is the whole of what the document says.
     pub(crate) fn drawing(&self) -> &Drawing {
         &self.drawing
+    }
+
+    /// The solids modelled alongside the drawing.
+    pub(crate) fn solids(&self) -> &[Object] {
+        &self.solids
     }
 
     /// Where the document is being looked at from.
@@ -133,25 +138,6 @@ impl Document {
             }
         }
     }
-
-    /// Put the solids this document holds into `into`.
-    ///
-    /// The whole of what a document draws by itself. Its *drawing* is drawn by
-    /// `paint`, for whoever laid it out — a document says what it holds, and
-    /// what that should look like is nobody's business but the view's.
-    ///
-    /// Fills a batch the caller owns rather than handing one back. A document is
-    /// the thing worth saving and a scene is one way of looking at it, so a
-    /// document that *made* one would be a document that had to know what a
-    /// renderer wants — where this only has to know how to describe itself.
-    ///
-    /// The meshes are copied across, which makes this an opening-a-document call
-    /// rather than a per-frame one: handing a renderer its objects again has it
-    /// upload them again. The copy is written over the objects already there, so
-    /// it is the upload that makes this expensive and not the vertices.
-    pub(crate) fn write_solids(&self, into: &mut Batch<Object>) {
-        into.refill(&self.solids, |object, solid| object.clone_from(solid));
-    }
 }
 
 /// What a harness reaches past the document for.
@@ -170,6 +156,3 @@ pub(crate) mod internals {
         }
     }
 }
-
-#[cfg(test)]
-mod tests;

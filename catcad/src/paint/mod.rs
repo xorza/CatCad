@@ -7,10 +7,11 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Overlays, Point, Ring, Styled};
+use aperture::{Batch, Curve, Object, Overlays, Point, Ring, Scene, Styled};
 use glam::Vec3;
 use silverpoint::{Circle, CircleId, Freedom, Segment, SegmentId};
 
+use crate::document::Document;
 use crate::drawing::Drawing;
 use crate::named::{Named, Names};
 use crate::preview::{Ends, Preview};
@@ -81,8 +82,42 @@ const STROKE_LIFT: i32 = 512;
 /// disagree by and still three decades short of showing through the model.
 const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 
+/// The whole picture of `document` as it stands — the solids it holds, its
+/// drawing over them, and a name for every part that can be pointed at.
+///
+/// Where a scene comes from, and the only place one does. Hands back a fresh
+/// scene rather than filling one the caller owns, which is the shape the cost
+/// deserves: the meshes are copied across, and handing a renderer its objects
+/// again has it upload them again. Anything wanting this every frame wants
+/// [`redraw`] instead — and the two are shaped as differently as they are so
+/// that reaching for the wrong one is a change of code rather than of nothing.
+///
+/// The solids are written here rather than by the document, so that a document
+/// says what it holds and one module decides what all of it looks like.
+pub(crate) fn scene(document: &Document, names: &mut Names) -> Scene {
+    let mut scene = Scene::default();
+    write_solids(document.solids(), &mut scene.objects);
+    // No band. Nothing can be half-drawn in a document nobody has looked at yet.
+    redraw(document.drawing(), names, None, scene.overlays_mut());
+    scene
+}
+
+/// The solids as the renderer wants them, which is as they already are: a solid
+/// is modelled rather than drawn, so unlike everything below there is no
+/// appearance to decide about one.
+fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
+    into.refill(solids, |object, solid| object.clone_from(solid));
+}
+
 /// Draw the whole of `drawing`, and `band` over it, naming each part into
 /// `names`.
+///
+/// The half of a picture that moves. A drawing is edited and the solids beside
+/// it are not, so this touches the three overlay batches and nothing else —
+/// which is why it takes [`Overlays`] rather than the scene those came out of.
+/// The narrower borrow is the whole point: a renderer re-uploads whatever it
+/// lends out, so a per-frame call that could reach the solids would re-upload
+/// every mesh on every frame of a drag.
 ///
 /// Fills buffers rather than returning them, so a drag refills what the renderer
 /// already holds instead of handing it new vectors every frame. The tags come
@@ -100,7 +135,7 @@ const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 /// about — which is why this is here rather than on [`Drawing`]. It is written
 /// among the strokes and rims and never named, so it cannot be picked; see the
 /// two writers below.
-pub(crate) fn write(
+pub(crate) fn redraw(
     drawing: &Drawing,
     names: &mut Names,
     band: Option<Preview>,
