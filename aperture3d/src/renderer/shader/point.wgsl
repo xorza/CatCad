@@ -29,8 +29,7 @@ fn point_vs(
     @location(1) color: vec3<f32>,
     // Half the diameter in logical px, then the depth bias.
     @location(2) half_size: f32,
-    @location(3) z_offset: f32,
-    @location(4) plane: vec3<f32>,
+    @location(3) plane: vec3<f32>,
 ) -> PointVsOut {
     let corner = vec2<f32>(
         select(-1.0, 1.0, (index & 1u) != 0u),
@@ -42,18 +41,15 @@ fn point_vs(
 
     // A glyph wide enough to see is wide enough for the surface under it to
     // rise through, so the disc follows the plane's depth exactly as a stroke
-    // does. Without a plane it stays flat and leans on the bias alone.
+    // does. Without a plane it stays flat and leans on the pass bias alone.
     let anchor_ndc = ndc_from_clip(anchor);
     let plane_shift = plane_depth_shift(position, plane, anchor, anchor_ndc, offset_ndc);
 
     var out: PointVsOut;
-    out.clip = lift(
-        vec4<f32>(
-            anchor.xy + offset_ndc * anchor.w,
-            anchor.z + plane_shift.shift * anchor.w,
-            anchor.w,
-        ),
-        z_offset,
+    out.clip = vec4<f32>(
+        anchor.xy + offset_ndc * anchor.w,
+        anchor.z + plane_shift.shift * anchor.w,
+        anchor.w,
     );
     out.color = color;
     out.corner = corner;

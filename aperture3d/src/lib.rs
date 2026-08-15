@@ -51,11 +51,14 @@
 //! decides this; nothing on the object itself says so.
 //!
 //! An overlay drawn on the surface it describes is in a depth fight with that
-//! surface, and two fields on the overlay settle it. `z_offset` biases the
-//! depth test toward the viewer without moving where the overlay lands on
-//! screen; `plane_normal` gives its screen-widened corners the surface's own
-//! depth rather than the anchor's, which is exact and needs no bias. Each is
-//! documented where it is declared.
+//! surface, and two things settle it. Which *layer* reads over which is the
+//! renderer's, not the caller's: solids, then faces, then strokes and rims, then
+//! markers and type, each pass biased toward the viewer by a fixed step, because
+//! that order is this crate's own and an application choosing its own numbers
+//! would be restating a layering it does not control. What is left to the
+//! primitive is `plane_normal`, which gives its screen-widened corners the
+//! surface's own depth rather than the anchor's — a shape question rather than a
+//! layering one, and documented where it is declared.
 //!
 //! # Picking
 //!

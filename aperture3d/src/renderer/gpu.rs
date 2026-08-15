@@ -11,31 +11,55 @@ use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::renderer::uniforms::Uniforms;
 use glam::UVec2;
 
-/// How many steps of depth resolution a sketch face is brought forward, so that
-/// lying in the very plane of what it is drawn on is settled rather than left to
-/// whichever fragment the rasteriser reached first.
+/// The depth ladder every layer of a drawing stands on, in steps of depth
+/// resolution — see [`PassSpec::depth_bias`](super::pass::PassSpec).
 ///
-/// The bottom of the one ladder every layer of the drawing stands on — this,
-/// then `STROKE_LIFT`, then `MARKER_LIFT`, all of them steps of the same
-/// [`lift`]. There is deliberately no second mechanism: the rasteriser's own
-/// `depth_bias` moves depth by the same unit, one place in the last of the
-/// primitive's own depth, so a face biased that way and a stroke lifted this way
-/// share one ladder while being set in two files — and raising either silently
-/// reorders the other. It cannot be the surviving one, either, because a
-/// highlight *adds* to a primitive's lift and shares its pipeline, which is a
-/// thing pipeline state cannot say.
+/// Solids are the ground and sit at zero. Each layer above says how far forward
+/// it reads, and the numbers are here together because a ladder is a set of
+/// *gaps* rather than a set of heights: what matters is that a stroke clears the
+/// face it is drawn on and a marker clears the stroke it terminates, and that is
+/// only checkable if the rungs are written in one place.
 ///
-/// Large, and it needs to be: it is measured not against the depth buffer's
-/// resolution but against how far two differently meshed copies of one plane
-/// disagree, and a slab's top is one quad where a sketch face is an arrangement
-/// triangulated to a sagitta. Sixteen left the two fighting at arm's length, in
-/// slivers lying along the face's own triangle edges. This is where it
-/// converges: at a pitch of 0.05 radians the slab still took three thousand
-/// pixels of the face at 512, two hundred at 2048, and the same two hundred at
-/// 8192 — which is the multisampled edge where they meet, and not fighting.
+/// It is the renderer's rather than the caller's because the order is the
+/// renderer's: it is this file that draws solids, then faces, then strokes and
+/// rims, then markers and type. An application choosing its own numbers would be
+/// restating a layering it does not control.
 ///
-/// [`lift`]: crate::renderer::shader
-const FACE_LIFT: i32 = 2048;
+/// A face is lifted off whatever it is coplanar with — a sketch face lies in the
+/// very plane a slab's top face does. Large, and it needs to be: the separation
+/// is measured not against the depth buffer's resolution but against how far two
+/// differently meshed copies of one plane disagree, and a slab's top is one quad
+/// where a sketch face is an arrangement triangulated to a sagitta. Sixteen left
+/// the two fighting at arm's length, in slivers lying along the face's own
+/// triangle edges. This is where it converges: at a pitch of 0.05 radians the
+/// slab still took three thousand pixels of the face at 512, two hundred at
+/// 2048, and the same two hundred at 8192 — which is the multisampled edge where
+/// they meet, and not fighting.
+const FACE_BIAS: i32 = 2048;
+
+/// Strokes and rims, which are the drawing itself and read over the faces they
+/// enclose.
+///
+/// Four times the face's, which is daylight rather than a tie-break: they are
+/// not coplanar with it by rounding but by construction, since a face is exactly
+/// what its own boundary strokes shut in.
+const STROKE_BIAS: i32 = FACE_BIAS * 4;
+
+/// Markers and type, which are the handles you grab and the labels you read.
+///
+/// A point sits exactly on the end of every segment that meets it, so the two
+/// arrive at the same depth — and markers are drawn last, where an equal depth
+/// loses to whatever already wrote. Without a step between them a corner marker
+/// is cut by the very edges it terminates.
+const MARKER_BIAS: i32 = STROKE_BIAS * 2;
+
+/// Added to a kind's own for the pass that draws its highlights, so a lit
+/// primitive reads over the ordinary one it doubles.
+///
+/// A step rather than a height, and deliberately smaller than the gap between
+/// the rungs above: a highlighted stroke should clear the stroke under it
+/// without climbing over the markers that terminate it.
+const HIGHLIGHT_BIAS: i32 = FACE_BIAS;
 
 /// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU
 /// encodes on write.
@@ -156,10 +180,17 @@ impl Passes {
     /// names itself once — in the `spec` — and the pipeline, the entry points
     /// and all three buffers follow from that one name.
     fn build<R: Record>(pipelines: &Pipelines<'_>, spec: PassSpec) -> Self {
-        let lit = format!("aperture.{}.highlighted", spec.name);
+        let label = format!("aperture.{}.highlighted", spec.name);
+        // Its own pipeline, because what puts a highlight over the primitive it
+        // doubles is depth bias and depth bias is pipeline state. The indices
+        // are still shared — see [`Pass::drawing`].
+        let raised = pipelines.build::<R>(PassSpec {
+            depth_bias: spec.depth_bias + HIGHLIGHT_BIAS,
+            ..spec
+        });
         let ordinary = pipelines.build::<R>(spec);
         Self {
-            lit: ordinary.sharing(lit),
+            lit: ordinary.drawing(raised.pipeline(), label),
             ordinary,
         }
     }
@@ -331,7 +362,7 @@ impl Gpu {
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
             blend: None,
-            lift: 0,
+            depth_bias: 0,
             depth_write: true,
         });
         // The same shader as the solids, and the same growing triangle list —
@@ -344,15 +375,30 @@ impl Gpu {
             cull: None,
             alpha_to_coverage: false,
             blend: None,
-            lift: FACE_LIFT,
+            depth_bias: FACE_BIAS,
             depth_write: true,
         });
-        let curves =
-            Passes::build::<CurveInstance>(&pipelines, PassSpec::overlay("curve", &QUAD_INDICES));
-        let rings =
-            Passes::build::<RingInstance>(&pipelines, PassSpec::overlay("ring", &RING_INDICES));
-        let points =
-            Passes::build::<PointInstance>(&pipelines, PassSpec::overlay("point", &QUAD_INDICES));
+        let curves = Passes::build::<CurveInstance>(
+            &pipelines,
+            PassSpec {
+                depth_bias: STROKE_BIAS,
+                ..PassSpec::overlay("curve", &QUAD_INDICES)
+            },
+        );
+        let rings = Passes::build::<RingInstance>(
+            &pipelines,
+            PassSpec {
+                depth_bias: STROKE_BIAS,
+                ..PassSpec::overlay("ring", &RING_INDICES)
+            },
+        );
+        let points = Passes::build::<PointInstance>(
+            &pipelines,
+            PassSpec {
+                depth_bias: MARKER_BIAS,
+                ..PassSpec::overlay("point", &QUAD_INDICES)
+            },
+        );
         // Last in the pass and the only blended one, so it reads over whatever
         // it overlaps rather than punching a hole in it — and it does not write
         // depth, so two labels crossing blend instead of one hiding the other.
@@ -362,6 +408,7 @@ impl Gpu {
                 alpha_to_coverage: false,
                 blend: Some(wgpu::BlendState::ALPHA_BLENDING),
                 depth_write: false,
+                depth_bias: MARKER_BIAS,
                 ..PassSpec::overlay("text", &QUAD_INDICES)
             },
         );

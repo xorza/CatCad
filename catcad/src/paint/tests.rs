@@ -56,7 +56,6 @@ fn every_entity_becomes_a_curve() {
     // it lies in so the renderer can take its depth off the surface rather
     // than off the centreline. The ground plane's axes are +X and −Z,
     // which face +Y.
-    assert!(curves.iter().all(|curve| curve.z_offset == STROKE_LIFT));
     assert!(
         curves
             .iter()
@@ -99,7 +98,6 @@ fn every_entity_becomes_a_curve() {
         [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)],
         "a reused curve kept an endpoint from the drawing before it"
     );
-    assert_eq!(curves[0].z_offset, STROKE_LIFT);
     assert_eq!(curves[0].plane_normal, Some(Vec3::Y));
 
     // The circle comes back as one ring, carrying the whole of itself
@@ -110,7 +108,6 @@ fn every_entity_becomes_a_curve() {
     let ring = rings[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
     assert_eq!(ring.radius, 2.0);
-    assert_eq!(ring.z_offset, STROKE_LIFT);
     assert!(ring.normal().abs_diff_eq(Vec3::Y, 1e-6), "faces +Y");
     // Its axes lie in the ground plane, so every point of it does too.
     for step in 0..8 {
@@ -134,7 +131,6 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     assert_eq!(points.len(), 2);
     // Above the strokes, not merely above the solids: a marker lands on
     // the end of the segments meeting it, and is drawn after them.
-    assert!(points.iter().all(|point| point.z_offset == MARKER_LIFT));
 
     // Pinned reads larger and in its own colour; free is the other way.
     let anchor = &points[0];

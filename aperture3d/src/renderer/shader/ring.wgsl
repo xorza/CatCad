@@ -69,7 +69,6 @@ fn ring_vs(
     // The tail every overlay record shares — see `Look`.
     @location(4) color: vec3<f32>,
     @location(5) half_width: f32,
-    @location(6) z_offset: f32,
 ) -> RingVsOut {
     let angle = f32(vertex / 2u) / f32(RING_STEPS) * TAU;
     let outward = (vertex & 1u) != 0u;
@@ -141,7 +140,7 @@ fn ring_vs(
     // In the plane, every vertex of it: the depth that comes out is then the
     // plane's own exactly, and none of the gradient probing a stroke or a
     // marker needs applies here.
-    out.clip = lift(c + out_radius * radial, z_offset);
+    out.clip = c + out_radius * radial;
     out.color = color;
     out.plane = turn * out_radius;
     out.radius = radius;

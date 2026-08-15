@@ -128,42 +128,6 @@ fn standing(model: Model<'_>) -> Precedence {
 /// Logical pixels.
 const EDGE_WIDTH: f32 = 1.6;
 
-/// How far the strokes ride in front of the solids, in steps of depth-buffer
-/// resolution. A sketch is what a model is derived from, so where the two share
-/// a plane the drawing is the one that reads.
-///
-/// Needed at all — however exactly the renderer places the stroke — because
-/// bit-identical results from two different vertex shaders are not something
-/// WGSL promises, so a coplanar tie cannot be left to arithmetic.
-///
-/// Both ends of the range this can take are measured, and both are pinned by
-/// tests. Under about 128 steps the tie starts going the wrong way and strokes
-/// come back thinned; over about three million the drawing lifts clear of the
-/// model and shows through solids standing in front of it. Reversed depth is
-/// what opens that up to four decades — under the old convention the same two
-/// bounds sat barely two apart.
-///
-/// The binding lower bound is not that 128 any more, though: a stroke is drawn
-/// on a *face*, and a face is itself lifted off whatever it is coplanar with by
-/// `FACE_LIFT` — 2048 of these same steps, because two differently meshed copies
-/// of one plane disagree by far more than two shaders do. So the floor here is
-/// that, and this stands four times clear of it.
-const STROKE_LIFT: i32 = 8192;
-
-/// How far the markers ride in front of the strokes.
-///
-/// A point sits exactly on the end of every segment that meets it, so the two
-/// arrive at the same depth — and markers are drawn last, where an equal depth
-/// loses to whatever already wrote. Without a step between them a corner
-/// marker is cut by the very edges it terminates.
-///
-/// The step is what matters, not the height: the drawing stacks solids, then
-/// faces, then strokes, then the handles you grab, and each layer wants daylight
-/// under it rather than a particular altitude. Doubling puts 8192 steps between
-/// these two, which is thousands of times the odd ULP two shaders disagree by
-/// and still two decades short of showing through the model.
-const MARKER_LIFT: i32 = STROKE_LIFT * 2;
-
 /// Type size of a constraint's mark, in logical pixels. Small: a drawing may
 /// carry dozens, and what they have to be is legible rather than prominent.
 const MARK_SIZE: f32 = 13.0;
@@ -441,7 +405,6 @@ fn write_marks(models: Models<'_>, names: &mut Names, marks: &mut Batch<Text>) {
                 },
             );
             mark.precedence = standing(model);
-            mark.z_offset = MARKER_LIFT;
             mark.plane_normal = Some(model.plane().normal().as_vec3());
             mark.tag = Some(names.tag(model.part(id)));
         },
@@ -531,7 +494,6 @@ fn write_curves(
             .chain(band.map(Stroke::Band)),
         |curve, stroke| {
             curve.width = EDGE_WIDTH;
-            curve.z_offset = STROKE_LIFT;
             match stroke {
                 Stroke::Edge(model, id, edge) => {
                     let (sketch, plane) = (model.sketch(), model.plane());
@@ -616,7 +578,6 @@ fn write_points(models: Models<'_>, names: &mut Names, points: &mut Batch<Point>
             *marker = Point::new(plane.point(point.position).as_vec3())
                 .colored(ink(model, color))
                 .size(size)
-                .z_offset(MARKER_LIFT)
                 .in_plane(plane.normal().as_vec3())
                 .precedence(standing(model))
                 .tagged(names.tag(model.part(id)));
@@ -671,8 +632,7 @@ fn write_rings(models: Models<'_>, names: &mut Names, band: Option<Ends>, rings:
                 )
                 .colored(GHOST),
             }
-            .width(EDGE_WIDTH)
-            .z_offset(STROKE_LIFT);
+            .width(EDGE_WIDTH);
         },
     );
 }

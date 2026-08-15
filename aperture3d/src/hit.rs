@@ -76,9 +76,9 @@ impl HitAt {
 
 /// How a primitive stands in the competition for a click, foremost first.
 ///
-/// [`HitAt::rank`] answers what *kind of shape* was hit, which is true of any
-/// drawing: a marker is a harder thing to aim at than an edge, wherever either
-/// was drawn. This answers what the thing is *for*, which only whoever drew it
+/// How specific a [`HitAt`] is answers what *kind of shape* was hit, which is
+/// true of any drawing: a marker is a harder thing to aim at than an edge,
+/// wherever either was drawn. This answers what the thing is *for*, which only whoever drew it
 /// knows — a frame around a drawing and an edge of one are the same shape, and
 /// no amount of care about shape tells them apart.
 ///
@@ -103,8 +103,8 @@ pub enum Precedence {
     /// Behind everything: furniture around a drawing rather than part of one.
     ///
     /// Behind every drawn thing, that is — not behind the surfaces they are
-    /// drawn on, which is a separate question and asked before this one. See
-    /// [`HitAt::backdrop`].
+    /// drawn on. Whether a hit is a backdrop is a separate question, and one
+    /// asked before this one.
     Frame,
 }
 

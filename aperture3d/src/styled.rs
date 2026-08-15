@@ -8,12 +8,10 @@ use glam::Vec3;
 /// [`Tag`] a pick that lands on it reports, and the [`Precedence`] that decides
 /// what a click meant for two of them at once lands on.
 ///
-/// Three rather than four: an overlay's depth bias would be the obvious next,
-/// but [`Object`](crate::Object) is styled too and an object has no bias to
-/// give — what needs one biases its whole pass instead.
-/// The four overlays restate `z_offset` instead, which measured cheaper — a
-/// setter needs a *public* trait, and the only one covering those four kinds
-/// would publish the crate's private picking vocabulary behind it.
+/// Three, and there is no fourth waiting. Depth bias was the obvious candidate
+/// and is now nobody's to set: how far forward a kind reads is a property of
+/// the order this crate draws in, so it is pipeline state and lives beside that
+/// order rather than on the primitives.
 ///
 /// The setters live here rather than being restated on each primitive, so that
 /// "colour it", "name it" and "say what it is for" mean one thing across the

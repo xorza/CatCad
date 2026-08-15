@@ -12,7 +12,7 @@ struct CurveVsOut {
 };
 
 // One instance per segment: it arrives knowing both ends, how wide the stroke
-// is, and how far to lift it in depth. The widening happens here rather than
+// is. The widening happens here rather than
 // on the CPU so it can be measured in pixels after the projection divide —
 // that is what keeps a stroke the same width near and far.
 //
@@ -32,8 +32,7 @@ fn curve_vs(
     @location(1) end: vec3<f32>,
     @location(2) color: vec3<f32>,
     @location(3) half_width: f32,
-    @location(4) z_offset: f32,
-    @location(5) plane: vec3<f32>,
+    @location(4) plane: vec3<f32>,
 ) -> CurveVsOut {
     let at_end = corner >= 2u;
     let position = select(start, end, at_end);
@@ -105,7 +104,7 @@ fn curve_vs(
         here.z + depth_shift * here.w,
         here.w,
     );
-    out.clip = lift(widened, z_offset);
+    out.clip = widened;
     out.color = color;
     // Which edge of the ribbon this corner is on, in a frame the whole quad
     // agrees about. `across` is measured from each end toward the other, so it

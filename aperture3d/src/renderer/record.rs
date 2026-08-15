@@ -35,17 +35,14 @@ pub(crate) struct Look {
     /// Half the stroke width, or half a marker's diameter — the distance the
     /// shader spreads either side of the shape's own centre.
     pub(super) half_extent: f32,
-    /// Depth bias in resolution steps.
-    pub(super) z_offset: f32,
 }
 
 impl Look {
     /// The look a primitive of this size would be given.
-    fn of(color: Vec3, extent: f32, z_offset: i32) -> Self {
+    fn of(color: Vec3, extent: f32) -> Self {
         Self {
             color: color.to_array(),
             half_extent: extent * 0.5,
-            z_offset: z_offset as f32,
         }
     }
 
@@ -58,7 +55,6 @@ impl Look {
     fn take_on(&mut self, look: Highlight) {
         self.color = look.color.to_array();
         self.half_extent *= look.scale;
-        self.z_offset += look.lift as f32;
     }
 }
 
@@ -134,7 +130,7 @@ pub(crate) struct RingInstance {
 impl CurveInstance {
     /// The instances one stroke ships, one per segment.
     pub(crate) fn of(curve: &Curve) -> impl Iterator<Item = Self> + '_ {
-        let look = Look::of(curve.color, curve.width, curve.z_offset);
+        let look = Look::of(curve.color, curve.width);
         let plane = plane_of(curve.plane_normal);
         curve.segments().map(move |(a, b)| Self {
             start: a.to_array(),
@@ -158,7 +154,7 @@ impl RingInstance {
             x_axis: ring.x_axis.to_array(),
             y_axis: ring.y_axis.to_array(),
             radius: ring.radius,
-            look: Look::of(ring.color, ring.width, ring.z_offset),
+            look: Look::of(ring.color, ring.width),
         }
     }
 }
@@ -184,7 +180,7 @@ impl PointInstance {
     pub(crate) fn of(point: &Point) -> Self {
         Self {
             position: point.position.to_array(),
-            look: Look::of(point.color, point.size, point.z_offset),
+            look: Look::of(point.color, point.size),
             plane: plane_of(point.plane_normal),
         }
     }
@@ -234,7 +230,7 @@ impl GlyphInstance {
             size: quad.size.to_array(),
             uv_min: quad.uv_min.to_array(),
             uv_size: quad.uv_size.to_array(),
-            look: Look::of(text.color, 0.0, text.z_offset),
+            look: Look::of(text.color, 0.0),
             plane: plane_of(text.plane_normal),
         }
     }
@@ -299,14 +295,14 @@ impl Record for CurveInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32x3,
-        3 => Float32, 4 => Float32, 5 => Float32x3
+        3 => Float32, 4 => Float32x3
     ];
 }
 
 impl Record for PointInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
-        0 => Float32x3, 1 => Float32x3, 2 => Float32, 3 => Float32, 4 => Float32x3
+        0 => Float32x3, 1 => Float32x3, 2 => Float32, 3 => Float32x3
     ];
 }
 
@@ -314,7 +310,7 @@ impl Record for GlyphInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x2,
-        5 => Float32x3, 6 => Float32, 7 => Float32, 8 => Float32x3
+        5 => Float32x3, 6 => Float32, 7 => Float32x3
     ];
 }
 
@@ -322,6 +318,6 @@ impl Record for RingInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Float32,
-        4 => Float32x3, 5 => Float32, 6 => Float32
+        4 => Float32x3, 5 => Float32
     ];
 }

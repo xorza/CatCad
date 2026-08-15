@@ -31,9 +31,6 @@ pub struct Point {
     pub color: Vec3,
     /// Diameter in logical pixels.
     pub size: f32,
-    /// Depth-test bias in steps of depth-buffer resolution, positive toward
-    /// the viewer. See [overlays](crate#overlays).
-    pub z_offset: i32,
     /// What this is for, which decides what a click meant for two things at
     /// once lands on. See [`Precedence`].
     pub precedence: Precedence,
@@ -52,7 +49,6 @@ impl Point {
             position,
             color: Vec3::ONE,
             size: DEFAULT_SIZE,
-            z_offset: 0,
             precedence: Precedence::default(),
             tag: None,
             plane_normal: None,
@@ -76,13 +72,6 @@ impl Point {
     /// Set the diameter in logical pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
-        self
-    }
-
-    /// Bias the marker this many steps of depth-buffer resolution toward the
-    /// viewer. See [overlays](crate#overlays).
-    pub fn z_offset(mut self, z_offset: i32) -> Self {
-        self.z_offset = z_offset;
         self
     }
 

@@ -37,16 +37,11 @@ const ZOOM_RATE: f32 = 1.12;
 /// a stroke a pixel and a half wide is not a target.
 pub(crate) const HOVER_REACH: f32 = 6.0;
 
-/// Kept in step with `sketch_plane`'s ladder: the highlight has to beat the
-/// markers, which already beat the strokes.
-const MARKER_LIFT_STEP: i32 = 2048;
-
-/// What the thing under the cursor looks like. One step of lift above the
-/// markers, which are already the top of the drawing's own ladder.
+/// What the thing under the cursor looks like. How far forward a highlight
+/// reads is the renderer's, not this — see `Highlight`.
 const HOVERED: Highlight = Highlight {
     color: Vec3::new(1.0, 0.85, 0.25),
     scale: 1.8,
-    lift: MARKER_LIFT_STEP,
 };
 
 /// What something picked out looks like.
@@ -59,7 +54,6 @@ const HOVERED: Highlight = Highlight {
 const SELECTED: Highlight = Highlight {
     color: Vec3::new(0.30, 0.95, 0.45),
     scale: 1.5,
-    lift: MARKER_LIFT_STEP,
 };
 
 /// What is being dragged, and where the pointer may take it.

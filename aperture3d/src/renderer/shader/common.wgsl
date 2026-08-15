@@ -21,41 +21,6 @@ const PI: f32 = 3.14159265359;
 const TAU: f32 = 6.28318530718;
 const SQRT_2: f32 = 1.41421356237;
 
-// The relative gap between neighbouring f32 values, which is what one step of
-// depth resolution costs. The mantissa is 24 bits, so the gap runs between
-// 2⁻²⁴ and 2⁻²³ depending on where in the binade the value sits; the larger is
-// the one that always clears it.
-const DEPTH_STEP: f32 = 1.0 / 8388608.0;
-
-// Pull a clip position toward the viewer by `z_offset` steps of depth
-// resolution. Only z moves, so the geometry lands on exactly the same pixels.
-//
-// Depth is reversed, so toward the viewer is *up*. The step is relative rather
-// than a flat amount of NDC because float precision is relative, and scaling
-// therefore moves the same number of representable values at whatever distance
-// the geometry sits — which under reversed depth with an infinite far plane is
-// exactly sliding the vertex along its view ray toward the eye by that
-// fraction of its distance.
-//
-// A bias is needed at all, however good the depth format gets, because
-// bit-exact agreement between two vertex shaders is not guaranteed: WGSL
-// permits `curve_vs` and `vs` to compute different values for the same
-// position, so a coplanar tie between a stroke and a face cannot be left to
-// arithmetic alone.
-//
-// Nothing here guards the near plane, and nothing should. Reversed, the near
-// plane is `z == w`, so a lift can push a vertex out through it — but the
-// hardware *clips* a primitive to the volume rather than dropping it, so the
-// part still in front is drawn either way and the lift simply saturates.
-// Clamping instead is actively wrong: this projection writes a constant
-// `clip.z`, so `min(z, w)` fires on every vertex nearer than the near plane,
-// behind-the-eye ones included, and rewriting their `z` moves where the clip
-// lands. A face large enough to reach past the camera then loses the part that
-// should have survived.
-fn lift(clip: vec4<f32>, z_offset: f32) -> vec4<f32> {
-    return vec4<f32>(clip.xy, clip.z * (1.0 + z_offset * DEPTH_STEP), clip.w);
-}
-
 // Screen length below which a segment lands on one pixel and has no direction
 // to widen across.
 //
@@ -83,9 +48,9 @@ const MIN_DET: f32 = 1e-6;
 //
 // Zero is the far end and one is the near plane. Both are stepped off the edge
 // rather than sitting on it: a corner has still to survive the clip and the
-// depth test after `lift` has run and scaled what it was given, so the near
-// limit leaves room for the largest bias any overlay carries — which is decades
-// below the 1% held back here.
+// depth test after the rasteriser has added the pass's own bias, so the near
+// limit leaves room for the largest of those — which is decades below the 1%
+// held back here.
 const MIN_NDC_Z: f32 = 1e-6;
 const MAX_NDC_Z: f32 = 0.99;
 
@@ -202,8 +167,8 @@ fn plane_depth_shift(
     // positions past that line name points *behind* the eye: reversed depth
     // carries them through zero and out the far side, taking the fragments with
     // them. That is a label cut across its waist by nothing at all — no surface
-    // is involved, and no `z_offset` moves it, because what is thrown away was
-    // never depth-tested.
+    // is involved, and no amount of depth bias moves it, because what is thrown
+    // away was never depth-tested.
     //
     // Dropped rather than pinned to the edge, which is the same mistake wearing
     // the other face: a corner held at the far limit is a corner at infinity,

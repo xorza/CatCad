@@ -9,24 +9,19 @@ use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 
 /// What every pipeline built from the shared module is told.
 ///
-/// Between them only the ring, the curve and the mesh passes read these; every
-/// pipeline is handed all of them because the declarations they override are
-/// module-scope in the shader, and so this has to be.
+/// Between them only the ring and the curve passes read these; every pipeline is
+/// handed both because the declarations they override are module-scope in the
+/// shader, and so this has to be.
 ///
 /// This is the whole of what crosses from Rust into WGSL as a number. Anything
 /// that has to agree across the two languages belongs here, where the Rust side
 /// is the one that states it — a constant written out in both is one that
 /// nothing checks.
 ///
-/// The first two are the same for every pass and the last is the pass's own,
-/// which is what makes this a function rather than the constant it was.
-fn overrides(spec: &PassSpec) -> [(&'static str, f64); 3] {
-    [
-        ("RING_STEPS", band::RING_STEPS as f64),
-        ("MIN_RUN_PX", curve::MIN_RUN_PX as f64),
-        ("MESH_LIFT", f64::from(spec.lift)),
-    ]
-}
+const OVERRIDES: [(&str, f64); 2] = [
+    ("RING_STEPS", band::RING_STEPS as f64),
+    ("MIN_RUN_PX", curve::MIN_RUN_PX as f64),
+];
 
 pub(super) struct PassSpec {
     /// Names the pipeline, both its entry points and all three of its buffers:
@@ -51,28 +46,29 @@ pub(super) struct PassSpec {
     pub(super) blend: Option<wgpu::BlendState>,
     /// How many steps of depth resolution to pull the pass toward the camera.
     ///
-    /// For geometry that is *exactly* coplanar with something else, which no
-    /// ordering of the passes can settle — a sketch face lies in the very plane
-    /// the ground slab's top does. The overlays answer the same question with
-    /// their own `z_offset`, which biases a primitive rather than a pass; meshes
-    /// carry no such field, so what needs it says so here and it arrives as
-    /// `MESH_LIFT`.
+    /// The whole of how this renderer layers what it draws: solids sit at zero,
+    /// and every layer over them says here how far forward it reads. It is the
+    /// one mechanism — nothing offsets depth in a shader — so the ladder is a
+    /// column of numbers in one file rather than two conventions in two
+    /// languages that happen to share a unit.
     ///
-    /// The same relative step [`lift`] applies everywhere else, and not the
-    /// rasteriser's `depth_bias`, which this used to be. That one is scaled by
-    /// an implementation-defined `r` — for a *floating-point* attachment the
-    /// spec lets it vary per primitive, worked out from the largest exponent in
-    /// the triangle — so a constant tuned against one triangle at one distance
-    /// means something else at the next. Sixteen of them turned out to be worth
-    /// so little that a sketch face fought the slab it lies on all the way down
-    /// to arm's length.
+    /// A step is one place in the last of the primitive's own depth. On a
+    /// floating-point attachment the rasteriser scales this by
+    /// `2^(exponent(max z in primitive) - 23)`, so it is a *relative*
+    /// separation and means the same thing near and far — which is what lets a
+    /// single ladder hold from arm's length to the far side of a model.
+    ///
+    /// No slope scale beside it, though the same state offers one. That term is
+    /// sized by the depth gradient across a pixel, which is what shadow-map acne
+    /// needs and coplanar surfaces do not: measured, it left moderate angles
+    /// worse the higher it went, because it pushes a layer far enough forward to
+    /// stop being coplanar with what it is drawn on and start standing in front
+    /// of the solids on it.
     ///
     /// Depth is reversed, so nearer is *greater* — see
-    /// [`Camera::view_proj`](crate::Camera::view_proj) — and a positive lift is
+    /// [`Camera::view_proj`](crate::Camera::view_proj) — and a positive bias is
     /// what brings a pass forward.
-    ///
-    /// [`lift`]: crate::renderer::shader
-    pub(super) lift: i32,
+    pub(super) depth_bias: i32,
     /// Whether the pass writes what it draws into the depth buffer.
     ///
     /// Every opaque pass does, and the blended one must not: two blended
@@ -99,7 +95,7 @@ impl PassSpec {
             cull: None,
             alpha_to_coverage: true,
             blend: None,
-            lift: 0,
+            depth_bias: 0,
             depth_write: true,
         }
     }
@@ -118,9 +114,8 @@ pub(super) struct Pipelines<'a> {
 impl Pipelines<'_> {
     pub(super) fn build<R: Record>(&self, spec: PassSpec) -> Pass {
         let () = R::LAYOUT_SPANS_STRUCT;
-        let constants = overrides(&spec);
         let compilation_options = wgpu::PipelineCompilationOptions {
-            constants: &constants,
+            constants: &OVERRIDES,
             ..Default::default()
         };
         let pipeline = self
@@ -160,11 +155,10 @@ impl Pipelines<'_> {
                     // nearer is greater. See [`Camera::view_proj`].
                     depth_compare: Some(wgpu::CompareFunction::Greater),
                     stencil: wgpu::StencilState::default(),
-                    // Nothing biases here. What is coplanar with something else
-                    // says so as a `lift`, which is a fraction of its own depth
-                    // rather than a multiple of whatever the hardware decides a
-                    // step is worth — see [`PassSpec::lift`].
-                    bias: wgpu::DepthBiasState::default(),
+                    bias: wgpu::DepthBiasState {
+                        constant: spec.depth_bias,
+                        ..wgpu::DepthBiasState::default()
+                    },
                 }),
                 multisample: wgpu::MultisampleState {
                     count: SAMPLES,
@@ -208,20 +202,30 @@ pub(super) struct Pass {
 }
 
 impl Pass {
-    /// A second pass through the same pipeline and the same indices, for
-    /// drawing some of the same primitives again in a different look.
+    /// A second pass over the same indices, for drawing some of the same
+    /// primitives again in a different look.
     ///
-    /// Only the records differ, so the pipeline and the triangle list are
-    /// shared rather than rebuilt — both are handles, and cloning one costs a
-    /// refcount.
-    pub(super) fn sharing(&self, records_label: String) -> Self {
+    /// The same pass drawing from another record buffer.
+    ///
+    /// What a kind's highlighted half is built from. It is a pipeline of its own
+    /// rather than a clone of the handle, because the step that puts a highlight
+    /// over what it doubles is depth bias and depth bias is pipeline state — but
+    /// the triangle list is identical and stays shared, which is a handle and
+    /// costs a refcount.
+    pub(super) fn drawing(&self, pipeline: wgpu::RenderPipeline, records_label: String) -> Self {
         Self {
-            pipeline: self.pipeline.clone(),
+            pipeline,
             records: Retained::growable(records_label, wgpu::BufferUsages::VERTEX),
             indices: self.indices.clone(),
             index_count: self.index_count,
             instances: 0,
         }
+    }
+
+    /// The pipeline this pass draws through, for the highlighted half of a kind
+    /// to be built beside it.
+    pub(super) fn pipeline(&self) -> wgpu::RenderPipeline {
+        self.pipeline.clone()
     }
 
     /// Refill from the flattened objects: one triangle list, drawn once.

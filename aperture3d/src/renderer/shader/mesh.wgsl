@@ -1,16 +1,5 @@
 // Shaded triangles: the modelled geometry.
 
-// How many steps of depth resolution to bring this pass toward the viewer, for
-// geometry that is *exactly* coplanar with something else and cannot be settled
-// by ordering the passes — a sketch face lies in the very plane the ground
-// slab's top does.
-//
-// Per pipeline rather than per vertex, because what needs it is a whole layer
-// of the drawing and not a primitive of one; the overlays ask the same question
-// of their own `z_offset`, which travels in the record. Handed over by the
-// pipeline for the same reason `RING_STEPS` is — see `OVERRIDES`.
-override MESH_LIFT: f32;
-
 struct VsOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) normal: vec3<f32>,
@@ -24,7 +13,7 @@ fn mesh_vs(
     @location(2) color: vec3<f32>,
 ) -> VsOut {
     var out: VsOut;
-    out.clip = lift(u.view_proj * vec4<f32>(position, 1.0), MESH_LIFT);
+    out.clip = u.view_proj * vec4<f32>(position, 1.0);
     out.normal = normal;
     out.color = color;
     return out;

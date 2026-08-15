@@ -21,36 +21,22 @@ pub struct Highlight {
     /// Multiplier on the stroke's width or the marker's diameter. Anything
     /// under 1 hides behind the primitive it is meant to be pointing at.
     pub scale: f32,
-    /// Depth bias *added* to the primitive's own, so the highlight reads over
-    /// what it doubles. It has to clear whatever ladder the caller lifts its
-    /// overlays by — a highlighted marker still has to beat an ordinary one.
-    pub lift: i32,
 }
 
 impl Highlight {
-    /// A wider, brighter version of the primitive, one step further forward.
+    /// A wider, brighter version of the primitive, drawn one step further
+    /// forward than its ordinary self.
     ///
-    /// Three fields, and a builder for each, so the two that a caller has not
-    /// wanted yet are still reachable the way the one it does is. They are sugar
-    /// over public fields rather than capability, which is why they cost nothing
-    /// to keep and would be an odd gap to leave.
+    /// How much further forward is not said here and cannot be: a highlight is
+    /// drawn by its kind's own pipeline, which carries the step as depth bias
+    /// like every other layer this crate draws.
     pub fn new(color: Vec3) -> Self {
-        Self {
-            color,
-            scale: 2.0,
-            lift: 1,
-        }
+        Self { color, scale: 2.0 }
     }
 
     /// Set the width or diameter multiplier.
     pub fn scale(mut self, scale: f32) -> Self {
         self.scale = scale;
-        self
-    }
-
-    /// Set the depth bias added on top of the primitive's own.
-    pub fn lift(mut self, lift: i32) -> Self {
-        self.lift = lift;
         self
     }
 }

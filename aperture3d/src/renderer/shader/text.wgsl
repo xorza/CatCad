@@ -32,8 +32,7 @@ fn text_vs(
     @location(5) color: vec3<f32>,
     // A glyph's size came from its shaping, so the look's spread is unused.
     @location(6) half_extent: f32,
-    @location(7) z_offset: f32,
-    @location(8) plane: vec3<f32>,
+    @location(7) plane: vec3<f32>,
 ) -> TextVsOut {
     let corner = vec2<f32>(
         select(0.0, 1.0, (index & 1u) != 0u),
@@ -56,13 +55,10 @@ fn text_vs(
     let plane_shift = plane_depth_shift(anchor, plane, at, at_ndc, offset_ndc);
 
     var out: TextVsOut;
-    out.clip = lift(
-        vec4<f32>(
-            at.xy + offset_ndc * at.w,
-            at.z + plane_shift.shift * at.w,
-            at.w,
-        ),
-        z_offset,
+    out.clip = vec4<f32>(
+        at.xy + offset_ndc * at.w,
+        at.z + plane_shift.shift * at.w,
+        at.w,
     );
     out.color = color;
     out.uv = uv_min + corner * uv_size;

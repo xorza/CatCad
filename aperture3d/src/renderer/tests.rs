@@ -171,8 +171,7 @@ fn flatten_curves_ships_one_instance_per_segment() {
     scene.curves.push(
         Curve::new(vec![a, b, c])
             .colored(Vec3::new(0.25, 0.5, 0.75))
-            .width(3.0)
-            .z_offset(64),
+            .width(3.0),
     );
     let mut renderer = Renderer::new(scene);
     renderer.refresh(1.0);
@@ -192,7 +191,6 @@ fn flatten_curves_ships_one_instance_per_segment() {
     assert!(records.iter().all(|i| i.look.color == [0.25, 0.5, 0.75]));
     // The bias is the segment's, not a corner's: a ribbon tilted in depth
     // against itself would z-fight along its own length.
-    assert!(records.iter().all(|i| i.look.z_offset == 64.0));
     // No plane named, so the shader gets all-zero and falls back to reading
     // depth off the centreline.
     assert!(records.iter().all(|i| i.plane == [0.0; 3]));
@@ -247,11 +245,9 @@ fn flatten_curves_normalizes_and_spreads_a_named_plane() {
     // Deliberately not unit length: the shader tests `dot(n, n) > 0.5` to
     // decide a plane was named at all, so a stray magnitude would both skew
     // the gradient and risk reading as "no plane".
-    scene.curves.push(
-        Curve::segment(Vec3::ZERO, Vec3::X)
-            .in_plane(Vec3::new(0.0, 5.0, 0.0))
-            .z_offset(32),
-    );
+    scene
+        .curves
+        .push(Curve::segment(Vec3::ZERO, Vec3::X).in_plane(Vec3::new(0.0, 5.0, 0.0)));
     let mut renderer = Renderer::new(scene);
     renderer.refresh(1.0);
     let records = &renderer.cpu.curves.ordinary;
@@ -366,7 +362,6 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     scene.curves.push(
         Curve::new(vec![Vec3::ZERO, Vec3::X, Vec3::Y])
             .width(2.0)
-            .z_offset(10)
             .tagged(Tag::new(1)),
     );
     scene
@@ -385,7 +380,7 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     let cpu = &renderer.cpu;
     assert!(cpu.curves.lit.is_empty() && cpu.rings.lit.is_empty() && cpu.points.lit.is_empty());
 
-    let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0).lift(64);
+    let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0);
     renderer.highlight_only(Lit {
         tag: Tag::new(1),
         look,
@@ -400,8 +395,6 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     assert!(cpu.points.lit.is_empty());
 
     // The look replaces the colour, multiplies the width, and adds to the
-    // bias rather than replacing it — a highlight has to clear the lift the
-    // primitive already carried.
     assert!(
         cpu.curves
             .lit
@@ -409,9 +402,7 @@ fn a_highlight_repeats_only_what_its_tag_names() {
             .all(|i| i.look.color == [1.0, 0.0, 0.0])
     );
     assert!(cpu.curves.lit.iter().all(|i| i.look.half_extent == 3.0)); // 2.0/2 × 3
-    assert!(cpu.curves.lit.iter().all(|i| i.look.z_offset == 74.0)); // 10 + 64
     assert_eq!(cpu.rings.lit[0].look.half_extent, 4.5); // 3.0/2 × 3
-    assert_eq!(cpu.rings.lit[0].look.z_offset, 64.0);
 
     // The geometry is the primitive's own, untouched. Copied out first: the
     // records are held on the renderer now, so flattening another one needs
@@ -426,7 +417,7 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     // so a hover reads over a selection and both still draw once.
     renderer.highlight_only(Lit {
         tag: Tag::new(1),
-        look: Highlight::new(Vec3::Y).scale(1.0).lift(0),
+        look: Highlight::new(Vec3::Y).scale(1.0),
     });
     renderer.refresh(1.0);
     let cpu = &renderer.cpu;
@@ -919,7 +910,7 @@ fn a_highlighted_mesh_is_recoloured_where_it_stands() {
     // Named, and re-flattened though not one vertex moved — which is the whole
     // of what this pins. A `refresh` that only watched the batch's own mark
     // would leave the colour where it was.
-    let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0).lift(64);
+    let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0);
     renderer.highlight_only(Lit {
         tag: Tag::new(1),
         look,
@@ -935,7 +926,7 @@ fn a_highlighted_mesh_is_recoloured_where_it_stands() {
         .collect();
     assert_eq!(lit.len(), corners, "the flatten dropped geometry");
     // Half the corners are the named cube and half the untagged one, and only
-    // the first half moved: `scale` and `lift` have nothing to act on here, so
+    // the first half moved: `scale` has nothing to act on here, so
     // the colour is the whole of what a highlight does to a mesh.
     let (named, scenery) = lit.split_at(corners / 2);
     assert!(

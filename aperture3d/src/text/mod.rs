@@ -43,9 +43,6 @@ pub struct Text {
     /// one end, a note clears a corner — and every one of them is a pair of
     /// numbers either way.
     pub anchor: Vec2,
-    /// Depth-test bias in steps of depth-buffer resolution, positive toward
-    /// the viewer. See [overlays](crate#overlays).
-    pub z_offset: i32,
     /// What this is for, which decides what a click meant for two things at
     /// once lands on. See [`Precedence`].
     pub precedence: Precedence,
@@ -82,7 +79,6 @@ impl Default for Text {
             font: GlyphFont::new(0.0),
             color: Vec3::ONE,
             anchor: Vec2::ZERO,
-            z_offset: 0,
             precedence: Precedence::default(),
             tag: None,
             plane_normal: None,
@@ -158,13 +154,6 @@ impl Text {
     /// [`Text::anchor`].
     pub fn anchored(mut self, anchor: Vec2) -> Self {
         self.anchor = anchor;
-        self
-    }
-
-    /// Bias the run this many steps of depth-buffer resolution toward the
-    /// viewer. See [overlays](crate#overlays).
-    pub fn z_offset(mut self, z_offset: i32) -> Self {
-        self.z_offset = z_offset;
         self
     }
 

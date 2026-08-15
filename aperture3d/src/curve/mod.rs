@@ -45,9 +45,6 @@ pub struct Curve {
     pub color: Vec3,
     /// Stroke width in logical pixels.
     pub width: f32,
-    /// Depth-test bias in steps of depth-buffer resolution, positive toward
-    /// the viewer. See [overlays](crate#overlays).
-    pub z_offset: i32,
     /// The plane this curve lies in, as a unit normal, when it lies in one.
     /// See [overlays](crate#overlays). `None` keeps the centreline's depth.
     pub plane_normal: Option<Vec3>,
@@ -74,7 +71,6 @@ impl Curve {
             closed: false,
             color: Vec3::ONE,
             width: DEFAULT_STROKE_WIDTH,
-            z_offset: 0,
             plane_normal: None,
             precedence: Precedence::default(),
             tag: None,
@@ -158,13 +154,6 @@ impl Curve {
     /// Set the stroke width in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
-        self
-    }
-
-    /// Bias the stroke this many steps of depth-buffer resolution toward the
-    /// viewer. See [overlays](crate#overlays).
-    pub fn z_offset(mut self, z_offset: i32) -> Self {
-        self.z_offset = z_offset;
         self
     }
 
