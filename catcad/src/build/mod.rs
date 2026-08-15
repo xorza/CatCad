@@ -3,9 +3,12 @@
 
 use silverpoint::{Drive, PointId, Removed, Sketch, Solver};
 
+use crate::build::modelled::Modelled;
 use crate::build::settled::Settled;
+use crate::profile::Profile;
 use crate::timeline::FeatureId;
 
+pub(crate) mod modelled;
 pub(crate) mod settled;
 
 /// The solver, and everything derived from a [`Timeline`] rather than written
@@ -46,6 +49,13 @@ pub(crate) struct Build {
     /// sketches, a walk of a few entries beats hashing one, and the order they
     /// arrived in is a fair order to hold them in.
     settled: Vec<Settled>,
+    /// Which region each extrude is currently grown from, in the order the
+    /// timeline holds them.
+    ///
+    /// Emptied and refilled whole by [`Build::remodel`] rather than kept in step
+    /// entry by entry: an extrude names its region by what bounds it, and every
+    /// edit to a sketch is an edit that could have taken one of those away.
+    modelled: Vec<Modelled>,
     /// Which version of the document this describes, so anything holding a
     /// layout of it can tell whether that layout is still current.
     revision: Revision,
@@ -134,6 +144,7 @@ impl Build {
             settled,
             revision,
             cleaned,
+            ..
         } = self;
         // Made on first use rather than by walking the timeline, because a
         // sketch nothing has settled has nothing to say: what a caller would
@@ -170,8 +181,38 @@ impl Build {
     /// drawn, and leave the old picture on screen with no way to notice.
     pub(crate) fn reopened(&mut self) {
         self.settled.clear();
+        self.modelled.clear();
         self.cleaned = None;
         self.revision = self.revision.next();
+    }
+
+    /// Work out afresh which region each extrude is grown from.
+    ///
+    /// After a settle rather than inside one, because the two are about
+    /// different things: a solve is about one sketch, and this is about every
+    /// step standing downstream of whichever moved. Which is also why it replays
+    /// the whole list rather than the part the last edit could have reached —
+    /// what an edit reaches is a graph the timeline does not keep, and resolving
+    /// one extrude is a walk of a few faces comparing a few handles. Narrowing
+    /// it is worth doing when a document is large enough to notice, and there is
+    /// nothing to narrow *by* until then.
+    ///
+    /// Takes the walk rather than the timeline, because the timeline is
+    /// [`Document`](crate::document::Document)'s: what crosses between the two
+    /// is the pair each step names and nothing else, which is the same line
+    /// [`Models`](crate::model::Models) sits on.
+    pub(crate) fn remodel<'a>(&mut self, extrudes: impl Iterator<Item = (FeatureId, &'a Profile)>) {
+        let Self {
+            settled, modelled, ..
+        } = self;
+        // Emptied and refilled rather than written over in place: a step may
+        // have been added or taken away since the last time, and there is no
+        // position here worth keeping — a caller names an extrude by its handle.
+        modelled.clear();
+        for (of, profile) in extrudes {
+            let arrangement = settled_for(settled, profile.sketch()).arrangement();
+            modelled.push(Modelled::new(of, profile.face_in(arrangement)));
+        }
     }
 
     /// Note that the document has moved without anything being solved.
@@ -203,10 +244,24 @@ impl Build {
     /// is a sketch that was never opened, which is a mistake in whatever raised
     /// the document rather than a state a reader has to handle.
     pub(crate) fn settled(&self, of: FeatureId) -> &Settled {
-        self.settled
+        settled_for(&self.settled, of)
+    }
+
+    /// Which region the extrude at `of` is grown from, or `None` where its
+    /// profile no longer names one.
+    ///
+    /// Every extrude the document holds has been through [`Build::remodel`] by
+    /// the time anything asks — raising a document remodels it, and so does
+    /// every edit — so an extrude with no answer here is one nothing has
+    /// replayed, which is a mistake in whatever raised the document rather than
+    /// a state a reader has to handle. The `None` inside is the other question,
+    /// and is a fair answer: see [`Modelled`].
+    pub(crate) fn modelled(&self, of: FeatureId) -> Option<usize> {
+        self.modelled
             .iter()
             .find(|had| had.of() == of)
-            .expect("this sketch has not been settled")
+            .expect("this extrude has not been modelled")
+            .at()
     }
 
     /// Which version of the document this describes.
@@ -226,6 +281,18 @@ impl Build {
     pub(crate) fn cleaned(&self) -> Option<Removed> {
         self.cleaned
     }
+}
+
+/// What the last solve made of the sketch at `of`, among `settled`.
+///
+/// A free function over the list rather than a method on [`Build`], so that
+/// [`Build::remodel`] — which has the build taken apart, to write one of its
+/// fields while reading another — can ask it without borrowing the whole of one.
+fn settled_for(settled: &[Settled], of: FeatureId) -> &Settled {
+    settled
+        .iter()
+        .find(|had| had.of() == of)
+        .expect("this sketch has not been settled")
 }
 
 /// Which of the solver's entry points an edit is settled through.

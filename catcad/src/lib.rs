@@ -20,6 +20,7 @@ mod names;
 mod paint;
 mod part;
 mod preview;
+mod profile;
 mod scene_view;
 mod selection;
 mod session;
@@ -348,16 +349,15 @@ impl CatCad {
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
     fn status(&self) -> Status<'_> {
-        let model = self
-            .document
-            .models(&self.build, self.session.editing())
-            .open();
+        let models = self.document.models(&self.build, self.session.editing());
+        let model = models.open();
         let outcome = model.outcome();
         Status {
             converged: outcome.converged(),
             iterations: outcome.iterations(),
             degrees_of_freedom: outcome.degrees_of_freedom(),
             redundant_constraints: outcome.redundant_constraints(),
+            lost: models.lost(),
             hovered: self.view.hovered(),
             cleaned: self.build.cleaned(),
             unsaved: self.filing.unsaved(self.document.edits()),
@@ -387,6 +387,14 @@ struct Status<'a> {
     /// run getting it there went.
     degrees_of_freedom: usize,
     redundant_constraints: usize,
+    /// How many extrudes no longer know which region they are grown from.
+    ///
+    /// The one thing a document can say about a step *downstream* of the sketch
+    /// being worked in, and the reason it is worth a line: a drawing whose
+    /// regions have been cut up carries on looking exactly as it did, and the
+    /// feature that has lost its footing says nothing until someone asks it to
+    /// build. See [`Models::lost`](crate::model::Models::lost).
+    lost: usize,
     hovered: Option<Part>,
     /// What the last cleanup took out, where that was the last thing done.
     ///
@@ -441,6 +449,16 @@ impl fmt::Display for Status<'_> {
             "{state} · {} dof · {} redundant · {} iterations",
             self.degrees_of_freedom, self.redundant_constraints, self.iterations,
         )?;
+        if self.lost > 0 {
+            // Named for what was lost rather than for the step that lost it: a
+            // profile is what an extrude is grown from, and "1 extrude" would
+            // read as though the extrude itself had gone.
+            write!(f, " · {} profile", self.lost)?;
+            if self.lost != 1 {
+                f.write_str("s")?;
+            }
+            f.write_str(" lost")?;
+        }
         if self.unsaved {
             f.write_str(" · unsaved")?;
         }

@@ -59,6 +59,13 @@ pub(crate) enum Fault {
     /// A sketch is drawn on something that is not a plane, or a plane is
     /// measured off something that is not one.
     NotAPlane { at: usize, names: usize },
+    /// An extrude is grown from a step that is not a sketch.
+    ///
+    /// Its own variant beside [`Fault::NotAPlane`] rather than one that names
+    /// the kind it wanted: the two read differently to whoever has to fix the
+    /// file, and a message that had to be assembled from a noun would be one
+    /// place further from what it is telling them.
+    NotASketch { at: usize, names: usize },
     /// Something in a sketch names geometry the sketch does not hold.
     Unknown { at: usize, what: Missing },
     /// A coordinate, a radius or a dimension that is not a number.
@@ -116,6 +123,12 @@ impl fmt::Display for Fault {
                 write!(
                     f,
                     "step {at} is built on step {names}, which is not a plane"
+                )
+            }
+            Fault::NotASketch { at, names } => {
+                write!(
+                    f,
+                    "step {at} is grown from step {names}, which is not a sketch"
                 )
             }
             Fault::Unknown { at, what } => write!(f, "step {at} names {what}"),

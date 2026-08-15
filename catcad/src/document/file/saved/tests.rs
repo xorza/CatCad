@@ -92,8 +92,8 @@ fn a_document_is_written_exactly_like_this() {
     let origin = sketch.add_point(DVec2::ZERO);
     let across = sketch.add_point(DVec2::new(2.0, 0.5));
     sketch.fix(origin);
-    sketch.add_segment(origin, across);
-    sketch.add_circle(across, 0.25);
+    let edge = sketch.add_segment(origin, across);
+    let rim = sketch.add_circle(across, 0.25);
     sketch.add_constraint(Constraint::Horizontal {
         a: origin,
         b: across,
@@ -105,13 +105,34 @@ fn a_document_is_written_exactly_like_this() {
         from: ground,
         by: 2.2,
     }));
-    timeline.add(Feature::Sketch { on: shelf, sketch });
+    let drawn = timeline.add(Feature::Sketch { on: shelf, sketch });
+    // A region these two curves do not actually shut in, and deliberately: what
+    // is under test is whether the file can *say* a name, in the numbering of
+    // the sketch it belongs to, with both sides of a curve told apart. Whether
+    // the drawing holds such a region is the arrangement's question and is asked
+    // where regions are named rather than where they are written down.
+    timeline.add(Feature::Extrude {
+        profile: Profile::new(
+            drawn,
+            vec![
+                Bound {
+                    of: Entity::Segment(edge),
+                    along: true,
+                },
+                Bound {
+                    of: Entity::Circle(rim),
+                    along: false,
+                },
+            ],
+        ),
+        distance: 1.5,
+    });
 
     assert_eq!(
         written(&timeline),
         "\
 (
-    version: 1,
+    version: 2,
     camera: (
         projection: Perspective,
         target: (0.0, 0.0, 0.0),
@@ -144,6 +165,16 @@ fn a_document_is_written_exactly_like_this() {
                     Horizontal(a: 0, b: 1),
                 ],
             ),
+        ),
+        Extrude(
+            profile: (
+                sketch: 2,
+                bounds: [
+                    Segment(at: 0, along: true),
+                    Circle(at: 0, along: false),
+                ],
+            ),
+            distance: 1.5,
         ),
     ],
 )"
@@ -302,44 +333,87 @@ fn saving_compacts_the_holes_an_edit_left() {
 /// two pieces of this program; a file is neither piece.
 #[test]
 fn a_document_that_says_something_impossible_is_refused() {
-    let refused: [(String, Fault); 10] = [
+    let refused: [(String, Fault); 13] = [
         // A version this cannot claim to understand, whatever it goes on to
-        // say.
+        // say — here the one that came before, which is the way a stamp is
+        // actually met in the wild.
         (
-            document(2, &format!("Ground, Sketch(on: 0, {A_SKETCH})")),
-            Fault::Version(2),
+            document(1, &format!("Ground, Sketch(on: 0, {A_SKETCH})")),
+            Fault::Version(1),
         ),
         // Planes and nothing to draw on them. A document is opened *in* a
         // sketch, so one holding none has nowhere to put you.
-        (document(1, "Ground"), Fault::NoSketch),
+        (document(2, "Ground"), Fault::NoSketch),
         // A step built on one the file has not got.
         (
-            document(1, &format!("Ground, Sketch(on: 4, {A_SKETCH})")),
+            document(2, &format!("Ground, Sketch(on: 4, {A_SKETCH})")),
             Fault::UnknownStep { at: 1, names: 4 },
         ),
         // A step built on itself, which is the same failure: a reference only
         // ever points backwards, and this one does not.
         (
-            document(1, &format!("Sketch(on: 0, {A_SKETCH})")),
+            document(2, &format!("Sketch(on: 0, {A_SKETCH})")),
             Fault::UnknownStep { at: 0, names: 0 },
         ),
         // A step built on a later one, likewise.
         (
-            document(1, "Plane(from: 1, by: 1.0), Ground"),
+            document(2, "Plane(from: 1, by: 1.0), Ground"),
             Fault::UnknownStep { at: 0, names: 1 },
         ),
         // A sketch drawn on a sketch.
         (
             document(
-                1,
+                2,
                 &format!("Ground, Sketch(on: 0, {A_SKETCH}), Sketch(on: 1, {A_SKETCH})"),
             ),
             Fault::NotAPlane { at: 2, names: 1 },
         ),
+        // And the same mistake the other way up: a solid grown off a plane. Its
+        // own complaint rather than the one above, because what is wrong and
+        // what would have been right are both different.
+        (
+            document(
+                2,
+                &format!(
+                    "Ground, Sketch(on: 0, {A_SKETCH}), \
+                     Extrude(profile: (sketch: 0, bounds: []), distance: 1.0)"
+                ),
+            ),
+            Fault::NotASketch { at: 2, names: 0 },
+        ),
+        // A region bounded by a curve its sketch does not hold — the same answer
+        // a relation naming one gets, reached by a different path: a bound is
+        // read through the same numbering and refused by the same lookup.
+        (
+            document(
+                2,
+                &format!(
+                    "Ground, Sketch(on: 0, {A_SKETCH}), \
+                     Extrude(profile: (sketch: 1, bounds: [Segment(at: 3, along: true)]), \
+                     distance: 1.0)"
+                ),
+            ),
+            Fault::Unknown {
+                at: 2,
+                what: Missing::Segment(3),
+            },
+        ),
+        // A solid grown an impossible distance, which would otherwise reach a
+        // renderer as geometry nobody could draw.
+        (
+            document(
+                2,
+                &format!(
+                    "Ground, Sketch(on: 0, {A_SKETCH}), \
+                     Extrude(profile: (sketch: 1, bounds: []), distance: inf)"
+                ),
+            ),
+            Fault::NotFinite { at: 2 },
+        ),
         // An edge between points the sketch does not hold.
         (
             document(
-                1,
+                2,
                 "Ground, Sketch(on: 0, sketch: (points: [(at: (0.0, 0.0))], \
                  segments: [(a: 0, b: 5)], circles: [], relations: []))",
             ),
@@ -351,7 +425,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // A relation about an edge that is not there.
         (
             document(
-                1,
+                2,
                 "Ground, Sketch(on: 0, sketch: (points: [], segments: [], circles: [], \
                  relations: [Parallel(first: 0, second: 1)]))",
             ),
@@ -363,7 +437,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // And about a circle that is not there.
         (
             document(
-                1,
+                2,
                 "Ground, Sketch(on: 0, sketch: (points: [], segments: [], circles: [], \
                  relations: [Radius(circle: 2, radius: 1.0)]))",
             ),
@@ -376,7 +450,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // the solver, which has no way to report having been handed it.
         (
             document(
-                1,
+                2,
                 "Ground, Sketch(on: 0, sketch: (points: [(at: (0.0, inf))], segments: [], \
                  circles: [], relations: []))",
             ),

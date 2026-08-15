@@ -192,15 +192,34 @@ names entities of *another* step's sketch, so `Saved::timeline` has to keep a
 
 ## Order of work
 
-1. `Bound`, `Arrangement::bounds`, `face_named_by`, the dangler filter. Testable
-   entirely inside silverpoint, against the cut circle, an annulus, and a
-   dangler.
-2. `Profile`, `Feature::Extrude`, `Modelled`, `Document::remodel`. No rendering:
-   assert that resolution survives a drag and a re-solve.
+1. **Done.** `Bound`, `Arrangement::bounds`, `face_named_by`, the spur filter.
+2. **Done.** `Profile`, `Feature::Extrude`, `Modelled`, `Document::remodel` —
+   and the file format with them, for the reason below.
 3. `Prism`, `Skinner`, paint, `Part::Solid`; scenery removed, demo and visual
    suite updated.
-4. File format and the version bump.
-5. The cap drag.
+4. The cap drag.
+
+## What step 2 found
+
+- **The file format could not wait.** Adding `Feature::Extrude` breaks `Step::of`
+  and `plane_at` the moment the variant exists, because both match `Feature`
+  exhaustively — and a stub would be the shim the house rules refuse. So
+  `VERSION` is 2 and `Profiled`/`Bounded` landed here rather than last.
+- **A profile is written under its own sketch's numbering**, so the loader keeps
+  a `Handles` per step rather than dropping it inside `Sketch::build`.
+  `Step::loaded` hands back a `Loaded` carrying both.
+- **`Document::extrude` is a third way a document changes**, beside `apply` and
+  `restore`, because adding a step has no "before" for the history to record. It
+  is what `Change::Extrude` will route through once the history learns
+  structural edits — roadmap §5, and the same lesson delete and reorder want.
+- **The demo grows its solid from the hub, not the frame.** The frame is bounded
+  by the rectangle the arm swings past, and the arm is *made* to be dragged: push
+  it up and two of its bars and the eye cross the base, cutting the frame into
+  six regions and leaving the name fitting none of them. Correct, and a poor
+  thing to open the application on. The hub is one circle nothing else reaches,
+  and the drag it offers is the rim — so the solid resizes rather than vanishing.
+- **The status line reports lost profiles**, which is what makes resolution
+  visible at all before anything draws a solid.
 
 ## Left open
 

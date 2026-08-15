@@ -6,6 +6,7 @@ use silverpoint::Plane;
 
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
+use crate::profile::Profile;
 use crate::timeline::feature::{Datum, Feature};
 
 pub(crate) mod feature;
@@ -64,7 +65,8 @@ impl Timeline {
     /// The walk terminates because a step is only ever built on an earlier one
     /// — see [`Timeline::add`].
     pub(crate) fn plane(&self, at: FeatureId) -> Plane {
-        match self.feature(at) {
+        let feature = self.feature(at);
+        match feature {
             Feature::Plane(Datum::Ground) => Plane::GROUND,
             Feature::Plane(Datum::Offset { from, by }) => {
                 let base = self.plane(*from);
@@ -73,7 +75,7 @@ impl Timeline {
                     ..base
                 }
             }
-            Feature::Sketch { .. } => not_a_plane(at),
+            Feature::Sketch { .. } | Feature::Extrude { .. } => wrong_kind(at, "a plane", feature),
         }
     }
 
@@ -122,13 +124,14 @@ impl Timeline {
     /// a fair question with a real answer. Asking a *sketch* for its offset is
     /// the mistake, and that is what still panics.
     pub(crate) fn movable(&self, at: FeatureId) -> Option<Movable> {
-        match self.feature(at) {
+        let feature = self.feature(at);
+        match feature {
             Feature::Plane(Datum::Offset { from, .. }) => Some(Movable {
                 plane: at,
                 from: self.plane(*from),
             }),
             Feature::Plane(Datum::Ground) => None,
-            Feature::Sketch { .. } => not_a_plane(at),
+            Feature::Sketch { .. } | Feature::Extrude { .. } => wrong_kind(at, "a plane", feature),
         }
     }
 
@@ -142,10 +145,11 @@ impl Timeline {
 
     /// The sketch `at` names, and the plane it lies on.
     pub(crate) fn drawing(&self, at: FeatureId) -> Drawing<'_> {
-        let Feature::Sketch { on, sketch } = self.feature(at) else {
-            not_a_sketch(at);
-        };
-        Drawing::new(sketch, self.plane(*on))
+        let feature = self.feature(at);
+        match feature {
+            Feature::Sketch { on, sketch } => Drawing::new(sketch, self.plane(*on)),
+            Feature::Plane(_) | Feature::Extrude { .. } => wrong_kind(at, "a sketch", feature),
+        }
     }
 
     /// The same pair, open for editing.
@@ -155,10 +159,12 @@ impl Timeline {
     /// cannot overlap, and a plane is a value once it has been worked out.
     pub(crate) fn edit(&mut self, at: FeatureId) -> Sketching<'_> {
         let plane = self.plane_of(at);
-        let Feature::Sketch { sketch, .. } = self.feature_mut(at) else {
-            not_a_sketch(at);
-        };
-        Sketching::new(at, sketch, plane)
+        match self.feature_mut(at) {
+            Feature::Sketch { sketch, .. } => Sketching::new(at, sketch, plane),
+            other @ (Feature::Plane(_) | Feature::Extrude { .. }) => {
+                wrong_kind(at, "a sketch", other)
+            }
+        }
     }
 
     /// The first sketch it holds.
@@ -183,11 +189,25 @@ impl Timeline {
             .map(|(id, _)| id)
     }
 
+    /// Every extrude the timeline holds, with the region each is grown from.
+    ///
+    /// The pair rather than the handle alone, unlike [`Timeline::sketches`]:
+    /// what reads this is working out afresh where each extrude's region
+    /// currently falls — see [`Build::remodel`](crate::build::Build::remodel) —
+    /// and the profile is the whole of what that question is asked with.
+    pub(crate) fn extrudes(&self) -> impl Iterator<Item = (FeatureId, &Profile)> {
+        self.steps().filter_map(|(id, feature)| match feature {
+            Feature::Extrude { profile, .. } => Some((id, profile)),
+            Feature::Plane(_) | Feature::Sketch { .. } => None,
+        })
+    }
+
     /// Which plane the sketch at `at` is drawn on.
     pub(crate) fn drawn_on(&self, at: FeatureId) -> FeatureId {
-        match self.feature(at) {
+        let feature = self.feature(at);
+        match feature {
             Feature::Sketch { on, .. } => *on,
-            Feature::Plane(_) => not_a_sketch(at),
+            Feature::Plane(_) | Feature::Extrude { .. } => wrong_kind(at, "a sketch", feature),
         }
     }
 
@@ -219,15 +239,12 @@ const REMOVED_STEP: &str = "this step is no longer in the timeline";
 
 /// What a caller reaching for the wrong kind of step is told.
 ///
-/// Two of them rather than one, because which way round it went is the useful
-/// half: a caller that asked a sketch for its frame and one that asked a plane
-/// for its geometry have made opposite mistakes.
-fn not_a_sketch(at: FeatureId) -> ! {
-    panic!("{at:?} names a plane rather than a sketch");
-}
-
-fn not_a_plane(at: FeatureId) -> ! {
-    panic!("{at:?} names a sketch rather than a plane");
+/// Both halves, because which way round it went is what a caller cannot work
+/// out for itself: one that asked a sketch for its frame and one that asked a
+/// plane for its geometry have made opposite mistakes, and each knows only what
+/// it wanted. What it actually named is [`Feature::kind`]'s to say.
+fn wrong_kind(at: FeatureId, wanted: &str, found: &Feature) -> ! {
+    panic!("{at:?} names {} rather than {wanted}", found.kind());
 }
 
 /// A plane that can be moved, and the line it moves along.

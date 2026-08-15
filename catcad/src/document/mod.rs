@@ -14,6 +14,7 @@ use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
 use crate::model::Models;
+use crate::profile::Profile;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Movable, Timeline};
 
@@ -69,7 +70,46 @@ impl Document {
         for at in sketches {
             document.sketching(at).opened(build);
         }
+        // After every sketch, because an extrude is grown from a region of one
+        // and a sketch nothing has settled encloses nothing.
+        document.remodel(build);
         document
+    }
+
+    /// Grow a solid off `profile`, as the newest step.
+    ///
+    /// The third way a document changes, and the odd one out: [`Document::apply`]
+    /// and [`Document::restore`] both rewrite a step that is already there,
+    /// where this puts one on the end. That is why it is not a [`Change`] — the
+    /// history records a step by keeping what it held before and after, and a
+    /// step that was not there has no before. Recording one is
+    /// [`History`](crate::history::History)'s to learn, and it is the same
+    /// lesson deleting and reordering will want.
+    ///
+    /// Nothing to solve: what the region *is* was settled by the solve that
+    /// found it, and how far the solid stands off the plane is a number. What
+    /// this does need is the remodel below, because the step it just added has
+    /// no answer in `build` until one is worked out.
+    pub(crate) fn extrude(&mut self, build: &mut Build, profile: Profile, distance: f64) {
+        self.timeline.add(Feature::Extrude { profile, distance });
+        build.revised();
+        self.remodel(build);
+        self.edits = self.edits.next();
+    }
+
+    /// Work out afresh which region each extrude is grown from.
+    ///
+    /// Every way a document changes ends here, which is what keeps a feature
+    /// standing downstream of a sketch honest: a profile names its region by
+    /// what bounds it, and any edit at all may have drawn a line across one.
+    /// Replaying is what a timeline is *for* — see
+    /// [`Build::remodel`](crate::build::Build::remodel), which is where the cost
+    /// of replaying the lot rather than the part is argued.
+    ///
+    /// Reads the document and writes only `build`, like everything derived: what
+    /// an extrude says is written down, and where that currently lands is not.
+    fn remodel(&self, build: &mut Build) {
+        build.remodel(self.timeline.extrudes());
     }
 
     /// Write the document to `path`, making it if it is not there and replacing
@@ -228,8 +268,13 @@ impl Document {
         // its number back is the whole of it.
         match was {
             Feature::Sketch { .. } => self.sketching(at).measured(build),
-            Feature::Plane(_) => build.revised(),
+            // Neither has anything to solve. A plane's number and an extrude's
+            // profile and distance are what they are; putting them back is the
+            // whole of it, and where the drawing then *lands* is worked out by
+            // whoever reads it.
+            Feature::Plane(_) | Feature::Extrude { .. } => build.revised(),
         }
+        self.remodel(build);
         self.edits = self.edits.next();
     }
 
@@ -293,6 +338,12 @@ impl Document {
             Change::Pan { by } => self.camera.pan(by),
             Change::Project(projection) => self.camera.projection = projection,
         }
+        // After the change rather than as part of one, because it is a fact
+        // about every step and not about the one that moved — a line drawn in
+        // one sketch can take away what an extrude two steps later was grown
+        // from. Turning the camera passes through here too, and costs a walk of
+        // however many extrudes the document holds.
+        self.remodel(build);
         self.edits = self.edits.next();
     }
 }

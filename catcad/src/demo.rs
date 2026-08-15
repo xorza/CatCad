@@ -57,15 +57,46 @@ pub(crate) fn scenery() -> Vec<Object> {
     solids
 }
 
-/// The demo as a document: two sketches, on two planes.
+/// Which region of the first sketch the demo's extrude is grown from.
+///
+/// The hub — the disc the circle in the middle of the frame shuts in — walked
+/// third, after the frame around it and the eye on the arm.
+///
+/// The disc rather than the frame, and the reason is the whole point of naming a
+/// region by what bounds it. The frame is bounded by the four edges of a
+/// rectangle the arm swings right past, and the arm is *made* to be dragged
+/// about: push it up and two of its bars and the eye cross the rectangle's base,
+/// cutting the frame into six regions and leaving the name fitting none of them.
+/// Which is the correct answer, and a poor thing to open the application on. The
+/// disc is bounded by one circle nothing else reaches, and the drag the demo
+/// offers on it is the rim — so pulling the rim about resizes the solid instead
+/// of taking it away, which is what a parametric model is for.
+///
+/// A position, and pinned by
+/// `the_demo_grows_its_solid_from_the_hub_and_keeps_it_through_a_drag` — because
+/// a position among the faces is exactly the thing a [`Profile`] exists not to
+/// trust, and this is the one moment it is allowed: the moment the name is
+/// minted.
+///
+/// [`Profile`]: crate::profile::Profile
+const HUB: usize = 2;
+
+/// How far the demo's extrude stands off the ground.
+///
+/// Under [`SHELF`], so the solid does not reach the plane held above it and the
+/// two read as separate things rather than as one stack.
+const DEPTH: f64 = 1.4;
+
+/// The demo as a document: two sketches on two planes, and a solid grown off
+/// one of them.
 pub(crate) fn document(build: &mut Build) -> Document {
-    // Four steps: the ground, a drawing on it, a plane held clear of the
-    // ground, and a drawing on that. Neither sketch carries a plane — each
-    // names one — so the second follows its datum wherever that goes, and
-    // moving the datum is retyping one number.
+    // Five steps: the ground, a drawing on it, a plane held clear of the
+    // ground, a drawing on that, and a solid grown off the first. Neither
+    // sketch carries a plane — each names one — so the second follows its datum
+    // wherever that goes, and moving the datum is retyping one number.
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::Ground));
-    timeline.add(Feature::Sketch {
+    let drawn = timeline.add(Feature::Sketch {
         on: ground,
         sketch: sketch(),
     });
@@ -77,7 +108,15 @@ pub(crate) fn document(build: &mut Build) -> Document {
         on: shelf,
         sketch: aside(),
     });
-    Document::new(build, timeline)
+    // Raised before the solid is grown off it, and that order is the whole of
+    // why this is two steps rather than one. Naming a region means asking what
+    // the drawing encloses, and what it encloses is what the *solve* decides —
+    // where the coordinates in `sketch` are deliberately not the answer. So the
+    // document is stood up and solved, and only then is there a region to name.
+    let mut document = Document::new(build, timeline);
+    let profile = document.models(build, drawn).open().profile(HUB);
+    document.extrude(build, profile, DEPTH);
+    document
 }
 
 /// A second drawing, on the shelf held clear of the ground the first lies on.
@@ -229,4 +268,82 @@ pub(crate) fn sketch() -> Sketch {
         radius: 0.45,
     });
     sketch
+}
+
+/// What the demo claims about itself, which is a claim about a *position* and so
+/// has to be checked rather than trusted.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::drawing::Grip;
+    use crate::intent::Change;
+    use silverpoint::Plane;
+    use std::f64::consts::PI;
+
+    /// **The demo grows its solid from the hub, and keeps it through the drag
+    /// the hub is there for.**
+    ///
+    /// Two claims, and [`HUB`] is why the first one is needed at all: a position
+    /// among the faces is what a [`Profile`](crate::profile::Profile) exists not
+    /// to trust, and minting the name is the one moment one is used. Anything
+    /// that changed the order the drawing's curves are walked in would leave the
+    /// demo silently extruding the frame, or the eye on the end of the arm.
+    ///
+    /// The second is the point of choosing the hub. Its rim is the one dimension
+    /// in the demo a cursor can drive, and driving it has to *resize* the solid
+    /// rather than take it away — the circle is still the same circle, and the
+    /// region is still the inside of it.
+    #[test]
+    fn the_demo_grows_its_solid_from_the_hub_and_keeps_it_through_a_drag() {
+        let mut build = Build::default();
+        let mut document = document(&mut build);
+        let drawn = document.opening();
+
+        // The hub is drawn at radius 1.5, and its centre is pinned to the middle
+        // of the frame by two half-diagonals — so the disc it shuts in covers
+        // π·1.5², and neither the frame around it nor the eye on the arm is
+        // anywhere near that.
+        let covered = |document: &Document, build: &Build| {
+            document.models(build, drawn).open().arrangement().faces()[HUB].area()
+        };
+        assert!(
+            (covered(&document, &build) - PI * 1.5 * 1.5).abs() < 1e-9,
+            "face {HUB} covers {} rather than the hub's disc",
+            covered(&document, &build)
+        );
+        assert_eq!(document.models(&build, drawn).lost(), 0);
+
+        // The rim pulled out to radius 2, which is still clear of the frame's
+        // top and bottom edges two and a half away — so the drawing keeps its
+        // shape and only the disc grows.
+        let hub = document
+            .models(&build, drawn)
+            .open()
+            .sketch()
+            .circles()
+            .next()
+            .expect("the frame is drawn with a circle through it")
+            .0;
+        document.apply(
+            &mut build,
+            Change::Drag {
+                sketch: drawn,
+                grip: Grip::Rim(hub),
+                to: Plane::GROUND.point(DVec2::new(6.0, 2.5)).as_vec3(),
+            },
+        );
+        assert_eq!(
+            document.models(&build, drawn).lost(),
+            0,
+            "growing the circle lost the region inside it"
+        );
+        // A solve's answer rather than arithmetic, so within a tolerance — and
+        // the tolerance is a drag's, which reaches for the cursor through the
+        // constraints rather than writing the radius.
+        let grown = covered(&document, &build);
+        assert!(
+            (grown - PI * 2.0 * 2.0).abs() < 1e-6,
+            "the disc covers {grown} rather than π·2²"
+        );
+    }
 }

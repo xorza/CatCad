@@ -7,6 +7,7 @@ use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
 use crate::drawing::Drawing;
 use crate::part::Part;
+use crate::profile::Profile;
 use crate::timeline::{FeatureId, Timeline};
 
 /// A sketch and what the last solve made of it, read together.
@@ -114,6 +115,23 @@ impl<'a> Model<'a> {
             sketch: self.of,
             at,
         }
+    }
+
+    /// The same region as something a feature can be built on.
+    ///
+    /// The one place a face becomes a [`Profile`], which is the moment a
+    /// position among this frame's faces turns into a name meant to outlive
+    /// every edit that follows — see [`Profile`], on why the two are different
+    /// types rather than one.
+    ///
+    /// Here beside [`Model::face`] for the reason that one is here: the sketch
+    /// half of the name is what a face position cannot supply, and a caller
+    /// holding both is holding a model.
+    pub(crate) fn profile(self, at: usize) -> Profile {
+        let arrangement = self.arrangement();
+        let mut bounds = Vec::new();
+        arrangement.bounds(&arrangement.faces()[at], &mut bounds);
+        Profile::new(self.of, bounds)
     }
 
     /// The entity `part` names, or `None` where it names a face or belongs to
@@ -305,6 +323,25 @@ impl<'a> Models<'a> {
         timeline
             .movable_planes()
             .map(move |at| (at, timeline.plane(at)))
+    }
+
+    /// How many extrudes no longer know which region they are grown from.
+    ///
+    /// What a drawing can do to a feature standing downstream of it: a line
+    /// drawn across a region takes away the thing an extrude was built on, and
+    /// neither of the two regions that replaced it is what the name meant. Said
+    /// as a count because that is what a reader can act on — which extrude went
+    /// wrong is a question for the timeline, which nothing shows yet.
+    ///
+    /// Here rather than on the build, because it is a question about the
+    /// document as a whole: the build knows what each extrude resolved to and
+    /// the timeline knows which steps are extrudes, and this is the one place
+    /// that holds both.
+    pub(crate) fn lost(self) -> usize {
+        self.timeline
+            .extrudes()
+            .filter(|&(at, _)| self.build.modelled(at).is_none())
+            .count()
     }
 
     /// Which version of the document these describe.
