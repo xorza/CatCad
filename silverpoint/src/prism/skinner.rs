@@ -88,7 +88,7 @@ impl Skinner {
     /// at the same places by the same rule.
     fn cap(&mut self, of: &Prism<'_>, far: bool, sagitta: f64, into: &mut Patch) {
         self.filler
-            .fill(of.of(), of.face(), sagitta, &mut self.fill);
+            .fill(of.arrangement(), of.face(), sagitta, &mut self.fill);
         let plane = of.plane();
         let height = if far { of.distance() } else { 0.0 };
         // A cap faces away from the solid, so the far end faces the way it grew
@@ -118,7 +118,7 @@ impl Skinner {
         let face = of.face();
         for loop_ in face.boundary() {
             for &half in loop_ {
-                if of.of().bound(half) == bound {
+                if of.arrangement().bound(half) == bound {
                     self.strip(of, half, sagitta, into);
                 }
             }
@@ -128,37 +128,32 @@ impl Skinner {
     /// One piece of curve, swept into a run of quads.
     fn strip(&mut self, of: &Prism<'_>, half: Half, sagitta: f64, into: &mut Patch) {
         let plane = of.plane();
-        let corners = of.of().corners();
-        let edge = of.of().edge(half);
+        let corners = of.arrangement().corners();
+        let edge = of.arrangement().edge(half);
         let lift = plane.normal() * of.distance();
-        // Lifted into the world once per corner: a normal that lies in the
-        // plane stays in it however far the wall is carried, so the two ends of
-        // a quad share the direction its foot had.
-        let raise = |at: DVec2| plane.point(at);
+        // A normal that lies in the plane stays in it however far the wall is
+        // carried, so the head of a quad faces exactly the way its foot does.
         let facing = |out: DVec2| plane.x * out.x + plane.y * out.y;
 
         let steps = edge.steps(sagitta);
         for step in 0..steps {
             let (near, far) = (
-                edge.cut(corners, half.forward, step, steps),
-                edge.cut(corners, half.forward, step + 1, steps),
+                plane.point(edge.cut(corners, half.forward, step, steps)),
+                plane.point(edge.cut(corners, half.forward, step + 1, steps)),
             );
             let (out_near, out_far) = (
                 facing(edge.outward(corners, half.forward, step as f64 / steps as f64)),
                 facing(edge.outward(corners, half.forward, (step + 1) as f64 / steps as f64)),
             );
-            let foot = (
-                into.push(raise(near), out_near),
-                into.push(raise(far), out_far),
-            );
-            let head = (
-                into.push(raise(far) + lift, out_far),
-                into.push(raise(near) + lift, out_near),
-            );
             // Round the quad the way it is raised: foot, along, up, back. Seen
             // from outside that reads counterclockwise where the solid grows
             // along the normal, and the other way round where it grows against.
-            let quad = [foot.0, foot.1, head.0, head.1];
+            let quad = [
+                into.push(near, out_near),
+                into.push(far, out_far),
+                into.push(far + lift, out_far),
+                into.push(near + lift, out_near),
+            ];
             into.triangles.extend(if of.along() {
                 [[quad[0], quad[1], quad[2]], [quad[0], quad[2], quad[3]]]
             } else {

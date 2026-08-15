@@ -78,7 +78,7 @@ impl<'a> Prism<'a> {
     }
 
     /// The arrangement the region belongs to.
-    pub(crate) fn of(&self) -> &'a Arrangement {
+    pub(crate) fn arrangement(&self) -> &'a Arrangement {
         self.of
     }
 
