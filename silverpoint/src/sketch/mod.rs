@@ -405,13 +405,18 @@ impl Sketch {
 
     /// The circles nothing names that another circle already covers.
     fn spare_circles(&self) -> Vec<CircleId> {
-        let same = |a: &Circle, b: &Circle| {
-            self.point(a.center)
-                .position
-                .approx_eq(self.point(b.center).position, DUPLICATE_EPSILON)
-                && a.radius.approx_eq(b.radius, DUPLICATE_EPSILON)
-        };
-        self.spares(&self.circles, |id| self.is_named(Entity::Circle(id)), same)
+        let named = self.named_circles();
+        self.spares(
+            &self.circles,
+            |id| named[id.slot()],
+            |a, b| {
+                let (a, b) = (self.circle(a), self.circle(b));
+                self.point(a.center)
+                    .position
+                    .approx_eq(self.point(b.center).position, DUPLICATE_EPSILON)
+                    && a.radius.approx_eq(b.radius, DUPLICATE_EPSILON)
+            },
+        )
     }
 
     /// The segments nothing names that another segment already covers.
@@ -421,16 +426,19 @@ impl Sketch {
     /// the duplicate this is looking for, and one written the other way round
     /// is the same edge — so both orientations count.
     fn spare_segments(&self) -> Vec<SegmentId> {
-        let ends = |s: &Segment| (self.point(s.a).position, self.point(s.b).position);
-        let same = |a: &Segment, b: &Segment| {
-            let ((a1, a2), (b1, b2)) = (ends(a), ends(b));
-            (a1.approx_eq(b1, DUPLICATE_EPSILON) && a2.approx_eq(b2, DUPLICATE_EPSILON))
-                || (a1.approx_eq(b2, DUPLICATE_EPSILON) && a2.approx_eq(b1, DUPLICATE_EPSILON))
+        let named = self.named_segments();
+        let ends = |id| {
+            let edge: Segment = self.segment(id);
+            (self.point(edge.a).position, self.point(edge.b).position)
         };
         self.spares(
             &self.segments,
-            |id| self.is_named(Entity::Segment(id)),
-            same,
+            |id| named[id.slot()],
+            |a, b| {
+                let ((a1, a2), (b1, b2)) = (ends(a), ends(b));
+                (a1.approx_eq(b1, DUPLICATE_EPSILON) && a2.approx_eq(b2, DUPLICATE_EPSILON))
+                    || (a1.approx_eq(b2, DUPLICATE_EPSILON) && a2.approx_eq(b1, DUPLICATE_EPSILON))
+            },
         )
     }
 
@@ -440,80 +448,109 @@ impl Sketch {
     /// two agree on a solved sketch — [`DUPLICATE_EPSILON`] is the looser of the
     /// two — and on one a solve has not reached, what the drawing *states* is a
     /// better answer than where it currently happens to be.
-    ///
-    /// Coincidences are also the one relation that does not count as carrying
-    /// something. A point tied only to other points, ending no edge and
-    /// centring no circle, is a spare marker however many coincidences say so;
-    /// anything else said about it — a distance, a horizontal, a point on an
-    /// edge — is structure, and structure keeps it.
     fn spare_points(&self) -> Vec<PointId> {
-        let carries = |id: PointId| {
-            let entity = Entity::Point(id);
-            self.segments
-                .iter()
-                .any(|(_, segment)| segment.a == id || segment.b == id)
-                || self.circles.iter().any(|(_, circle)| circle.center == id)
-                || self.constraints.iter().any(|(_, constraint)| {
-                    constraint.names(entity) && !matches!(constraint, Constraint::Coincident { .. })
-                })
-        };
-        let tied = |a: PointId, b: PointId| {
-            self.constraints.iter().any(|(_, constraint)| {
-                matches!(*constraint, Constraint::Coincident { a: x, b: y }
-                    if (x == a && y == b) || (x == b && y == a))
+        let carried = self.carried_points();
+        // Gathered once rather than asked per pair, because the walk below asks
+        // it of every spare against every keeper.
+        let joins: Vec<(PointId, PointId)> = self
+            .constraints
+            .iter()
+            .filter_map(|(_, constraint)| match *constraint {
+                Constraint::Coincident { a, b } => Some((a, b)),
+                _ => None,
             })
-        };
-        // By id as well as by value, because two points are the same one when a
-        // coincidence says so and the arena cannot be asked that from a `Point`
-        // alone.
-        let ids: Vec<PointId> = self.points.iter().map(|(id, _)| id).collect();
-        let same = |a: PointId, b: PointId| {
-            self.point(a)
-                .position
-                .approx_eq(self.point(b).position, DUPLICATE_EPSILON)
-                || tied(a, b)
-        };
-        let mut kept: Vec<PointId> = ids.iter().copied().filter(|&id| carries(id)).collect();
-        let mut doomed = Vec::new();
-        for id in ids.into_iter().filter(|&id| !carries(id)) {
-            if kept.iter().any(|&keeper| same(id, keeper)) {
-                doomed.push(id);
-            } else {
-                kept.push(id);
-            }
-        }
-        doomed
+            .collect();
+        self.spares(
+            &self.points,
+            |id| carried[id.slot()],
+            |a, b| {
+                self.point(a)
+                    .position
+                    .approx_eq(self.point(b).position, DUPLICATE_EPSILON)
+                    || joins
+                        .iter()
+                        .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))
+            },
+        )
     }
 
-    /// Whether any constraint is about `entity`.
-    fn is_named(&self, entity: Entity) -> bool {
-        self.constraints
-            .iter()
-            .any(|(_, constraint)| constraint.names(entity))
+    /// Which points hold something up, marked by arena position.
+    ///
+    /// Coincidences are the one relation that does not count. A point tied only
+    /// to other points, ending no edge and centring no circle, is a spare
+    /// marker however many joins say so; anything else said about it — a
+    /// distance, a horizontal, a point on an edge — is structure, and structure
+    /// keeps it.
+    fn carried_points(&self) -> Vec<bool> {
+        let mut carried = vec![false; self.points.slot_count()];
+        for (_, segment) in self.segments.iter() {
+            carried[segment.a.slot()] = true;
+            carried[segment.b.slot()] = true;
+        }
+        for (_, circle) in self.circles.iter() {
+            carried[circle.center.slot()] = true;
+        }
+        for (_, constraint) in self.constraints.iter() {
+            if matches!(constraint, Constraint::Coincident { .. }) {
+                continue;
+            }
+            for entity in constraint.referents() {
+                if let Entity::Point(id) = entity {
+                    carried[id.slot()] = true;
+                }
+            }
+        }
+        carried
+    }
+
+    /// Which segments a constraint is written about, marked by arena position.
+    fn named_segments(&self) -> Vec<bool> {
+        let mut named = vec![false; self.segments.slot_count()];
+        for (_, constraint) in self.constraints.iter() {
+            for entity in constraint.referents() {
+                if let Entity::Segment(id) = entity {
+                    named[id.slot()] = true;
+                }
+            }
+        }
+        named
+    }
+
+    /// Which circles a constraint is written about, marked by arena position.
+    fn named_circles(&self) -> Vec<bool> {
+        let mut named = vec![false; self.circles.slot_count()];
+        for (_, constraint) in self.constraints.iter() {
+            for entity in constraint.referents() {
+                if let Entity::Circle(id) = entity {
+                    named[id.slot()] = true;
+                }
+            }
+        }
+        named
     }
 
     /// The ids in `arena` that carry nothing and duplicate something kept.
     ///
-    /// The shape both [`Sketch::spare_circles`] and [`Sketch::spare_segments`]
-    /// have: seed the keepers with everything depended on, then walk the rest
-    /// in order, each one either matching a keeper and going or becoming a
-    /// keeper itself. That last part is what stops a pair of identical spares
-    /// from taking each other out and leaving neither.
+    /// The shape all three of the sweeps above have: seed the keepers with
+    /// everything depended on, then walk the rest in order, each one either
+    /// matching a keeper and going or becoming a keeper itself. That last part
+    /// is what stops a pair of identical spares from taking each other out and
+    /// leaving neither.
+    ///
+    /// Both predicates read handles rather than values, because whether two
+    /// points are the same one is a question a coincidence answers and a pair
+    /// of [`Point`]s cannot.
     fn spares<T>(
         &self,
         arena: &Arena<T>,
         carries: impl Fn(Id<T>) -> bool,
-        same: impl Fn(&T, &T) -> bool,
+        same: impl Fn(Id<T>, Id<T>) -> bool,
     ) -> Vec<Id<T>> {
-        let mut kept: Vec<Id<T>> = arena
-            .iter()
-            .filter(|&(id, _)| carries(id))
-            .map(|(id, _)| id)
-            .collect();
+        let ids = || arena.iter().map(|(id, _)| id);
+        let mut kept: Vec<Id<T>> = ids().filter(|&id| carries(id)).collect();
         let mut doomed = Vec::new();
-        for (id, value) in arena.iter().filter(|&(id, _)| !carries(id)) {
-            let kept_value = |id| arena.get(id).expect("a keeper came from this arena");
-            if kept.iter().any(|&keeper| same(value, kept_value(keeper))) {
+        for id in ids().filter(|&id| !carries(id)) {
+            if kept.iter().any(|&keeper| same(id, keeper)) {
                 doomed.push(id);
             } else {
                 kept.push(id);

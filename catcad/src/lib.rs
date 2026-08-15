@@ -28,7 +28,7 @@ pub use bench::alloc_bench;
 use std::fmt;
 
 use palantir::{App, Configure, HostHandle, Key, Panel, Shortcut, Sizing, Ui, WindowToken};
-use silverpoint::{Entity, Solver};
+use silverpoint::{Entity, Removed, Solver};
 
 use crate::document::Document;
 use crate::history::History;
@@ -218,6 +218,7 @@ impl CatCad {
             degrees_of_freedom: outcome.degrees_of_freedom(),
             redundant_constraints: outcome.redundant_constraints(),
             hovered: self.view.hovered(),
+            cleaned: drawing.cleaned(),
         }
     }
 }
@@ -244,6 +245,13 @@ struct Status {
     degrees_of_freedom: usize,
     redundant_constraints: usize,
     hovered: Option<Entity>,
+    /// What the last cleanup took out, where that was the last thing done.
+    ///
+    /// Three states rather than two counts: nothing to say, a cleanup that
+    /// found nothing, and a cleanup that took something. The middle one is the
+    /// reason this is an `Option` — a command that answers a press with silence
+    /// reads as a command that did not work.
+    cleaned: Option<Removed>,
 }
 
 /// What to call a sketch entity where a person will read it.
@@ -269,9 +277,34 @@ impl fmt::Display for Status {
             "{state} · {} dof · {} redundant · {} iterations",
             self.degrees_of_freedom, self.redundant_constraints, self.iterations,
         )?;
-        match self.hovered {
-            Some(entity) => write!(f, " · {}", noun(entity)),
+        if let Some(entity) = self.hovered {
+            write!(f, " · {}", noun(entity))?;
+        }
+        match self.cleaned {
             None => Ok(()),
+            Some(cleaned) if cleaned.is_empty() => write!(f, " · nothing to clean up"),
+            Some(cleaned) => {
+                f.write_str(" · removed ")?;
+                // In the drawing's words rather than the sketch's, like
+                // everything else a person reads here — see [`noun`].
+                let took = [
+                    (cleaned.points, "point"),
+                    (cleaned.segments, "edge"),
+                    (cleaned.circles, "circle"),
+                ];
+                for (nth, (count, what)) in
+                    took.into_iter().filter(|&(count, _)| count > 0).enumerate()
+                {
+                    if nth > 0 {
+                        f.write_str(", ")?;
+                    }
+                    write!(f, "{count} {what}")?;
+                    if count != 1 {
+                        f.write_str("s")?;
+                    }
+                }
+                Ok(())
+            }
         }
     }
 }

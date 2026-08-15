@@ -4,7 +4,7 @@ use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, Key, Modifiers, WindowToken};
-use silverpoint::{Entity, Freedom, Outcome, Plane, PointId, Solver};
+use silverpoint::{Entity, Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::demo;
 use crate::tool::Tool;
@@ -183,6 +183,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             degrees_of_freedom: 0,
             redundant_constraints: 0,
             hovered: None,
+            cleaned: None,
         }
         .to_string(),
         "solved · 0 dof · 0 redundant · 4 iterations"
@@ -206,6 +207,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
                 degrees_of_freedom: 0,
                 redundant_constraints: 0,
                 hovered: Some(hovered),
+                cleaned: None,
             }
             .to_string(),
             format!("solved · 0 dof · 0 redundant · 4 iterations{tail}")
@@ -220,9 +222,55 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             degrees_of_freedom: 3,
             redundant_constraints: 2,
             hovered: None,
+            cleaned: None,
         }
         .to_string(),
         "unsolved · 3 dof · 2 redundant · 100 iterations"
+    );
+
+    // A cleanup answers the press that asked for it, and answering "nothing"
+    // is the half that matters: a command that goes quiet when it finds no work
+    // reads as a command that did not run.
+    let after = |cleaned| {
+        Status {
+            converged: true,
+            iterations: 4,
+            degrees_of_freedom: 0,
+            redundant_constraints: 0,
+            hovered: None,
+            cleaned: Some(cleaned),
+        }
+        .to_string()
+    };
+    let head = "solved · 0 dof · 0 redundant · 4 iterations";
+    assert_eq!(
+        after(Removed::default()),
+        format!("{head} · nothing to clean up")
+    );
+    // Singular and plural, and only the kinds it actually took.
+    assert_eq!(
+        after(Removed {
+            points: 1,
+            segments: 0,
+            circles: 0,
+        }),
+        format!("{head} · removed 1 point")
+    );
+    assert_eq!(
+        after(Removed {
+            points: 3,
+            segments: 1,
+            circles: 2,
+        }),
+        format!("{head} · removed 3 points, 1 edge, 2 circles")
+    );
+    assert_eq!(
+        after(Removed {
+            points: 0,
+            segments: 0,
+            circles: 4,
+        }),
+        format!("{head} · removed 4 circles")
     );
 
     // And the app's own opening state agrees with the demo's solve.
@@ -877,6 +925,12 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
         at_rest + 4,
         "a cleanup ate a corner that was holding an edge up"
     );
+    // And says so, rather than answering a press with nothing.
+    assert!(
+        app.status().to_string().ends_with(" · nothing to clean up"),
+        "the status line read {}",
+        app.status()
+    );
 
     // Now take the second edge away. Its far end is left over but duplicates
     // nothing, and its corner end is left over *and* still tied to the first
@@ -911,11 +965,32 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
         edges + 1,
         "the surviving edge went too"
     );
-    // And pressing it again finds nothing, which is what makes it safe to lean on.
+    assert!(
+        app.status().to_string().ends_with(" · removed 1 point"),
+        "the status line read {}",
+        app.status()
+    );
+
+    // And pressing it again finds nothing, which is what makes it safe to lean
+    // on — and the line goes back to saying so.
     harness.click_at(TIDY_BUTTON);
     frame(&mut app, &mut harness);
     assert_eq!(
         app.document.drawing().sketch().points().count(),
         at_rest + 3
+    );
+    assert!(app.status().to_string().ends_with(" · nothing to clean up"));
+
+    // A later edit takes the note away: it described the last thing done, and
+    // it no longer is.
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    let empty = cursor_on(&mut app, plane.point(DVec2::new(-6.0, 1.0)).as_vec3());
+    harness.click_at(empty);
+    frame(&mut app, &mut harness);
+    let line = app.status().to_string();
+    assert!(
+        !line.contains("clean up") && !line.contains("removed"),
+        "a stale cleanup note outlived the edit after it: {line}"
     );
 }

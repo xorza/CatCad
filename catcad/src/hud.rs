@@ -126,8 +126,12 @@ impl Hud {
         });
     }
 
-    /// What the solve made of the drawing, and what the camera is doing, pinned
-    /// to the top-left corner.
+    /// What the solve made of the drawing, what the camera is doing, and the
+    /// commands that are about neither — pinned to the top-left corner.
+    ///
+    /// Controls among the readout because both of these ask something of the
+    /// whole drawing rather than of what is picked out, which is the line the
+    /// constraint bar sits on the far side of.
     fn readout(
         &self,
         ui: &mut Ui,

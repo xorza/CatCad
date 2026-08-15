@@ -3,8 +3,8 @@
 use aperture::{HitAt, Motion};
 use glam::{DVec2, Vec3};
 use silverpoint::{
-    CircleId, Constraint, ConstraintId, Entity, Outcome, Plane, PointId, SegmentId, Sketch,
-    Snapshot, Solver,
+    CircleId, Constraint, ConstraintId, Entity, Outcome, Plane, PointId, Removed, SegmentId,
+    Sketch, Snapshot, Solver,
 };
 
 use crate::drawing::anchor::Anchor;
@@ -31,6 +31,18 @@ pub(crate) struct Drawing {
     /// Which version of the drawing this is, so anything holding a layout of it
     /// can tell whether that layout is still current.
     revision: Revision,
+    /// What the last cleanup took out, or `None` where the last thing done to
+    /// the drawing was not one.
+    ///
+    /// Beside `outcome` and for the same reason: the drawing says what the last
+    /// thing done to it made of it. Cleared by every other edit — see
+    /// [`Drawing::settled`] — because a count left standing would go on
+    /// reporting a cleanup from two drags ago.
+    ///
+    /// `None` and `Some(Removed::default())` are different answers, and the one
+    /// the reader most needs: a cleanup that found nothing has to say so, or
+    /// pressing the command on a tidy drawing looks like it did not work.
+    cleaned: Option<Removed>,
 }
 
 impl Drawing {
@@ -47,6 +59,7 @@ impl Drawing {
             plane,
             outcome: Outcome::default(),
             revision: Revision::default(),
+            cleaned: None,
         };
         drawing.settled(|sketch, outcome| solver.solve(sketch, outcome));
         drawing
@@ -67,6 +80,10 @@ impl Drawing {
     fn settled(&mut self, solve: impl FnOnce(&mut Sketch, &mut Outcome)) {
         solve(&mut self.sketch, &mut self.outcome);
         self.revision = self.revision.next();
+        // Whatever this edit was, it is now the last thing done — so a cleanup
+        // before it has stopped describing the drawing. The one that *is* a
+        // cleanup writes its own answer back after this returns.
+        self.cleaned = None;
     }
 
     /// Move the geometry with `edit`, `held` pinned for the length of it, and
@@ -185,9 +202,18 @@ impl Drawing {
     /// there rather than here — this is a drawing, and what makes two points
     /// the same one is a question about a sketch.
     pub(crate) fn remove_duplicates(&mut self, solver: &mut Solver) {
-        self.solved(solver, |sketch| {
-            sketch.remove_duplicates();
-        });
+        let mut cleaned = Removed::default();
+        self.solved(solver, |sketch| cleaned = sketch.remove_duplicates());
+        // After the solve rather than inside it, because settling is what wipes
+        // the last answer — writing this first would be writing it to be
+        // cleared.
+        self.cleaned = Some(cleaned);
+    }
+
+    /// What the last cleanup took out, or `None` where the last edit was not
+    /// one.
+    pub(crate) fn cleaned(&self) -> Option<Removed> {
+        self.cleaned
     }
 
     /// State `constraint` over the drawing, and let the geometry settle onto it.

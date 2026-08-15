@@ -1,5 +1,6 @@
 //! A sketch taken down as a value that can be put back.
 
+use crate::math::approx::ApproxEq;
 use crate::sketch::Sketch;
 
 /// A whole sketch as it stood at one moment.
@@ -72,6 +73,12 @@ impl Snapshot {
     /// Positions and radii both, so a drag that drives a circle's size counts
     /// as much as one that moves a point.
     ///
+    /// How far a point moved is its *distance* from where it was — see
+    /// [`ApproxEq`], which is the one statement of that in the crate. A
+    /// per-axis reading would make the answer depend on which way the sketch
+    /// happened to be drawn, so a point that crept along a diagonal would read
+    /// as having stayed put where the same crawl along an axis did not.
+    ///
     /// [`Snapshot::fits`] first, which is what says the two walks are pairing
     /// the same entities: without it a sketch holding something else would be
     /// compared value against value in whatever order the two happened to line
@@ -82,14 +89,12 @@ impl Snapshot {
                 .sketch
                 .points()
                 .zip(sketch.points())
-                .all(|((_, was), (_, now))| {
-                    (now.position - was.position).abs().max_element() <= epsilon
-                })
+                .all(|((_, was), (_, now))| now.position.approx_eq(was.position, epsilon))
             && self
                 .sketch
                 .circles()
                 .zip(sketch.circles())
-                .all(|((_, at), (_, grown))| (grown.radius - at.radius).abs() <= epsilon)
+                .all(|((_, at), (_, grown))| grown.radius.approx_eq(at.radius, epsilon))
     }
 }
 
