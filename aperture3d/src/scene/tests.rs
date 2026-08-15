@@ -2,7 +2,7 @@ use super::*;
 use crate::camera::Camera;
 use crate::camera::Projection;
 use crate::hit::HitAt;
-use crate::mesh::Mesh;
+use crate::mesh::{Mesh, Vertex};
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::Text;
@@ -469,7 +469,7 @@ fn bounds_cover_transformed_meshes_and_curves() {
     // A size-2 cube spans ±1 about its own origin, so shifting it 10 along
     // x puts its corners at 9 and 11.
     scene
-        .objects
+        .solids
         .push(Object::new(Mesh::cube(2.0)).at(Vec3::new(10.0, 0.0, 0.0)));
     let cube = scene.bounds().unwrap();
     assert_eq!(cube.min, Vec3::new(9.0, -1.0, -1.0));
@@ -483,4 +483,134 @@ fn bounds_cover_transformed_meshes_and_curves() {
     assert_eq!(both.min, Vec3::new(0.0, -1.0, -1.0));
     assert_eq!(both.max, Vec3::new(11.0, 4.0, 1.0));
     assert_eq!(both.centre(), Vec3::new(5.5, 1.5, 0.0));
+}
+
+/// A face is picked anywhere over it, and loses to everything drawn on it.
+///
+/// The rule a surface needs that no other primitive does: a marker or a stroke
+/// bounding a face lies *within* the face, so a face ranked with them would
+/// take every click meant for its own boundary.
+#[test]
+fn a_surface_is_picked_anywhere_over_it_and_loses_to_what_is_drawn_on_it() {
+    let viewport = Viewport::new(UVec2::new(200, 200));
+    // Straight down the −Z axis at a square in the XY plane, two across and
+    // centred, so screen centre is the middle of it.
+    let camera = Camera {
+        target: Vec3::ZERO,
+        distance: 10.0,
+        yaw: 0.0,
+        pitch: 0.0,
+        ..Camera::default()
+    };
+    let middle = Vec2::new(100.0, 100.0);
+
+    let mut scene = Scene::default();
+    let sheet = Tag::new(7);
+    let mut mesh = Mesh::default();
+    for corner in [
+        Vec3::new(-1.0, -1.0, 0.0),
+        Vec3::new(1.0, -1.0, 0.0),
+        Vec3::new(1.0, 1.0, 0.0),
+        Vec3::new(-1.0, 1.0, 0.0),
+    ] {
+        mesh.vertices.push(Vertex {
+            position: corner,
+            normal: Vec3::Z,
+        });
+    }
+    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+    scene.faces.push(Object {
+        mesh,
+        tag: Some(sheet),
+        ..Object::default()
+    });
+
+    // Anywhere over it answers, and the whole of it is one target.
+    let hit = scene
+        .nearest(Aim::new(&camera, middle, viewport, 6.0))
+        .expect("the cursor is over the sheet");
+    assert_eq!(hit.tag, sheet);
+    assert_eq!(hit.at, HitAt::Surface);
+    assert!(hit.world.abs_diff_eq(Vec3::ZERO, 1e-4), "{:?}", hit.world);
+    // Not *near* it — over it. A distance would have it beat a nearer face for
+    // no reason a user could see.
+    assert_eq!(hit.screen, 0.0);
+
+    // Well off it answers nothing, however wide the aim.
+    assert!(
+        scene
+            .nearest(Aim::new(&camera, Vec2::new(4.0, 4.0), viewport, 6.0))
+            .is_none()
+    );
+
+    // A marker in the middle of it takes the click instead, though the face is
+    // just as much under the cursor.
+    let marker = Tag::new(9);
+    scene
+        .points
+        .push(Point::new(Vec3::ZERO).size(8.0).tagged(marker));
+    let hit = scene
+        .nearest(Aim::new(&camera, middle, viewport, 6.0))
+        .expect("both are under the cursor");
+    assert_eq!(
+        hit.tag, marker,
+        "the face swallowed a click meant for a point"
+    );
+
+    // And so does a stroke running across it.
+    scene.points.clear();
+    let edge = Tag::new(11);
+    scene.curves.push(
+        Curve::new(vec![Vec3::new(-1.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)])
+            .width(2.0)
+            .tagged(edge),
+    );
+    let hit = scene
+        .nearest(Aim::new(&camera, middle, viewport, 6.0))
+        .expect("both are under the cursor");
+    assert_eq!(
+        hit.tag, edge,
+        "the face swallowed a click meant for an edge"
+    );
+}
+
+/// A sheet answers from either side, because a sheet has no outside.
+#[test]
+fn a_surface_is_picked_from_behind_as_well_as_in_front() {
+    let viewport = Viewport::new(UVec2::new(200, 200));
+    let middle = Vec2::new(100.0, 100.0);
+    let mut scene = Scene::default();
+    let sheet = Tag::new(3);
+    let mut mesh = Mesh::default();
+    for corner in [
+        Vec3::new(-1.0, -1.0, 0.0),
+        Vec3::new(1.0, -1.0, 0.0),
+        Vec3::new(0.0, 1.0, 0.0),
+    ] {
+        mesh.vertices.push(Vertex {
+            position: corner,
+            normal: Vec3::Z,
+        });
+    }
+    mesh.indices.extend([0, 1, 2]);
+    scene.faces.push(Object {
+        mesh,
+        tag: Some(sheet),
+        ..Object::default()
+    });
+
+    // From +Z, which is the side the winding faces, and from −Z, which is not.
+    for yaw in [0.0, std::f32::consts::PI] {
+        let camera = Camera {
+            target: Vec3::ZERO,
+            distance: 10.0,
+            yaw,
+            pitch: 0.0,
+            ..Camera::default()
+        };
+        let hit = scene
+            .nearest(Aim::new(&camera, middle, viewport, 6.0))
+            .unwrap_or_else(|| panic!("the sheet vanished seen from yaw {yaw}"));
+        assert_eq!(hit.tag, sheet);
+    }
 }

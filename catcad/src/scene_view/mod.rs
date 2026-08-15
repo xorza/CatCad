@@ -11,14 +11,16 @@ use palantir::{
 use silverpoint::Entity;
 
 use crate::document::Document;
+use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
-use crate::drawing::{Grip, Revision};
 use crate::intent::{Change, Choice, Intents, Step};
 use crate::names::Names;
-use crate::paint;
+use crate::paint::{self, Sheets};
+use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
+use crate::settled::{Revision, Settled};
 use crate::tool::Tool;
 
 mod aimed;
@@ -106,6 +108,12 @@ pub(crate) struct SceneView {
     /// this view's picture of the drawing and would mean nothing to another. It
     /// is rewritten with the scene, by the one call that rewrites both.
     names: Names,
+    /// The room laying out the drawing's faces takes.
+    ///
+    /// Kept for its room rather than its contents, like `lit` below: a face is
+    /// flattened and cut afresh whenever the drawing moves, and a drag moves it
+    /// every frame.
+    sheets: Sheets,
     /// Which revision of the drawing `names` and the scene's overlays were laid
     /// out from.
     ///
@@ -115,8 +123,8 @@ pub(crate) struct SceneView {
     /// the laying out happens, so it cannot claim more than was done.
     laid_out: Revision,
     gesture: Gesture,
-    /// The sketch entity under the pointer, if any.
-    hovered: Option<Entity>,
+    /// The part of the drawing under the pointer, if any.
+    hovered: Option<Part>,
     /// The shape a two-click tool is half-way through, if one is.
     preview: Option<Preview>,
     /// The band the last layout was written with, compared like the revision
@@ -144,13 +152,15 @@ impl SceneView {
     /// The view lays it out itself rather than being handed a scene, which is
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
-    pub(crate) fn new(document: &Document) -> Self {
+    pub(crate) fn new(document: &Document, settled: &Settled) -> Self {
         let mut names = Names::default();
-        let scene = paint::scene(document, &mut names);
+        let mut sheets = Sheets::default();
+        let scene = paint::scene(document, settled, &mut names, &mut sheets);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             names,
-            laid_out: document.drawing().revision(),
+            sheets,
+            laid_out: settled.revision(),
             gesture: Gesture::None,
             hovered: None,
             preview: None,
@@ -171,8 +181,8 @@ impl SceneView {
         self.renderer.borrow().scene().bounds()
     }
 
-    /// The sketch entity under the pointer, if any.
-    pub(crate) fn hovered(&self) -> Option<Entity> {
+    /// The part of the drawing under the pointer, if any.
+    pub(crate) fn hovered(&self) -> Option<Part> {
         self.hovered
     }
 
@@ -419,7 +429,7 @@ impl SceneView {
     /// command holding the renderer and calls it at submit, after the record
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
-    pub(crate) fn settle(&mut self, document: &Document, selection: &Selection) {
+    pub(crate) fn settle(&mut self, document: &Document, settled: &Settled, selection: &Selection) {
         let mut renderer = self.renderer.borrow_mut();
         let drawing = document.drawing();
         // A rubber band is written after the drawing and wiped out by the next
@@ -427,11 +437,18 @@ impl SceneView {
         // it stops being live has to lay out once more to take it away. That is
         // what a drag already costs, and refilling reaches the heap for none of
         // it.
-        if self.laid_out != drawing.revision() || self.laid_band != self.preview {
+        if self.laid_out != settled.revision() || self.laid_band != self.preview {
             // Into the batches the renderer already holds, so a drag rewrites
             // the drawing every frame without asking the heap for anything.
-            paint::redraw(drawing, &mut self.names, self.preview, renderer.scene_mut());
-            self.laid_out = drawing.revision();
+            paint::redraw(
+                drawing,
+                settled,
+                &mut self.names,
+                self.preview,
+                &mut self.sheets,
+                renderer.scene_mut(),
+            );
+            self.laid_out = settled.revision();
             self.laid_band = self.preview;
         }
 
@@ -478,13 +495,13 @@ impl SceneView {
         *renderer.camera_mut() = document.camera();
     }
 
-    /// The sketch entity under the cursor as the scene now stands, or `None`
-    /// where the cursor is over nothing or off the view.
+    /// The part of the drawing under the cursor as the scene now stands, or
+    /// `None` where the cursor is over nothing or off the view.
     ///
     /// What a click asks, where [`SceneView::grab`] asks the fuller question —
     /// a press needs where on the primitive it landed and where that is in the
     /// world, and a click needs only what the thing is.
-    fn named_under(&self, response: &Response<'_>, document: &Document) -> Option<Entity> {
+    fn named_under(&self, response: &Response<'_>, document: &Document) -> Option<Part> {
         let aimed = Aimed::of(response).filter(|_| response.hovered)?;
         let renderer = self.renderer.borrow();
         let aim = aimed.aim(&document.camera());
@@ -515,13 +532,16 @@ impl SceneView {
         &self,
         response: &Response<'_>,
         document: &Document,
-        under: Option<Entity>,
+        under: Option<Part>,
     ) -> Option<Anchor> {
         let at = aimed::landing(response, document, document.drawing().motion());
-        match under {
+        match under.and_then(Part::entity) {
             Some(Entity::Point(id)) => Some(Anchor::On(id)),
             Some(Entity::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
             Some(Entity::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
+            // A constraint is a statement rather than a place, and a face is
+            // what the curves enclose rather than one of them — so a click on
+            // either builds on the bare plane behind it.
             Some(Entity::Constraint(_)) | None => at.map(Anchor::At),
         }
     }
@@ -550,7 +570,9 @@ impl SceneView {
                 // and the ray cast through the document's.
                 let aim = aimed.aim(&document.camera());
                 let hit = scene.nearest(aim)?;
-                let grip = document.drawing().grip(self.names.get(hit.tag)?, hit.at)?;
+                let grip = document
+                    .drawing()
+                    .grip(self.names.get(hit.tag)?.entity()?, hit.at)?;
                 let motion = document.drawing().motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
@@ -592,6 +614,7 @@ pub(crate) mod internals {
     /// nothing outside can call.
     #[cfg(test)]
     mod picking {
+        use crate::part::Part;
         use crate::scene_view::SceneView;
         use aperture::Tag;
         use silverpoint::Entity;
@@ -602,8 +625,12 @@ pub(crate) mod internals {
             /// For a test sweeping candidate cursors to find one that would
             /// grab something — which asks what a press would find without a
             /// press to ask it through.
+            ///
+            /// Entities only, because grabbing is: a face is not something the
+            /// drawing will let go of, so a sweep looking for one has nothing
+            /// to find in a face.
             pub(crate) fn named(&self, tag: Tag) -> Option<Entity> {
-                self.names.get(tag)
+                self.names.get(tag).and_then(Part::entity)
             }
         }
     }

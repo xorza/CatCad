@@ -1,89 +1,57 @@
-//! The sketch being edited, where it sits in the world, and what it draws.
+//! The sketch being edited, and where it sits in the world.
 
 use aperture::{HitAt, Motion};
 use glam::{DVec2, Vec3};
 use silverpoint::{
-    CircleId, Constraint, ConstraintId, Entity, Outcome, Plane, PointId, Removed, SegmentId,
-    Sketch, Snapshot, Solver,
+    CircleId, Constraint, ConstraintId, Entity, Plane, PointId, Removed, SegmentId, Sketch,
+    Snapshot, Solver,
 };
 
 use crate::drawing::anchor::Anchor;
+use crate::part::Part;
+use crate::settled::Settled;
 
 pub(crate) mod anchor;
 
-/// A sketch, the plane it lies on, and what the last solve made of the two.
+/// A sketch and the plane it lies on.
 ///
 /// The model half of the application, and the whole of what saving one would
-/// write down. Nothing here is scratch: the [`Solver`] that does the work is
-/// borrowed for the length of a call and belongs to whoever is doing the
-/// editing, because the buffers it keeps are worth keeping for the length of a
-/// drag and worth nothing at all in a file — and because a document holding
-/// many drawings wants one solver between them, not one apiece.
+/// write down — which is the rule the two fields below are the whole of. What
+/// the last solve *made* of them is derived rather than written, and lives in
+/// [`Settled`] where the rest of this run's state does: the [`Solver`] that
+/// does the work is borrowed for the length of a call and belongs to whoever is
+/// doing the editing, and so is everything it leaves behind. The buffers are
+/// worth keeping for the length of a drag and worth nothing at all in a file,
+/// and a document holding many drawings wants one set between them.
+///
+/// The sketch is only ever lent out mutably through [`Settled::settle`], by the
+/// three shapes of edit below. One reaching past it would be an edit the
+/// revision never counted, and so one the picture on screen never redrew.
 #[derive(Debug)]
 pub(crate) struct Drawing {
     sketch: Sketch,
     plane: Plane,
-    /// What the last settle left behind: how it went, and which geometry the
-    /// constraints have decided — which is what the drawing
-    /// is painted in the colour of. Taken afresh whenever the sketch moves,
-    /// because moving it is what changes the answer.
-    outcome: Outcome,
-    /// Which version of the drawing this is, so anything holding a layout of it
-    /// can tell whether that layout is still current.
-    revision: Revision,
-    /// What the last cleanup took out, or `None` where the last thing done to
-    /// the drawing was not one.
-    ///
-    /// Beside `outcome` and for the same reason: the drawing says what the last
-    /// thing done to it made of it. Cleared by every other edit — see
-    /// [`Drawing::settled`] — because a count left standing would go on
-    /// reporting a cleanup from two drags ago.
-    ///
-    /// `None` and `Some(Removed::default())` are different answers, and the one
-    /// the reader most needs: a cleanup that found nothing has to say so, or
-    /// pressing the command on a tidy drawing looks like it did not work.
-    cleaned: Option<Removed>,
 }
 
 impl Drawing {
-    /// Solve `sketch` where it lies on `plane`, and take what that decides.
+    /// Solve `sketch` where it lies on `plane`, and record what that decides
+    /// in `settled`.
     ///
     /// A sketch arrives as coordinates its constraints have not been checked
     /// against — a guess, whether it was typed in or read from a file — so
     /// opening a drawing is a solve like any other, and takes a borrowed solver
-    /// like any other. The fields below are placeholders for exactly as long as
-    /// the two lines after them.
-    pub(crate) fn new(solver: &mut Solver, sketch: Sketch, plane: Plane) -> Self {
-        let mut drawing = Self {
-            sketch,
-            plane,
-            outcome: Outcome::default(),
-            revision: Revision::default(),
-            cleaned: None,
-        };
-        drawing.settled(|sketch, outcome| solver.solve(sketch, outcome));
+    /// and a borrowed place to report into like any other.
+    pub(crate) fn new(
+        solver: &mut Solver,
+        settled: &mut Settled,
+        sketch: Sketch,
+        plane: Plane,
+    ) -> Self {
+        let mut drawing = Self { sketch, plane };
+        settled.settle(&mut drawing.sketch, |sketch, outcome| {
+            solver.solve(sketch, outcome)
+        });
         drawing
-    }
-
-    /// Solve, and record everything the drawing then says about itself.
-    ///
-    /// The one place `outcome` and `revision` are written, and the reason it
-    /// takes the solve rather than its answer: the two describe one moment, and
-    /// a caller that solved for itself and then reported would be a caller who
-    /// could do either half and skip the other. Both misses are silent — an
-    /// outcome left stale paints the drawing in the colours of where it used to
-    /// be, and a revision left alone leaves the picture on screen unrepainted.
-    ///
-    /// `solve` is handed the sketch and the buffer to fill; every entry point
-    /// the solver has fits, because each of them fills the whole outcome from
-    /// the same measurement it reports.
-    fn settled(&mut self, solve: impl FnOnce(&mut Sketch, &mut Outcome)) {
-        solve(&mut self.sketch, &mut self.outcome);
-        self.revision = self.revision.next();
-        // Whatever this edit was, it is now the last thing done — so a cleanup
-        // before it has stopped describing the drawing. The one that *is* a
-        // cleanup writes its own answer back after this returns.
-        self.cleaned = None;
     }
 
     /// Move the geometry with `edit`, `held` pinned for the length of it, and
@@ -91,11 +59,19 @@ impl Drawing {
     ///
     /// Where the solver's shape meets the drawing's, so that neither shows at a
     /// grip. [`Solver::edit_holding`] wants an edit to run between the snapshot
-    /// it takes and the solve it judges; [`Drawing::settled`] wants a solve to
+    /// it takes and the solve it judges; [`Settled::settle`] wants a solve to
     /// run between the fields it writes. Nesting the two is what every grip
     /// below would otherwise be spelling out for itself.
-    fn dragged(&mut self, solver: &mut Solver, held: &[PointId], edit: impl Fn(&mut Sketch)) {
-        self.settled(|sketch, outcome| solver.edit_holding(sketch, held, outcome, edit));
+    fn dragged(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        held: &[PointId],
+        edit: impl Fn(&mut Sketch),
+    ) {
+        settled.settle(&mut self.sketch, |sketch, outcome| {
+            solver.edit_holding(sketch, held, outcome, edit)
+        });
     }
 
     /// Change the sketch with `edit`, and take everything measuring what that
@@ -107,8 +83,13 @@ impl Drawing {
     /// measures — and measuring moves nothing. That is the whole of what it is
     /// for: an edit whose result is already the answer, where a solve would be
     /// free to wander off it.
-    fn measured(&mut self, solver: &mut Solver, edit: impl FnOnce(&mut Sketch)) {
-        self.settled(|sketch, outcome| {
+    fn measured(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        edit: impl FnOnce(&mut Sketch),
+    ) {
+        settled.settle(&mut self.sketch, |sketch, outcome| {
             edit(sketch);
             solver.measure(sketch, outcome);
         });
@@ -128,8 +109,13 @@ impl Drawing {
     /// the check, not the fix. A future addition that could not place itself
     /// exactly would be settled by it, and until then it costs one assembly to
     /// say that nothing needed settling.
-    fn solved(&mut self, solver: &mut Solver, edit: impl FnOnce(&mut Sketch)) {
-        self.settled(|sketch, outcome| {
+    fn solved(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        edit: impl FnOnce(&mut Sketch),
+    ) {
+        settled.settle(&mut self.sketch, |sketch, outcome| {
             edit(sketch);
             solver.solve(sketch, outcome);
         });
@@ -144,9 +130,9 @@ impl Drawing {
     /// Not [`Drawing::dragged`], which is the other half of what makes this its
     /// own call: [`Solver::edit_holding`] settles an edit against the sketch it
     /// was handed and refuses one that adds to it.
-    pub(crate) fn add_point(&mut self, solver: &mut Solver, at: Anchor) {
+    pub(crate) fn add_point(&mut self, solver: &mut Solver, settled: &mut Settled, at: Anchor) {
         let plane = self.plane;
-        self.solved(solver, |sketch| {
+        self.solved(solver, settled, |sketch| {
             // The one place a click on a point already there is *not* worth its
             // own point. Asking for a point where one is asks for nothing; an
             // edge's end is the other way round, and wants its own even on top
@@ -160,9 +146,15 @@ impl Drawing {
 
     /// Put a straight edge between `from` and `to`, making a point at either
     /// end that did not land on one and holding it to whatever it did.
-    pub(crate) fn add_segment(&mut self, solver: &mut Solver, from: Anchor, to: Anchor) {
+    pub(crate) fn add_segment(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        from: Anchor,
+        to: Anchor,
+    ) {
         let plane = self.plane;
-        self.solved(solver, |sketch| {
+        self.solved(solver, settled, |sketch| {
             // Both ends resolved before either is used, so an edge drawn from a
             // point back to itself is the degenerate thing the user asked for
             // rather than two points in the same place.
@@ -178,12 +170,18 @@ impl Drawing {
     /// what the second click gives is a distance. But a rim landing on a point
     /// already there is held to it — the circle is then as big as that point
     /// says, and stays so however either is dragged.
-    pub(crate) fn add_circle(&mut self, solver: &mut Solver, center: Anchor, rim: Anchor) {
+    pub(crate) fn add_circle(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        center: Anchor,
+        rim: Anchor,
+    ) {
         let plane = self.plane;
         // Taken before the edit, because resolving the centre may add a point
         // and this reads the sketch as the clicks found it.
         let through = plane.flatten(self.at(rim).as_dvec3());
-        self.solved(solver, |sketch| {
+        self.solved(solver, settled, |sketch| {
             let middle = center.point_in(sketch, plane);
             let radius = (through - sketch.point(middle).position).length();
             let circle = sketch.add_circle(middle, radius);
@@ -201,19 +199,12 @@ impl Drawing {
     /// geometry qualifies is [`Sketch::remove_duplicates`]'s, and is stated
     /// there rather than here — this is a drawing, and what makes two points
     /// the same one is a question about a sketch.
-    pub(crate) fn remove_duplicates(&mut self, solver: &mut Solver) {
+    pub(crate) fn remove_duplicates(&mut self, solver: &mut Solver, settled: &mut Settled) {
         let mut cleaned = Removed::default();
-        self.solved(solver, |sketch| cleaned = sketch.remove_duplicates());
-        // After the solve rather than inside it, because settling is what wipes
-        // the last answer — writing this first would be writing it to be
-        // cleared.
-        self.cleaned = Some(cleaned);
-    }
-
-    /// What the last cleanup took out, or `None` where the last edit was not
-    /// one.
-    pub(crate) fn cleaned(&self) -> Option<Removed> {
-        self.cleaned
+        self.solved(solver, settled, |sketch| {
+            cleaned = sketch.remove_duplicates()
+        });
+        settled.cleaned_up(cleaned);
     }
 
     /// State `constraint` over the drawing, and let the geometry settle onto it.
@@ -223,8 +214,13 @@ impl Drawing {
     /// two edges and asks for them to be parallel precisely because they are
     /// not. Moving the drawing onto what was asked for is the whole of what
     /// happens.
-    pub(crate) fn constrain(&mut self, solver: &mut Solver, constraint: Constraint) {
-        self.solved(solver, |sketch| {
+    pub(crate) fn constrain(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        constraint: Constraint,
+    ) {
+        self.solved(solver, settled, |sketch| {
             sketch.add_constraint(constraint);
         });
     }
@@ -235,8 +231,16 @@ impl Drawing {
     /// is what the drawing is *told*, and moving onto it is the answer. A
     /// distance retyped from 8 to 12 lengthens the thing it measures, and
     /// everything the constraints tie to that follows.
-    pub(crate) fn resize(&mut self, solver: &mut Solver, constraint: ConstraintId, value: f64) {
-        self.solved(solver, |sketch| sketch.set_value(constraint, value));
+    pub(crate) fn resize(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        constraint: ConstraintId,
+        value: f64,
+    ) {
+        self.solved(solver, settled, |sketch| {
+            sketch.set_value(constraint, value)
+        });
     }
 
     /// Take `entity` out of the drawing, with whatever was built on it.
@@ -250,8 +254,8 @@ impl Drawing {
     ///
     /// What the cascade takes with it is [`Sketch`]'s to decide — see
     /// [`Sketch::remove_point`].
-    pub(crate) fn remove(&mut self, solver: &mut Solver, entity: Entity) {
-        self.solved(solver, |sketch| match entity {
+    pub(crate) fn remove(&mut self, solver: &mut Solver, settled: &mut Settled, entity: Entity) {
+        self.solved(solver, settled, |sketch| match entity {
             Entity::Point(id) => sketch.remove_point(id),
             Entity::Segment(id) => sketch.remove_segment(id),
             Entity::Circle(id) => sketch.remove_circle(id),
@@ -272,10 +276,37 @@ impl Drawing {
     ///
     /// Fills rather than returns, because the bar asks this every frame and the
     /// record pass allocates nothing.
-    pub(crate) fn offers(&self, picked: &[Entity], into: &mut Vec<Constraint>) {
+    pub(crate) fn offers(&self, picked: &[Part], into: &mut Vec<Constraint>) {
         into.clear();
         match *picked {
-            [Entity::Point(a), Entity::Point(b)] => into.extend([
+            // Entities only. A face is what the curves *enclose* rather than
+            // something the sketch holds, so there is nothing to state a
+            // relation about — and a pair with one in it admits nothing at all,
+            // rather than admitting whatever the other half would on its own.
+            [one, two] => {
+                if let (Some(one), Some(two)) = (one.entity(), two.entity()) {
+                    self.between(one, two, into);
+                }
+            }
+            // The one relation a single pick admits: a radius takes the size
+            // the circle already is, so asking for one locks what is there
+            // rather than demanding a number nobody can type yet.
+            [Part::Entity(Entity::Circle(circle))] => into.push(Constraint::Radius {
+                circle,
+                radius: self.sketch.circle(circle).radius,
+            }),
+            _ => {}
+        }
+    }
+
+    /// What a pair of entities admits, in the order they were picked.
+    ///
+    /// Order matters only where the relation is not symmetric, and none of
+    /// these is: every pair below reads the same whichever way round it was
+    /// reached, which is why each mixed one is matched both ways.
+    fn between(&self, one: Entity, two: Entity, into: &mut Vec<Constraint>) {
+        match (one, two) {
+            (Entity::Point(a), Entity::Point(b)) => into.extend([
                 Constraint::Coincident { a, b },
                 Constraint::Distance {
                     a,
@@ -286,39 +317,26 @@ impl Drawing {
                 Constraint::Horizontal { a, b },
                 Constraint::Vertical { a, b },
             ]),
-            [Entity::Segment(first), Entity::Segment(second)] => into.extend([
+            (Entity::Segment(first), Entity::Segment(second)) => into.extend([
                 Constraint::Parallel { first, second },
                 Constraint::Perpendicular { first, second },
                 Constraint::EqualLength { first, second },
             ]),
-            // Either way round: which was picked first says nothing about which
-            // is held to which, because a point on an edge is one relation
-            // however it was reached.
-            [Entity::Point(point), Entity::Segment(segment)]
-            | [Entity::Segment(segment), Entity::Point(point)] => {
+            (Entity::Point(point), Entity::Segment(segment))
+            | (Entity::Segment(segment), Entity::Point(point)) => {
                 into.push(Constraint::PointOnSegment { point, segment });
             }
-            [Entity::Point(point), Entity::Circle(circle)]
-            | [Entity::Circle(circle), Entity::Point(point)] => {
+            (Entity::Point(point), Entity::Circle(circle))
+            | (Entity::Circle(circle), Entity::Point(point)) => {
                 into.push(Constraint::PointOnCircle { point, circle });
             }
-            // Either way round, like a point on an edge: which circle was
-            // picked first says nothing about which is held to which, because
-            // two circles being the same size is one relation however it was
-            // reached.
-            [Entity::Circle(first), Entity::Circle(second)] => {
+            (Entity::Circle(first), Entity::Circle(second)) => {
                 into.push(Constraint::EqualRadius { first, second });
             }
-            // A tangency is the one relation between an edge and a rim, and it
-            // reads the same whichever was picked first.
-            [Entity::Segment(segment), Entity::Circle(circle)]
-            | [Entity::Circle(circle), Entity::Segment(segment)] => {
+            (Entity::Segment(segment), Entity::Circle(circle))
+            | (Entity::Circle(circle), Entity::Segment(segment)) => {
                 into.push(Constraint::Tangent { segment, circle });
             }
-            [Entity::Circle(circle)] => into.push(Constraint::Radius {
-                circle,
-                radius: self.sketch.circle(circle).radius,
-            }),
             _ => {}
         }
     }
@@ -395,29 +413,12 @@ impl Drawing {
         anchor.built_on().is_none_or(|entity| self.holds(entity))
     }
 
-    /// Which version of the drawing this is.
-    ///
-    /// What a caller holding a layout of it compares against its own, to tell
-    /// whether what it drew still describes what is here.
-    pub(crate) fn revision(&self) -> Revision {
-        self.revision
-    }
-
     /// Take down where the drawing stands, so it can be put back later.
     ///
     /// Fills rather than returns, so a history noting where a drag started
     /// refills the same buffers rather than taking two a frame.
     pub(crate) fn snapshot_into(&self, into: &mut Snapshot) {
         self.sketch.snapshot_into(into);
-    }
-
-    /// What the last settle made of the drawing: how the run went, and what its
-    /// constraints have and have not decided.
-    ///
-    /// Only ever handed out beside the sketch it was measured over — they are
-    /// two readings of one moment, and the drawing is what holds them together.
-    pub(crate) fn outcome(&self) -> &Outcome {
-        &self.outcome
     }
 
     /// The sketch the drawing is of.
@@ -455,8 +456,13 @@ impl Drawing {
     /// goes through [`Drawing::measured`] instead, which is that shape of edit
     /// exactly: the exactness a restore promises survives it, and a step no
     /// longer has to carry a report it would otherwise be storing twice over.
-    pub(crate) fn restore(&mut self, solver: &mut Solver, snapshot: &Snapshot) {
-        self.measured(solver, |sketch| sketch.restore(snapshot));
+    pub(crate) fn restore(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        snapshot: &Snapshot,
+    ) {
+        self.measured(solver, settled, |sketch| sketch.restore(snapshot));
     }
 
     /// What a press on `entity`, landing `at`, takes hold of — or `None` if it
@@ -518,10 +524,18 @@ impl Drawing {
     /// constraints refuse leaves the drawing alone. Both belong to
     /// [`Solver::edit_holding`]; all that is decided here is what each kind of
     /// grip means.
-    pub(crate) fn drag_to(&mut self, solver: &mut Solver, grip: Grip, world: Vec3) {
+    pub(crate) fn drag_to(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        grip: Grip,
+        world: Vec3,
+    ) {
         let at = self.plane.flatten(world.as_dvec3());
         match grip {
-            Grip::Point(id) => self.dragged(solver, &[id], |sketch| sketch.set_point(id, at)),
+            Grip::Point(id) => {
+                self.dragged(solver, settled, &[id], |sketch| sketch.set_point(id, at))
+            }
             Grip::Segment { id, t } => {
                 // Both ends travel by whatever it takes to put the spot that
                 // was grabbed under the cursor. Measured against where that
@@ -533,7 +547,7 @@ impl Drawing {
                     self.sketch.point(edge.b).position,
                 );
                 let shift = at - a.lerp(b, t);
-                self.dragged(solver, &[edge.a, edge.b], |sketch| {
+                self.dragged(solver, settled, &[edge.a, edge.b], |sketch| {
                     sketch.set_point(edge.a, a + shift);
                     sketch.set_point(edge.b, b + shift);
                 });
@@ -543,31 +557,11 @@ impl Drawing {
                 // the centre is held: growing a circle should not walk it.
                 let center = self.sketch.circle(id).center;
                 let radius = (at - self.sketch.point(center).position).length();
-                self.dragged(solver, &[center], |sketch| sketch.set_radius(id, radius));
+                self.dragged(solver, settled, &[center], |sketch| {
+                    sketch.set_radius(id, radius)
+                });
             }
         }
-    }
-}
-
-/// Which version of a drawing something was laid out from.
-///
-/// Bumped whenever the drawing settles, which is whenever it has been solved
-/// again. Compared and never read: the number means nothing beyond not being
-/// the one before it.
-///
-/// Conservative on purpose — it can move where the geometry did not. A drag the
-/// constraints refuse is solved and put back, and this counts that, because
-/// what the drawing can cheaply say is that it has been worked on and not
-/// whether the work came to anything. The asymmetry is the point: a revision
-/// that missed a change would leave a stale picture on screen, where a spare
-/// one costs a refill of buffers that already have the room.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub(crate) struct Revision(u64);
-
-impl Revision {
-    /// The one after this.
-    fn next(self) -> Self {
-        Self(self.0 + 1)
     }
 }
 

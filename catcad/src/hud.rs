@@ -10,6 +10,7 @@ use palantir::{
 use crate::drawing::Drawing;
 use crate::intent::{Change, Choice, Intents, Step};
 use crate::paint::DECIMALS;
+use crate::part::Part;
 use crate::selection::Selection;
 use crate::tool::Tool;
 use silverpoint::{Constraint, ConstraintId, Entity};
@@ -221,7 +222,7 @@ const DIMENSION_SPEED: f64 = 0.01;
 /// single answer. A selection holding a dimension *and* something else is
 /// someone part-way through picking a pair, so the field stays away.
 fn dimension_picked(drawing: &Drawing, selection: &Selection) -> Option<(ConstraintId, f64)> {
-    let [Entity::Constraint(id)] = *selection.picked() else {
+    let [Part::Entity(Entity::Constraint(id))] = *selection.picked() else {
         return None;
     };
     drawing

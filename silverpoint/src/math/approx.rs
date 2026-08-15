@@ -2,6 +2,35 @@
 
 use glam::DVec2;
 
+/// How near two places have to be to count as one, in sketch units.
+///
+/// The tolerance the geometry works to wherever a coincidence has to be
+/// admitted through a rounding rather than found exactly. A line that grazes a
+/// circle meets it twice in the algebra and once on the page, and the two roots
+/// come out a hair apart; a corner meant to land on another misses it by the
+/// last bit of a division. Left alone, either becomes a vertex nobody drew and
+/// a sliver of face between two edges that were meant to meet.
+///
+/// Here rather than with whichever routine reads it, because more than one
+/// does: crossings are folded to it, an endpoint is allowed to reach that far
+/// past a curve, a triangulation counts a corner this close to one of a
+/// triangle's own as being that corner, and a cleanup counts two pieces of
+/// geometry this close as the same piece.
+///
+/// An order of magnitude above the residual tolerance a solve converges to,
+/// which is what makes the two tests in [`Sketch::remove_duplicates`] agree
+/// instead of disagreeing at the boundary: a pair a solve has driven together
+/// sits within the residual tolerance, so it reads as positionally equal here
+/// too, and a coincidence and a measurement never answer differently about the
+/// same pair.
+///
+/// Far below anything a pointer can distinguish — a click resolves to a
+/// fraction of a sketch unit at any sane zoom — so nothing a user placed on
+/// purpose is ever within it of something else.
+///
+/// [`Sketch::remove_duplicates`]: crate::Sketch::remove_duplicates
+pub(crate) const TOUCHING: f64 = 1e-9;
+
 /// Equality to within a tolerance.
 ///
 /// Geometry that a solve has settled is equal in the sense that matters and

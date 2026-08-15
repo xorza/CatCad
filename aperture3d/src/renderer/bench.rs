@@ -106,10 +106,10 @@ const ON_THE_DRAWING: Vec2 = Vec2::new(400.0, 300.0);
 /// vertex — all tagged, so picking has to consider every one of them.
 fn scene() -> Scene {
     let mut scene = Scene::default();
-    scene.objects.push(Object::new(Mesh::cube(8.0)));
+    scene.solids.push(Object::new(Mesh::cube(8.0)));
     for i in 0..3 {
         scene
-            .objects
+            .solids
             .push(Object::new(Mesh::cube(1.0)).at(Vec3::X * i as f32));
     }
     let corner = [
@@ -237,7 +237,7 @@ pub fn alloc_bench() {
     // there is.
     bench.step("flatten-scene", 0.0, || {
         let scene = renderer.scene_mut();
-        scene.objects.mark();
+        scene.solids.mark();
         scene.curves.mark();
         scene.rings.mark();
         scene.points.mark();

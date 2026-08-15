@@ -1,6 +1,7 @@
 //! 2D sketching: the geometry being solved, and the constraints tying it
 //! together.
 
+pub(crate) mod arrangement;
 pub(crate) mod constraint;
 pub(crate) mod entity;
 mod jacobian_row;
@@ -9,7 +10,7 @@ pub(crate) mod snapshot;
 pub(crate) mod solver;
 
 use crate::arena::{Arena, Id};
-use crate::math::approx::ApproxEq;
+use crate::math::approx::{ApproxEq, TOUCHING};
 use crate::sketch::constraint::{Constraint, ConstraintId};
 use crate::sketch::entity::Entity;
 use crate::sketch::params::{Params, ParamsMut};
@@ -57,21 +58,6 @@ pub struct Circle {
     pub center: PointId,
     pub radius: f64,
 }
-
-/// How near two pieces of geometry have to be to count as the same one, in
-/// sketch units.
-///
-/// An order of magnitude above the residual tolerance a solve converges to,
-/// which is what makes the two tests in [`Sketch::remove_duplicates`] agree
-/// instead of disagreeing at the boundary: a pair a solve has driven together
-/// sits within the residual tolerance, so it reads as positionally equal here
-/// too, and a coincidence and a measurement never answer differently about the
-/// same pair.
-///
-/// Far below anything a pointer can distinguish — a click resolves to a
-/// fraction of a sketch unit at any sane zoom — so nothing a user placed on
-/// purpose is ever within it of something else.
-const DUPLICATE_EPSILON: f64 = 1e-9;
 
 /// What a cleanup took out of a sketch.
 ///
@@ -413,8 +399,8 @@ impl Sketch {
                 let (a, b) = (self.circle(a), self.circle(b));
                 self.point(a.center)
                     .position
-                    .approx_eq(self.point(b.center).position, DUPLICATE_EPSILON)
-                    && a.radius.approx_eq(b.radius, DUPLICATE_EPSILON)
+                    .approx_eq(self.point(b.center).position, TOUCHING)
+                    && a.radius.approx_eq(b.radius, TOUCHING)
             },
         )
     }
@@ -436,8 +422,8 @@ impl Sketch {
             |id| named[id.slot()],
             |a, b| {
                 let ((a1, a2), (b1, b2)) = (ends(a), ends(b));
-                (a1.approx_eq(b1, DUPLICATE_EPSILON) && a2.approx_eq(b2, DUPLICATE_EPSILON))
-                    || (a1.approx_eq(b2, DUPLICATE_EPSILON) && a2.approx_eq(b1, DUPLICATE_EPSILON))
+                (a1.approx_eq(b1, TOUCHING) && a2.approx_eq(b2, TOUCHING))
+                    || (a1.approx_eq(b2, TOUCHING) && a2.approx_eq(b1, TOUCHING))
             },
         )
     }
@@ -445,7 +431,7 @@ impl Sketch {
     /// The points carrying nothing that sit on top of another point.
     ///
     /// A coincidence counts as sitting on top whatever the coordinates say. The
-    /// two agree on a solved sketch — [`DUPLICATE_EPSILON`] is the looser of the
+    /// two agree on a solved sketch — [`TOUCHING`] is the looser of the
     /// two — and on one a solve has not reached, what the drawing *states* is a
     /// better answer than where it currently happens to be.
     fn spare_points(&self) -> Vec<PointId> {
@@ -466,7 +452,7 @@ impl Sketch {
             |a, b| {
                 self.point(a)
                     .position
-                    .approx_eq(self.point(b).position, DUPLICATE_EPSILON)
+                    .approx_eq(self.point(b).position, TOUCHING)
                     || joins
                         .iter()
                         .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))

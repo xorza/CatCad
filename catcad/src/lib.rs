@@ -14,10 +14,12 @@ mod hud;
 mod intent;
 mod names;
 mod paint;
+mod part;
 mod preview;
 mod scene_view;
 mod selection;
 mod session;
+mod settled;
 mod tool;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
@@ -34,9 +36,11 @@ use crate::document::Document;
 use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::{Change, Choice, Intents, Step};
+use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::selection::Selection;
 use crate::session::Session;
+use crate::settled::Settled;
 use crate::tool::Tool;
 
 /// Take back the last step, and put it back.
@@ -78,6 +82,15 @@ pub struct CatCad {
     /// length of the call, which is why it is neither in the document that
     /// would be saved nor in the history of what has been done to it.
     solver: Solver,
+    /// What the last solve made of the drawing: its report, its faces, and the
+    /// room those were worked out in.
+    ///
+    /// Beside the document rather than in it, for the same reason the solver
+    /// above is: all of it follows from the sketch by running the solver over
+    /// it again, so saving writes none of it and opening rebuilds it. Lent to
+    /// whatever is editing, which is what keeps it in step — an edit that could
+    /// happen without this in hand would be one that left it stale.
+    settled: Settled,
     /// What draws that, and what the pointer over it is in the middle of. Owns
     /// nothing the document would be saved without.
     view: SceneView,
@@ -103,7 +116,8 @@ impl CatCad {
         // The one solver, made before anything that needs one. Opening a
         // document is a solve, so it is wanted here as much as it is per frame.
         let mut solver = Solver::default();
-        let mut document = demo::document(&mut solver);
+        let mut settled = Settled::default();
+        let mut document = demo::document(&mut solver, &mut settled);
         // Laid out before it is aimed at, and measured off the view rather than
         // off the document. What has to fit on screen is what will be *drawn*,
         // and how far that reaches is aperture's to say, not this crate's: a
@@ -111,7 +125,7 @@ impl CatCad {
         // plane does not lean away from it, and a stroke's width and a marker's
         // glyph reach nowhere at all, being screen-sized. A document measuring
         // itself would be a second copy of all of that, free to drift.
-        let mut view = SceneView::new(&document);
+        let mut view = SceneView::new(&document, &settled);
         if let Some(bounds) = view.bounds() {
             document.frame(bounds);
         }
@@ -122,12 +136,13 @@ impl CatCad {
         // but so that what `build` returns already agrees with itself, and a
         // caller can measure the view it was given without recording a frame to
         // make the answer true.
-        view.settle(&document, &Selection::default());
+        view.settle(&document, &settled, &Selection::default());
         Self {
             document,
             history: History::default(),
             intents: Intents::default(),
             solver,
+            settled,
             view,
             session: Session::default(),
             hud: Hud::default(),
@@ -163,7 +178,16 @@ impl CatCad {
         // selection again would find it already gone. Landing twice is harmless
         // — the second removal finds nothing to remove.
         if ui.key_pressed(DELETE) {
-            for &entity in self.session.selection().picked() {
+            // Entities only. Deleting a face would mean deleting whatever
+            // draws it, which is a different command and not this one — so a
+            // face picked out alongside an edge lets the edge go and stays.
+            for entity in self
+                .session
+                .selection()
+                .picked()
+                .iter()
+                .filter_map(|part| part.entity())
+            {
                 self.intents.push(Change::Delete(entity));
             }
         }
@@ -200,25 +224,28 @@ impl CatCad {
     /// mean.
     fn apply(&mut self) {
         self.session.apply(&self.intents);
-        self.history
-            .apply(&mut self.document, &mut self.solver, &self.intents);
+        self.history.apply(
+            &mut self.document,
+            &mut self.solver,
+            &mut self.settled,
+            &self.intents,
+        );
         // Last, because an undo can take geometry the session was still holding
         // on to — see [`Session::prune`].
-        self.session.prune(self.document.drawing());
+        self.session.prune(self.document.drawing(), &self.settled);
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
-        let drawing = self.document.drawing();
-        let outcome = drawing.outcome();
+        let outcome = self.settled.outcome();
         Status {
             converged: outcome.converged(),
             iterations: outcome.iterations(),
             degrees_of_freedom: outcome.degrees_of_freedom(),
             redundant_constraints: outcome.redundant_constraints(),
             hovered: self.view.hovered(),
-            cleaned: drawing.cleaned(),
+            cleaned: self.settled.cleaned(),
         }
     }
 }
@@ -244,7 +271,7 @@ struct Status {
     /// run getting it there went.
     degrees_of_freedom: usize,
     redundant_constraints: usize,
-    hovered: Option<Entity>,
+    hovered: Option<Part>,
     /// What the last cleanup took out, where that was the last thing done.
     ///
     /// Three states rather than two counts: nothing to say, a cleanup that
@@ -254,18 +281,19 @@ struct Status {
     cleaned: Option<Removed>,
 }
 
-/// What to call a sketch entity where a person will read it.
+/// What to call a part of the drawing where a person will read it.
 ///
 /// Here rather than on [`Entity`], which is silverpoint's: what a thing is
 /// called is this crate's business, and a segment reads as an *edge* — what the
 /// drawing shows is the boundary of something, and "segment" is the solver's
 /// word for it rather than the draughtsman's.
-fn noun(entity: Entity) -> &'static str {
-    match entity {
-        Entity::Point(_) => "point",
-        Entity::Segment(_) => "edge",
-        Entity::Circle(_) => "circle",
-        Entity::Constraint(_) => "constraint",
+fn noun(part: Part) -> &'static str {
+    match part {
+        Part::Entity(Entity::Point(_)) => "point",
+        Part::Entity(Entity::Segment(_)) => "edge",
+        Part::Entity(Entity::Circle(_)) => "circle",
+        Part::Entity(Entity::Constraint(_)) => "constraint",
+        Part::Face(_) => "face",
     }
 }
 
@@ -329,7 +357,8 @@ impl App for CatCad {
                 // until everything has finished reading it.
                 self.ask(ui);
                 self.apply();
-                self.view.settle(&self.document, self.session.selection());
+                self.view
+                    .settle(&self.document, &self.settled, self.session.selection());
             });
     }
 }

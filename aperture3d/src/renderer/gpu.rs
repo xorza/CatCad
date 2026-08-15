@@ -11,6 +11,15 @@ use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::renderer::uniforms::Uniforms;
 use glam::UVec2;
 
+/// How many depth steps a sketch face is brought forward, so that lying in the
+/// very plane of what it is drawn on is settled rather than left to whichever
+/// fragment the rasteriser reached first.
+///
+/// Sixteen because it has to beat the rounding of one plane against another and
+/// nothing more — the strokes above a face clear it by their own `z_offset`,
+/// which is decades larger, so there is no ladder here to fit into.
+const FACE_BIAS: i32 = 16;
+
 /// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU
 /// encodes on write.
 const BACKGROUND: wgpu::Color = wgpu::Color {
@@ -165,7 +174,8 @@ impl Passes {
 /// Everything that can't exist before the device does.
 #[derive(Debug)]
 pub(super) struct Gpu {
-    pub(super) meshes: Pass,
+    pub(super) solids: Pass,
+    pub(super) faces: Pass,
     pub(super) curves: Passes,
     pub(super) rings: Passes,
     pub(super) points: Passes,
@@ -298,12 +308,26 @@ impl Gpu {
         // counter-clockwise from outside — and the one whose triangle list grows
         // rather than being built once. The three below take
         // [`PassSpec::overlay`] whole; text takes it and says how it differs.
-        let meshes = pipelines.build::<GpuVertex>(PassSpec {
+        let solids = pipelines.build::<GpuVertex>(PassSpec {
             name: "mesh",
             indices: None,
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
             blend: None,
+            depth_bias: 0,
+            depth_write: true,
+        });
+        // The same shader as the solids, and the same growing triangle list —
+        // a face is a mesh. What differs is that it is a sheet: culling would
+        // hide it from one side, and it needs bringing forward off whatever it
+        // is coplanar with.
+        let faces = pipelines.build::<GpuVertex>(PassSpec {
+            name: "mesh",
+            indices: None,
+            cull: None,
+            alpha_to_coverage: false,
+            blend: None,
+            depth_bias: FACE_BIAS,
             depth_write: true,
         });
         let curves =
@@ -325,7 +349,8 @@ impl Gpu {
             },
         );
         Self {
-            meshes,
+            solids,
+            faces,
             curves,
             rings,
             points,

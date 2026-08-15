@@ -43,12 +43,25 @@ pub(super) struct PassSpec {
     /// alpha and quantizing it to the sample count is what makes small type look
     /// stippled.
     pub(super) blend: Option<wgpu::BlendState>,
+    /// How many of the smallest resolvable depth steps to pull the pass
+    /// toward the camera.
+    ///
+    /// For geometry that is *exactly* coplanar with something else, which no
+    /// ordering of the passes can settle — a sketch face lies in the very plane
+    /// the ground slab's top does. The overlays answer the same question with
+    /// their own `z_offset`, which biases a primitive rather than a pass;
+    /// meshes carry no such field, so what needs it says so here.
+    ///
+    /// Depth is reversed, so nearer is *greater* — see
+    /// [`Camera::view_proj`](crate::Camera::view_proj) — and a positive bias is
+    /// what brings a pass forward.
+    pub(super) depth_bias: i32,
     /// Whether the pass writes what it draws into the depth buffer.
     ///
     /// Every opaque pass does, and the blended one must not: two blended
     /// fragments have no order the depth test could enforce, so writing would
     /// let whichever was drawn first hide the other. It still *tests*, which is
-    /// what puts a label behind the solid in front of it.
+    /// what puts a label behind the object in front of it.
     pub(super) depth_write: bool,
 }
 
@@ -69,6 +82,7 @@ impl PassSpec {
             cull: None,
             alpha_to_coverage: true,
             blend: None,
+            depth_bias: 0,
             depth_write: true,
         }
     }
@@ -128,7 +142,10 @@ impl Pipelines<'_> {
                     // nearer is greater. See [`Camera::view_proj`].
                     depth_compare: Some(wgpu::CompareFunction::Greater),
                     stencil: wgpu::StencilState::default(),
-                    bias: wgpu::DepthBiasState::default(),
+                    bias: wgpu::DepthBiasState {
+                        constant: spec.depth_bias,
+                        ..wgpu::DepthBiasState::default()
+                    },
                 }),
                 multisample: wgpu::MultisampleState {
                     count: SAMPLES,
@@ -188,7 +205,7 @@ impl Pass {
         }
     }
 
-    /// Refill from the flattened solids: one triangle list, drawn once.
+    /// Refill from the flattened objects: one triangle list, drawn once.
     ///
     /// Does nothing while the list stands as the pass already has it, which the
     /// list is what answers for — see [`Triangles::take_dirty`].

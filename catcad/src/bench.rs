@@ -1,7 +1,7 @@
 //! Per-frame allocation gates for the application's record pass, driven by
 //! `dhat`.
 //!
-//! One bench of three steps, all recording real frames through `UiHarness`:
+//! One bench of four steps, all recording real frames through `UiHarness`:
 //!
 //! | step | measures | limit |
 //! |---|---|---|
@@ -15,9 +15,13 @@
 //! The status line is formatted into the record pass's own text arena rather
 //! than a `String`; `Scene::nearest` answers a hover without building a list;
 //! the drawing is laid out over the primitives the renderer already holds
-//! rather than into fresh ones; and the sketch snapshots a dragged frame takes
-//! — the solver's, to put back a step the constraints refuse, and the history's
-//! two ends of what it is recording — all refill buffers that have the room.
+//! rather than into fresh ones; the sketch snapshots a dragged frame takes —
+//! the solver's, to put back a step the constraints refuse, and the history's
+//! two ends of what it is recording — all refill buffers that have the room;
+//! and what the curves enclose is worked out in an
+//! [`Arrangement`](silverpoint::Arrangement) kept across frames, which refills
+//! the list per corner of what leaves it, the list per loop, the list per curve
+//! of where it is cut, and the fill per face rather than building each afresh.
 //!
 //! Four steps rather than one, because what separates them is what each thing
 //! the pointer can be doing costs — and a regression in one and not the others

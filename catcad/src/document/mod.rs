@@ -4,6 +4,7 @@ use aperture::{Bounds, Camera, Object};
 
 use crate::drawing::Drawing;
 use crate::intent::Change;
+use crate::settled::Settled;
 use silverpoint::Plane;
 use silverpoint::{Sketch, Snapshot, Solver};
 
@@ -41,12 +42,13 @@ impl Document {
     /// measure it, so whoever raises one is who aims the camera.
     pub(crate) fn new(
         solver: &mut Solver,
+        settled: &mut Settled,
         sketch: Sketch,
         plane: Plane,
         solids: Vec<Object>,
     ) -> Self {
         Self {
-            drawing: Drawing::new(solver, sketch, plane),
+            drawing: Drawing::new(solver, settled, sketch, plane),
             solids,
             camera: Camera::default(),
         }
@@ -89,8 +91,13 @@ impl Document {
     /// two ways a document changes are two calls on the document. An undo is the
     /// path that most wants watching — it is the one that can make geometry stop
     /// existing — and it would have been the one going round the back.
-    pub(crate) fn restore(&mut self, solver: &mut Solver, snapshot: &Snapshot) {
-        self.drawing.restore(solver, snapshot);
+    pub(crate) fn restore(
+        &mut self,
+        solver: &mut Solver,
+        settled: &mut Settled,
+        snapshot: &Snapshot,
+    ) {
+        self.drawing.restore(solver, settled, snapshot);
     }
 
     /// Land what `change` asks for.
@@ -117,16 +124,25 @@ impl Document {
     /// a solve wants room to work in that is worth keeping across a drag and
     /// worth nothing in a saved file — so the room belongs to whoever is doing
     /// the editing, and the document borrows it for the length of the call.
-    pub(crate) fn apply(&mut self, solver: &mut Solver, change: Change) {
+    ///
+    /// `settled` is the caller's for the same reason, and is what the solve
+    /// reports into. Everything it holds follows from the sketch by running the
+    /// solver over it again, so a file writes none of it — and an edit that
+    /// could happen without it in hand would be one that left it stale.
+    pub(crate) fn apply(&mut self, solver: &mut Solver, settled: &mut Settled, change: Change) {
         match change {
-            Change::Drag { grip, to } => self.drawing.drag_to(solver, grip, to),
-            Change::AddPoint(at) => self.drawing.add_point(solver, at),
-            Change::AddSegment { from, to } => self.drawing.add_segment(solver, from, to),
-            Change::AddCircle { center, rim } => self.drawing.add_circle(solver, center, rim),
-            Change::Constrain(constraint) => self.drawing.constrain(solver, constraint),
-            Change::Resize { constraint, to } => self.drawing.resize(solver, constraint, to),
-            Change::Delete(entity) => self.drawing.remove(solver, entity),
-            Change::Tidy => self.drawing.remove_duplicates(solver),
+            Change::Drag { grip, to } => self.drawing.drag_to(solver, settled, grip, to),
+            Change::AddPoint(at) => self.drawing.add_point(solver, settled, at),
+            Change::AddSegment { from, to } => self.drawing.add_segment(solver, settled, from, to),
+            Change::AddCircle { center, rim } => {
+                self.drawing.add_circle(solver, settled, center, rim)
+            }
+            Change::Constrain(constraint) => self.drawing.constrain(solver, settled, constraint),
+            Change::Resize { constraint, to } => {
+                self.drawing.resize(solver, settled, constraint, to)
+            }
+            Change::Delete(entity) => self.drawing.remove(solver, settled, entity),
+            Change::Tidy => self.drawing.remove_duplicates(solver, settled),
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),

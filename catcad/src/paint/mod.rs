@@ -7,21 +7,34 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text};
-use glam::{Vec2, Vec3};
+use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text, Vertex};
+use glam::{Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Entity, Freedom, Segment, SegmentId};
+use silverpoint::{
+    Circle, CircleId, Constraint, Entity, Fill, Filler, Freedom, Segment, SegmentId,
+};
 use std::fmt::Write;
 
 use crate::document::Document;
 use crate::drawing::Drawing;
 use crate::names::Names;
+use crate::part::Part;
 use crate::preview::{Ends, Preview};
+use crate::settled::Settled;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
 const FIXED_MARKER: f32 = 9.0;
 const FREE_MARKER: f32 = 7.0;
+
+/// How far a face's edge may sit from the curve it was cut from, in sketch
+/// units.
+///
+/// A face is flattened once, when the drawing moves, rather than again whenever
+/// the camera does — so this is chosen for the drawing rather than for the
+/// zoom. At the size a sketch is worked at it puts forty-odd corners around a
+/// rim, which reads round without giving the triangulation a hundred to chew.
+const FACE_SAGITTA: f64 = 0.005;
 
 /// Linear-RGB, unlit — these reach the target as authored.
 ///
@@ -37,6 +50,15 @@ const DETERMINED: Vec3 = Vec3::new(0.35, 0.55, 0.80);
 const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
 const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
 const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
+
+/// What a face the drawing encloses is filled with.
+///
+/// Cool and dim, and deliberately not on the ladder above: a face reports no
+/// freedom of its own — it is whatever its boundary shuts in, and the boundary
+/// is already painted in what it has left to decide. So it reads as ground for
+/// the drawing to sit on rather than as another thing with a state, which is
+/// also why it is nearer the slab's grey than to any of the geometry's colours.
+const FACE: Vec3 = Vec3::new(0.24, 0.31, 0.40);
 
 /// What a shape still being drawn is drawn in — a grey that belongs to none of
 /// the states above, because a rubber band has no freedom to report: it is not
@@ -137,11 +159,16 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 ///
 /// The solids are written here rather than by the document, so that a document
 /// says what it holds and one module decides what all of it looks like.
-pub(crate) fn scene(document: &Document, names: &mut Names) -> Scene {
+pub(crate) fn scene(
+    document: &Document,
+    settled: &Settled,
+    names: &mut Names,
+    sheets: &mut Sheets,
+) -> Scene {
     let mut scene = Scene::default();
-    write_solids(document.solids(), &mut scene.objects);
+    write_solids(document.solids(), &mut scene.solids);
     // No band. Nothing can be half-drawn in a document nobody has looked at yet.
-    redraw(document.drawing(), names, None, &mut scene);
+    redraw(document.drawing(), settled, names, None, sheets, &mut scene);
     scene
 }
 
@@ -156,9 +183,10 @@ fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
 /// `names`.
 ///
 /// The half of a picture that moves. A drawing is edited and the solids beside
-/// it are not, so this writes the three overlay batches and leaves `into.objects`
-/// untouched — which is what keeps a drag from re-uploading every mesh in the
-/// model, since a batch nobody wrote to reports nothing to upload.
+/// it are not, so this rewrites what the drawing is made of — the four overlay
+/// batches, and the sheets its curves enclose — and leaves `into.solids`
+/// untouched, which is what keeps a drag from re-uploading every mesh in the
+/// model: a batch nobody wrote to reports nothing to upload.
 ///
 /// Fills buffers rather than returning them, so a drag refills what the renderer
 /// already holds instead of handing it new vectors every frame. The tags come
@@ -178,25 +206,102 @@ fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
 /// two writers below.
 pub(crate) fn redraw(
     drawing: &Drawing,
+    settled: &Settled,
     names: &mut Names,
     band: Option<Preview>,
+    sheets: &mut Sheets,
     into: &mut Scene,
 ) {
     names.clear();
     write_curves(
         drawing,
+        settled,
         names,
         band.and_then(Preview::line),
         &mut into.curves,
     );
     write_rings(
         drawing,
+        settled,
         names,
         band.and_then(Preview::ring),
         &mut into.rings,
     );
-    write_points(drawing, names, &mut into.points);
-    write_marks(drawing, names, &mut into.texts);
+    write_points(drawing, settled, names, &mut into.points);
+    write_marks(drawing, settled, names, &mut into.texts);
+    write_faces(drawing, settled, names, sheets, &mut into.faces);
+}
+
+/// A sheet per face the drawing's curves shut in.
+///
+/// The one part of a drawing that is not drawn: a face is what the curves
+/// *enclose*, so nothing here reads a segment or a circle — it reads what
+/// [`Arrangement`](silverpoint::Arrangement) made of all of them together, and
+/// a half-circle cut by an edge is as much a face as a rectangle traced by four.
+///
+/// Meshes rather than overlays, because a face has area in the world where a
+/// stroke has width on the screen. They go to the scene's own batch for them,
+/// which is drawn two-sided and biased forward off the plane they lie in — see
+/// [`Scene::faces`](aperture::Scene).
+///
+/// Named like everything else, so a face can be hovered and picked out. A
+/// cursor over one still reaches the geometry bounding it first: a surface is
+/// the least specific thing a pick can land on — see
+/// [`HitAt`](aperture::HitAt) — and every stroke and marker that draws a face
+/// lies within it.
+///
+/// Named *by position*, which is the one thing about a face that is not a
+/// handle. See [`Part::Face`].
+fn write_faces(
+    drawing: &Drawing,
+    settled: &Settled,
+    names: &mut Names,
+    sheets: &mut Sheets,
+    faces: &mut Batch<Object>,
+) {
+    let plane = drawing.plane();
+    let normal = plane.normal().as_vec3();
+    let arrangement = settled.arrangement();
+    let Sheets { filler, fill } = sheets;
+    faces.refill(
+        arrangement.faces().iter().enumerate(),
+        |object, (at, face)| {
+            filler.fill(arrangement, face, FACE_SAGITTA, fill);
+            // Rewritten in place rather than assigned, so a drag that redraws every
+            // face keeps the buffers it filled last frame.
+            object.mesh.vertices.clear();
+            object
+                .mesh
+                .vertices
+                .extend(fill.corners.iter().map(|&corner| Vertex {
+                    position: plane.point(corner).as_vec3(),
+                    normal,
+                }));
+            object.mesh.indices.clear();
+            // Reserved rather than left to grow: flattening triangles hides the
+            // count from the iterator, where the corners above carry theirs and
+            // are reserved for exactly.
+            object.mesh.indices.reserve_exact(fill.triangles.len() * 3);
+            object.mesh.indices.extend(fill.triangles.iter().flatten());
+            object.transform = Mat4::IDENTITY;
+            object.color = FACE;
+            object.tag = Some(names.tag(Part::Face(at)));
+        },
+    );
+}
+
+/// The room turning a drawing's faces into sheets takes, kept across frames.
+///
+/// The caller's rather than the drawing's, like [`Names`] beside it and for the
+/// same reason turned the other way round: how finely to flatten a face is a
+/// decision about *appearance*, so the buffers that flattening works in belong
+/// with whoever is deciding it rather than with the model being drawn.
+#[derive(Debug, Default)]
+pub(crate) struct Sheets {
+    filler: Filler,
+    /// One face's triangles, overwritten by the next — a sheet reads its fill
+    /// into a mesh and is done with it, so one is all that is ever live.
+    fill: Fill,
 }
 
 /// A mark per constraint, saying what relation holds and where.
@@ -209,8 +314,8 @@ pub(crate) fn redraw(
 /// Tagged like everything else, so a mark is picked and deleted the way the
 /// geometry it is about is — which is the whole of how an over-constrained
 /// sketch gets un-stuck.
-fn write_marks(drawing: &Drawing, names: &mut Names, marks: &mut Batch<Text>) {
-    let outcome = drawing.outcome();
+fn write_marks(drawing: &Drawing, settled: &Settled, names: &mut Names, marks: &mut Batch<Text>) {
+    let outcome = settled.outcome();
     marks.refill(drawing.sketch().constraints(), |mark, (id, constraint)| {
         // Rewritten in place rather than assigned, so a drawing whose marks are
         // laid out every frame keeps the string it already has — which is what
@@ -300,12 +405,13 @@ fn symbol(constraint: Constraint) -> &'static str {
 /// strokes — see [`write_rings`].
 fn write_curves(
     drawing: &Drawing,
+    settled: &Settled,
     names: &mut Names,
     band: Option<Ends>,
     curves: &mut Batch<Curve>,
 ) {
     let sketch = drawing.sketch();
-    let outcome = drawing.outcome();
+    let outcome = settled.outcome();
     let plane = drawing.plane();
     // The drawing rides on one plane and above the solids as one thing, and
     // nothing in it outranks the rest — so the bias and the plane are the same
@@ -363,9 +469,14 @@ enum Stroke {
 /// The plane comes along for the same reason a stroke's does: a disc is
 /// flat in depth and the surface under it is not, so without it the glyph
 /// is sliced wherever the plane is seen at an angle.
-fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>) {
+fn write_points(
+    drawing: &Drawing,
+    settled: &Settled,
+    names: &mut Names,
+    points: &mut Batch<Point>,
+) {
     let sketch = drawing.sketch();
-    let outcome = drawing.outcome();
+    let outcome = settled.outcome();
     let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
     points.refill(sketch.points(), |marker, (id, point)| {
@@ -397,9 +508,15 @@ fn write_points(drawing: &Drawing, names: &mut Names, points: &mut Batch<Point>)
 ///
 /// No plane named, unlike the strokes — a ring's band is widened in its
 /// own plane, so the depth it carries is already the surface's.
-fn write_rings(drawing: &Drawing, names: &mut Names, band: Option<Ends>, rings: &mut Batch<Ring>) {
+fn write_rings(
+    drawing: &Drawing,
+    settled: &Settled,
+    names: &mut Names,
+    band: Option<Ends>,
+    rings: &mut Batch<Ring>,
+) {
     let sketch = drawing.sketch();
-    let outcome = drawing.outcome();
+    let outcome = settled.outcome();
     let plane = drawing.plane();
     let normal = plane.normal().as_vec3();
     rings.refill(

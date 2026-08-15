@@ -37,7 +37,8 @@ use palantir::{PlacedGlyph, TextGlyphs};
 /// each is a different word.
 #[derive(Debug, Default)]
 pub(super) struct Cpu {
-    pub(super) meshes: Triangles,
+    pub(super) solids: Triangles,
+    pub(super) faces: Triangles,
     pub(super) curves: Records<CurveInstance>,
     pub(super) rings: Records<RingInstance>,
     pub(super) points: Records<PointInstance>,
@@ -346,10 +347,22 @@ impl Triangles {
     /// Bring the list up to date with `objects`.
     ///
     /// Takes the batch's mark and leaves its own, like [`Records::refill_from`] —
-    /// solids answer for their own edits the same way strokes do.
-    pub(super) fn refresh(&mut self, objects: &mut Batch<Object>) {
-        if objects.take_dirty() {
-            self.flatten(objects);
+    /// objects answer for their own edits the same way strokes do.
+    ///
+    /// Rewritten when the highlights move as well as when the objects do. A
+    /// mesh carries its look in the vertices it was flattened into, so a
+    /// highlight that arrives without the geometry moving still has to be
+    /// written in — where an overlay would only rebuild its `lit` list.
+    pub(super) fn refresh(
+        &mut self,
+        objects: &mut Batch<Object>,
+        highlights: &Highlights,
+        relight: bool,
+    ) {
+        // Both marks taken, not either: `take_dirty` clears the batch's, and one
+        // left behind is one that fires again next frame.
+        if objects.take_dirty() | relight {
+            self.flatten(objects, highlights);
             self.dirty = true;
         }
     }
@@ -368,7 +381,15 @@ impl Triangles {
     ///
     /// Transforms are applied here rather than per draw call, so a still scene
     /// costs one draw and no per-object bindings.
-    fn flatten(&mut self, objects: &[Object]) {
+    ///
+    /// A highlighted object is written in the colour it was given, in place of
+    /// its own. Only the colour: a [`Highlight`](crate::Highlight)'s `scale` and
+    /// `lift` are what a *stroke* does to stand out — grow, and ride forward of
+    /// what it doubles — and a mesh has neither a width to grow nor a bias to
+    /// ride on. It occupies the world rather than the screen, so the only way
+    /// for it to read as picked out is to be a different colour where it
+    /// already is.
+    fn flatten(&mut self, objects: &[Object], highlights: &Highlights) {
         self.clear();
         self.reserve_exact(
             objects.iter().map(|o| o.mesh.vertices.len()).sum(),
@@ -378,7 +399,10 @@ impl Triangles {
             // Normals survive non-uniform scale only under the inverse
             // transpose; it's once per object, so the generality is free.
             let normal_matrix = Mat3::from_mat4(object.transform).inverse().transpose();
-            let color = object.color.to_array();
+            let color = highlights
+                .look_of(object.tag)
+                .map_or(object.color, |look| look.color)
+                .to_array();
             let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
                 position: object
                     .transform
