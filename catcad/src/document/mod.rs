@@ -254,9 +254,9 @@ impl Document {
     /// question about what has been *done*, which the inbox has no vocabulary
     /// for — see the refusal at the end of `apply`.
     ///
-    /// Named here rather than reached through a borrowed drawing, so that the
-    /// two ways a document changes are two calls on the document. An undo is the
-    /// path that most wants watching — it is the one that can make geometry stop
+    /// Named here rather than reached through a borrowed drawing, so that every
+    /// way a document changes is a call on the document. An undo is the path
+    /// that most wants watching — it is the one that can make geometry stop
     /// existing — and it would have been the one going round the back.
     pub(crate) fn restore(&mut self, build: &mut Build, at: FeatureId, was: &Feature) {
         self.timeline.put_back(at, was);
@@ -293,10 +293,12 @@ impl Document {
     /// stands are each somebody else's, and none of them can be handed here to
     /// be refused at runtime — the type refuses them.
     ///
-    /// One of exactly two ways a document changes, the other being
-    /// [`Document::restore`], and the pair is the whole of it: what someone
-    /// asked for, and what the history puts back. Everything else a document
-    /// hands out is `&self`.
+    /// One of exactly three ways a document changes, and one of the two that
+    /// rewrite a step already there: this is what someone asked for and
+    /// [`Document::restore`] is what the history puts back. The third is
+    /// [`Document::extrude`], which adds a step rather than writing one — see
+    /// its own doc for why that cannot be a [`Change`]. Everything else a
+    /// document hands out is `&self`.
     ///
     /// `build` is the caller's. Solving is what an edit to a drawing *is*,
     /// and a solve wants room to work in — and leaves a report behind — that is
@@ -341,9 +343,16 @@ impl Document {
         // After the change rather than as part of one, because it is a fact
         // about every step and not about the one that moved — a line drawn in
         // one sketch can take away what an extrude two steps later was grown
-        // from. Turning the camera passes through here too, and costs a walk of
-        // however many extrudes the document holds.
-        self.remodel(build);
+        // from.
+        //
+        // A change that names no step is the camera's, and the camera cannot
+        // reach an arrangement: it writes one field of this and nothing the
+        // drawing says. Skipping it is what keeps an orbit off this path, which
+        // the document is careful about elsewhere for the same reason — see
+        // [`Edits`], on why turning the camera must not move the revision.
+        if change.feature().is_some() {
+            self.remodel(build);
+        }
         self.edits = self.edits.next();
     }
 }

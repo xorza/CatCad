@@ -77,8 +77,10 @@ impl From<Errand> for Intent {
 
 /// What the document answers, and the whole of what it answers.
 ///
-/// One of exactly two ways a document changes, the other being an undo putting
-/// a snapshot back. Everything here reaches
+/// Everything a document can be *asked* for, which is not quite everything that
+/// changes one: an undo puts a snapshot back without passing through here, and
+/// adding a step — an extrude, so far — has no before for the history to record
+/// and so is not a change anyone can ask for yet. Everything here reaches
 /// [`Document::apply`](crate::document::Document), which matches it exhaustively
 /// — so a new one added to this enum is a compile error until the document says
 /// what to do with it, where a new one added beside it in [`Intent`] cannot

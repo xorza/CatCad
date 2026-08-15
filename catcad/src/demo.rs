@@ -25,9 +25,10 @@ pub(crate) const SHELF: f64 = 2.2;
 ///
 /// No step made any of these, which is why they are not in the document and are
 /// not written down by saving: they stand around whichever document is open.
-/// They are a stand-in, and this goes when an extrude exists to *make* a solid —
-/// until then the drawing needs ground to lie on, and scenery nobody authored is
-/// the honest name for that.
+/// They are a stand-in, and this goes when a solid the document *made* is drawn.
+/// One is made already — see [`document`] — and nothing paints it yet, so until
+/// then the drawing needs ground to lie on, and scenery nobody authored is the
+/// honest name for that.
 ///
 /// The same world as the drawing — the slab's top face is the ground plane and
 /// the boxes stand on it — so orbiting the view moves both together.

@@ -333,10 +333,14 @@ impl<'a> Models<'a> {
     /// as a count because that is what a reader can act on — which extrude went
     /// wrong is a question for the timeline, which nothing shows yet.
     ///
-    /// Here rather than on the build, because it is a question about the
-    /// document as a whole: the build knows what each extrude resolved to and
-    /// the timeline knows which steps are extrudes, and this is the one place
-    /// that holds both.
+    /// Here rather than on the build, though the build could count these on its
+    /// own — every [`Modelled`](crate::build::modelled::Modelled) carries both
+    /// the step it answers for and its answer. What this is instead is the first
+    /// of the readings that join the two, and the shape the rest will take: what
+    /// *draws* a solid wants the region, the plane its sketch is on, and how far
+    /// it stands off, and only a pairing of the timeline and the build has all
+    /// three. A count that went round the back would be the one reader that did
+    /// not.
     pub(crate) fn lost(self) -> usize {
         self.timeline
             .extrudes()

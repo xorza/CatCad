@@ -3,13 +3,12 @@
 use glam::DVec2;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
-use silverpoint::{CircleId, Constraint, PointId, SegmentId};
+use silverpoint::{Bound, CircleId, Constraint, Entity, PointId, SegmentId};
 
 use crate::document::file::error::{Fault, LoadError, Missing, SaveError};
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, Feature};
 use crate::timeline::{FeatureId, Timeline};
-use silverpoint::{Bound, Entity};
 
 /// Which version of the format a file is written in.
 ///

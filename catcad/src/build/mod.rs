@@ -210,8 +210,8 @@ impl Build {
         // position here worth keeping — a caller names an extrude by its handle.
         modelled.clear();
         for (of, profile) in extrudes {
-            let arrangement = settled_for(settled, profile.sketch()).arrangement();
-            modelled.push(Modelled::new(of, profile.face_in(arrangement)));
+            let settled = filed_under(settled, profile.sketch(), Settled::of, UNSETTLED);
+            modelled.push(Modelled::new(of, profile.face_in(settled.arrangement())));
         }
     }
 
@@ -244,7 +244,7 @@ impl Build {
     /// is a sketch that was never opened, which is a mistake in whatever raised
     /// the document rather than a state a reader has to handle.
     pub(crate) fn settled(&self, of: FeatureId) -> &Settled {
-        settled_for(&self.settled, of)
+        filed_under(&self.settled, of, Settled::of, UNSETTLED)
     }
 
     /// Which region the extrude at `of` is grown from, or `None` where its
@@ -257,11 +257,7 @@ impl Build {
     /// a state a reader has to handle. The `None` inside is the other question,
     /// and is a fair answer: see [`Modelled`].
     pub(crate) fn modelled(&self, of: FeatureId) -> Option<usize> {
-        self.modelled
-            .iter()
-            .find(|had| had.of() == of)
-            .expect("this extrude has not been modelled")
-            .at()
+        filed_under(&self.modelled, of, Modelled::of, UNMODELLED).at()
     }
 
     /// Which version of the document this describes.
@@ -283,17 +279,33 @@ impl Build {
     }
 }
 
-/// What the last solve made of the sketch at `of`, among `settled`.
+/// The entry of `filed` that answers for `of`, or the mistake `missing` names.
 ///
-/// A free function over the list rather than a method on [`Build`], so that
-/// [`Build::remodel`] — which has the build taken apart, to write one of its
-/// fields while reading another — can ask it without borrowing the whole of one.
-fn settled_for(settled: &[Settled], of: FeatureId) -> &Settled {
-    settled
-        .iter()
-        .find(|had| had.of() == of)
-        .expect("this sketch has not been settled")
+/// Both lists the build keeps are held the same way — a short run searched by
+/// the handle each entry carries, walked rather than hashed because a document
+/// holds a few of either. One function so that is said once.
+///
+/// A free function over the slice rather than a method on [`Build`], because one
+/// caller has the build taken apart to write one of its fields while reading
+/// another — see [`Build::remodel`] — and cannot borrow the whole of one.
+///
+/// `key` is a closure rather than a trait over the two entry types: one method
+/// apiece is not a trait's worth of agreement between them.
+fn filed_under<'a, T>(
+    filed: &'a [T],
+    of: FeatureId,
+    key: impl Fn(&T) -> FeatureId,
+    missing: &str,
+) -> &'a T {
+    filed.iter().find(|had| key(had) == of).expect(missing)
 }
+
+// What a caller reaching for an answer the build has not worked out is told.
+// Reaching one means the document was raised without being settled or replayed,
+// which is a mistake in whatever raised it rather than anything a reader can
+// handle.
+const UNSETTLED: &str = "this sketch has not been settled";
+const UNMODELLED: &str = "this extrude has not been modelled";
 
 /// Which of the solver's entry points an edit is settled through.
 ///
