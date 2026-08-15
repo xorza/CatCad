@@ -10,8 +10,8 @@ use crate::session::Session;
 use crate::tool::Tool;
 use aperture::{Aim, HitAt, Motion, Scene, Viewport};
 use glam::{DVec2, UVec2, Vec3};
-use palantir::Modifiers;
 use palantir::internals::UiHarness;
+use palantir::{Modifiers, PointerButton};
 
 const SIZE: UVec2 = UVec2::new(800, 600);
 
@@ -478,6 +478,54 @@ fn the_view_can_take_hold_of_a_point_an_edge_and_a_rim() {
 /// Dragging a datum slides it along the line it is offset on, carrying what is
 /// drawn on it and touching neither the open sketch nor the camera.
 ///
+/// The middle button slides the picture, and takes hold of nothing on the way.
+///
+/// Its own gesture in the plain sense and not a [`Gesture`]: there is nothing
+/// under the cursor for a press to decide about, so it lives beside the wheel
+/// rather than beside the grab. Which is the half worth pinning — a pan that
+/// went through the press would grab whatever it started over, and a pan
+/// wanting to start over the drawing is the whole point of having one.
+#[test]
+fn the_middle_button_pans_the_view_and_grabs_nothing() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let before = raised.camera();
+    let drawn = open_markers(&raised);
+
+    // From the middle of the view, which is over the drawing: the left button
+    // on this very pixel takes hold of geometry, so a pan that reached the
+    // grab would be caught here and nowhere else.
+    let centre = SIZE.as_vec2() * 0.5;
+    let step = Vec2::new(60.0, -35.0);
+    raised
+        .harness
+        .press_button_at(PointerButton::Middle, centre);
+    raised.frame();
+    raised.harness.drag_to(centre + step);
+    raised.frame();
+
+    // What stood at the orbit target — the one depth a pan is measured at — has
+    // travelled with the pointer, by the pointer's own travel and no rate of
+    // its own. Which way as much as how far: a sign dropped anywhere between
+    // the drag and the camera slides the picture against the hand.
+    let carried = raised.cursor_on(before.target);
+    assert!(
+        (carried - (centre + step)).length() < 1.0,
+        "the pointer travelled {step:?} and the picture went to {carried:?}, \
+         not {:?}",
+        centre + step
+    );
+
+    // And nothing else moved. The camera was panned rather than turned or
+    // pulled, and the drawing under the press was not taken hold of — either
+    // would mean the middle button had fallen through to the left one's path.
+    let after = raised.camera();
+    assert_eq!(after.yaw, before.yaw, "a pan turned the camera");
+    assert_eq!(after.pitch, before.pitch, "a pan tilted the camera");
+    assert_eq!(after.distance, before.distance, "a pan zoomed the camera");
+    assert_eq!(open_markers(&raised), drawn, "a pan dragged the drawing");
+}
+
 /// A datum keeps the point it was grabbed by under the pointer, from either
 /// side of the model.
 ///

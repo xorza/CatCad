@@ -148,6 +148,20 @@ pub(crate) struct SceneView {
     /// only by the call that draws — see [`Layout`].
     layout: Layout,
     gesture: Gesture,
+    /// How far the middle button has dragged so far, so this frame's step can
+    /// be taken off it.
+    ///
+    /// Its own field rather than a [`Gesture`], because it is not one: a
+    /// gesture is settled at the press against whatever was under the cursor,
+    /// and the middle button has nothing to settle — it always slides the
+    /// picture. Apart from the left button's state as well as from its
+    /// meaning, so the two can run at once: a pan while something is held is a
+    /// fair thing to ask for, and one field for both would have the second
+    /// press cancel the first.
+    ///
+    /// Drag deltas arrive as cumulative travel, which is the same reason
+    /// [`Gesture::Orbit`] carries one.
+    panned: Vec2,
     /// What the pointer is working on: the part under it, or the part it has
     /// hold of while a drag is under way.
     hovered: Option<Part>,
@@ -184,6 +198,7 @@ impl SceneView {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             layout,
             gesture: Gesture::None,
+            panned: Vec2::ZERO,
             hovered: None,
             preview: None,
             lit: Vec::new(),
@@ -419,19 +434,55 @@ impl SceneView {
         self.navigate(&response, document, intents);
     }
 
-    /// What the wheel and the trackpad do to the camera: notches and a pinch
-    /// zoom, two fingers travelling pan.
+    /// What moves the camera without touching the drawing: the wheel's notches
+    /// and a pinch zoom, two fingers travelling, and the middle button sliding
+    /// the picture about.
     ///
     /// Split off `ask` because it is the one part of a frame that asks nothing
     /// of the drawing — it never touches what is under the cursor, only where
-    /// the cursor's view is looking from.
+    /// the cursor's view is looking from. Which is what the middle button is
+    /// doing here rather than among the gestures: it grabs nothing, so there is
+    /// nothing for a press to decide.
     ///
     /// Pinch and wheel both dolly rather than one of them rescaling the
     /// picture, so the two agree about what zooming means and neither has to be
     /// undone by the other. Both come out as their own intent instead of one
     /// combined factor: a frame carrying both asked for both, and a product
     /// would say the same thing while hiding which gesture said it.
-    fn navigate(&self, response: &Response<'_>, document: &Document, intents: &mut Intents) {
+    fn navigate(&mut self, response: &Response<'_>, document: &Document, intents: &mut Intents) {
+        // The middle button slides the picture under the pointer. Taken from
+        // the cumulative travel rather than a per-frame delta, because that is
+        // what a drag reports — see [`SceneView::panned`].
+        let step = match response.middle.drag {
+            // Started carries the travel that latched the drag, which is the
+            // first step and not a jump to be swallowed.
+            Drag::Started { delta } => {
+                self.panned = delta;
+                delta
+            }
+            Drag::Active { delta } => {
+                let step = delta - self.panned;
+                self.panned = delta;
+                step
+            }
+            Drag::None | Drag::Stopped => {
+                self.panned = Vec2::ZERO;
+                Vec2::ZERO
+            }
+        };
+        if step != Vec2::ZERO
+            && let Some(aimed) = Aimed::of(response)
+        {
+            // Negated, because the two say opposite things: `pan_step` is told
+            // where the *viewport* goes, and a button dragging the picture
+            // says where the model does. The same inversion the orbit above
+            // makes, and for the same reason — what the pointer moves is the
+            // thing, and the camera answers by going the other way.
+            intents.push(Change::Pan {
+                by: aimed.pan_step(&document.camera(), -step),
+            });
+        }
+
         let scroll = response.scroll;
 
         // Straight through as the scroll delta arrives: a viewport travelling
