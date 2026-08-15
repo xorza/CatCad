@@ -7,7 +7,7 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text, Vertex};
+use aperture::{Batch, Curve, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
 use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Freedom, Plane, Segment, SegmentId};
@@ -110,6 +110,19 @@ fn colour(freedom: Freedom) -> Vec3 {
 /// idea of what "not here" looks like.
 fn ink(model: Model<'_>, lit: Vec3) -> Vec3 {
     if model.live() { lit } else { DORMANT }
+}
+
+/// Where a sketch's marks stand in the competition for a click.
+///
+/// The same branch as [`ink`] beside it, and for the same reason: a sketch
+/// nobody is working in is drawn to be read rather than aimed at, so a click
+/// that lands on it and on the open sketch at once was meant for the open one.
+fn standing(model: Model<'_>) -> Precedence {
+    if model.live() {
+        Precedence::Shaped
+    } else {
+        Precedence::Aside
+    }
 }
 
 /// Logical pixels.
@@ -329,6 +342,7 @@ fn write_faces(
             object.mesh.indices.extend(fill.triangles.iter().flatten());
             object.transform = Mat4::IDENTITY;
             object.color = if model.live() { FACE } else { DORMANT_FACE };
+            object.precedence = standing(model);
             object.tag = Some(names.tag(model.face(at)));
         },
     );
@@ -419,6 +433,7 @@ fn write_marks(models: Models<'_>, names: &mut Names, marks: &mut Batch<Text>) {
                     MARK
                 },
             );
+            mark.precedence = standing(model);
             mark.z_offset = MARKER_LIFT;
             mark.plane_normal = Some(model.plane().normal().as_vec3());
             mark.tag = Some(names.tag(model.part(id)));
@@ -517,6 +532,7 @@ fn write_curves(
                     let b = plane.point(sketch.point(edge.b).position).as_vec3();
                     curve.set_segment(a, b);
                     curve.color = ink(model, colour(model.outcome().segment(id)));
+                    curve.precedence = standing(model);
                     curve.plane_normal = Some(plane.normal().as_vec3());
                     curve.tag = Some(names.tag(model.part(id)));
                 }
@@ -539,12 +555,16 @@ fn write_curves(
                         ));
                     curve.closed = true;
                     curve.color = DATUM;
+                    // Furniture around a drawing rather than part of one, so it
+                    // yields every click to the geometry it frames.
+                    curve.precedence = Precedence::Frame;
                     curve.plane_normal = Some(plane.normal().as_vec3());
                     curve.tag = Some(names.tag(Part::Plane(at)));
                 }
                 Stroke::Band(ends) => {
                     curve.set_segment(ends.from, ends.to);
                     curve.color = GHOST;
+                    curve.precedence = Precedence::Shaped;
                     curve.plane_normal = banding;
                     curve.tag = None;
                 }
@@ -591,6 +611,7 @@ fn write_points(models: Models<'_>, names: &mut Names, points: &mut Batch<Point>
                 .size(size)
                 .z_offset(MARKER_LIFT)
                 .in_plane(plane.normal().as_vec3())
+                .precede(standing(model))
                 .tagged(names.tag(model.part(id)));
         },
     );
@@ -630,6 +651,7 @@ fn write_rings(models: Models<'_>, names: &mut Names, band: Option<Ends>, rings:
                         plane.normal().as_vec3(),
                     )
                     .colored(ink(model, colour(model.outcome().circle(id))))
+                    .precede(standing(model))
                     .tagged(names.tag(model.part(id)))
                 }
                 // Through the cursor rather than out to it: the second click

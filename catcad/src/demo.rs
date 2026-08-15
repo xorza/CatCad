@@ -5,7 +5,7 @@
 //! frame obvious. The visual suite raises this very thing, so it is as much the
 //! test fixture as it is the startup content.
 
-use aperture::{Mesh, Object, Styled};
+use aperture::{Mesh, Object, Precedence, Styled};
 use glam::{DVec2, Mat4, Vec3};
 use silverpoint::{Constraint, Sketch};
 
@@ -38,6 +38,7 @@ pub(crate) fn document(build: &mut Build) -> Document {
         transform: Mat4::from_translation(Vec3::new(4.0, -0.5, -2.5))
             * Mat4::from_scale(Vec3::new(12.0, 1.0, 9.0)),
         color: Vec3::new(0.30, 0.30, 0.34),
+        precedence: Precedence::default(),
         tag: None,
     });
     for (size, at, color) in [
