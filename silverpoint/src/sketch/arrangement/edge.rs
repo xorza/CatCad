@@ -10,7 +10,7 @@ use std::f64::consts::TAU;
 /// straight pieces and a circle gives arcs, and nothing in an arrangement turns
 /// one into the other. Which curve it was cut from rides along, because it is
 /// free to — the cutting knows it — and because what bounds a face is what a
-/// profile *is*: see [`Arrangement::drawn_by`](super::Arrangement::drawn_by).
+/// profile *is*: see [`Arrangement::bounds`](super::Arrangement::bounds).
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Edge {
     pub(super) from: usize,

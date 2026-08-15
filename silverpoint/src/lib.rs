@@ -40,6 +40,7 @@ pub use arena::Id;
 pub use math::plane::Plane;
 pub use math::triangulate::Fill;
 pub use sketch::arrangement::Arrangement;
+pub use sketch::arrangement::bound::Bound;
 pub use sketch::arrangement::face::Face;
 pub use sketch::arrangement::filler::Filler;
 pub use sketch::constraint::{Constraint, ConstraintId};

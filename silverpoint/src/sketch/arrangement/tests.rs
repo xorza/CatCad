@@ -2,6 +2,7 @@ use super::*;
 use crate::math::triangulate::Fill;
 use crate::sketch::PointId;
 use crate::sketch::arrangement::filler::Filler;
+use crate::sketch::entity::Entity;
 use std::f64::consts::PI;
 
 /// Every face's area, largest first — which is the order they come back in, and
@@ -245,10 +246,17 @@ fn a_face_fills_to_the_area_it_encloses() {
         ring.area()
     );
 
-    // And it says what draws it, which is what a later feature selects by.
-    let mut drawn = Vec::new();
-    found.drawn_by(ring, &mut drawn);
-    assert_eq!(drawn.len(), 1, "the ring is drawn by one circle");
+    // And it says what bounds it, which is what a later feature names it by.
+    // The ring is walked round the outer circle counterclockwise, and the hole
+    // it is cut from is no part of what names it.
+    let mut bounds = Vec::new();
+    found.bounds(ring, &mut bounds);
+    assert_eq!(
+        bounds.len(),
+        1,
+        "the ring is bounded by one circle: {bounds:?}"
+    );
+    assert!(bounds[0].along, "the ring walks its own outline backwards");
 
     // A second hole, clear of the first, and the fill still covers exactly what
     // the face says it does.
@@ -365,6 +373,212 @@ fn the_order_faces_come_back_in_survives_the_geometry_moving() {
     assert!(after[0] > after[2], "{after:?} did not grow past the third");
 }
 
+/// **A face is named by what bounds it and which side of each it lies on.**
+///
+/// The two halves of a cut circle are the case that decides the shape of a
+/// name. Both are bounded by the same circle and the same chord, so what a face
+/// is drawn by tells them apart not at all. Which way each half *walks* the
+/// chord does — a face is walked with what it encloses on the left, so the half
+/// above the chord runs along it the way it was drawn and the half below runs
+/// back.
+#[test]
+fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
+    let mut sketch = Sketch::default();
+    let middle = point(&mut sketch, 0.0, 0.0);
+    let circle = sketch.add_circle(middle, 2.0);
+    // Off centre, so the two halves come out different sizes and each can be
+    // told from the other by what it covers rather than by where it fell.
+    let left = point(&mut sketch, -5.0, 1.0);
+    let right = point(&mut sketch, 5.0, 1.0);
+    let chord = sketch.add_segment(left, right);
+    // A cap of r²(θ − sin θ)/2 with θ = 2·acos(1/2) = 2π/3.
+    let turn = 2.0 * (0.5_f64).acos();
+    let cap = 4.0 * (turn - turn.sin()) / 2.0;
+
+    let found = arranged(&sketch);
+    let covering = |want: f64| {
+        found
+            .faces()
+            .iter()
+            .position(|face| (face.area() - want).abs() < 1e-9)
+            .unwrap_or_else(|| panic!("no face covers {want}: {:?}", areas(&found)))
+    };
+    let (above, below) = (covering(cap), covering(PI * 4.0 - cap));
+    let named = |face: usize| {
+        let mut bounds = Vec::new();
+        found.bounds(&found.faces()[face], &mut bounds);
+        bounds
+    };
+    let (above_by, below_by) = (named(above), named(below));
+
+    // The same two curves bound both, which is the whole reason the curves
+    // alone could not name either.
+    let side = |bounds: &[Bound], of: Entity| {
+        bounds
+            .iter()
+            .find(|bound| bound.of == of)
+            .unwrap_or_else(|| panic!("{of:?} bounds nothing here: {bounds:?}"))
+            .along
+    };
+    for bounds in [&above_by, &below_by] {
+        assert_eq!(bounds.len(), 2, "not a circle and a chord: {bounds:?}");
+        side(bounds, Entity::Circle(circle));
+        side(bounds, Entity::Segment(chord));
+    }
+
+    // And the sides are what tell them apart. The chord was drawn left to
+    // right, so the half above it is the one that walks it that way.
+    assert!(
+        side(&above_by, Entity::Segment(chord)),
+        "the cap walks the chord backwards"
+    );
+    assert!(
+        !side(&below_by, Entity::Segment(chord)),
+        "the larger half walks the chord the way it was drawn"
+    );
+    // Both walk the circle counterclockwise, being both of them insides — which
+    // is what leaves the chord to do the telling apart.
+    assert!(side(&above_by, Entity::Circle(circle)));
+    assert!(side(&below_by, Entity::Circle(circle)));
+
+    // So each name finds its own region and neither finds its neighbour's.
+    assert_eq!(found.face_named_by(&above_by), Some(above));
+    assert_eq!(found.face_named_by(&below_by), Some(below));
+
+    // A spur into the cap renames nothing, and this is the half that has to be
+    // asked rather than trusted to follow. The chord is cut into more pieces,
+    // which the walk goes down one after another; and the walk detours out
+    // along the spur and back, so the spur appears in the outline both ways
+    // round. Without either rule, drawing a stray line inside a region would
+    // rename it and everything built on it would be lost.
+    let base = point(&mut sketch, 0.0, 1.0);
+    let tip = point(&mut sketch, 0.0, 1.5);
+    sketch.add_segment(base, tip);
+
+    let found = arranged(&sketch);
+    assert_eq!(found.faces().len(), 2, "the spur enclosed something");
+    for (name, want) in [(&above_by, cap), (&below_by, PI * 4.0 - cap)] {
+        let still = found
+            .face_named_by(name)
+            .unwrap_or_else(|| panic!("{name:?} stopped naming anything"));
+        assert!(
+            (found.faces()[still].area() - want).abs() < 1e-9,
+            "{name:?} found a region covering {} rather than {want}",
+            found.faces()[still].area()
+        );
+    }
+}
+
+/// **A name holds where a position does not.**
+///
+/// What naming a face by its boundary is for. Every segment is cut before any
+/// circle, so a square and a circle drawn apart come back as the square then
+/// the disc — and a second square drawn later puts its face *between* them. The
+/// position that named the disc then names a region nobody built on, where the
+/// name still names the disc.
+#[test]
+fn a_name_holds_where_a_position_does_not() {
+    let mut sketch = Sketch::default();
+    outline(
+        &mut sketch,
+        &[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)],
+    );
+    let middle = point(&mut sketch, 10.0, 0.0);
+    sketch.add_circle(middle, 1.0);
+
+    // One arrangement rebuilt rather than two of them, because that is what an
+    // edit does — and a position only means anything across a rebuild in place.
+    let mut found = Arrangement::default();
+    found.rebuild(&sketch);
+    let before = areas(&found);
+    assert_eq!(before.len(), 2, "{before:?}");
+    assert!(
+        before
+            .iter()
+            .zip([12.0, PI])
+            .all(|(got, want)| (got - want).abs() < 1e-9),
+        "{before:?} is not the square and then the disc"
+    );
+    let mut disc = Vec::new();
+    found.bounds(&found.faces()[1], &mut disc);
+    let mut square = Vec::new();
+    found.bounds(&found.faces()[0], &mut square);
+
+    outline(
+        &mut sketch,
+        &[(20.0, 0.0), (22.0, 0.0), (22.0, 2.0), (20.0, 2.0)],
+    );
+    found.rebuild(&sketch);
+    let after = areas(&found);
+    assert_eq!(after.len(), 3, "{after:?}");
+    assert!(
+        after
+            .iter()
+            .zip([12.0, 4.0, PI])
+            .all(|(got, want)| (got - want).abs() < 1e-9),
+        "{after:?} is not the two squares and then the disc"
+    );
+
+    // The position that named the disc now names the square drawn after it —
+    // which is the silent failure the name exists to refuse.
+    assert!(
+        (found.faces()[1].area() - 4.0).abs() < 1e-9,
+        "{after:?} left the disc where it was, so this proves nothing"
+    );
+    assert_eq!(found.face_named_by(&disc), Some(2));
+
+    // Drawing *across* the region is the one thing that does break the name,
+    // and it says so rather than answering with whichever half covers most:
+    // neither half is bounded by what the disc was bounded by.
+    let left = point(&mut sketch, 8.0, 0.5);
+    let right = point(&mut sketch, 12.0, 0.5);
+    sketch.add_segment(left, right);
+    found.rebuild(&sketch);
+    assert_eq!(
+        found.faces().len(),
+        4,
+        "the chord did not cut the disc in two: {:?}",
+        areas(&found)
+    );
+    assert_eq!(found.face_named_by(&disc), None);
+
+    // A region bounded by everything the name lists *and something else
+    // besides* is not it either. A circle straddling the square's right edge
+    // takes a bite out of it — all four edges still bound what is left, on the
+    // same sides, and now the circle does too.
+    let hub = point(&mut sketch, 4.0, 1.5);
+    let bite = sketch.add_circle(hub, 1.0);
+    found.rebuild(&sketch);
+
+    // Half the circle falls each side of the edge it is centred on.
+    let bitten = found
+        .faces()
+        .iter()
+        .position(|face| (face.area() - (12.0 - PI / 2.0)).abs() < 1e-9)
+        .unwrap_or_else(|| panic!("nothing was bitten out of the square: {:?}", areas(&found)));
+    let mut bitten_by = Vec::new();
+    found.bounds(&found.faces()[bitten], &mut bitten_by);
+    assert!(
+        bitten_by.len() == 5 && square.iter().all(|bound| bitten_by.contains(bound)),
+        "the bitten square is not the square's four edges and one more, so this proves nothing: \
+         {bitten_by:?} against {square:?}"
+    );
+    assert_eq!(found.face_named_by(&square), None);
+
+    // And the same refusal the other way round, which is the one a check on
+    // containment alone would miss. Take the circle away and the square comes
+    // back bounded by four of the five the bitten one named — everything that
+    // name lists but the arc, all on the same sides. It is still not the region
+    // the name was minted from: a bite is not the thing it was taken out of.
+    sketch.remove_circle(bite);
+    found.rebuild(&sketch);
+    assert_eq!(found.face_named_by(&bitten_by), None);
+    // While the square's own name fits it again — which is what says the
+    // refusal above is about the boundary rather than about the face having
+    // gone.
+    assert_eq!(found.face_named_by(&square), Some(0));
+}
+
 /// A reused arrangement answers exactly as a fresh one would.
 ///
 /// What keeping the room costs, if it costs anything. Every list a rebuild
@@ -431,7 +645,7 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
 
     let mut reused = Arrangement::default();
     let mut filler = Filler::default();
-    let (mut one_drawn, mut other_drawn) = (Vec::new(), Vec::new());
+    let (mut one_bounds, mut other_bounds) = (Vec::new(), Vec::new());
     for (before, first) in drawings {
         for (after, build) in drawings {
             // Wound up to the first drawing, then over to the second — against
@@ -458,11 +672,11 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
                     is.holes(),
                     "{before} then {after}: face {at} kept a hole it does not have"
                 );
-                fresh.drawn_by(was, &mut one_drawn);
-                reused.drawn_by(is, &mut other_drawn);
+                fresh.bounds(was, &mut one_bounds);
+                reused.bounds(is, &mut other_bounds);
                 assert_eq!(
-                    one_drawn, other_drawn,
-                    "{before} then {after}: face {at} is drawn by different curves"
+                    one_bounds, other_bounds,
+                    "{before} then {after}: face {at} is bounded differently"
                 );
             }
 

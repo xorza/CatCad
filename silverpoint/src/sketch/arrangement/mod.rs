@@ -22,13 +22,14 @@ use crate::loops::Loops;
 use crate::math::approx::SLIVER;
 use crate::math::intersect::{self, Span};
 use crate::sketch::Sketch;
+use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::arrangement::curves::Curves;
 use crate::sketch::arrangement::edge::{Edge, Half, Shape};
 use crate::sketch::arrangement::face::Face;
-use crate::sketch::entity::Entity;
 use glam::DVec2;
 use std::f64::consts::TAU;
 
+pub(crate) mod bound;
 mod curves;
 mod edge;
 pub(crate) mod face;
@@ -98,30 +99,92 @@ impl Arrangement {
         &self.faces[..self.faces_filled]
     }
 
-    /// Which sketch entities draw the outline of `face`, in the order it is
-    /// walked and without repeats where one curve contributes several pieces.
+    /// What bounds `face`, in the order its outline is walked — the name
+    /// anything built on the region keeps.
     ///
-    /// Fills `into` rather than returning it, like everything else here: this
-    /// is the one question about an arrangement a caller would ask every frame
-    /// once anything is built from a profile, and a fresh list per face would
-    /// undo what the rest of this rebuild is careful about.
+    /// The answer to what a *profile* is. A face's position among the faces
+    /// holds only while the drawing's topology does — see
+    /// [`Arrangement::faces`] — so a feature that remembered "face 3" would
+    /// silently build on another region the first time an edge was added
+    /// upstream. This holds instead: the curves are the sketch's own handles,
+    /// which survive being moved and being cut, and the side is what tells two
+    /// regions bounded by the same curves apart. Read back by
+    /// [`Arrangement::face_named_by`].
     ///
-    /// Nothing calls this yet, and it is kept deliberately: what bounds a face
-    /// is what a *profile* is, so this is the question anything built from one
-    /// asks first — and the answer is already lying about, since cutting a
-    /// curve up cannot help knowing which curve it cut.
-    ///
-    /// Not how a face is *named*, which is the thing it might be mistaken for.
-    /// Two halves of a cut circle are drawn by the same two curves, so this
-    /// tells them apart not at all — naming one is
-    /// [`Arrangement::faces`]'s order, and nothing else.
-    pub fn drawn_by(&self, face: &Face, into: &mut Vec<Entity>) {
+    /// Fills `into` rather than returning it, like everything else here: a
+    /// caller resolving a feature asks this of every face of the drawing, and a
+    /// fresh list apiece would undo what the rest of this rebuild is careful
+    /// about.
+    pub fn bounds(&self, face: &Face, into: &mut Vec<Bound>) {
         into.clear();
-        for half in &face.outline {
-            let of = self.edges[half.edge].of;
-            if !into.contains(&of) {
-                into.push(of);
+        into.extend(self.bounding(face));
+    }
+
+    /// Which face `bounds` names, or `None` where this arrangement holds no
+    /// face bounded by exactly those.
+    ///
+    /// `None` is the honest answer rather than a near miss, and it is what a
+    /// caller sees when a curve has been drawn *across* the region it named:
+    /// neither of the two regions that replaced it is bounded by what the one
+    /// they replaced was, and picking whichever overlapped most would be
+    /// building on a guess without saying so.
+    ///
+    /// The first face it fits, which is the only one: two faces of one drawing
+    /// bounded by the same curves on the same sides would be one face.
+    ///
+    /// An empty name fits nothing. Every face has at least one real bound — a
+    /// loop of nothing but spurs shuts nothing in — so an empty list is a
+    /// caller's mistake rather than a face's, and matching it against the first
+    /// face that happened to be walked is the one way it could do harm.
+    pub fn face_named_by(&self, bounds: &[Bound]) -> Option<usize> {
+        if bounds.is_empty() {
+            return None;
+        }
+        self.faces().iter().position(|face| {
+            let mut found = 0;
+            for bound in self.bounding(face) {
+                if !bounds.contains(&bound) {
+                    return false;
+                }
+                found += 1;
             }
+            // Both ways round, so a name is not fitted by a face bounded by
+            // everything it lists and something else besides.
+            found == bounds.len()
+        })
+    }
+
+    /// Each curve bounding `face` once, with the side the face lies on.
+    ///
+    /// The one statement of what bounds a face, which both callers above read
+    /// through — so what a name is made of and what a name is matched against
+    /// cannot come to differ.
+    ///
+    /// Two rules, and the walk is what makes both of them necessary. A curve
+    /// cut into several pieces is walked once per piece, and all of them bound
+    /// the face on the same side, so only the first is kept. And a *spur* — a
+    /// curve dangling into the region from its boundary — is walked out and
+    /// back, so it appears both ways round and bounds nothing at all; without
+    /// the second rule, drawing a stray line touching a region would rename it.
+    fn bounding(&self, face: &Face) -> impl Iterator<Item = Bound> {
+        face.outline
+            .iter()
+            .enumerate()
+            .filter_map(move |(at, &of)| {
+                let bound = self.bound(of);
+                let walked =
+                    |run: &[Half], want: Bound| run.iter().any(|&had| self.bound(had) == want);
+                let kept =
+                    !walked(&face.outline[..at], bound) && !walked(&face.outline, bound.turned());
+                kept.then_some(bound)
+            })
+    }
+
+    /// The curve a half-edge is a piece of, and the side of it being walked.
+    fn bound(&self, half: Half) -> Bound {
+        Bound {
+            of: self.edges[half.edge].of,
+            along: half.forward,
         }
     }
 
