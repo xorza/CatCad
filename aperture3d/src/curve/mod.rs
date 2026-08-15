@@ -6,24 +6,8 @@ use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::CurveInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
+use crate::viewport::{MIN_RECIP_W, MIN_RUN_PX2};
 use glam::Vec3;
-
-/// Screen length below which a projected segment lands on a single pixel and
-/// has no direction to project a cursor onto.
-///
-/// Stated here alone: `common.wgsl` declares it `override` and is handed this at
-/// pipeline creation, so the length a stroke is widened from and the length a
-/// pick projects onto cannot come apart. Picking works in squared distances to
-/// keep a square root out of the walk, which is the only reason
-/// [`MIN_RUN_PX2`] exists beside it.
-pub(crate) const MIN_RUN_PX: f32 = 1e-3;
-
-/// [`MIN_RUN_PX`] squared, which is what a squared screen length compares to.
-const MIN_RUN_PX2: f32 = MIN_RUN_PX * MIN_RUN_PX;
-
-/// Floor under the sum of reciprocal depths that undoes the perspective
-/// squeeze. Only a segment with both ends astronomically far off gets near it.
-const MIN_RECIP_W: f32 = 1e-6;
 
 /// A polyline through world-space points, stroked at a constant width in
 /// logical pixels — an [overlay](crate#overlays), so a sketch edge stays

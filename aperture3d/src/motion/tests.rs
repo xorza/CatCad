@@ -1,40 +1,71 @@
 use super::*;
+use crate::camera::{Camera, Projection};
+use crate::viewport::Viewport;
+use glam::{UVec2, Vec2};
 
-/// The ground plane, and a ray dropped onto it at a slant with hand-checkable
-/// numbers.
+/// A two-hundred-pixel square, which with the camera below is twenty world
+/// units across: ten pixels to the unit, and the middle of it is the origin.
+fn viewport() -> Viewport {
+    Viewport::new(UVec2::new(200, 200))
+}
+
+/// Straight down −Z under parallel rays, so a cursor names a world position
+/// outright and every number below can be read off by hand.
+fn head_on() -> Camera {
+    Camera {
+        projection: Projection::Orthographic,
+        target: Vec3::ZERO,
+        distance: 10.0,
+        yaw: 0.0,
+        pitch: 0.0,
+        fov_y: std::f32::consts::FRAC_PI_2,
+        near_ratio: 1.0 / 5.0,
+    }
+}
+
+/// The aim a cursor makes through `camera`.
+fn aiming(camera: &Camera, cursor: Vec2) -> Aim {
+    Aim::new(camera, cursor, viewport(), 6.0)
+}
+
+/// Where the cursor lands, for the tests that care about the answer rather
+/// than the refusal.
+fn resolved(motion: &Motion, camera: &Camera, cursor: Vec2) -> Vec3 {
+    motion
+        .resolve(&aiming(camera, cursor))
+        .expect("the cursor reaches this motion")
+}
+
+const CENTRE: Vec2 = Vec2::new(100.0, 100.0);
+
 #[test]
-fn a_plane_answers_where_the_ray_crosses_it() {
-    let ground = Motion::Plane {
+fn a_plane_answers_where_the_cursor_crosses_it() {
+    let facing = Motion::Plane {
         origin: Vec3::ZERO,
-        normal: Vec3::Y,
+        normal: Vec3::Z,
     };
+    let camera = head_on();
 
-    // Straight down from 10 up: the crossing is the origin, and the ray
-    // travelled exactly its height to get there.
-    assert_eq!(
-        ground.resolve(Ray::new(Vec3::Y * 10.0, Vec3::NEG_Y)),
-        Some(Vec3::ZERO)
-    );
-
-    // From (0, 3, 0) at 45° toward +x: dropping 3 costs 3 along x.
-    let slanted = Ray::new(Vec3::new(0.0, 3.0, 0.0), Vec3::new(1.0, -1.0, 0.0));
-    let landed = resolved(&ground, slanted);
+    // Dead centre is the origin, and every pixel off it is a tenth of a unit —
+    // right and *up*, since a viewport counts y down and the world counts it up.
+    assert_eq!(resolved(&facing, &camera, CENTRE), Vec3::ZERO);
+    let right = resolved(&facing, &camera, CENTRE + Vec2::new(50.0, 0.0));
     assert!(
-        landed.abs_diff_eq(Vec3::new(3.0, 0.0, 0.0), 1e-5),
-        "{landed:?}"
+        right.abs_diff_eq(Vec3::new(5.0, 0.0, 0.0), 1e-5),
+        "{right:?}"
     );
+    let up = resolved(&facing, &camera, CENTRE - Vec2::new(0.0, 30.0));
+    assert!(up.abs_diff_eq(Vec3::new(0.0, 3.0, 0.0), 1e-5), "{up:?}");
 
-    // A plane away from the origin shifts the answer by exactly its offset.
+    // A plane away from the origin shifts the answer by exactly its offset, and
+    // by nothing across it.
     let raised = Motion::Plane {
-        origin: Vec3::new(0.0, 1.0, 0.0),
-        normal: Vec3::Y,
+        origin: Vec3::new(0.0, 0.0, 2.0),
+        normal: Vec3::Z,
     };
-    let landed = resolved(
-        &raised,
-        Ray::new(Vec3::new(0.0, 3.0, 0.0), Vec3::new(1.0, -1.0, 0.0)),
-    );
+    let landed = resolved(&raised, &camera, CENTRE + Vec2::new(50.0, 0.0));
     assert!(
-        landed.abs_diff_eq(Vec3::new(2.0, 1.0, 0.0), 1e-5),
+        landed.abs_diff_eq(Vec3::new(5.0, 0.0, 2.0), 1e-5),
         "{landed:?}"
     );
 }
@@ -46,150 +77,190 @@ fn a_plane_answer_always_lies_on_the_plane() {
     // Deliberately not axis-aligned, and not unit: `resolve` divides by the
     // facing rather than assuming anything about the normal's length.
     let origin = Vec3::new(1.0, -2.0, 0.5);
-    let normal = Vec3::new(0.3, 0.8, -0.5);
+    let normal = Vec3::new(0.3, -0.5, 0.8);
     let plane = Motion::Plane { origin, normal };
-    // All aimed downward, because the eye is above the plane and a ray that
-    // turns away from it crosses only behind — which `resolve` refuses, and
-    // the test below of its own.
-    for aim in [
-        Vec3::new(0.0, -1.0, 0.0),
-        Vec3::new(0.2, -1.0, 0.1),
-        Vec3::new(-0.6, -1.0, 0.4),
-        Vec3::new(0.9, -1.0, -0.2),
+    let camera = head_on();
+    for cursor in [
+        CENTRE,
+        CENTRE + Vec2::new(40.0, 0.0),
+        CENTRE + Vec2::new(-70.0, 25.0),
+        CENTRE + Vec2::new(15.0, -60.0),
     ] {
-        let landed = resolved(&plane, Ray::new(Vec3::new(0.0, 8.0, 0.0), aim));
+        let landed = resolved(&plane, &camera, cursor);
         let off = (landed - origin).dot(normal.normalize());
-        assert!(off.abs() < 1e-4, "{aim:?} landed {off} off the plane");
+        assert!(off.abs() < 1e-4, "{cursor:?} landed {off} off the plane");
     }
-
-    // And one aimed the other way, which is the crossing behind the eye.
-    let away = Ray::new(Vec3::new(0.0, 8.0, 0.0), Vec3::new(0.9, -0.4, -0.2));
-    assert_eq!(plane.resolve(away), None);
 }
 
 #[test]
-fn a_plane_the_ray_cannot_reach_answers_nothing() {
-    let ground = Motion::Plane {
+fn a_plane_the_cursor_cannot_reach_answers_nothing() {
+    let camera = head_on();
+
+    // Edge-on: the rays run along the plane and never cross it.
+    let edge_on = Motion::Plane {
         origin: Vec3::ZERO,
-        normal: Vec3::Y,
+        normal: Vec3::X,
     };
+    assert_eq!(edge_on.resolve(&aiming(&camera, CENTRE)), None);
 
-    // Edge-on: the ray runs along the plane and never crosses it.
-    assert_eq!(ground.resolve(Ray::new(Vec3::Y * 5.0, Vec3::X)), None);
-
-    // Pointing away: the crossing is behind the eye, which is not what the
-    // cursor is aimed at even though the arithmetic will answer for it.
-    assert_eq!(ground.resolve(Ray::new(Vec3::Y * 5.0, Vec3::Y)), None);
-
-    // From below, aimed up, the plane is still ahead and still answers.
-    assert_eq!(
-        ground.resolve(Ray::new(Vec3::NEG_Y * 5.0, Vec3::Y)),
-        Some(Vec3::ZERO)
-    );
+    // Behind the eye, which sits ten out along +Z. The arithmetic will answer
+    // for a crossing back there and it is not what the cursor is pointing at.
+    // Asked under perspective, because that is the projection with a behind:
+    // an orthographic slab reaches as far back as it does forward, so its rays
+    // start behind the eye and a plane there is still ahead of them.
+    let behind = Motion::Plane {
+        origin: Vec3::Z * 20.0,
+        normal: Vec3::Z,
+    };
+    let looking = Camera {
+        projection: Projection::Perspective,
+        ..camera
+    };
+    assert_eq!(behind.resolve(&aiming(&looking, CENTRE)), None);
 }
 
-/// The two lines are skew, so the answer is the point of the *axis* nearest
-/// the ray — not a crossing, which does not exist.
+/// A line answers with the point of itself that *looks* nearest the cursor.
 #[test]
-fn a_line_answers_the_point_of_itself_nearest_the_ray() {
+fn a_line_answers_the_point_of_itself_that_looks_nearest() {
     let axis = Motion::Line {
         origin: Vec3::ZERO,
         along: Vec3::X,
     };
+    let camera = head_on();
 
-    // Straight down the −z at the origin: the two meet, so nearest is the
-    // crossing and the crossing is the origin.
-    assert_eq!(
-        axis.resolve(Ray::new(Vec3::Z * 5.0, Vec3::NEG_Z)),
-        Some(Vec3::ZERO)
-    );
-
-    // The same ray moved to (3, 4, ·), which passes four above the axis and so
-    // never meets it. The point of the axis nearest that ray is x = 3, and the
-    // answer is that — on the axis, not up at the ray.
-    let past = Ray::new(Vec3::new(3.0, 4.0, 5.0), Vec3::NEG_Z);
-    let landed = resolved(&axis, past);
+    // The axis projects along the middle row. A cursor on it lands where it
+    // points; fifty pixels right is five units along.
+    assert_eq!(resolved(&axis, &camera, CENTRE), Vec3::ZERO);
+    let right = resolved(&axis, &camera, CENTRE + Vec2::new(50.0, 0.0));
     assert!(
-        landed.abs_diff_eq(Vec3::new(3.0, 0.0, 0.0), 1e-5),
-        "{landed:?}"
+        right.abs_diff_eq(Vec3::new(5.0, 0.0, 0.0), 1e-5),
+        "{right:?}"
     );
 
-    // An axis off the origin and not unit-length, aimed at from a slant: the
-    // arithmetic normalizes nothing, so a length that leaked into the answer
-    // would show here. Nearest to a ray straight down through (2, ·, 1) is
-    // two steps of `along` from the origin.
+    // And a cursor *off* the row answers the same, because what it names is the
+    // point of the axis under it rather than a place in space: across the line
+    // is exactly the direction a line drag cannot travel.
+    let across = resolved(&axis, &camera, CENTRE + Vec2::new(50.0, -40.0));
+    assert!(across.abs_diff_eq(right, 1e-5), "{across:?}");
+
+    // A line off the origin and not unit-length: the answer is a point, so what
+    // a caller reads is the same place however long `along` was written.
     let raised = Motion::Line {
         origin: Vec3::new(0.0, 1.0, 1.0),
         along: Vec3::X * 2.0,
     };
-    let landed = resolved(&raised, Ray::new(Vec3::new(4.0, 9.0, 1.0), Vec3::NEG_Y));
+    let landed = resolved(&raised, &camera, CENTRE + Vec2::new(40.0, 0.0));
     assert!(
         landed.abs_diff_eq(Vec3::new(4.0, 1.0, 1.0), 1e-5),
         "{landed:?}"
     );
 }
 
-/// Dragging along an axis is a drag *along* it: two aims a known distance
-/// apart have to move the answer by that distance and no other.
+/// Dragging along an axis carries it by what the pointer travelled along it on
+/// screen — the same amount wherever in the view the pointer happens to be.
 ///
-/// The property a datum's offset is read off. Aims held parallel and their
-/// origins stepped, which is what a pointer travelling under a parallel
-/// projection is — then the step *is* the travel and the two are comparable
-/// number for number.
+/// The property a datum's offset is read off, and the one that answering in
+/// three dimensions got wrong. The point of a line nearest a *ray* is measured
+/// in the world, where distance grows with depth: the same pointer travel then
+/// moves it by different amounts at different places in the view — measured at
+/// nearly double what was asked at one edge of the screen and a fraction of it
+/// at the other, and by different amounts either side of a mirrored viewpoint.
+/// A plane sliding faster from the right than from the left is that, and this
+/// is what says it is gone.
 #[test]
 fn a_line_travels_by_what_the_pointer_travelled_along_it() {
-    let axis = Motion::Line {
-        origin: Vec3::ZERO,
-        along: Vec3::Y,
-    };
-    let start = Vec3::new(1.0, 0.0, 9.0);
-
-    // Square on to the axis. Three of travel along it carries the answer three,
-    // and three across it carries the answer nowhere: what the drag reads is
-    // the component along the line and nothing else.
-    let square = |from: Vec3| resolved(&axis, Ray::new(from, Vec3::NEG_Z));
-    let along = square(start + Vec3::Y * 3.0) - square(start);
-    assert!(along.abs_diff_eq(Vec3::Y * 3.0, 1e-4), "{along:?}");
-    let across = square(start + Vec3::X * 3.0) - square(start);
-    assert!(across.abs_diff_eq(Vec3::ZERO, 1e-4), "{across:?}");
-
-    // The same three along, seen from a slant. Travel along the axis carries
-    // the answer by exactly the travel whatever the angle — which is what makes
-    // the offset a datum ends up at the distance the pointer actually made,
-    // rather than that distance foreshortened by how the view happens to sit.
-    let slant = |from: Vec3| resolved(&axis, Ray::new(from, Vec3::new(0.3, -0.2, -1.0)));
-    let along = slant(start + Vec3::Y * 3.0) - slant(start);
-    assert!(along.abs_diff_eq(Vec3::Y * 3.0, 1e-4), "{along:?}");
-}
-
-#[test]
-fn a_line_the_ray_cannot_place_answers_nothing() {
     let axis = Motion::Line {
         origin: Vec3::ZERO,
         along: Vec3::X,
     };
 
-    // Looking straight down the axis: every point of it is as near as every
-    // other, so there is no nearest one to name.
-    assert_eq!(axis.resolve(Ray::new(Vec3::X * -9.0, Vec3::X)), None);
-    // The other way along it is the same refusal — the test is on the angle,
-    // not on which end.
-    assert_eq!(axis.resolve(Ray::new(Vec3::X * 9.0, Vec3::NEG_X)), None);
+    // Parallel rays first, where the travel can be read off by hand: thirty
+    // pixels along the axis is three units, and thirty across it is nothing.
+    let flat = head_on();
+    let step =
+        |from: Vec2, by: Vec2| resolved(&axis, &flat, from + by) - resolved(&axis, &flat, from);
+    let along = step(CENTRE, Vec2::new(30.0, 0.0));
+    assert!(along.abs_diff_eq(Vec3::X * 3.0, 1e-4), "{along:?}");
+    let across = step(CENTRE, Vec2::new(0.0, 30.0));
+    assert!(across.abs_diff_eq(Vec3::ZERO, 1e-4), "{across:?}");
 
-    // Aimed away: the two come nearest behind the eye, which is not somewhere
-    // the cursor is pointing.
-    assert_eq!(axis.resolve(Ray::new(Vec3::Z * 5.0, Vec3::Z)), None);
+    // Now under perspective and from a slant, which is where answering in the
+    // world came apart. The same twenty-pixel travel, taken all across the view:
+    // every one of them has to carry the axis by the same distance.
+    let slanted = Camera {
+        projection: Projection::Perspective,
+        target: Vec3::ZERO,
+        distance: 20.0,
+        yaw: 0.6,
+        pitch: -0.35,
+        fov_y: std::f32::consts::FRAC_PI_2,
+        near_ratio: 1.0 / 5.0,
+    };
+    // Measured where the pointer can see it. Equal travel on screen is
+    // *unequal* travel in the world, because perspective shrinks what is far
+    // off — and that is right: what has to hold still is the pointer's grip on
+    // the thing, not how many units of the model went past.
+    let travelled = |camera: &Camera, x: f32| {
+        let view_proj = camera.view_proj(viewport().aspect());
+        let seen = |at: Vec3| viewport().pixel_from_clip(view_proj * at.extend(1.0));
+        let from = Vec2::new(x, 100.0);
+        (seen(resolved(&axis, camera, from + Vec2::new(20.0, 0.0)))
+            - seen(resolved(&axis, camera, from)))
+        .length()
+    };
+    let middle = travelled(&slanted, 100.0);
+    assert!(
+        middle > 1.0,
+        "the sweep has to move the axis at all: {middle}"
+    );
+    for x in [20.0, 60.0, 140.0, 180.0] {
+        let here = travelled(&slanted, x);
+        assert!(
+            (here - middle).abs() < 1e-3 * middle,
+            "twenty pixels at x {x} carried the axis {here} px, against {middle} in the middle"
+        );
+    }
 
-    // And square-on from the same place, which is the one that does answer —
-    // so the refusal above is about the direction and not about the eye.
-    assert_eq!(
-        axis.resolve(Ray::new(Vec3::Z * 5.0, Vec3::NEG_Z)),
-        Some(Vec3::ZERO)
+    // And the mirror of that viewpoint carries it by exactly as much, which is
+    // the half the report was about: from the right it ran fast, from the left
+    // slow.
+    let mirrored = Camera {
+        yaw: -0.6,
+        ..slanted
+    };
+    let other = travelled(&mirrored, 100.0);
+    assert!(
+        (other - middle).abs() < 1e-3 * middle,
+        "mirrored, the same drag carried the axis {other} px against {middle}"
     );
 }
 
-/// Where `ray` lands, for the tests that only care about the answer rather
-/// than the refusal.
-fn resolved(motion: &Motion, ray: Ray) -> Vec3 {
-    motion.resolve(ray).expect("the ray reaches this motion")
+#[test]
+fn a_line_the_cursor_cannot_place_answers_nothing() {
+    let axis = Motion::Line {
+        origin: Vec3::ZERO,
+        along: Vec3::X,
+    };
+
+    // Looking straight down the axis: it projects to a point, and a point
+    // leaves the cursor nothing to slide along.
+    let down_the_axis = Camera {
+        yaw: std::f32::consts::FRAC_PI_2,
+        ..head_on()
+    };
+    assert_eq!(axis.resolve(&aiming(&down_the_axis, CENTRE)), None);
+    // The other way along it is the same refusal — the test is on the angle,
+    // not on which end.
+    let and_back = Camera {
+        yaw: -std::f32::consts::FRAC_PI_2,
+        ..head_on()
+    };
+    assert_eq!(axis.resolve(&aiming(&and_back, CENTRE)), None);
+
+    // A line with no direction has no points to choose between.
+    let nowhere = Motion::Line {
+        origin: Vec3::ZERO,
+        along: Vec3::ZERO,
+    };
+    assert_eq!(nowhere.resolve(&aiming(&head_on(), CENTRE)), None);
 }

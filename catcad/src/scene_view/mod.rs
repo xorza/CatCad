@@ -677,7 +677,7 @@ impl SceneView {
                     part,
                     grabbed,
                     motion,
-                    offset: hit.world - motion.resolve(aim.ray())?,
+                    offset: hit.world - motion.resolve(&aim)?,
                 })
             })
         else {

@@ -2,6 +2,32 @@
 
 use glam::{UVec2, Vec2, Vec4, Vec4Swizzles};
 
+/// Screen length below which a projected stretch lands on a single pixel and
+/// has no direction to project a cursor onto.
+///
+/// Here rather than beside any one of the three things that read it — a
+/// stroke's pick, a drag along a line, and the shader that widens a ribbon —
+/// because it is a fact about *pixels*, which is what this module is. Stated
+/// once as well, since `common.wgsl` declares it `override` and is handed this
+/// at pipeline creation: the length a stroke is widened from and the length a
+/// pick projects onto cannot be allowed to come apart.
+///
+/// Screen work is done in squared distances to keep a square root out of the
+/// walk, which is the only reason [`MIN_RUN_PX2`] exists beside it.
+pub(crate) const MIN_RUN_PX: f32 = 1e-3;
+
+/// [`MIN_RUN_PX`] squared, which is what a squared screen length compares to.
+pub(crate) const MIN_RUN_PX2: f32 = MIN_RUN_PX * MIN_RUN_PX;
+
+/// Floor under the sum of reciprocal depths that undoes the perspective
+/// squeeze.
+///
+/// Beside the divide it guards — [`Viewport::pixel_from_clip`] is the one that
+/// says the caller has to justify dividing by `w`, and this is what a caller
+/// undoing that divide justifies it with. Only a stretch with both ends
+/// astronomically far off gets near it.
+pub(crate) const MIN_RECIP_W: f32 = 1e-6;
+
 /// A render target's pixel extent, and the one statement of how a pixel
 /// relates to NDC.
 ///

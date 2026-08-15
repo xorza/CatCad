@@ -87,5 +87,5 @@ pub(super) fn landing(
     motion: Motion,
 ) -> Option<Vec3> {
     let aimed = Aimed::of(response)?;
-    motion.resolve(document.camera().ray_through(aimed.cursor, aimed.viewport))
+    motion.resolve(&aimed.aim(&document.camera()))
 }

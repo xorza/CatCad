@@ -1,6 +1,7 @@
 //! Where a drag is allowed to move, and where a cursor ray lands on it.
 
-use crate::ray::Ray;
+use crate::aim::Aim;
+use crate::viewport::{MIN_RECIP_W, MIN_RUN_PX2};
 use glam::Vec3;
 
 /// How squarely the ray must meet a plane for the crossing to mean anything,
@@ -15,16 +16,20 @@ use glam::Vec3;
 /// tests say so.
 const MIN_FACING: f32 = 1e-6;
 
-/// The same question for a line, as the angle in radians away from parallel.
+/// How far in front of the eye a point has to be for its projection to mean
+/// anything, in world units.
 ///
-/// Deliberately not [`MIN_FACING`], and deliberately three decades wider. A
-/// plane divides by its facing once; a line divides by the *square* of its own
-/// — see the determinant in `resolve` — so an angle that costs a plane six
-/// digits costs a line twelve, and the margin has to be squared to buy them
-/// back. Stated as an angle rather than as the squared sine it is compared
-/// against, so that what the two constants disagree about is legible: they are
-/// two angles, not one number used twice.
-const MIN_PARALLEL: f32 = 1e-3;
+/// Only a line answers to this, and only because a line is unbounded: any of
+/// them that is not square to the view runs off behind the eye at one end, and
+/// the stretch of it that projects at all is what this finds the near end of. A
+/// plane is crossed at one point and either that point is in front or the
+/// crossing is refused outright.
+///
+/// Small rather than the near plane's own distance, because what sits between
+/// the eye and the near plane still *projects* — it is only not drawn, and this
+/// is arithmetic rather than a drawing. Under a parallel projection `w` is one
+/// and nothing here ever fires.
+const MIN_DEPTH: f32 = 1e-4;
 
 /// The positions a drag may reach.
 ///
@@ -56,7 +61,7 @@ pub enum Motion {
 }
 
 impl Motion {
-    /// Where `ray` puts the drag, or `None` when it cannot say.
+    /// Where `aim` puts the drag, or `None` when it cannot say.
     ///
     /// `None` is a grazing angle, not an error: a plane seen edge-on, or a line
     /// the cursor is looking straight down, leaves the pointer saying nothing
@@ -65,20 +70,23 @@ impl Motion {
     ///
     /// A plane is crossed and a line is not — a cursor ray and an axis are two
     /// lines in space, and two lines in space miss each other. So a line answers
-    /// with the point of *itself* nearest the ray, which is what makes an axis
-    /// drag track the pointer at all: the answer stays on the axis however far
-    /// off it the cursor wanders, and moves along it by exactly the component of
-    /// the travel that was along it.
-    pub fn resolve(&self, ray: Ray) -> Option<Vec3> {
+    /// with the point of itself that *looks* nearest the cursor, and the answer
+    /// stays on the axis however far off it the pointer wanders, moving along it
+    /// by the component of the travel that was along it as it appears on screen.
+    ///
+    /// The whole aim rather than its ray, because that is the difference: a
+    /// crossing is a question about the ray alone, where looking nearest is a
+    /// question about the projection.
+    pub fn resolve(&self, aim: &Aim) -> Option<Vec3> {
         match *self {
             Motion::Plane { origin, normal } => {
+                let ray = aim.ray();
                 let facing = ray.direction.dot(normal);
                 // Weighed against the normal's own length, so what is refused is
                 // an angle rather than a number that moves with how long the
                 // caller's normal happens to be — the answer below is scale-free
                 // in it either way, and the refusal has no business not being.
-                // Squared on both sides to keep a square root out of it, which
-                // is what the line branch does with `a * c`.
+                // Squared on both sides to keep a square root out of it.
                 if facing * facing <= MIN_FACING * MIN_FACING * normal.length_squared() {
                     return None;
                 }
@@ -88,27 +96,71 @@ impl Motion {
                 (along >= 0.0).then(|| ray.at(along))
             }
             Motion::Line { origin, along } => {
-                let aim = ray.direction;
-                let offset = origin - ray.origin;
-                let (a, b, c) = (along.dot(along), along.dot(aim), aim.dot(aim));
-                let (d, e) = (along.dot(offset), aim.dot(offset));
-                // `|along × aim|²`, which vanishes exactly when the two are
-                // parallel and there is no nearest point to name. Weighed
-                // against `a * c` so what is tested is the angle between them
-                // rather than how long either happens to be — and squared,
-                // because that is what the left-hand side is.
-                let across = a * c - b * b;
-                if across <= MIN_PARALLEL * MIN_PARALLEL * a * c {
+                // Measured on *screen* rather than in the world, which is the
+                // whole of what makes a drag along a line track the pointer. The
+                // point of the line nearest the cursor's ray in three dimensions
+                // is not the point that looks nearest: distance from a ray grows
+                // with depth, so the same pointer travel moves it by different
+                // amounts at different places in the view — as much as double
+                // what was asked at one edge and a fraction of it at the other,
+                // and by different amounts either side of a mirrored viewpoint.
+                // What the cursor can see is where the line *looks*, so that is
+                // what it is answered against.
+                let unit = along.normalize_or_zero();
+                if unit == Vec3::ZERO {
                     return None;
                 }
-                // Which side of the eye the two come nearest on: `across` times
-                // how far along the ray that is, left undivided because
-                // `across` is positive by the line above and the sign is the
-                // whole of what is read. Negative is an axis passing behind the
-                // eye, which is not what the cursor is pointing along however
-                // willing the arithmetic is.
-                let toward = a * e - b * d;
-                (toward >= 0.0).then(|| origin + along * ((b * e - c * d) / across))
+                // Clip space is affine in world position, so the line is a line
+                // there too and one parameter names a point of both.
+                let base = aim.view_proj * origin.extend(1.0);
+                let step = aim.view_proj * unit.extend(0.0);
+                let depth = |at: f32| base.w + step.w * at;
+
+                // Two points of it in front of the eye, to say which way it
+                // runs on screen. Depth is affine along the line as well, so
+                // what is in front is a half-line and this walks to the inside
+                // of it — by a whole step past the end, `unit` being one world
+                // unit long.
+                let mut near = 0.0;
+                if depth(near) <= MIN_DEPTH {
+                    if step.w == 0.0 {
+                        return None;
+                    }
+                    near = (MIN_DEPTH - base.w) / step.w + step.w.signum();
+                    if depth(near) <= MIN_DEPTH {
+                        return None;
+                    }
+                }
+                let far = [near + 1.0, near - 1.0]
+                    .into_iter()
+                    .find(|&at| depth(at) > MIN_DEPTH)?;
+
+                let (at_near, at_far) = (base + step * near, base + step * far);
+                let (from, to) = (
+                    aim.viewport.pixel_from_clip(at_near),
+                    aim.viewport.pixel_from_clip(at_far),
+                );
+                let run = to - from;
+                let length = run.length_squared();
+                // A line pointing straight at the eye projects to a point, and a
+                // point leaves the cursor nothing to slide along. The refusal
+                // the old arithmetic made against a determinant, said where it
+                // can be seen.
+                if length <= MIN_RUN_PX2 {
+                    return None;
+                }
+                let on_screen = (aim.cursor - from).dot(run) / length;
+
+                // Screen distance runs evenly along the *projected* line and not
+                // along the world one, so undo the squeeze — the same
+                // reciprocal-depth blend a stroke uses to say where along itself
+                // a cursor fell.
+                let recip = (1.0 - on_screen) / at_near.w + on_screen / at_far.w;
+                if recip.abs() <= MIN_RECIP_W {
+                    return None;
+                }
+                let travelled = near + (far - near) * ((on_screen / at_far.w) / recip);
+                (depth(travelled) > MIN_DEPTH).then(|| origin + unit * travelled)
             }
         }
     }

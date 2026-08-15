@@ -1,11 +1,11 @@
 //! One pipeline, the buffers it draws from, and how one is built.
 
-use crate::curve;
 use crate::renderer::band;
 use crate::renderer::cpu::Triangles;
 use crate::renderer::record::Record;
 use crate::renderer::retained::Retained;
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
+use crate::viewport;
 
 /// What every pipeline built from the shared module is told.
 ///
@@ -30,7 +30,7 @@ use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 fn overrides(spec: &PassSpec) -> [(&'static str, f64); 3] {
     [
         ("RING_STEPS", band::RING_STEPS as f64),
-        ("MIN_RUN_PX", curve::MIN_RUN_PX as f64),
+        ("MIN_RUN_PX", viewport::MIN_RUN_PX as f64),
         ("MESH_ALPHA", f64::from(spec.opacity)),
     ]
 }
