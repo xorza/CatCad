@@ -1,6 +1,8 @@
 use super::*;
+use crate::drawing::Grip;
+use crate::drawing::anchor::Anchor;
 use crate::workshop::Workshop;
-use glam::DVec2;
+use glam::{DVec2, Vec3};
 use silverpoint::{Plane, Sketch};
 
 /// A step names an earlier step and never itself, and a handle stays dead once
@@ -48,10 +50,8 @@ fn a_sketch_lands_where_its_plane_says_and_stores_none_of_it() {
     // The ground's own axes are world +X and −Z, so (3, 4) on it is (3, 0, −4).
     assert_eq!(timeline.plane_of(at), Plane::GROUND);
     assert_eq!(
-        timeline
-            .drawing(at)
-            .at(crate::drawing::anchor::Anchor::On(corner)),
-        glam::Vec3::new(3.0, 0.0, -4.0)
+        timeline.drawing(at).at(Anchor::On(corner)),
+        Vec3::new(3.0, 0.0, -4.0)
     );
     // And the sketch itself holds the flat pair it was given, unchanged.
     assert_eq!(
@@ -79,7 +79,7 @@ fn an_edit_through_the_timeline_reaches_the_sketch_it_names() {
 
     timeline.edit(at).drag_to(
         &mut workshop,
-        crate::drawing::Grip::Point(b),
+        Grip::Point(b),
         Plane::GROUND.point(DVec2::new(5.0, 0.0)).as_vec3(),
     );
 

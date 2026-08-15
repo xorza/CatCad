@@ -39,8 +39,8 @@ pub(crate) struct Document {
 }
 
 impl Document {
-    /// A document holding `sketch` on `plane`, with `solids` standing around
-    /// it, seen from wherever the camera starts.
+    /// A document built by `timeline`, with `solids` standing around it, seen
+    /// from wherever the camera starts.
     ///
     /// The camera is left at its default rather than aimed at anything: what
     /// has to fit on screen is what will be *drawn*, and that is not known
@@ -52,9 +52,9 @@ impl Document {
             solids,
             camera: Camera::default(),
         };
-        // A timeline arrives as coordinates its constraints have not been
-        // checked against, whether it was typed in or read from a file, so
-        // opening one is a solve like any other.
+        // A sketch arrives as coordinates its constraints have not been checked
+        // against, whether they were typed in or read from a file, so opening a
+        // document is a solve like any other.
         document.sketching().opened(workshop);
         document
     }

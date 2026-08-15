@@ -36,14 +36,6 @@ impl Feature {
             Feature::Sketch { on, .. } => Some(*on).into_iter(),
         }
     }
-
-    /// The sketch this step holds, or `None` where it is not a sketch.
-    pub(crate) fn sketch(&self) -> Option<&Sketch> {
-        match self {
-            Feature::Sketch { sketch, .. } => Some(sketch),
-            Feature::Plane(_) => None,
-        }
-    }
 }
 
 /// Where a plane gets its frame from.

@@ -49,7 +49,7 @@ impl Timeline {
     }
 
     /// Whether the timeline still has the step `id` names.
-    pub(crate) fn holds(&self, id: FeatureId) -> bool {
+    fn holds(&self, id: FeatureId) -> bool {
         self.steps.iter().any(|step| step.id == id)
     }
 
@@ -64,14 +64,14 @@ impl Timeline {
     pub(crate) fn plane(&self, at: FeatureId) -> Plane {
         match self.feature(at) {
             Feature::Plane(Datum::Ground) => Plane::GROUND,
-            Feature::Sketch { .. } => panic!("{at:?} names a sketch rather than a plane"),
+            Feature::Sketch { .. } => not_a_plane(at),
         }
     }
 
     /// The sketch `at` names, and the plane it lies on.
     pub(crate) fn drawing(&self, at: FeatureId) -> Drawing<'_> {
         let Feature::Sketch { on, sketch } = self.feature(at) else {
-            panic!("{at:?} names a plane rather than a sketch");
+            not_a_sketch(at);
         };
         Drawing::new(sketch, self.plane(*on))
     }
@@ -83,8 +83,8 @@ impl Timeline {
     /// cannot overlap, and a plane is a value once it has been worked out.
     pub(crate) fn edit(&mut self, at: FeatureId) -> Sketching<'_> {
         let plane = self.plane_of(at);
-        let Some(Feature::Sketch { sketch, .. }) = self.feature_mut(at) else {
-            panic!("{at:?} names a plane rather than a sketch");
+        let Feature::Sketch { sketch, .. } = self.feature_mut(at) else {
+            not_a_sketch(at);
         };
         Sketching::new(sketch, plane)
     }
@@ -98,7 +98,7 @@ impl Timeline {
     pub(crate) fn only_sketch(&self) -> FeatureId {
         self.steps
             .iter()
-            .find(|step| step.feature.sketch().is_some())
+            .find(|step| matches!(step.feature, Feature::Sketch { .. }))
             .expect("the document holds a sketch")
             .id
     }
@@ -112,7 +112,7 @@ impl Timeline {
     fn sketch_plane(&self, at: FeatureId) -> FeatureId {
         match self.feature(at) {
             Feature::Sketch { on, .. } => *on,
-            Feature::Plane(_) => panic!("{at:?} names a plane rather than a sketch"),
+            Feature::Plane(_) => not_a_sketch(at),
         }
     }
 
@@ -122,16 +122,37 @@ impl Timeline {
             .steps
             .iter()
             .find(|step| step.id == id)
-            .expect("this step is no longer in the timeline")
+            .expect(REMOVED_STEP)
             .feature
     }
 
-    fn feature_mut(&mut self, id: FeatureId) -> Option<&mut Feature> {
-        self.steps
+    /// The same, to be written.
+    fn feature_mut(&mut self, id: FeatureId) -> &mut Feature {
+        &mut self
+            .steps
             .iter_mut()
             .find(|step| step.id == id)
-            .map(|step| &mut step.feature)
+            .expect(REMOVED_STEP)
+            .feature
     }
+}
+
+// What a handle to a step the timeline no longer holds reports. Reaching one
+// means a caller kept a handle across a removal, which is a mistake in the
+// caller rather than anything the timeline can answer.
+const REMOVED_STEP: &str = "this step is no longer in the timeline";
+
+/// What a caller reaching for the wrong kind of step is told.
+///
+/// Two of them rather than one, because which way round it went is the useful
+/// half: a caller that asked a sketch for its frame and one that asked a plane
+/// for its geometry have made opposite mistakes.
+fn not_a_sketch(at: FeatureId) -> ! {
+    panic!("{at:?} names a plane rather than a sketch");
+}
+
+fn not_a_plane(at: FeatureId) -> ! {
+    panic!("{at:?} names a sketch rather than a plane");
 }
 
 /// One step of a timeline, and the handle that names it.
