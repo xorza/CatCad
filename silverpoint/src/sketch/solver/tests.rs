@@ -446,6 +446,75 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
     }
 }
 
+/// What a drag holds still decides the answer, not just what it drives.
+///
+/// The two arguments do different jobs and nothing else in this file tells them
+/// apart, because the drags it makes have nothing worth holding. Here the same
+/// drive is asked twice over the same sketch and answers differently, which is
+/// the only way to say that holding is doing anything at all.
+///
+/// A circle through a fixed point: its centre must stand off that point by
+/// exactly its radius. Growing it is therefore two things at once — the rim
+/// moves out and the centre walks after it — and holding the centre is what
+/// separates them. Which is precisely what a rim drag wants: growing a circle
+/// should not carry it across the drawing.
+#[test]
+fn holding_the_centre_is_what_grows_a_circle_instead_of_walking_it() {
+    fn through_the_origin() -> (Sketch, PointId, CircleId) {
+        let mut sketch = Sketch::default();
+        let edge = sketch.add_point(DVec2::ZERO);
+        sketch.fix(edge);
+        let centre = sketch.add_point(DVec2::new(3.0, 0.0));
+        let circle = sketch.add_circle(centre, 3.0);
+        sketch.add_constraint(Constraint::PointOnCircle {
+            point: edge,
+            circle,
+        });
+        (sketch, centre, circle)
+    }
+
+    let mut solver = Solver::default();
+    let mut outcome = Outcome::default();
+
+    // Holding nothing, the centre is free to travel and the constraint makes it:
+    // a radius of five puts the centre five from the origin.
+    let (mut sketch, centre, circle) = through_the_origin();
+    solver.solve(&mut sketch, &mut outcome);
+    solver.drag(
+        &mut sketch,
+        &[Drive::Radius(circle, 5.0)],
+        &[],
+        &mut outcome,
+    );
+    assert!(
+        (sketch.circle(circle).radius - 5.0).abs() < DRAGGED,
+        "the rim would not be driven: {}",
+        sketch.circle(circle).radius
+    );
+    let walked = sketch.point(centre).position;
+    assert!(
+        (walked - DVec2::new(5.0, 0.0)).length() < DRAGGED,
+        "the centre did not follow the rim it is tied to: {walked:?}"
+    );
+
+    // Holding the centre, the same drive has nowhere to go: the standoff is
+    // fixed at three, so the radius is too, and the sketch comes back untouched.
+    let (mut sketch, centre, circle) = through_the_origin();
+    solver.solve(&mut sketch, &mut outcome);
+    solver.drag(
+        &mut sketch,
+        &[Drive::Radius(circle, 5.0)],
+        &[centre],
+        &mut outcome,
+    );
+    assert_eq!(
+        sketch.circle(circle).radius,
+        3.0,
+        "a held centre let the radius go anyway"
+    );
+    assert_eq!(sketch.point(centre).position, DVec2::new(3.0, 0.0));
+}
+
 /// A point the constraints leave somewhere to go is taken as near what was
 /// asked for as it may go, rather than not moving at all.
 ///

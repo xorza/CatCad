@@ -138,6 +138,17 @@ impl Params<'_> {
         self.index_of(Param::Radius(id))
     }
 
+    /// What one parameter currently reads, and nought for a position a removal
+    /// left empty — which is what [`Params::write`] puts there too.
+    ///
+    /// Beside `write` rather than instead of it: a run wants the whole vector
+    /// and takes it in one walk, where a caller checking whether a drag moved
+    /// what it had hold of wants two or three of them and should not walk a
+    /// sketch to find out.
+    pub(super) fn value_at(self, index: usize) -> f64 {
+        self.at(index).map_or(0.0, |param| param.value(self.sketch))
+    }
+
     /// Whether the solver may move this parameter. Radii always move; point
     /// coordinates move unless the point is fixed; a hole left by a removal
     /// never moves, which is what keeps the solver off it without the solver

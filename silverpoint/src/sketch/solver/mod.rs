@@ -55,7 +55,11 @@ const UNMOVED: f64 = 1e-6;
 pub enum Drive {
     /// This point to this position.
     Point(PointId, DVec2),
-    /// This circle to this radius, whatever its centre is doing.
+    /// This circle to this radius.
+    ///
+    /// Says nothing about the centre, which is the point: growing a circle and
+    /// moving one are two different drags. Whether the centre may travel while
+    /// this happens is the `holding` argument's to say, not this one's.
     Radius(CircleId, f64),
 }
 
@@ -77,15 +81,17 @@ pub struct Solver {
     /// gesture asks the sketch which parameters it names once a frame rather
     /// than growing a list every time.
     pulls: Vec<Pull>,
-    /// The parameter vector as the drag found it, and as the drag left it — so
-    /// that a drag which turns out to have moved nothing can hand back exactly
-    /// what it was given. See [`UNMOVED`].
+    /// The parameter vector as the drag found it, so that a drag which turns
+    /// out to have moved nothing can hand back exactly what it was given. See
+    /// [`UNMOVED`].
     ///
     /// The vector rather than a [`Snapshot`](crate::Snapshot), because a drag
     /// may not add or remove geometry: the parameters it starts with are the
-    /// ones it ends with, named by the same positions.
+    /// ones it ends with, named by the same positions. Only the way *back* is
+    /// kept — what the drag left is read off the sketch a parameter at a time,
+    /// since what has to be compared is the handful it was driving rather than
+    /// the whole width of the sketch.
     was: Vec<f64>,
-    now: Vec<f64>,
 }
 
 impl Solver {
@@ -191,12 +197,11 @@ impl Solver {
         // bits. Being able to say this at all is what naming the drag buys: the
         // question is whether what was driven moved, and what was driven is
         // right here rather than something to be inferred from what changed.
-        self.now.clear();
-        sketch.params().write(&mut self.now);
+        let params = sketch.params();
         let moved = self
             .pulls
             .iter()
-            .any(|pull| (self.now[pull.param] - self.was[pull.param]).abs() > UNMOVED);
+            .any(|pull| (params.value_at(pull.param) - self.was[pull.param]).abs() > UNMOVED);
         if !moved {
             sketch.params_mut().set(&self.was);
         }

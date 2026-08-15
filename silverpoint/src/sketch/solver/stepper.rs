@@ -1,4 +1,5 @@
-//! Levenberg-Marquardt over the constraint residuals.
+//! Levenberg-Marquardt over the constraint residuals, and over what a drag is
+//! pulling toward.
 //!
 //! Each iteration assembles the residual vector and its Jacobian, forms the
 //! damped normal equations `(JᵀJ + λD) δ = -Jᵀr`, and takes the step if it
@@ -6,6 +7,14 @@
 //! it doesn't. Matrices are dense: a sketch has two parameters per point plus
 //! one per circle, so the cost of sparsity bookkeeping would exceed what it
 //! saves.
+//!
+//! A drag adds `w·(p − t)` per driven parameter to that same objective — see
+//! [`Pull`]. One equation in one parameter apiece, so they need no rows of their
+//! own: `w²` lands on the parameter's diagonal of `JᵀJ` and `w²(p − t)` on
+//! `Jᵀr`, and everything else here is untouched. Which is the whole reason a
+//! drag is a pull rather than a written position: the run starts where the
+//! sketch already satisfies its constraints and never asks it to stand anywhere
+//! they do not.
 
 use crate::math::dense::solve_in_place;
 use crate::sketch::solver::TOLERANCE;
@@ -103,9 +112,19 @@ pub(super) struct Stepper {
 }
 
 impl Stepper {
-    /// Take up to [`MAX_ITERATIONS`] steps, stopping early once every residual
-    /// is within [`TOLERANCE`] of zero or the damping gives out, and answer how
-    /// many were kept.
+    /// Take up to [`MAX_ITERATIONS`] steps, stopping early once there is
+    /// nothing left to reach for or the damping gives out, and answer how many
+    /// were kept.
+    ///
+    /// Nothing left to reach for is both halves: every residual within
+    /// [`TOLERANCE`] of zero *and* every parameter `drive` names standing where
+    /// it was asked to. A run with an empty `drive` is the second half asking
+    /// nothing, which is what an ordinary solve is.
+    ///
+    /// A `drive` the constraints cannot satisfy never arrives, so what stops
+    /// those runs is `STALLED` rather than the test above — the objective has a
+    /// least-squares answer and reaches it, and going on grinding against it is
+    /// what that constant is there to catch.
     ///
     /// `system` is held for `held` and left holding the sketch as the last kept
     /// step made it, so a caller judging the attempt has the assembly it needs
