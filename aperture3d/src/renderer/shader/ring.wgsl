@@ -133,8 +133,15 @@ fn ring_vs(
     // Handed to the fragment so it can turn its exact in-plane distance into
     // an exact one in pixels without asking the hardware to difference
     // neighbours for it.
-    let across = normalize(vec2<f32>(-tangential_px.y, tangential_px.x));
-    let px_per_radius = max(abs(dot(radial_px, across)), MIN_FADE);
+    // Guarded before the divide rather than after it. Edge-on the rim covers
+    // no screen area and the tangential rate goes to zero, where `normalize`
+    // answers NaN — and a NaN carried into the fragment stage takes the whole
+    // band with it. The floor below used to be applied to the *result*, which
+    // is one step too late to catch it.
+    let square_to = vec2<f32>(-tangential_px.y, tangential_px.x);
+    let runs = length(square_to);
+    let across = select(vec2<f32>(1.0, 0.0), square_to / runs, runs > MIN_PX_PER_WORLD);
+    let px_per_radius = max(abs(dot(radial_px, across)), MIN_PX_PER_WORLD);
 
     var out: RingVsOut;
     // In the plane, every vertex of it: the depth that comes out is then the

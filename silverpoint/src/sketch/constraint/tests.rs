@@ -99,7 +99,7 @@ fn a_difference_too_short_to_point_anywhere_falls_back_to_x() {
     // still reports how far apart the two really were.
     let together = Direction::of(DVec2::new(1e-20, -1e-20));
     assert_eq!(together.unit, DVec2::X);
-    assert!(together.length > 0.0 && together.length < DEGENERATE);
+    assert!(together.length > 0.0 && together.length < NO_DIRECTION);
 
     // Exactly nowhere is the case that would divide by zero.
     let same = Direction::of(DVec2::ZERO);

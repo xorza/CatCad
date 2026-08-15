@@ -58,15 +58,21 @@ impl Ring {
     /// reads the same whatever basis it is built on. An arc would need to be
     /// told, which is why the axes are carried rather than the normal.
     pub fn new(center: Vec3, radius: f32, normal: Vec3) -> Self {
-        let normal = normal.normalize();
+        // Zero rather than NaN where the caller hands over nothing to point
+        // along: a ring with no plane has no axes either, and comes out drawing
+        // nothing — where a NaN would be carried into every vertex of the band
+        // and take the frame with it.
+        let normal = normal.normalize_or_zero();
         // Any seed that isn't along the normal; the far one is picked so the
-        // cross product never collapses.
+        // cross product never collapses. Which threshold is arbitrary — the
+        // shader picks its own basis by the same rule and the two never have to
+        // agree, because neither answer is read by the other.
         let seed = if normal.x.abs() > 0.9 {
             Vec3::Y
         } else {
             Vec3::X
         };
-        let x_axis = normal.cross(seed).normalize();
+        let x_axis = normal.cross(seed).normalize_or_zero();
         Self {
             center,
             radius,

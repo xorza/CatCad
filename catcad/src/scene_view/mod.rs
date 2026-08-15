@@ -33,8 +33,13 @@ const ORBIT_RATE: f32 = 0.008;
 const ZOOM_RATE: f32 = 1.12;
 
 /// How far from the cursor a thing may be and still count as under it, in
-/// logical pixels. Wider than the strokes, because aiming is not precise and
-/// a stroke a pixel and a half wide is not a target.
+/// logical pixels.
+///
+/// Wider than anything drawn, because aiming is not precise: a stroke of
+/// `EDGE_WIDTH` is under two pixels across and is not a target. It has to stay
+/// above half the widest marker too — `Aim::reach` takes whichever of the two
+/// is larger, so a marker grown past twice this would quietly become the pick
+/// radius instead.
 pub(crate) const HOVER_REACH: f32 = 6.0;
 
 /// What the thing under the cursor looks like. How far forward a highlight

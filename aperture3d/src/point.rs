@@ -77,7 +77,7 @@ impl Point {
 
     /// Declare the plane the marker sits on. See [`Point::plane_normal`].
     pub fn in_plane(mut self, normal: Vec3) -> Self {
-        self.plane_normal = Some(normal.normalize());
+        self.plane_normal = Some(normal.normalize_or_zero());
         self
     }
 }

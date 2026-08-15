@@ -159,7 +159,7 @@ impl Text {
 
     /// Declare the plane the run lies on. See [`Text::plane_normal`].
     pub fn in_plane(mut self, normal: Vec3) -> Self {
-        self.plane_normal = Some(normal.normalize());
+        self.plane_normal = Some(normal.normalize_or_zero());
         self
     }
 }

@@ -43,20 +43,17 @@ const MIN_W: f32 = 1e-6;
 // covers no screen area and has no gradient to read.
 const MIN_DET: f32 = 1e-6;
 
-// The reversed-depth volume a plane's extrapolated gradient has to land inside
-// to be believed.
+// The near end of the reversed-depth volume a plane's extrapolated gradient
+// has to land inside.
 //
-// Zero is the far end and one is the near plane. Both are stepped off the edge
-// rather than sitting on it: a corner has still to survive the clip and the
-// depth test after the rasteriser has added the pass's own bias, so the near
-// limit leaves room for the largest of those — which is decades below the 1%
-// held back here.
-const MIN_NDC_Z: f32 = 1e-6;
+// One limit rather than two: the shift is one-sided — it only ever moves a
+// corner *toward* the viewer — so it cannot leave the far end, and a floor
+// there would be a guard against something that cannot happen. Stepped off the
+// edge rather than sitting on it, because a corner has still to survive the
+// clip and the depth test after the rasteriser has added the pass's own bias,
+// and that leaves the largest of those decades below the 1% held back here.
 const MAX_NDC_Z: f32 = 0.99;
 
-// Floor under the width a marker's rim fades over. Only a disc covering most
-// of the target approaches it, and the fade is then a hard edge either way.
-const MIN_FADE: f32 = 1e-6;
 
 // How much of a fragment a shape covers, given how far inside its own edge the
 // fragment sits — negative outside, in pixels.

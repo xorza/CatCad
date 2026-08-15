@@ -3,9 +3,28 @@
 use crate::ray::Ray;
 use glam::Vec3;
 
-/// Below this the ray is too nearly parallel to the motion for the answer to
-/// mean anything: the divisor vanishes and the answer runs off to infinity.
+/// How squarely the ray must meet a plane for the crossing to mean anything,
+/// as the cosine of the angle away from grazing.
+///
+/// Below it the divisor vanishes and the answer runs off to infinity. A cosine
+/// this small is the angle itself to within a rounding, so it is also a
+/// millionth of a radian off grazing.
+///
+/// A cosine and not a projection, which is why `resolve` weighs it against the
+/// normal's length: `Motion::Plane` does not require a unit normal, and its
+/// tests say so.
 const MIN_FACING: f32 = 1e-6;
+
+/// The same question for a line, as the angle in radians away from parallel.
+///
+/// Deliberately not [`MIN_FACING`], and deliberately three decades wider. A
+/// plane divides by its facing once; a line divides by the *square* of its own
+/// — see the determinant in `resolve` — so an angle that costs a plane six
+/// digits costs a line twelve, and the margin has to be squared to buy them
+/// back. Stated as an angle rather than as the squared sine it is compared
+/// against, so that what the two constants disagree about is legible: they are
+/// two angles, not one number used twice.
+const MIN_PARALLEL: f32 = 1e-3;
 
 /// The positions a drag may reach.
 ///
@@ -54,7 +73,13 @@ impl Motion {
         match *self {
             Motion::Plane { origin, normal } => {
                 let facing = ray.direction.dot(normal);
-                if facing.abs() <= MIN_FACING {
+                // Weighed against the normal's own length, so what is refused is
+                // an angle rather than a number that moves with how long the
+                // caller's normal happens to be — the answer below is scale-free
+                // in it either way, and the refusal has no business not being.
+                // Squared on both sides to keep a square root out of it, which
+                // is what the line branch does with `a * c`.
+                if facing * facing <= MIN_FACING * MIN_FACING * normal.length_squared() {
                     return None;
                 }
                 let along = (origin - ray.origin).dot(normal) / facing;
@@ -70,10 +95,10 @@ impl Motion {
                 // `|along × aim|²`, which vanishes exactly when the two are
                 // parallel and there is no nearest point to name. Weighed
                 // against `a * c` so what is tested is the angle between them
-                // rather than how long either happens to be — the same refusal
-                // the plane makes, on the sine instead of the cosine.
+                // rather than how long either happens to be — and squared,
+                // because that is what the left-hand side is.
                 let across = a * c - b * b;
-                if across <= MIN_FACING * a * c {
+                if across <= MIN_PARALLEL * MIN_PARALLEL * a * c {
                     return None;
                 }
                 // Which side of the eye the two come nearest on: `across` times

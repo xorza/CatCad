@@ -10,7 +10,7 @@
 //! the caller's question — see [`Fill`].
 
 use crate::loops::Loops;
-use crate::math::approx::{ApproxEq, TOUCHING};
+use crate::math::approx::{ApproxEq, SLIVER, TOUCHING};
 use crate::math::intersect::{self, Span};
 use glam::DVec2;
 
@@ -239,8 +239,10 @@ fn visible(corners: &[DVec2], contour: &[u32], from: DVec2) -> Option<usize> {
 fn inside(a: DVec2, b: DVec2, c: DVec2, at: DVec2) -> bool {
     let side = |from: DVec2, to: DVec2| (to - from).perp_dot(at - from);
     let (one, two, three) = (side(a, b), side(b, c), side(c, a));
-    let negative = one < -TOUCHING || two < -TOUCHING || three < -TOUCHING;
-    let positive = one > TOUCHING || two > TOUCHING || three > TOUCHING;
+    // Twice an area apiece, `perp_dot` being what it is, so the bound these
+    // clear is half of [`SLIVER`] — see there.
+    let negative = one < -SLIVER || two < -SLIVER || three < -SLIVER;
+    let positive = one > SLIVER || two > SLIVER || three > SLIVER;
     !(negative && positive)
 }
 
@@ -291,7 +293,8 @@ fn cut(contour: &mut Vec<u32>, at: usize) -> Option<[u32; 3]> {
 
 /// Whether the corner at `at` can be cut off without crossing the loop.
 fn ear(corners: &[DVec2], contour: &[u32], at: usize) -> bool {
-    if turn(corners, contour, at) <= TOUCHING {
+    // Twice the area of that corner's triangle, so again half of [`SLIVER`].
+    if turn(corners, contour, at) <= SLIVER {
         return false;
     }
     let [before, corner, after] = triangle(corners, contour, at);

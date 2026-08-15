@@ -19,7 +19,7 @@
 //! holding one comes out as though the overlap were not there.
 
 use crate::loops::Loops;
-use crate::math::approx::TOUCHING;
+use crate::math::approx::SLIVER;
 use crate::math::intersect::{self, Span};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::curves::Curves;
@@ -171,7 +171,7 @@ impl Arrangement {
                     scratch,
                     ..
                 } = self;
-                if area > TOUCHING {
+                if area > SLIVER {
                     // The face at `faces_filled` is last rebuild's, with the
                     // room it filled then still in it — grown by one only where
                     // this drawing encloses more than the last did.
@@ -184,7 +184,7 @@ impl Arrangement {
                     face.holes.clear();
                     face.area = area;
                     *faces_filled += 1;
-                } else if area < -TOUCHING {
+                } else if area < -SLIVER {
                     scratch.outsides.push(&scratch.boundary);
                     scratch.areas.push(area);
                 }

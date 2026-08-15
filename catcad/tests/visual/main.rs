@@ -325,9 +325,13 @@ fn linear(byte: u8) -> f32 {
     }
 }
 
-/// Sketch strokes are authored 1.6 logical pixels wide, and the harness
-/// renders at scale 1, so this is what a fully drawn one deposits.
-const AUTHORED_WIDTH: f32 = 1.6;
+/// Read from the drawing rather than restated, so that the width these tests
+/// hold a stroke to is the width the drawing was actually drawn with. The
+/// harness renders at scale 1, so a logical pixel is a pixel and this is what a
+/// fully drawn stroke deposits.
+fn authored_width() -> f32 {
+    CatCad::edge_width()
+}
 
 /// The finest a single crossing can be measured.
 ///
@@ -675,9 +679,10 @@ fn overlays_keep_their_authored_width_at_grazing_angles() {
         for pitch in PITCHES {
             let width = deposited(pitch, overlay);
             assert!(
-                (width - AUTHORED_WIDTH).abs() < allowed,
-                "{overlay:?} at pitch {pitch} deposits {width:.3} px, not the \
-                 {AUTHORED_WIDTH} it was authored at"
+                (width - authored_width()).abs() < allowed,
+                "{overlay:?} at pitch {pitch} deposits {width:.3} px, not the {} it \
+                 was authored at",
+                authored_width()
             );
             measured.push(width);
         }

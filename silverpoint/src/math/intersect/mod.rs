@@ -8,12 +8,8 @@
 //! drawing on paper: a span is two corners and a ring is a middle and a
 //! distance, and no part of a sketch reaches in.
 
-use crate::math::approx::{ApproxEq, TOUCHING};
+use crate::math::approx::{ApproxEq, NO_DIRECTION, PARALLEL, TOUCHING};
 use glam::DVec2;
-
-/// Below this a direction cannot be recovered and the curve is a point, so
-/// nothing can be said about what crosses it.
-const DEGENERATE: f64 = 1e-12;
 
 /// A straight span between two corners — a segment as geometry, with the
 /// sketch's handles left behind.
@@ -101,14 +97,14 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
     let (p, r) = (one.from, one.along());
     let (q, s) = (two.from, two.along());
     let (reach, other) = (r.length(), s.length());
-    if reach < DEGENERATE || other < DEGENERATE {
+    if reach < NO_DIRECTION || other < NO_DIRECTION {
         return Crossings::none();
     }
     // Zero where the two run the same way, which is the parallel case — and
     // scaled by both lengths, so what counts as parallel does not depend on how
     // long either span happens to be drawn.
     let sweep = r.perp_dot(s);
-    if (sweep / (reach * other)).abs() < TOUCHING {
+    if (sweep / (reach * other)).abs() < PARALLEL {
         return Crossings::none();
     }
     let between = q - p;
@@ -131,7 +127,7 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
 pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
     let along = span.along();
     let reach = along.length();
-    if reach < DEGENERATE {
+    if reach < NO_DIRECTION {
         return Crossings::none();
     }
     // `|from + t·along − centre|² = radius²`, gathered into `at² + 2bt + c`.

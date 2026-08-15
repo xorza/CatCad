@@ -389,6 +389,20 @@ pub(crate) mod internals {
     use crate::CatCad;
 
     impl CatCad {
+        /// The width every sketch stroke is authored at, in logical pixels.
+        ///
+        /// Published so the visual suite can measure against the number the
+        /// drawing was actually drawn with. It lives in `paint` and is that
+        /// module's to choose; what a test needs is not a second opinion about
+        /// the right width but the same one, and an integration test cannot see
+        /// a `pub(crate)` const.
+        ///
+        /// On the type rather than beside it, because the module this sits in is
+        /// `pub(crate)` and a free function in one reaches nobody.
+        pub fn edge_width() -> f32 {
+            crate::paint::EDGE_WIDTH
+        }
+
         /// The renderer behind the view, so a harness can reach the scene
         /// without a pointer to drive it with.
         pub fn renderer(&self) -> &Rc<RefCell<Renderer>> {

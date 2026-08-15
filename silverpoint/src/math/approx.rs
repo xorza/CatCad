@@ -31,6 +31,46 @@ use glam::DVec2;
 /// [`Sketch::remove_duplicates`]: crate::Sketch::remove_duplicates
 pub(crate) const TOUCHING: f64 = 1e-9;
 
+/// How much area a loop has to enclose to be a region rather than a sliver, in
+/// square sketch units.
+///
+/// The same number as [`TOUCHING`] and not the same quantity, which is the
+/// whole reason it is written down separately: a tolerance on a length and a
+/// tolerance on an area answer differently the moment a drawing is rescaled,
+/// and one constant standing for both hides that. Nothing derives it from
+/// `TOUCHING` — `TOUCHING` squared would be 1e-18, which admits every sliver
+/// there is — so it is a measured bound in its own right and moves on its own.
+///
+/// Read against two scalings, deliberately. An arrangement compares it to a
+/// true signed area; a triangulation compares it to `perp_dot`, which is twice
+/// one, so the bound cleared there is half. They are different questions in
+/// different algorithms — whether a loop is a face, and whether a corner can be
+/// cut off — and neither is owed the other's boundary.
+pub(crate) const SLIVER: f64 = 1e-9;
+
+/// How near parallel two directions may run before the angle between them stops
+/// meaning anything, as a sine.
+///
+/// Dimensionless, unlike the two around it, and again the same number by
+/// measurement rather than by derivation.
+pub(crate) const PARALLEL: f64 = 1e-9;
+
+/// How long a difference of two points has to be before a direction can be
+/// recovered from it, in sketch units.
+///
+/// Not a coincidence tolerance: two points this close are the same *place* by
+/// [`TOUCHING`] three decades earlier, and this asks a narrower question about
+/// what is left — whether normalizing the difference between them still says
+/// anything. Below it the quotient is noise, so whoever asked picks a direction
+/// instead: an intersection answers that the curve is a point, and a
+/// constraint's derivative pushes along +x, because any direction will do when
+/// the solver only needs somewhere to push.
+///
+/// Here rather than with either reader, because there are two and they had a
+/// constant apiece — the same name, the same value and the same paragraph,
+/// stated twice in modules that never mention each other.
+pub(crate) const NO_DIRECTION: f64 = 1e-12;
+
 /// Equality to within a tolerance.
 ///
 /// Geometry that a solve has settled is equal in the sense that matters and

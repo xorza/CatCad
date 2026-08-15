@@ -13,10 +13,17 @@ use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 /// pipeline is handed all of them because the declarations they override are
 /// module-scope in the shader, and so this has to be.
 ///
-/// This is the whole of what crosses from Rust into WGSL as a number. Anything
-/// that has to agree across the two languages belongs here, where the Rust side
-/// is the one that states it — a constant written out in both is one that
-/// nothing checks.
+/// This is the whole of what crosses as a *compile-time* number, and anything
+/// that has to agree across the two languages at pipeline creation belongs
+/// here, where the Rust side is the one that states it — a constant written out
+/// in both is one that nothing checks.
+///
+/// Not the whole of what crosses. The uniform buffer carries numbers too, and
+/// one of them — `probe_reach` — is a tuning constant rather than a measurement
+/// of the frame; see [`Uniforms::probe_reach`](super::uniforms::Uniforms). The
+/// split is per-frame against per-pipeline and nothing else: a value the camera
+/// moves cannot be baked into a pipeline, and one that never changes should not
+/// be re-uploaded sixty times a second.
 ///
 /// The first two are the same for every pass and the last is the pass's own,
 /// which is what makes this a function rather than the constant it was.

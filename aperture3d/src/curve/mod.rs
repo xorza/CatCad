@@ -159,7 +159,7 @@ impl Curve {
 
     /// Declare the plane the curve lies in. See [`Curve::plane_normal`].
     pub fn in_plane(mut self, normal: Vec3) -> Self {
-        self.plane_normal = Some(normal.normalize());
+        self.plane_normal = Some(normal.normalize_or_zero());
         self
     }
 }

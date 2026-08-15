@@ -6,6 +6,7 @@
 //! residual with respect to the parameters it touches.
 
 use crate::arena::Id;
+use crate::math::approx::NO_DIRECTION;
 use crate::sketch::entity::Entity;
 use crate::sketch::jacobian_row::JacobianRow;
 use crate::sketch::{CircleId, PointId, Segment, SegmentId, Sketch};
@@ -13,11 +14,6 @@ use glam::DVec2;
 
 /// Handle to a constraint in a [`Sketch`].
 pub type ConstraintId = Id<Constraint>;
-
-/// Below this length a direction can't be recovered from a difference of
-/// points, so the derivative is taken along +x instead: any direction will do,
-/// and the solver only needs somewhere to push.
-const DEGENERATE: f64 = 1e-12;
 
 /// A difference of two points, split into how far it ran and which way.
 ///
@@ -34,7 +30,7 @@ struct Direction {
 impl Direction {
     fn of(delta: DVec2) -> Self {
         let length = delta.length();
-        let unit = if length < DEGENERATE {
+        let unit = if length < NO_DIRECTION {
             DVec2::X
         } else {
             delta / length
