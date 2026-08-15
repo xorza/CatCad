@@ -201,10 +201,7 @@ impl CatCad {
                 tool: self.session.tool(),
                 status,
                 projection: self.document.camera().projection,
-                model: self
-                    .document
-                    .models(&self.build, self.session.editing())
-                    .open(),
+                models: self.document.models(&self.build, self.session.editing()),
                 selection: self.session.selection(),
             },
             &mut self.intents,

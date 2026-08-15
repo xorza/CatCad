@@ -1,7 +1,7 @@
 //! A sketch open for editing, and where it lies while that happens.
 
 use glam::Vec3;
-use silverpoint::{Constraint, ConstraintId, Entity, Plane, Removed, Sketch, Snapshot};
+use silverpoint::{Constraint, ConstraintId, Entity, Plane, Removed, Sketch};
 
 use crate::build::Build;
 use crate::drawing::anchor::Anchor;
@@ -174,17 +174,15 @@ impl<'a> Sketching<'a> {
         });
     }
 
-    /// Put the drawing back the way `snapshot` found it.
+    /// Take the report again over the geometry as it now stands.
     ///
-    /// Restored rather than re-solved. Solving from the restored geometry would
-    /// derive the report through the one path that already produces one, but a
-    /// solve is free to *move* what it is given — and an undo that landed the
-    /// drawing near where it was rather than on it would not be an undo. So it
-    /// goes through [`Build::measured`] instead, which is that shape of edit
-    /// exactly: the exactness a restore promises survives it, and a step no
-    /// longer has to carry a report it would otherwise be storing twice over.
-    pub(crate) fn restore(&mut self, build: &mut Build, snapshot: &Snapshot) {
-        build.measured(self.at, self.sketch, |sketch| sketch.restore(snapshot));
+    /// What an undo does once the sketch itself has been put back — see
+    /// [`Document::restore`](crate::document::Document). The edit is empty
+    /// because the change has already happened; what is left is to measure it,
+    /// and measuring moves nothing, so the exactness a restore promises
+    /// survives.
+    pub(crate) fn measured(&mut self, build: &mut Build) {
+        build.measured(self.at, self.sketch, |_| {});
     }
 
     /// Take what `grip` holds to `world`, and settle the rest of the drawing

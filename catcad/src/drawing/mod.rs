@@ -2,7 +2,7 @@
 
 use aperture::{HitAt, Motion};
 use glam::{DVec2, Vec3};
-use silverpoint::{CircleId, Constraint, Entity, Plane, PointId, SegmentId, Sketch, Snapshot};
+use silverpoint::{CircleId, Constraint, Entity, Plane, PointId, SegmentId, Sketch};
 
 use crate::drawing::anchor::Anchor;
 
@@ -115,14 +115,6 @@ impl<'a> Drawing<'a> {
     /// see [`Drawing::holds`].
     pub(crate) fn holds_anchor(self, anchor: Anchor) -> bool {
         anchor.built_on().is_none_or(|entity| self.holds(entity))
-    }
-
-    /// Take down where the drawing stands, so it can be put back later.
-    ///
-    /// Fills rather than returns, so a history noting where a drag started
-    /// refills the same buffers rather than taking two a frame.
-    pub(crate) fn snapshot_into(self, into: &mut Snapshot) {
-        self.sketch.snapshot_into(into);
     }
 
     /// Whether the drawing still holds `entity`.

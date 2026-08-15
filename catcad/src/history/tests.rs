@@ -2,6 +2,7 @@ use super::*;
 use crate::build::Build;
 use crate::demo;
 use crate::drawing::Grip;
+use crate::drawing::anchor::Anchor;
 use crate::paint;
 use crate::paint::layout::Layout;
 use crate::timeline::Timeline;
@@ -485,4 +486,84 @@ fn a_drag_in_one_sketch_does_not_extend_a_step_opened_in_another() {
     // And the second takes back the first, which is what says there were two.
     history.apply(&mut document, &mut build, &once(Step::Undo));
     assert_eq!(at(&document, here, one), DVec2::ZERO);
+}
+
+/// Moving a plane carries the sketches on it and solves nothing.
+///
+/// The claim the whole design rests on. A sketch's coordinates are its plane's
+/// own, so a plane that moves changes where a sketch *lands* and nothing about
+/// what it says — there is no system to re-solve and no arrangement to rebuild,
+/// and a drag on a datum over a document full of finished sketches costs one
+/// number and a repaint.
+#[test]
+fn moving_a_plane_carries_what_is_drawn_on_it_and_solves_nothing() {
+    let mut sketch = silverpoint::Sketch::default();
+    let corner = sketch.add_point(DVec2::new(3.0, 4.0));
+
+    let mut build = Build::default();
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let shelf = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: 2.0,
+    }));
+    let drawn = timeline.add(Feature::Sketch {
+        on: shelf,
+        sketch: sketch.clone(),
+    });
+    let mut document = Document::new(&mut build, timeline, Vec::new());
+
+    // The ground's own axes are world +X and −Z and its normal is +Y, so a
+    // point at (3, 4) on a plane two above it lands at (3, 2, −4).
+    let landed = |document: &Document| document.drawing_at(drawn).at(Anchor::On(corner));
+    assert_eq!(landed(&document), Vec3::new(3.0, 2.0, -4.0));
+
+    let was = build.revision();
+    let solved = (
+        build.settled(drawn).outcome().iterations(),
+        build.settled(drawn).outcome().degrees_of_freedom(),
+        build.settled(drawn).arrangement().faces().len(),
+    );
+
+    let mut history = History::default();
+    history.apply(
+        &mut document,
+        &mut build,
+        &once(Change::MovePlane {
+            plane: shelf,
+            to: 5.5,
+        }),
+    );
+
+    // Carried: three and a half further up, and not a step across.
+    assert_eq!(landed(&document), Vec3::new(3.0, 5.5, -4.0));
+    // And the sketch itself says exactly what it said, down to the bits — the
+    // move never reached it.
+    assert_eq!(
+        document.drawing_at(drawn).sketch().point(corner).position,
+        DVec2::new(3.0, 4.0)
+    );
+    // Nothing was solved and nothing arranged: the report is the one the open
+    // left behind, untouched.
+    assert_eq!(
+        (
+            build.settled(drawn).outcome().iterations(),
+            build.settled(drawn).outcome().degrees_of_freedom(),
+            build.settled(drawn).arrangement().faces().len(),
+        ),
+        solved,
+        "moving a plane re-solved the sketch on it"
+    );
+    // The revision still moves, because the picture is out of date even though
+    // no geometry is.
+    assert_ne!(
+        build.revision(),
+        was,
+        "the move left the picture unrepainted"
+    );
+
+    // And it is a step to take back like any other, though it is the one kind
+    // of step that is not about a sketch at all.
+    history.apply(&mut document, &mut build, &once(Step::Undo));
+    assert_eq!(landed(&document), Vec3::new(3.0, 2.0, -4.0));
 }

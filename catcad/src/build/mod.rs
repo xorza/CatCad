@@ -171,6 +171,20 @@ impl Build {
         *cleaned = None;
     }
 
+    /// Note that the document has moved without anything being solved.
+    ///
+    /// What moving a plane leaves behind. A sketch's coordinates are its
+    /// plane's own, so a plane that moves changes where every sketch hanging
+    /// off it *lands* and nothing about what any of them says — no solve, no
+    /// arrangement, and nothing here to rewrite but the number that tells a
+    /// picture it is out of date.
+    pub(crate) fn revised(&mut self) {
+        self.revision = self.revision.next();
+        // Whatever this edit was, it is now the last thing done — for the same
+        // reason [`Build::settle`] says so.
+        self.cleaned = None;
+    }
+
     /// Record what a cleanup took out.
     ///
     /// After the settle rather than inside it, because settling is what wipes

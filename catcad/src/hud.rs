@@ -8,7 +8,7 @@ use palantir::{
 };
 
 use crate::intent::{Change, Choice, Intents, Step};
-use crate::model::Model;
+use crate::model::{Model, Models};
 use crate::paint::DECIMALS;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
@@ -49,6 +49,9 @@ pub(crate) struct Hud {
     /// Scratch: what a dimension *is* lives in the sketch, and this is only
     /// what one gesture has made of it so far.
     draft: f64,
+    /// The same, for how far the open sketch's plane is held off the one it is
+    /// measured from.
+    lift: f64,
 }
 
 impl Hud {
@@ -74,12 +77,16 @@ impl Hud {
     /// *this* selection can do.
     fn constraints(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
         let Shown {
-            model, selection, ..
+            models, selection, ..
         } = shown;
+        let model = models.open();
         let sketch = model.of();
         model.offers(selection.picked(), &mut self.offers);
         let dimension = dimension_picked(model, selection);
-        if self.offers.is_empty() && dimension.is_none() {
+        // Where the open sketch *sits*, which is a thing to ask about whether
+        // or not anything is picked out — see [`Timeline::movable`].
+        let plane = models.movable();
+        if self.offers.is_empty() && dimension.is_none() && plane.is_none() {
             return;
         }
         // Seeded from the drawing every frame rather than remembered, which is
@@ -89,6 +96,9 @@ impl Hud {
         // so, and that is the only frame anything is asked for.
         if let Some((_, value)) = dimension {
             self.draft = value;
+        }
+        if let Some(movable) = plane {
+            self.lift = movable.by;
         }
         floating(Panel::hstack(), "constraints", Align::BOTTOM).show(ui, |ui| {
             if let Some((id, _)) = dimension {
@@ -108,6 +118,27 @@ impl Hud {
                 // the run of them a scrub sends is one open step — and this is
                 // what closes it, the same signal a drag's release gives.
                 if edited.committed {
+                    intents.push(Step::Release);
+                }
+            }
+            // First, because it is about where you *are* rather than about
+            // what is picked out — and what is picked out changes under the
+            // cursor while this does not.
+            if let Some(movable) = plane {
+                let scrubbed = DragValue::new(&mut self.lift)
+                    .auto_id()
+                    .speed(DIMENSION_SPEED)
+                    .decimals(DECIMALS)
+                    .show(ui);
+                if scrubbed.changed {
+                    intents.push(Change::MovePlane {
+                        plane: movable.plane,
+                        to: self.lift,
+                    });
+                }
+                // One gesture, one step to take back, exactly as a dimension
+                // scrub is closed.
+                if scrubbed.committed {
                     intents.push(Step::Release);
                 }
             }
@@ -136,10 +167,10 @@ impl Hud {
         let Shown {
             status,
             projection,
-            model,
+            models,
             ..
         } = shown;
-        let sketch = model.of();
+        let sketch = models.open().of();
         floating(Panel::vstack(), "readout", Align::TOP_LEFT).show(ui, |ui| {
             projection_toggle(ui, projection, intents);
             Text::new(status).auto_id().show(ui);
@@ -207,7 +238,7 @@ pub(crate) struct Shown<'a> {
     /// has to be lowered in the pass that minted it.
     pub(crate) status: InternedStr,
     pub(crate) projection: Projection,
-    /// The sketch open for editing, as the last solve left it.
+    /// Every sketch the document holds, and which of them is open.
     ///
     /// The model rather than the drawing, because a control here reads what is
     /// *picked out* — and a part names the sketch it belongs to as well as the
@@ -217,7 +248,7 @@ pub(crate) struct Shown<'a> {
     /// It is also what every control that asks for a change names, since the
     /// sketch it is of is the one open — see
     /// [`Session::editing`](crate::session::Session).
-    pub(crate) model: Model<'a>,
+    pub(crate) models: Models<'a>,
     pub(crate) selection: &'a Selection,
 }
 
@@ -322,6 +353,7 @@ impl Default for Hud {
             armed,
             offers: Vec::new(),
             draft: 0.0,
+            lift: 0.0,
         }
     }
 }

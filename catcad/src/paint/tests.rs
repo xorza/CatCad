@@ -401,16 +401,19 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     // circle's own disc, and the eye's — and its second draws a triangle.
     assert_eq!(scene.faces.len(), 4, "the demo encloses four faces");
 
-    // Every sheet has triangles and lies flat on the sketch plane, which is the
-    // ground — a face with vertices off it would be one built through the wrong
-    // basis.
+    // Every sheet has triangles and lies flat in the plane of the sketch it
+    // came from — a face with vertices off it would be one built through the
+    // wrong basis. Flat in *its own* plane rather than on the ground: the demo
+    // draws its second sketch on a datum held clear of it, so the two sit at
+    // two heights and only the flatness is shared.
     for face in scene.faces.iter() {
         assert!(!face.mesh.indices.is_empty(), "a face was written empty");
         assert_eq!(face.mesh.indices.len() % 3, 0, "a face is triangles");
+        let lies_at = face.mesh.vertices[0].position.y;
         for vertex in &face.mesh.vertices {
             assert!(
-                vertex.position.y.abs() < 1e-5,
-                "{vertex:?} is off the plane"
+                (vertex.position.y - lies_at).abs() < 1e-5,
+                "{vertex:?} is off the plane its face lies in, at {lies_at}"
             );
             assert!(
                 vertex.normal.abs_diff_eq(Vec3::Y, 1e-5),
@@ -418,6 +421,15 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
             );
         }
     }
+    // And the two planes really are two: one sheet at least stands clear of the
+    // ground, which is what says a sketch followed the datum it names.
+    assert!(
+        scene
+            .faces
+            .iter()
+            .any(|face| face.mesh.vertices[0].position.y > 1e-5),
+        "every face landed on the ground, so nothing followed the offset plane"
+    );
 
     // Together they cover the rectangle, the eye and the triangle — the circle
     // inside the rectangle is a hole in one sheet and the whole of another, so

@@ -4,7 +4,7 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::intent::{Change, Intent, Intents, Step};
 use crate::timeline::FeatureId;
-use silverpoint::Snapshot;
+use crate::timeline::feature::Feature;
 
 /// How many steps back the history goes.
 ///
@@ -38,11 +38,6 @@ pub(crate) struct History {
     /// Whether the newest step is still being extended by a gesture in
     /// progress.
     open: bool,
-    /// Where the drawing stood before the intent now being applied, and where
-    /// it stands after. Scratch, so a drag reuses two buffers rather than
-    /// taking a pair every frame it lasts.
-    before: Snapshot,
-    after: Snapshot,
 }
 
 impl History {
@@ -91,43 +86,38 @@ impl History {
     /// [`Solver::edit_holding`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
     fn edit(&mut self, document: &mut Document, build: &mut Build, change: Change) {
-        let Some(at) = change.sketch() else {
+        let Some(at) = change.feature() else {
             document.apply(build, change);
             return;
         };
-        // The open step has to name the same sketch, not merely be open. With
-        // one drawing there was nothing else a change could be about; with
-        // several, a drag in one sketch followed by a drag in another would
-        // otherwise extend the first step with the second's far end.
+        // The open step has to name the same step of the timeline, not merely
+        // be open. With one drawing there was nothing else a change could be
+        // about; with several, a gesture in one followed by a gesture in
+        // another would otherwise extend the first step with the second's far
+        // end.
         let extending =
             self.open && change.coalesces() && self.edits.last().is_some_and(|edit| edit.at == at);
-        if !extending {
-            self.close();
-            document.snapshot_of(at, &mut self.before);
-        }
-        document.apply(build, change);
-        document.snapshot_of(at, &mut self.after);
-
         if extending {
+            document.apply(build, change);
             // The open step's far end follows the gesture, in place: a drag
             // lasting a second rewrites one buffer sixty times rather than
             // leaving sixty steps to take back one at a time.
             let open = self.edits.last_mut().expect("an open step is on the stack");
-            open.after.clone_from(&self.after);
+            document.feature_into(at, &mut open.after);
             return;
         }
 
-        if self.after == self.before {
+        self.close();
+        let before = document.feature(at).clone();
+        document.apply(build, change);
+        let after = document.feature(at).clone();
+        if after == before {
             return;
         }
         // Anything undone and not yet put back is gone the moment something
         // else is done — there is no longer a history in which it happened.
         self.edits.truncate(self.applied);
-        self.edits.push(Edit {
-            at,
-            before: self.before.clone(),
-            after: self.after.clone(),
-        });
+        self.edits.push(Edit { at, before, after });
         self.applied = self.edits.len();
         self.open = change.coalesces();
         self.forget_the_oldest();
@@ -182,21 +172,26 @@ impl History {
     }
 }
 
-/// One step there and back: one sketch at each end of something that was done.
+/// One step there and back: one step of the timeline at each end of something
+/// that was done.
 ///
 /// Both ends rather than one and a way to recompute the other, because there is
 /// no recomputing either — see [`History`].
 ///
-/// One sketch rather than the whole document, because an edit only ever touches
-/// one: every [`Change`] that records anything names the sketch it is about, so
-/// a step that stored the document would be storing everything that did not
-/// move alongside the one thing that did.
+/// One step of the timeline rather than the whole of it, because an edit only
+/// ever touches one: every [`Change`] that records anything names the step it
+/// is about, so a record of the document would be storing everything that did
+/// not move alongside the one thing that did.
+///
+/// A whole [`Feature`] rather than a sketch, because not every edit is to one:
+/// moving a plane rewrites a number in a datum, and a record that could only
+/// hold sketches would have nowhere to put it.
 #[derive(Debug)]
 struct Edit {
-    /// The sketch this step is about.
+    /// The step this is about.
     at: FeatureId,
-    before: Snapshot,
-    after: Snapshot,
+    before: Feature,
+    after: Feature,
 }
 
 #[cfg(test)]

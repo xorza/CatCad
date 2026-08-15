@@ -7,8 +7,8 @@ use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
 use crate::model::Models;
+use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Timeline};
-use silverpoint::Snapshot;
 
 /// A drawing, the solids modelled beside it, and how it is being looked at —
 /// everything a session would have to write down to be opened again.
@@ -92,9 +92,15 @@ impl Document {
         self.timeline.edit(at)
     }
 
-    /// Take down where the sketch at `at` stands, so it can be put back later.
-    pub(crate) fn snapshot_of(&self, at: FeatureId, into: &mut Snapshot) {
-        self.timeline.drawing(at).snapshot_into(into);
+    /// What the step at `at` holds, for a history taking it down.
+    pub(crate) fn feature(&self, at: FeatureId) -> &Feature {
+        self.timeline.feature(at)
+    }
+
+    /// The same, written over `into` rather than handed back — so a history
+    /// rewriting one step's far end every frame refills what it already has.
+    pub(crate) fn feature_into(&self, at: FeatureId, into: &mut Feature) {
+        into.clone_from(self.timeline.feature(at));
     }
 
     /// The drawing as `build` last left it.
@@ -141,8 +147,18 @@ impl Document {
     /// two ways a document changes are two calls on the document. An undo is the
     /// path that most wants watching — it is the one that can make geometry stop
     /// existing — and it would have been the one going round the back.
-    pub(crate) fn restore(&mut self, build: &mut Build, at: FeatureId, snapshot: &Snapshot) {
-        self.sketching(at).restore(build, snapshot);
+    pub(crate) fn restore(&mut self, build: &mut Build, at: FeatureId, was: &Feature) {
+        self.timeline.put_back(at, was);
+        // Restored rather than re-solved, and then measured. Solving from the
+        // restored geometry would derive the report through the one path that
+        // already produces one, but a solve is free to *move* what it is given
+        // — and an undo that landed the drawing near where it was rather than
+        // on it would not be an undo. A plane has nothing to measure: putting
+        // its number back is the whole of it.
+        match was {
+            Feature::Sketch { .. } => self.sketching(at).measured(build),
+            Feature::Plane(_) => build.revised(),
+        }
     }
 
     /// Land what `change` asks for.
@@ -193,6 +209,13 @@ impl Document {
             } => self.sketching(sketch).resize(build, constraint, to),
             Change::Delete { sketch, entity } => self.sketching(sketch).remove(build, entity),
             Change::Tidy { sketch } => self.sketching(sketch).remove_duplicates(build),
+            // Nothing to solve. The sketches on this plane are in its own
+            // coordinates and say exactly what they said before; all that has
+            // changed is where they land, which nothing keeps a copy of.
+            Change::MovePlane { plane, to } => {
+                self.timeline.offset(plane, to);
+                build.revised();
+            }
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),

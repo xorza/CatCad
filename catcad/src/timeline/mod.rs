@@ -64,13 +64,59 @@ impl Timeline {
     pub(crate) fn plane(&self, at: FeatureId) -> Plane {
         match self.feature(at) {
             Feature::Plane(Datum::Ground) => Plane::GROUND,
+            Feature::Plane(Datum::Offset { from, by }) => {
+                let base = self.plane(*from);
+                Plane {
+                    origin: base.origin + base.normal() * *by,
+                    ..base
+                }
+            }
             Feature::Sketch { .. } => not_a_plane(at),
         }
     }
 
+    /// Take the plane at `at` to a new offset from the one it is measured off.
+    ///
+    /// Only a datum measured off another has an offset to take: the ground is
+    /// where the world is, and a caller asking to move it has mistaken a plane
+    /// for the world.
+    pub(crate) fn offset(&mut self, at: FeatureId, to: f64) {
+        let Feature::Plane(Datum::Offset { by, .. }) = self.feature_mut(at) else {
+            panic!("{at:?} does not name a plane that can be moved");
+        };
+        *by = to;
+    }
+
+    /// What the step at `at` holds.
+    pub(crate) fn feature(&self, at: FeatureId) -> &Feature {
+        self.step(at)
+    }
+
+    /// The plane the sketch at `at` is drawn on, if it is one that can be
+    /// moved.
+    ///
+    /// `None` for a sketch on the ground, which is where the world is rather
+    /// than somewhere a plane was put.
+    pub(crate) fn movable(&self, at: FeatureId) -> Option<Movable> {
+        let on = self.sketch_plane(at);
+        match self.step(on) {
+            Feature::Plane(Datum::Offset { by, .. }) => Some(Movable { plane: on, by: *by }),
+            Feature::Plane(Datum::Ground) => None,
+            Feature::Sketch { .. } => not_a_plane(on),
+        }
+    }
+
+    /// Put the step at `at` back the way `was` found it.
+    ///
+    /// Written over in place rather than assigned, so an undo of a drag refills
+    /// the arenas a sketch holds — see [`Feature`]'s own `clone_from`.
+    pub(crate) fn put_back(&mut self, at: FeatureId, was: &Feature) {
+        self.feature_mut(at).clone_from(was);
+    }
+
     /// The sketch `at` names, and the plane it lies on.
     pub(crate) fn drawing(&self, at: FeatureId) -> Drawing<'_> {
-        let Feature::Sketch { on, sketch } = self.feature(at) else {
+        let Feature::Sketch { on, sketch } = self.step(at) else {
             not_a_sketch(at);
         };
         Drawing::new(sketch, self.plane(*on))
@@ -114,14 +160,14 @@ impl Timeline {
 
     /// Which plane the sketch at `at` is drawn on.
     fn sketch_plane(&self, at: FeatureId) -> FeatureId {
-        match self.feature(at) {
+        match self.step(at) {
             Feature::Sketch { on, .. } => *on,
             Feature::Plane(_) => not_a_sketch(at),
         }
     }
 
     /// What `id` names.
-    fn feature(&self, id: FeatureId) -> &Feature {
+    fn step(&self, id: FeatureId) -> &Feature {
         &self
             .steps
             .iter()
@@ -157,6 +203,17 @@ fn not_a_sketch(at: FeatureId) -> ! {
 
 fn not_a_plane(at: FeatureId) -> ! {
     panic!("{at:?} names a sketch rather than a plane");
+}
+
+/// A plane that can be moved, and how far off it currently sits.
+///
+/// What a control offering to move one needs, and the whole of it: the handle
+/// to name in the change it raises, and the number to show while it is being
+/// scrubbed.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Movable {
+    pub(crate) plane: FeatureId,
+    pub(crate) by: f64,
 }
 
 /// One step of a timeline, and the handle that names it.

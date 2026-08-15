@@ -43,23 +43,34 @@ pub(crate) fn document(build: &mut Build) -> Document {
         let base = plane.point(at).as_vec3() + Vec3::Y * size * 0.5;
         solids.push(Object::new(Mesh::cube(size)).at(base).colored(color));
     }
-    // Three steps: the ground to draw on, and two drawings sharing it. The
-    // plane is named rather than carried by either, so both would follow it
-    // anywhere it went.
+    // Four steps: the ground, a drawing on it, a plane held clear of the
+    // ground, and a drawing on that. Neither sketch carries a plane — each
+    // names one — so the second follows its datum wherever that goes, and
+    // moving the datum is retyping one number.
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::Ground));
     timeline.add(Feature::Sketch {
         on: ground,
         sketch: sketch(),
     });
+    let shelf = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: SHELF,
+    }));
     timeline.add(Feature::Sketch {
-        on: ground,
+        on: shelf,
         sketch: aside(),
     });
     Document::new(build, timeline, solids)
 }
 
-/// A second drawing, in the corner of the ground the first leaves free.
+/// How far the demo's second plane is held off the ground.
+///
+/// Enough to read as a separate plane at the angle the view opens at, and not
+/// so much that what is drawn on it leaves the frame.
+const SHELF: f64 = 2.2;
+
+/// A second drawing, on the shelf held clear of the ground the first lies on.
 ///
 /// Small on purpose. What it is *for* is being another sketch: something to
 /// click into, and something drawn as ground while you are working in its
@@ -72,9 +83,9 @@ pub(crate) fn document(build: &mut Build) -> Document {
 /// while the base holds.
 fn aside() -> Sketch {
     let mut sketch = Sketch::default();
-    let left = sketch.add_point(DVec2::new(6.9, -1.9));
-    let right = sketch.add_point(DVec2::new(9.3, -1.6));
-    let apex = sketch.add_point(DVec2::new(8.1, -0.5));
+    let left = sketch.add_point(DVec2::new(5.0, -2.2));
+    let right = sketch.add_point(DVec2::new(7.4, -1.9));
+    let apex = sketch.add_point(DVec2::new(6.2, -0.8));
     sketch.fix(left);
     sketch.add_segment(left, right);
     sketch.add_segment(right, apex);

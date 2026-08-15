@@ -149,6 +149,16 @@ pub(crate) enum Change {
     /// reason: a replayed pass would otherwise delete whatever is picked out by
     /// the time it ran, which after the first pass is nothing.
     Delete { sketch: FeatureId, entity: Entity },
+    /// Take a plane to a new offset from the one it is measured off.
+    ///
+    /// Names the offset it wants rather than a step to take, like everything
+    /// here: a drag sends one of these a frame and a replayed pass restates the
+    /// same number, where "a little further" would travel twice over.
+    ///
+    /// The one change that edits no sketch. What it moves is where the sketches
+    /// hanging off that plane *land*, and none of them says anything different
+    /// for it — see [`Datum::Offset`](crate::timeline::feature::Datum).
+    MovePlane { plane: FeatureId, to: f64 },
     /// Turn the camera about what it is looking at, in radians.
     Orbit { yaw: f32, pitch: f32 },
     /// Move the camera in or out by a multiple of how far off it is.
@@ -178,23 +188,26 @@ impl Change {
     /// value once. Both are closed by a [`Step::Release`], which the widget
     /// driving them raises when its gesture ends.
     pub(crate) fn coalesces(self) -> bool {
-        matches!(self, Change::Drag { .. } | Change::Resize { .. })
+        matches!(
+            self,
+            Change::Drag { .. } | Change::Resize { .. } | Change::MovePlane { .. }
+        )
     }
 
-    /// Which sketch this is about, or `None` where it is about the camera.
+    /// Which step of the timeline this is about, or `None` where it is about
+    /// the camera.
     ///
     /// What the history records a step against — see
     /// [`History::edit`](crate::history::History). The camera is not the
-    /// drawing, so turning it names no sketch and there is nothing to take
-    /// back.
+    /// document, so turning it names no step and there is nothing to take back.
     ///
     /// A match rather than a comparison of before and after, which is what this
-    /// used to be. Naming the sketch is what a document holding several needs
-    /// of every edit, and once an edit names one there is nothing to compare a
-    /// camera move *against*. What the exhaustive match buys back is that a
-    /// variant added later cannot quietly land on either side: the compiler
-    /// asks which it is.
-    pub(crate) fn sketch(self) -> Option<FeatureId> {
+    /// used to be. Naming the step is what a document of several needs of every
+    /// edit, and once an edit names one there is nothing to compare a camera
+    /// move *against*. What the exhaustive match buys back is that a variant
+    /// added later cannot quietly land on either side: the compiler asks which
+    /// it is.
+    pub(crate) fn feature(self) -> Option<FeatureId> {
         match self {
             Change::Drag { sketch, .. }
             | Change::AddPoint { sketch, .. }
@@ -204,6 +217,7 @@ impl Change {
             | Change::Resize { sketch, .. }
             | Change::Tidy { sketch }
             | Change::Delete { sketch, .. } => Some(sketch),
+            Change::MovePlane { plane, .. } => Some(plane),
             Change::Orbit { .. }
             | Change::Dolly { .. }
             | Change::Pan { .. }
