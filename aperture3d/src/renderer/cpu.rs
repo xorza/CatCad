@@ -401,13 +401,16 @@ impl Triangles {
         // Both marks taken, not either: `take_dirty` clears the batch's, and one
         // left behind is one that fires again next frame.
         let moved = objects.take_dirty();
-        if moved {
+        // Only a sorted pass ever reads the centres, and measuring them is a
+        // walk of every vertex rather than of the objects — so an opaque pass
+        // does not pay for an answer it will not ask for.
+        if moved && matches!(order, Order::BackToFront(_)) {
             self.remeasure(objects);
         }
         // Asked every frame and answering `false` on almost all of them: a
         // camera turning through a view where nothing changes places leaves the
         // triangle list exactly as the GPU already has it.
-        let resorted = self.resort(order);
+        let resorted = self.resort(objects.len(), order);
         if moved | relight | resorted {
             self.flatten(objects, highlights);
             self.dirty = true;
@@ -435,9 +438,9 @@ impl Triangles {
     /// Built in scratch and compared rather than sorted in place, because the
     /// answer is what decides whether the list is flattened again — and sorting
     /// in place would destroy the very thing being compared against.
-    fn resort(&mut self, order: Order) -> bool {
+    fn resort(&mut self, count: usize, order: Order) -> bool {
         self.next.clear();
-        self.next.extend(0..self.centres.len() as u32);
+        self.next.extend(0..count as u32);
         if let Order::BackToFront(eye) = order {
             let centres = &self.centres;
             // Descending, so the farthest is drawn first. Squared distance,
@@ -482,11 +485,10 @@ impl Triangles {
             objects.iter().map(|o| o.mesh.vertices.len()).sum(),
             objects.iter().map(|o| o.mesh.indices.len()).sum(),
         );
-        // Lifted out for the walk and put back after it, so the order can be
-        // read while the lists it decides are being written.
-        let order = std::mem::take(&mut self.order);
-        for &at in &order {
-            let object = &objects[at as usize];
+        for step in 0..self.order.len() {
+            // Read out as a number rather than held as a borrow, so the lists
+            // this order decides can be written while it is being walked.
+            let object = &objects[self.order[step] as usize];
             // Normals survive non-uniform scale only under the inverse
             // transpose; it's once per object, so the generality is free.
             let normal_matrix = Mat3::from_mat4(object.transform).inverse().transpose();
@@ -506,7 +508,6 @@ impl Triangles {
             });
             self.extend(vertices, &object.mesh.indices);
         }
-        self.order = order;
     }
 
     /// Empty it, keeping whatever room it has already grown to.

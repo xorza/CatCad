@@ -28,6 +28,26 @@ fn overrides(spec: &PassSpec) -> [(&'static str, f64); 3] {
     ]
 }
 
+/// Above this an opacity counts as solid.
+///
+/// Just under 1 rather than exactly it. Testing a float for equality with 1 is
+/// a fragile way to ask a question this consequential — it decides whether a
+/// pass is composited and whether its objects are sorted — and an alpha this
+/// near solid is worth about two levels of eight-bit colour, which is not worth
+/// a blend and a back-to-front walk to deliver.
+const OPAQUE: f32 = 0.99;
+
+/// Whether `opacity` has to be mixed with what is already in the target.
+///
+/// Asked in two places — by the pipeline deciding whether to take a blend, and
+/// by the pass deciding what order to hand its objects over in — and it has to
+/// be the same answer both times, or a pass is composited without being sorted
+/// or sorted without being composited. Which is why it is one function rather
+/// than one number written twice.
+pub(super) fn translucent(opacity: f32) -> bool {
+    opacity < OPAQUE
+}
+
 pub(super) struct PassSpec {
     /// Names the pipeline, both its entry points and all three of its buffers:
     /// `mesh` finds `mesh_vs` and `mesh_fs`, and labels `aperture.mesh.records`
@@ -77,9 +97,15 @@ pub(super) struct PassSpec {
     /// How opaque the pass draws, where 1 is solid.
     ///
     /// Only the mesh passes read it; the overlays are shapes rather than
-    /// regions and shade their own coverage. A pass under 1 wants a `blend` to
-    /// go with it, and wants the passes it should be seen through drawn before
-    /// it — which for the faces is what [`Order`](super::cpu::Order) settles.
+    /// regions and shade their own coverage.
+    ///
+    /// Anything under 1 is the whole statement, and the two things that follow
+    /// from it follow on their own: the pipeline takes a blend without being
+    /// told, above, and the objects are drawn back to front — see
+    /// [`Gpu::faces_order`](super::gpu::Gpu::faces_order). Stating it in one
+    /// place is the point. A pass composited as though it were solid, or drawn
+    /// in the order it happens to be held in, looks almost right, and "almost
+    /// right" is what a second declaration somewhere else buys.
     pub(super) opacity: f32,
     /// Whether the pass writes what it draws into the depth buffer.
     ///
@@ -153,7 +179,14 @@ impl Pipelines<'_> {
                     compilation_options,
                     targets: &[Some(wgpu::ColorTargetState {
                         format: self.target_format,
-                        blend: spec.blend,
+                        // Derived where it is not stated, so a pass cannot ask
+                        // to be seen through and then be composited as though it
+                        // were solid. Text states its own because it is opaque
+                        // ink whose *coverage* is soft, which is a different
+                        // thing from a surface you can see through.
+                        blend: spec.blend.or_else(|| {
+                            translucent(spec.opacity).then_some(wgpu::BlendState::ALPHA_BLENDING)
+                        }),
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                 }),

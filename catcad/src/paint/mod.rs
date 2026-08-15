@@ -89,11 +89,14 @@ const DORMANT_FACE: Vec3 = Vec3::new(0.11, 0.20, 0.29);
 ///
 /// Stated at the strength it has to survive being *seen through*, which is what
 /// makes it look so much bluer here than it does on screen: a face is drawn
-/// translucent, so what lands is a little over half of this mixed into whatever
-/// it covers. Measured against the demo's slab it comes out sixteen levels of
-/// red and fourteen of blue away from bare ground — a shade more separation
-/// than it had when it was opaque, and none of it borrowed from the geometry's
-/// own colours.
+/// translucent, so what lands is a fraction of this mixed into whatever it
+/// covers. Measured against the demo's slab it comes out thirteen levels of red
+/// and eleven of blue away from bare ground — about what it was worth when it
+/// was opaque, and none of it borrowed from the geometry's own colours.
+///
+/// How much of it lands is `FACE_OPACITY`'s, not this file's. Lower that and
+/// this wants restating, because the two are one decision about how a region
+/// reads and only look like two.
 const FACE: Vec3 = Vec3::new(0.18, 0.32, 0.46);
 
 /// What a shape still being drawn is drawn in — a grey that belongs to none of

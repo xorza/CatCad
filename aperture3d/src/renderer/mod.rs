@@ -181,15 +181,15 @@ impl Renderer {
         let relight = std::mem::take(relight);
         cpu.solids
             .refresh(&mut scene.solids, highlights, relight, Order::Given);
-        // Back to front, because the faces pass is the one that blends — see
-        // [`Order`]. Read from the camera the frame will actually be drawn
-        // through, which is this one: a scene laid out against the last camera
-        // would sort a drag one frame behind the view.
+        // Whatever the faces' own opacity asks for — see [`Gpu::faces_order`].
+        // The camera is this frame's rather than the last: a scene sorted
+        // against the camera it was drawn through a frame ago would lag a drag
+        // by one.
         cpu.faces.refresh(
             &mut scene.faces,
             highlights,
             relight,
-            Order::BackToFront(camera.eye()),
+            Gpu::faces_order(camera.eye()),
         );
         cpu.curves
             .refill_from(&mut scene.curves, highlights, relight);

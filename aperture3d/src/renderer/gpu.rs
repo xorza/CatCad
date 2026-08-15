@@ -2,14 +2,15 @@
 
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::cpu::Records;
+use crate::renderer::cpu::{Order, Records};
+use crate::renderer::pass;
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, PointInstance, Record, RingInstance,
 };
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::renderer::uniforms::Uniforms;
-use glam::UVec2;
+use glam::{UVec2, Vec3};
 
 /// The depth ladder every layer of a drawing stands on, in steps of depth
 /// resolution — see [`PassSpec::depth_bias`](super::pass::PassSpec).
@@ -255,6 +256,25 @@ pub(super) struct Gpu {
 }
 
 impl Gpu {
+    /// What order the faces have to reach the target in, seen from `eye`.
+    ///
+    /// Read off the one thing that decides it. A pass you can see through has to
+    /// be drawn after whatever shows through it, because blending mixes with
+    /// what is *already* there — so this and the blend the pipeline takes are
+    /// two consequences of `FACE_OPACITY` rather than two things to remember.
+    /// Made opaque again, both go away together.
+    ///
+    /// Here rather than where it is called: the constant is this file's, and a
+    /// caller deciding for itself is exactly the second declaration this exists
+    /// to avoid.
+    pub(super) fn faces_order(eye: Vec3) -> Order {
+        if pass::translucent(FACE_OPACITY) {
+            Order::BackToFront(eye)
+        } else {
+            Order::Given
+        }
+    }
+
     /// Every shader in the crate, compiled as one module.
     ///
     /// One module out of six files. WGSL has no include, so the choice is this
@@ -388,7 +408,7 @@ impl Gpu {
             indices: None,
             cull: None,
             alpha_to_coverage: false,
-            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+            blend: None,
             depth_bias: FACE_BIAS,
             opacity: FACE_OPACITY,
             depth_write: true,
