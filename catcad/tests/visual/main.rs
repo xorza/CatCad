@@ -1126,3 +1126,167 @@ fn the_type_lands_inside_the_box_a_click_is_tested_against() {
         extent.x,
     );
 }
+
+/// Type lying in a plane keeps its ink when the plane's own horizon runs
+/// through it.
+///
+/// Seen near enough to edge-on, a sketch plane's vanishing line crosses the
+/// middle of the type standing on it. Depth over a plane is an exact affine
+/// function of screen position — which is how an overlay is glued to the
+/// surface it labels — but only on the side of that line where the plane is in
+/// front of the eye. Past it the same arithmetic keeps answering, for points
+/// *behind* the camera, and reversed depth carries those out of the volume and
+/// takes the fragments with them. A label loses the half of every glyph past
+/// the horizon, and at the shallowest angles loses all of it.
+///
+/// Nothing is drawn behind the type here — no faces, no solids, nothing to be
+/// occluded by. That is the whole point: the ink went missing with no surface
+/// involved and no `z_offset` able to reach it, because what was thrown away
+/// was never depth-tested.
+///
+/// Measured against the same run asking for no plane at all, which is the one
+/// comparison that isolates it. Exactly equal rather than nearly: the two
+/// frames differ in one instance field, the type is blended rather than
+/// depth-written, and with nothing to occlude it every fragment survives — so
+/// naming a plane has to cost nothing.
+#[test]
+fn type_lying_in_a_plane_survives_its_own_horizon() {
+    /// The demo's constraint marks alone, at `pitch`, either lying in their
+    /// sketch plane or carrying no plane at all.
+    fn ink(pitch: f32, in_plane: bool) -> u32 {
+        let painted = |drawn: bool| {
+            let app = CatCad::build();
+            {
+                let mut renderer = app.renderer().borrow_mut();
+                edge_on(pitch)(renderer.camera_mut());
+                // Nearer than the grazing test stands, which is what the report
+                // this was written from showed: the shallower the angle the
+                // closer the horizon runs to the type, and closing in puts it
+                // through the middle of the run rather than off past its end.
+                renderer.camera_mut().distance = 5.0;
+                let scene = renderer.scene_mut();
+                scene.solids.clear();
+                scene.faces.clear();
+                scene.curves.clear();
+                scene.rings.clear();
+                scene.points.clear();
+                for text in scene.texts.iter_mut() {
+                    if !in_plane {
+                        text.plane_normal = None;
+                    }
+                }
+                if !drawn {
+                    scene.texts.clear();
+                }
+            }
+            let mut pane = ScenePane {
+                view: app.renderer().clone(),
+            };
+            capture(UVec2::new(800, 628), &mut pane)
+        };
+        // Differenced against the same frame with the type taken away, so what
+        // is counted is what the type put down and nothing about its colour.
+        let (with, without) = (painted(true), painted(false));
+        let mut ink = 0;
+        for y in 0..with.size.y {
+            for x in 0..with.size.x {
+                if with.pixel(UVec2::new(x, y)) != without.pixel(UVec2::new(x, y)) {
+                    ink += 1;
+                }
+            }
+        }
+        ink
+    }
+
+    // Down to a thousandth of a radian, where the horizon sits inside the run
+    // and the whole of it used to go. The shallowest of these deposited nothing
+    // at all before the depth read off the plane was held to the volume.
+    for pitch in [0.001f32, 0.005, 0.02, 0.05] {
+        let (planed, flat) = (ink(pitch, true), ink(pitch, false));
+        assert!(
+            flat > 200,
+            "at pitch {pitch} the run deposits only {flat} px even flat, so this measures nothing"
+        );
+        assert_eq!(
+            planed, flat,
+            "at pitch {pitch} type lying in its plane deposits {planed} px against {flat} flat"
+        );
+    }
+}
+
+/// A rim seen along its own plane thins away instead of fanning out across the
+/// screen.
+///
+/// A ring is widened *in its own plane* rather than in screen space, which is
+/// what keeps every vertex on the plane and its depth exact. The width of that
+/// band is worked out backwards, from how many pixels a world unit is worth at
+/// the rim — and as the plane turns edge-on that rate collapses, so covering one
+/// pixel of stroke asks for a band hundreds of world units across. What the
+/// projection then leaves of a circle a centimetre wide is a wedge fanning out
+/// over half the viewport.
+///
+/// Measured as the ink a free rim puts down, in its own colour. Nothing else in
+/// the demo wears it: the free edges are the same orange, so the rim is measured
+/// against the frame that has every one of them and no rim.
+#[test]
+fn a_rim_seen_edge_on_thins_rather_than_fanning_out() {
+    /// Pixels wearing the colour a free rim is drawn in, with the rim either
+    /// drawn or taken away.
+    fn orange(pitch: f32, rims: bool) -> u32 {
+        let app = CatCad::build();
+        {
+            let mut renderer = app.renderer().borrow_mut();
+            edge_on(pitch)(renderer.camera_mut());
+            // Close enough that a band running away in world units fills the
+            // frame rather than passing off the side of it.
+            renderer.camera_mut().distance = 5.0;
+            if !rims {
+                renderer.scene_mut().rings.clear();
+            }
+        }
+        let mut pane = ScenePane {
+            view: app.renderer().clone(),
+        };
+        let frame = capture(UVec2::new(920, 520), &mut pane);
+        let mut ink = 0;
+        for y in 0..frame.size.y {
+            for x in 0..frame.size.x {
+                let [r, g, b, _] = frame.pixel(UVec2::new(x, y));
+                // The free-geometry orange. Tight enough to leave out the
+                // demo's orange cube, which carries far more blue.
+                if r > 200 && (150..=220).contains(&g) && b < 110 {
+                    ink += 1;
+                }
+            }
+        }
+        ink
+    }
+
+    // Down to half a thousandth of a radian, which puts the eye all but exactly
+    // in the sketch plane. The demo's hole is the rim that shows it: no radius
+    // constraint, so it is drawn free and wears the colour counted above.
+    // Nowhere near a tuned number: the runaway band deposited 34,387 px of
+    // orange at the first of these, and a rim held to its collar deposits 15.
+    // Anything between says the ceiling is there and is not merely large.
+    for pitch in [0.0005f32, 0.002] {
+        let (drawn, without) = (orange(pitch, true), orange(pitch, false));
+        let rim = drawn as i64 - without as i64;
+        assert!(
+            rim < 400,
+            "at pitch {pitch} the rim deposits {rim} px of orange over the {without} the \
+             free edges leave, so it fanned out rather than thinning away"
+        );
+    }
+
+    // And it is still a rim at an angle it can be seen at, so the ceiling above
+    // is not simply switching the ring off — which is the way this test would
+    // otherwise pass on a renderer that had stopped drawing circles. A rim of
+    // the demo's radius seen from here is hundreds of pixels of stroke, so the
+    // floor is as far from tuned as the ceiling.
+    let (drawn, without) = (orange(0.5, true), orange(0.5, false));
+    assert!(
+        drawn as i64 - without as i64 > 100,
+        "at a pitch of 0.5 the rim deposits only {} px, so it is not being drawn at all",
+        drawn as i64 - without as i64
+    );
+}

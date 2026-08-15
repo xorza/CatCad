@@ -18,6 +18,12 @@ override RING_STEPS: u32;
 // the two look like one constant.
 const MIN_PX_PER_WORLD: f32 = 1e-3;
 
+// Ceiling on how far the band may reach past the rim, as a multiple of the
+// radius — see where it is applied. Two rather than something tighter because
+// a small circle carrying a wide stroke legitimately wants a band wider than
+// itself, and this has only to stop the runaway.
+const MAX_COVER: f32 = 2.0;
+
 // How far a clip-space direction `d` moves the screen, in pixels, at a point
 // `at` whose own `w` is `w`.
 //
@@ -102,7 +108,16 @@ fn ring_vs(
     // How far past the rim the stroke reaches, in the plane. One pixel more
     // than half a width covers the edge the fragment stage fades over.
     let half_px = half_width * u.raster_scale;
-    let cover = (half_px + 1.0) * world_per_px * SQRT_2;
+    // Held to a collar rather than allowed to run away with the reciprocal.
+    // As the plane turns edge-on the rim covers no screen area, so covering one
+    // pixel of stroke asks for a band hundreds of world units wide — and what
+    // the projection leaves of *that* is a wedge fanning out across the screen
+    // from a circle a centimetre across. Past this point no in-plane band can
+    // cover the stroke anyway: the direction its width is measured across is
+    // the one the projection has flattened, and only a screen-space widening
+    // could answer, which is the thing a ring deliberately does not do. So the
+    // band stops growing and the rim thins out honestly instead.
+    let cover = min((half_px + 1.0) * world_per_px * SQRT_2, radius * MAX_COVER);
     // The band's outer edge is a chord, not an arc, so it dips inside the
     // circle it was built on by the time it reaches the midpoint between two
     // steps. Pushing the corners out by exactly that ratio puts the midpoint
