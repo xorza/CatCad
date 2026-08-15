@@ -13,13 +13,13 @@ use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Entity, Freedom, Segment, SegmentId};
 use std::fmt::Write;
 
+use crate::build::Build;
 use crate::document::Document;
 use crate::model::Model;
 use crate::names::Names;
 use crate::paint::layout::{Layout, Sheets};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
-use crate::workshop::Workshop;
 
 pub(crate) mod layout;
 
@@ -160,11 +160,11 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 ///
 /// The solids are written here rather than by the document, so that a document
 /// says what it holds and one module decides what all of it looks like.
-pub(crate) fn scene(document: &Document, workshop: &Workshop, layout: &mut Layout) -> Scene {
+pub(crate) fn scene(document: &Document, build: &Build, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
     write_solids(document.solids(), &mut scene.solids);
     // No band. Nothing can be half-drawn in a document nobody has looked at yet.
-    redraw(document.model(workshop), layout, None, &mut scene);
+    redraw(document.model(build), layout, None, &mut scene);
     scene
 }
 

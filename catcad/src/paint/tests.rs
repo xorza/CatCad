@@ -1,9 +1,9 @@
 use super::*;
+use crate::build::Build;
 use crate::demo;
 use crate::model::Model;
 use crate::part::Part;
 use crate::timeline::Timeline;
-use crate::workshop::Workshop;
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::Sketch;
@@ -12,14 +12,14 @@ use silverpoint::Sketch;
 #[derive(Debug)]
 struct Drawn {
     timeline: Timeline,
-    workshop: Workshop,
+    build: Build,
 }
 
 impl Drawn {
     /// The two halves as the writers want them.
     fn model(&self) -> Model<'_> {
-        let drawing = self.timeline.drawing(self.timeline.only_sketch());
-        Model::new(drawing, &self.workshop)
+        let at = self.timeline.only_sketch();
+        Model::new(self.timeline.drawing(at), &self.build, at)
     }
 }
 
@@ -29,10 +29,10 @@ impl Drawn {
 /// unsolved guess is not where it will stand — which is the drawing's own job
 /// to arrange, so this asks for one rather than assembling the parts.
 fn drawn(sketch: Sketch) -> Drawn {
-    let mut workshop = Workshop::default();
+    let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
-    timeline.edit(timeline.only_sketch()).opened(&mut workshop);
-    Drawn { timeline, workshop }
+    timeline.edit(timeline.only_sketch()).opened(&mut build);
+    Drawn { timeline, build }
 }
 
 #[test]
@@ -280,9 +280,9 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
 /// one call produces both halves.
 #[test]
 fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
-    let mut workshop = Workshop::default();
-    let document = demo::document(&mut workshop);
-    let picture = scene(&document, &workshop, &mut Layout::default());
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let picture = scene(&document, &build, &mut Layout::default());
 
     // The slab and the three boxes standing on it.
     assert_eq!(picture.solids.len(), 4);
@@ -341,10 +341,10 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
     let second = sketch.add_segment(b, c);
     let circle = sketch.add_circle(c, 2.0);
     let other = sketch.add_circle(a, 1.0);
-    let mut workshop = Workshop::default();
+    let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
     let at = timeline.only_sketch();
-    timeline.edit(at).opened(&mut workshop);
+    timeline.edit(at).opened(&mut build);
     let drawing = timeline.drawing(at);
 
     let mut every = Vec::new();
@@ -377,9 +377,9 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
 /// go wrong is a whole step being skipped rather than a field being mis-set.
 #[test]
 fn the_faces_a_drawing_encloses_are_written_as_sheets() {
-    let mut workshop = Workshop::default();
-    let document = demo::document(&mut workshop);
-    let scene = scene(&document, &workshop, &mut Layout::default());
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let scene = scene(&document, &build, &mut Layout::default());
 
     // The demo draws a rectangle with a circle inside it, and an eye at the end
     // of the arm: the ring between rectangle and circle, the circle's own disc,

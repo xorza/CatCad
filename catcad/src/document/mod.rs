@@ -2,12 +2,12 @@
 
 use aperture::{Bounds, Camera, Object};
 
+use crate::build::Build;
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
 use crate::model::Model;
 use crate::timeline::Timeline;
-use crate::workshop::Workshop;
 use silverpoint::Snapshot;
 
 /// A drawing, the solids modelled beside it, and how it is being looked at —
@@ -46,7 +46,7 @@ impl Document {
     /// has to fit on screen is what will be *drawn*, and that is not known
     /// until the document has been raised. Whoever raises one is who can
     /// measure it, so whoever raises one is who aims the camera.
-    pub(crate) fn new(workshop: &mut Workshop, timeline: Timeline, solids: Vec<Object>) -> Self {
+    pub(crate) fn new(build: &mut Build, timeline: Timeline, solids: Vec<Object>) -> Self {
         let mut document = Self {
             timeline,
             solids,
@@ -55,7 +55,7 @@ impl Document {
         // A sketch arrives as coordinates its constraints have not been checked
         // against, whether they were typed in or read from a file, so opening a
         // document is a solve like any other.
-        document.sketching().opened(workshop);
+        document.sketching().opened(build);
         document
     }
 
@@ -73,14 +73,15 @@ impl Document {
         self.timeline.edit(at)
     }
 
-    /// The drawing as `workshop` last left it.
+    /// The drawing as `build` last left it.
     ///
     /// The pairing everything that reads the model reads it through — see
-    /// [`Model`]. Here because a caller holding a document and a workshop is
+    /// [`Model`]. Here because a caller holding a document and a build is
     /// holding both halves already, and naming the type to put them together
     /// would be ceremony.
-    pub(crate) fn model<'a>(&'a self, workshop: &'a Workshop) -> Model<'a> {
-        Model::new(self.drawing(), workshop)
+    pub(crate) fn model<'a>(&'a self, build: &'a Build) -> Model<'a> {
+        let at = self.timeline.only_sketch();
+        Model::new(self.timeline.drawing(at), build, at)
     }
 
     /// The solids modelled alongside the drawing.
@@ -115,8 +116,8 @@ impl Document {
     /// two ways a document changes are two calls on the document. An undo is the
     /// path that most wants watching — it is the one that can make geometry stop
     /// existing — and it would have been the one going round the back.
-    pub(crate) fn restore(&mut self, workshop: &mut Workshop, snapshot: &Snapshot) {
-        self.sketching().restore(workshop, snapshot);
+    pub(crate) fn restore(&mut self, build: &mut Build, snapshot: &Snapshot) {
+        self.sketching().restore(build, snapshot);
     }
 
     /// Land what `change` asks for.
@@ -139,22 +140,22 @@ impl Document {
     /// asked for, and what the history puts back. Everything else a document
     /// hands out is `&self`.
     ///
-    /// `workshop` is the caller's. Solving is what an edit to a drawing *is*,
+    /// `build` is the caller's. Solving is what an edit to a drawing *is*,
     /// and a solve wants room to work in — and leaves a report behind — that is
     /// worth keeping across a drag and worth nothing in a saved file. So both
     /// belong to whoever is doing the editing, and the document borrows them
     /// for the length of the call. An edit that could happen without one in
     /// hand would be an edit that left its report stale.
-    pub(crate) fn apply(&mut self, workshop: &mut Workshop, change: Change) {
+    pub(crate) fn apply(&mut self, build: &mut Build, change: Change) {
         match change {
-            Change::Drag { grip, to } => self.sketching().drag_to(workshop, grip, to),
-            Change::AddPoint(at) => self.sketching().add_point(workshop, at),
-            Change::AddSegment { from, to } => self.sketching().add_segment(workshop, from, to),
-            Change::AddCircle { center, rim } => self.sketching().add_circle(workshop, center, rim),
-            Change::Constrain(constraint) => self.sketching().constrain(workshop, constraint),
-            Change::Resize { constraint, to } => self.sketching().resize(workshop, constraint, to),
-            Change::Delete(entity) => self.sketching().remove(workshop, entity),
-            Change::Tidy => self.sketching().remove_duplicates(workshop),
+            Change::Drag { grip, to } => self.sketching().drag_to(build, grip, to),
+            Change::AddPoint(at) => self.sketching().add_point(build, at),
+            Change::AddSegment { from, to } => self.sketching().add_segment(build, from, to),
+            Change::AddCircle { center, rim } => self.sketching().add_circle(build, center, rim),
+            Change::Constrain(constraint) => self.sketching().constrain(build, constraint),
+            Change::Resize { constraint, to } => self.sketching().resize(build, constraint, to),
+            Change::Delete(entity) => self.sketching().remove(build, entity),
+            Change::Tidy => self.sketching().remove_duplicates(build),
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),

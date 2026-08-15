@@ -3,38 +3,55 @@
 
 use silverpoint::{Arrangement, Outcome, Plane, Sketch};
 
+use crate::build::settled::Settled;
+use crate::build::{Build, Revision};
 use crate::drawing::Drawing;
 use crate::part::Part;
-use crate::workshop::{Revision, Workshop};
+use crate::timeline::FeatureId;
 
-/// The two halves of the model, borrowed together.
+/// A sketch and what the last solve made of it, read together.
 ///
-/// Nothing new — both fields are borrows of something the application already
-/// owns. What it is for is that the two are never apart: what a drawing *says*
-/// and what the last solve *made* of that are two readings of one moment, and a
-/// caller handed one without the other could answer out of a mix of two frames.
-/// So everything that reads the model reads it through here, and the pair
-/// travel as one argument rather than as two.
+/// Nothing new — every field is something the application already owns. What it
+/// is for is that they are never apart: what a drawing *says* and what the last
+/// solve *made* of that are two readings of one moment, and a caller handed one
+/// without the other could answer out of a mix of two frames. So everything
+/// that reads the model reads it through here, and they travel as one argument
+/// rather than as three.
+///
+/// Which is also why the build is taken whole and read here rather than picked
+/// apart by the caller: a settling and a revision that came from two different
+/// builds would be the very mix this exists to refuse.
 ///
 /// The drawing rather than the whole document, deliberately. What paints a
 /// drawing has no business with the camera looking at it or the solids standing
 /// beside it — those belong to whoever is laying out a *scene*, and are asked of
 /// the document directly by the two calls that want them.
 ///
+/// One sketch rather than all of them, likewise. A document that holds several
+/// hands out one of these apiece, and what draws them draws each in turn — so
+/// nothing below has to say *which* sketch it means.
+///
 /// Borrowed and [`Copy`], so passing one down a stack costs what passing a
 /// reference costs. A caller that wants to *write* takes the halves separately,
 /// because writing them is exactly what has to happen in an order — see
-/// [`Workshop`].
+/// [`Build`].
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Model<'a> {
     drawing: Drawing<'a>,
-    workshop: &'a Workshop,
+    settled: &'a Settled,
+    /// The document's, not this sketch's: what compares it is a picture of the
+    /// whole of it — see [`Build::revision`](crate::build::Build::revision).
+    revision: Revision,
 }
 
 impl<'a> Model<'a> {
-    /// The drawing as `workshop` last left it.
-    pub(crate) fn new(drawing: Drawing<'a>, workshop: &'a Workshop) -> Self {
-        Self { drawing, workshop }
+    /// The drawing at `at`, as `build` last left it.
+    pub(crate) fn new(drawing: Drawing<'a>, build: &'a Build, at: FeatureId) -> Self {
+        Self {
+            drawing,
+            settled: build.settled(at),
+            revision: build.revision(),
+        }
     }
 
     /// The sketch and the plane it lies on.
@@ -54,17 +71,17 @@ impl<'a> Model<'a> {
 
     /// How the last run went, and what the constraints have decided.
     pub(crate) fn outcome(self) -> &'a Outcome {
-        self.workshop.outcome()
+        self.settled.outcome()
     }
 
     /// What the drawing's curves shut in.
     pub(crate) fn arrangement(self) -> &'a Arrangement {
-        self.workshop.arrangement()
+        self.settled.arrangement()
     }
 
     /// Which version of the drawing this is.
     pub(crate) fn revision(self) -> Revision {
-        self.workshop.revision()
+        self.revision
     }
 
     /// Whether `part` is still there to be picked out.

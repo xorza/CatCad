@@ -6,6 +6,7 @@
 
 #[cfg(feature = "bench")]
 mod bench;
+mod build;
 mod demo;
 mod document;
 mod drawing;
@@ -22,7 +23,6 @@ mod selection;
 mod session;
 mod timeline;
 mod tool;
-mod workshop;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
@@ -34,6 +34,7 @@ use std::fmt;
 use palantir::{App, Configure, HostHandle, Key, Panel, Shortcut, Sizing, Ui, WindowToken};
 use silverpoint::{Entity, Removed};
 
+use crate::build::Build;
 use crate::document::Document;
 use crate::history::History;
 use crate::hud::{Hud, Shown};
@@ -43,7 +44,6 @@ use crate::scene_view::SceneView;
 use crate::selection::Selection;
 use crate::session::Session;
 use crate::tool::Tool;
-use crate::workshop::Workshop;
 
 /// Take back the last step, and put it back.
 ///
@@ -87,7 +87,7 @@ pub struct CatCad {
     /// it again: saving writes none of it and opening rebuilds it. Lent to
     /// whatever is editing, which is what keeps it in step — an edit that could
     /// happen without this in hand would be one that left it stale.
-    workshop: Workshop,
+    build: Build,
     /// What draws that, and what the pointer over it is in the middle of. Owns
     /// nothing the document would be saved without.
     view: SceneView,
@@ -110,10 +110,10 @@ impl CatCad {
 
     /// The app without a host, which is what the visual suite raises.
     pub fn build() -> Self {
-        // The one workshop, made before anything that needs one. Opening a
+        // The one build, made before anything that needs one. Opening a
         // document is a solve, so it is wanted here as much as it is per frame.
-        let mut workshop = Workshop::default();
-        let mut document = demo::document(&mut workshop);
+        let mut build = Build::default();
+        let mut document = demo::document(&mut build);
         // Laid out before it is aimed at, and measured off the view rather than
         // off the document. What has to fit on screen is what will be *drawn*,
         // and how far that reaches is aperture's to say, not this crate's: a
@@ -121,7 +121,7 @@ impl CatCad {
         // plane does not lean away from it, and a stroke's width and a marker's
         // glyph reach nowhere at all, being screen-sized. A document measuring
         // itself would be a second copy of all of that, free to drift.
-        let mut view = SceneView::new(&document, &workshop);
+        let mut view = SceneView::new(&document, &build);
         if let Some(bounds) = view.bounds() {
             document.frame(bounds);
         }
@@ -132,12 +132,12 @@ impl CatCad {
         // but so that what `build` returns already agrees with itself, and a
         // caller can measure the view it was given without recording a frame to
         // make the answer true.
-        view.settle(&document, &workshop, &Selection::default());
+        view.settle(&document, &build, &Selection::default());
         Self {
             document,
             history: History::default(),
             intents: Intents::default(),
-            workshop,
+            build,
             view,
             session: Session::default(),
             hud: Hud::default(),
@@ -220,10 +220,10 @@ impl CatCad {
     fn apply(&mut self) {
         self.session.apply(&self.intents);
         self.history
-            .apply(&mut self.document, &mut self.workshop, &self.intents);
+            .apply(&mut self.document, &mut self.build, &self.intents);
         // Last, because an undo can take geometry the session was still holding
         // on to — see [`Session::prune`].
-        self.session.prune(self.document.model(&self.workshop));
+        self.session.prune(self.document.model(&self.build));
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
@@ -231,14 +231,15 @@ impl CatCad {
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
-        let outcome = self.workshop.outcome();
+        let model = self.document.model(&self.build);
+        let outcome = model.outcome();
         Status {
             converged: outcome.converged(),
             iterations: outcome.iterations(),
             degrees_of_freedom: outcome.degrees_of_freedom(),
             redundant_constraints: outcome.redundant_constraints(),
             hovered: self.view.hovered(),
-            cleaned: self.workshop.cleaned(),
+            cleaned: self.build.cleaned(),
         }
     }
 }
@@ -351,7 +352,7 @@ impl App for CatCad {
                 self.ask(ui);
                 self.apply();
                 self.view
-                    .settle(&self.document, &self.workshop, self.session.selection());
+                    .settle(&self.document, &self.build, self.session.selection());
             });
     }
 }

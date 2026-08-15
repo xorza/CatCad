@@ -1,7 +1,7 @@
 use super::*;
+use crate::build::Build;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
-use crate::workshop::Workshop;
 use glam::{DVec2, Vec3};
 use silverpoint::{Plane, Sketch};
 
@@ -64,7 +64,7 @@ fn a_sketch_lands_where_its_plane_says_and_stores_none_of_it() {
 ///
 /// What `Document::apply` does, one level down: an edit goes through the pair
 /// the timeline hands out, so there is no way to reach a sketch without the
-/// plane it lies on or the workshop that records the solve.
+/// plane it lies on or the build that records the solve.
 #[test]
 fn an_edit_through_the_timeline_reaches_the_sketch_it_names() {
     let mut sketch = Sketch::default();
@@ -72,13 +72,13 @@ fn an_edit_through_the_timeline_reaches_the_sketch_it_names() {
     let b = sketch.add_point(DVec2::new(2.0, 0.0));
     sketch.add_segment(a, b);
 
-    let mut workshop = Workshop::default();
+    let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
     let at = timeline.only_sketch();
-    let was = workshop.revision();
+    let was = build.revision();
 
     timeline.edit(at).drag_to(
-        &mut workshop,
+        &mut build,
         Grip::Point(b),
         Plane::GROUND.point(DVec2::new(5.0, 0.0)).as_vec3(),
     );
@@ -87,5 +87,5 @@ fn an_edit_through_the_timeline_reaches_the_sketch_it_names() {
         timeline.drawing(at).sketch().point(b).position,
         DVec2::new(5.0, 0.0)
     );
-    assert_ne!(workshop.revision(), was, "the edit went unrecorded");
+    assert_ne!(build.revision(), was, "the edit went unrecorded");
 }

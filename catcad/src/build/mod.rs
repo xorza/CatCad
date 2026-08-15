@@ -1,55 +1,58 @@
-//! The room an edit works in, and everything the solve it runs leaves behind.
+//! The room an edit works in, and everything replaying the timeline leaves
+//! behind.
 
-use silverpoint::{Arrangement, Outcome, PointId, Removed, Sketch, Solver};
+use silverpoint::{Outcome, PointId, Removed, Sketch, Solver};
 
-/// The solver, and everything derived from a [`Drawing`] rather than written
+use crate::build::settled::Settled;
+use crate::timeline::FeatureId;
+
+pub(crate) mod settled;
+
+/// The solver, and everything derived from a [`Timeline`] rather than written
 /// down in one.
 ///
 /// The runtime half of the model, held apart from it because the boundary is
-/// the file format: a [`Drawing`] is a sketch and a plane, which is the whole
-/// of what saving has to write, and every answer below follows from those two
-/// by running the solver over them again. Loading rebuilds this rather than
-/// reading it.
+/// the file format: a timeline is what saving has to write, and every answer
+/// below follows from it by running the solver over its sketches again.
+/// Loading rebuilds this rather than reading it.
 ///
 /// The solver is *in* rather than beside, which is the whole of what makes the
 /// rest of it trustworthy. Everything here is what a solve leaves behind, so a
 /// caller that could reach the solver without reaching this would be a caller
 /// who could solve and not record — and every miss is silent: an outcome left
-/// stale paints the drawing in the colours of where it used to be, and a
-/// revision left alone leaves the picture on screen unrepainted. Kept together,
-/// there is no solving without settling, because there is no solver to reach.
+/// stale paints a sketch in the colours of where it used to be, and a revision
+/// left alone leaves the picture on screen unrepainted. Kept together, there is
+/// no solving without settling, because there is no solver to reach.
+///
+/// One solver between every sketch, and one [`Settled`] apiece. That asymmetry
+/// is what the split is for: the room a solve works in is worth keeping and
+/// worth sharing, and what a solve *decided* is about one sketch and cannot be
+/// shared at all.
 ///
 /// Owned by the application and lent to each edit. The buffers it keeps are
-/// worth keeping for the length of a drag and worth nothing at all in a file;
-/// and a document holding many drawings wants the room for one between them
-/// rather than one apiece.
+/// worth keeping for the length of a drag and worth nothing at all in a file.
 ///
-/// [`Drawing`]: crate::drawing::Drawing
+/// [`Timeline`]: crate::timeline::Timeline
 #[derive(Debug, Default)]
-pub(crate) struct Workshop {
+pub(crate) struct Build {
     /// The room a solve works in, kept across calls rather than stood up for
     /// each: a drag solves sixty times a second and the buffers come out the
     /// same size every time.
     solver: Solver,
-    /// What the last solve left behind: how the run went, and which geometry
-    /// the constraints have decided — which is what the drawing is painted in
-    /// the colour of.
-    outcome: Outcome,
-    /// Which version of the drawing this describes, so anything holding a
+    /// What the last solve made of each sketch, in the order they were first
+    /// settled.
+    ///
+    /// A list searched by handle rather than a map: a document holds a few
+    /// sketches, a walk of a few entries beats hashing one, and the order they
+    /// arrived in is a fair order to hold them in.
+    settled: Vec<Settled>,
+    /// Which version of the document this describes, so anything holding a
     /// layout of it can tell whether that layout is still current.
     revision: Revision,
-    /// What the curves shut in.
-    ///
-    /// Derived like `outcome` beside it and for the same reason: the sketch
-    /// says where its curves are, and what those enclose follows from that
-    /// rather than being kept in step by hand. A face nobody could have drawn
-    /// on purpose — half a circle, the ring between two others — exists exactly
-    /// as much as one that traces edges the user placed.
-    arrangement: Arrangement,
     /// What the last cleanup took out, or `None` where the last thing done to
-    /// the drawing was not one.
+    /// the document was not one.
     ///
-    /// Cleared by every other edit — see [`Workshop::settled`] — because a
+    /// Cleared by every other edit — see [`Build::settle`] — because a
     /// count left standing would go on reporting a cleanup from two drags ago.
     ///
     /// `None` and `Some(Removed::default())` are different answers, and the one
@@ -58,9 +61,9 @@ pub(crate) struct Workshop {
     cleaned: Option<Removed>,
 }
 
-impl Workshop {
-    /// Add to the sketch with `edit`, and settle everything around what that
-    /// left.
+impl Build {
+    /// Add to the sketch at `of` with `edit`, and settle everything around what
+    /// that left.
     ///
     /// The first of the three shapes an edit takes, and what separates them is
     /// what the solver is asked for. This asks it everything, holding nothing.
@@ -73,50 +76,61 @@ impl Workshop {
     /// future addition that could not place itself exactly would be settled by
     /// it, and until then it costs one assembly to say that nothing needed
     /// settling.
-    pub(crate) fn solved(&mut self, sketch: &mut Sketch, edit: impl FnOnce(&mut Sketch)) {
-        self.settled(sketch, |solver, sketch, outcome| {
+    pub(crate) fn solved(
+        &mut self,
+        of: FeatureId,
+        sketch: &mut Sketch,
+        edit: impl FnOnce(&mut Sketch),
+    ) {
+        self.settle(of, sketch, |solver, sketch, outcome| {
             edit(sketch);
             solver.solve(sketch, outcome);
         });
     }
 
-    /// Change the sketch with `edit`, and take everything measuring what that
-    /// leaves decides.
+    /// Change the sketch at `of` with `edit`, and take everything measuring
+    /// what that leaves decides.
     ///
     /// The second shape, and the one that asks the constraints nothing — so it
     /// only measures, and measuring moves nothing. That is the whole of what it
     /// is for: an edit whose result is already the answer, where a solve would
     /// be free to wander off it.
-    pub(crate) fn measured(&mut self, sketch: &mut Sketch, edit: impl FnOnce(&mut Sketch)) {
-        self.settled(sketch, |solver, sketch, outcome| {
+    pub(crate) fn measured(
+        &mut self,
+        of: FeatureId,
+        sketch: &mut Sketch,
+        edit: impl FnOnce(&mut Sketch),
+    ) {
+        self.settle(of, sketch, |solver, sketch, outcome| {
             edit(sketch);
             solver.measure(sketch, outcome);
         });
     }
 
-    /// Move the geometry with `edit`, `held` pinned for the length of it, and
-    /// take everything the solve that follows decides.
+    /// Move the geometry of the sketch at `of` with `edit`, `held` pinned for
+    /// the length of it, and take everything the solve that follows decides.
     ///
     /// The third shape: what a drag is. It holds what the pointer has and asks
     /// the constraints to accommodate it, where the two above hold nothing.
     ///
     /// [`Solver::edit_holding`] puts the geometry back where it found it if the
     /// constraints refuse, so a drag they will not take moves nothing — and is
-    /// still settled, because what the run decided is what the drawing is
+    /// still settled, because what the run decided is what the sketch is
     /// painted in the colour of either way.
     pub(crate) fn dragged(
         &mut self,
+        of: FeatureId,
         sketch: &mut Sketch,
         held: &[PointId],
         edit: impl Fn(&mut Sketch),
     ) {
-        self.settled(sketch, |solver, sketch, outcome| {
+        self.settle(of, sketch, |solver, sketch, outcome| {
             solver.edit_holding(sketch, held, outcome, edit);
         });
     }
 
-    /// Run `solve` over `sketch`, and record everything the drawing then says
-    /// about itself.
+    /// Run `solve` over the sketch at `of`, and record everything the document
+    /// then says about itself.
     ///
     /// The one place any of this is written, and the reason it takes the solve
     /// rather than its answer: the two describe one moment, and a caller that
@@ -126,28 +140,33 @@ impl Workshop {
     /// Private, and the three above are the whole of what it is reachable
     /// through — one per entry point the solver has, each of which fills the
     /// whole outcome from the same measurement it reports.
-    fn settled(
+    fn settle(
         &mut self,
+        of: FeatureId,
         sketch: &mut Sketch,
         solve: impl FnOnce(&mut Solver, &mut Sketch, &mut Outcome),
     ) {
         let Self {
             solver,
-            outcome,
+            settled,
             revision,
-            arrangement,
             cleaned,
         } = self;
-        solve(solver, sketch, outcome);
+        // Made on first use rather than by walking the timeline, because a
+        // sketch nothing has settled has nothing to say: what a caller would
+        // read off an empty one is an unsolved report and an arrangement of
+        // nothing, and both are answers it should not be given.
+        let at = match settled.iter().position(|had| had.of() == of) {
+            Some(at) => at,
+            None => {
+                settled.push(Settled::new(of));
+                settled.len() - 1
+            }
+        };
+        settled[at].settle(solver, sketch, solve);
         *revision = revision.next();
-        // After the solve, because what the curves enclose depends on where the
-        // solve left them — and unconditionally, because there is no cheaper
-        // question than this one to ask first. Rebuilt in place rather than
-        // replaced, which is what keeps a drag off the heap: the lists it works
-        // in come out the same size every frame.
-        arrangement.rebuild(sketch);
         // Whatever this edit was, it is now the last thing done — so a cleanup
-        // before it has stopped describing the drawing. The one that *is* a
+        // before it has stopped describing the document. The one that *is* a
         // cleanup writes its own answer back after this returns.
         *cleaned = None;
     }
@@ -160,27 +179,29 @@ impl Workshop {
         self.cleaned = Some(removed);
     }
 
-    /// How the last run went, and what the constraints have and have not
-    /// decided.
+    /// What the last solve made of the sketch at `of`.
     ///
-    /// Only ever read beside the sketch it was measured over — they are two
-    /// readings of one moment, and nothing keeps them together but the order
-    /// they are written in.
-    pub(crate) fn outcome(&self) -> &Outcome {
-        &self.outcome
+    /// Every sketch the document holds has been settled by the time anything
+    /// asks — opening one solves each of them — so a sketch with no answer here
+    /// is a sketch that was never opened, which is a mistake in whatever raised
+    /// the document rather than a state a reader has to handle.
+    pub(crate) fn settled(&self, of: FeatureId) -> &Settled {
+        self.settled
+            .iter()
+            .find(|had| had.of() == of)
+            .expect("this sketch has not been settled")
     }
 
-    /// Which version of the drawing this describes.
+    /// Which version of the document this describes.
     ///
     /// What a caller holding a layout compares against its own, to tell whether
     /// what it drew still describes what is here.
+    ///
+    /// One for the document rather than one per sketch. What reads it is a
+    /// picture of the *whole* of it, redrawn whole — so a second number would
+    /// buy nothing a caller could spend.
     pub(crate) fn revision(&self) -> Revision {
         self.revision
-    }
-
-    /// What the drawing's curves shut in.
-    pub(crate) fn arrangement(&self) -> &Arrangement {
-        &self.arrangement
     }
 
     /// What the last cleanup took out, or `None` where the last edit was not
@@ -190,15 +211,15 @@ impl Workshop {
     }
 }
 
-/// Which version of a drawing something describes.
+/// Which version of a document something describes.
 ///
-/// Bumped whenever the drawing settles, which is whenever it has been solved
-/// again. Compared and never read: the number means nothing beyond not being
-/// the one before it.
+/// Bumped whenever anything settles, which is whenever something has been
+/// solved again. Compared and never read: the number means nothing beyond not
+/// being the one before it.
 ///
 /// Conservative on purpose — it can move where the geometry did not. A drag the
 /// constraints refuse is solved and put back, and this counts that, because
-/// what can cheaply be said is that the drawing has been worked on and not
+/// what can cheaply be said is that the document has been worked on and not
 /// whether the work came to anything. The asymmetry is the point: a revision
 /// that missed a change would leave a stale picture on screen, where a spare
 /// one costs a refill of buffers that already have the room.
@@ -211,3 +232,6 @@ impl Revision {
         Self(self.0 + 1)
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -2,9 +2,9 @@
 
 use silverpoint::{Fill, Filler};
 
+use crate::build::Revision;
 use crate::names::Names;
 use crate::preview::Preview;
-use crate::workshop::Revision;
 
 /// What one laying-out of the drawing leaves behind, and what it claims to
 /// describe.
@@ -43,12 +43,12 @@ pub(crate) struct Layout {
     /// edited the document, but then a caller that forgot would leave the view
     /// drawing last frame's geometry with no way to notice.
     ///
-    /// An `Option` rather than the revision a fresh [`Workshop`] starts at,
+    /// An `Option` rather than the revision a fresh [`Build`] starts at,
     /// which is the same number: an empty layout and an unsolved drawing would
     /// then agree, and the one frame that must never be skipped — the first —
     /// is exactly the one that would be.
     ///
-    /// [`Workshop`]: crate::workshop::Workshop
+    /// [`Build`]: crate::build::Build
     revision: Option<Revision>,
     /// The band this was written with, compared like the revision beside it: a
     /// band is written among the strokes and rims, so there is no rewriting one

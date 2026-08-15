@@ -1,10 +1,10 @@
 use super::*;
+use crate::build::Build;
 use crate::model::Model;
 use crate::paint;
 use crate::paint::layout::Layout;
 use crate::part::Part;
 use crate::timeline::Timeline;
-use crate::workshop::Workshop;
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Constraint, PointId};
@@ -24,7 +24,7 @@ struct Linkage {
     /// The room a drag's solve works in and what it leaves behind. In
     /// production this belongs to whatever is applying edits; a test doing its
     /// own dragging keeps its own.
-    workshop: Workshop,
+    build: Build,
     grip: PointId,
     swing: PointId,
 }
@@ -40,12 +40,12 @@ impl Linkage {
             b: swing,
             distance: 2.0,
         });
-        let mut workshop = Workshop::default();
+        let mut build = Build::default();
         let mut timeline = Timeline::of(sketch);
-        timeline.edit(timeline.only_sketch()).opened(&mut workshop);
+        timeline.edit(timeline.only_sketch()).opened(&mut build);
         Self {
             timeline,
-            workshop,
+            build,
             grip,
             swing,
         }
@@ -58,16 +58,15 @@ impl Linkage {
 
     /// The two halves as a reader of the model wants them.
     fn model(&self) -> Model<'_> {
-        Model::new(self.drawing(), &self.workshop)
+        let at = self.timeline.only_sketch();
+        Model::new(self.timeline.drawing(at), &self.build, at)
     }
 
     /// Where a point has ended up, in the world.
     /// Take `grip` to `world`, as the application's edit path would.
     fn drag_to(&mut self, grip: Grip, world: Vec3) {
         let at = self.timeline.only_sketch();
-        self.timeline
-            .edit(at)
-            .drag_to(&mut self.workshop, grip, world);
+        self.timeline.edit(at).drag_to(&mut self.build, grip, world);
     }
 
     fn world_of(&self, point: PointId) -> Vec3 {
@@ -90,7 +89,8 @@ fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
     let sent = on(plane, DVec2::new(0.0, 4.0));
     linkage.drag_to(Grip::Point(linkage.grip), sent);
 
-    let outcome = linkage.workshop.outcome();
+    let model = linkage.model();
+    let outcome = model.outcome();
     assert!(outcome.converged(), "{outcome:?}");
     assert!(
         linkage.world_of(linkage.grip).abs_diff_eq(sent, 1e-5),
@@ -216,18 +216,20 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let mut sketch = Sketch::default();
     let hub = sketch.add_point(DVec2::new(1.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
-    let mut workshop = Workshop::default();
+    let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
     let at = timeline.only_sketch();
     let plane = timeline.plane_of(at);
 
     // Three across and four up from the centre is a radius of five.
     let sent = on(plane, DVec2::new(4.0, 6.0));
-    timeline
-        .edit(at)
-        .drag_to(&mut workshop, Grip::Rim(hole), sent);
+    timeline.edit(at).drag_to(&mut build, Grip::Rim(hole), sent);
 
-    assert!(workshop.outcome().converged(), "{:?}", workshop.outcome());
+    assert!(
+        build.settled(at).outcome().converged(),
+        "{:?}",
+        build.settled(at).outcome()
+    );
     let circle = timeline.drawing(at).sketch().circle(hole);
     assert!((circle.radius - 5.0).abs() < 1e-9, "{}", circle.radius);
     assert_eq!(
@@ -237,11 +239,9 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     );
 
     // And back down again, so the radius follows rather than only growing.
-    timeline.edit(at).drag_to(
-        &mut workshop,
-        Grip::Rim(hole),
-        on(plane, DVec2::new(3.0, 2.0)),
-    );
+    timeline
+        .edit(at)
+        .drag_to(&mut build, Grip::Rim(hole), on(plane, DVec2::new(3.0, 2.0)));
     assert!((timeline.drawing(at).sketch().circle(hole).radius - 2.0).abs() < 1e-9);
 }
 
@@ -291,7 +291,7 @@ struct Assorted {
     timeline: Timeline,
     /// The room an edit's solve works in, kept beside the drawing for the same
     /// reason [`Linkage`] keeps one.
-    workshop: Workshop,
+    build: Build,
     a: Entity,
     b: Entity,
     first: Entity,
@@ -317,12 +317,12 @@ impl Assorted {
         let second = sketch.add_segment(b, c);
         let circle = sketch.add_circle(c, 2.5);
         let other = sketch.add_circle(a, 1.0);
-        let mut workshop = Workshop::default();
+        let mut build = Build::default();
         let mut timeline = Timeline::of(sketch);
-        timeline.edit(timeline.only_sketch()).opened(&mut workshop);
+        timeline.edit(timeline.only_sketch()).opened(&mut build);
         Self {
             timeline,
-            workshop,
+            build,
             a: Entity::Point(a),
             b: Entity::Point(b),
             first: Entity::Segment(first),
@@ -452,7 +452,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
 fn constraining_settles_the_drawing_and_deleting_cascades() {
     let Assorted {
         mut timeline,
-        mut workshop,
+        mut build,
         a,
         b,
         first,
@@ -471,8 +471,12 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
         .offers(&[Part::Entity(a), Part::Entity(b)], &mut offers);
     let level = offers[2];
     assert!(matches!(level, Constraint::Horizontal { .. }));
-    timeline.edit(at).constrain(&mut workshop, level);
-    assert!(workshop.outcome().converged(), "{:?}", workshop.outcome());
+    timeline.edit(at).constrain(&mut build, level);
+    assert!(
+        build.settled(at).outcome().converged(),
+        "{:?}",
+        build.settled(at).outcome()
+    );
     let apart = timeline.drawing(at).sketch().point(pa).position.y
         - timeline.drawing(at).sketch().point(pb).position.y;
     assert!(apart.abs() < 1e-9, "{apart}");
@@ -489,12 +493,12 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
     assert!(timeline.drawing(at).holds(stated));
     timeline
         .edit(at)
-        .remove(&mut workshop, Entity::Constraint(stated));
+        .remove(&mut build, Entity::Constraint(stated));
     assert!(!timeline.drawing(at).holds(stated));
     assert!(timeline.drawing(at).holds(a) && timeline.drawing(at).holds(b));
 
     // Removing a point takes the edges it ends with it, and leaves the rest.
-    timeline.edit(at).remove(&mut workshop, a);
+    timeline.edit(at).remove(&mut build, a);
     assert!(!timeline.drawing(at).holds(a));
     assert!(
         !timeline.drawing(at).holds(first),
@@ -517,14 +521,14 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     let a = sketch.add_point(DVec2::new(0.0, 0.0));
     let b = sketch.add_point(DVec2::new(2.0, 0.0));
     sketch.add_segment(a, b);
-    let mut workshop = Workshop::default();
+    let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
     let at = timeline.only_sketch();
     let ground = timeline.plane_of(at);
 
     // A second edge begun on the first one's far end.
     timeline.edit(at).add_segment(
-        &mut workshop,
+        &mut build,
         Anchor::On(b),
         Anchor::At(on(ground, DVec2::new(2.0, 2.0))),
     );
@@ -563,7 +567,7 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
         timeline.drawing(at).sketch().segments().count(),
         timeline.drawing(at).sketch().constraints().count(),
     );
-    timeline.edit(at).remove_duplicates(&mut workshop);
+    timeline.edit(at).remove_duplicates(&mut build);
     assert_eq!(
         (
             timeline.drawing(at).sketch().points().count(),
@@ -576,11 +580,9 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
 
     // Stated, the join holds: taking `b` somewhere brings the corner with it,
     // which is the behaviour sharing a handle used to give for free.
-    timeline.edit(at).drag_to(
-        &mut workshop,
-        Grip::Point(b),
-        on(ground, DVec2::new(2.5, 0.5)),
-    );
+    timeline
+        .edit(at)
+        .drag_to(&mut build, Grip::Point(b), on(ground, DVec2::new(2.5, 0.5)));
     let moved = timeline.drawing(at).sketch().point(b).position;
     assert!(
         timeline
@@ -598,9 +600,9 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     let parted = timeline.drawing(at).sketch().point(corner).position;
     timeline
         .edit(at)
-        .remove(&mut workshop, Entity::Constraint(tie));
+        .remove(&mut build, Entity::Constraint(tie));
     timeline.edit(at).drag_to(
-        &mut workshop,
+        &mut build,
         Grip::Point(b),
         on(ground, DVec2::new(0.5, -1.5)),
     );

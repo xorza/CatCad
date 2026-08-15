@@ -86,7 +86,7 @@ impl Timeline {
         let Feature::Sketch { sketch, .. } = self.feature_mut(at) else {
             not_a_sketch(at);
         };
-        Sketching::new(sketch, plane)
+        Sketching::new(at, sketch, plane)
     }
 
     /// The one sketch the document holds.

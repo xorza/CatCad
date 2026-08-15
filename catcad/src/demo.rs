@@ -9,17 +9,17 @@ use aperture::{Mesh, Object, Styled};
 use glam::{DVec2, Mat4, Vec3};
 use silverpoint::{Constraint, Sketch};
 
+use crate::build::Build;
 use crate::document::Document;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};
-use crate::workshop::Workshop;
 
 /// The demo as a document: its sketch on the ground plane, and the solids
 /// that stand on it.
 ///
 /// The sketch and the solids share one world — the drawing lies on the ground
 /// plane and the boxes stand on it — so orbiting the view moves both together.
-pub(crate) fn document(workshop: &mut Workshop) -> Document {
+pub(crate) fn document(build: &mut Build) -> Document {
     let plane = silverpoint::Plane::GROUND;
     let mut solids = Vec::new();
     // The ground the drawing lies on, and the reason the drawing carries a
@@ -51,7 +51,7 @@ pub(crate) fn document(workshop: &mut Workshop) -> Document {
         on: ground,
         sketch: sketch(),
     });
-    Document::new(workshop, timeline, solids)
+    Document::new(build, timeline, solids)
 }
 
 /// A rigid frame, a hole through it that can be resized, and a jointed arm

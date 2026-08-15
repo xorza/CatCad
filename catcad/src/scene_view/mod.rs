@@ -10,6 +10,7 @@ use palantir::{
 };
 use silverpoint::Entity;
 
+use crate::build::Build;
 use crate::document::Document;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -21,7 +22,6 @@ use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
 use crate::tool::Tool;
-use crate::workshop::Workshop;
 
 mod aimed;
 
@@ -134,9 +134,9 @@ impl SceneView {
     /// The view lays it out itself rather than being handed a scene, which is
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
-    pub(crate) fn new(document: &Document, workshop: &Workshop) -> Self {
+    pub(crate) fn new(document: &Document, build: &Build) -> Self {
         let mut layout = Layout::default();
-        let scene = paint::scene(document, workshop, &mut layout);
+        let scene = paint::scene(document, build, &mut layout);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             layout,
@@ -407,12 +407,7 @@ impl SceneView {
     /// command holding the renderer and calls it at submit, after the record
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
-    pub(crate) fn settle(
-        &mut self,
-        document: &Document,
-        workshop: &Workshop,
-        selection: &Selection,
-    ) {
+    pub(crate) fn settle(&mut self, document: &Document, build: &Build, selection: &Selection) {
         let mut renderer = self.renderer.borrow_mut();
         // Unconditionally, and cheap when nothing moved: the layout compares
         // what it describes against what it is handed and returns without
@@ -425,7 +420,7 @@ impl SceneView {
         // Into the batches the renderer already holds, so a drag rewrites the
         // drawing every frame without asking the heap for anything.
         paint::redraw(
-            document.model(workshop),
+            document.model(build),
             &mut self.layout,
             self.preview,
             renderer.scene_mut(),
