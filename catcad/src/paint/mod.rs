@@ -284,6 +284,14 @@ fn symbol(constraint: Constraint) -> &'static str {
         // or curved.
         Constraint::PointOnSegment { .. } | Constraint::PointOnCircle { .. } => "\u{2208}",
         Constraint::Radius { .. } => "R",
+        // Equal length and equal radius are one mark for the same reason: what
+        // the drawing has to say is that two things match, and which two is
+        // plain from what the mark sits between.
+        Constraint::EqualLength { .. } | Constraint::EqualRadius { .. } => "=",
+        // A letter, like the radius above it. Tangency has no draughtsman's
+        // mark that carries into a font — the drawings that need one letter it
+        // too.
+        Constraint::Tangent { .. } => "T",
     }
 }
 

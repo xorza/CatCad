@@ -70,6 +70,13 @@ pub enum Constraint {
     Parallel { first: SegmentId, second: SegmentId },
     /// The segments meet at a right angle (their dot product vanishes).
     Perpendicular { first: SegmentId, second: SegmentId },
+    /// The segments are the same length, whatever that length is.
+    ///
+    /// A relation rather than a dimension: it states that two things match
+    /// without saying what either measures, so the pair is still free to grow
+    /// together. Stating a [`Self::Distance`] on each would say more than was
+    /// asked and leave nothing to drag.
+    EqualLength { first: SegmentId, second: SegmentId },
     /// The point lies on the segment's infinite line — not necessarily
     /// between its endpoints.
     PointOnSegment { point: PointId, segment: SegmentId },
@@ -77,6 +84,20 @@ pub enum Constraint {
     Radius { circle: CircleId, radius: f64 },
     /// The point lies on the circle's circumference.
     PointOnCircle { point: PointId, circle: CircleId },
+    /// The segment's infinite line touches the circle exactly once: the
+    /// centre stands off the line by the radius.
+    ///
+    /// Says nothing about *which side* the centre stands on. Tangency is a
+    /// distance and a distance has no sign, so the relation holds mirrored
+    /// either way and the solve keeps whichever side it started from — see the
+    /// residual.
+    Tangent {
+        segment: SegmentId,
+        circle: CircleId,
+    },
+    /// The circles are the same size, whatever that size is — [`Self::EqualLength`]
+    /// for radii, and a relation rather than a dimension for the same reason.
+    EqualRadius { first: CircleId, second: CircleId },
 }
 
 impl Constraint {
@@ -90,7 +111,7 @@ impl Constraint {
     /// about it.
     ///
     /// Answers in [`Entity`], which is wider than what any variant here yields:
-    /// none of the nine names another constraint, so the cascade is two levels
+    /// none of the twelve names another constraint, so the cascade is two levels
     /// deep and stops without being made to. That is a property of the list
     /// below rather than of the type — see [`Entity`] — and the sweep in
     /// `every_constraint_names_the_geometry_it_is_about` is what holds it.
@@ -104,7 +125,8 @@ impl Constraint {
             | Constraint::Horizontal { a, b }
             | Constraint::Vertical { a, b } => [Some(Entity::Point(a)), Some(Entity::Point(b))],
             Constraint::Parallel { first, second }
-            | Constraint::Perpendicular { first, second } => {
+            | Constraint::Perpendicular { first, second }
+            | Constraint::EqualLength { first, second } => {
                 [Some(Entity::Segment(first)), Some(Entity::Segment(second))]
             }
             Constraint::PointOnSegment { point, segment } => {
@@ -114,6 +136,12 @@ impl Constraint {
             Constraint::PointOnCircle { point, circle } => {
                 [Some(Entity::Point(point)), Some(Entity::Circle(circle))]
             }
+            Constraint::Tangent { segment, circle } => {
+                [Some(Entity::Segment(segment)), Some(Entity::Circle(circle))]
+            }
+            Constraint::EqualRadius { first, second } => {
+                [Some(Entity::Circle(first)), Some(Entity::Circle(second))]
+            }
         };
         named.into_iter().flatten()
     }
@@ -122,7 +150,7 @@ impl Constraint {
     ///
     /// A *dimension* is exactly this: a constraint carrying a magnitude, which
     /// is what a drawing shows as a number and lets a user retype. The other
-    /// seven state a relation that has no magnitude — parallel is parallel, and
+    /// ten state a relation that has no magnitude — parallel is parallel, and
     /// there is nothing to type.
     ///
     /// Read off the same list `value_mut` matches on, so which variants carry
@@ -140,7 +168,7 @@ impl Constraint {
     /// a caller's own hand would leave the sketch it came from unsolved.
     ///
     /// The one list of which variants carry a magnitude, spelled out over all
-    /// nine rather than falling through: a tenth carrying a value — an angle,
+    /// twelve rather than falling through: a thirteenth carrying a value — an angle,
     /// most obviously — has to say here that it does, and one that quietly
     /// answered `None` would be a dimension the drawing showed as a symbol and
     /// refused to edit.
@@ -153,8 +181,11 @@ impl Constraint {
             | Constraint::Vertical { .. }
             | Constraint::Parallel { .. }
             | Constraint::Perpendicular { .. }
+            | Constraint::EqualLength { .. }
             | Constraint::PointOnSegment { .. }
-            | Constraint::PointOnCircle { .. } => None,
+            | Constraint::PointOnCircle { .. }
+            | Constraint::Tangent { .. }
+            | Constraint::EqualRadius { .. } => None,
         }
     }
 
@@ -237,6 +268,17 @@ impl Constraint {
                 row.segment(s2, d1);
                 d1.dot(d2)
             }
+            Constraint::EqualLength { first, second } => {
+                let (s1, s2) = (sketch.segment(first), sketch.segment(second));
+                let one = Direction::of(direction(sketch, s1));
+                let two = Direction::of(direction(sketch, s2));
+                // A length grows fastest along its own direction, so each
+                // segment's partials are its own unit vector — and the second
+                // enters the residual negated, so its gradient does too.
+                row.segment(s1, one.unit);
+                row.segment(s2, -two.unit);
+                one.length - two.length
+            }
             Constraint::PointOnSegment { point, segment } => {
                 let s = sketch.segment(segment);
                 let edge = direction(sketch, s);
@@ -260,6 +302,45 @@ impl Constraint {
                 row.point(c.center, -out.unit);
                 row.radius(circle, -1.0);
                 out.length - c.radius
+            }
+            Constraint::Tangent { segment, circle } => {
+                let s = sketch.segment(segment);
+                let ring = sketch.circle(circle);
+                let edge = direction(sketch, s);
+                let offset = sketch.point(ring.center).position - sketch.point(s.a).position;
+                let along = Direction::of(edge);
+                // How far off the line the centre stands, *times* how long the
+                // edge is — which is [`Self::PointOnSegment`]'s residual
+                // exactly, and why the three geometry gradients below are its
+                // three. Multiplied through rather than divided by the length,
+                // because dividing wants a guard against a segment whose ends
+                // have met and multiplying does not; the radius is scaled to
+                // match, so the whole equation is one length larger and reads
+                // zero in the same places.
+                let reach = edge.perp_dot(offset);
+                // The cross product carries which side of the line the centre
+                // is on, and tangency does not care: it is a distance, and the
+                // relation holds mirrored either way. Taking the sign out here
+                // is what lets a solve settle onto the nearer of the two rather
+                // than being dragged across the line to the other.
+                let side = if reach < 0.0 { -1.0 } else { 1.0 };
+                row.point(ring.center, side * DVec2::new(-edge.y, edge.x));
+                row.point(
+                    s.a,
+                    side * DVec2::new(edge.y - offset.y, offset.x - edge.x)
+                        + ring.radius * along.unit,
+                );
+                row.point(
+                    s.b,
+                    side * DVec2::new(offset.y, -offset.x) - ring.radius * along.unit,
+                );
+                row.radius(circle, -along.length);
+                side * reach - ring.radius * along.length
+            }
+            Constraint::EqualRadius { first, second } => {
+                row.radius(first, 1.0);
+                row.radius(second, -1.0);
+                sketch.circle(first).radius - sketch.circle(second).radius
             }
         }
     }

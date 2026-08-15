@@ -974,3 +974,115 @@ fn conflicting_distances() -> Sketch {
     }
     sketch
 }
+
+/// A tangency drives the circle until its rim just touches the line, and it
+/// settles on whichever side it started from.
+///
+/// The geometry behind the residual, which is written multiplied through by the
+/// segment's length and so proves nothing by reading zero. What it has to mean
+/// is that the centre stands off the line by exactly the radius — measured here
+/// the honest way, as a perpendicular distance, with the line held still so
+/// there is one answer to check.
+#[test]
+fn a_tangency_stands_the_centre_off_the_line_by_the_radius() {
+    // A horizontal line along y = 0, pinned, so the circle is what moves.
+    let solve_from = |start: DVec2, radius: f64| {
+        let mut sketch = Sketch::default();
+        let a = sketch.add_point(DVec2::ZERO);
+        let b = sketch.add_point(DVec2::new(4.0, 0.0));
+        sketch.fix(a);
+        sketch.fix(b);
+        let edge = sketch.add_segment(a, b);
+        let centre = sketch.add_point(start);
+        let circle = sketch.add_circle(centre, radius);
+        sketch.add_constraint(Constraint::Radius { circle, radius });
+        sketch.add_constraint(Constraint::Tangent {
+            segment: edge,
+            circle,
+        });
+        let mut outcome = Outcome::default();
+        Solver::default().solve(&mut sketch, &mut outcome);
+        assert!(outcome.converged(), "{outcome:?}");
+        // The line is the x axis, so the perpendicular distance is |y|.
+        (sketch.point(centre).position, sketch.circle(circle).radius)
+    };
+
+    // Starting above, it settles above — the radius exactly, not the negative
+    // of it. The x coordinate is free to be anything and stays where it began,
+    // because a tangency says nothing about where along the line it touches.
+    let (above, radius) = solve_from(DVec2::new(1.5, 2.6), 1.2);
+    assert!((above.y - 1.2).abs() < EPSILON, "{above:?}");
+    assert!((above.x - 1.5).abs() < EPSILON, "{above:?}");
+    assert!((radius - 1.2).abs() < EPSILON);
+
+    // Starting below, it settles below rather than being dragged through the
+    // line to the mirror answer. That is the sign the residual takes out.
+    let (below, _) = solve_from(DVec2::new(1.5, -2.6), 1.2);
+    assert!((below.y + 1.2).abs() < EPSILON, "{below:?}");
+
+    // And the radius is what decides how far off: a different one is a
+    // different answer, so the constraint is reading the radius rather than
+    // some fixed gap.
+    let (nearer, _) = solve_from(DVec2::new(1.5, 2.6), 0.4);
+    assert!((nearer.y - 0.4).abs() < EPSILON, "{nearer:?}");
+    assert!(nearer.y != above.y);
+}
+
+/// Equality makes two things match without saying what either measures, which
+/// is what separates it from stating a dimension on each.
+#[test]
+fn equality_matches_two_lengths_and_two_radii_without_fixing_either() {
+    // Two edges, one dimensioned and one not. The equality carries the number
+    // across, and the pair keeps the freedom a second dimension would spend.
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(3.0, 0.0));
+    let c = sketch.add_point(DVec2::new(0.0, 4.0));
+    let d = sketch.add_point(DVec2::new(0.9, 4.8));
+    sketch.fix(a);
+    sketch.fix(c);
+    let measured = sketch.add_segment(a, b);
+    let matched = sketch.add_segment(c, d);
+    sketch.add_constraint(Constraint::Distance {
+        a,
+        b,
+        distance: 2.5,
+    });
+    sketch.add_constraint(Constraint::EqualLength {
+        first: measured,
+        second: matched,
+    });
+    let mut outcome = Outcome::default();
+    Solver::default().solve(&mut sketch, &mut outcome);
+    assert!(outcome.converged(), "{outcome:?}");
+
+    let span = |from: PointId, to: PointId| {
+        (sketch.point(to).position - sketch.point(from).position).length()
+    };
+    assert!((span(a, b) - 2.5).abs() < EPSILON, "{}", span(a, b));
+    assert!((span(c, d) - 2.5).abs() < EPSILON, "{}", span(c, d));
+    // Two equations spent — the distance and the equality — against the four
+    // freedoms `b` and `d` had, so the pair can still swing.
+    assert_eq!(outcome.degrees_of_freedom(), 2, "{outcome:?}");
+
+    // The same for radii, and the same freedom left: neither circle is told
+    // how big, only that they agree.
+    let mut sketch = Sketch::default();
+    let hub = sketch.add_point(DVec2::ZERO);
+    let far = sketch.add_point(DVec2::new(5.0, 0.0));
+    sketch.fix(hub);
+    sketch.fix(far);
+    let first = sketch.add_circle(hub, 2.0);
+    let second = sketch.add_circle(far, 0.75);
+    sketch.add_constraint(Constraint::EqualRadius { first, second });
+    let mut outcome = Outcome::default();
+    Solver::default().solve(&mut sketch, &mut outcome);
+    assert!(outcome.converged(), "{outcome:?}");
+
+    let (one, two) = (sketch.circle(first).radius, sketch.circle(second).radius);
+    assert!((one - two).abs() < EPSILON, "{one} against {two}");
+    // Between the two radii, one equation leaves one — so they are matched and
+    // still free to grow together, which a pair of `Radius` constraints would
+    // have spent.
+    assert_eq!(outcome.degrees_of_freedom(), 1, "{outcome:?}");
+}

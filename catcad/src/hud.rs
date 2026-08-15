@@ -247,6 +247,11 @@ fn label(constraint: Constraint) -> &'static str {
         Constraint::PointOnSegment { .. } => "On edge",
         Constraint::Radius { .. } => "Radius",
         Constraint::PointOnCircle { .. } => "On circle",
+        // One word for both, the way a modeller offers it: which of the two a
+        // press means is settled by what is picked out, and a selection admits
+        // only ever one of them — see [`Drawing::offers`].
+        Constraint::EqualLength { .. } | Constraint::EqualRadius { .. } => "Equal",
+        Constraint::Tangent { .. } => "Tangent",
     }
 }
 

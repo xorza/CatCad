@@ -273,6 +273,9 @@ struct Assorted {
     first: Entity,
     second: Entity,
     circle: Entity,
+    /// A second circle, a different size from the first — so a relation
+    /// between the two has something to do.
+    other: Entity,
 }
 
 impl Assorted {
@@ -284,6 +287,7 @@ impl Assorted {
         let first = sketch.add_segment(a, b);
         let second = sketch.add_segment(b, c);
         let circle = sketch.add_circle(c, 2.5);
+        let other = sketch.add_circle(a, 1.0);
         let mut solver = Solver::default();
         Self {
             drawing: Drawing::new(&mut solver, sketch, Plane::GROUND),
@@ -293,6 +297,7 @@ impl Assorted {
             first: Entity::Segment(first),
             second: Entity::Segment(second),
             circle: Entity::Circle(circle),
+            other: Entity::Circle(other),
         }
     }
 }
@@ -311,6 +316,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
         first,
         second,
         circle,
+        other,
         ..
     } = Assorted::new();
     let mut offers = Vec::new();
@@ -330,6 +336,12 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
                 Constraint::PointOnSegment { .. } => "on edge",
                 Constraint::Radius { .. } => "radius",
                 Constraint::PointOnCircle { .. } => "on circle",
+                // Told apart here where the bar calls both "Equal", because
+                // this is about which relation the drawing reached for and the
+                // two are not interchangeable.
+                Constraint::EqualLength { .. } => "equal length",
+                Constraint::EqualRadius { .. } => "equal radius",
+                Constraint::Tangent { .. } => "tangent",
             })
             .collect()
     };
@@ -346,7 +358,10 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     assert!((distance - 5.0).abs() < 1e-9, "{distance}");
 
     drawing.offers(&[first, second], &mut offers);
-    assert_eq!(kinds(&offers), ["parallel", "perpendicular"]);
+    assert_eq!(
+        kinds(&offers),
+        ["parallel", "perpendicular", "equal length"]
+    );
 
     // Either way round is the same relation — which was picked first says
     // nothing about which is held to which.
@@ -357,6 +372,14 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     for pair in [[a, circle], [circle, a]] {
         drawing.offers(&pair, &mut offers);
         assert_eq!(kinds(&offers), ["on circle"], "{pair:?}");
+    }
+    for pair in [[first, circle], [circle, first]] {
+        drawing.offers(&pair, &mut offers);
+        assert_eq!(kinds(&offers), ["tangent"], "{pair:?}");
+    }
+    for pair in [[circle, other], [other, circle]] {
+        drawing.offers(&pair, &mut offers);
+        assert_eq!(kinds(&offers), ["equal radius"], "{pair:?}");
     }
 
     // A radius takes the size the circle already is, so asking for one locks
@@ -370,13 +393,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
 
     // And the selections that bear nothing: too few, too many, and a pair with
     // no relation between them.
-    for picked in [
-        &[][..],
-        &[a][..],
-        &[first][..],
-        &[a, b, circle][..],
-        &[first, circle][..],
-    ] {
+    for picked in [&[][..], &[a][..], &[first][..], &[a, b, circle][..]] {
         drawing.offers(picked, &mut offers);
         assert!(offers.is_empty(), "{picked:?} offered {:?}", kinds(&offers));
     }

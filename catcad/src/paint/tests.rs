@@ -314,6 +314,7 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
     let first = sketch.add_segment(a, b);
     let second = sketch.add_segment(b, c);
     let circle = sketch.add_circle(c, 2.0);
+    let other = sketch.add_circle(a, 1.0);
     let drawing = Drawing::new(&mut Solver::default(), sketch, Plane::GROUND);
 
     let mut every = Vec::new();
@@ -324,12 +325,14 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
         vec![Entity::Point(a), Entity::Segment(second)],
         vec![Entity::Point(a), Entity::Circle(circle)],
         vec![Entity::Circle(circle)],
+        vec![Entity::Segment(first), Entity::Circle(circle)],
+        vec![Entity::Circle(circle), Entity::Circle(other)],
     ] {
         drawing.offers(&picked, &mut offers);
         every.extend(offers.iter().copied());
     }
-    // The nine the enum has; a variant `offers` cannot reach would be a
+    // The twelve the enum has; a variant `offers` cannot reach would be a
     // variant nothing can state, which is its own bug.
-    assert_eq!(every.len(), 9, "{every:?}");
+    assert_eq!(every.len(), 12, "{every:?}");
     every
 }

@@ -10,6 +10,10 @@ struct Fixture {
     point: [PointId; 4],
     segment: [SegmentId; 2],
     circle: CircleId,
+    /// A second circle, so a relation between two of them has two to read.
+    /// Centred off the first and a different size, for the reason everything
+    /// here is in general position.
+    other: CircleId,
 }
 
 impl Fixture {
@@ -26,11 +30,13 @@ impl Fixture {
             sketch.add_segment(point[2], point[3]),
         ];
         let circle = sketch.add_circle(point[3], 1.7);
+        let other = sketch.add_circle(point[0], 0.8);
         Self {
             sketch,
             point,
             segment,
             circle,
+            other,
         }
     }
 }
@@ -108,6 +114,7 @@ fn analytic_partials_match_central_differences() {
         point,
         segment,
         circle,
+        other,
     } = Fixture::new();
     let [p0, p1, p2, p3] = point;
     let [s0, s1] = segment;
@@ -137,6 +144,27 @@ fn analytic_partials_match_central_differences() {
             radius: 0.9,
         },
         Constraint::PointOnCircle { point: p0, circle },
+        Constraint::EqualLength {
+            first: s0,
+            second: s1,
+        },
+        Constraint::EqualRadius {
+            first: circle,
+            second: other,
+        },
+        // Both sides of the line, because the residual takes the sign of the
+        // cross product out and a gradient that forgot to put it back would
+        // agree with the differences on one side and not the other. The
+        // centre of `circle` stands to one side of `s0` and the centre of
+        // `other` to the far side of `s1`.
+        Constraint::Tangent {
+            segment: s0,
+            circle,
+        },
+        Constraint::Tangent {
+            segment: s1,
+            circle: other,
+        },
         // Naming one entity twice, where both writes land on the same
         // parameters. Central differences don't care that the two halves
         // collide, so they say what the sum has to be: nothing for a point
@@ -167,6 +195,20 @@ fn analytic_partials_match_central_differences() {
         },
         // The point is the circle's own centre.
         Constraint::PointOnCircle { point: p3, circle },
+        // A segment measured against itself: the two halves of the residual
+        // cancel, and so must the two halves of the gradient.
+        Constraint::EqualLength {
+            first: s0,
+            second: s0,
+        },
+        Constraint::EqualRadius {
+            first: circle,
+            second: circle,
+        },
+        // No tangency here. Its parameters collide only when the centre *is*
+        // an endpoint of the segment, and a centre on the segment stands zero
+        // off its line — which is the one place the residual's `|reach|` has a
+        // kink, and a kink is not something a central difference can measure.
     ];
     // Through `equations`, which is the only path the solver assembles by —
     // so a coincidence is checked as the two equations it actually becomes.
@@ -196,11 +238,12 @@ fn every_constraint_names_the_geometry_it_is_about() {
         point,
         segment,
         circle,
+        other,
         ..
     } = Fixture::new();
     let [p0, p1, p2, p3] = point;
     let [s0, s1] = segment;
-    let cases: [(Constraint, &[Entity]); 9] = [
+    let cases: [(Constraint, &[Entity]); 12] = [
         (
             Constraint::Coincident { a: p0, b: p1 },
             &[Entity::Point(p0), Entity::Point(p1)],
@@ -254,6 +297,27 @@ fn every_constraint_names_the_geometry_it_is_about() {
         (
             Constraint::PointOnCircle { point: p0, circle },
             &[Entity::Point(p0), Entity::Circle(circle)],
+        ),
+        (
+            Constraint::EqualLength {
+                first: s0,
+                second: s1,
+            },
+            &[Entity::Segment(s0), Entity::Segment(s1)],
+        ),
+        (
+            Constraint::Tangent {
+                segment: s0,
+                circle,
+            },
+            &[Entity::Segment(s0), Entity::Circle(circle)],
+        ),
+        (
+            Constraint::EqualRadius {
+                first: circle,
+                second: other,
+            },
+            &[Entity::Circle(circle), Entity::Circle(other)],
         ),
     ];
 

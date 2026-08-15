@@ -289,6 +289,7 @@ impl Drawing {
             [Entity::Segment(first), Entity::Segment(second)] => into.extend([
                 Constraint::Parallel { first, second },
                 Constraint::Perpendicular { first, second },
+                Constraint::EqualLength { first, second },
             ]),
             // Either way round: which was picked first says nothing about which
             // is held to which, because a point on an edge is one relation
@@ -300,6 +301,19 @@ impl Drawing {
             [Entity::Point(point), Entity::Circle(circle)]
             | [Entity::Circle(circle), Entity::Point(point)] => {
                 into.push(Constraint::PointOnCircle { point, circle });
+            }
+            // Either way round, like a point on an edge: which circle was
+            // picked first says nothing about which is held to which, because
+            // two circles being the same size is one relation however it was
+            // reached.
+            [Entity::Circle(first), Entity::Circle(second)] => {
+                into.push(Constraint::EqualRadius { first, second });
+            }
+            // A tangency is the one relation between an edge and a rim, and it
+            // reads the same whichever was picked first.
+            [Entity::Segment(segment), Entity::Circle(circle)]
+            | [Entity::Circle(circle), Entity::Segment(segment)] => {
+                into.push(Constraint::Tangent { segment, circle });
             }
             [Entity::Circle(circle)] => into.push(Constraint::Radius {
                 circle,
@@ -313,7 +327,7 @@ impl Drawing {
     /// drawing no longer holds what it is about.
     ///
     /// The middle of what it names, which is the one rule that reads sensibly
-    /// for all nine: on the point for a coincidence, along the span for a
+    /// for all twelve: on the point for a coincidence, along the span for a
     /// distance, between the two edges for a parallel. A modeller would put a
     /// mark against *each* entity a relation names — two ∥ marks, one per edge
     /// — and that is a better drawing; it is also two glyphs per relation and a
