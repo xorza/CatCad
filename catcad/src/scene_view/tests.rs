@@ -8,8 +8,8 @@ use crate::paint::layout::Layout;
 use crate::part::Part;
 use crate::session::Session;
 use crate::tool::Tool;
-use aperture::{Aim, HitAt, Scene, Viewport};
-use glam::{DVec2, UVec2};
+use aperture::{Aim, HitAt, Motion, Scene, Viewport};
+use glam::{DVec2, UVec2, Vec3};
 use palantir::Modifiers;
 use palantir::internals::UiHarness;
 
@@ -478,6 +478,83 @@ fn the_view_can_take_hold_of_a_point_an_edge_and_a_rim() {
 /// Dragging a datum slides it along the line it is offset on, carrying what is
 /// drawn on it and touching neither the open sketch nor the camera.
 ///
+/// A datum keeps the point it was grabbed by under the pointer, from either
+/// side of the model.
+///
+/// The claim a drag on a plane is worth anything for, and the one the plumbing
+/// underneath cannot make on its own. A travel line answers where the cursor
+/// falls along it *as it looks*, so which of the parallel lines is asked
+/// decides at what depth that answer is read — and depth is what perspective
+/// scales by. Taken through the base plane's origin, the drag tracked the
+/// cursor at the origin's depth while the corner in hand sat at another, so the
+/// plane ran ahead of the pointer from one side and lagged it from the other.
+///
+/// Mirrored viewpoints rather than one, because the fault is a *ratio* of two
+/// depths: it vanishes wherever the two happen to agree, and reverses as the
+/// view swings past. One angle would have caught it only by luck.
+#[test]
+fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
+    for yaw in [-0.7f32, 0.7] {
+        let mut raised = Raised::new();
+        raised.document.camera_mut().yaw = yaw;
+        raised.frame();
+        let cursor = raised
+            .over_datum()
+            .unwrap_or_else(|| panic!("yaw {yaw}: no cursor found the datum"));
+        let camera = raised.camera();
+        let viewport = Viewport::new(SIZE);
+
+        let (_, shelf) = raised
+            .document
+            .models(&raised.build, raised.session.editing())
+            .planes()
+            .next()
+            .expect("the demo draws a datum");
+        // Where the press lands on the plane, which is the point the drag has
+        // hold of and the one that has to stay under the pointer.
+        let grabbed = Motion::Plane {
+            origin: shelf.origin.as_vec3(),
+            normal: shelf.normal().as_vec3(),
+        }
+        .resolve(&Aim::new(&camera, cursor, viewport, 6.0))
+        .unwrap_or_else(|| panic!("yaw {yaw}: the press missed the plane"));
+
+        let step = DVec2::new(0.0, 45.0).as_vec2();
+        raised.harness.press_at(cursor);
+        raised.frame();
+        raised.harness.drag_to(cursor + step);
+        raised.frame();
+
+        let moved = raised
+            .document
+            .models(&raised.build, raised.session.editing())
+            .planes()
+            .next()
+            .expect("the datum is still drawn")
+            .1;
+        let travelled = (moved.origin - shelf.origin).dot(shelf.normal());
+        assert!(
+            travelled.abs() > 0.1,
+            "yaw {yaw}: the drag carried the plane nowhere"
+        );
+
+        // Where that grabbed point now looks, against where the pointer now is.
+        // Only along the axis: a pointer may wander across a line all it likes,
+        // and a line drag is right to ignore that half.
+        let view_proj = camera.view_proj(viewport.aspect());
+        let seen = |world: Vec3| viewport.pixel_from_clip(view_proj * world.extend(1.0));
+        let normal = shelf.normal().as_vec3();
+        let carried = grabbed + normal * travelled as f32;
+        let axis = (seen(grabbed + normal) - seen(grabbed)).normalize();
+        let adrift = (seen(carried) - (cursor + step)).dot(axis);
+        assert!(
+            adrift.abs() < 4.0,
+            "yaw {yaw}: forty-five pixels of pointer left the grabbed point \
+             {adrift} px adrift along its own axis"
+        );
+    }
+}
+
 /// The gesture the plane's offset is edited by, and the one that has to work
 /// from *outside* the sketch it moves: the demo opens on the ground, and the
 /// datum being dragged is what the other sketch sits on. Every other press is

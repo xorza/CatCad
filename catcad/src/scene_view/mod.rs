@@ -669,7 +669,7 @@ impl SceneView {
                 };
                 let motion = match grabbed {
                     Grabbed::Sketch(_) => drawing.motion(),
-                    Grabbed::Datum(movable) => movable.travel(),
+                    Grabbed::Datum(movable) => movable.travel(hit.world),
                 };
                 // Where the press landed on the motion, against where what was
                 // grabbed actually is: a grab is not a teleport.

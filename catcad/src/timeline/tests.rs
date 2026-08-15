@@ -80,14 +80,15 @@ fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
     // so there is nothing to take hold of.
     assert_eq!(timeline.movable(ground), None);
 
-    // The ground's origin is the world's and its normal is +Y, so the shelf
-    // travels straight up through the origin — not through its own origin at
-    // (0, 2, 0), which would have it standing at zero on its own line.
+    // The ground's normal is +Y, so the shelf travels straight up — through
+    // wherever it was grabbed, which is what keeps the corner in hand under the
+    // cursor rather than the base's origin at a depth of its own.
     let movable = timeline.movable(shelf).expect("a datum can be moved");
+    let grabbed = Vec3::new(7.0, 2.0, -3.0);
     assert_eq!(
-        movable.travel(),
+        movable.travel(grabbed),
         Motion::Line {
-            origin: Vec3::ZERO,
+            origin: grabbed,
             along: Vec3::Y,
         }
     );
@@ -106,12 +107,16 @@ fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
     }));
     let movable = timeline.movable(loft).expect("a datum can be moved");
     assert_eq!(
-        movable.travel(),
+        movable.travel(grabbed),
         Motion::Line {
-            origin: Vec3::new(0.0, 2.0, 0.0),
+            origin: grabbed,
             along: Vec3::Y,
         }
     );
+    // Which line it travels on says nothing about where the measuring starts:
+    // the loft is measured off the shelf, so a point at the world's 3.5 reads
+    // back as the 1.5 the timeline holds.
+    assert_eq!(movable.offset_at(Vec3::new(4.0, 3.5, 1.0)), 1.5);
     assert_eq!(timeline.plane(loft).origin.y, 3.5);
     assert_eq!(movable.offset_at(Vec3::new(0.0, 3.5, 0.0)), 1.5);
 }
