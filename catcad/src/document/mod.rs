@@ -14,7 +14,6 @@ use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
 use crate::model::Models;
-use crate::profile::Profile;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Movable, Timeline};
 
@@ -76,22 +75,25 @@ impl Document {
         document
     }
 
-    /// Grow a solid off `profile`, as the newest step.
+    /// Take the newest step off the end, which has to be `at`.
     ///
-    /// The third way a document changes, and the odd one out: [`Document::apply`]
-    /// and [`Document::restore`] both rewrite a step that is already there,
-    /// where this puts one on the end. That is why it is not a [`Change`] — the
-    /// history records a step by keeping what it held before and after, and a
-    /// step that was not there has no before. Recording one is
-    /// [`History`](crate::history::History)'s to learn, and it is the same
-    /// lesson deleting and reordering will want.
+    /// What an undo of a creation is, and the third and last way a document
+    /// changes — beside [`Document::apply`], which asks for something, and
+    /// [`Document::restore`], which puts a value back. This puts back a step's
+    /// *absence*, which is the one thing neither of those can say.
+    pub(crate) fn take_back(&mut self, build: &mut Build, at: FeatureId) {
+        self.timeline.drop_newest(at);
+        build.revised();
+        self.remodel(build);
+        self.edits = self.edits.next();
+    }
+
+    /// Put `feature` back on the end under the name it already had.
     ///
-    /// Nothing to solve: what the region *is* was settled by the solve that
-    /// found it, and how far the solid stands off the plane is a number. What
-    /// this does need is the remodel below, because the step it just added has
-    /// no answer in `build` until one is worked out.
-    pub(crate) fn extrude(&mut self, build: &mut Build, profile: Profile, distance: f64) {
-        self.timeline.add(Feature::Extrude { profile, distance });
+    /// The redo of the above, and the reason a dropped handle is never reissued:
+    /// this is the same step returning rather than another one taking its place.
+    pub(crate) fn put_again(&mut self, build: &mut Build, at: FeatureId, feature: Feature) {
+        self.timeline.append(at, feature);
         build.revised();
         self.remodel(build);
         self.edits = self.edits.next();
@@ -316,7 +318,12 @@ impl Document {
     /// belong to whoever is doing the editing, and the document borrows them
     /// for the length of the call. An edit that could happen without one in
     /// hand would be an edit that left its report stale.
-    pub(crate) fn apply(&mut self, build: &mut Build, change: Change) {
+    /// Hands back the step it *made*, where the change was one that makes one —
+    /// see [`Change::creates`]. Every other change rewrites a step that is
+    /// already there and answers `None`, which is what the history reads to tell
+    /// the two apart before it records either.
+    pub(crate) fn apply(&mut self, build: &mut Build, change: Change) -> Option<FeatureId> {
+        let mut made = None;
         match change {
             Change::Drag { sketch, grip, to } => self.sketching(sketch).drag_to(build, grip, to),
             Change::AddPoint { sketch, at } => self.sketching(sketch).add_point(build, at),
@@ -352,6 +359,20 @@ impl Document {
                 self.timeline.carry(extrude, to);
                 build.revised();
             }
+            // The one change that puts a step on the end. The region is named
+            // here rather than where the intent was raised, because a durable
+            // name is a list of curves and an intent is `Copy` — see
+            // [`Change::Extrude`]. Naming it now costs nothing: the arrangement
+            // it is read from is the one the click was resolved against.
+            Change::Extrude {
+                sketch,
+                region,
+                distance,
+            } => {
+                let profile = self.models(build, sketch).open().profile(region);
+                made = Some(self.timeline.add(Feature::Extrude { profile, distance }));
+                build.revised();
+            }
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),
@@ -367,10 +388,11 @@ impl Document {
         // drawing says. Skipping it is what keeps an orbit off this path, which
         // the document is careful about elsewhere for the same reason — see
         // [`Edits`], on why turning the camera must not move the revision.
-        if change.feature().is_some() {
+        if change.feature().is_some() || change.creates() {
             self.remodel(build);
         }
         self.edits = self.edits.next();
+        made
     }
 }
 

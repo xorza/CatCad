@@ -10,6 +10,7 @@ use silverpoint::{Constraint, Sketch};
 
 use crate::build::Build;
 use crate::document::Document;
+use crate::intent::Change;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};
 
@@ -76,8 +77,17 @@ pub(crate) fn document(build: &mut Build) -> Document {
     // where the coordinates in `sketch` are deliberately not the answer. So the
     // document is stood up and solved, and only then is there a region to name.
     let mut document = Document::new(build, timeline);
-    let profile = document.models(build, drawn).open().profile(HUB);
-    document.extrude(build, profile, DEPTH);
+    // Through the same change a press on the Extrude button raises, so the
+    // startup document is made the way a user would make it rather than by a
+    // door of its own.
+    document.apply(
+        build,
+        Change::Extrude {
+            sketch: drawn,
+            region: HUB,
+            distance: DEPTH,
+        },
+    );
     document
 }
 

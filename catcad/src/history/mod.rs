@@ -90,6 +90,18 @@ impl History {
     /// [`Solver::drag`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
     fn edit(&mut self, document: &mut Document, build: &mut Build, change: Change) {
+        // Asked before anything else, because a step that was not there has no
+        // *before* to compare against — the whole shape below is about what a
+        // step held on either side of an edit, and a creation has only one side.
+        if change.creates() {
+            self.close();
+            let at = document
+                .apply(build, change)
+                .expect("a change that creates says which step it made");
+            let feature = document.feature(at).clone();
+            self.record(Edit::Added { at, feature });
+            return;
+        }
         let Some(at) = change.feature() else {
             document.apply(build, change);
             return;
@@ -99,15 +111,18 @@ impl History {
         // about; with several, a gesture in one followed by a gesture in
         // another would otherwise extend the first step with the second's far
         // end.
-        let extending =
-            self.open && change.coalesces() && self.edits.last().is_some_and(|edit| edit.at == at);
+        let extending = self.open
+            && change.coalesces()
+            && self.edits.last().is_some_and(|edit| edit.rewrote(at));
         if extending {
             document.apply(build, change);
             // The open step's far end follows the gesture, in place: a drag
             // lasting a second rewrites one buffer sixty times rather than
             // leaving sixty steps to take back one at a time.
-            let open = self.edits.last_mut().expect("an open step is on the stack");
-            document.feature_into(at, &mut open.after);
+            let Some(Edit::Wrote { after, .. }) = self.edits.last_mut() else {
+                unreachable!("an open step is a rewrite, and one is on the stack");
+            };
+            document.feature_into(at, after);
             return;
         }
 
@@ -118,12 +133,18 @@ impl History {
         if after == before {
             return;
         }
-        // Anything undone and not yet put back is gone the moment something
-        // else is done — there is no longer a history in which it happened.
-        self.edits.truncate(self.applied);
-        self.edits.push(Edit { at, before, after });
-        self.applied = self.edits.len();
+        self.record(Edit::Wrote { at, before, after });
         self.open = change.coalesces();
+    }
+
+    /// Put `edit` on the stack as the newest thing done.
+    ///
+    /// Anything undone and not yet put back is gone the moment something else is
+    /// done — there is no longer a history in which it happened.
+    fn record(&mut self, edit: Edit) {
+        self.edits.truncate(self.applied);
+        self.edits.push(edit);
+        self.applied = self.edits.len();
         self.forget_the_oldest();
     }
 
@@ -134,8 +155,12 @@ impl History {
             return;
         }
         self.applied -= 1;
-        let step = &self.edits[self.applied];
-        document.restore(build, step.at, &step.before);
+        match &self.edits[self.applied] {
+            Edit::Wrote { at, before, .. } => document.restore(build, *at, before),
+            // Undoing a creation puts back the step's *absence*, which is the
+            // one thing a restore cannot say.
+            Edit::Added { at, .. } => document.take_back(build, *at),
+        }
     }
 
     /// Put back the last step taken away, if there is one.
@@ -144,8 +169,12 @@ impl History {
         if !self.can_redo() {
             return;
         }
-        let step = &self.edits[self.applied];
-        document.restore(build, step.at, &step.after);
+        match &self.edits[self.applied] {
+            Edit::Wrote { at, after, .. } => document.restore(build, *at, after),
+            // The same step returning under the same name — see
+            // [`Timeline::append`](crate::timeline::Timeline).
+            Edit::Added { at, feature } => document.put_again(build, *at, feature.clone()),
+        }
         self.applied += 1;
     }
 
@@ -176,42 +205,68 @@ impl History {
     }
 }
 
-/// One step there and back: one step of the timeline at each end of something
-/// that was done.
+/// One thing that was done, and what it takes to undo it.
 ///
-/// Both ends rather than one and a way to recompute the other, because there is
-/// no recomputing either — see [`History`].
+/// Two arms, because a document changes in two shapes and they are undone by
+/// different means. Most edits *rewrite* a step that is already there, and
+/// putting one back is putting a value back. A creation adds one, and putting
+/// that back means taking the step away again — there is no earlier value to
+/// restore, because there was no step.
 ///
-/// One step of the timeline rather than the whole of it, because an edit only
-/// ever touches one: every [`Change`] that records anything names the step it
-/// is about, so a record of the document would be storing everything that did
-/// not move alongside the one thing that did.
-///
-/// A whole [`Feature`] rather than a sketch, because not every edit is to one:
-/// moving a plane rewrites a number in a datum, and a record that could only
-/// hold sketches would have nowhere to put it.
-///
-/// A whole feature rather than what changed *inside* it, which was costed and
-/// declined. It would need two cases, because [`Snapshot`] rejects the
-/// parameter-vector form for structural edits — parameters are named by
-/// position, so one taken before a point was added names the wrong ones after.
-/// The saving is real, roughly sixfold on the demo, and it lands almost nowhere:
-/// of the changes that record anything exactly one is cleanly positional, and
-/// that one is [`Change::Drag`], which already coalesces a gesture's every frame
-/// into a single step. Two `Edit` shapes and a branch choosing between them, to
-/// compress the rarest entry there is.
-///
-/// If the memory ever does bite, two cheaper levers come first: lower [`DEPTH`],
-/// or drop `before` — for one feature the `after` states form a chain, so each
-/// `before` is the previous step's `after` for that same feature.
-///
-/// [`Snapshot`]: silverpoint::Snapshot
+/// The split is what roadmap §5 called for, and it is the same split deleting
+/// and reordering will want: each is a structural change with an arm of its own,
+/// where every value edit shares one.
 #[derive(Debug)]
-struct Edit {
-    /// The step this is about.
-    at: FeatureId,
-    before: Feature,
-    after: Feature,
+pub(crate) enum Edit {
+    /// A step rewritten: what it held at either end of what was done.
+    ///
+    /// Both ends rather than one and a way to recompute the other, because there
+    /// is no recomputing either — see [`History`].
+    ///
+    /// One step of the timeline rather than the whole of it, because an edit
+    /// only ever touches one: every [`Change`] that records anything names the
+    /// step it is about, so a record of the document would be storing everything
+    /// that did not move alongside the one thing that did.
+    ///
+    /// A whole [`Feature`] rather than a sketch, because not every edit is to
+    /// one: moving a plane rewrites a number in a datum, and carrying a solid
+    /// rewrites one in an extrude.
+    ///
+    /// A whole feature rather than what changed *inside* it, which was costed
+    /// and declined. It would need two cases, because [`Snapshot`] rejects the
+    /// parameter-vector form for structural edits — parameters are named by
+    /// position, so one taken before a point was added names the wrong ones
+    /// after. The saving is real, roughly sixfold on the demo, and it lands
+    /// almost nowhere: of the changes that record anything exactly one is
+    /// cleanly positional, and that one is [`Change::Drag`], which already
+    /// coalesces a gesture's every frame into a single step.
+    ///
+    /// If the memory ever does bite, two cheaper levers come first: lower
+    /// [`DEPTH`], or drop `before` — for one feature the `after` states form a
+    /// chain, so each `before` is the previous step's `after` for that feature.
+    ///
+    /// [`Snapshot`]: silverpoint::Snapshot
+    Wrote {
+        at: FeatureId,
+        before: Feature,
+        after: Feature,
+    },
+    /// A step added to the end, and what it holds.
+    ///
+    /// The feature travels with it because a redo puts the *same* step back
+    /// under the same name, and by then the timeline no longer has it to copy.
+    Added { at: FeatureId, feature: Feature },
+}
+
+impl Edit {
+    /// Whether this is a rewrite of the step at `at`, which is what a gesture
+    /// still under way extends.
+    ///
+    /// A creation is never extended: it happened once, and the next thing the
+    /// pointer does is a different thing done.
+    fn rewrote(&self, at: FeatureId) -> bool {
+        matches!(self, Edit::Wrote { at: had, .. } if *had == at)
+    }
 }
 
 #[cfg(test)]

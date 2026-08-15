@@ -121,6 +121,39 @@ impl Timeline {
         }
     }
 
+    /// Take the newest step off the end, which has to be `at`.
+    ///
+    /// What undoing a *creation* does. Only the newest, and the assertion is
+    /// what says so rather than a search: a history is walked back in the order
+    /// it was written, and nothing between an add and its undo can have added
+    /// another — so the step being taken back is always the last one on.
+    ///
+    /// The handle is not handed back to the counter. A redo puts the same step
+    /// back under the same name — see [`Timeline::append`] — and everything else
+    /// that ever held one is watching for it to go rather than for it to be
+    /// reissued.
+    pub(crate) fn drop_newest(&mut self, at: FeatureId) {
+        let newest = self.steps.pop().expect("the timeline holds a step to drop");
+        assert_eq!(newest.id, at, "only the newest step can be taken back");
+    }
+
+    /// Put a step back on the end under the name it already had.
+    ///
+    /// The other half of [`Timeline::drop_newest`], and the reason that one does
+    /// not reissue its handle: a redo is the same step returning, so anything
+    /// that kept its name is right to find it again.
+    pub(crate) fn append(&mut self, at: FeatureId, feature: Feature) {
+        assert!(
+            self.steps.last().is_none_or(|last| last.id.0 < at.0),
+            "a step put back has to be the newest again"
+        );
+        assert!(
+            feature.referents().all(|on| self.holds(on)),
+            "a step can only be built on one the timeline already has"
+        );
+        self.steps.push(Step { id: at, feature });
+    }
+
     /// Every step, in the order they were taken, each with the handle that
     /// names it.
     ///

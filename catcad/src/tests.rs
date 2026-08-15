@@ -47,6 +47,15 @@ const CIRCLE_BUTTON: Vec2 = Vec2::new(470.0, 26.0);
 /// what is picked out.
 const TIDY_BUTTON: Vec2 = Vec2::new(58.0, 99.0);
 
+/// The Extrude command, on the bar along the bottom that shows what can be asked
+/// of what is picked out.
+///
+/// The middle of the bar, because with one region picked the Extrude button is
+/// the only thing on it and the bar hugs what it holds — measured by sweeping
+/// and reading back which clicks grew a solid, which put it between x 370 and
+/// 430.
+const EXTRUDE_BUTTON: Vec2 = Vec2::new(400.0, 570.0);
+
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
 /// agree about what is determined and what is not.
@@ -1290,4 +1299,69 @@ fn drag(app: &mut CatCad, harness: &mut UiHarness, from: Vec3, to: Vec3) {
     frame(app, harness);
     harness.release();
     frame(app, harness);
+}
+
+/// **A region picked out grows a solid, and Ctrl+Z takes the whole step back.**
+///
+/// The path a user actually has: click a region, press Extrude, and a step
+/// appears on the end of the document. Which is the first thing anyone can do
+/// that *adds* a step rather than rewriting one, and so the first thing the
+/// history had to learn to record — a step that was not there has no earlier
+/// value to put back, so undoing one takes the step away again.
+///
+/// Both halves are asked, because either alone is a trap. A creation that
+/// nothing records is a step the user cannot take back; an undo that put the
+/// value back rather than the step would leave a solid behind grown from
+/// nothing.
+#[test]
+fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    let solids = |app: &CatCad| {
+        app.document
+            .models(&app.build, app.session.editing())
+            .solids()
+            .count()
+    };
+    // The demo opens with one, grown off the hub.
+    assert_eq!(solids(&app), 1);
+
+    // The frame is region 0 of the open sketch — the rectangle with the hub cut
+    // out of it, which is not the region the demo already grew from.
+    let frame_region = app
+        .document
+        .models(&app.build, app.session.editing())
+        .open()
+        .region(0);
+    let mut intents = crate::intent::Intents::default();
+    intents.push(crate::intent::Choice::Select(Some(frame_region)));
+    app.session.apply(&intents);
+    frame(&mut app, &mut harness);
+
+    // The bar shows the button only while a region is picked, so where it lands
+    // is found rather than guessed: it is the leftmost thing on the bottom bar.
+    harness.click_at(EXTRUDE_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        solids(&app),
+        2,
+        "pressing Extrude did not grow a solid: {}",
+        app.status()
+    );
+
+    ctrl(&mut harness, Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        solids(&app),
+        1,
+        "Ctrl+Z left the solid behind, so the creation went unrecorded"
+    );
+
+    // And back again, which is the half that says the step returns rather than
+    // a fresh one taking its place.
+    ctrl_shift(&mut harness, Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    assert_eq!(solids(&app), 2, "redo did not put the step back");
 }

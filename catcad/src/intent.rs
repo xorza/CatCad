@@ -160,6 +160,24 @@ pub(crate) enum Change {
     /// reason: a replayed pass would otherwise delete whatever is picked out by
     /// the time it ran, which after the first pass is nothing.
     Delete { sketch: FeatureId, entity: Entity },
+    /// Grow a solid off a region of a sketch.
+    ///
+    /// The one change that *adds* a step rather than rewriting one, which is
+    /// what [`Change::creates`] answers and what the history has to be told
+    /// before it can record anything: a step that was not there has no before.
+    ///
+    /// The region by position rather than as a
+    /// [`Profile`](crate::profile::Profile), and that is forced: an intent is
+    /// [`Copy`] and load-bearingly so, where a profile owns the list of curves
+    /// naming it. Minting the durable name is the document's, one line later —
+    /// see [`Document::apply`](crate::document::Document). Nothing is lost by
+    /// the wait, because a position holds for as long as the arrangement it was
+    /// read from does, and that is the frame this intent lands in.
+    Extrude {
+        sketch: FeatureId,
+        region: usize,
+        distance: f64,
+    },
     /// Take a plane to a new offset from the one it is measured off.
     ///
     /// Names the offset it wants rather than a step to take, like everything
@@ -218,8 +236,39 @@ impl Change {
         )
     }
 
-    /// Which step of the timeline this is about, or `None` where it is about
-    /// the camera.
+    /// Whether this adds a step to the timeline rather than rewriting one that
+    /// is already there.
+    ///
+    /// The first thing the history asks, and the reason it has to ask: a step
+    /// that was not there has no *before*, so undoing one puts back its absence
+    /// rather than a value. See [`Edit`](crate::history::Edit).
+    ///
+    /// An exhaustive match rather than a `matches!`, unlike [`Change::coalesces`]
+    /// beside it, because the two get a wrong answer differently. A gesture
+    /// mistaken for a single edit costs an extra press of undo; a creation
+    /// mistaken for a rewrite is a step nothing can take back.
+    pub(crate) fn creates(self) -> bool {
+        match self {
+            Change::Extrude { .. } => true,
+            Change::Drag { .. }
+            | Change::AddPoint { .. }
+            | Change::AddSegment { .. }
+            | Change::AddCircle { .. }
+            | Change::Constrain { .. }
+            | Change::Resize { .. }
+            | Change::Tidy { .. }
+            | Change::Delete { .. }
+            | Change::MovePlane { .. }
+            | Change::Carry { .. }
+            | Change::Orbit { .. }
+            | Change::Dolly { .. }
+            | Change::Pan { .. }
+            | Change::Project(_) => false,
+        }
+    }
+
+    /// Which step of the timeline this is about, or `None` where it is about no
+    /// step that is already there — the camera, or a change that makes one.
     ///
     /// What the history records a step against — see
     /// [`History::edit`](crate::history::History). The camera is not the
@@ -243,7 +292,12 @@ impl Change {
             | Change::Delete { sketch, .. } => Some(sketch),
             Change::MovePlane { plane, .. } => Some(plane),
             Change::Carry { extrude, .. } => Some(extrude),
-            Change::Orbit { .. }
+            // The sketch it names is what the region is *of* rather than what
+            // this is about: the step it is about does not exist until it
+            // lands, and what the history records for one is
+            // [`Change::creates`]'s business.
+            Change::Extrude { .. }
+            | Change::Orbit { .. }
             | Change::Dolly { .. }
             | Change::Pan { .. }
             | Change::Project(_) => None,

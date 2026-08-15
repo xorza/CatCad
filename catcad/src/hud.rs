@@ -10,6 +10,7 @@ use palantir::{
 use crate::intent::{Change, Choice, Errand, Intents, Step};
 use crate::model::{Model, Models};
 use crate::paint::DECIMALS;
+use crate::part::Part;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
@@ -80,7 +81,8 @@ impl Hud {
         let sketch = model.of();
         model.offers(selection.picked(), &mut self.offers);
         let dimension = dimension_picked(model, selection);
-        if self.offers.is_empty() && dimension.is_none() {
+        let region = region_picked(selection);
+        if self.offers.is_empty() && dimension.is_none() && region.is_none() {
             return;
         }
         // Seeded from the drawing every frame rather than remembered, which is
@@ -110,6 +112,24 @@ impl Hud {
                 // what closes it, the same signal a drag's release gives.
                 if edited.committed {
                     intents.push(Step::Release);
+                }
+            }
+            // Before the relations, because it is the one thing here that
+            // builds rather than states: a relation says something about the
+            // drawing, and this puts a step on the end of the document.
+            if let Some((sketch, region)) = region {
+                let pressed = Button::new()
+                    .id_salt("Extrude")
+                    .label("Extrude")
+                    .show(ui)
+                    .left
+                    .clicked();
+                if pressed {
+                    intents.push(Change::Extrude {
+                        sketch,
+                        region,
+                        distance: EXTRUDE_DEPTH,
+                    });
                 }
             }
             for &constraint in &self.offers {
@@ -245,6 +265,30 @@ fn dimension_picked(model: Model<'_>, selection: &Selection) -> Option<(Constrai
         .holds(id)
         .then(|| model.sketch().constraint(id).value().map(|at| (id, at)))
         .flatten()
+}
+
+/// How deep a solid is grown when the button is first pressed.
+///
+/// A number the user did not ask for, and so a number they have to be able to
+/// change: what makes it fair is that the far end can be dragged the moment it
+/// is there. Large enough to read as a solid at the size the view opens at, and
+/// not so large that it leaves the frame.
+const EXTRUDE_DEPTH: f64 = 1.0;
+
+/// The one region picked out, if what is picked is exactly that.
+///
+/// One rather than any, for the reason the dimension above is one: the button
+/// grows a solid off *a* region, and two would be two solids from one press —
+/// which is a thing the user should ask for twice if they want it.
+///
+/// Not checked against the drawing, unlike the dimension: a part that no longer
+/// exists has already been pruned out of the selection by the time anything here
+/// reads it — see [`Session::prune`](crate::session::Session::prune).
+fn region_picked(selection: &Selection) -> Option<(FeatureId, usize)> {
+    match *selection.picked() {
+        [Part::Region { sketch, at }] => Some((sketch, at)),
+        _ => None,
+    }
 }
 
 /// What the button that states a relation is captioned.
