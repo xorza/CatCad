@@ -446,7 +446,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     // And a face among them, which admits nothing of its own and takes the
     // pair it is half of down with it: a relation is stated about geometry,
     // and a face is what geometry encloses.
-    let face = model.face(0);
+    let face = model.region(0);
     for picked in [
         &[][..],
         &[model.part(a)][..],

@@ -195,9 +195,32 @@ names entities of *another* step's sketch, so `Saved::timeline` has to keep a
 1. **Done.** `Bound`, `Arrangement::bounds`, `face_named_by`, the spur filter.
 2. **Done.** `Profile`, `Feature::Extrude`, `Modelled`, `Document::remodel` —
    and the file format with them, for the reason below.
-3. `Prism`, `Skinner`, paint, `Part::Solid`; scenery removed, demo and visual
-   suite updated.
+3. **Done.** `Prism`, `Skinner`, paint, `Part::Solid`; scenery removed, demo and
+   visual suite updated.
 4. The cap drag.
+
+## What step 3 found
+
+- **Naming and skinning want different loops.** `Arrangement::bounding` walked
+  the outline alone, which is right for a name — a hole appearing must not
+  rename a region — and wrong for walls, since a bore is as much a face as the
+  outside. It now takes the loop set as a parameter: naming passes
+  `once(face.outline())`, the prism passes `Face::boundary()`.
+- **`Edge::cut` returns the stored corner at either end**, not the curve
+  evaluated there. Two edges that each recomputed a shared corner can land a
+  rounding apart, which is a hairline between a cap and its own wall.
+- **`Part::Face` became `Part::Region`.** Once solids can be pointed at, the
+  word "face" belongs to what a solid has; what a drawing shuts in is a region.
+- **A prism hands out its faces lazily.** The first cut collected them into a
+  `Vec` per frame and tripped the record pass's allocation gate. `Prism` is
+  `Copy` and borrows the arrangement, so `grown()` returns an iterator and the
+  whole of a document's solids is written in one pass with no list at all.
+- **The visual suite needed re-baselining, not patching**, as expected. Two
+  goldens re-blessed (gitignored, so a local baseline); three tests written
+  against the slab and cubes retargeted — the occlusion test now measures the
+  demo's own cylinder hiding the rectangle's far edge, which is a stronger claim
+  than scenery hiding it, and the width-measuring helper drops solids for the
+  reason it already dropped faces and markers.
 
 ## What step 2 found
 

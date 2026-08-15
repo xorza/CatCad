@@ -1,6 +1,6 @@
 //! The picture the view last wrote, and the room it was written in.
 
-use silverpoint::{Fill, Filler};
+use silverpoint::{Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
 use crate::names::Names;
@@ -97,7 +97,10 @@ pub(crate) struct Made {
 #[derive(Debug, Default)]
 pub(crate) struct Sheets {
     pub(super) filler: Filler,
-    /// One face's triangles, overwritten by the next — a sheet reads its fill
+    /// One region's triangles, overwritten by the next — a sheet reads its fill
     /// into a mesh and is done with it, so one is all that is ever live.
     pub(super) fill: Fill,
+    pub(super) skinner: Skinner,
+    /// One solid face's triangles, overwritten by the next, for the same reason.
+    pub(super) patch: Patch,
 }

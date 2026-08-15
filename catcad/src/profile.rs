@@ -7,7 +7,7 @@ use crate::timeline::FeatureId;
 /// The region of a sketch a feature is grown from, named so that it survives
 /// the drawing being worked on.
 ///
-/// Not [`Part::Face`](crate::part::Part), and the two are kept apart on purpose.
+/// Not [`Part::Region`](crate::part::Part), and the two are kept apart on purpose.
 /// A part is what a *cursor* landed on and lives as long as one gesture; this is
 /// what a *step of the timeline* is built on, and has to mean the same region
 /// after every edit that follows it. A part names a face by where it fell in the

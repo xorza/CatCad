@@ -61,15 +61,28 @@ impl<'a> Prism<'a> {
     /// Every face it has, in a fixed order: the base, the far end, then one wall
     /// per curve bounding the region.
     ///
-    /// Fills `into` rather than returning it, like everything else that answers
-    /// about a drawing: what asks is drawing or picking a whole document, and a
-    /// fresh list per solid per frame is what the rest of this crate is careful
-    /// not to need.
-    pub fn faces(&self, into: &mut Vec<Grown>) {
-        into.clear();
-        into.push(Grown::Base);
-        into.push(Grown::Far);
-        into.extend(self.of.bounding(self.face().boundary()).map(Grown::Side));
+    /// An iterator rather than a list filled into a buffer, which a prism can
+    /// offer because it is [`Copy`] and borrows the arrangement for as long as
+    /// it lives: the walk is the arrangement's own. What asks is drawing or
+    /// picking a whole document, so not needing room for the answer is worth
+    /// more here than anywhere — a caller writing every face of every solid does
+    /// it in one pass and reaches the heap for none of it.
+    pub fn grown(self) -> impl Iterator<Item = Grown> + 'a {
+        let sides = self.of.bounding(self.face().boundary()).map(Grown::Side);
+        [Grown::Base, Grown::Far].into_iter().chain(sides)
+    }
+
+    /// Whether `grown` is one of its faces.
+    ///
+    /// What anything keeping hold of a face across an edit has to ask. The two
+    /// ends are always there — a prism is a region carried, and it has both
+    /// however the drawing moves — and a wall is there exactly while the curve
+    /// it was swept from still bounds the region on that side.
+    ///
+    /// Asked of the walk above rather than by a rule of its own, so what a prism
+    /// *has* and what it answers for cannot come to differ.
+    pub fn holds(self, grown: Grown) -> bool {
+        self.grown().any(|had| had == grown)
     }
 
     /// The region it was grown from.

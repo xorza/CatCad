@@ -46,10 +46,8 @@ fn outline(sketch: &mut Sketch, corners: &[(f64, f64)]) {
 fn volume(prism: &Prism<'_>) -> f64 {
     let mut skinner = Skinner::default();
     let mut patch = Patch::default();
-    let mut faces = Vec::new();
-    prism.faces(&mut faces);
     let mut total = 0.0;
-    for grown in faces {
+    for grown in prism.grown() {
         skinner.cut(prism, grown, FINE, &mut patch);
         let corner = |at: u32| patch.corners[at as usize];
         for &[a, b, c] in &patch.triangles {
@@ -81,9 +79,8 @@ fn a_prism_closes_the_right_way_out_whichever_way_it_grows() {
     let found = arranged(&sketch);
     assert_eq!(found.faces().len(), 1);
 
-    let mut faces = Vec::new();
     let up = Prism::new(&found, 0, Plane::GROUND, 3.0);
-    up.faces(&mut faces);
+    let faces: Vec<Grown> = up.grown().collect();
     assert_eq!(faces.len(), 6, "{faces:?}");
     assert_eq!(faces[0], Grown::Base);
     assert_eq!(faces[1], Grown::Far);
@@ -136,8 +133,7 @@ fn a_hole_is_carried_through_and_its_wall_faces_inward() {
         .expect("the larger circle has the smaller cut from it");
     let prism = Prism::new(&found, ring, Plane::GROUND, 2.0);
 
-    let mut faces = Vec::new();
-    prism.faces(&mut faces);
+    let faces: Vec<Grown> = prism.grown().collect();
     assert_eq!(faces.len(), 4, "{faces:?}");
     // The outside is walked counterclockwise and the bore the other way, which
     // is what tells the two walls apart by name as well as by winding.

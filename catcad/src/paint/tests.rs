@@ -268,32 +268,35 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     assert_eq!(scene.points.len(), 9);
 }
 
-/// A scene is the solids it was handed and the drawing over them, and nothing
-/// else.
+/// A scene is the document and nothing else.
 ///
 /// What this pins is that the picture is *derived* — nothing stands in it that
 /// the document does not hold, which is the whole reason saving the document is
-/// enough. The solids are the exception that proves it, and they arrive from
-/// beside the document rather than out of it precisely because no step made
-/// them: they are what saving does *not* write. The overlay counts are the
-/// fixture above's, laid out from the same sketch by the same writer, so what
-/// this adds is the solids and the fact that one call produces both halves.
+/// enough. It used to have an exception: the solids arrived from beside the
+/// document because no step could make one, and were what saving did not write.
+/// A step makes one now, so the exception is gone and the claim is the whole
+/// scene.
+///
+/// The overlay counts are the fixture above's, laid out from the same sketch by
+/// the same writer, so what this adds is the solids and the fact that one call
+/// produces every part of it.
 #[test]
-fn a_scene_holds_the_solids_it_was_given_and_the_drawing_and_nothing_else() {
+fn a_scene_is_made_of_the_document_and_nothing_else() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
     let picture = scene(
         document.models(&build, document.opening()),
-        &demo::scenery(),
         &mut Layout::default(),
     );
 
-    // The slab and the three boxes standing on it, and both sketches: the
-    // frame's seven edges and the triangle's three, two rims, nine markers and
-    // three. The eleventh stroke is the shelf plane's own outline — the ground
-    // draws none, being where the world is rather than a plane anybody put
-    // there.
-    assert_eq!(picture.solids.len(), 4);
+    // One object per face of the one solid the demo grows: the two ends and the
+    // single wall swept off the hub's circle, which is the whole boundary of a
+    // cylinder.
+    assert_eq!(picture.solids.len(), 3);
+    // And both sketches: the frame's seven edges and the triangle's three, two
+    // rims, nine markers and three. The eleventh stroke is the shelf plane's own
+    // outline — the ground draws none, being where the world is rather than a
+    // plane anybody put there.
     assert_eq!(picture.curves.len(), 11);
     assert_eq!(picture.rings.len(), 2);
     assert_eq!(picture.points.len(), 12);
@@ -392,7 +395,6 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     let document = demo::document(&mut build);
     let scene = scene(
         document.models(&build, document.opening()),
-        &demo::scenery(),
         &mut Layout::default(),
     );
 

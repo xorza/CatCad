@@ -40,7 +40,7 @@ impl Raised {
         let mut document = demo::document(&mut build);
         // Opened in its first sketch, exactly as the application opens one.
         let session = Session::new(document.opening());
-        let mut view = SceneView::new(&document, &build, session.editing(), &demo::scenery());
+        let mut view = SceneView::new(&document, &build, session.editing());
         if let Some(extent) = view.extent() {
             document.camera_mut().frame(extent);
         }
@@ -1473,36 +1473,68 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
     assert_ne!(now, was);
 }
 
-/// A face is hovered and picked out like anything else, and loses the click to
-/// whatever is drawn on it.
+/// A region is hovered and picked out like anything else, and so is a face of
+/// the solid grown off one.
 ///
 /// The three things "selectable like the rest" has to mean: the cursor over one
 /// reports it, a click picks it out, and it is named by something that survives
-/// the drawing being laid out again — which for a face is where it falls among
+/// the drawing being laid out again — which for a region is where it falls among
 /// the faces, since it has no handle of its own.
+///
+/// A solid's face is checked with it because the two are the same claim about
+/// the two ends of one feature: the region an extrude was grown *from* and the
+/// faces it grew. It is also the whole of what says a solid is drawn at all —
+/// nothing can be hovered that was never written into the scene, and nothing can
+/// be named that was written without a tag.
 #[test]
-fn a_face_is_hovered_and_picked_out_like_any_other_part() {
+fn a_region_and_a_solids_face_are_hovered_and_picked_out_like_any_other_part() {
     let mut raised = Raised::new();
     raised.frame();
 
-    // Well inside the demo's rectangle and clear of everything drawn on it: the
-    // sketch's frame runs to 8 by 5, and this corner of it holds no edge, no
-    // marker and no dimension.
-    let inside = raised.cursor_on(
-        raised
-            .document
-            .drawing_at(raised.session.editing())
-            .plane()
-            .point(DVec2::new(6.6, 1.2))
-            .as_vec3(),
-    );
+    let on_ground = |raised: &Raised, x: f64, y: f64| {
+        raised.cursor_on(
+            raised
+                .document
+                .drawing_at(raised.session.editing())
+                .plane()
+                .point(DVec2::new(x, y))
+                .as_vec3(),
+        )
+    };
+
+    // Inside the demo's rectangle and clear of everything: the frame runs to
+    // 8 by 5, the hub's cylinder stands in the middle of it out to a radius of
+    // 1.5 about (4, 2.5), and the arm is off below zero. This leaves better than
+    // a unit to the nearest of them.
+    let inside = on_ground(&raised, 1.4, 2.5);
     raised.harness.move_to(inside);
     raised.frame();
     let hovered = raised.view.hovered();
     assert!(
-        matches!(hovered, Some(Part::Face { .. })),
-        "the cursor over a face reported {hovered:?}"
+        matches!(hovered, Some(Part::Region { .. })),
+        "the cursor over a region reported {hovered:?}"
     );
+
+    // And over the solid grown off the hub, which stands proud of the plane —
+    // so the cursor finds its far end rather than the region it was grown from.
+    let solid = on_ground(&raised, 1.2, 4.2);
+    raised.harness.move_to(solid);
+    raised.frame();
+    let over = raised.view.hovered();
+    assert!(
+        matches!(over, Some(Part::Solid { .. })),
+        "the cursor over the extruded hub reported {over:?}"
+    );
+    raised.harness.click_at(solid);
+    raised.frame();
+    assert_eq!(
+        raised.session.selection().picked(),
+        [over.expect("the hover found one")],
+        "clicking the solid picked out something else"
+    );
+
+    raised.harness.move_to(inside);
+    raised.frame();
 
     // A click picks it out, and what is picked is the same face the hover was.
     raised.harness.click_at(inside);

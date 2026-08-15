@@ -1,6 +1,6 @@
 //! One thing in the drawing that can be pointed at.
 
-use silverpoint::Entity;
+use silverpoint::{Entity, Grown};
 
 use crate::timeline::FeatureId;
 
@@ -29,12 +29,26 @@ pub(crate) enum Part {
     /// A region one sketch's curves enclose, named by where it falls in the
     /// order they are walked.
     ///
-    /// A position rather than a handle, because a face has none. It holds while
-    /// the drawing's *topology* does — see
+    /// A position rather than a handle, because a region has none. It holds
+    /// while the drawing's *topology* does — see
     /// [`Arrangement::faces`](silverpoint::Arrangement) — so a drag that moves
-    /// geometry leaves a face where it was in the list, and something that
+    /// geometry leaves a region where it was in the list, and something that
     /// changes what crosses what may not.
-    Face { sketch: FeatureId, at: usize },
+    ///
+    /// A *region* rather than a face, which is what it used to be called. A face
+    /// is what a solid has, and once there are solids to point at the two need
+    /// telling apart: this is the flat thing a drawing shuts in, and
+    /// [`Part::Solid`] is the thing grown off one.
+    Region { sketch: FeatureId, at: usize },
+    /// One face of a solid, named by the step that grew it and what that face
+    /// was grown from.
+    ///
+    /// A [`Grown`] rather than a position, and the difference from the region
+    /// above is the whole of why solids can be built on later: a face of a solid
+    /// is named in the same vocabulary the region it came from was, so the name
+    /// holds across an edit rather than across a frame. What a *feature* would
+    /// keep is this plus the step, which is exactly what is here.
+    Solid { of: FeatureId, face: Grown },
     /// A datum plane, named by the step that put it there.
     ///
     /// The one part that belongs to no sketch. A plane is a step of the
@@ -47,23 +61,26 @@ pub(crate) enum Part {
 impl Part {
     /// Which sketch this belongs to, or `None` where it belongs to none.
     ///
-    /// A plane is the one thing here that is not part of a sketch, and the
-    /// `None` is what says so: it is what a sketch is drawn on.
+    /// Two things here are not part of a sketch, and the `None` is what says so:
+    /// a plane is what a sketch is drawn *on*, and a face of a solid was grown
+    /// off one rather than drawn in it. Both are steps of the timeline in their
+    /// own right.
     pub(crate) fn sketch(self) -> Option<FeatureId> {
         match self {
-            Part::Entity { sketch, .. } | Part::Face { sketch, .. } => Some(sketch),
-            Part::Plane(_) => None,
+            Part::Entity { sketch, .. } | Part::Region { sketch, .. } => Some(sketch),
+            Part::Plane(_) | Part::Solid { .. } => None,
         }
     }
 
-    /// The sketch entity this names, or `None` where it names a face.
+    /// The sketch entity this names, or `None` where it names anything else.
     ///
     /// What everything the sketch itself answers goes through: constraining,
-    /// deleting and building all want a handle, and a face has none to give.
+    /// deleting and building all want a handle, and nothing below the first arm
+    /// has one to give.
     pub(crate) fn entity(self) -> Option<Entity> {
         match self {
             Part::Entity { entity, .. } => Some(entity),
-            Part::Face { .. } | Part::Plane(_) => None,
+            Part::Region { .. } | Part::Plane(_) | Part::Solid { .. } => None,
         }
     }
 }

@@ -36,6 +36,24 @@ const FREE_MARKER: f32 = 7.0;
 /// rim, which reads round without giving the triangulation a hundred to chew.
 const FACE_SAGITTA: f64 = 0.005;
 
+/// The same, for the walls and ends of a solid.
+///
+/// Its own number rather than [`FACE_SAGITTA`] reused, because the two are read
+/// at different sizes: a region is a flat sheet seen against the plane it lies
+/// in, and a solid is turned about and lit, so a wall that is a shade too coarse
+/// shows up as banding across a shaded surface where the same coarseness on a
+/// flat fill shows up as nothing at all.
+const SOLID_SAGITTA: f64 = 0.002;
+
+/// What a solid the document has grown is shaded in.
+///
+/// Warm grey, and the one colour here that is not about state. Everything a
+/// *drawing* is painted in says how much freedom the constraints have left it;
+/// a solid has no freedom to report — it is what a feature made, and either it
+/// is there or its profile was lost — so it reads as material rather than as a
+/// thing with something left to decide.
+const SOLID: Vec3 = Vec3::new(0.62, 0.60, 0.56);
+
 /// Linear-RGB, unlit — these reach the target as authored.
 ///
 /// Geometry is coloured by how much freedom its constraints have left it, cool
@@ -200,19 +218,67 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 /// they are written once here and never by [`redraw`]: what the drawing says
 /// changes sixty times a second, and what stands around it does not change at
 /// all.
-pub(crate) fn scene(models: Models<'_>, solids: &[Object], layout: &mut Layout) -> Scene {
+pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
-    write_solids(solids, &mut scene.solids);
     // No band. Nothing can be half-drawn in a document nobody has looked at yet.
     redraw(models, layout, None, &mut scene);
     scene
 }
 
-/// The solids as the renderer wants them, which is as they already are: a solid
-/// is modelled rather than drawn, so unlike everything below there is no
-/// appearance to decide about one.
-fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
-    into.refill(solids, |object, solid| object.clone_from(solid));
+/// An object per face of every solid the document has grown.
+///
+/// One object per *face* rather than one per solid, which is what makes a solid
+/// something you can point at: a tag names a primitive, so a face that is to be
+/// hovered, picked out and later built on has to be a primitive of its own.
+///
+/// Named by what each face was grown from — see [`Grown`] — rather than by where
+/// it fell in this frame's list. That is the same durable vocabulary the region
+/// underneath was named in, so a selection survives the drawing moving under it
+/// exactly as a sketch entity's does.
+///
+/// Modelled rather than drawn, so unlike everything else here there is no
+/// appearance to decide beyond the one colour: what a solid *is* is the shape,
+/// and shading it is the renderer's.
+fn write_solids(
+    models: Models<'_>,
+    names: &mut Names,
+    sheets: &mut Sheets,
+    into: &mut Batch<Object>,
+) {
+    let Sheets { skinner, patch, .. } = sheets;
+    // One walk and nothing gathered: a prism is `Copy` and hands out its faces
+    // as an iterator, so the whole of a document's solids is written straight
+    // into the batch. A list of them first would be an allocation a frame, which
+    // is exactly what a rubber band's redraw would pay every frame it lasts.
+    let faces = models
+        .solids()
+        .flat_map(|(at, prism)| prism.grown().map(move |face| (at, prism, face)));
+    into.refill(faces, |object, (at, prism, face)| {
+        skinner.cut(&prism, face, SOLID_SAGITTA, patch);
+        // Rewritten in place rather than assigned, so a drag that recuts every
+        // solid keeps the buffers it filled last frame.
+        object.mesh.vertices.clear();
+        object
+            .mesh
+            .vertices
+            .extend(
+                patch
+                    .corners
+                    .iter()
+                    .zip(&patch.normals)
+                    .map(|(&corner, &normal)| Vertex {
+                        position: corner.as_vec3(),
+                        normal: normal.as_vec3(),
+                    }),
+            );
+        object.mesh.indices.clear();
+        object.mesh.indices.reserve_exact(patch.triangles.len() * 3);
+        object.mesh.indices.extend(patch.triangles.iter().flatten());
+        object.transform = Mat4::IDENTITY;
+        object.color = SOLID;
+        object.precedence = Precedence::Shaped;
+        object.tag = Some(names.tag(Part::Solid { of: at, face }));
+    });
 }
 
 /// Draw the whole of `model`, and `band` over it, into the room `layout` keeps
@@ -274,6 +340,7 @@ pub(crate) fn redraw(
     write_points(models, names, &mut into.points);
     write_marks(models, names, &mut into.texts);
     write_faces(models, names, sheets, &mut into.faces);
+    write_solids(models, names, sheets, &mut into.solids);
     layout.drawn(made);
 }
 
@@ -296,14 +363,14 @@ pub(crate) fn redraw(
 /// lies within it.
 ///
 /// Named *by position*, which is the one thing about a face that is not a
-/// handle. See [`Part::Face`](crate::part::Part).
+/// handle. See [`Part::Region`](crate::part::Part).
 fn write_faces(
     models: Models<'_>,
     names: &mut Names,
     sheets: &mut Sheets,
     faces: &mut Batch<Object>,
 ) {
-    let Sheets { filler, fill } = sheets;
+    let Sheets { filler, fill, .. } = sheets;
     faces.refill(
         models
             .iter()
@@ -333,7 +400,7 @@ fn write_faces(
             object.transform = Mat4::IDENTITY;
             object.color = if model.live() { FACE } else { DORMANT_FACE };
             object.precedence = standing(model);
-            object.tag = Some(names.tag(model.face(at)));
+            object.tag = Some(names.tag(model.region(at)));
         },
     );
 }

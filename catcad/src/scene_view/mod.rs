@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Extent, Highlight, Lit, Motion, Object, Renderer};
+use aperture::{Extent, Highlight, Lit, Motion, Renderer};
 use glam::{Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
@@ -182,25 +182,20 @@ pub(crate) struct SceneView {
 }
 
 impl SceneView {
-    /// A view of `document`, laid out as it stands, with `solids` standing
-    /// around it.
+    /// A view of `document`, laid out as it stands.
     ///
     /// The view lays it out itself rather than being handed a scene, which is
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
     ///
-    /// The solids come from the caller rather than the document, because no
-    /// step made them — see [`demo::scenery`](crate::demo::scenery). They are
-    /// written once, here: [`SceneView::settle`] rewrites the drawing and
-    /// leaves them alone, so a view outlives every document opened through it.
-    pub(crate) fn new(
-        document: &Document,
-        build: &Build,
-        editing: FeatureId,
-        solids: &[Object],
-    ) -> Self {
+    /// Everything in the scene comes out of the document, solids included. It
+    /// did not always: the solids used to be scenery handed in from outside and
+    /// written once, because nothing in a document could yet *make* one. Now a
+    /// step does, so they are laid out with the rest of it and by the same call
+    /// — which is also what lets one be pointed at.
+    pub(crate) fn new(document: &Document, build: &Build, editing: FeatureId) -> Self {
         let mut layout = Layout::default();
-        let scene = paint::scene(document.models(build, editing), solids, &mut layout);
+        let scene = paint::scene(document.models(build, editing), &mut layout);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             layout,

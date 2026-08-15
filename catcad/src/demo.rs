@@ -1,13 +1,11 @@
-//! The document the app opens with when it is given no file, and the scenery it
-//! stands around every document.
+//! The document the app opens with when it is given no file.
 //!
 //! Placeholder content rather than a file: what the app starts with has to come
 //! from somewhere, and a fixture whose answer is known is what makes a wrong
 //! frame obvious. The visual suite raises this very thing, so it is as much the
 //! test fixture as it is the startup content.
 
-use aperture::{Mesh, Object, Styled};
-use glam::{DVec2, Mat4, Vec3};
+use glam::DVec2;
 use silverpoint::{Constraint, Sketch};
 
 use crate::build::Build;
@@ -20,43 +18,6 @@ use crate::timeline::feature::{Datum, Feature};
 /// Enough to read as a separate plane at the angle the view opens at, and not
 /// so much that what is drawn on it leaves the frame.
 pub(crate) const SHELF: f64 = 2.2;
-
-/// The solids the drawing is modelled alongside.
-///
-/// No step made any of these, which is why they are not in the document and are
-/// not written down by saving: they stand around whichever document is open.
-/// They are a stand-in, and this goes when a solid the document *made* is drawn.
-/// One is made already — see [`document`] — and nothing paints it yet, so until
-/// then the drawing needs ground to lie on, and scenery nobody authored is the
-/// honest name for that.
-///
-/// The same world as the drawing — the slab's top face is the ground plane and
-/// the boxes stand on it — so orbiting the view moves both together.
-pub(crate) fn scenery() -> Vec<Object> {
-    let plane = silverpoint::Plane::GROUND;
-    let mut solids = Vec::new();
-    // The ground the drawing lies on, and the reason the drawing carries a
-    // depth bias at all: the slab's top face *is* the sketch plane, so the
-    // two are exactly coplanar and something has to decide which reads.
-    solids.push(Object {
-        // A unit cube spans ±0.5, so dropping the slab by half its
-        // thickness after scaling lands its top face on y = 0.
-        transform: Mat4::from_translation(Vec3::new(4.0, -0.5, -2.5))
-            * Mat4::from_scale(Vec3::new(12.0, 1.0, 9.0)),
-        color: Vec3::new(0.30, 0.30, 0.34),
-        ..Object::new(Mesh::cube(1.0))
-    });
-    for (size, at, color) in [
-        (2.0, DVec2::new(2.0, 3.6), Vec3::new(0.55, 0.58, 0.62)),
-        (0.8, DVec2::new(6.2, 1.1), Vec3::new(0.85, 0.35, 0.20)),
-        (1.2, DVec2::new(6.6, 3.9), Vec3::new(0.25, 0.45, 0.75)),
-    ] {
-        // Half a cube up puts it on the plane rather than through it.
-        let base = plane.point(at).as_vec3() + Vec3::Y * size * 0.5;
-        solids.push(Object::new(Mesh::cube(size)).at(base).colored(color));
-    }
-    solids
-}
 
 /// Which region of the first sketch the demo's extrude is grown from.
 ///

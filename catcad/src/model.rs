@@ -1,13 +1,14 @@
 //! The drawing as it currently stands: what is written down, and what the last
 //! solve made of it.
 
-use silverpoint::{Arrangement, Constraint, Entity, Outcome, Plane, Sketch};
+use silverpoint::{Arrangement, Constraint, Entity, Outcome, Plane, Prism, Sketch};
 
 use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
 use crate::drawing::Drawing;
 use crate::part::Part;
 use crate::profile::Profile;
+use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Timeline};
 
 /// A sketch and what the last solve made of it, read together.
@@ -110,8 +111,8 @@ impl<'a> Model<'a> {
     }
 
     /// The region at `at` in what this sketch's curves enclose, likewise.
-    pub(crate) fn face(self, at: usize) -> Part {
-        Part::Face {
+    pub(crate) fn region(self, at: usize) -> Part {
+        Part::Region {
             sketch: self.of,
             at,
         }
@@ -245,10 +246,13 @@ impl<'a> Model<'a> {
     pub(crate) fn holds(self, part: Part) -> bool {
         match part {
             Part::Entity { sketch, entity } => sketch == self.of && self.drawing.holds(entity),
-            Part::Face { sketch, at } => sketch == self.of && at < self.arrangement().faces().len(),
-            // Not a sketch's to answer for — see [`Models::holds`], which puts
-            // the question to whatever can.
-            Part::Plane(_) => false,
+            Part::Region { sketch, at } => {
+                sketch == self.of && at < self.arrangement().faces().len()
+            }
+            // Neither is a sketch's to answer for — one is what a sketch is
+            // drawn on and the other is a step of its own. See [`Models::holds`],
+            // which puts the question to whatever can.
+            Part::Plane(_) | Part::Solid { .. } => false,
         }
     }
 }
@@ -367,8 +371,40 @@ impl<'a> Models<'a> {
     pub(crate) fn holds(self, part: Part) -> bool {
         match part {
             Part::Plane(at) => self.timeline.holds(at),
+            // A face of a solid outlives an edit exactly while the solid still
+            // knows which region it is grown from *and* that face is still one
+            // of its own — a wall goes when the curve it was swept from stops
+            // bounding the region, which is a thing drawing across a sketch can
+            // do without taking the solid away.
+            Part::Solid { of, face } => self
+                .solids()
+                .any(|(at, prism)| at == of && prism.holds(face)),
             _ => self.iter().any(|model| model.holds(part)),
         }
+    }
+
+    /// Every solid the document holds, as it currently stands.
+    ///
+    /// One per extrude whose profile still names a region — an extrude that has
+    /// lost its footing is not half a solid, it is no solid, and what says so is
+    /// its absence here. [`Models::lost`] is what counts those.
+    ///
+    /// A [`Prism`] is a reading rather than a thing the document holds: it pairs
+    /// what the timeline says with where the last solve put it, which is the
+    /// same pairing every other reading here is.
+    pub(crate) fn solids(self) -> impl Iterator<Item = (FeatureId, Prism<'a>)> {
+        let Self {
+            timeline, build, ..
+        } = self;
+        timeline.extrudes().filter_map(move |(at, profile)| {
+            let region = build.modelled(at)?;
+            let Feature::Extrude { distance, .. } = timeline.feature(at) else {
+                unreachable!("{at:?} came back from a walk of the extrudes");
+            };
+            let plane = timeline.plane_of(profile.sketch());
+            let arrangement = build.settled(profile.sketch()).arrangement();
+            Some((at, Prism::new(arrangement, region, plane, *distance)))
+        })
     }
 }
 

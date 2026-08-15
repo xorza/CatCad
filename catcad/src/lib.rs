@@ -142,11 +142,7 @@ impl CatCad {
         // Opened in its first sketch, so a tool has somewhere to draw before
         // anything has been picked out.
         let session = Session::new(document.opening());
-        // Handed over once and not kept. The scenery stands in the view's scene
-        // from here on and nothing rewrites it — a redraw touches the drawing
-        // and leaves the solids where they are — so it outlives every document
-        // opened through the view without anything having to hold on to it.
-        let mut view = SceneView::new(&document, &build, session.editing(), &demo::scenery());
+        let mut view = SceneView::new(&document, &build, session.editing());
         if let Some(extent) = view.extent() {
             document.frame(extent);
         }
@@ -342,8 +338,6 @@ impl CatCad {
         self.session = Session::new(self.document.opening());
         self.history = History::default();
         self.filing.opened(path, self.document.edits());
-        // The scenery stays. Nothing put it there and nothing takes it away —
-        // it stands around whichever document is open.
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
@@ -436,8 +430,12 @@ fn noun(part: Part) -> &'static str {
             entity: Entity::Constraint(_),
             ..
         } => "constraint",
-        Part::Face { .. } => "face",
+        Part::Region { .. } => "region",
         Part::Plane(_) => "plane",
+        // Which face of the solid is not said. It is the one under the cursor,
+        // and "the far end of the extrude" is a sentence about the timeline
+        // rather than about the thing being pointed at.
+        Part::Solid { .. } => "face",
     }
 }
 

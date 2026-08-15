@@ -409,9 +409,9 @@ fn edge_on(pitch: f32) -> impl FnOnce(&mut Camera) {
 
 /// How wide anything lit is in `row`, in pixels.
 ///
-/// The ground slab is the only thing that reaches either end of a row it
-/// crosses — the cubes and the drawing sit inside its footprint — so this is
-/// the slab's silhouette however it is decorated.
+/// The drawing's whole silhouette across that row, whatever is standing in it:
+/// what the one caller wants is a width in the world measured at two depths, and
+/// which piece of the demo happens to be widest there is no part of the claim.
 fn lit_span(frame: &Frame, row: u32) -> u32 {
     let mut first = None;
     let mut last = 0;
@@ -424,13 +424,19 @@ fn lit_span(frame: &Frame, row: u32) -> u32 {
     first.map_or(0, |first| last - first + 1)
 }
 
-/// [`edge_on`] pulled back until the slab stays inside the frame at every
-/// depth under either projection — so the only thing that differs between two
-/// frames taken through this is the projection.
-fn slab_in_frame(projection: Projection) -> impl FnOnce(&mut Camera) {
+/// [`edge_on`] set so the drawing stays inside the frame at every depth under
+/// either projection — so the only thing that differs between two frames taken
+/// through this is the projection.
+///
+/// Close in, and that is the whole of what the distance is for: perspective
+/// spreads the near end of a thing by more the nearer the eye is, and the claim
+/// below is that orthographic does not spread it *at all*. Too far back and both
+/// projections agree to within the noise, which would pass whatever the toggle
+/// did.
+fn drawing_in_frame(projection: Projection) -> impl FnOnce(&mut Camera) {
     move |camera| {
         edge_on(0.9)(camera);
-        camera.distance = 20.0;
+        camera.distance = 13.0;
         camera.projection = projection;
     }
 }
@@ -630,15 +636,20 @@ fn deposited(pitch: f32, overlay: Overlay) -> f32 {
     edge_on(pitch)(app.camera_mut());
     {
         let mut renderer = app.renderer().borrow_mut();
-        // The markers, the constraint marks and the faces go in both cases:
-        // none is either of the two overlays being weighed, and each lands in
-        // the columns measured below — the first two on the ends of every edge
-        // the column crosses and in the middle of what each relation names, and
-        // the last as a change of ground behind the very stroke being counted.
+        // The markers, the constraint marks, the faces and the solids go in
+        // both cases: none is either of the two overlays being weighed, and each
+        // lands in the columns measured below — the first two on the ends of
+        // every edge the column crosses and in the middle of what each relation
+        // names, the third as a change of ground behind the very stroke being
+        // counted, and the last standing in front of the drawing outright. The
+        // solid is the one that *hides* rather than decorates: the demo grows a
+        // cylinder off the hub, and seen from overhead it covers the rim it was
+        // grown from — so a run left in would weigh nothing at all.
         let scene = renderer.scene_mut();
         scene.points.clear();
         scene.texts.clear();
         scene.faces.clear();
+        scene.solids.clear();
         match overlay {
             Overlay::Curves => scene.rings.clear(),
             Overlay::Rings => scene.curves.clear(),
@@ -718,29 +729,34 @@ fn overlays_keep_their_authored_width_at_grazing_angles() {
 ///
 /// Enough of it settles a coplanar tie; too much and the drawing floats out of
 /// the model and shows through solids genuinely standing in front of it. This
-/// column runs down through the grey cube, which hides the rectangle's far
-/// edge, so the cube's silhouette has to come back clean. Pinning both ends is
-/// what keeps the constant honest: the grazing test stops it being lowered,
-/// this one stops it being raised.
+/// column runs down through the cylinder the demo grows off the hub, which
+/// hides the rectangle's far edge, so the cylinder's silhouette has to come back
+/// clean. Pinning both ends is what keeps the constant honest: the grazing test
+/// stops it being lowered, this one stops it being raised.
+///
+/// The solid is the document's own now rather than scenery standing beside it,
+/// which makes the claim stronger than it was: what has to be hidden is a stroke
+/// behind a solid grown from the very drawing that stroke belongs to.
 ///
 /// Judged by where the strokes are rather than by how many, because how many is
-/// the demo's business: everything the drawing puts on the near slab crosses
-/// this column too, and none of it says anything about the bias.
+/// the demo's business: everything the drawing puts in front of the cylinder
+/// crosses this column too, and none of it says anything about the bias.
 #[test]
 fn solids_still_hide_the_strokes_behind_them() {
-    const COLUMN: u32 = 270;
-    /// The grey cube's silhouette ends here; anything below is slab.
-    const CUBE_BOTTOM: u32 = 320;
+    /// Down the middle of the cylinder, whose silhouette spans roughly 310 to
+    /// 490 at this view.
+    const COLUMN: u32 = 400;
+    /// The far edge of the rectangle lands at row 255 with nothing in front of
+    /// it — see the columns either side of the cylinder, which draw it. Anything
+    /// at or above this is that edge showing through.
+    const BEHIND: u32 = 330;
 
     let frame = render(UVec2::new(800, 628), edge_on(0.45));
     let found = strokes(&frame, COLUMN);
-    let through: Vec<&Stroke> = found
-        .iter()
-        .filter(|drawn| drawn.row <= CUBE_BOTTOM)
-        .collect();
+    let through: Vec<&Stroke> = found.iter().filter(|drawn| drawn.row <= BEHIND).collect();
     assert!(
         through.is_empty(),
-        "the far edge is behind the cube, so nothing may be drawn over it: {through:?}"
+        "the far edge is behind the cylinder, so nothing may be drawn over it: {through:?}"
     );
     // Otherwise a column that crossed nothing at all would pass.
     assert!(
@@ -752,30 +768,33 @@ fn solids_still_hide_the_strokes_behind_them() {
 /// What the projection toggle is worth: a rectangle in the world measures the
 /// same wherever it sits on screen.
 ///
-/// Both rows cross the ground slab, one well beyond the orbit target and one
-/// well in front of it. Under parallel rays the slab's silhouette is still a
-/// rectangle, so the two rows measure alike; perspective spreads the near end
-/// of the same face by a fifth.
+/// Both rows cross the drawing, one well beyond the orbit target and one well
+/// in front of it. Under parallel rays what lies between them is the same width
+/// at either depth, so the two rows measure alike; perspective spreads the near
+/// one by a quarter.
 #[test]
-fn orthographic_holds_the_slab_to_one_width() {
-    const FAR_ROW: u32 = 220;
-    const NEAR_ROW: u32 = 410;
+fn orthographic_holds_the_drawing_to_one_width() {
+    const FAR_ROW: u32 = 350;
+    const NEAR_ROW: u32 = 420;
 
     let flat = render(
         UVec2::new(800, 628),
-        slab_in_frame(Projection::Orthographic),
+        drawing_in_frame(Projection::Orthographic),
     );
     let (far, near) = (lit_span(&flat, FAR_ROW), lit_span(&flat, NEAR_ROW));
     assert!(
         far > 300 && near > 300,
-        "the slab should cross both rows, got {far} and {near}"
+        "the drawing should cross both rows, got {far} and {near}"
     );
     assert!(
         near.abs_diff(far) <= 2,
-        "orthographic widened the slab from {far} to {near} across the view"
+        "orthographic widened the drawing from {far} to {near} across the view"
     );
 
-    let solid = render(UVec2::new(800, 628), slab_in_frame(Projection::Perspective));
+    let solid = render(
+        UVec2::new(800, 628),
+        drawing_in_frame(Projection::Perspective),
+    );
     let (far, near) = (lit_span(&solid, FAR_ROW), lit_span(&solid, NEAR_ROW));
     assert!(
         near > far + 50,

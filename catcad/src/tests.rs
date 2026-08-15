@@ -240,7 +240,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
         (model.part(segment), " · edge"),
         (model.part(circle), " · circle"),
         (model.part(constraint), " · constraint"),
-        (model.face(0), " · face"),
+        (model.region(0), " · region"),
     ] {
         assert_eq!(
             Status {
