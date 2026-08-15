@@ -59,8 +59,8 @@ impl Hud {
     /// it — and it has to be lowered in the pass that minted it, which is the
     /// same pass that is calling.
     pub(crate) fn show(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
-        self.readout(ui, shown.status, shown.projection, shown.editing, intents);
-        self.constraints(ui, shown.drawing, shown.selection, shown.editing, intents);
+        self.readout(ui, shown, intents);
+        self.constraints(ui, shown, intents);
         // Last, so the bar is the topmost thing in the zstack and takes its own
         // presses rather than the readout or the view beneath it.
         self.tools(ui, shown.tool, intents);
@@ -73,14 +73,13 @@ impl Hud {
     /// usually none, so a bar sized to every constraint there is would be
     /// mostly grey the whole time — and what the user wants to know is what
     /// *this* selection can do.
-    fn constraints(
-        &mut self,
-        ui: &mut Ui,
-        drawing: Drawing<'_>,
-        selection: &Selection,
-        editing: Option<FeatureId>,
-        intents: &mut Intents,
-    ) {
+    fn constraints(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
+        let Shown {
+            drawing,
+            selection,
+            editing,
+            ..
+        } = shown;
         drawing.offers(selection.picked(), &mut self.offers);
         let dimension = dimension_picked(drawing, selection);
         if self.offers.is_empty() && dimension.is_none() {
@@ -138,14 +137,13 @@ impl Hud {
     /// Controls among the readout because both of these ask something of the
     /// whole drawing rather than of what is picked out, which is the line the
     /// constraint bar sits on the far side of.
-    fn readout(
-        &self,
-        ui: &mut Ui,
-        status: InternedStr,
-        projection: Projection,
-        editing: Option<FeatureId>,
-        intents: &mut Intents,
-    ) {
+    fn readout(&self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
+        let Shown {
+            status,
+            projection,
+            editing,
+            ..
+        } = shown;
         floating(Panel::vstack(), "readout", Align::TOP_LEFT).show(ui, |ui| {
             projection_toggle(ui, projection, intents);
             Text::new(status).auto_id().show(ui);
@@ -206,7 +204,7 @@ fn floating(panel: Panel, salt: &str, align: Align) -> Panel {
 /// it. What is *not* here is the inbox — the overlay reads all of this and
 /// writes none of it, and keeping the two apart at the signature is what says
 /// so.
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct Shown<'a> {
     pub(crate) tool: Tool,
     /// Already in the pass's own text arena, so nothing here copies it — and it
