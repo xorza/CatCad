@@ -3,6 +3,7 @@
 use crate::drawing::Drawing;
 use crate::intent::{Choice, Intent, Intents};
 use crate::selection::Selection;
+use crate::settled::Settled;
 use crate::tool::Tool;
 
 /// What is in hand, and what is picked out.
@@ -67,8 +68,9 @@ impl Session {
     /// undo that takes its first point away leaves it hanging off nothing. The
     /// tool stays in hand and starts over rather than going down: what was taken
     /// back is the point, not the intention to draw.
-    pub(crate) fn prune(&mut self, drawing: &Drawing) {
-        self.selection.retain(|part| drawing.holds_part(part));
+    pub(crate) fn prune(&mut self, drawing: &Drawing, settled: &Settled) {
+        self.selection
+            .retain(|part| settled.holds_part(drawing, part));
         if self
             .tool
             .started()

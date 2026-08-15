@@ -7,24 +7,21 @@
 //! |---|---|---|
 //! | `record-still` | a frame with the pointer parked | strict zero |
 //! | `record-hovering` | a frame with the pointer moving over the drawing | strict zero |
-//! | `record-dragging` | a frame taking a point somewhere | **owed** |
-//! | `record-banding` | a frame with a line half drawn, band following | **owed** |
+//! | `record-dragging` | a frame taking a point somewhere | strict zero |
+//! | `record-banding` | a frame with a line half drawn, band following | strict zero |
 //!
-//! The first two are zero. The last two are not, and the reason is one thing:
-//! a frame that *moves* the drawing works out afresh what its curves enclose,
-//! and [`Arrangement`](silverpoint::Arrangement) builds that from nothing every
-//! time — a list per corner of what leaves it, a list per loop, a list per
-//! curve of where it is cut, and a fill per face. None of it is kept, so none
-//! of the room is either.
-//!
-//! **The limits below are what that costs, not what it should cost.** They are
-//! written down so a *further* regression is still caught, and they come back
-//! to zero when the arrangement is given scratch to refill the way everything
-//! else in a frame already does: the status line is formatted into the record
-//! pass's own text arena rather than a `String`; `Scene::nearest` answers a
-//! hover without building a list; the drawing is laid out over the primitives
-//! the renderer already holds; and the sketch snapshots a dragged frame takes
-//! all refill buffers that have the room.
+//! All four are zero, and between them that is the whole of a frame:
+//! recording is all this crate does per frame, and none of it reaches the heap.
+//! The status line is formatted into the record pass's own text arena rather
+//! than a `String`; `Scene::nearest` answers a hover without building a list;
+//! the drawing is laid out over the primitives the renderer already holds
+//! rather than into fresh ones; the sketch snapshots a dragged frame takes —
+//! the solver's, to put back a step the constraints refuse, and the history's
+//! two ends of what it is recording — all refill buffers that have the room;
+//! and what the curves enclose is worked out in an
+//! [`Arrangement`](silverpoint::Arrangement) kept across frames, which refills
+//! the list per corner of what leaves it, the list per loop, the list per curve
+//! of where it is cut, and the fill per face rather than building each afresh.
 //!
 //! Four steps rather than one, because what separates them is what each thing
 //! the pointer can be doing costs — and a regression in one and not the others
@@ -100,7 +97,7 @@ pub fn alloc_bench() {
     harness.press_at(grabbed);
     harness.frame(|ui| app.record(WindowToken(0), ui));
     let mut frame = 0usize;
-    bench.step("record-dragging", 80.0, || {
+    bench.step("record-dragging", 0.0, || {
         frame += 1;
         // Well past palantir's four-pixel latch and never twice in the same
         // place, so the drag stays live and the geometry keeps moving — a drag
@@ -125,7 +122,7 @@ pub fn alloc_bench() {
     harness.click_at(start);
     harness.frame(|ui| app.record(WindowToken(0), ui));
     let mut frame = 0usize;
-    bench.step("record-banding", 32.0, || {
+    bench.step("record-banding", 0.0, || {
         frame += 1;
         harness.move_to(start + Vec2::new(40.0 + (frame % 16) as f32, 24.0));
         black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));

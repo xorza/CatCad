@@ -32,6 +32,7 @@
 //! residuals of a nearly-degenerate sketch do not survive `f32`.
 
 pub(crate) mod arena;
+pub(crate) mod loops;
 pub(crate) mod math;
 pub(crate) mod sketch;
 

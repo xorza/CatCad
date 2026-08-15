@@ -6,8 +6,12 @@ use super::*;
 /// cutter — what it saves is measured where it matters, in the arrangement's
 /// own sweep and in the application's allocation gates.
 fn polygon(around: &[DVec2], holes: &[Vec<DVec2>]) -> Fill {
+    let mut punched = Loops::default();
+    for hole in holes {
+        punched.push(hole);
+    }
     let mut fill = Fill::default();
-    Cutter::default().polygon(around, holes, &mut fill);
+    Cutter::default().polygon(around, &punched, &mut fill);
     fill
 }
 

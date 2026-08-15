@@ -11,15 +11,16 @@ use palantir::{
 use silverpoint::Entity;
 
 use crate::document::Document;
+use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
-use crate::drawing::{Grip, Revision};
 use crate::intent::{Change, Choice, Intents, Step};
 use crate::names::Names;
-use crate::paint;
+use crate::paint::{self, Sheets};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
+use crate::settled::{Revision, Settled};
 use crate::tool::Tool;
 
 mod aimed;
@@ -107,6 +108,12 @@ pub(crate) struct SceneView {
     /// this view's picture of the drawing and would mean nothing to another. It
     /// is rewritten with the scene, by the one call that rewrites both.
     names: Names,
+    /// The room laying out the drawing's faces takes.
+    ///
+    /// Kept for its room rather than its contents, like `lit` below: a face is
+    /// flattened and cut afresh whenever the drawing moves, and a drag moves it
+    /// every frame.
+    sheets: Sheets,
     /// Which revision of the drawing `names` and the scene's overlays were laid
     /// out from.
     ///
@@ -145,13 +152,15 @@ impl SceneView {
     /// The view lays it out itself rather than being handed a scene, which is
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
-    pub(crate) fn new(document: &Document) -> Self {
+    pub(crate) fn new(document: &Document, settled: &Settled) -> Self {
         let mut names = Names::default();
-        let scene = paint::scene(document, &mut names);
+        let mut sheets = Sheets::default();
+        let scene = paint::scene(document, settled, &mut names, &mut sheets);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             names,
-            laid_out: document.drawing().revision(),
+            sheets,
+            laid_out: settled.revision(),
             gesture: Gesture::None,
             hovered: None,
             preview: None,
@@ -420,7 +429,7 @@ impl SceneView {
     /// command holding the renderer and calls it at submit, after the record
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
-    pub(crate) fn settle(&mut self, document: &Document, selection: &Selection) {
+    pub(crate) fn settle(&mut self, document: &Document, settled: &Settled, selection: &Selection) {
         let mut renderer = self.renderer.borrow_mut();
         let drawing = document.drawing();
         // A rubber band is written after the drawing and wiped out by the next
@@ -428,11 +437,18 @@ impl SceneView {
         // it stops being live has to lay out once more to take it away. That is
         // what a drag already costs, and refilling reaches the heap for none of
         // it.
-        if self.laid_out != drawing.revision() || self.laid_band != self.preview {
+        if self.laid_out != settled.revision() || self.laid_band != self.preview {
             // Into the batches the renderer already holds, so a drag rewrites
             // the drawing every frame without asking the heap for anything.
-            paint::redraw(drawing, &mut self.names, self.preview, renderer.scene_mut());
-            self.laid_out = drawing.revision();
+            paint::redraw(
+                drawing,
+                settled,
+                &mut self.names,
+                self.preview,
+                &mut self.sheets,
+                renderer.scene_mut(),
+            );
+            self.laid_out = settled.revision();
             self.laid_band = self.preview;
         }
 

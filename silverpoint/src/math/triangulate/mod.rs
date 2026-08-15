@@ -9,6 +9,7 @@
 //! how finely to flatten it depends on how large it lands on screen and that is
 //! the caller's question — see [`Fill`].
 
+use crate::loops::Loops;
 use crate::math::approx::{ApproxEq, TOUCHING};
 use crate::math::intersect::{self, Span};
 use glam::DVec2;
@@ -20,7 +21,7 @@ use glam::DVec2;
 /// corners first, then each hole's in turn, which is the list the triangles
 /// index into. A caller that kept its own list would have to rebuild that
 /// order, and one that rebuilt it differently would draw nonsense.
-#[derive(Debug, Default, Clone, PartialEq)]
+#[derive(Debug, Default)]
 pub struct Fill {
     /// Every corner: the outline's, then each hole's.
     pub corners: Vec<DVec2>,
@@ -29,60 +30,93 @@ pub struct Fill {
     pub triangles: Vec<[u32; 3]>,
 }
 
-/// Cut `around` into triangles, with `holes` punched out of it.
-///
-/// Winding is not the caller's to get right: the outline is turned
-/// counterclockwise and each hole clockwise, whichever way they arrived, so a
-/// loop that came off a face walk and one typed by hand fill the same.
-///
-/// An outline of fewer than three corners fills to nothing, and so does one
-/// with no area — there is no triangle in either, and answering with an empty
-/// fill is the honest thing rather than a degenerate one.
-pub(crate) fn polygon(around: &[DVec2], holes: &[Vec<DVec2>]) -> Fill {
-    if around.len() < 3 {
-        return Fill::default();
+impl Fill {
+    /// Empty it, keeping the room it took.
+    fn clear(&mut self) {
+        self.corners.clear();
+        self.triangles.clear();
     }
-    let mut fill = Fill {
-        corners: Vec::with_capacity(around.len() + holes.iter().map(Vec::len).sum::<usize>()),
-        triangles: Vec::new(),
-    };
-    // The outline counterclockwise, so every ear test below reads one way
-    // round, and each hole the other way — which is what makes the bridged
-    // contour a single loop that does not cross itself.
-    let mut contour: Vec<u32> = wound(around, true, &mut fill.corners);
-    let mut punched: Vec<Vec<u32>> = holes
-        .iter()
-        .map(|hole| wound(hole, false, &mut fill.corners))
-        .filter(|hole| hole.len() >= 3)
-        .collect();
+}
 
-    // Rightmost first. A hole bridges to something outside it, and once one is
-    // spliced in it becomes part of the outline the next may bridge to — so
-    // working inward from the right is what keeps each bridge reaching across
-    // open ground rather than over a hole not yet placed.
-    punched.sort_by(|a, b| {
-        rightmost(&fill.corners, b)
-            .partial_cmp(&rightmost(&fill.corners, a))
-            .expect("corner coordinates are finite")
-    });
-    for hole in punched {
-        bridge(&fill.corners, &mut contour, &hole);
+/// Cuts polygons into triangles, keeping the room it works in.
+///
+/// Held across calls rather than stood up for each, like the solver next door:
+/// a drag cuts every face of a drawing afresh sixty times a second, and the
+/// lists below come out the same size every time. A throwaway
+/// `Cutter::default()` still answers and still reaches the heap doing it — the
+/// room is only saved by keeping the cutter.
+#[derive(Debug, Default)]
+pub(crate) struct Cutter {
+    /// The outline with every hole bridged into it, which is the single loop
+    /// the ears are clipped off.
+    contour: Vec<u32>,
+    /// Each hole, wound against the outline, in the order they are bridged.
+    punched: Loops<u32>,
+    /// One hole's walk out along its bridge, round itself, and back.
+    spliced: Vec<u32>,
+}
+
+impl Cutter {
+    /// Cut `around` into triangles, with `holes` punched out of it.
+    ///
+    /// Fills `into` rather than returning it, so a caller keeping one across a
+    /// drag pays for the room once.
+    ///
+    /// Winding is not the caller's to get right: the outline is turned
+    /// counterclockwise and each hole clockwise, whichever way they arrived, so
+    /// a loop that came off a face walk and one typed by hand fill the same.
+    ///
+    /// An outline of fewer than three corners fills to nothing, and so does one
+    /// with no area — there is no triangle in either, and answering with an
+    /// empty fill is the honest thing rather than a degenerate one.
+    pub(crate) fn polygon(&mut self, around: &[DVec2], holes: &Loops<DVec2>, into: &mut Fill) {
+        into.clear();
+        if around.len() < 3 {
+            return;
+        }
+        into.corners.reserve_exact(around.len() + holes.total());
+        // The outline counterclockwise, so every ear test below reads one way
+        // round, and each hole the other way — which is what makes the bridged
+        // contour a single loop that does not cross itself.
+        self.contour.clear();
+        wound(around, true, &mut into.corners, &mut self.contour);
+
+        self.punched.clear();
+        for hole in holes.iter() {
+            self.punched
+                .add(|indices| wound(hole, false, &mut into.corners, indices));
+        }
+
+        // Split apart so the bridging below can read one hole while writing the
+        // contour and the splice, which are three fields of one cutter.
+        let Self {
+            contour,
+            punched,
+            spliced,
+        } = self;
+        // Rightmost first. A hole bridges to something outside it, and once one
+        // is spliced in it becomes part of the outline the next may bridge to —
+        // so working inward from the right is what keeps each bridge reaching
+        // across open ground rather than over a hole not yet placed.
+        punched.largest_first(|hole| rightmost(&into.corners, hole));
+        for hole in punched.iter() {
+            bridge(&into.corners, contour, hole, spliced);
+        }
+
+        clip(&into.corners, contour, &mut into.triangles);
     }
-
-    fill.triangles = clip(&fill.corners, contour);
-    fill
 }
 
 /// Copy `loop_` into `corners`, turned the way `counterclockwise` asks, and
-/// answer with the indices it landed at.
-fn wound(loop_: &[DVec2], counterclockwise: bool, corners: &mut Vec<DVec2>) -> Vec<u32> {
+/// append the indices it landed at to `into`.
+fn wound(loop_: &[DVec2], counterclockwise: bool, corners: &mut Vec<DVec2>, into: &mut Vec<u32>) {
     let first = corners.len() as u32;
     corners.extend_from_slice(loop_);
-    let mut indices: Vec<u32> = (first..first + loop_.len() as u32).collect();
+    let from = into.len();
+    into.extend(first..first + loop_.len() as u32);
     if (sweep(loop_) > 0.0) != counterclockwise {
-        indices.reverse();
+        into[from..].reverse();
     }
-    indices
 }
 
 /// Twice the signed area, positive where the corners run counterclockwise —
@@ -104,22 +138,30 @@ fn rightmost(corners: &[DVec2], loop_: &[u32]) -> f64 {
         .fold(f64::NEG_INFINITY, f64::max)
 }
 
-/// Splice `hole` into `contour` along a bridge to a corner that can see it.
+/// Splice `hole` into `contour` along a bridge to a corner that can see it,
+/// working in `spliced`.
 ///
 /// The standard construction: take the hole's rightmost corner, look right
 /// until the contour is hit, and bridge to a corner of the edge that was hit —
 /// or, where something juts into the way, to the corner that juts nearest. The
 /// bridge is walked out and back, so the contour stays one loop and the two
 /// passes along it cancel in area.
-fn bridge(corners: &[DVec2], contour: &mut Vec<u32>, hole: &[u32]) {
-    let across = |at: usize| corners[hole[at] as usize].x;
-    let Some(reach) = (0..hole.len()).max_by(|&a, &b| {
-        across(a)
-            .partial_cmp(&across(b))
-            .expect("corner coordinates are finite")
-    }) else {
+fn bridge(corners: &[DVec2], contour: &mut Vec<u32>, hole: &[u32], spliced: &mut Vec<u32>) {
+    // A hole of fewer than three corners encloses nothing, so there is nothing
+    // to bridge to it. Its corners stay in the list all the same, because the
+    // triangles index into that list and renumbering to drop two would be work
+    // for nothing.
+    if hole.len() < 3 {
         return;
-    };
+    }
+    let across = |at: usize| corners[hole[at] as usize].x;
+    let reach = (0..hole.len())
+        .max_by(|&a, &b| {
+            across(a)
+                .partial_cmp(&across(b))
+                .expect("corner coordinates are finite")
+        })
+        .expect("a hole of three corners or more has a rightmost one");
     let from = corners[hole[reach] as usize];
     let Some(seen) = visible(corners, contour, from) else {
         return;
@@ -127,11 +169,12 @@ fn bridge(corners: &[DVec2], contour: &mut Vec<u32>, hole: &[u32]) {
 
     // Out along the bridge, once round the hole, and back — which is what
     // leaves one loop where there were two.
-    let mut spliced = Vec::with_capacity(hole.len() + 2);
+    spliced.clear();
+    spliced.reserve_exact(hole.len() + 2);
     spliced.extend(hole[reach..].iter().chain(&hole[..reach]).copied());
     spliced.push(hole[reach]);
     spliced.push(contour[seen]);
-    contour.splice(seen + 1..seen + 1, spliced);
+    contour.splice(seen + 1..seen + 1, spliced.iter().copied());
 }
 
 /// Which corner of `contour` the hole at `from` should bridge to.
@@ -197,17 +240,20 @@ fn inside(a: DVec2, b: DVec2, c: DVec2, at: DVec2) -> bool {
     !(negative && positive)
 }
 
-/// Clip ears off `contour` until nothing but a triangle is left.
+/// Clip ears off `contour` until nothing but a triangle is left, into `into`.
 ///
 /// A corner is an ear when it turns the way the loop does and no other corner
 /// stands inside the triangle it would cut. Corners in the same *place* are
 /// skipped when testing, which is what lets a bridge — whose two ends are one
 /// point visited twice — be clipped past rather than block every ear that
 /// touches it.
-fn clip(corners: &[DVec2], mut contour: Vec<u32>) -> Vec<[u32; 3]> {
-    let mut triangles = Vec::with_capacity(contour.len().saturating_sub(2));
+///
+/// Leaves `contour` emptied down to whatever it could not cut, because the
+/// clipping *is* the emptying: a caller wanting it again refills it.
+fn clip(corners: &[DVec2], contour: &mut Vec<u32>, into: &mut Vec<[u32; 3]>) {
+    into.reserve_exact(contour.len().saturating_sub(2));
     while contour.len() > 3 {
-        let Some(at) = (0..contour.len()).find(|&at| ear(corners, &contour, at)) else {
+        let Some(at) = (0..contour.len()).find(|&at| ear(corners, contour, at)) else {
             // No ear anywhere means the contour is not the simple loop this
             // takes it for — corners doubled back on themselves, most likely.
             // Cutting the sharpest corner anyway makes progress and keeps the
@@ -215,20 +261,19 @@ fn clip(corners: &[DVec2], mut contour: Vec<u32>) -> Vec<[u32; 3]> {
             // drawing.
             let sharpest = (0..contour.len())
                 .min_by(|&a, &b| {
-                    turn(corners, &contour, a)
-                        .partial_cmp(&turn(corners, &contour, b))
+                    turn(corners, contour, a)
+                        .partial_cmp(&turn(corners, contour, b))
                         .expect("corner coordinates are finite")
                 })
                 .expect("a contour of four or more has a corner");
-            triangles.extend(cut(&mut contour, sharpest));
+            into.extend(cut(contour, sharpest));
             continue;
         };
-        triangles.extend(cut(&mut contour, at));
+        into.extend(cut(contour, at));
     }
     if contour.len() == 3 {
-        triangles.push([contour[0], contour[1], contour[2]]);
+        into.push([contour[0], contour[1], contour[2]]);
     }
-    triangles
 }
 
 /// Take the corner at `at` out, answering with the triangle it cut — or with
