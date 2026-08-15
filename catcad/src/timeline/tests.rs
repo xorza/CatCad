@@ -148,9 +148,12 @@ fn an_edit_through_the_timeline_reaches_the_sketch_it_names() {
         Plane::GROUND.point(DVec2::new(5.0, 0.0)).as_vec3(),
     );
 
-    assert_eq!(
-        timeline.drawing(at).sketch().point(b).position,
-        DVec2::new(5.0, 0.0)
+    // Reached rather than written: a drag pulls toward the cursor through the
+    // constraints, so it arrives to the solver's tolerance.
+    let landed = timeline.drawing(at).sketch().point(b).position;
+    assert!(
+        (landed - DVec2::new(5.0, 0.0)).length() < 1e-7,
+        "{landed:?}"
     );
     assert_ne!(build.revision(), was, "the edit went unrecorded");
 }

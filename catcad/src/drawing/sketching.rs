@@ -1,7 +1,7 @@
 //! A sketch open for editing, and where it lies while that happens.
 
 use glam::Vec3;
-use silverpoint::{Constraint, ConstraintId, Entity, Plane, Removed, Sketch};
+use silverpoint::{Constraint, ConstraintId, Drive, Entity, Plane, Removed, Sketch};
 
 use crate::build::Build;
 use crate::drawing::anchor::Anchor;
@@ -197,9 +197,7 @@ impl<'a> Sketching<'a> {
     pub(crate) fn drag_to(&mut self, build: &mut Build, grip: Grip, world: Vec3) {
         let at = self.plane.flatten(world.as_dvec3());
         match grip {
-            Grip::Point(id) => build.dragged(self.at, self.sketch, &[id], |sketch| {
-                sketch.set_point(id, at)
-            }),
+            Grip::Point(id) => build.dragged(self.at, self.sketch, &[Drive::Point(id, at)], &[]),
             Grip::Segment { id, t } => {
                 // Both ends travel by whatever it takes to put the spot that
                 // was grabbed under the cursor. Measured against where that
@@ -211,19 +209,27 @@ impl<'a> Sketching<'a> {
                     self.sketch.point(edge.b).position,
                 );
                 let shift = at - a.lerp(b, t);
-                build.dragged(self.at, self.sketch, &[edge.a, edge.b], |sketch| {
-                    sketch.set_point(edge.a, a + shift);
-                    sketch.set_point(edge.b, b + shift);
-                });
+                build.dragged(
+                    self.at,
+                    self.sketch,
+                    &[
+                        Drive::Point(edge.a, a + shift),
+                        Drive::Point(edge.b, b + shift),
+                    ],
+                    &[],
+                );
             }
             Grip::Rim(id) => {
                 // A rim drives the radius rather than moving the circle, so
                 // the centre is held: growing a circle should not walk it.
                 let center = self.sketch.circle(id).center;
                 let radius = (at - self.sketch.point(center).position).length();
-                build.dragged(self.at, self.sketch, &[center], |sketch| {
-                    sketch.set_radius(id, radius)
-                });
+                build.dragged(
+                    self.at,
+                    self.sketch,
+                    &[Drive::Radius(id, radius)],
+                    &[center],
+                );
             }
         }
     }

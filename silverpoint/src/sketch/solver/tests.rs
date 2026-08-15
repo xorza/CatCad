@@ -1,4 +1,5 @@
 use super::*;
+use crate::Snapshot;
 use crate::sketch::constraint::Constraint;
 use crate::sketch::solver::freedoms::Freedom;
 use glam::DVec2;
@@ -6,6 +7,15 @@ use glam::DVec2;
 /// Tight enough that a wrong answer can't hide behind it: the solver's own
 /// tolerance is on the residual, and these check the geometry that follows.
 const EPSILON: f64 = 1e-9;
+
+/// What a *drag* lands within, where [`EPSILON`] is what a solve lands within.
+///
+/// Looser, and for a stated reason. A solve is run until its residuals vanish;
+/// a drag is the settled answer to a tug of war between the cursor and the
+/// constraints, so what it costs is the last couple of digits — see
+/// `PULL`. Two hundredths of a millionth of a sketch unit, which is five
+/// decades under one pixel of the drawing on screen.
+const DRAGGED: f64 = 1e-7;
 
 #[test]
 fn distance_moves_a_point_along_its_own_direction() {
@@ -260,15 +270,22 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
 
     // Drag the middle point straight up. It has to stay exactly there.
     let dragged = DVec2::new(3.0, 4.0);
-    Solver::default().edit_holding(&mut sketch, &[held], &mut outcome, |sketch| {
-        sketch.set_point(held, dragged)
-    });
+    Solver::default().drag(
+        &mut sketch,
+        &[Drive::Point(held, dragged)],
+        &[],
+        &mut outcome,
+    );
 
     assert!(outcome.converged(), "{:?}", outcome);
-    assert_eq!(
-        sketch.point(held).position,
-        dragged,
-        "the held point was moved"
+    // Reached rather than written. A drag pulls toward the cursor *through* the
+    // constraints, so where it arrives is the solver's answer and carries the
+    // solver's tolerance — where writing the position and pinning it landed on
+    // the bit and left the constraints to be checked afterwards.
+    assert!(
+        (sketch.point(held).position - dragged).length() < EPSILON,
+        "the held point was moved: {:?}",
+        sketch.point(held).position
     );
     // 3-4-5 again: the anchor constraint is satisfied where the caller put it,
     // which is why this drag is possible at all.
@@ -288,22 +305,22 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
         "a free point slides back onto the constraint"
     );
 
-    // And once more through `edit_holding`, which is the call a drag makes.
+    // And once more through `drag`, which is the call a gesture makes.
     // The 3-4-5 the other way round, so the request is reachable — and a
     // reachable one has to be kept.
     let mut before = Snapshot::default();
     sketch.snapshot_into(&mut before);
     let (was_held, was_trailing) = (sketch.point(held).position, sketch.point(trailing).position);
     let sent = DVec2::new(-3.0, 4.0);
-    solver.edit_holding(&mut sketch, &[held], &mut outcome, |sketch| {
-        sketch.set_point(held, sent)
-    });
+    solver.drag(&mut sketch, &[Drive::Point(held, sent)], &[], &mut outcome);
     assert!(outcome.converged(), "{:?}", outcome);
-    // Held throughout: the request was reachable, so the first attempt took it.
-    assert_eq!(
-        sketch.point(held).position,
-        sent,
-        "a reachable edit was undone"
+    // Reached, because the request was one the constraints allow: there the
+    // pull and the constraints go to zero together and the drag lands on what
+    // was asked for, to the solver's tolerance.
+    assert!(
+        (sketch.point(held).position - sent).length() < EPSILON,
+        "a reachable edit was undone: {:?}",
+        sketch.point(held).position
     );
     let span = sketch.point(trailing).position - sketch.point(held).position;
     assert!((span.length() - 5.0).abs() < EPSILON, "{span:?}");
@@ -323,18 +340,26 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     assert_eq!(sketch.point(trailing).position, was_trailing);
 }
 
-/// An edit a fully-determined sketch's constraints forbid leaves it exactly as
-/// it was found, and says so — which the report alone cannot.
+/// A drag the constraints leave nowhere to go moves nothing — not the point it
+/// has hold of, and not anything hanging off it.
 ///
-/// Held, the point is asked for somewhere its constraints do not reach; asked
-/// again holding nothing, they answer by putting it back where it always had to
-/// be. Neither attempt is worth keeping, so the sketch is restored whole. The
-/// compromise the held attempt reached is exactly what must never survive: it
-/// satisfies nothing, and it stands up only while the point that caused it is
-/// held, so the next solve holding something else would let go of it and the
-/// sketch would spring back.
+/// The whole of what pulling buys over writing. Writing the point where the
+/// cursor asked put the sketch somewhere its constraints were badly broken and
+/// then asked least squares to tidy up: the tidying split the correction between
+/// the grabbed point and whatever it was tied to, dragged the grabbed point all
+/// the way home again — its own constraints admitted nothing else — and left the
+/// neighbour holding its share, with nothing left to pull that back. Every
+/// frame, a fresh way. Pulling never leaves the constraints in the first place,
+/// so there is no correction to split and nothing to leave behind.
+///
+/// Two fixtures, because the fault needs somewhere to leak *to*. The first is
+/// pinned down to its last parameter and could only ever have shown the point
+/// itself staying put; the second hangs a free arm off that point, which is
+/// where the leak went.
 #[test]
-fn an_impossible_edit_is_refused_and_reads_as_the_nothing_it_was() {
+fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
+    // Determined outright: a fixed anchor, a distance and a level. There is one
+    // place this point can be, and the cursor gets no say in it.
     let mut sketch = Sketch::default();
     let anchor = sketch.add_point(DVec2::ZERO);
     let pinned = sketch.add_point(DVec2::new(5.0, 0.0));
@@ -348,45 +373,77 @@ fn an_impossible_edit_is_refused_and_reads_as_the_nothing_it_was() {
         a: anchor,
         b: pinned,
     });
+    let mut solver = Solver::default();
     let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    solver.solve(&mut sketch, &mut outcome);
     assert!(
         outcome.converged() && outcome.degrees_of_freedom() == 0,
-        "{:?}",
-        outcome
+        "{outcome:?}"
     );
 
-    // Somewhere the constraints cannot reach with that point held. The anchor
-    // is fixed and this one would be held, so every column is zeroed and nothing
-    // can move at all: the distance is satisfied exactly where the cursor put it
-    // — 3-4-5 — and the horizontal is out by the whole of its four. Nothing of
-    // that request survives: not the geometry, and not the report either.
-    let mut solver = Solver::default();
-    let mut was = Snapshot::default();
-    sketch.snapshot_into(&mut was);
-    solver.edit_holding(&mut sketch, &[pinned], &mut outcome, |sketch| {
-        sketch.set_point(pinned, DVec2::new(3.0, 4.0))
-    });
-
-    // Compared as a snapshot rather than as a list of points, because that is
-    // the comparison an undo stack makes: an edit that came to nothing has to
-    // read as the nothing it was, or it would be recorded as a step to take
-    // back.
-    //
-    // Nothing is what it comes to. Held, the request is impossible; asked
-    // again holding nothing, the constraints answer it by putting the point
-    // back where it always had to be — which is exactly where it started, so
-    // that attempt is not kept either and the sketch is restored.
-    let mut now = Snapshot::default();
-    sketch.snapshot_into(&mut now);
-    assert_eq!(now, was, "an impossible edit moved the sketch");
-    // And here is what the outcome alone cannot say. The sketch it describes is
-    // the one that was always there, which is a satisfied sketch — so a refusal
-    // reads exactly like a success, down to the iteration count, and the
-    // snapshot above is the only thing that tells them apart.
+    // Somewhere it cannot reach: the distance would be satisfied at 3-4-5 and
+    // the level broken by the whole of its four.
+    solver.drag(
+        &mut sketch,
+        &[Drive::Point(pinned, DVec2::new(3.0, 4.0))],
+        &[],
+        &mut outcome,
+    );
+    let at = sketch.point(pinned).position;
+    assert!(
+        (at - DVec2::new(5.0, 0.0)).length() < EPSILON,
+        "a drag with nowhere to go moved the point: {at:?}"
+    );
+    // Within the solve's own tolerance rather than to the bit, and that is the
+    // contract: a drag is answered by pulling through the constraints, so where
+    // it leaves the sketch is a solved position and carries a solved position's
+    // precision. Nothing is put back, because nothing was broken.
     assert!(outcome.converged(), "{outcome:?}");
-    assert_eq!(outcome.iterations(), 0);
-    assert_eq!(outcome.degrees_of_freedom(), 0, "{:?}", outcome);
+    assert_eq!(outcome.degrees_of_freedom(), 0, "{outcome:?}");
+
+    // And now the half the fixture above cannot show. The same immovable point,
+    // with an arm hung off it at a stated length — one freedom, free to swing.
+    let mut sketch = Sketch::default();
+    let anchor = sketch.add_point(DVec2::ZERO);
+    sketch.fix(anchor);
+    let pinned = sketch.add_point(DVec2::ZERO);
+    let swinging = sketch.add_point(DVec2::new(3.0, 0.0));
+    sketch.add_segment(pinned, swinging);
+    sketch.add_constraint(Constraint::Coincident {
+        a: anchor,
+        b: pinned,
+    });
+    sketch.add_constraint(Constraint::Distance {
+        a: pinned,
+        b: swinging,
+        distance: 3.0,
+    });
+    solver.solve(&mut sketch, &mut outcome);
+    assert!(outcome.converged(), "{outcome:?}");
+    // The arm's swing, and it is the whole reason this fixture says anything the
+    // one above does not.
+    assert_eq!(outcome.degrees_of_freedom(), 1, "{outcome:?}");
+
+    // A pointer sweeping a circle about the point it has hold of, which cannot
+    // follow it anywhere. The arm must not so much as tremble — and swept rather
+    // than asked once, because that is the shape the fault took: a pointer held
+    // over a point that cannot move shook the drawing for as long as it was held
+    // there.
+    let settled = sketch.point(swinging).position;
+    for step in 0..12 {
+        let angle = step as f64 * 0.5;
+        let to = DVec2::new(2.0 * angle.cos(), 2.0 * angle.sin());
+        solver.drag(&mut sketch, &[Drive::Point(pinned, to)], &[], &mut outcome);
+        assert!(
+            sketch.point(pinned).position.length() < EPSILON,
+            "the cursor at {to:?} moved a point welded to a fixed anchor"
+        );
+        assert!(
+            (sketch.point(swinging).position - settled).length() < DRAGGED,
+            "the cursor at {to:?} swung an arm nothing asked to move: {:?}",
+            sketch.point(swinging).position
+        );
+    }
 }
 
 /// A point the constraints leave somewhere to go is taken as near what was
@@ -425,9 +482,12 @@ fn a_drag_the_constraints_cannot_take_exactly_lands_as_near_as_they_allow() {
     // Two and a half units off the line, which is where a cursor always is.
     // The edge runs along y = 0, so the nearest place on it is straight below.
     let asked = DVec2::new(7.0, 2.5);
-    solver.edit_holding(&mut sketch, &[sliding], &mut outcome, |sketch| {
-        sketch.set_point(sliding, asked)
-    });
+    solver.drag(
+        &mut sketch,
+        &[Drive::Point(sliding, asked)],
+        &[],
+        &mut outcome,
+    );
     assert!(outcome.converged(), "{:?}", outcome);
     // Held, the cursor asked for somewhere off the edge and the constraints
     // refused; freed, they answered with the nearest place on it. That second
@@ -435,7 +495,7 @@ fn a_drag_the_constraints_cannot_take_exactly_lands_as_near_as_they_allow() {
 
     let landed = sketch.point(sliding).position;
     assert!(
-        (landed - DVec2::new(7.0, 0.0)).length() < EPSILON,
+        (landed - DVec2::new(7.0, 0.0)).length() < DRAGGED,
         "asked for {asked:?} and landed {landed:?}, not the foot of the perpendicular"
     );
     // And the edge it slid along did not come to meet it: both ends are pinned,

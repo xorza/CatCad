@@ -1085,7 +1085,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
 
     // And it slides. A cursor is never exactly on the line, so a drag that
     // demanded the point be exactly where the pointer is could never move it at
-    // all — what makes this work is the second attempt `edit_holding` makes,
+    // all — what makes this work is the pull `Solver::drag` reaches with,
     // which lets the point settle back onto the edge as near the cursor as it
     // can get.
     let plane = raised.document.drawing_at(raised.session.editing()).plane();

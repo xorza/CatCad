@@ -4,7 +4,7 @@ use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, Key, Modifiers, WindowToken};
-use silverpoint::{Freedom, Outcome, Plane, PointId, Removed, Solver};
+use silverpoint::{Drive, Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::build::Build;
 use crate::demo;
@@ -105,13 +105,18 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     let id: Vec<PointId> = sketch.points().map(|(point, _)| point).collect();
     let sent = wrist + DVec2::new(1.2, -0.4);
     let mut outcome = Outcome::default();
-    Solver::default().edit_holding(&mut sketch, &[id[8]], &mut outcome, |sketch| {
-        sketch.set_point(id[8], sent)
-    });
+    Solver::default().drag(&mut sketch, &[Drive::Point(id[8], sent)], &[], &mut outcome);
     assert!(outcome.converged(), "{:?}", outcome);
 
     let now: Vec<DVec2> = sketch.points().map(|(_, point)| point.position).collect();
-    assert_eq!(now[8], sent, "the arm would not go where it was sent");
+    // Reached rather than written: a drag pulls toward the cursor through the
+    // constraints, so it arrives to the solver's tolerance rather than to the
+    // bit.
+    assert!(
+        (now[8] - sent).length() < 1e-9,
+        "the arm would not go where it was sent: {:?}",
+        now[8]
+    );
     // It went as one rigid piece: both bars their own length, the elbow still
     // square, and the rail still along the base it is parallel to.
     assert!(((now[7] - now[6]).length() - 2.0).abs() < 1e-9, "{now:?}");
@@ -129,16 +134,19 @@ fn the_demo_sketch_solves_to_a_rigid_frame_and_an_arm_that_can_move() {
     // The circle is the other kind of freedom: no radius of its own, so its rim
     // keeps whatever a drag gives it instead of being pulled back.
     let hole = sketch.circles().next().unwrap().0;
-    Solver::default().edit_holding(&mut sketch, &[id[4]], &mut outcome, |sketch| {
-        sketch.set_radius(hole, 2.2)
-    });
+    Solver::default().drag(
+        &mut sketch,
+        &[Drive::Radius(hole, 2.2)],
+        &[id[4]],
+        &mut outcome,
+    );
     assert!(outcome.converged(), "{:?}", outcome);
     // Driving the radius is a change the constraints can take with the centre
     // still held, so this is the ordinary ending rather than the fallback.
-    assert_eq!(
-        sketch.circle(hole).radius,
-        2.2,
-        "the rim would not be driven"
+    assert!(
+        (sketch.circle(hole).radius - 2.2).abs() < 1e-9,
+        "the rim would not be driven: {}",
+        sketch.circle(hole).radius
     );
 }
 

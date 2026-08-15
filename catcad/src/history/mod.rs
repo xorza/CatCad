@@ -83,7 +83,7 @@ impl History {
     /// Everything else is recorded only if it moved the sketch it named, and
     /// the comparison is the whole of what decides that. A drag the constraints
     /// refuse records nothing, because
-    /// [`Solver::edit_holding`](silverpoint::Solver) has already put the
+    /// [`Solver::drag`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
     fn edit(&mut self, document: &mut Document, build: &mut Build, change: Change) {
         let Some(at) = change.feature() else {

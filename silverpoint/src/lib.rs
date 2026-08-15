@@ -45,11 +45,11 @@ pub use sketch::arrangement::filler::Filler;
 pub use sketch::constraint::{Constraint, ConstraintId};
 pub use sketch::entity::Entity;
 pub use sketch::snapshot::Snapshot;
-pub use sketch::solver::Solver;
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
 #[cfg(feature = "bench")]
 pub use sketch::solver::bench::alloc_bench;
 pub use sketch::solver::freedoms::Freedom;
 pub use sketch::solver::outcome::Outcome;
+pub use sketch::solver::{Drive, Solver};
 pub use sketch::{Circle, CircleId, Point, PointId, Removed, Segment, SegmentId, Sketch};

@@ -48,6 +48,32 @@ const MAX_DAMPING: f64 = 1e12;
 /// wide enough that no sketch is going to fall in it.
 const STALLED: f64 = 1e-12;
 
+/// How hard a drag pulls, against the constraints it is pulling through.
+///
+/// Deliberately feeble, and that is the whole idea rather than a compromise.
+/// Where the cursor asks for something the constraints allow, both terms of the
+/// objective reach zero together and this cancels out of the answer entirely —
+/// the point lands exactly where it was asked for, whatever this is. Where the
+/// cursor asks for something they do not allow, the answer is the trade-off
+/// between the two, and as this falls toward nothing that trade-off tends to
+/// the point of the feasible set *nearest* what was asked. Which is the answer
+/// wanted. So the weight buys accuracy at the price of iterations, and it is
+/// set six decades under the constraints it argues with because iterations are
+/// the cheaper of the two.
+const PULL: f64 = 1e-2;
+
+/// One parameter a drag is pulling, and where to.
+///
+/// A parameter rather than a point, because what a drag drives is not always
+/// one: a rim drives a radius. Which parameter is which is
+/// [`Params`](crate::sketch::params::Params)' business, and it is asked once
+/// where the drag is set up rather than per step.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Pull {
+    pub(super) param: usize,
+    pub(super) target: f64,
+}
+
 /// The room a Levenberg-Marquardt run works in.
 ///
 /// Sized by the sketch and refilled rather than rebuilt, so a second run over
@@ -94,6 +120,7 @@ impl Stepper {
         sketch: &mut Sketch,
         system: &mut System,
         held: &[PointId],
+        drive: &[Pull],
     ) -> u32 {
         system.hold(sketch, held);
         let n = system.width();
@@ -112,8 +139,10 @@ impl Stepper {
         // How far the residual vector reaches, carried rather than measured
         // afresh each round: after a step worth keeping it is the trial length
         // just taken, and after one that was not it has not moved.
-        let mut magnitude = system.magnitude();
-        while iterations < MAX_ITERATIONS && system.max_residual() > TOLERANCE {
+        let mut magnitude = reach(system, drive, &self.params);
+        while iterations < MAX_ITERATIONS
+            && (system.max_residual() > TOLERANCE || arrived(drive, &self.params) > TOLERANCE)
+        {
             iterations += 1;
             self.normal.fill(0.0);
             self.step.fill(0.0);
@@ -133,6 +162,22 @@ impl Stepper {
                         self.normal[a * n + b] += row[a] * row[b];
                     }
                 }
+            }
+            // The drag, folded straight in rather than assembled as rows of its
+            // own. A pull is one equation `w·(p − t)` in one parameter, so its
+            // whole contribution to `JᵀJ` is `w²` on that parameter's diagonal
+            // and its whole contribution to `Jᵀr` is `w²(p − t)` — no row to
+            // walk, and nothing for the [`System`] to carry that would then
+            // have to be kept out of what the sketch reports about itself.
+            //
+            // Only where the parameter may move. An immovable one has a zeroed
+            // column and a unit diagonal put in below to keep the matrix
+            // nonsingular, and a gradient written against that would step it —
+            // which is a fixed point being dragged.
+            for pull in drive.iter().filter(|pull| system.movable[pull.param]) {
+                let off = self.params[pull.param] - pull.target;
+                self.normal[pull.param * n + pull.param] += PULL * PULL;
+                self.step[pull.param] -= PULL * PULL * off;
             }
             // One scalar for the whole matrix, so the damping stays a multiple
             // of the identity. Per-parameter scaling would be better
@@ -166,7 +211,7 @@ impl Stepper {
                 .extend(self.params.iter().zip(&self.step).map(|(p, d)| p + d));
             sketch.params_mut().set(&self.trial_params);
             self.trial.assemble(sketch);
-            let trial = self.trial.magnitude();
+            let trial = reach(&self.trial, drive, &self.trial_params);
             if trial < magnitude {
                 // Swapped rather than assigned: the loser's buffers become the
                 // next round's scratch, so nothing is ever rebuilt.
@@ -209,4 +254,34 @@ impl Stepper {
         // the two have to be assembled under the same mask.
         self.trial.movable.clone_from(&system.movable);
     }
+}
+
+/// How far the whole objective reaches: the constraints, and how far the drag
+/// still stands from what it asked for.
+///
+/// What a step is judged by, and it has to be both. Judged on the constraints
+/// alone, a step that only carried the drag nearer its target would improve
+/// nothing measurable and be thrown away — which is every step a drag along a
+/// sketch's own freedoms is made of.
+fn reach(system: &System, drive: &[Pull], params: &[f64]) -> f64 {
+    let pulled: f64 = drive
+        .iter()
+        .map(|pull| {
+            let off = PULL * (params[pull.param] - pull.target);
+            off * off
+        })
+        .sum();
+    (system.magnitude() * system.magnitude() + pulled).sqrt()
+}
+
+/// How far the drag still stands from what it asked for, unweighted.
+///
+/// Unweighted because this asks whether the drag has *arrived*, which is a
+/// question about the sketch rather than about the objective: a pointer asks
+/// for whole units, and scaling that by [`PULL`] before comparing it against a
+/// tolerance would call a drag finished three decades before it was.
+fn arrived(drive: &[Pull], params: &[f64]) -> f64 {
+    drive.iter().fold(0.0f64, |worst, pull| {
+        worst.max((params[pull.param] - pull.target).abs())
+    })
 }

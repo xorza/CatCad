@@ -248,7 +248,6 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     // with: `c` is added twice and comes out the same both times.
     let c = sketch.add_point(DVec2::new(6.0, 7.0));
     assert_eq!(sketch.params().count(), 7);
-    assert!(!was.fits(&sketch));
     sketch.snapshot_into(&mut now);
     assert_ne!(now, was, "an added point snapshots as if it were not there");
 
@@ -283,10 +282,12 @@ fn a_snapshot_puts_a_sketch_back_and_says_whether_anything_changed() {
     assert_eq!(sketch.params().count(), 7, "the tally is unchanged");
     assert_eq!(sketch.points().count(), 2, "and so is the count");
     assert_ne!(replacement, c);
-    assert!(
-        !now.fits(&sketch),
-        "a replaced point read as the one it replaced"
-    );
+    // And the record says so. Every tally agrees, so the generation the
+    // replacement carries is the only thing that can tell them apart — and a
+    // snapshot carries it.
+    let mut after = Snapshot::default();
+    sketch.snapshot_into(&mut after);
+    assert_ne!(after, now, "a replaced point read as the one it replaced");
 }
 
 /// A cleanup takes out geometry that duplicates something and carries nothing,

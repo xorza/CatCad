@@ -465,8 +465,9 @@ fn a_drag_in_one_sketch_does_not_extend_a_step_opened_in_another() {
             to: Plane::GROUND.point(DVec2::new(0.0, 7.0)).as_vec3(),
         }),
     );
-    assert_eq!(at(&document, here, one), DVec2::new(5.0, 0.0));
-    assert_eq!(at(&document, there, other), DVec2::new(0.0, 7.0));
+    // Reached rather than written — a drag arrives to the solver's tolerance.
+    assert!((at(&document, here, one) - DVec2::new(5.0, 0.0)).length() < 1e-7);
+    assert!((at(&document, there, other) - DVec2::new(0.0, 7.0)).length() < 1e-7);
 
     // One undo takes back the second drag and leaves the first standing. Merged
     // into one step, this would have put the *first* sketch back and left the
@@ -477,10 +478,10 @@ fn a_drag_in_one_sketch_does_not_extend_a_step_opened_in_another() {
         DVec2::ZERO,
         "undo did not take back the drag that was made last"
     );
-    assert_eq!(
-        at(&document, here, one),
-        DVec2::new(5.0, 0.0),
-        "undo reached past the last step into another sketch's"
+    assert!(
+        (at(&document, here, one) - DVec2::new(5.0, 0.0)).length() < 1e-7,
+        "undo reached past the last step into another sketch's: {:?}",
+        at(&document, here, one)
     );
 
     // And the second takes back the first, which is what says there were two.

@@ -7,7 +7,7 @@
 //! | `solve-from-guess` | a full solve from coordinates deliberately off the answer | strict zero |
 //! | `solve-converged` | re-solving geometry already at the answer | strict zero |
 //! | `drag-taken` | a held edit the constraints accept | strict zero |
-//! | `drag-refused` | a held edit they refuse, so the sketch is put back | strict zero |
+//! | `drag-refused` | a drag with nowhere to go, so the sketch is handed back | strict zero |
 //! | `measure` | reading what a sketch nothing moved can still do | strict zero |
 //!
 //! One solver, many solves, is the shape a drag has, and the workspace it
@@ -16,18 +16,18 @@
 //! that caller, not about the solver, so there is nothing here to gate.
 //!
 //! The drag steps matter most: they are what the application runs every frame a
-//! pointer is down, and the only path that copies a whole sketch — into `before`
-//! on every call, so a refusal has something to put back. It is a `clone_from`
-//! into a buffer the solver keeps, so it should reuse the room it has; nothing
-//! said so until these.
+//! pointer is down, and the only path that walks the parameter vector out and
+//! back — twice per call, so that a drag which moved nothing can hand back what
+//! it was given. Both walks fill buffers the solver keeps, so they should reuse
+//! the room they have; nothing said so until these.
 //!
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.
 
 use crate::sketch::constraint::Constraint;
 use crate::sketch::snapshot::Snapshot;
-use crate::sketch::solver::Solver;
 use crate::sketch::solver::outcome::Outcome;
+use crate::sketch::solver::{Drive, Solver};
 use crate::sketch::{PointId, Sketch};
 use common::AllocBench;
 use glam::DVec2;
@@ -191,9 +191,12 @@ pub fn alloc_bench() {
     // Within reach: √72 from the anchor against an arm that extends to ten.
     let reachable = DVec2::new(6.0, 6.0);
     let before = taken_down(&sketch);
-    solver.edit_holding(&mut sketch, &[wrist], &mut outcome, |sketch| {
-        sketch.set_point(wrist, reachable)
-    });
+    solver.drag(
+        &mut sketch,
+        &[Drive::Point(wrist, reachable)],
+        &[],
+        &mut outcome,
+    );
     assert_ne!(
         taken_down(&sketch),
         before,
@@ -201,22 +204,19 @@ pub fn alloc_bench() {
     );
     bench.step("drag-taken", 0.0, || {
         sketch.params_mut().set(&settled);
-        solver.edit_holding(&mut sketch, &[wrist], &mut outcome, |sketch| {
-            sketch.set_point(wrist, reachable)
-        });
+        solver.drag(
+            &mut sketch,
+            &[Drive::Point(wrist, reachable)],
+            &[],
+            &mut outcome,
+        );
         black_box(&outcome);
     });
 
-    // A drag they refuse. Every point of the fixture is pinned down by its
-    // constraints, so the held attempt cannot move and the free one puts
-    // everything back — two snapshots, two runs, three assemblies and a
-    // restore, which is the most `edit_holding` ever does.
-    //
-    // A nudge rather than a heave, because a refusal is the free attempt
-    // landing back where it started: asked for somewhere far off, the
-    // constraints answer from whatever branch is nearest *there* — a rectangle
-    // has a mirrored one — and arriving somewhere else is a drag that was
-    // taken. A quarter unit stays in the basin it started in.
+    // A drag with nowhere to go. Every point of the fixture is pinned down by
+    // its constraints, so the pull finds nothing to yield and the parameter
+    // vector is handed back exactly as it arrived — the pull run, the settle
+    // after it, and the two walks of the vector that say so.
     let mut sketch = fixture();
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
@@ -228,19 +228,26 @@ pub fn alloc_bench() {
         .expect("the fixture has four corners");
     let nowhere = sketch.point(corner).position + DVec2::splat(0.25);
     let before = taken_down(&sketch);
-    solver.edit_holding(&mut sketch, &[corner], &mut outcome, |sketch| {
-        sketch.set_point(corner, nowhere)
-    });
+    solver.drag(
+        &mut sketch,
+        &[Drive::Point(corner, nowhere)],
+        &[],
+        &mut outcome,
+    );
     assert_eq!(
         taken_down(&sketch),
         before,
-        "this step stopped measuring a refusal"
+        "this step stopped measuring a drag with nowhere to go"
     );
     bench.step("drag-refused", 0.0, || {
-        // No rewind: a refusal puts the sketch back where it found it.
-        solver.edit_holding(&mut sketch, &[corner], &mut outcome, |sketch| {
-            sketch.set_point(corner, nowhere)
-        });
+        // No rewind: a drag with nowhere to go leaves the sketch where it
+        // found it.
+        solver.drag(
+            &mut sketch,
+            &[Drive::Point(corner, nowhere)],
+            &[],
+            &mut outcome,
+        );
         black_box(&outcome);
     });
 

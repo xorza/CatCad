@@ -6,12 +6,12 @@
 //! the reduction in [`Elimination`], which asks the sketch at rest what its
 //! constraints still leave it free to do.
 
-use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::elimination::Elimination;
 use crate::sketch::solver::outcome::Outcome;
-use crate::sketch::solver::stepper::Stepper;
+use crate::sketch::solver::stepper::{Pull, Stepper};
 use crate::sketch::solver::system::System;
-use crate::sketch::{PointId, Sketch};
+use crate::sketch::{CircleId, PointId, Sketch};
+use glam::DVec2;
 
 /// Converged once every residual is within this of zero.
 ///
@@ -24,19 +24,40 @@ use crate::sketch::{PointId, Sketch};
 /// pair of them, and neither has anything to say when it happened.
 const TOLERANCE: f64 = 1e-10;
 
-/// How far a parameter may differ and still count as not having moved, in
-/// sketch units.
+/// How far a driven parameter must travel before the drag counts as having
+/// moved it, in sketch units.
 ///
-/// Not [`TOLERANCE`], which bounds *residuals*. A converged solve leaves
-/// the geometry satisfying its constraints rather than sitting on any particular
-/// point of the set that does, so free geometry drifts a little under the
-/// arithmetic — measured on the demo's sketch, about a nanometre, four decades
-/// looser than the residual bound that produced it.
+/// What separates a drag that did something from one that did not. Solving is
+/// not restoring: a run that answers a drag with "there is nowhere to go" comes
+/// back to where it started to within its own tolerance, which is near enough to
+/// see nothing and not near enough to be the same bits — and a caller comparing
+/// sketches to find out whether there is a step to take back needs the same
+/// bits. So a drag that moved nothing puts back exactly what it was handed.
 ///
-/// Three decades above that drift, and far below the smallest drag anyone could
-/// mean: a pointer moving one pixel across a drawing on screen covers
-/// hundredths of a unit, never millionths.
+/// Four decades above the drift a converged solve leaves, and far below the
+/// smallest drag anyone could mean: a pointer crossing one pixel of a drawing
+/// covers hundredths of a unit, never millionths.
 const UNMOVED: f64 = 1e-6;
+
+/// One thing a drag has hold of, and where the pointer is asking it to go.
+///
+/// What a drag *drives*, which is not what it holds still: a rim drives a
+/// radius and holds the circle's centre so that growing one does not walk it.
+/// Neither is inferable from the other, so [`Solver::drag`] takes both.
+///
+/// Named outright rather than handed over as a closure that writes the sketch.
+/// A closure says how to move geometry and nothing whatever about what the move
+/// was *for* — so a solver given one can only find out what was asked by
+/// comparing sketches afterwards, and can never aim at it. This is the ask
+/// itself, which is what lets the solve pull toward it instead of being
+/// teleported to it and cleaning up after.
+#[derive(Debug, Clone, Copy)]
+pub enum Drive {
+    /// This point to this position.
+    Point(PointId, DVec2),
+    /// This circle to this radius, whatever its centre is doing.
+    Radius(CircleId, f64),
+}
 
 /// Solves a [`Sketch`] in place.
 ///
@@ -50,20 +71,21 @@ pub struct Solver {
     /// getting there. The one thing both phases work on: the run steps it, and
     /// everything that describes the sketch afterwards reads it.
     system: System,
-    /// The sketch as it stood before the edit being attempted, assembled, and
-    /// set aside for as long as the attempt lasts.
-    ///
-    /// A refused edit leaves the sketch exactly as it was found, so what it has
-    /// to report is what this already holds — and swapping it out of the way is
-    /// what keeps the attempt from overwriting it. Two pointer swaps against the
-    /// assembly they save, which is every constraint's residual and its
-    /// derivatives evaluated afresh over geometry that never moved.
-    spare: System,
     stepper: Stepper,
     elimination: Elimination,
-    /// The sketch as it stood before the edit being attempted, so one the
-    /// constraints cannot take can be put back whole.
-    before: Snapshot,
+    /// What the drag in hand is pulling, one entry per parameter. Kept so that a
+    /// gesture asks the sketch which parameters it names once a frame rather
+    /// than growing a list every time.
+    pulls: Vec<Pull>,
+    /// The parameter vector as the drag found it, and as the drag left it — so
+    /// that a drag which turns out to have moved nothing can hand back exactly
+    /// what it was given. See [`UNMOVED`].
+    ///
+    /// The vector rather than a [`Snapshot`](crate::Snapshot), because a drag
+    /// may not add or remove geometry: the parameters it starts with are the
+    /// ones it ends with, named by the same positions.
+    was: Vec<f64>,
+    now: Vec<f64>,
 }
 
 impl Solver {
@@ -73,9 +95,9 @@ impl Solver {
     /// failed solve still leaves it closer than it started, which is what a UI
     /// wants to draw.
     ///
-    /// Holds nothing. Pinning geometry for the length of a gesture is
-    /// [`Solver::edit_holding`]'s, which also refuses a hold the constraints
-    /// cannot take rather than reporting the compromise it settled for.
+    /// Pulls nothing toward anywhere. Driving geometry where a pointer asks is
+    /// [`Solver::drag`]'s, which reaches for it through the constraints rather
+    /// than over them.
     pub fn solve(&mut self, sketch: &mut Sketch, into: &mut Outcome) {
         let iterations = self.iterate(sketch, &[]);
         self.describe(sketch, into, iterations);
@@ -86,108 +108,99 @@ impl Solver {
     /// what anything describing the sketch afterwards wants — see
     /// [`Solver::assemble_at_rest`].
     fn iterate(&mut self, sketch: &mut Sketch, held: &[PointId]) -> u32 {
-        self.stepper.iterate(sketch, &mut self.system, held)
+        self.stepper.iterate(sketch, &mut self.system, held, &[])
     }
 
-    /// Move the sketch's geometry with `edit`, then settle the rest around it
-    /// with `held` pinned — putting the sketch back exactly as it was found if
-    /// the constraints cannot take the step.
+    /// Drive `driving` toward where the pointer is asking for it, with
+    /// `holding` pinned, and settle the sketch around it.
     ///
-    /// What a drag is made of, and one call rather than an edit followed by a
-    /// solve because a refused drag has to move *nothing*. Least squares would
-    /// otherwise answer an impossible motion with a compromise, and the
-    /// compromise is held together only by what the drag pins — so the next
-    /// solve, holding something else, lets go of it and the drawing springs
-    /// back. Deform under one drag, snap on the next.
+    /// What a drag is made of. The ask is *pulled* toward rather than written
+    /// and cleaned up after, and that one difference is the whole of the
+    /// behaviour: the sketch is stepped from where it already stands, which is
+    /// somewhere its constraints are satisfied, and every step it takes from
+    /// there is one the constraints still allow.
     ///
-    /// Two attempts. Held, the grabbed point does not move at all and the rest
-    /// swings under it, which is what makes an ordinary drag track the pointer
-    /// exactly. Where the constraints cannot take that, the same demand would
-    /// freeze the drawing — a point tied to an edge is never *exactly* under a
-    /// cursor — so the second attempt asks the same edit holding nothing, and
-    /// lets the geometry settle as near what was asked for as it may go. A point
-    /// on an edge slides along it; an arm the pointer has outrun reaches as far
-    /// as it can.
+    /// So there is nothing to refuse and nothing to put back. A drag the
+    /// constraints cannot take is not an edit that has to be undone; it is a
+    /// pull the geometry does not yield to, and a pull nothing yields to moves
+    /// nothing. A point pinned by its constraints stays exactly where it is
+    /// while the pointer wanders, and so does everything hanging off it.
     ///
-    /// The second attempt is a free solve from where the cursor asked, so it may
-    /// in principle settle on a different branch of a mechanism that admits more
-    /// than one. It runs only where the first was refused, which is where
-    /// nothing moved at all.
+    /// Where the ask *is* reachable the pull reaches it exactly: both halves of
+    /// what is being minimized go to zero together and the weight between them
+    /// cancels out. Where it is not, the answer is the reachable position
+    /// nearest what was asked — a point tied to an edge slides along it to the
+    /// foot of the perpendicular, and an arm the pointer has outrun reaches as
+    /// far as it can, both by how weakly the pull argues with the constraints.
     ///
-    /// `edit` may move geometry. It may not add or remove any: `held` and the
-    /// residual this is judged against were both taken of the sketch as it
-    /// arrived. Adding geometry is [`Solver::solve`]'s, with nothing held.
-    ///
-    /// It may also be run twice — once for each attempt — and both runs are
-    /// given the sketch exactly as it arrived, so one that reads the sketch and
-    /// moves geometry *relative* to what it finds would compound. Say where
-    /// geometry goes, not how far it moves: a drag knows where the cursor is.
-    pub fn edit_holding(
+    /// `holding` is what must not move while the drag happens, which is not
+    /// what is being driven: a rim drives a radius and holds the circle's
+    /// centre, so that growing a circle does not walk it.
+    pub fn drag(
         &mut self,
         sketch: &mut Sketch,
-        held: &[PointId],
+        driving: &[Drive],
+        holding: &[PointId],
         into: &mut Outcome,
-        edit: impl Fn(&mut Sketch),
     ) {
-        // Built straight into the one buffer the attempt ahead will not touch,
-        // because a refusal has to describe exactly this sketch and this is
-        // already its assembly. Only the residual is wanted now — nothing is
-        // being reported about the sketch as it stands, only judged against what
-        // the edit leaves — but keeping the rest costs nothing and saves
-        // building it again over geometry that never moved.
-        self.spare.assemble_holding(sketch, &[]);
-        let was = self.spare.max_residual();
-        sketch.snapshot_into(&mut self.before);
-
-        edit(sketch);
-        debug_assert!(
-            self.before.fits(sketch),
-            "an edit may move a sketch's geometry, not add to or remove from it"
-        );
-
-        // Held first, which is what makes an ordinary drag track the pointer
-        // exactly: the grabbed point does not move, and the rest of the sketch
-        // swings to accommodate it.
-        let iterations = self.iterate(sketch, held);
-        if self.take(sketch, was, into, iterations) {
-            return;
-        }
-
-        // Held, that was impossible — the cursor asked for somewhere the
-        // constraints do not reach. So ask again without holding anything, from
-        // what the edit asked for rather than from where the first attempt gave
-        // up: the geometry is then free to settle back onto what the constraints
-        // allow, which lands it as near the cursor as it may go. A point held to
-        // an edge slides along it, and an arm outrun by the pointer reaches as
-        // far as it can rather than freezing where it was. Holding nothing is
-        // what the first attempt already did, so there is no second answer to be
-        // had — and asking again would be the same solve run twice for the same
-        // refusal.
-        if !held.is_empty() {
-            // Put back and asked for again, rather than kept: what the edit
-            // wanted is the edit run on the sketch it was run on, and both of
-            // those are already here. Keeping it instead would be a second whole
-            // sketch copied on every frame of every drag, to spare a call that
-            // is usually one coordinate written.
-            sketch.restore(&self.before);
-            edit(sketch);
-            let iterations = self.iterate(sketch, &[]);
-            // Kept only where it moved the sketch at all. One with nowhere to go
-            // answers this attempt by putting everything back where it always
-            // had to be — and arriving there a second time by way of a solve is
-            // not arriving there in the same *bits*, so a caller comparing
-            // snapshots would read a step to take back that nobody took. The
-            // whole sketch rather than the held points, because what a drag
-            // moves need not be one: driving a radius holds the circle's centre,
-            // and the centre staying put says nothing about whether the circle
-            // grew.
-            if !self.before.within(sketch, UNMOVED) && self.take(sketch, was, into, iterations) {
-                return;
+        self.pulls.clear();
+        // Which parameter each of these names, asked once here rather than per
+        // step. A point is two and a radius is one, which is the only thing the
+        // two arms differ in by the time the stepper sees them.
+        let params = sketch.params();
+        for drive in driving {
+            match *drive {
+                Drive::Point(id, to) => {
+                    let [x, y] = params.of_point(id);
+                    self.pulls.push(Pull {
+                        param: x,
+                        target: to.x,
+                    });
+                    self.pulls.push(Pull {
+                        param: y,
+                        target: to.y,
+                    });
+                }
+                Drive::Radius(id, radius) => self.pulls.push(Pull {
+                    param: params.of_radius(id),
+                    target: radius,
+                }),
             }
         }
+        self.was.clear();
+        sketch.params().write(&mut self.was);
+        let pulled = self
+            .stepper
+            .iterate(sketch, &mut self.system, holding, &self.pulls);
+        // Then settled with the pull let go of. What the pull converges to is a
+        // trade between the constraints and itself, so it leaves the sketch a
+        // hair off them — a hair the size of the weight, which is small and is
+        // not nothing. Letting go and solving again from there puts the sketch
+        // back exactly on its constraints, and moves it by that same hair to do
+        // it: the drag is already where it belongs, so there is nothing here for
+        // the geometry to travel.
+        //
+        // Which is also what makes the report honest. A sketch is converged when
+        // its constraints are satisfied, and the pull is not one of them.
+        let settled = self.iterate(sketch, holding);
 
-        sketch.restore(&self.before);
-        self.describe_as_found(sketch, into);
+        // And put back untouched where the drag turned out to have nowhere to
+        // go. Everything above is a *solve*, so what it leaves is a solved
+        // position — right to within the solver's tolerance and not to the bit,
+        // where a caller asking whether there is a step to take back compares
+        // bits. Being able to say this at all is what naming the drag buys: the
+        // question is whether what was driven moved, and what was driven is
+        // right here rather than something to be inferred from what changed.
+        self.now.clear();
+        sketch.params().write(&mut self.now);
+        let moved = self
+            .pulls
+            .iter()
+            .any(|pull| (self.now[pull.param] - self.was[pull.param]).abs() > UNMOVED);
+        if !moved {
+            sketch.params_mut().set(&self.was);
+        }
+        self.describe(sketch, into, pulled + settled);
     }
 
     /// Which of the sketch's geometry its constraints leave anything to decide,
@@ -208,8 +221,7 @@ impl Solver {
     /// Assemble the sketch as it stands with nothing held.
     ///
     /// The state every question about the sketch itself, rather than about a
-    /// drag on it, has to be asked of — so [`Solver::take`] both judges what
-    /// this leaves and describes it, off the one assembly.
+    /// drag on it, has to be asked of.
     ///
     /// Always at rest, whatever a run was holding. Determinacy is a property of
     /// the sketch and not of the drag being attempted on it, and a count taken
@@ -224,62 +236,19 @@ impl Solver {
     ///
     /// The two halves are only ever right together — what
     /// [`Solver::read_at_rest`] reduces is whichever assembly the solver happens
-    /// to be holding, and this is what puts the sketch's own there. Every way of
-    /// describing a sketch is one of the three calls that pair them: this,
-    /// [`Solver::take`] and [`Solver::describe_as_found`].
+    /// to be holding, and this is what puts the sketch's own there. Every
+    /// description a sketch gets goes through here.
     fn describe(&mut self, sketch: &Sketch, into: &mut Outcome, iterations: u32) {
         self.assemble_at_rest(sketch);
         self.read_at_rest(sketch, into, iterations);
     }
 
-    /// Assemble the sketch at rest, describe it if it is one to keep, and answer
-    /// whether it was.
-    ///
-    /// Kept when it is satisfied outright, or at least no less satisfied than it
-    /// was at `was`. Judged on the residual rather than on convergence alone, so
-    /// a sketch whose constraints already conflict can still be edited: what is
-    /// refused is a step that leaves it *less* satisfied than it was, not one
-    /// that merely fails to finish the job.
-    ///
-    /// Judged and described off the one assembly, and never described unless it
-    /// is kept: working out what a refused attempt could still do would be
-    /// working it out for a sketch about to be put back.
-    fn take(&mut self, sketch: &Sketch, was: f64, into: &mut Outcome, iterations: u32) -> bool {
-        self.assemble_at_rest(sketch);
-        let residual = self.system.max_residual();
-        if residual > TOLERANCE && residual > was {
-            return false;
-        }
-        self.read_at_rest(sketch, into, iterations);
-        true
-    }
-
-    /// Describe the sketch as it was found, off the assembly set aside before
-    /// the edit rather than one built again.
-    ///
-    /// Taken back rather than rebuilt: [`Solver::spare`] holds the assembly of
-    /// the sketch as it arrived, and a refusal restores that sketch to the bit —
-    /// so reducing the one is reducing the other. The sketch must be back where
-    /// it started, which on the one path that calls this it is.
-    ///
-    /// What comes out is a report of a sketch standing at its own solution,
-    /// because that is what the sketch now is — a caller telling a refusal from
-    /// an edit that had nothing to do compares the sketch, which is the only
-    /// thing the two differ in.
-    fn describe_as_found(&mut self, sketch: &Sketch, into: &mut Outcome) {
-        std::mem::swap(&mut self.system, &mut self.spare);
-        self.read_at_rest(sketch, into, 0);
-    }
-
     /// Read the whole of what the assembly in hand says the sketch can do.
     ///
     /// Reduces whichever assembly the solver is holding rather than building
-    /// one, so a caller that has already judged the residual pays for the
-    /// reduction alone — and so this is never called on its own. Getting the
-    /// right assembly there is [`Solver::describe`], [`Solver::take`] and
-    /// [`Solver::describe_as_found`]'s, one of which every description goes
-    /// through; the assert below is the half of their promise that is cheap
-    /// enough to check.
+    /// one, so this is never called on its own: getting the sketch's own
+    /// assembly there is [`Solver::describe`]'s, and the assert below is the
+    /// half of that promise cheap enough to check.
     fn read_at_rest(&mut self, sketch: &Sketch, into: &mut Outcome, iterations: u32) {
         debug_assert_eq!(
             self.system.width(),

@@ -1,7 +1,7 @@
 //! The room an edit works in, and everything replaying the timeline leaves
 //! behind.
 
-use silverpoint::{Outcome, PointId, Removed, Sketch, Solver};
+use silverpoint::{Drive, Outcome, PointId, Removed, Sketch, Solver};
 
 use crate::build::settled::Settled;
 use crate::timeline::FeatureId;
@@ -107,25 +107,25 @@ impl Build {
         });
     }
 
-    /// Move the geometry of the sketch at `of` with `edit`, `held` pinned for
+    /// Drive `driving` where the pointer is asking for it, `holding` pinned for
     /// the length of it, and take everything the solve that follows decides.
     ///
-    /// The third shape: what a drag is. It holds what the pointer has and asks
-    /// the constraints to accommodate it, where the two above hold nothing.
+    /// The third shape: what a drag is. It reaches for something and asks the
+    /// constraints to accommodate it, where the two above ask them nothing.
     ///
-    /// [`Solver::edit_holding`] puts the geometry back where it found it if the
-    /// constraints refuse, so a drag they will not take moves nothing — and is
-    /// still settled, because what the run decided is what the sketch is
-    /// painted in the colour of either way.
+    /// [`Solver::drag`] pulls toward the ask through the constraints rather than
+    /// writing it and settling afterwards, so a drag they will not take moves
+    /// nothing — and is still settled, because what the run decided is what the
+    /// sketch is painted in the colour of either way.
     pub(crate) fn dragged(
         &mut self,
         of: FeatureId,
         sketch: &mut Sketch,
-        held: &[PointId],
-        edit: impl Fn(&mut Sketch),
+        driving: &[Drive],
+        holding: &[PointId],
     ) {
         self.settle(of, sketch, |solver, sketch, outcome| {
-            solver.edit_holding(sketch, held, outcome, edit);
+            solver.drag(sketch, driving, holding, outcome);
         });
     }
 
