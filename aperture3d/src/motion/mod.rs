@@ -1,7 +1,7 @@
-//! Where a drag is allowed to move, and where a cursor ray lands on it.
+//! Where a drag is allowed to move, and where the cursor puts it.
 
 use crate::aim::Aim;
-use crate::viewport::{MIN_RECIP_W, MIN_RUN_PX2};
+use crate::viewport::{self, MIN_RUN_PX2};
 use glam::Vec3;
 
 /// How squarely the ray must meet a plane for the crossing to mean anything,
@@ -116,50 +116,48 @@ impl Motion {
                 let step = aim.view_proj * unit.extend(0.0);
                 let depth = |at: f32| base.w + step.w * at;
 
-                // Two points of it in front of the eye, to say which way it
-                // runs on screen. Depth is affine along the line as well, so
-                // what is in front is a half-line and this walks to the inside
-                // of it — by a whole step past the end, `unit` being one world
-                // unit long.
-                let mut near = 0.0;
-                if depth(near) <= MIN_DEPTH {
+                // Two points of it in front of the eye, far enough apart to say
+                // which way it runs on screen. Neither is nearer than the other
+                // by anything but accident — what they are is a pair. Depth is
+                // affine along the line as well, so what is in front of the eye
+                // is a half-line, and this walks to the inside of it by a whole
+                // step past the end, `unit` being one world unit long.
+                let mut first = 0.0;
+                if depth(first) <= MIN_DEPTH {
                     if step.w == 0.0 {
                         return None;
                     }
-                    near = (MIN_DEPTH - base.w) / step.w + step.w.signum();
-                    if depth(near) <= MIN_DEPTH {
+                    first = (MIN_DEPTH - base.w) / step.w + step.w.signum();
+                    if depth(first) <= MIN_DEPTH {
                         return None;
                     }
                 }
-                let far = [near + 1.0, near - 1.0]
+                let second = [first + 1.0, first - 1.0]
                     .into_iter()
                     .find(|&at| depth(at) > MIN_DEPTH)?;
 
-                let (at_near, at_far) = (base + step * near, base + step * far);
+                let (at_first, at_second) = (base + step * first, base + step * second);
                 let (from, to) = (
-                    aim.viewport.pixel_from_clip(at_near),
-                    aim.viewport.pixel_from_clip(at_far),
+                    aim.viewport.pixel_from_clip(at_first),
+                    aim.viewport.pixel_from_clip(at_second),
                 );
                 let run = to - from;
                 let length = run.length_squared();
                 // A line pointing straight at the eye projects to a point, and a
-                // point leaves the cursor nothing to slide along. The refusal
-                // the old arithmetic made against a determinant, said where it
-                // can be seen.
+                // point leaves the cursor nothing to slide along. Asked of the
+                // projection, because that is where the answer is read: an angle
+                // that looked safe in space can still land both probes on one
+                // pixel.
                 if length <= MIN_RUN_PX2 {
                     return None;
                 }
                 let on_screen = (aim.cursor - from).dot(run) / length;
 
-                // Screen distance runs evenly along the *projected* line and not
-                // along the world one, so undo the squeeze — the same
-                // reciprocal-depth blend a stroke uses to say where along itself
-                // a cursor fell.
-                let recip = (1.0 - on_screen) / at_near.w + on_screen / at_far.w;
-                if recip.abs() <= MIN_RECIP_W {
-                    return None;
-                }
-                let travelled = near + (far - near) * ((on_screen / at_far.w) / recip);
+                // Refused rather than fallen back on where the projection says
+                // nothing: a stroke asking this of itself has ends to answer
+                // with, and an unbounded line has none.
+                let along_it = viewport::unsqueezed(on_screen, at_first.w, at_second.w)?;
+                let travelled = first + (second - first) * along_it;
                 (depth(travelled) > MIN_DEPTH).then(|| origin + unit * travelled)
             }
         }

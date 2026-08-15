@@ -6,7 +6,7 @@ use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::CurveInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
-use crate::viewport::{MIN_RECIP_W, MIN_RUN_PX2};
+use crate::viewport::{self, MIN_RUN_PX2};
 use glam::Vec3;
 
 /// A polyline through world-space points, stroked at a constant width in
@@ -243,12 +243,9 @@ fn nearest_on_segment(a: Vec3, b: Vec3, aim: &Aim) -> Option<Nearest> {
     // the returned point land where the cursor actually is rather than short
     // of it, which is the difference between snapping to a midpoint and
     // snapping near one.
-    let recip = (1.0 - on_screen) / near.w + on_screen / far.w;
-    let in_span = if recip > MIN_RECIP_W {
-        (on_screen / far.w) / recip
-    } else {
-        on_screen
-    };
+    // Where undoing it says nothing, the projected reading stands: a stretch
+    // running through its own vanishing point has no world position to offer.
+    let in_span = viewport::unsqueezed(on_screen, near.w, far.w).unwrap_or(on_screen);
     Some(Nearest {
         t: span.start + in_span * (span.end - span.start),
         screen,

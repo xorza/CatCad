@@ -20,13 +20,34 @@ pub(crate) const MIN_RUN_PX: f32 = 1e-3;
 pub(crate) const MIN_RUN_PX2: f32 = MIN_RUN_PX * MIN_RUN_PX;
 
 /// Floor under the sum of reciprocal depths that undoes the perspective
-/// squeeze.
+/// squeeze. Only a stretch whose projection runs near its own vanishing point
+/// gets near it. See [`unsqueezed`].
+const MIN_RECIP_W: f32 = 1e-6;
+
+/// Turn a fraction along a projected stretch into the fraction along the world
+/// stretch it came from, or `None` where the two have stopped being related.
 ///
-/// Beside the divide it guards — [`Viewport::pixel_from_clip`] is the one that
-/// says the caller has to justify dividing by `w`, and this is what a caller
-/// undoing that divide justifies it with. Only a stretch with both ends
-/// astronomically far off gets near it.
-pub(crate) const MIN_RECIP_W: f32 = 1e-6;
+/// Screen distance runs evenly along the *projection* and not along the world:
+/// under perspective the far half of a receding stretch is squeezed into fewer
+/// pixels. Undoing that is what makes a point read off a projection land where
+/// the cursor actually is rather than short of it — the difference between
+/// snapping to a midpoint and snapping near one.
+///
+/// `near_w` and `far_w` are the clip depths the stretch runs between. What is
+/// blended is their *reciprocals*, which is the one quantity that does run
+/// evenly on screen, and `None` is that blend vanishing — the projection
+/// passing through its own vanishing point, which no world position is behind.
+///
+/// Beside [`Viewport::pixel_from_clip`], which is the divide this undoes: that
+/// one says dividing by `w` is the caller's to justify, and this is what a
+/// caller reading a position back out of the result justifies it with. Stated
+/// once because it is stated subtly — a stroke asks where along itself a cursor
+/// fell and a drag asks the same of an axis, and the two must not answer
+/// differently.
+pub(crate) fn unsqueezed(on_screen: f32, near_w: f32, far_w: f32) -> Option<f32> {
+    let recip = (1.0 - on_screen) / near_w + on_screen / far_w;
+    (recip.abs() > MIN_RECIP_W).then(|| (on_screen / far_w) / recip)
+}
 
 /// A render target's pixel extent, and the one statement of how a pixel
 /// relates to NDC.
