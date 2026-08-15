@@ -11,13 +11,17 @@ rather than rework.
 
 ## 5. Editing the timeline itself
 
-- Deleting a step and reordering steps. `Edit` becomes an enum with an arm per
-  structural change; no `Change` can express one today, so there is nothing yet
-  for such an arm to record.
+- Deleting a step and reordering steps. `Edit` is already the enum this wanted —
+  growing a solid adds one, so it has `Wrote` and `Added` — and `Timeline` has
+  `drop_newest` and `append` under it. What is missing is a `Change` that removes
+  a step somebody asked to remove, and an arm to record it.
+- Only the *newest* step comes off today, which is all an undo of a creation ever
+  needs. Deleting names any step, so it wants a real removal — and a handle to a
+  deleted step has to stay dead, which is why `add` never reuses one.
 - Deleting a plane should cascade to the sketches drawn on it, matching
   `Sketch::remove_point`, which already takes what was built on a point. It is
-  the first edit that touches more than one feature — which is what forces the
-  enum. Contained to `history/` and `Document::restore`.
+  the first edit that touches more than one feature. Contained to `history/` and
+  `Document::restore`.
 
 ## 6. Rollback
 
