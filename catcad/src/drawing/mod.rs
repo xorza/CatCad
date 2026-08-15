@@ -175,10 +175,13 @@ impl<'a> Drawing<'a> {
     /// it with: a plane is named by any point of it, so where on the drawing
     /// the origin sits makes no difference to what a ray resolves against.
     ///
-    /// A gizmo handle would be held to a line rather than a plane, which *is* per
-    /// handle — and that is when this grows an argument again.
+    /// A drag held to a *line* exists now — a datum travelling on its offset —
+    /// and it is not one of these. What a datum slides along is worked out from
+    /// the plane it is measured off, which is the timeline's and belongs to no
+    /// drawing at all, so this still has nothing per-grip to say. What would
+    /// give it an argument is a handle drawn *on* a sketch.
     pub(crate) fn motion(self) -> Motion {
-        Motion {
+        Motion::Plane {
             origin: self.plane.origin.as_vec3(),
             normal: self.plane.normal().as_vec3(),
         }

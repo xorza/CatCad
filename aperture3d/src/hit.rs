@@ -31,6 +31,20 @@ pub enum HitAt {
 }
 
 impl HitAt {
+    /// Whether this is a backdrop: something the other kinds are drawn *on*.
+    ///
+    /// The one fact about shape that outranks what a primitive is *for*, and it
+    /// has to be, because a surface is the one target with no size of its own —
+    /// it is however much of the view its geometry covers. Anything in front of
+    /// one lies within it on screen, whoever drew it and whatever they drew it
+    /// for; so a surface allowed to win for *any* reason is one that swallows
+    /// every click meant for what stands in front of it. The thing set aside
+    /// then has nowhere left to be clicked at all, which is worse than the
+    /// stolen click that setting it aside was for.
+    pub(crate) fn backdrop(&self) -> bool {
+        matches!(self, Self::Surface)
+    }
+
     /// How specific this kind of hit is, lowest first.
     ///
     /// A vertex under the cursor beats an edge through it even when the edge
@@ -51,11 +65,10 @@ impl HitAt {
             // An edge is an edge however it curves, so a stroke and a rim rank
             // together and the cursor's distance decides between them.
             Self::Segment { .. } | Self::Ring { .. } => 2,
-            // Last, and by a rule the others do not need: a surface is not
-            // merely a larger target, it is one the smaller targets are drawn
-            // *on*. Every marker and every stroke bounding a face lies within
-            // it, so a face that ranked with them would take every click meant
-            // for its own boundary.
+            // Last, though by this point it has already lost: a surface is
+            // separated from the rest by [`HitAt::backdrop`], which is asked
+            // first and for a reason no other kind needs. This keeps the ladder
+            // total, and decides nothing that the answer above has not.
             Self::Surface => 3,
         }
     }
@@ -89,9 +102,9 @@ pub enum Precedence {
     Aside,
     /// Behind everything: furniture around a drawing rather than part of one.
     ///
-    /// Below even a surface, which is the least specific *geometry* there is —
-    /// a face is a thing to select and build on where a frame is a thing to
-    /// read.
+    /// Behind every drawn thing, that is — not behind the surfaces they are
+    /// drawn on, which is a separate question and asked before this one. See
+    /// [`HitAt::backdrop`].
     Frame,
 }
 
@@ -119,15 +132,23 @@ pub struct Hit {
 impl Hit {
     /// Which of two hits the aim was more likely meant for, lowest first.
     ///
-    /// What the primitive is for, then how specific the hit is, then how near
-    /// the cursor it fell, then how near the eye. The first two are the ones
-    /// that are not measurements, and they are in that order because what a
-    /// thing is *for* is decided by whoever drew it and what shape it is by
-    /// this crate — a frame the caller set aside has to lose to geometry
-    /// however sharp a target it makes.
+    /// Whether it is a backdrop, then what the primitive is for, then how
+    /// specific the hit is, then how near the cursor it fell, then how near the
+    /// eye. The first three are the ones that are not measurements.
+    ///
+    /// The middle of those three is the caller's and the two around it are this
+    /// crate's, which is why it sits where it does. What a thing is *for* is
+    /// known only to whoever drew it, so it decides before what shape it is: a
+    /// frame the caller set aside loses to geometry however sharp a target it
+    /// makes. But it decides *after* [`HitAt::backdrop`], because a surface is
+    /// not a target that a preference can be expressed between — it is the
+    /// ground the others stand on, and one preferred to anything in front of it
+    /// leaves that thing unclickable rather than merely harder to click.
     pub(crate) fn aim_order(&self, other: &Self) -> Ordering {
-        self.precedence
-            .cmp(&other.precedence)
+        self.at
+            .backdrop()
+            .cmp(&other.at.backdrop())
+            .then(self.precedence.cmp(&other.precedence))
             .then(self.at.rank().cmp(&other.at.rank()))
             .then(self.screen.total_cmp(&other.screen))
             .then(self.distance.total_cmp(&other.distance))
@@ -150,10 +171,10 @@ mod tests {
         }
     }
 
-    /// What a thing is *for* decides before what shape it is, and shape decides
+    /// What a hit is *for* decides before what shape it is, and shape decides
     /// before how near it fell.
     ///
-    /// The order of the two that are not measurements is the whole of what this
+    /// The order of the ones that are not measurements is the whole of what this
     /// pins. A frame set aside has to lose to geometry however sharp a target it
     /// makes and however exactly the cursor is on it — which is the one thing
     /// ranking by shape alone cannot say, because a frame and an edge are the
@@ -164,11 +185,6 @@ mod tests {
         // Dead under the cursor, and the sharpest kind of target there is.
         let frame = hit(Precedence::Frame, HitAt::Point, 0.0);
         assert_eq!(edge.aim_order(&frame), Ordering::Less);
-
-        // A surface is the least specific *geometry*, and still beats a frame:
-        // a face is a thing to select where a frame is a thing to read.
-        let face = hit(Precedence::Shaped, HitAt::Surface, 9.0);
-        assert_eq!(face.aim_order(&frame), Ordering::Less);
 
         // Within one standing, shape decides as it always did — a marker beats
         // an edge running through it even from further off.
@@ -184,5 +200,32 @@ mod tests {
         // A sketch set aside loses to the one being worked in, whatever the two
         // are made of.
         assert_eq!(edge.aim_order(&near), Ordering::Less);
+    }
+
+    /// A surface loses to everything in front of it, and no standing can put it
+    /// back in front.
+    ///
+    /// The rule that has to be asked before the one above, and the bug that says
+    /// why: a frame ranked below a face is a frame with no pixels of its own,
+    /// because a face is as big as whatever it covers. Every one of these fails
+    /// if precedence is asked first.
+    #[test]
+    fn a_surface_is_the_ground_the_rest_stand_on_whoever_drew_them() {
+        // The face is dead under the cursor and belongs to the sketch being
+        // worked in; the frame is nine pixels off and deliberately set aside.
+        // The frame still takes it.
+        let face = hit(Precedence::Shaped, HitAt::Surface, 0.0);
+        let frame = hit(Precedence::Frame, HitAt::Segment { index: 0, t: 0.5 }, 9.0);
+        assert_eq!(frame.aim_order(&face), Ordering::Less);
+
+        // The same for a sketch merely set aside, and for a marker — nothing
+        // line-like loses to a backdrop.
+        let aside = hit(Precedence::Aside, HitAt::Point, 9.0);
+        assert_eq!(aside.aim_order(&face), Ordering::Less);
+
+        // Between two surfaces the ordinary rules resume: what they are for,
+        // and then how near the eye.
+        let dormant = hit(Precedence::Aside, HitAt::Surface, 0.0);
+        assert_eq!(face.aim_order(&dormant), Ordering::Less);
     }
 }

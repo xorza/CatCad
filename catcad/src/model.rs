@@ -7,7 +7,7 @@ use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
 use crate::drawing::Drawing;
 use crate::part::Part;
-use crate::timeline::{FeatureId, Movable, Timeline};
+use crate::timeline::{FeatureId, Timeline};
 
 /// A sketch and what the last solve made of it, read together.
 ///
@@ -305,11 +305,6 @@ impl<'a> Models<'a> {
         timeline
             .movable_planes()
             .map(move |at| (at, timeline.plane(at)))
-    }
-
-    /// The plane the open sketch is drawn on, if it is one that can be moved.
-    pub(crate) fn movable(self) -> Option<Movable> {
-        self.timeline.movable(self.editing)
     }
 
     /// Which version of the document these describe.

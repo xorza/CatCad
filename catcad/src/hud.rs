@@ -49,9 +49,6 @@ pub(crate) struct Hud {
     /// Scratch: what a dimension *is* lives in the sketch, and this is only
     /// what one gesture has made of it so far.
     draft: f64,
-    /// The same, for how far the open sketch's plane is held off the one it is
-    /// measured from.
-    lift: f64,
 }
 
 impl Hud {
@@ -83,10 +80,7 @@ impl Hud {
         let sketch = model.of();
         model.offers(selection.picked(), &mut self.offers);
         let dimension = dimension_picked(model, selection);
-        // Where the open sketch *sits*, which is a thing to ask about whether
-        // or not anything is picked out — see [`Timeline::movable`].
-        let plane = models.movable();
-        if self.offers.is_empty() && dimension.is_none() && plane.is_none() {
+        if self.offers.is_empty() && dimension.is_none() {
             return;
         }
         // Seeded from the drawing every frame rather than remembered, which is
@@ -96,9 +90,6 @@ impl Hud {
         // so, and that is the only frame anything is asked for.
         if let Some((_, value)) = dimension {
             self.draft = value;
-        }
-        if let Some(movable) = plane {
-            self.lift = movable.by;
         }
         floating(Panel::hstack(), "constraints", Align::BOTTOM).show(ui, |ui| {
             if let Some((id, _)) = dimension {
@@ -118,27 +109,6 @@ impl Hud {
                 // the run of them a scrub sends is one open step — and this is
                 // what closes it, the same signal a drag's release gives.
                 if edited.committed {
-                    intents.push(Step::Release);
-                }
-            }
-            // First, because it is about where you *are* rather than about
-            // what is picked out — and what is picked out changes under the
-            // cursor while this does not.
-            if let Some(movable) = plane {
-                let scrubbed = DragValue::new(&mut self.lift)
-                    .auto_id()
-                    .speed(DIMENSION_SPEED)
-                    .decimals(DECIMALS)
-                    .show(ui);
-                if scrubbed.changed {
-                    intents.push(Change::MovePlane {
-                        plane: movable.plane,
-                        to: self.lift,
-                    });
-                }
-                // One gesture, one step to take back, exactly as a dimension
-                // scrub is closed.
-                if scrubbed.committed {
                     intents.push(Step::Release);
                 }
             }
@@ -353,7 +323,6 @@ impl Default for Hud {
             armed,
             offers: Vec::new(),
             draft: 0.0,
-            lift: 0.0,
         }
     }
 }

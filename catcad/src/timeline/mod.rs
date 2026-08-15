@@ -1,5 +1,7 @@
 //! Every step taken to build the document, in the order they were taken.
 
+use aperture::Motion;
+use glam::Vec3;
 use silverpoint::Plane;
 
 use crate::drawing::Drawing;
@@ -99,17 +101,21 @@ impl Timeline {
             .map(|step| step.id)
     }
 
-    /// The plane the sketch at `at` is drawn on, if it is one that can be
-    /// moved.
+    /// The plane at `at` as something that can be moved, or `None` where it is
+    /// the ground.
     ///
-    /// `None` for a sketch on the ground, which is where the world is rather
-    /// than somewhere a plane was put.
+    /// `None` rather than a panic for the ground, unlike asking a sketch: a
+    /// caller here has a plane and is asking whether it goes anywhere, which is
+    /// a fair question with a real answer. Asking a *sketch* for its offset is
+    /// the mistake, and that is what still panics.
     pub(crate) fn movable(&self, at: FeatureId) -> Option<Movable> {
-        let on = self.drawn_on(at);
-        match self.feature(on) {
-            Feature::Plane(Datum::Offset { by, .. }) => Some(Movable { plane: on, by: *by }),
+        match self.feature(at) {
+            Feature::Plane(Datum::Offset { from, .. }) => Some(Movable {
+                plane: at,
+                from: self.plane(*from),
+            }),
             Feature::Plane(Datum::Ground) => None,
-            Feature::Sketch { .. } => not_a_plane(on),
+            Feature::Sketch { .. } => not_a_plane(at),
         }
     }
 
@@ -212,15 +218,49 @@ fn not_a_plane(at: FeatureId) -> ! {
     panic!("{at:?} names a sketch rather than a plane");
 }
 
-/// A plane that can be moved, and how far off it currently sits.
+/// A plane that can be moved, and the line it moves along.
 ///
-/// What a control offering to move one needs, and the whole of it: the handle
-/// to name in the change it raises, and the number to show while it is being
-/// scrubbed.
+/// What a gesture offering to move one needs, and the whole of it: the handle
+/// to name in the change it raises, and the base it is measured off — which is
+/// what says both where it may go and what number puts it there.
+///
+/// The base rather than the offset it currently stands at. A drag names where
+/// it wants the plane to end up, so what it has to be able to work out is *the
+/// offset for a place*, and the current one is not part of that question.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Movable {
     pub(crate) plane: FeatureId,
-    pub(crate) by: f64,
+    /// The plane it is measured off. Private because it is not a fact about the
+    /// datum so much as the frame its two answers below are given in.
+    from: Plane,
+}
+
+impl Movable {
+    /// The line the plane travels along: its base's normal, through its base's
+    /// origin.
+    ///
+    /// Through the *base's* origin rather than its own, which is what makes the
+    /// two answers here agree — how far along this line a point stands is then
+    /// exactly the offset that would put the plane there, with no second place
+    /// where the measuring starts.
+    pub(crate) fn travel(self) -> Motion {
+        Motion::Line {
+            origin: self.from.origin.as_vec3(),
+            along: self.from.normal().as_vec3(),
+        }
+    }
+
+    /// The offset that puts the plane at `world` — how far along [`travel`] it
+    /// stands, with whatever lies across the line dropped.
+    ///
+    /// Dropping it is the point rather than a rounding: a drag resolves onto
+    /// the line already, and a grab taken a few pixels off centre carries an
+    /// offset that has to be projected the same way before it means a distance.
+    ///
+    /// [`travel`]: Movable::travel
+    pub(crate) fn offset_at(self, world: Vec3) -> f64 {
+        (world.as_dvec3() - self.from.origin).dot(self.from.normal())
+    }
 }
 
 /// One step of a timeline, and the handle that names it.

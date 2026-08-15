@@ -8,7 +8,7 @@ use crate::paint::layout::Layout;
 use crate::part::Part;
 use crate::session::Session;
 use crate::tool::Tool;
-use aperture::{Aim, Scene, Viewport};
+use aperture::{Aim, HitAt, Scene, Viewport};
 use glam::{DVec2, UVec2};
 use palantir::Modifiers;
 use palantir::internals::UiHarness;
@@ -154,9 +154,32 @@ impl Raised {
         self.sweep(move |grip| grip.is_some_and(want))
     }
 
+    /// A cursor position that lands on the datum drawn round the other sketch.
+    ///
+    /// Swept rather than aimed at a corner worked out by hand, because a datum
+    /// is drawn *behind* everything — see [`Precedence`](aperture::Precedence) —
+    /// so which of its pixels are its own depends on what the drawing happens to
+    /// project over. That there is such a pixel at all is half of what the test
+    /// below is claiming.
+    fn over_datum(&self) -> Option<Vec2> {
+        self.scan(|part, _| matches!(part, Some(Part::Plane(_))))
+    }
+
+    /// The first cursor of a coarse sweep whose hit resolves to a grip
+    /// satisfying `keep`.
+    fn sweep(&self, keep: impl Fn(Option<Grip>) -> bool) -> Option<Vec2> {
+        self.scan(|part, at| {
+            keep(part.and_then(Part::entity).and_then(|entity| {
+                self.document
+                    .drawing_at(self.session.editing())
+                    .grip(entity, at)
+            }))
+        })
+    }
+
     /// The first cursor of a coarse sweep whose hit satisfies `keep`, asked of
     /// the very scene the view picks against.
-    fn sweep(&self, keep: impl Fn(Option<Grip>) -> bool) -> Option<Vec2> {
+    fn scan(&self, keep: impl Fn(Option<Part>, HitAt) -> bool) -> Option<Vec2> {
         let renderer = self.view.renderer().borrow();
         let viewport = Viewport::new(SIZE);
         (0..SIZE.y)
@@ -175,14 +198,7 @@ impl Raised {
                         viewport,
                         HOVER_REACH,
                     ))
-                    .is_some_and(|hit| {
-                        let under = self.view.named(hit.tag);
-                        keep(under.and_then(|entity| {
-                            self.document
-                                .drawing_at(self.session.editing())
-                                .grip(entity, hit.at)
-                        }))
-                    })
+                    .is_some_and(|hit| keep(self.view.part(hit.tag), hit.at))
             })
     }
 
@@ -201,7 +217,7 @@ impl Raised {
             viewport,
             HOVER_REACH,
         ))?;
-        self.view.named(hit.tag)
+        self.view.part(hit.tag).and_then(Part::entity)
     }
 
     /// Where a world position lands on screen — the cursor that aims at it.
@@ -457,6 +473,95 @@ fn the_view_can_take_hold_of_a_point_an_edge_and_a_rim() {
         raised.over(|grip| matches!(grip, Grip::Rim(_))).is_some(),
         "no cursor found a rim to resize"
     );
+}
+
+/// Dragging a datum slides it along the line it is offset on, carrying what is
+/// drawn on it and touching neither the open sketch nor the camera.
+///
+/// The gesture the plane's offset is edited by, and the one that has to work
+/// from *outside* the sketch it moves: the demo opens on the ground, and the
+/// datum being dragged is what the other sketch sits on. Every other press is
+/// refused unless it lands in the sketch being worked in, so a plane taking one
+/// is the whole of what this pins — along with the travel being an offset rather
+/// than a place, which is the only thing a plane has to say.
+#[test]
+fn dragging_a_datum_slides_it_and_leaves_the_open_sketch_alone() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let cursor = raised
+        .over_datum()
+        .expect("no cursor found the datum to move");
+
+    let drawn = open_markers(&raised);
+    let (_, shelf) = raised
+        .document
+        .models(&raised.build, raised.session.editing())
+        .planes()
+        .next()
+        .expect("the demo draws a datum");
+    assert_eq!(
+        shelf.origin.y,
+        demo::SHELF,
+        "the shelf opens off the ground"
+    );
+    let camera = raised.camera();
+
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(0.0, 45.0));
+    raised.frame();
+
+    let moved = raised
+        .document
+        .models(&raised.build, raised.session.editing())
+        .planes()
+        .next()
+        .expect("the datum is still drawn")
+        .1;
+    // Down the screen, on a view that opens looking down at the model, is down
+    // the ground's normal. Which way it went rather than merely that it went:
+    // a sign flipped anywhere between the ray and the offset — in `travel`, in
+    // `offset_at`, in the grab's own subtraction — sends the plane the other
+    // way and would pass an assertion that only said it had moved.
+    assert!(
+        moved.origin.y < shelf.origin.y,
+        "dragging down carried the plane up, to {}",
+        moved.origin.y
+    );
+    // And along that normal and nothing else. A drag resolved against a plane
+    // rather than a line would have carried it sideways too, and one that wrote
+    // a place rather than an offset could have tipped it.
+    assert_eq!(moved.origin.x, 0.0);
+    assert_eq!(moved.origin.z, 0.0);
+    assert_eq!(moved.normal(), shelf.normal());
+
+    // And the sketch being worked in is untouched. It lies on the ground, which
+    // this plane is measured *off* rather than the other way round — so a press
+    // that had been taken for a grip on geometry, or a travel written as a place
+    // in the open sketch, would show here.
+    assert_eq!(
+        open_markers(&raised),
+        drawn,
+        "moving a plane moved the sketch that is open"
+    );
+    assert_eq!(
+        raised.camera(),
+        camera,
+        "a drag on a datum turned the camera"
+    );
+}
+
+/// Where the open sketch's points sit in the world.
+///
+/// The scene's markers would not do: they are every sketch's, and the whole
+/// point of the drag above is that the *other* sketch moves.
+fn open_markers(raised: &Raised) -> Vec<Vec3> {
+    let drawing = raised.document.drawing_at(raised.session.editing());
+    drawing
+        .sketch()
+        .points()
+        .map(|(_, point)| drawing.plane().point(point.position).as_vec3())
+        .collect()
 }
 
 /// The view asks; it does not act.

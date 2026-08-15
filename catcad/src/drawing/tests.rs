@@ -169,10 +169,16 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     );
 
     // Whatever the grip, the answer is the drawing's own plane — a plane is
-    // named by any point of it, so there is nothing per-grip to say.
-    let Motion { origin, normal } = drawing.motion();
-    assert_eq!(origin, drawing.plane().origin.as_vec3());
-    assert_eq!(normal, drawing.plane().normal().as_vec3());
+    // named by any point of it, so there is nothing per-grip to say. A drawing
+    // never answers with a line: what travels along one is a datum, which is not
+    // drawn on anything.
+    assert_eq!(
+        drawing.motion(),
+        Motion::Plane {
+            origin: drawing.plane().origin.as_vec3(),
+            normal: drawing.plane().normal().as_vec3(),
+        }
+    );
 }
 
 /// Dragging an edge slides it whole: both ends travel by the same amount, and

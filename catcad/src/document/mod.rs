@@ -8,7 +8,7 @@ use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
 use crate::model::Models;
 use crate::timeline::feature::Feature;
-use crate::timeline::{FeatureId, Timeline};
+use crate::timeline::{FeatureId, Movable, Timeline};
 
 /// A drawing, the solids modelled beside it, and how it is being looked at —
 /// everything a session would have to write down to be opened again.
@@ -75,6 +75,17 @@ impl Document {
     /// session's to say.
     pub(crate) fn drawing_at(&self, at: FeatureId) -> Drawing<'_> {
         self.timeline.drawing(at)
+    }
+
+    /// The plane at `at` as something that can be moved, or `None` where it is
+    /// the ground.
+    ///
+    /// What a press on a datum asks before it decides it has hold of one. Here
+    /// rather than through [`Models`], though the drawn datums are found that
+    /// way: a press has the document and not the build, and what it needs to
+    /// know — where this plane may travel — is the timeline's alone.
+    pub(crate) fn movable(&self, at: FeatureId) -> Option<Movable> {
+        self.timeline.movable(at)
     }
 
     /// The sketch a session should start in.

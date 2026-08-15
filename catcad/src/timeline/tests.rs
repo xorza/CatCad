@@ -60,6 +60,71 @@ fn a_sketch_lands_where_its_plane_says_and_stores_none_of_it() {
     );
 }
 
+/// A datum answers where it may travel and what offset puts it somewhere, and
+/// the two are measured from the same place.
+///
+/// What a drag on one reads. Both answers start at the plane it is *measured
+/// off* rather than at the world or at the datum itself, which is what makes
+/// them agree: how far along the line a point stands is then exactly the number
+/// that would put the plane there, with nothing to convert between.
+#[test]
+fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let shelf = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: 2.0,
+    }));
+
+    // The ground is where the world is rather than somewhere a plane was put,
+    // so there is nothing to take hold of.
+    assert_eq!(timeline.movable(ground), None);
+
+    // The ground's origin is the world's and its normal is +Y, so the shelf
+    // travels straight up through the origin — not through its own origin at
+    // (0, 2, 0), which would have it standing at zero on its own line.
+    let movable = timeline.movable(shelf).expect("a datum can be moved");
+    assert_eq!(
+        movable.travel(),
+        Motion::Line {
+            origin: Vec3::ZERO,
+            along: Vec3::Y,
+        }
+    );
+    // Where the shelf already is reads back as the offset it already has, and
+    // everything across the line falls out: a point five up and well off to
+    // the side is still five.
+    assert_eq!(movable.offset_at(Vec3::new(7.0, 2.0, -3.0)), 2.0);
+    assert_eq!(movable.offset_at(Vec3::new(-1.0, 5.5, 8.0)), 5.5);
+
+    // A datum measured off another measures from *that* one. The loft stands
+    // 1.5 above the shelf, which is 3.5 above the world — and its own offset is
+    // the 1.5, because that is the number the timeline holds for it.
+    let loft = timeline.add(Feature::Plane(Datum::Offset {
+        from: shelf,
+        by: 1.5,
+    }));
+    let movable = timeline.movable(loft).expect("a datum can be moved");
+    assert_eq!(
+        movable.travel(),
+        Motion::Line {
+            origin: Vec3::new(0.0, 2.0, 0.0),
+            along: Vec3::Y,
+        }
+    );
+    assert_eq!(timeline.plane(loft).origin.y, 3.5);
+    assert_eq!(movable.offset_at(Vec3::new(0.0, 3.5, 0.0)), 1.5);
+}
+
+/// Asking a sketch how far it is offset is a caller that has mistaken one kind
+/// of step for the other, and is told so rather than answered.
+#[test]
+#[should_panic(expected = "names a sketch rather than a plane")]
+fn a_sketch_is_not_a_plane_that_can_be_moved() {
+    let timeline = Timeline::of(Sketch::default());
+    timeline.movable(timeline.first_sketch());
+}
+
 /// Editing reaches the sketch the timeline holds, and the report follows it.
 ///
 /// What `Document::apply` does, one level down: an edit goes through the pair

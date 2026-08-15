@@ -21,7 +21,7 @@ use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
-use crate::timeline::FeatureId;
+use crate::timeline::{FeatureId, Movable};
 use crate::tool::Tool;
 
 mod aimed;
@@ -64,17 +64,45 @@ const SELECTED: Highlight = Highlight {
 
 /// What is being dragged, and where the pointer may take it.
 ///
-/// The grip is held apart from the motion on purpose. They agree while a
-/// sketch entity is dragged by its own geometry, and they part the moment a
-/// gizmo arrives: there a handle is grabbed, the selection is what moves, and
-/// the axis it moves along is the handle's rather than the selection's.
+/// What was grabbed is held apart from the motion on purpose. They agree while
+/// a sketch entity is dragged by its own geometry, and they part where a datum
+/// is: there the whole outline is the handle, and the line it travels along is
+/// the base plane's rather than anything the outline says.
 #[derive(Debug, Clone, Copy)]
 struct Held {
-    grip: Grip,
+    grabbed: Grabbed,
     motion: Motion,
-    /// Where the entity sits relative to where the press landed on the motion,
-    /// so a grab three pixels off centre does not snap it to the cursor.
+    /// Where what was grabbed sits relative to where the press landed on the
+    /// motion, so a grab three pixels off centre does not snap it to the cursor.
+    ///
+    /// Three pixels for geometry, which is grabbed by the very thing that moves.
+    /// A datum is not: the whole outline is its handle, and the outline stands
+    /// well off the line the plane travels on — so this is metres, and most of
+    /// it points across that line. That part is dropped rather than carried,
+    /// because a plane has nowhere across its line to go; see
+    /// [`Movable::offset_at`](crate::timeline::Movable::offset_at), which is
+    /// what drops it. What survives the projection is the along-the-line half,
+    /// which is the three pixels again.
     offset: Vec3,
+}
+
+/// What a drag took hold of, and so which change its travel is written as.
+///
+/// Two kinds rather than one, because they are two different edits: geometry
+/// moves within a sketch and is solved for afterwards, and a datum moves the
+/// sketches drawn on it without any of them saying anything different. Which of
+/// the two a press found is settled once, at the press, exactly as everything
+/// else about a gesture is.
+#[derive(Debug, Clone, Copy)]
+enum Grabbed {
+    /// Geometry of the sketch being worked in, at the grip the press settled on.
+    Sketch(Grip),
+    /// A datum plane, which travels along the line it is offset on.
+    ///
+    /// Whichever sketch is open, unlike the arm above: a plane belongs to none
+    /// of them — it is what they are drawn *on* — so moving one is not an edit
+    /// that has to land where you are.
+    Datum(Movable),
 }
 
 /// What the pointer is doing to the view, settled when the button goes down.
@@ -230,13 +258,20 @@ impl SceneView {
                 });
             }
             (Gesture::Move(held), Drag::Started { .. } | Drag::Active { .. }) => {
-                // Where the entity should end up, which is where the cursor
+                // Where what is held should end up, which is where the cursor
                 // lands plus however far off centre it was grabbed.
                 if let Some(to) = aimed::landing(&response, document, held.motion) {
-                    intents.push(Change::Drag {
-                        sketch,
-                        grip: held.grip,
-                        to: to + held.offset,
+                    let to = to + held.offset;
+                    // A plane names a distance where geometry names a place,
+                    // because that is what each of them *is*: a datum has one
+                    // number, and asking it to be somewhere would be asking a
+                    // question with two answers it does not have.
+                    intents.push(match held.grabbed {
+                        Grabbed::Sketch(grip) => Change::Drag { sketch, grip, to },
+                        Grabbed::Datum(movable) => Change::MovePlane {
+                            plane: movable.plane,
+                            to: movable.offset_at(to),
+                        },
                     });
                 }
             }
@@ -541,10 +576,10 @@ impl SceneView {
 
     /// Decide what this press is the start of.
     ///
-    /// Something the drawing will let go of takes precedence, and everything
-    /// else — empty space, a solid, a point the drawing pins — turns the
-    /// camera. Grabbing nothing has to stay the way the view is orbited, or
-    /// the pointer would lose its only way to look around.
+    /// Something that will move takes precedence, and everything else — empty
+    /// space, a solid, a point the drawing pins — turns the camera. Grabbing
+    /// nothing has to stay the way the view is orbited, or the pointer would
+    /// lose its only way to look around.
     fn grab(
         &self,
         response: &Response<'_>,
@@ -570,21 +605,35 @@ impl SceneView {
                 let aim = aimed.aim(&document.camera());
                 let hit = scene.nearest(aim)?;
                 let part = self.layout.names().get(hit.tag)?;
-                // Only the sketch being worked in can be taken hold of. A drag
-                // is an edit and an edit lands where you are — and the handles
-                // would not even tell the two apart: two sketches are two
-                // arenas and mint the same ones, so a grip that read the
-                // entity alone would take hold of whatever sat at that slot in
-                // the open sketch. See [`Part`](crate::part::Part).
                 let drawing = document.drawing_at(editing);
-                let grip = (part.sketch() == Some(editing))
-                    .then(|| drawing.grip(part.entity()?, hit.at))
-                    .flatten()?;
-                let motion = drawing.motion();
-                // Where the press landed on the motion, against where the
-                // geometry actually is: a grab is not a teleport.
+                let grabbed = match part {
+                    // A plane whatever sketch is open: what it moves is where
+                    // the sketches on it land, and none of them is being
+                    // edited by it. The ground answers `None` and so orbits,
+                    // which is right — it is not somewhere anybody put a plane.
+                    Part::Plane(at) => Grabbed::Datum(document.movable(at)?),
+                    // Only the sketch being worked in can be taken hold of. A
+                    // drag of geometry is an edit and an edit lands where you
+                    // are — and the handles would not even tell the two apart:
+                    // two sketches are two arenas and mint the same ones, so a
+                    // grip that read the entity alone would take hold of
+                    // whatever sat at that slot in the open sketch. See
+                    // [`Part`](crate::part::Part).
+                    _ if part.sketch() == Some(editing) => {
+                        Grabbed::Sketch(drawing.grip(part.entity()?, hit.at)?)
+                    }
+                    // Anything else is a press on a sketch nobody is in, which
+                    // turns the view like a press on empty space.
+                    _ => return None,
+                };
+                let motion = match grabbed {
+                    Grabbed::Sketch(_) => drawing.motion(),
+                    Grabbed::Datum(movable) => movable.travel(),
+                };
+                // Where the press landed on the motion, against where what was
+                // grabbed actually is: a grab is not a teleport.
                 Some(Held {
-                    grip,
+                    grabbed,
                     motion,
                     offset: hit.world - motion.resolve(aim.ray())?,
                 })
@@ -624,7 +673,6 @@ pub(crate) mod internals {
         use crate::part::Part;
         use crate::scene_view::SceneView;
         use aperture::Tag;
-        use silverpoint::Entity;
 
         impl SceneView {
             /// What `tag` stands for in the layout this view last made.
@@ -633,11 +681,11 @@ pub(crate) mod internals {
             /// grab something — which asks what a press would find without a
             /// press to ask it through.
             ///
-            /// Entities only, because grabbing is: a face is not something the
-            /// drawing will let go of, so a sweep looking for one has nothing
-            /// to find in a face.
-            pub(crate) fn named(&self, tag: Tag) -> Option<Entity> {
-                self.layout.names().get(tag).and_then(Part::entity)
+            /// Whole parts rather than entities, because a plane is one of the
+            /// things a press can take hold of and has no entity to be narrowed
+            /// to. A sweep after geometry narrows it itself.
+            pub(crate) fn part(&self, tag: Tag) -> Option<Part> {
+                self.layout.names().get(tag)
             }
         }
     }
