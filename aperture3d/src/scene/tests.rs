@@ -636,6 +636,10 @@ fn a_surface_is_picked_from_behind_as_well_as_in_front() {
 /// backdrop last buys. But a label on some other plane, genuinely behind, was
 /// answering through the face as well; a face you can see a drawing through is
 /// not a face you should be able to click a drawing through.
+///
+/// It holds between two surfaces as much as between a surface and what is drawn
+/// on it, and the last two sweeps are that half: depth settles them, and the
+/// standing only speaks where they are level and neither hides the other.
 #[test]
 fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
     /// A quad facing the camera at `z`, as a two-sided sheet.
@@ -679,12 +683,12 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
         "a surface took the click meant for what is drawn on it"
     );
 
-    // And the surface that hides need not be the surface that answers. A sheet
-    // set aside sits in front of one being worked in: the near one hides the
-    // label behind them both, and the far one still takes the click, because
-    // what hides is whatever the aim crosses first and what wins is what the
-    // caller said it was for. One accumulator would have to serve both and get
-    // whichever it was not built for wrong.
+    // A surface hides other surfaces as readily as it hides what is drawn over
+    // them. A sheet set aside sits in front of one being worked in, with a label
+    // behind them both: the near sheet answers, because what a preference
+    // between two surfaces would be choosing between is one the cursor is over
+    // and one it is not. Being set aside makes a surface a worse answer than the
+    // things drawn *on* it, not a worse answer than being visible at all.
     scene.texts.clear();
     scene.faces.clear();
     scene
@@ -698,13 +702,12 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
     );
     assert_eq!(
         scene.nearest(aim).map(|hit| hit.tag),
-        Some(Tag::new(3)),
-        "the sheet set aside took the answer from the one being worked in"
+        Some(Tag::new(1)),
+        "a sheet behind another took the click meant for the one in front"
     );
 
-    // Which is not the label merely losing on rank: bring the near sheet's
-    // standing back up and the answer moves to it, so the sweep above turned on
-    // precedence and the label stayed hidden throughout either way.
+    // The same with nothing set aside, which is the answer either way — so the
+    // sweep above turned on the standing and not on the depth alone.
     scene.faces.clear();
     scene.faces.push(sheet(0.0).tagged(Tag::new(1)));
     scene.faces.push(sheet(-1.0).tagged(Tag::new(3)));
@@ -713,6 +716,24 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
         Some(Tag::new(1)),
         "between two sheets alike, the nearer one answers"
     );
+
+    // Level with each other, and the standing decides after all — which is the
+    // half depth has no opinion about. Two sketches on one plane overlap without
+    // either hiding the other, and there the one being worked in is the one a
+    // click was meant for.
+    scene.faces.clear();
+    scene
+        .faces
+        .push(sheet(0.0).tagged(Tag::new(1)).precedence(Precedence::Aside));
+    scene.faces.push(sheet(0.0).tagged(Tag::new(3)));
+    assert_eq!(
+        scene.nearest(aim).map(|hit| hit.tag),
+        Some(Tag::new(3)),
+        "the coplanar sheet set aside took the click from the one being worked in"
+    );
+
+    // And the label behind stayed hidden throughout, whichever sheet answered.
+    assert_ne!(scene.nearest(aim).map(|hit| hit.tag), Some(Tag::new(2)));
 }
 
 /// A frame hides what is behind it and yields to what is level with it.

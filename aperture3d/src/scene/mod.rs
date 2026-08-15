@@ -60,10 +60,10 @@ const BEHIND: f32 = 1e-3;
 /// Whether something `front` away along the aim leaves `hit` visible — level
 /// with it as well as in front of it. See [`BEHIND`].
 ///
-/// The one place the tolerance is spent, because it is asked twice about two
-/// different things: a surface hides what is behind it, and so does the
-/// frontmost frame. Written once so the two cannot come to disagree about what
-/// "behind" means.
+/// The one place the tolerance is spent, because it is asked three times over:
+/// a surface hides the overlays behind it, a surface hides the surfaces behind
+/// it, and the frontmost frame hides whatever it is standing in front of.
+/// Written once so the three cannot come to disagree about what "behind" means.
 fn shows(front: f32, hit: &Hit) -> bool {
     hit.distance <= front * (1.0 + BEHIND)
 }
@@ -71,17 +71,25 @@ fn shows(front: f32, hit: &Hit) -> bool {
 /// What the aim landed on that a drawing is drawn *on*, and how much of what is
 /// behind it that hides.
 ///
-/// Two answers rather than one, because they are the least of different things.
-/// What *hides* is whatever the aim crosses first, whoever drew it. What *wins*,
-/// once nothing is left standing in front of it, is decided by
-/// [`Hit::aim_order`] — so a nearer sheet the caller set aside hides everything
-/// behind it and still loses the answer to a further one it did not.
+/// Two answers rather than one, because they are asked of different things: what
+/// *hides* is asked of everything the aim crosses, and what *wins* only of the
+/// surfaces still standing after the hiding.
+///
+/// A surface hides other surfaces as readily as it hides what is drawn over
+/// them, and that is what settles the two against each other — depth first, and
+/// [`Hit::aim_order`] only among those level with one another. What a thing is
+/// *for* cannot outrank being in front here, however it does elsewhere: a
+/// preference between two surfaces is a preference between one you can see and
+/// one you cannot, and answering with the one behind hands back something the
+/// cursor was never over. That is [`HitAt::backdrop`]'s own argument, asked of
+/// two backdrops instead of a backdrop and an overlay.
 #[derive(Debug, Clone, Copy)]
 struct Ground {
     /// How far along the aim the first surface is, or infinity where the aim
     /// crossed none — which then hides nothing, at no cost to the arithmetic.
     front: f32,
-    /// The surface a pick answers with once nothing else is in reach.
+    /// The surface a pick answers with once nothing else is in reach — the
+    /// frontmost, or the one the ordering prefers among those level with it.
     best: Option<Hit>,
 }
 
@@ -188,18 +196,20 @@ impl Scene {
     /// *drawn* and says nothing about whether it can be aimed at — an untagged
     /// one is scenery and answers nothing either way.
     fn ground(&self, aim: &Aim) -> Ground {
-        let mut ground = Ground {
-            front: f32::INFINITY,
-            best: None,
-        };
-        let meshes = self.faces.iter().chain(self.solids.iter());
-        for hit in meshes.filter_map(|mesh| mesh.pick(aim)) {
-            ground.front = ground.front.min(hit.distance);
-            if ground.best.is_none_or(|best| hit.aim_order(&best).is_lt()) {
-                ground.best = Some(hit);
-            }
-        }
-        ground
+        let meshes = || self.faces.iter().chain(self.solids.iter());
+        let front = meshes()
+            .filter_map(|mesh| mesh.pick(aim))
+            .fold(f32::INFINITY, |front, hit| front.min(hit.distance));
+        // Only the surfaces that survive being behind the frontmost one, which
+        // between surfaces is nearly always the frontmost one alone. A surface
+        // covers whatever it is drawn over — that is the whole of what makes it
+        // a backdrop — so one behind another is not merely a worse answer than
+        // it, it is an answer the cursor could not have been pointing at.
+        let best = meshes()
+            .filter_map(|mesh| mesh.pick(aim))
+            .filter(|hit| shows(front, hit))
+            .min_by(Hit::aim_order);
+        Ground { front, best }
     }
 
     /// Every overlay the aim reaches — the markers, labels, strokes and rims a
