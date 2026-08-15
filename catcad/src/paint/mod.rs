@@ -10,7 +10,7 @@
 use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text, Vertex};
 use glam::{Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Entity, Freedom, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
 use std::fmt::Write;
 
 use crate::build::Build;
@@ -18,7 +18,6 @@ use crate::document::Document;
 use crate::model::Model;
 use crate::names::Names;
 use crate::paint::layout::{Layout, Sheets};
-use crate::part::Part;
 use crate::preview::{Ends, Preview};
 
 pub(crate) mod layout;
@@ -246,7 +245,7 @@ pub(crate) fn redraw(
 /// lies within it.
 ///
 /// Named *by position*, which is the one thing about a face that is not a
-/// handle. See [`Part::Face`].
+/// handle. See [`Part::Face`](crate::part::Part).
 fn write_faces(
     model: Model<'_>,
     names: &mut Names,
@@ -279,7 +278,7 @@ fn write_faces(
             object.mesh.indices.extend(fill.triangles.iter().flatten());
             object.transform = Mat4::IDENTITY;
             object.color = FACE;
-            object.tag = Some(names.tag(Part::Face(at)));
+            object.tag = Some(names.tag(model.face(at)));
         },
     );
 }
@@ -325,7 +324,7 @@ fn write_marks(model: Model<'_>, names: &mut Names, marks: &mut Batch<Text>) {
         };
         mark.z_offset = MARKER_LIFT;
         mark.plane_normal = Some(model.plane().normal().as_vec3());
-        mark.tag = Some(names.tag(Entity::Constraint(id)));
+        mark.tag = Some(names.tag(model.part(id)));
     });
 }
 
@@ -418,7 +417,7 @@ fn write_curves(
                     let freedom = outcome.segment(id);
                     curve.set_segment(a, b);
                     curve.color = colour(freedom);
-                    curve.tag = Some(names.tag(Entity::Segment(id)));
+                    curve.tag = Some(names.tag(model.part(id)));
                 }
                 // Untagged, which is what keeps the band out of the way: a pick
                 // skips a primitive with no tag, so it cannot be hovered,
@@ -469,7 +468,7 @@ fn write_points(model: Model<'_>, names: &mut Names, points: &mut Batch<Point>) 
             .size(size)
             .z_offset(MARKER_LIFT)
             .in_plane(normal)
-            .tagged(names.tag(Entity::Point(id)));
+            .tagged(names.tag(model.part(id)));
     });
 }
 
@@ -504,7 +503,7 @@ fn write_rings(model: Model<'_>, names: &mut Names, band: Option<Ends>, rings: &
                         normal,
                     )
                     .colored(colour(freedom))
-                    .tagged(names.tag(Entity::Circle(id)))
+                    .tagged(names.tag(model.part(id)))
                 }
                 // Through the cursor rather than out to it: the second click
                 // says how big by naming somewhere on the rim. Untagged, like

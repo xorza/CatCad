@@ -23,8 +23,8 @@ pub(crate) struct Names {
 
 impl Names {
     /// Name `part`, and hand back the tag that will report it.
-    pub(crate) fn tag(&mut self, part: impl Into<Part>) -> Tag {
-        self.parts.push(part.into());
+    pub(crate) fn tag(&mut self, part: Part) -> Tag {
+        self.parts.push(part);
         Tag::new((self.parts.len() - 1) as u64)
     }
 

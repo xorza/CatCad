@@ -6,7 +6,7 @@ use crate::part::Part;
 use crate::timeline::Timeline;
 use aperture::Scene;
 use glam::DVec2;
-use silverpoint::Sketch;
+use silverpoint::{Entity, Sketch};
 
 /// A drawing and what solving it decided — the pair every writer here takes.
 #[derive(Debug)]
@@ -346,6 +346,7 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
     let at = timeline.only_sketch();
     timeline.edit(at).opened(&mut build);
     let drawing = timeline.drawing(at);
+    let model = Model::new(drawing, &build, at);
 
     let mut every = Vec::new();
     let mut offers = Vec::new();
@@ -358,7 +359,10 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
         vec![Entity::Segment(first), Entity::Circle(circle)],
         vec![Entity::Circle(circle), Entity::Circle(other)],
     ] {
-        let picked: Vec<Part> = picked.into_iter().map(Part::Entity).collect();
+        let picked: Vec<Part> = picked
+            .into_iter()
+            .map(|entity| model.part(entity))
+            .collect();
         drawing.offers(&picked, &mut offers);
         every.extend(offers.iter().copied());
     }

@@ -74,7 +74,12 @@ impl<'a> Drawing<'a> {
             // The one relation a single pick admits: a radius takes the size
             // the circle already is, so asking for one locks what is there
             // rather than demanding a number nobody can type yet.
-            [Part::Entity(Entity::Circle(circle))] => into.push(Constraint::Radius {
+            [
+                Part::Entity {
+                    entity: Entity::Circle(circle),
+                    ..
+                },
+            ] => into.push(Constraint::Radius {
                 circle,
                 radius: self.sketch.circle(circle).radius,
             }),

@@ -113,6 +113,11 @@ impl Raised {
         });
     }
 
+    /// One of the drawing's entities, as something that can be picked out.
+    fn part(&self, entity: Entity) -> Part {
+        self.document.model(&self.build).part(entity)
+    }
+
     /// Where the *document* says its markers are, which is not the same
     /// question as where the scene the renderer holds still shows them.
     fn asked_for(&self) -> Vec<Vec3> {
@@ -801,7 +806,7 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     raised.harness.click_at(over_point);
     raised.frame();
     let point = raised.named_at(over_point).expect("a point is there");
-    assert!(raised.selection.contains(Part::Entity(point)));
+    assert!(raised.selection.contains(raised.part(point)));
     assert_eq!(raised.selection.count(), 1);
 
     // Shift adds, leaving what was already picked out where it was.
@@ -813,10 +818,10 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     raised.frame();
     let rim = raised.named_at(over_rim).expect("a circle is there");
     assert!(
-        raised.selection.contains(Part::Entity(point)),
+        raised.selection.contains(raised.part(point)),
         "shift dropped the first"
     );
-    assert!(raised.selection.contains(Part::Entity(rim)));
+    assert!(raised.selection.contains(raised.part(rim)));
     assert_eq!(raised.selection.count(), 2);
 
     // A shift-click on empty space adds nothing and clears nothing.
@@ -828,9 +833,9 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     raised.harness.set_modifiers(Modifiers::NONE);
     raised.harness.click_at(over_rim);
     raised.frame();
-    assert!(raised.selection.contains(Part::Entity(rim)));
+    assert!(raised.selection.contains(raised.part(rim)));
     assert!(
-        !raised.selection.contains(Part::Entity(point)),
+        !raised.selection.contains(raised.part(point)),
         "the first survived"
     );
     assert_eq!(raised.selection.count(), 1);
@@ -1179,7 +1184,7 @@ fn a_face_is_hovered_and_picked_out_like_any_other_part() {
     raised.frame();
     let hovered = raised.view.hovered();
     assert!(
-        matches!(hovered, Some(Part::Face(_))),
+        matches!(hovered, Some(Part::Face { .. })),
         "the cursor over a face reported {hovered:?}"
     );
 
@@ -1235,7 +1240,10 @@ fn what_is_drawn_on_a_face_takes_the_click_over_it() {
     assert!(
         matches!(
             raised.view.hovered(),
-            Some(Part::Entity(Entity::Point(_))) | Some(Part::Entity(Entity::Segment(_)))
+            Some(Part::Entity {
+                entity: Entity::Point(_) | Entity::Segment(_),
+                ..
+            })
         ),
         "a face took a cursor over the drawing: {:?}",
         raised.view.hovered()

@@ -4,11 +4,12 @@ use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, Key, Modifiers, WindowToken};
-use silverpoint::{Entity, Freedom, Outcome, Plane, PointId, Removed, Solver};
+use silverpoint::{Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::build::Build;
 use crate::demo;
-use crate::part::Part;
+use crate::model::Model;
+use crate::timeline::Timeline;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
 
@@ -200,15 +201,19 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     let segment = sketch.segments().next().unwrap().0;
     let circle = sketch.circles().next().unwrap().0;
     let constraint = sketch.constraints().next().unwrap().0;
+    // Named through a model, because a part names the sketch it belongs to as
+    // well as the thing within it.
+    let mut build = Build::default();
+    let mut timeline = Timeline::of(sketch);
+    let at = timeline.only_sketch();
+    timeline.edit(at).opened(&mut build);
+    let model = Model::new(timeline.drawing(at), &build, at);
     for (hovered, tail) in [
-        (Part::Entity(Entity::Point(point)), " · point"),
-        (Part::Entity(Entity::Segment(segment)), " · edge"),
-        (Part::Entity(Entity::Circle(circle)), " · circle"),
-        (
-            Part::Entity(Entity::Constraint(constraint)),
-            " · constraint",
-        ),
-        (Part::Face(0), " · face"),
+        (model.part(point), " · point"),
+        (model.part(segment), " · edge"),
+        (model.part(circle), " · circle"),
+        (model.part(constraint), " · constraint"),
+        (model.face(0), " · face"),
     ] {
         assert_eq!(
             Status {
@@ -579,10 +584,9 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         .last()
         .expect("the sketch holds points")
         .0;
+    let newest = app.document.model(&app.build).part(newest);
     assert!(
-        !app.session
-            .selection()
-            .contains(Part::Entity(Entity::Point(newest))),
+        !app.session.selection().contains(newest),
         "a point nobody picked came up selected, on a handle left over from an undo"
     );
 }

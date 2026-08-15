@@ -283,11 +283,23 @@ struct Status {
 /// word for it rather than the draughtsman's.
 fn noun(part: Part) -> &'static str {
     match part {
-        Part::Entity(Entity::Point(_)) => "point",
-        Part::Entity(Entity::Segment(_)) => "edge",
-        Part::Entity(Entity::Circle(_)) => "circle",
-        Part::Entity(Entity::Constraint(_)) => "constraint",
-        Part::Face(_) => "face",
+        Part::Entity {
+            entity: Entity::Point(_),
+            ..
+        } => "point",
+        Part::Entity {
+            entity: Entity::Segment(_),
+            ..
+        } => "edge",
+        Part::Entity {
+            entity: Entity::Circle(_),
+            ..
+        } => "circle",
+        Part::Entity {
+            entity: Entity::Constraint(_),
+            ..
+        } => "constraint",
+        Part::Face { .. } => "face",
     }
 }
 

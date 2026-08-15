@@ -222,7 +222,13 @@ const DIMENSION_SPEED: f64 = 0.01;
 /// single answer. A selection holding a dimension *and* something else is
 /// someone part-way through picking a pair, so the field stays away.
 fn dimension_picked(drawing: Drawing<'_>, selection: &Selection) -> Option<(ConstraintId, f64)> {
-    let [Part::Entity(Entity::Constraint(id))] = *selection.picked() else {
+    let [
+        Part::Entity {
+            entity: Entity::Constraint(id),
+            ..
+        },
+    ] = *selection.picked()
+    else {
         return None;
     };
     drawing

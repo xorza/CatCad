@@ -93,8 +93,10 @@ impl Selection {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::build::Build;
+    use crate::model::Model;
+    use crate::timeline::Timeline;
     use glam::DVec2;
-    use silverpoint::Entity;
     use silverpoint::Sketch;
 
     /// A click replaces what is selected and a shift-click adds to it, and
@@ -108,11 +110,14 @@ mod tests {
         let mut sketch = Sketch::default();
         let start = sketch.add_point(DVec2::ZERO);
         let end = sketch.add_point(DVec2::new(1.0, 0.0));
-        let (a, b) = (
-            Part::Entity(Entity::Point(start)),
-            Part::Entity(Entity::Point(end)),
-        );
-        let c = Part::Entity(Entity::Segment(sketch.add_segment(start, end)));
+        let segment = sketch.add_segment(start, end);
+        let mut build = Build::default();
+        let mut timeline = Timeline::of(sketch);
+        let at = timeline.only_sketch();
+        timeline.edit(at).opened(&mut build);
+        let model = Model::new(timeline.drawing(at), &build, at);
+        let (a, b) = (model.part(start), model.part(end));
+        let c = model.part(segment);
 
         let mut selection = Selection::default();
         assert!(!selection.contains(a));

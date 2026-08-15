@@ -308,6 +308,12 @@ impl Assorted {
         self.timeline.drawing(self.timeline.only_sketch())
     }
 
+    /// The two halves as a reader of the model wants them.
+    fn model(&self) -> Model<'_> {
+        let at = self.timeline.only_sketch();
+        Model::new(self.timeline.drawing(at), &self.build, at)
+    }
+
     fn new() -> Self {
         let mut sketch = Sketch::default();
         let a = sketch.add_point(DVec2::new(0.0, 0.0));
@@ -342,6 +348,7 @@ impl Assorted {
 fn a_selection_admits_exactly_the_relations_it_can_bear() {
     let assorted = Assorted::new();
     let drawing = assorted.drawing();
+    let model = assorted.model();
     let Assorted {
         a,
         b,
@@ -378,7 +385,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
             .collect()
     };
 
-    drawing.offers(&[Part::Entity(a), Part::Entity(b)], &mut offers);
+    drawing.offers(&[model.part(a), model.part(b)], &mut offers);
     assert_eq!(
         kinds(&offers),
         ["coincident", "distance", "horizontal", "vertical"]
@@ -389,7 +396,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     };
     assert!((distance - 5.0).abs() < 1e-9, "{distance}");
 
-    drawing.offers(&[Part::Entity(first), Part::Entity(second)], &mut offers);
+    drawing.offers(&[model.part(first), model.part(second)], &mut offers);
     assert_eq!(
         kinds(&offers),
         ["parallel", "perpendicular", "equal length"]
@@ -398,25 +405,25 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     // Either way round is the same relation — which was picked first says
     // nothing about which is held to which.
     for pair in [[a, second], [second, a]] {
-        drawing.offers(&pair.map(Part::Entity), &mut offers);
+        drawing.offers(&pair.map(|entity| model.part(entity)), &mut offers);
         assert_eq!(kinds(&offers), ["on edge"], "{pair:?}");
     }
     for pair in [[a, circle], [circle, a]] {
-        drawing.offers(&pair.map(Part::Entity), &mut offers);
+        drawing.offers(&pair.map(|entity| model.part(entity)), &mut offers);
         assert_eq!(kinds(&offers), ["on circle"], "{pair:?}");
     }
     for pair in [[first, circle], [circle, first]] {
-        drawing.offers(&pair.map(Part::Entity), &mut offers);
+        drawing.offers(&pair.map(|entity| model.part(entity)), &mut offers);
         assert_eq!(kinds(&offers), ["tangent"], "{pair:?}");
     }
     for pair in [[circle, other], [other, circle]] {
-        drawing.offers(&pair.map(Part::Entity), &mut offers);
+        drawing.offers(&pair.map(|entity| model.part(entity)), &mut offers);
         assert_eq!(kinds(&offers), ["equal radius"], "{pair:?}");
     }
 
     // A radius takes the size the circle already is, so asking for one locks
     // what is there rather than demanding a number nobody can type yet.
-    drawing.offers(&[Part::Entity(circle)], &mut offers);
+    drawing.offers(&[model.part(circle)], &mut offers);
     assert_eq!(kinds(&offers), ["radius"]);
     let Constraint::Radius { radius, .. } = offers[0] else {
         panic!("{offers:?}");
@@ -431,15 +438,15 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     // And a face among them, which admits nothing of its own and takes the
     // pair it is half of down with it: a relation is stated about geometry,
     // and a face is what geometry encloses.
-    let face = Part::Face(0);
+    let face = model.face(0);
     for picked in [
         &[][..],
-        &[Part::Entity(a)][..],
-        &[Part::Entity(first)][..],
-        &[Part::Entity(a), Part::Entity(b), Part::Entity(circle)][..],
+        &[model.part(a)][..],
+        &[model.part(first)][..],
+        &[model.part(a), model.part(b), model.part(circle)][..],
         &[face][..],
-        &[face, Part::Entity(a)][..],
-        &[Part::Entity(a), face][..],
+        &[face, model.part(a)][..],
+        &[model.part(a), face][..],
     ] {
         drawing.offers(picked, &mut offers);
         assert!(offers.is_empty(), "{picked:?} offered {:?}", kinds(&offers));
@@ -466,9 +473,10 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
 
     // The two points sit 4 apart in y; asked to be level, they meet.
     let mut offers = Vec::new();
+    let model = Model::new(timeline.drawing(at), &build, at);
     timeline
         .drawing(at)
-        .offers(&[Part::Entity(a), Part::Entity(b)], &mut offers);
+        .offers(&[model.part(a), model.part(b)], &mut offers);
     let level = offers[2];
     assert!(matches!(level, Constraint::Horizontal { .. }));
     timeline.edit(at).constrain(&mut build, level);

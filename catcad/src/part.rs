@@ -2,6 +2,8 @@
 
 use silverpoint::Entity;
 
+use crate::timeline::FeatureId;
+
 /// Anything a cursor can land on and a command can act on.
 ///
 /// Wider than [`Entity`] by exactly one case, and that case is the whole reason
@@ -15,12 +17,16 @@ use silverpoint::Entity;
 /// and deleting one would mean deleting whatever draws it — so widening
 /// [`Entity`] would have widened every match that decides those, each of which
 /// would have had to refuse a face by hand.
+/// The sketch is named per variant rather than hoisted alongside the enum,
+/// though both arms carry one today. What comes next does not: a datum plane is
+/// a step of the timeline in its own right and belongs to no sketch, so a
+/// common field would have to be made optional the moment one can be picked.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Part {
-    /// A point, edge, rim or relation, named by the handle the sketch keeps for
-    /// it — which survives the drawing being laid out again.
-    Entity(Entity),
-    /// A region the drawing's curves enclose, named by where it falls in the
+    /// A point, edge, rim or relation of one sketch, named by the handle that
+    /// sketch keeps for it — which survives the drawing being laid out again.
+    Entity { sketch: FeatureId, entity: Entity },
+    /// A region one sketch's curves enclose, named by where it falls in the
     /// order they are walked.
     ///
     /// A position rather than a handle, because a face has none. It holds while
@@ -28,7 +34,7 @@ pub(crate) enum Part {
     /// [`Arrangement::faces`](silverpoint::Arrangement) — so a drag that moves
     /// geometry leaves a face where it was in the list, and something that
     /// changes what crosses what may not.
-    Face(usize),
+    Face { sketch: FeatureId, at: usize },
 }
 
 impl Part {
@@ -38,14 +44,8 @@ impl Part {
     /// deleting and building all want a handle, and a face has none to give.
     pub(crate) fn entity(self) -> Option<Entity> {
         match self {
-            Part::Entity(entity) => Some(entity),
-            Part::Face(_) => None,
+            Part::Entity { entity, .. } => Some(entity),
+            Part::Face { .. } => None,
         }
-    }
-}
-
-impl From<Entity> for Part {
-    fn from(entity: Entity) -> Self {
-        Part::Entity(entity)
     }
 }
