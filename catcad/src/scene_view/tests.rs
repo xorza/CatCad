@@ -1450,24 +1450,35 @@ fn what_is_drawn_on_a_face_takes_the_click_over_it() {
     );
 }
 
-/// Taking hold of something picks it out, and stops the pointer lighting
-/// whatever else it sweeps over.
+/// Taking hold of something picks it out, and the pointer goes on naming it
+/// rather than whatever it is dragged across.
 ///
-/// Two halves of one idea: mid-drag the pointer has already acted. A hover says
-/// what pressing *would* act on, so lighting geometry the cursor happens to
-/// cross on its way offers a choice that is not on offer — and the thing that
-/// is actually moving reads as picked out instead.
+/// Two halves of one idea: mid-drag the pointer has already acted. What it
+/// would act on if you pressed is no longer a question worth answering, so the
+/// readout keeps naming the thing in hand — and geometry the cursor happens to
+/// cross on its way is not offered as a choice that is not on offer.
 ///
-/// The drag runs across the drawing rather than into empty space, so there is
-/// something for a live hover to have found.
+/// The drag runs across the rest of the drawing rather than off into empty
+/// space, so there is something for a stale hover to have found. Before this,
+/// that is exactly what it found.
 #[test]
-fn a_drag_picks_out_what_it_holds_and_lights_nothing_else() {
+fn a_drag_keeps_naming_what_it_holds_rather_than_what_it_passes_over() {
     let mut raised = Raised::new();
     raised.frame();
     let wrist = raised.cursor_on(raised.wrist());
     raised.harness.move_to(wrist);
     raised.frame();
     let held = raised.view.hovered().expect("the cursor is on the wrist");
+    // A corner of the demo's frame, which is something else entirely — and what
+    // a hover that followed the cursor would have latched onto.
+    let corner = raised.cursor_on(
+        raised
+            .document
+            .drawing_at(raised.session.editing())
+            .plane()
+            .point(DVec2::new(8.0, 5.0))
+            .as_vec3(),
+    );
 
     raised.harness.press_at(wrist);
     raised.frame();
@@ -1481,26 +1492,32 @@ fn a_drag_picks_out_what_it_holds_and_lights_nothing_else() {
     );
     assert_eq!(
         raised.view.hovered(),
-        None,
-        "the pointer went on hovering while it was dragging"
+        Some(held),
+        "the pointer stopped naming what it had hold of"
     );
 
-    // Sweeping across the rest of the drawing changes neither. Without the
-    // guard this is where a marker the drag passed over would light up.
-    raised
-        .harness
-        .drag_to(raised.cursor_on(raised.empty_spot()));
-    raised.frame();
-    assert_eq!(raised.view.hovered(), None, "a hover came back mid-drag");
-    assert_eq!(raised.session.selection().picked(), [held]);
+    // Dragged on across the drawing, over geometry belonging to something else.
+    // Neither answer moves: this is where the readout used to follow the cursor
+    // onto whatever it was passing.
+    for at in [raised.cursor_on(raised.empty_spot()), corner] {
+        raised.harness.drag_to(at);
+        raised.frame();
+        assert_eq!(
+            raised.view.hovered(),
+            Some(held),
+            "the pointer named something it was only passing over"
+        );
+        assert_eq!(raised.session.selection().picked(), [held]);
+    }
 
-    // And the hover returns once the button is up.
+    // And it answers for the cursor again once the button is up.
     raised.harness.release();
     raised.frame();
-    raised.harness.move_to(raised.cursor_on(raised.wrist()));
+    raised.harness.move_to(corner);
     raised.frame();
+    let after = raised.view.hovered();
     assert!(
-        raised.view.hovered().is_some(),
-        "the hover never came back after the drag"
+        after.is_some() && after != Some(held),
+        "after the drag the pointer reported {after:?} rather than what it now sits on"
     );
 }

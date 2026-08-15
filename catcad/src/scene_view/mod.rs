@@ -145,7 +145,8 @@ pub(crate) struct SceneView {
     /// only by the call that draws — see [`Layout`].
     layout: Layout,
     gesture: Gesture,
-    /// The part of the drawing under the pointer, if any.
+    /// What the pointer is working on: the part under it, or the part it has
+    /// hold of while a drag is under way.
     hovered: Option<Part>,
     /// The shape a two-click tool is half-way through, if one is.
     preview: Option<Preview>,
@@ -198,7 +199,13 @@ impl SceneView {
         self.renderer.borrow().scene().bounds()
     }
 
-    /// The part of the drawing under the pointer, if any.
+    /// What the pointer is working on, if anything.
+    ///
+    /// The part under it, and while a drag is under way the part it has hold of
+    /// — which has stopped being the part under it the moment the drag outran
+    /// what it grabbed. What the *highlight* does is not this: nothing is lit as
+    /// hovered mid-drag, because the thing in hand is picked out and reads as
+    /// picked out. See `settle`.
     pub(crate) fn hovered(&self) -> Option<Part> {
         self.hovered
     }
@@ -263,7 +270,7 @@ impl SceneView {
                     pitch: step.y * ORBIT_RATE,
                 });
             }
-            (Gesture::Move(held), Drag::Started { .. } | Drag::Active { .. }) => {
+            (Gesture::Move(held), drag @ (Drag::Started { .. } | Drag::Active { .. })) => {
                 // Taking hold of something picks it out. On the frame the drag
                 // *starts* rather than the frame the button goes down: a press
                 // that never travels is a click, and what a click means is
@@ -274,7 +281,7 @@ impl SceneView {
                 //
                 // Naming the whole selection rather than an addition, like every
                 // other `Select`: a replayed pass lands on the same answer.
-                if matches!(response.left.drag, Drag::Started { .. }) {
+                if matches!(drag, Drag::Started { .. }) {
                     intents.push(Choice::Select(Some(held.part)));
                 }
                 // Where what is held should end up, which is where the cursor
@@ -498,23 +505,29 @@ impl SceneView {
         // marker sits on the end of every edge that meets it, and lighting all
         // of them would answer a question nobody asked.
         //
-        // Nothing at all while something is being dragged. A hover says what the
-        // pointer would act on if you pressed, and mid-drag the pointer has
-        // already acted — lighting whatever it happens to sweep over offers a
-        // choice that is not on offer, and the thing actually moving is picked
-        // out and lit as such. Turning the view is left alone: there the scene
+        // Nothing under the pointer at all while it is dragging. A hover lights
+        // what pressing *would* act on, and mid-drag the pointer has already
+        // acted — so lighting whatever it sweeps over on its way offers a choice
+        // that is not on offer. Turning the view is left alone: there the scene
         // moves under a still cursor, and what is under it afterwards is a fair
         // question.
         //
         // Aimed through the *document's* camera, not the renderer's copy of it:
         // the copy is written below, so a pick that read it would answer
         // through wherever the camera was before this frame's orbit.
-        let dragging = matches!(self.gesture, Gesture::Move(_));
-        let under = self.aimed.filter(|_| !dragging).and_then(|aimed| {
+        let held = match self.gesture {
+            Gesture::Move(held) => Some(held.part),
+            _ => None,
+        };
+        let under = self.aimed.filter(|_| held.is_none()).and_then(|aimed| {
             let aim = aimed.aim(&document.camera());
             renderer.scene().nearest(aim).map(|hit| hit.tag)
         });
-        self.hovered = under.and_then(|tag| self.layout.names().get(tag));
+        // What is *named* is not what is lit, and a drag is the one moment they
+        // part: the readout goes on saying what the pointer is working on, which
+        // is the thing in hand rather than whatever it is passing over. Lighting
+        // that would be redundant — it is picked out, and reads as picked out.
+        self.hovered = held.or_else(|| under.and_then(|tag| self.layout.names().get(tag)));
 
         // The hover first, because where two entries name one tag the renderer
         // takes the first: the thing under the cursor reads as hovered even
