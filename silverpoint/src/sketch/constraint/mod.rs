@@ -255,8 +255,8 @@ impl Constraint {
                 // circle — and each direction's partials are the *other* one
                 // turned, the opposite way round, because the cross product
                 // reverses when its arguments swap.
-                row.segment(s1, DVec2::new(d2.y, -d2.x));
-                row.segment(s2, DVec2::new(-d1.y, d1.x));
+                row.segment(s1, -d2.perp());
+                row.segment(s2, d1.perp());
                 d1.perp_dot(d2)
             }
             Constraint::Perpendicular { first, second } => {
@@ -284,10 +284,11 @@ impl Constraint {
                 let edge = direction(sketch, s);
                 let offset = sketch.point(point).position - sketch.point(s.a).position;
                 // The tail moves both `edge` and `offset`, which is why its
-                // gradient carries a term from each and the other two don't.
-                row.point(point, DVec2::new(-edge.y, edge.x));
-                row.point(s.a, DVec2::new(edge.y - offset.y, offset.x - edge.x));
-                row.point(s.b, DVec2::new(offset.y, -offset.x));
+                // gradient carries a term from each — the difference of the
+                // two, turned — and the other two don't.
+                row.point(point, edge.perp());
+                row.point(s.a, (offset - edge).perp());
+                row.point(s.b, -offset.perp());
                 edge.perp_dot(offset)
             }
             Constraint::Radius { circle, radius } => {
@@ -305,9 +306,9 @@ impl Constraint {
             }
             Constraint::Tangent { segment, circle } => {
                 let s = sketch.segment(segment);
-                let ring = sketch.circle(circle);
+                let c = sketch.circle(circle);
                 let edge = direction(sketch, s);
-                let offset = sketch.point(ring.center).position - sketch.point(s.a).position;
+                let offset = sketch.point(c.center).position - sketch.point(s.a).position;
                 let along = Direction::of(edge);
                 // How far off the line the centre stands, *times* how long the
                 // edge is — which is [`Self::PointOnSegment`]'s residual
@@ -324,18 +325,14 @@ impl Constraint {
                 // is what lets a solve settle onto the nearer of the two rather
                 // than being dragged across the line to the other.
                 let side = if reach < 0.0 { -1.0 } else { 1.0 };
-                row.point(ring.center, side * DVec2::new(-edge.y, edge.x));
-                row.point(
-                    s.a,
-                    side * DVec2::new(edge.y - offset.y, offset.x - edge.x)
-                        + ring.radius * along.unit,
-                );
-                row.point(
-                    s.b,
-                    side * DVec2::new(offset.y, -offset.x) - ring.radius * along.unit,
-                );
+                // The first term of each is [`Self::PointOnSegment`]'s own
+                // gradient turned by the side; the second is the radius, which
+                // grows and shrinks the equation with the segment's length.
+                row.point(c.center, side * edge.perp());
+                row.point(s.a, side * (offset - edge).perp() + c.radius * along.unit);
+                row.point(s.b, -side * offset.perp() - c.radius * along.unit);
                 row.radius(circle, -along.length);
-                side * reach - ring.radius * along.length
+                side * reach - c.radius * along.length
             }
             Constraint::EqualRadius { first, second } => {
                 row.radius(first, 1.0);

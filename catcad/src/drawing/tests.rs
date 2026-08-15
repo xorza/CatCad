@@ -391,8 +391,11 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     };
     assert_eq!(radius, 2.5);
 
-    // And the selections that bear nothing: too few, too many, and a pair with
-    // no relation between them.
+    // And the selections that bear nothing, which are now only the wrong
+    // *size*: every pair of geometry kinds above admits something, so a pair
+    // that admits nothing would have to be one holding a constraint — and a
+    // constraint is a statement rather than a place, so nothing can be stated
+    // over one.
     for picked in [&[][..], &[a][..], &[first][..], &[a, b, circle][..]] {
         drawing.offers(picked, &mut offers);
         assert!(offers.is_empty(), "{picked:?} offered {:?}", kinds(&offers));
