@@ -52,7 +52,7 @@ fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
 fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) -> Vec<Hit> {
     let aim = Aim::new(through, cursor, viewport(), radius);
     let ground = scene.ground(&aim);
-    let framed = scene.frames(&aim);
+    let framed = scene.frame_front(&aim);
     let mut hits: Vec<Hit> = scene
         .overlays(&aim)
         .filter(|hit| shows(ground.front, hit) && shows(framed, hit))
@@ -730,27 +730,38 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
 /// level by construction — that is what ranking it last buys, and it is the
 /// whole reason a datum is not merely ordinary geometry. What it must not lose
 /// to is a drawing a plane away.
+///
+/// Two of the five below turn on the rule and three hold it in place. The first
+/// is the bug, and the fourth is the boundary the ordering would have settled
+/// the other way; the rest answer the same either way by design — they say the
+/// filter did not take the frame's own reason for existing with it, that it
+/// reaches backwards only, and that it stopped at frames rather than swallowing
+/// [`Precedence::Aside`] along the way.
 #[test]
 fn a_frame_keeps_the_click_against_what_is_behind_it_and_yields_to_what_is_level() {
-    /// A stroke across the middle of the view at `z`.
-    fn across(z: f32) -> Curve {
-        let mut curve = Curve::default();
-        curve.set_segment(Vec3::new(-2.0, 0.0, z), Vec3::new(2.0, 0.0, z));
-        curve
+    /// A stroke straight across the view at `z`, `off` above the middle of it.
+    fn across(z: f32, off: f32) -> Curve {
+        Curve::segment(Vec3::new(-2.0, off, z), Vec3::new(2.0, off, z))
+    }
+
+    /// The same through the middle, which is where the cursor is.
+    fn under(z: f32) -> Curve {
+        across(z, 0.0)
     }
 
     // A datum plane's outline a unit in front of the target, and some other
     // sketch's edge four units behind it — a whole plane away, and lined up
     // under the same pixel.
     let mut scene = Scene::default();
-    scene.curves.push(
-        across(1.0)
-            .tagged(Tag::new(1))
-            .precedence(Precedence::Frame),
-    );
-    scene.curves.push(across(-3.0).tagged(Tag::new(2)));
+    scene
+        .curves
+        .push(under(1.0).tagged(Tag::new(1)).precedence(Precedence::Frame));
+    scene.curves.push(under(-3.0).tagged(Tag::new(2)));
 
-    let aim = || Aim::new(&head_on(), CENTRE, viewport(), 4.0);
+    // Ten pixels, which is what `nearer_the_cursor_beats_nearer_the_eye` asks
+    // for: the stroke set four pixels off the cursor below has to be in reach,
+    // or the case that turns on it would be testing an empty scene.
+    let aim = || Aim::new(&head_on(), CENTRE, viewport(), 10.0);
     assert_eq!(
         scene.nearest(aim()).map(|hit| hit.tag),
         Some(Tag::new(1)),
@@ -761,12 +772,10 @@ fn a_frame_keeps_the_click_against_what_is_behind_it_and_yields_to_what_is_level
     // wins, which is the half the ordering was already right about and the
     // reason the datum is a frame at all.
     scene.curves.clear();
-    scene.curves.push(
-        across(1.0)
-            .tagged(Tag::new(1))
-            .precedence(Precedence::Frame),
-    );
-    scene.curves.push(across(1.0).tagged(Tag::new(2)));
+    scene
+        .curves
+        .push(under(1.0).tagged(Tag::new(1)).precedence(Precedence::Frame));
+    scene.curves.push(under(1.0).tagged(Tag::new(2)));
     assert_eq!(
         scene.nearest(aim()).map(|hit| hit.tag),
         Some(Tag::new(2)),
@@ -777,37 +786,36 @@ fn a_frame_keeps_the_click_against_what_is_behind_it_and_yields_to_what_is_level
     // of the rule but is what says the filter reaches backwards only.
     scene.curves.clear();
     scene.curves.push(
-        across(-1.0)
+        under(-1.0)
             .tagged(Tag::new(1))
             .precedence(Precedence::Frame),
     );
-    scene.curves.push(across(1.0).tagged(Tag::new(2)));
+    scene.curves.push(under(1.0).tagged(Tag::new(2)));
     assert_eq!(
         scene.nearest(aim()).map(|hit| hit.tag),
         Some(Tag::new(2)),
         "a frame behind an edge stopped the edge from answering"
     );
 
-    // Between two datums the nearer answers, where before this the pair fell
-    // through to how near the cursor they were and then how near the eye — the
-    // same answer here, and not by the same route. Aimed off the shared line so
-    // the further one is fractionally nearer the cursor, which is what the
-    // ordering would have settled it by.
+    // Between two datums the nearer answers, and this is where the rule earns
+    // its place rather than agreeing with what was there: the pair is the very
+    // arrangement `nearer_the_cursor_beats_nearer_the_eye` is built on — the
+    // near one four pixels off the cursor, the far one dead under it — where
+    // the ordering hands the answer to the *further* stroke. Two frames instead
+    // of two edges, and the nearer takes it.
     scene.curves.clear();
     scene.curves.push(
-        across(1.0)
+        across(1.0, 0.4)
             .tagged(Tag::new(1))
             .precedence(Precedence::Frame),
     );
-    scene.curves.push(
-        across(-3.0)
-            .tagged(Tag::new(2))
-            .precedence(Precedence::Frame),
-    );
+    scene
+        .curves
+        .push(under(0.0).tagged(Tag::new(2)).precedence(Precedence::Frame));
     assert_eq!(
         scene.nearest(aim()).map(|hit| hit.tag),
         Some(Tag::new(1)),
-        "the further datum answered"
+        "the further datum answered, so the pair fell through to the cursor"
     );
 
     // A sketch set aside is not a frame and keeps its old standing: the one
@@ -815,16 +823,13 @@ fn a_frame_keeps_the_click_against_what_is_behind_it_and_yields_to_what_is_level
     // document is not a fact about depth. This is the case the wider rule —
     // nearest overlay wins outright — would have got wrong.
     scene.curves.clear();
-    scene.curves.push(
-        across(1.0)
-            .tagged(Tag::new(1))
-            .precedence(Precedence::Aside),
-    );
-    scene.curves.push(across(-3.0).tagged(Tag::new(2)));
+    scene
+        .curves
+        .push(under(1.0).tagged(Tag::new(1)).precedence(Precedence::Aside));
+    scene.curves.push(under(-3.0).tagged(Tag::new(2)));
     assert_eq!(
         scene.nearest(aim()).map(|hit| hit.tag),
         Some(Tag::new(2)),
         "a dormant sketch in front took the click meant for the one being edited"
     );
 }
-

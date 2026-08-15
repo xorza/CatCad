@@ -149,7 +149,7 @@ impl Scene {
         //
         // A filter rather than a rule inside the ordering, for the reason given
         // above and unchanged by which of the two is asking.
-        let framed = self.frames(&aim);
+        let framed = self.frame_front(&aim);
         self.overlays(&aim)
             .filter(|hit| shows(ground.front, hit) && shows(framed, hit))
             .min_by(Hit::aim_order)
@@ -159,6 +159,16 @@ impl Scene {
     /// How far off the nearest frame the aim crosses lies, or infinity where it
     /// crosses none — which then hides nothing, at no cost to the arithmetic.
     ///
+    /// Named for what it answers rather than what it walks, like [`Ground`]'s
+    /// own `front` beside it: both are a depth that decides what is still in the
+    /// running.
+    ///
+    /// Unfiltered by the ground, and safely so rather than by oversight: a frame
+    /// the ground hides is by definition further off than the ground, so the
+    /// only hits it could take out are ones already behind the ground and gone.
+    /// A hidden frame can narrow this answer but never past what the surface in
+    /// front of it has narrowed already.
+    ///
     /// A second walk of the overlays rather than a list kept from the first, for
     /// the reason the ground is settled by name above: what a pick hands back is
     /// one hit, and holding every hit in order to take one is the cost this is
@@ -166,7 +176,7 @@ impl Scene {
     /// shows up, the cheaper form is to ask each primitive what it is for before
     /// picking it rather than after, since frames are the rarest thing a scene
     /// holds.
-    fn frames(&self, aim: &Aim) -> f32 {
+    fn frame_front(&self, aim: &Aim) -> f32 {
         self.overlays(aim)
             .filter(|hit| hit.precedence == Precedence::Frame)
             .fold(f32::INFINITY, |front, hit| front.min(hit.distance))
