@@ -33,40 +33,6 @@ const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
 const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
 const REMOVED_CONSTRAINT: &str = "this constraint is no longer in the sketch";
 
-/// How near two pieces of geometry have to be to count as the same one, in
-/// sketch units.
-///
-/// An order of magnitude above the residual tolerance a solve converges to,
-/// which is what makes the two tests in [`Sketch::remove_duplicates`] agree
-/// instead of disagreeing at the boundary:
-/// a pair a solve has driven together sits within the residual tolerance, so it
-/// reads as positionally equal here too, and a coincidence and a measurement
-/// never answer differently about the same pair.
-///
-/// Far below anything a pointer can distinguish — a click resolves to a
-/// fraction of a sketch unit at any sane zoom — so nothing a user placed on
-/// purpose is ever within it of something else.
-const DUPLICATE_EPSILON: f64 = 1e-9;
-
-/// What a cleanup took out of a sketch.
-///
-/// Counts rather than handles: what was removed is gone, so a handle to one
-/// would name nothing — and what a caller wants of this is to say what
-/// happened, or to notice that nothing did.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct Removed {
-    pub points: usize,
-    pub segments: usize,
-    pub circles: usize,
-}
-
-impl Removed {
-    /// Whether the cleanup found nothing to do.
-    pub fn is_empty(self) -> bool {
-        self == Self::default()
-    }
-}
-
 /// A point's position, and whether the solver may move it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Point {
@@ -90,6 +56,40 @@ pub struct Segment {
 pub struct Circle {
     pub center: PointId,
     pub radius: f64,
+}
+
+/// How near two pieces of geometry have to be to count as the same one, in
+/// sketch units.
+///
+/// An order of magnitude above the residual tolerance a solve converges to,
+/// which is what makes the two tests in [`Sketch::remove_duplicates`] agree
+/// instead of disagreeing at the boundary: a pair a solve has driven together
+/// sits within the residual tolerance, so it reads as positionally equal here
+/// too, and a coincidence and a measurement never answer differently about the
+/// same pair.
+///
+/// Far below anything a pointer can distinguish — a click resolves to a
+/// fraction of a sketch unit at any sane zoom — so nothing a user placed on
+/// purpose is ever within it of something else.
+const DUPLICATE_EPSILON: f64 = 1e-9;
+
+/// What a cleanup took out of a sketch.
+///
+/// Counts rather than handles: what was removed is gone, so a handle to one
+/// would name nothing — and what a caller wants of this is to say what
+/// happened, or to notice that nothing did.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Removed {
+    pub points: usize,
+    pub segments: usize,
+    pub circles: usize,
+}
+
+impl Removed {
+    /// Whether the cleanup found nothing to do.
+    pub fn is_empty(self) -> bool {
+        self == Self::default()
+    }
 }
 
 /// Points, segments, circles, and the constraints between them.
@@ -405,8 +405,8 @@ impl Sketch {
 
     /// The circles nothing names that another circle already covers.
     fn spare_circles(&self) -> Vec<CircleId> {
-        let named = self.named_circles();
-        self.spares(
+        let named = self.named_slots(self.circle_slot_count(), Entity::circle);
+        spares(
             &self.circles,
             |id| named[id.slot()],
             |a, b| {
@@ -426,12 +426,12 @@ impl Sketch {
     /// the duplicate this is looking for, and one written the other way round
     /// is the same edge — so both orientations count.
     fn spare_segments(&self) -> Vec<SegmentId> {
-        let named = self.named_segments();
+        let named = self.named_slots(self.segment_slot_count(), Entity::segment);
         let ends = |id| {
             let edge: Segment = self.segment(id);
             (self.point(edge.a).position, self.point(edge.b).position)
         };
-        self.spares(
+        spares(
             &self.segments,
             |id| named[id.slot()],
             |a, b| {
@@ -460,7 +460,7 @@ impl Sketch {
                 _ => None,
             })
             .collect();
-        self.spares(
+        spares(
             &self.points,
             |id| carried[id.slot()],
             |a, b| {
@@ -476,13 +476,17 @@ impl Sketch {
 
     /// Which points hold something up, marked by arena position.
     ///
+    /// Wider than [`Sketch::named_slots`], which is why it is written out: a
+    /// point is held up by ending an edge or centring a circle as much as by
+    /// being written about, and neither of those is a constraint.
+    ///
     /// Coincidences are the one relation that does not count. A point tied only
     /// to other points, ending no edge and centring no circle, is a spare
     /// marker however many joins say so; anything else said about it — a
     /// distance, a horizontal, a point on an edge — is structure, and structure
     /// keeps it.
     fn carried_points(&self) -> Vec<bool> {
-        let mut carried = vec![false; self.points.slot_count()];
+        let mut carried = vec![false; self.point_slot_count()];
         for (_, segment) in self.segments.iter() {
             carried[segment.a.slot()] = true;
             carried[segment.b.slot()] = true;
@@ -494,69 +498,33 @@ impl Sketch {
             if matches!(constraint, Constraint::Coincident { .. }) {
                 continue;
             }
-            for entity in constraint.referents() {
-                if let Entity::Point(id) = entity {
-                    carried[id.slot()] = true;
-                }
+            for id in constraint.referents().filter_map(Entity::point) {
+                carried[id.slot()] = true;
             }
         }
         carried
     }
 
-    /// Which segments a constraint is written about, marked by arena position.
-    fn named_segments(&self) -> Vec<bool> {
-        let mut named = vec![false; self.segments.slot_count()];
+    /// Which of one kind of geometry the constraints are written about, marked
+    /// by arena position.
+    ///
+    /// `of` picks the kind out — [`Entity::segment`] and its siblings — and the
+    /// kind decides `slots`, so the two arguments have to agree about which
+    /// arena is being described. They are given together at both call sites for
+    /// exactly that reason.
+    ///
+    /// One walk of the constraints rather than one per candidate: a constraint
+    /// already knows what it is about, so asking each in turn and marking what
+    /// it names beats asking every segment and circle whether anything named
+    /// it.
+    fn named_slots<T>(&self, slots: usize, of: impl Fn(Entity) -> Option<Id<T>>) -> Vec<bool> {
+        let mut named = vec![false; slots];
         for (_, constraint) in self.constraints.iter() {
-            for entity in constraint.referents() {
-                if let Entity::Segment(id) = entity {
-                    named[id.slot()] = true;
-                }
+            for id in constraint.referents().filter_map(&of) {
+                named[id.slot()] = true;
             }
         }
         named
-    }
-
-    /// Which circles a constraint is written about, marked by arena position.
-    fn named_circles(&self) -> Vec<bool> {
-        let mut named = vec![false; self.circles.slot_count()];
-        for (_, constraint) in self.constraints.iter() {
-            for entity in constraint.referents() {
-                if let Entity::Circle(id) = entity {
-                    named[id.slot()] = true;
-                }
-            }
-        }
-        named
-    }
-
-    /// The ids in `arena` that carry nothing and duplicate something kept.
-    ///
-    /// The shape all three of the sweeps above have: seed the keepers with
-    /// everything depended on, then walk the rest in order, each one either
-    /// matching a keeper and going or becoming a keeper itself. That last part
-    /// is what stops a pair of identical spares from taking each other out and
-    /// leaving neither.
-    ///
-    /// Both predicates read handles rather than values, because whether two
-    /// points are the same one is a question a coincidence answers and a pair
-    /// of [`Point`]s cannot.
-    fn spares<T>(
-        &self,
-        arena: &Arena<T>,
-        carries: impl Fn(Id<T>) -> bool,
-        same: impl Fn(Id<T>, Id<T>) -> bool,
-    ) -> Vec<Id<T>> {
-        let ids = || arena.iter().map(|(id, _)| id);
-        let mut kept: Vec<Id<T>> = ids().filter(|&id| carries(id)).collect();
-        let mut doomed = Vec::new();
-        for id in ids().filter(|&id| !carries(id)) {
-            if kept.iter().any(|&keeper| same(id, keeper)) {
-                doomed.push(id);
-            } else {
-                kept.push(id);
-            }
-        }
-        doomed
     }
 
     /// Positions the points occupy, holes from removals included — the length
@@ -619,6 +587,39 @@ impl Sketch {
     pub fn restore(&mut self, snapshot: &Snapshot) {
         self.clone_from(&snapshot.sketch);
     }
+}
+
+/// The ids in `arena` that carry nothing and duplicate something kept.
+///
+/// The shape all three of [`Sketch::remove_duplicates`]'s sweeps have: seed the
+/// keepers with everything depended on, then walk the rest in order, each one
+/// either matching a keeper and going or becoming a keeper itself. That last
+/// part is what stops a pair of identical spares from taking each other out and
+/// leaving neither.
+///
+/// Both predicates read handles rather than values, because whether two points
+/// are the same one is a question a coincidence answers and a pair of [`Point`]s
+/// cannot.
+///
+/// A free fn rather than a method, because it asks the sketch nothing: an arena
+/// to walk and two questions it cannot answer itself is the whole of what it
+/// works from. Each caller closes over whatever it needs to answer them.
+fn spares<T>(
+    arena: &Arena<T>,
+    carries: impl Fn(Id<T>) -> bool,
+    same: impl Fn(Id<T>, Id<T>) -> bool,
+) -> Vec<Id<T>> {
+    let ids = || arena.iter().map(|(id, _)| id);
+    let mut kept: Vec<Id<T>> = ids().filter(|&id| carries(id)).collect();
+    let mut doomed = Vec::new();
+    for id in ids().filter(|&id| !carries(id)) {
+        if kept.iter().any(|&keeper| same(id, keeper)) {
+            doomed.push(id);
+        } else {
+            kept.push(id);
+        }
+    }
+    doomed
 }
 
 #[cfg(test)]

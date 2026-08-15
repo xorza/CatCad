@@ -22,6 +22,42 @@ pub enum Entity {
     Constraint(ConstraintId),
 }
 
+impl Entity {
+    /// The point this names, or `None` where it names something else.
+    ///
+    /// The way back from the [`From`] impls below, and for one shape of caller:
+    /// one sifting a mixed run of entities for the single kind it can use.
+    /// Walking what a constraint is about is the whole of that today — the run
+    /// reads `referents().filter_map(Entity::point)`, where a `match` inside a
+    /// loop would say the same thing in four lines and a nesting level.
+    ///
+    /// Three of these rather than four. Nothing in a sketch names a constraint
+    /// — see [`Constraint::referents`](crate::Constraint::referents) — so a
+    /// sift for one would have nothing it could ever find.
+    pub(crate) fn point(self) -> Option<PointId> {
+        match self {
+            Entity::Point(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The segment this names, or `None` where it names something else.
+    pub(crate) fn segment(self) -> Option<SegmentId> {
+        match self {
+            Entity::Segment(id) => Some(id),
+            _ => None,
+        }
+    }
+
+    /// The circle this names, or `None` where it names something else.
+    pub(crate) fn circle(self) -> Option<CircleId> {
+        match self {
+            Entity::Circle(id) => Some(id),
+            _ => None,
+        }
+    }
+}
+
 // Every handle names itself, so a caller holding one need not say which kind it
 // is twice — the type already did. Three impls rather than one, because `Id` is
 // generic over what it points at and the three are genuinely different types;
