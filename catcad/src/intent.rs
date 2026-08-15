@@ -170,6 +170,16 @@ pub(crate) enum Change {
     /// hanging off that plane *land*, and none of them says anything different
     /// for it — see [`Datum::Offset`](crate::timeline::feature::Datum).
     MovePlane { plane: FeatureId, to: f64 },
+    /// Carry a solid to a new distance off the plane its region was drawn on.
+    ///
+    /// Names the distance it wants rather than a step to take, like
+    /// [`Change::MovePlane`] above and for the same reason: a drag sends one of
+    /// these a frame and a replayed pass restates the same number, where "a
+    /// little deeper" would grow twice over.
+    ///
+    /// Signed, so this is also how a solid is flipped to the other side of its
+    /// plane — see [`Feature::Extrude`](crate::timeline::feature::Feature).
+    Carry { extrude: FeatureId, to: f64 },
     /// Turn the camera about what it is looking at, in radians.
     Orbit { yaw: f32, pitch: f32 },
     /// Move the camera in or out by a multiple of how far off it is.
@@ -201,7 +211,10 @@ impl Change {
     pub(crate) fn coalesces(self) -> bool {
         matches!(
             self,
-            Change::Drag { .. } | Change::Resize { .. } | Change::MovePlane { .. }
+            Change::Drag { .. }
+                | Change::Resize { .. }
+                | Change::MovePlane { .. }
+                | Change::Carry { .. }
         )
     }
 
@@ -229,6 +242,7 @@ impl Change {
             | Change::Tidy { sketch }
             | Change::Delete { sketch, .. } => Some(sketch),
             Change::MovePlane { plane, .. } => Some(plane),
+            Change::Carry { extrude, .. } => Some(extrude),
             Change::Orbit { .. }
             | Change::Dolly { .. }
             | Change::Pan { .. }

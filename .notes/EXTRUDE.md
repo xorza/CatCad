@@ -197,7 +197,30 @@ names entities of *another* step's sketch, so `Saved::timeline` has to keep a
    and the file format with them, for the reason below.
 3. **Done.** `Prism`, `Skinner`, paint, `Part::Solid`; scenery removed, demo and
    visual suite updated.
-4. The cap drag.
+4. **Done.** The cap drag.
+
+## What step 4 found
+
+- **`Movable` covers both**, and only its field name had to change. A datum
+  standing off the plane it is measured from and a solid's far end standing off
+  its region's plane are the same arithmetic — one number along a normal, and a
+  line to read it off — so `Grabbed::Datum` and `Grabbed::Cap` carry the same
+  type and differ only in the change they come out as.
+- **The far end alone.** The base lies in the plane the region was drawn on and
+  has nowhere of its own to go, and a wall is carried by both ends at once, so a
+  press on either has to orbit.
+- **A test helper was relying on a coincidence.** `over_pinned` was
+  `sweep(|grip| grip.is_none())` — "anything the drawing will not let go of" —
+  which used to find only the pinned point. A region, a datum and every face of
+  every solid are gripless too, so it started finding the cylinder. It now looks
+  for a fixed point by name.
+
+## Still to do
+
+The extrude cannot be *made* from the UI. Creating one adds a step, and the
+history records a step by keeping what it held before and after — a step that was
+not there has no before. That is roadmap §5, and `Document::extrude` is the seam
+it routes through.
 
 ## What step 3 found
 

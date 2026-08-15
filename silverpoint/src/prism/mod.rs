@@ -101,7 +101,11 @@ impl<'a> Prism<'a> {
     }
 
     /// How far it is carried, and which way.
-    pub(crate) fn distance(&self) -> f64 {
+    ///
+    /// Public where the rest of the reading below is not, because it is the one
+    /// thing a prism says that a caller did not hand it back: `new` takes a
+    /// distance and every other answer is worked out from the arrangement.
+    pub fn distance(&self) -> f64 {
         self.distance
     }
 

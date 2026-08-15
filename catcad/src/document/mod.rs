@@ -177,6 +177,16 @@ impl Document {
         self.timeline.movable(at)
     }
 
+    /// The solid at `at` as something that can be carried, and the line it
+    /// travels.
+    ///
+    /// Beside [`Document::movable`] and for the reason that one is here: a press
+    /// has the document and not the build, and where a thing may travel is the
+    /// timeline's alone.
+    pub(crate) fn stretching(&self, at: FeatureId) -> Movable {
+        self.timeline.stretching(at)
+    }
+
     /// The sketch a session should start in.
     ///
     /// The first one the timeline holds, which is where a document that has
@@ -333,6 +343,13 @@ impl Document {
             // changed is where they land, which nothing keeps a copy of.
             Change::MovePlane { plane, to } => {
                 self.timeline.offset(plane, to);
+                build.revised();
+            }
+            // Nothing to solve either. How far a solid stands off its region is
+            // a number the step holds; the region it is grown from has not
+            // moved, and neither has anything the drawing says.
+            Change::Carry { extrude, to } => {
+                self.timeline.carry(extrude, to);
                 build.revised();
             }
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),

@@ -91,6 +91,36 @@ impl Timeline {
         *by = to;
     }
 
+    /// Carry the solid at `at` to a new distance off the plane its region was
+    /// drawn on.
+    ///
+    /// The mirror of [`Timeline::offset`] beside it, and the same shape for the
+    /// same reason: both steps are one number measured along a normal, and
+    /// restating it is the whole of the edit.
+    pub(crate) fn carry(&mut self, at: FeatureId, to: f64) {
+        let Feature::Extrude { distance, .. } = self.feature_mut(at) else {
+            panic!("{at:?} does not name a solid that can be carried");
+        };
+        *distance = to;
+    }
+
+    /// The solid at `at` as something that can be carried, and the line it
+    /// travels.
+    ///
+    /// No `None`, unlike [`Timeline::movable`]: every extrude has a distance and
+    /// every distance can be restated, where the world's own ground is not a
+    /// plane anybody put anywhere.
+    pub(crate) fn stretching(&self, at: FeatureId) -> Movable {
+        let feature = self.feature(at);
+        match feature {
+            Feature::Extrude { profile, .. } => Movable {
+                at,
+                from: self.plane_of(profile.sketch()),
+            },
+            Feature::Plane(_) | Feature::Sketch { .. } => wrong_kind(at, "an extrude", feature),
+        }
+    }
+
     /// Every step, in the order they were taken, each with the handle that
     /// names it.
     ///
@@ -127,7 +157,7 @@ impl Timeline {
         let feature = self.feature(at);
         match feature {
             Feature::Plane(Datum::Offset { from, .. }) => Some(Movable {
-                plane: at,
+                at,
                 from: self.plane(*from),
             }),
             Feature::Plane(Datum::Ground) => None,
@@ -253,20 +283,28 @@ fn wrong_kind(at: FeatureId, wanted: &str, found: &Feature) -> ! {
     panic!("{at:?} names {} rather than {wanted}", found.kind());
 }
 
-/// A plane that can be moved, and the line it moves along.
+/// A step whose one number is a distance along a plane's normal, and the line
+/// that number travels.
 ///
 /// What a gesture offering to move one needs, and the whole of it: the handle
-/// to name in the change it raises, and the base it is measured off — which is
-/// what says both where it may go and what number puts it there.
+/// to name in the change it raises, and the base the distance is measured off —
+/// which is what says both where it may go and what number puts it there.
 ///
-/// The base rather than the offset it currently stands at. A drag names where
-/// it wants the plane to end up, so what it has to be able to work out is *the
+/// Two kinds of step are this shape, and the type is shared rather than written
+/// twice because the arithmetic is the same arithmetic. A datum plane stands off
+/// the plane it is measured from; a solid's far end stands off the plane its
+/// region was drawn on. What differs is only which change the drag comes out as,
+/// and that is [`Grabbed`](crate::scene_view)'s to say.
+///
+/// The base rather than the offset it currently stands at. A drag names where it
+/// wants the thing to end up, so what it has to be able to work out is *the
 /// offset for a place*, and the current one is not part of that question.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Movable {
-    pub(crate) plane: FeatureId,
+    /// The step the number belongs to.
+    pub(crate) at: FeatureId,
     /// The plane it is measured off. Private because it is not a fact about the
-    /// datum so much as the frame its two answers below are given in.
+    /// step so much as the frame its two answers below are given in.
     from: Plane,
 }
 

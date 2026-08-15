@@ -9,35 +9,6 @@ rather than rework.
 - `DragValue` already has click-to-type and it is off by default; turning it on
   is most of the work.
 
-## 3. `Profile`: naming a face durably
-
-`Part::Face { sketch, at }` names a face by where it falls in the arrangement's
-walk. That holds while the topology does, which is a frame or a drag, and is not
-good enough for what a feature stores: an extrude that remembers "face 3" will
-silently extrude a different region the first time an edge is added upstream.
-This is the topological naming problem, and the largest long-term risk here.
-
-- `Profile` and `Part::Face` stay separate types with separate lifetimes —
-  merging them later means revisiting every selection site. Converting one to the
-  other happens at exactly one moment: selecting a face and handing it to a
-  feature.
-- `Arrangement::drawn_by` answers what entities bound a face, and its own doc is
-  clear that this is **not** a name — two halves of a cut circle are drawn by the
-  same two curves. So the bounding set narrows the candidates and something else
-  chooses between them. `Face::outline` is a list of half-edges and a half-edge
-  has direction, so which side of each bounding entity the face lies on is the
-  discriminator to try first.
-- Waits for the first feature that consumes a face: a type nothing constructs
-  does not compile under `-D warnings`.
-
-## 4. Extrude
-
-- `Feature::Extrude { profile: Profile, distance: f64 }`, and solids built from
-  it rather than the demo's hard-coded cubes — which is what lets
-  `Document::solids` go.
-- What it hangs off is built: an ordered timeline, datum planes that sketches
-  reference rather than carry, per-feature undo, and a plane that can be dragged.
-
 ## 5. Editing the timeline itself
 
 - Deleting a step and reordering steps. `Edit` becomes an enum with an arm per

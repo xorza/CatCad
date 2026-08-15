@@ -8,7 +8,7 @@ use glam::{Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
 };
-use silverpoint::Entity;
+use silverpoint::{Entity, Grown};
 
 use crate::build::Build;
 use crate::document::Document;
@@ -112,6 +112,14 @@ enum Grabbed {
     /// of them — it is what they are drawn *on* — so moving one is not an edit
     /// that has to land where you are.
     Datum(Movable),
+    /// The far end of a solid, which travels along the normal of the plane its
+    /// region was drawn on.
+    ///
+    /// The same [`Movable`] the datum carries, because it is the same
+    /// arithmetic: one number measured along a normal, and a line to read it
+    /// off. What differs is the change it comes out as, and that is what these
+    /// two arms are for.
+    Cap(Movable),
 }
 
 /// What the pointer is doing to the view, settled when the button goes down.
@@ -315,7 +323,11 @@ impl SceneView {
                     intents.push(match held.grabbed {
                         Grabbed::Sketch(grip) => Change::Drag { sketch, grip, to },
                         Grabbed::Datum(movable) => Change::MovePlane {
-                            plane: movable.plane,
+                            plane: movable.at,
+                            to: movable.offset_at(to),
+                        },
+                        Grabbed::Cap(movable) => Change::Carry {
+                            extrude: movable.at,
                             to: movable.offset_at(to),
                         },
                     });
@@ -709,6 +721,15 @@ impl SceneView {
                     // edited by it. The ground answers `None` and so orbits,
                     // which is right — it is not somewhere anybody put a plane.
                     Part::Plane(at) => Grabbed::Datum(document.movable(at)?),
+                    // The far end alone. The base lies in the plane the region
+                    // was drawn on and has nowhere of its own to go, and a wall
+                    // is carried by both ends at once — so neither says how far,
+                    // and a press on either turns the view like a press on
+                    // anything else that does not move.
+                    Part::Solid {
+                        of,
+                        face: Grown::Far,
+                    } => Grabbed::Cap(document.stretching(of)),
                     // Only the sketch being worked in can be taken hold of. A
                     // drag of geometry is an edit and an edit lands where you
                     // are — and the handles would not even tell the two apart:
@@ -725,7 +746,7 @@ impl SceneView {
                 };
                 let motion = match grabbed {
                     Grabbed::Sketch(_) => drawing.motion(),
-                    Grabbed::Datum(movable) => movable.travel(hit.world),
+                    Grabbed::Datum(movable) | Grabbed::Cap(movable) => movable.travel(hit.world),
                 };
                 // Where the press landed on the motion, against where what was
                 // grabbed actually is: a grab is not a teleport.

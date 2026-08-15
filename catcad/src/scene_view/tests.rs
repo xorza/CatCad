@@ -143,15 +143,47 @@ impl Raised {
         self.sweep(|grip| grip.is_some())
     }
 
-    /// A cursor position that lands on something it will not — the demo pins a
-    /// point, and pressing one has to orbit like any other miss.
+    /// A cursor position that lands on a point the drawing pins — pressing one
+    /// has to orbit like any other miss.
+    ///
+    /// Looked for by name rather than as "anything the drawing will not let go
+    /// of", which is what this used to be. A pinned point is no longer the only
+    /// gripless thing on screen: a region, a datum and every face of every solid
+    /// are gripless too, so the old rule found whichever of them the sweep
+    /// reached first — and a press on a solid's far end is now a drag rather
+    /// than a miss, which is the opposite of what the test below asks about.
     fn over_pinned(&self) -> Option<Vec2> {
-        self.sweep(|grip| grip.is_none())
+        let editing = self.session.editing();
+        let drawing = self.document.drawing_at(editing);
+        self.scan(move |part, _| {
+            part.filter(|part| part.sketch() == Some(editing))
+                .and_then(Part::entity)
+                .is_some_and(|entity| {
+                    matches!(entity, Entity::Point(id) if drawing.sketch().point(id).fixed)
+                })
+        })
     }
 
     /// A cursor position that lands on a grip of the given kind.
     fn over(&self, want: fn(Grip) -> bool) -> Option<Vec2> {
         self.sweep(move |grip| grip.is_some_and(want))
+    }
+
+    /// A cursor position that lands on the far end of the solid the demo grows.
+    ///
+    /// The one face of a prism a drag may take hold of, and named rather than
+    /// swept for: the base and the walls are gripless too, and a press on either
+    /// of those has to orbit.
+    fn over_cap(&self) -> Option<Vec2> {
+        self.scan(|part, _| {
+            matches!(
+                part,
+                Some(Part::Solid {
+                    face: Grown::Far,
+                    ..
+                })
+            )
+        })
     }
 
     /// A cursor position that lands on the datum drawn round the other sketch.
@@ -599,6 +631,64 @@ fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
              {adrift} px adrift along its own axis"
         );
     }
+}
+
+/// **Dragging a solid's far end carries it, and moves nothing that was drawn.**
+///
+/// The gesture that makes an extrude parametric to the hand rather than only to
+/// a number: the far cap travels along the normal of the plane its region was
+/// drawn on, and the drawing underneath says exactly what it said before —
+/// which is what a solid being *derived* means.
+///
+/// Which way it went rather than merely that it went, for the reason the datum
+/// drag below says: a sign flipped anywhere between the ray and the distance
+/// would carry the solid the other way and still pass an assertion that only
+/// said it had changed.
+#[test]
+fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let cursor = raised
+        .over_cap()
+        .expect("no cursor found the far end of the demo's solid");
+
+    let drawn = open_markers(&raised);
+    let reach = |raised: &Raised| {
+        raised
+            .document
+            .models(&raised.build, raised.session.editing())
+            .solids()
+            .next()
+            .expect("the demo grows a solid")
+            .1
+            .distance()
+    };
+    let camera = raised.camera();
+    let before = reach(&raised);
+
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(0.0, 45.0));
+    raised.frame();
+
+    // Down the screen, on a view that opens looking down at the model, is down
+    // the ground's own normal — so the solid comes back towards the plane it
+    // stands on rather than growing away from it.
+    let after = reach(&raised);
+    assert!(
+        after < before,
+        "dragging down grew the solid, from {before} to {after}"
+    );
+    assert_eq!(
+        raised.camera(),
+        camera,
+        "taking hold of the cap turned the view instead of carrying it"
+    );
+    assert_eq!(
+        open_markers(&raised),
+        drawn,
+        "carrying the solid moved the drawing it was grown from"
+    );
 }
 
 /// The gesture the plane's offset is edited by, and the one that has to work
