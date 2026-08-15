@@ -61,6 +61,40 @@ impl HitAt {
     }
 }
 
+/// How a primitive stands in the competition for a click, foremost first.
+///
+/// [`HitAt::rank`] answers what *kind of shape* was hit, which is true of any
+/// drawing: a marker is a harder thing to aim at than an edge, wherever either
+/// was drawn. This answers what the thing is *for*, which only whoever drew it
+/// knows — a frame around a drawing and an edge of one are the same shape, and
+/// no amount of care about shape tells them apart.
+///
+/// A category rather than a number of steps. There is no continuum here to
+/// measure along, the way there is for the depth bias an overlay carries: what
+/// a primitive is for is one of a few things, and a number would only be
+/// readable against the ranking above — which is this crate's own business and
+/// no caller's.
+///
+/// The order below is the order they compete in, and the derive is what makes
+/// that true: nothing adds, subtracts or compares against a table.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Default)]
+pub enum Precedence {
+    /// Ranked by shape alone, which is the usual thing and what everything is
+    /// unless it says otherwise.
+    #[default]
+    Shaped,
+    /// Behind whatever is being worked on. Drawn to be seen and read rather
+    /// than aimed at, so it yields a click to anything ordinary under the
+    /// cursor.
+    Aside,
+    /// Behind everything: furniture around a drawing rather than part of one.
+    ///
+    /// Below even a surface, which is the least specific *geometry* there is —
+    /// a face is a thing to select and build on where a frame is a thing to
+    /// read.
+    Frame,
+}
+
 /// One primitive the cursor was near enough to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hit {
@@ -68,6 +102,8 @@ pub struct Hit {
     /// scenery and never appear here.
     pub tag: Tag,
     pub at: HitAt,
+    /// What the primitive said it was for, which outranks what shape it is.
+    pub precedence: Precedence,
     /// Where on the primitive, in world space — the marker's own position, or
     /// the point of the stroke nearest the cursor.
     pub world: Vec3,
@@ -83,14 +119,70 @@ pub struct Hit {
 impl Hit {
     /// Which of two hits the aim was more likely meant for, lowest first.
     ///
-    /// How specific the hit is, then how near the cursor it fell, then how near
-    /// the eye — [`HitAt::rank`] is the first of those and the one that is not
-    /// a measurement.
+    /// What the primitive is for, then how specific the hit is, then how near
+    /// the cursor it fell, then how near the eye. The first two are the ones
+    /// that are not measurements, and they are in that order because what a
+    /// thing is *for* is decided by whoever drew it and what shape it is by
+    /// this crate — a frame the caller set aside has to lose to geometry
+    /// however sharp a target it makes.
     pub(crate) fn aim_order(&self, other: &Self) -> Ordering {
-        self.at
-            .rank()
-            .cmp(&other.at.rank())
+        self.precedence
+            .cmp(&other.precedence)
+            .then(self.at.rank().cmp(&other.at.rank()))
             .then(self.screen.total_cmp(&other.screen))
             .then(self.distance.total_cmp(&other.distance))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A hit at `screen` pixels from the cursor, of a kind and a standing.
+    fn hit(precedence: Precedence, at: HitAt, screen: f32) -> Hit {
+        Hit {
+            tag: Tag::new(0),
+            at,
+            precedence,
+            world: Vec3::ZERO,
+            screen,
+            distance: 0.0,
+        }
+    }
+
+    /// What a thing is *for* decides before what shape it is, and shape decides
+    /// before how near it fell.
+    ///
+    /// The order of the two that are not measurements is the whole of what this
+    /// pins. A frame set aside has to lose to geometry however sharp a target it
+    /// makes and however exactly the cursor is on it — which is the one thing
+    /// ranking by shape alone cannot say, because a frame and an edge are the
+    /// same shape.
+    #[test]
+    fn what_a_hit_is_for_decides_before_what_shape_it_is() {
+        let edge = hit(Precedence::Shaped, HitAt::Segment { index: 0, t: 0.5 }, 5.0);
+        // Dead under the cursor, and the sharpest kind of target there is.
+        let frame = hit(Precedence::Frame, HitAt::Point, 0.0);
+        assert_eq!(edge.aim_order(&frame), Ordering::Less);
+
+        // A surface is the least specific *geometry*, and still beats a frame:
+        // a face is a thing to select where a frame is a thing to read.
+        let face = hit(Precedence::Shaped, HitAt::Surface, 9.0);
+        assert_eq!(face.aim_order(&frame), Ordering::Less);
+
+        // Within one standing, shape decides as it always did — a marker beats
+        // an edge running through it even from further off.
+        let marker = hit(Precedence::Shaped, HitAt::Point, 5.0);
+        let nearer = hit(Precedence::Shaped, HitAt::Segment { index: 0, t: 0.5 }, 1.0);
+        assert_eq!(marker.aim_order(&nearer), Ordering::Less);
+
+        // And within one shape, distance decides.
+        let far = hit(Precedence::Aside, HitAt::Point, 4.0);
+        let near = hit(Precedence::Aside, HitAt::Point, 1.0);
+        assert_eq!(near.aim_order(&far), Ordering::Less);
+
+        // A sketch set aside loses to the one being worked in, whatever the two
+        // are made of.
+        assert_eq!(edge.aim_order(&near), Ordering::Less);
     }
 }

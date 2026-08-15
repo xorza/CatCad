@@ -102,7 +102,7 @@ pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;
 pub use highlight::{Highlight, Lit};
-pub use hit::{Hit, HitAt};
+pub use hit::{Hit, HitAt, Precedence};
 pub use mesh::{Mesh, Vertex};
 pub use motion::Motion;
 pub use object::Object;

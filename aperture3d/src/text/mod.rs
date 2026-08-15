@@ -2,7 +2,7 @@
 //! change.
 
 use crate::aim::Aim;
-use crate::hit::{Hit, HitAt};
+use crate::hit::{Hit, HitAt, Precedence};
 use crate::primitive::Primitive;
 use crate::styled::Styled;
 use crate::tag::Tag;
@@ -46,6 +46,9 @@ pub struct Text {
     /// Depth-test bias in steps of depth-buffer resolution, positive toward
     /// the viewer. See [overlays](crate#overlays).
     pub z_offset: i32,
+    /// What this is for, which decides what a click meant for two things at
+    /// once lands on. See [`Precedence`].
+    pub precedence: Precedence,
     /// What a pick that lands here reports. See [picking](crate#picking).
     pub tag: Option<Tag>,
     /// The plane this run lies on, as a unit normal, when it lies on one. See
@@ -80,6 +83,7 @@ impl Default for Text {
             color: Vec3::ONE,
             anchor: Vec2::ZERO,
             z_offset: 0,
+            precedence: Precedence::default(),
             tag: None,
             plane_normal: None,
             extent: Cell::new(Vec2::ZERO),
@@ -129,7 +133,8 @@ impl Text {
     pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
         let tag = self.tag?;
         let screen = distance_to(self.box_on_screen(aim)?, aim.cursor);
-        (screen <= aim.radius).then(|| aim.hit(tag, HitAt::Text, self.position, screen))
+        (screen <= aim.radius)
+            .then(|| aim.hit(tag, HitAt::Text, self.precedence, self.position, screen))
     }
 }
 
@@ -153,6 +158,13 @@ impl Text {
     /// [`Text::anchor`].
     pub fn anchored(mut self, anchor: Vec2) -> Self {
         self.anchor = anchor;
+        self
+    }
+
+    /// Say what this is for, which is what decides a click that lands on two
+    /// things at once. See [`Precedence`].
+    pub fn precede(mut self, precedence: Precedence) -> Self {
+        self.precedence = precedence;
         self
     }
 

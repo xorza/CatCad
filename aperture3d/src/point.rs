@@ -1,7 +1,7 @@
 //! A marker at a world position, drawn at a size the zoom cannot change.
 
 use crate::aim::Aim;
-use crate::hit::{Hit, HitAt};
+use crate::hit::{Hit, HitAt, Precedence};
 use crate::primitive::{Flatten, Primitive};
 use crate::renderer::record::PointInstance;
 use crate::styled::Styled;
@@ -34,6 +34,9 @@ pub struct Point {
     /// Depth-test bias in steps of depth-buffer resolution, positive toward
     /// the viewer. See [overlays](crate#overlays).
     pub z_offset: i32,
+    /// What this is for, which decides what a click meant for two things at
+    /// once lands on. See [`Precedence`].
+    pub precedence: Precedence,
     /// What a pick that lands here reports. See [picking](crate#picking).
     pub tag: Option<Tag>,
     /// The plane this marker sits on, as a unit normal, when it sits on one.
@@ -50,6 +53,7 @@ impl Point {
             color: Vec3::ONE,
             size: DEFAULT_SIZE,
             z_offset: 0,
+            precedence: Precedence::default(),
             tag: None,
             plane_normal: None,
         }
@@ -63,7 +67,8 @@ impl Point {
     pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
         let tag = self.tag?;
         let screen = aim.reach_to(self.position)?;
-        (screen <= aim.reach(self.size)).then(|| aim.hit(tag, HitAt::Point, self.position, screen))
+        (screen <= aim.reach(self.size))
+            .then(|| aim.hit(tag, HitAt::Point, self.precedence, self.position, screen))
     }
 }
 
@@ -71,6 +76,13 @@ impl Point {
     /// Set the diameter in logical pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;
+        self
+    }
+
+    /// Say what this is for, which is what decides a click that lands on two
+    /// things at once. See [`Precedence`].
+    pub fn precede(mut self, precedence: Precedence) -> Self {
+        self.precedence = precedence;
         self
     }
 

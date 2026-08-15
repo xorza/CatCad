@@ -1,7 +1,7 @@
 //! Stroked polylines in world space.
 
 use crate::aim::{Aim, Inside};
-use crate::hit::{Hit, HitAt};
+use crate::hit::{Hit, HitAt, Precedence};
 use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::CurveInstance;
 use crate::styled::Styled;
@@ -51,6 +51,9 @@ pub struct Curve {
     /// The plane this curve lies in, as a unit normal, when it lies in one.
     /// See [overlays](crate#overlays). `None` keeps the centreline's depth.
     pub plane_normal: Option<Vec3>,
+    /// What this is for, which decides what a click meant for two things at
+    /// once lands on. See [`Precedence`].
+    pub precedence: Precedence,
     /// What a pick that lands on this stroke reports. See
     /// [picking](crate#picking).
     pub tag: Option<Tag>,
@@ -73,6 +76,7 @@ impl Curve {
             width: DEFAULT_STROKE_WIDTH,
             z_offset: 0,
             plane_normal: None,
+            precedence: Precedence::default(),
             tag: None,
         }
     }
@@ -117,7 +121,7 @@ impl Curve {
                 continue;
             }
             let at = HitAt::Segment { index, t: near.t };
-            best = Some(aim.hit(tag, at, a.lerp(b, near.t), near.screen));
+            best = Some(aim.hit(tag, at, self.precedence, a.lerp(b, near.t), near.screen));
         }
         best
     }
@@ -148,6 +152,13 @@ impl Curve {
     /// Join the last point back to the first.
     pub fn closed(mut self) -> Self {
         self.closed = true;
+        self
+    }
+
+    /// Say what this is for, which is what decides a click that lands on two
+    /// things at once. See [`Precedence`].
+    pub fn precede(mut self, precedence: Precedence) -> Self {
+        self.precedence = precedence;
         self
     }
 

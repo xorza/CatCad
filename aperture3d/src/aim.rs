@@ -1,7 +1,7 @@
 //! What a pick is aiming with, and what it can answer about a world position.
 
 use crate::camera::Camera;
-use crate::hit::{Hit, HitAt};
+use crate::hit::{Hit, HitAt, Precedence};
 use crate::ray::Ray;
 use crate::tag::Tag;
 use crate::viewport::Viewport;
@@ -79,10 +79,18 @@ impl Aim {
 
     /// A hit on `world`, measured from the eye along the cursor's own ray so
     /// that two hits at the same screen distance still order front to back.
-    pub(crate) fn hit(&self, tag: Tag, at: HitAt, world: Vec3, screen: f32) -> Hit {
+    pub(crate) fn hit(
+        &self,
+        tag: Tag,
+        at: HitAt,
+        precedence: Precedence,
+        world: Vec3,
+        screen: f32,
+    ) -> Hit {
         Hit {
             tag,
             at,
+            precedence,
             world,
             screen,
             distance: (world - self.ray.origin).dot(self.ray.direction),

@@ -1,7 +1,7 @@
 //! A mesh placed in the world.
 
 use crate::aim::Aim;
-use crate::hit::{Hit, HitAt};
+use crate::hit::{Hit, HitAt, Precedence};
 use crate::mesh::Mesh;
 use crate::primitive::Primitive;
 use crate::ray::Ray;
@@ -20,6 +20,9 @@ pub struct Object {
     pub transform: Mat4,
     /// Linear-RGB base colour.
     pub color: Vec3,
+    /// What this is for, which decides what a click meant for two things at
+    /// once lands on. See [`Precedence`].
+    pub precedence: Precedence,
     /// What a pick that lands here reports. See [picking](crate#picking).
     pub tag: Option<Tag>,
 }
@@ -40,6 +43,7 @@ impl Clone for Object {
             mesh: self.mesh.clone(),
             transform: self.transform,
             color: self.color,
+            precedence: self.precedence,
             tag: self.tag,
         }
     }
@@ -48,6 +52,7 @@ impl Clone for Object {
         self.mesh.clone_from(&source.mesh);
         self.transform = source.transform;
         self.color = source.color;
+        self.precedence = source.precedence;
         self.tag = source.tag;
     }
 }
@@ -59,8 +64,16 @@ impl Object {
             mesh,
             transform: Mat4::IDENTITY,
             color: Vec3::splat(0.7),
+            precedence: Precedence::default(),
             tag: None,
         }
+    }
+
+    /// Say what this is for, which is what decides a click that lands on two
+    /// things at once. See [`Precedence`].
+    pub fn precede(mut self, precedence: Precedence) -> Self {
+        self.precedence = precedence;
+        self
     }
 
     /// Put the object's origin at a world position.
@@ -103,7 +116,7 @@ impl Object {
         }
         along
             .is_finite()
-            .then(|| aim.hit(tag, HitAt::Surface, ray.at(along), 0.0))
+            .then(|| aim.hit(tag, HitAt::Surface, self.precedence, ray.at(along), 0.0))
     }
 }
 

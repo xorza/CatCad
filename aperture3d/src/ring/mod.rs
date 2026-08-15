@@ -1,7 +1,7 @@
 //! A circle drawn as a circle, not as a great many short straight lines.
 
 use crate::aim::Aim;
-use crate::hit::{Hit, HitAt};
+use crate::hit::{Hit, HitAt, Precedence};
 use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::RingInstance;
 use crate::styled::Styled;
@@ -45,6 +45,9 @@ pub struct Ring {
     /// Depth-test bias in steps of depth-buffer resolution, positive toward
     /// the viewer. See [overlays](crate#overlays).
     pub z_offset: i32,
+    /// What this is for, which decides what a click meant for two things at
+    /// once lands on. See [`Precedence`].
+    pub precedence: Precedence,
     /// What a pick that lands on this stroke reports. See
     /// [picking](crate#picking).
     pub tag: Option<Tag>,
@@ -75,6 +78,7 @@ impl Ring {
             color: Vec3::ONE,
             width: DEFAULT_STROKE_WIDTH,
             z_offset: 0,
+            precedence: Precedence::default(),
             tag: None,
         }
     }
@@ -98,6 +102,7 @@ impl Ring {
             aim.hit(
                 tag,
                 HitAt::Ring { angle: near.angle },
+                self.precedence,
                 self.at(near.angle),
                 near.screen,
             )
@@ -200,6 +205,13 @@ impl Ring {
 }
 
 impl Ring {
+    /// Say what this is for, which is what decides a click that lands on two
+    /// things at once. See [`Precedence`].
+    pub fn precede(mut self, precedence: Precedence) -> Self {
+        self.precedence = precedence;
+        self
+    }
+
     /// Set the stroke width in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
