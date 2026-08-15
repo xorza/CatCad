@@ -44,11 +44,19 @@ const FACE_BIAS: i32 = 2048;
 /// to be seen through: what a sketch encloses is worth showing, and the geometry
 /// underneath is what the sketch is being drawn against.
 ///
-/// It still writes depth, which is what keeps the drawing's own layering — a
-/// stroke or a marker behind a face stays behind it, rather than reading through
-/// a surface that is nearer the eye than it is. What that costs is that faces do
-/// not blend with *each other*, which is why they are drawn back to front; see
-/// [`Order`](super::cpu::Order).
+/// Being see-through is three decisions and not one, and the other two are not
+/// here. The face is drawn *after* everything opaque, so what should show
+/// through it is already in the target to be mixed with — see `Renderer::paint`.
+/// And it writes no depth, so one face does not cull the next; they are sorted
+/// back to front instead, because blending is order-dependent whether or not
+/// anything is written — see [`Order`](super::cpu::Order).
+///
+/// It still *tests* depth, which is what keeps the drawing's own layering: a
+/// stroke of the sketch this face belongs to is coplanar with it and a rung
+/// above on the bias ladder, so it wins the test and reads over the face
+/// untouched. A stroke on some *other* plane, genuinely behind, loses it and
+/// reads through the face shaded — which is the whole point of drawing one this
+/// way round.
 const FACE_OPACITY: f32 = 0.45;
 
 /// Strokes and rims, which are the drawing itself and read over the faces they
@@ -411,7 +419,7 @@ impl Gpu {
             blend: None,
             depth_bias: FACE_BIAS,
             opacity: FACE_OPACITY,
-            depth_write: true,
+            depth_write: false,
         });
         let curves = Passes::build::<CurveInstance>(
             &pipelines,

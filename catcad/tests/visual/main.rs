@@ -1556,3 +1556,68 @@ fn a_translucent_face_blends_with_the_one_behind_it_either_way_round() {
         "the same two faces came out differently for having been pushed the other way round"
     );
 }
+
+/// The drawing reads through a face crossing in front of it.
+///
+/// A face is drawn see-through so the model underneath can be read, and a
+/// surface you can see the model through but not the *drawing* is a strange
+/// kind of transparent. Faces are drawn before every overlay, so one that wrote
+/// depth culled outright every stroke and rim behind it — a sketch crossed by a
+/// face on some other plane lost its edges where they passed under it, rather
+/// than losing a little contrast.
+///
+/// Measured as the ink the strokes put down, against the same frame with the
+/// faces taken away: what crosses in front may shade them, and may not take
+/// them. Steep enough that the demo's shelf carries its face over the drawing
+/// on the ground — at a shallower angle the two do not overlap and this measures
+/// nothing, which is why the pitches are what they are.
+#[test]
+fn strokes_behind_a_face_still_reach_the_frame() {
+    /// The demo at `pitch` with the solids and markers gone, so what is left is
+    /// the strokes and — at the caller's word — the faces they cross.
+    fn frame_of(pitch: f32, faces: bool, strokes: bool) -> Frame {
+        let app = CatCad::build();
+        {
+            let mut renderer = app.renderer().borrow_mut();
+            edge_on(pitch)(renderer.camera_mut());
+            renderer.camera_mut().distance = 11.0;
+            let scene = renderer.scene_mut();
+            scene.solids.clear();
+            scene.points.clear();
+            scene.texts.clear();
+            if !faces {
+                scene.faces.clear();
+            }
+            if !strokes {
+                scene.curves.clear();
+                scene.rings.clear();
+            }
+        }
+        let mut pane = ScenePane {
+            view: app.renderer().clone(),
+        };
+        capture(UVec2::new(820, 560), &mut pane)
+    }
+
+    for pitch in [0.6f32, 0.9] {
+        let alone = differing(
+            &frame_of(pitch, false, true),
+            &frame_of(pitch, false, false),
+        );
+        let over = differing(&frame_of(pitch, true, true), &frame_of(pitch, true, false));
+        assert!(
+            alone > 5_000,
+            "at pitch {pitch} the strokes reach only {alone} px with nothing over them, so \
+             this measures nothing"
+        );
+        // Exactly equal, not nearly: a face over a stroke changes what colour
+        // that pixel comes out, which this counts either way — what it must not
+        // do is stop the stroke reaching the pixel at all. Writing depth cost
+        // 172 px here and 322 at the steeper angle.
+        assert_eq!(
+            alone, over,
+            "at pitch {pitch} the strokes reach {over} px through the faces against {alone} \
+             with none, so a face is culling what is behind it"
+        );
+    }
+}

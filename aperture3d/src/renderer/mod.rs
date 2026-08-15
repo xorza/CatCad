@@ -286,14 +286,15 @@ impl GpuPaint for Renderer {
         pass.set_viewport(0.0, 0.0, size.x as f32, size.y as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, size.x, size.y);
         pass.set_bind_group(0, &gpu.bind_group, &[]);
-        // Overlays after the two mesh passes: the opaque kinds write depth, so
-        // what hides what is the depth test's answer either way, and this order
-        // keeps the pipeline switch to one per pass.
+        // Everything opaque first, then what is see-through, then what is
+        // blended — which is the order transparency has to be drawn in and the
+        // whole of why the passes go in this sequence rather than the ladder's.
+        //
+        // A blend mixes with what is *already* in the target, so whatever should
+        // show through a surface has to have been drawn before it. The opaque
+        // kinds write depth and can go in any order among themselves, because
+        // there the depth test is the whole answer.
         gpu.solids.draw(&mut pass);
-        // After the solids and before the overlays: a face is drawn over
-        // whatever it lies on and under every stroke of the drawing it belongs
-        // to.
-        gpu.faces.draw(&mut pass);
         // Every ordinary pass before any highlight, rather than each kind's two
         // together: a highlight has to read over anything it doubles whatever
         // kind that is, and not merely over its own kind.
@@ -308,9 +309,17 @@ impl GpuPaint for Renderer {
         for kind in opaque {
             kind.lit.draw(&mut pass);
         }
-        // Text last of all. It is the one blended pass, so what it reads over
-        // has to be there already — and it writes no depth, so nothing after it
-        // could be sorted against it anyway.
+        // The faces after all of it, because a face is the one see-through
+        // thing here: drawn earlier it would mix with a target the drawing had
+        // not reached yet, and everything behind it would be missing from the
+        // mixture rather than dimmed by it. Drawn now, a stroke it crosses in
+        // front of shows through it shaded, and a stroke of its *own* sketch —
+        // coplanar, and a ladder rung above — beats it on depth and reads over
+        // it untouched.
+        gpu.faces.draw(&mut pass);
+        // Text last of all. It is the one alpha-blended pass, so what it reads
+        // over has to be there already — and it writes no depth, so nothing
+        // after it could be sorted against it anyway.
         gpu.texts.ordinary.draw(&mut pass);
         gpu.texts.lit.draw(&mut pass);
     }
