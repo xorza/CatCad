@@ -352,10 +352,35 @@ pub(super) struct Triangles {
     /// Scratch the next order is built in, so comparing it against the one in
     /// force costs no allocation.
     next: Vec<u32>,
-    /// Whether the list has been rewritten since the GPU was handed it. One
-    /// where [`Records`] has two, because the vertices and the indices are
-    /// uploaded together and there is no rewriting one without the other.
-    dirty: bool,
+    /// Whether the vertices have been rewritten since the GPU was handed them.
+    vertices_dirty: bool,
+    /// Whether the indices have.
+    ///
+    /// Apart from the vertices' own mark, because the two do not always move
+    /// together: colour lives in a vertex, and an index says which vertex
+    /// without saying anything about how it looks. A relight rewrites every
+    /// vertex and leaves every index exactly as it was, so one mark for both
+    /// would re-upload the whole model's indices on every frame a pointer
+    /// crosses the drawing, to change nothing in them.
+    indices_dirty: bool,
+    /// Whether the last flatten wrote a highlight's colour into any vertex.
+    ///
+    /// What makes a relight skippable. A batch with nothing lit in it *and*
+    /// nothing lit in it last time is a batch the new highlight set cannot
+    /// change — and the second half is the one that is easy to leave out: an
+    /// object going *un*lit is not named by the set any more, so asking only
+    /// what the set names would leave it drawn in the colour it has just lost.
+    lit: bool,
+}
+
+/// Which halves of a triangle list the GPU has yet to be handed.
+///
+/// A pair rather than one answer because a relight moves one of them alone —
+/// see [`Triangles::indices_dirty`].
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Rewritten {
+    pub(super) vertices: bool,
+    pub(super) indices: bool,
 }
 
 /// What order a mesh pass draws its objects in.
@@ -390,7 +415,8 @@ impl Triangles {
     /// Rewritten when the highlights move as well as when the objects do. A
     /// mesh carries its look in the vertices it was flattened into, so a
     /// highlight that arrives without the geometry moving still has to be
-    /// written in — where an overlay would only rebuild its `lit` list.
+    /// written in — where an overlay would only rebuild its `lit` list. Only
+    /// when it can change something, though: see [`Triangles::relights`].
     pub(super) fn refresh(
         &mut self,
         objects: &mut Batch<Object>,
@@ -411,10 +437,30 @@ impl Triangles {
         // camera turning through a view where nothing changes places leaves the
         // triangle list exactly as the GPU already has it.
         let resorted = self.resort(objects.len(), order);
-        if moved | relight | resorted {
+        // What the geometry itself did, which is the half that moves an index.
+        let rebuilt = moved | resorted;
+        if rebuilt || (relight && self.relights(objects, highlights)) {
             self.flatten(objects, highlights);
-            self.dirty = true;
+            self.vertices_dirty = true;
+            self.indices_dirty |= rebuilt;
         }
+    }
+
+    /// Whether a highlight set that has just changed can change these vertices.
+    ///
+    /// Asked instead of taking `relight` at its word, because a relight is a
+    /// claim about the *scene* and this is one batch of it. A model's solids
+    /// carry no tag at all — nothing can ever light one — so a pointer crossing
+    /// the drawing in front of them would otherwise rewrite every triangle of
+    /// the model, and re-upload it, on every frame it moved.
+    ///
+    /// A walk of the objects where being wrong costs a walk of their vertices,
+    /// so the asking is free against what it saves.
+    fn relights(&self, objects: &[Object], highlights: &Highlights) -> bool {
+        self.lit
+            || objects
+                .iter()
+                .any(|object| highlights.look_of(object.tag).is_some())
     }
 
     /// Take each object's centre afresh, for whatever order the next frames ask
@@ -457,14 +503,17 @@ impl Triangles {
         moved
     }
 
-    /// Whether the list has been rewritten since this last said so, clearing the
-    /// mark as it answers.
+    /// Which halves of the list have been rewritten since this last said so,
+    /// clearing the marks as it answers.
     ///
-    /// A bare flag where [`Records`] hands back the buffer, because there is
-    /// nothing to hand back but the whole of `self` — a pass takes both vectors
-    /// or neither.
-    pub(super) fn take_dirty(&mut self) -> bool {
-        std::mem::take(&mut self.dirty)
+    /// Bare flags where [`Records`] hands back the buffer, because there is
+    /// nothing to hand back but the whole of `self` — a pass reads the vectors
+    /// off it directly.
+    pub(super) fn take_dirty(&mut self) -> Rewritten {
+        Rewritten {
+            vertices: std::mem::take(&mut self.vertices_dirty),
+            indices: std::mem::take(&mut self.indices_dirty),
+        }
     }
 
     /// World-space triangle soup for every object handed in.
@@ -485,6 +534,7 @@ impl Triangles {
             objects.iter().map(|o| o.mesh.vertices.len()).sum(),
             objects.iter().map(|o| o.mesh.indices.len()).sum(),
         );
+        let mut lit = false;
         for step in 0..self.order.len() {
             // Read out as a number rather than held as a borrow, so the lists
             // this order decides can be written while it is being walked.
@@ -492,10 +542,11 @@ impl Triangles {
             // Normals survive non-uniform scale only under the inverse
             // transpose; it's once per object, so the generality is free.
             let normal_matrix = Mat3::from_mat4(object.transform).inverse().transpose();
-            let color = highlights
-                .look_of(object.tag)
-                .map_or(object.color, |look| look.color)
-                .to_array();
+            let look = highlights.look_of(object.tag);
+            // Remembered rather than recomputed, because the next relight has to
+            // know whether this one left a colour behind to undo.
+            lit |= look.is_some();
+            let color = look.map_or(object.color, |look| look.color).to_array();
             let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
                 position: object
                     .transform
@@ -508,6 +559,7 @@ impl Triangles {
             });
             self.extend(vertices, &object.mesh.indices);
         }
+        self.lit = lit;
     }
 
     /// Empty it, keeping whatever room it has already grown to.

@@ -117,7 +117,8 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // takes the mark, which is what the second refresh below then relies on.
     renderer.refresh(1.0);
     let cpu = &mut renderer.cpu;
-    assert!(cpu.solids.take_dirty());
+    let owed = cpu.solids.take_dirty();
+    assert!(owed.vertices && owed.indices, "the first flatten owes both");
     assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(1));
     assert_eq!(cpu.rings.ordinary_to_upload().map(<[_]>::len), Some(1));
     assert_eq!(cpu.points.ordinary_to_upload().map(<[_]>::len), Some(1));
@@ -128,7 +129,8 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // And nothing twice. A still frame is the common case, not the odd one.
     renderer.refresh(1.0);
     let cpu = &mut renderer.cpu;
-    assert!(!cpu.solids.take_dirty());
+    let owed = cpu.solids.take_dirty();
+    assert!(!owed.vertices && !owed.indices);
     assert!(cpu.curves.ordinary_to_upload().is_none());
     assert!(cpu.rings.ordinary_to_upload().is_none());
     assert!(cpu.points.ordinary_to_upload().is_none());
@@ -145,11 +147,70 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     let cpu = &mut renderer.cpu;
     assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(2));
     assert!(
-        !cpu.solids.take_dirty(),
+        !cpu.solids.take_dirty().vertices,
         "adding a stroke asked for every mesh to be flattened again"
     );
     assert!(cpu.rings.ordinary_to_upload().is_none());
     assert!(cpu.points.ordinary_to_upload().is_none());
+
+    // A relight owes an untagged mesh nothing at all. Nothing can light a solid
+    // the caller never named, so a pointer crossing the drawing in front of the
+    // model must not rewrite one triangle of it — which taking `relight` at its
+    // word did, on every frame the pointer moved.
+    renderer.highlight_only(Lit {
+        tag: Tag::new(1),
+        look: Highlight::new(Vec3::Y),
+    });
+    renderer.refresh(1.0);
+    let owed = renderer.cpu.solids.take_dirty();
+    assert!(
+        !owed.vertices,
+        "a relight rewrote a mesh that nothing can light"
+    );
+
+    // Name one, and the same relight owes its vertices — a mesh carries its
+    // colour in them — and still owes no index, because an index says which
+    // vertex and nothing about how it looks.
+    renderer
+        .scene_mut()
+        .solids
+        .push(Object::new(Mesh::cube(1.0)).tagged(Tag::new(1)));
+    renderer.refresh(1.0);
+    let built = renderer.cpu.solids.take_dirty();
+    assert!(built.vertices && built.indices, "the push moved geometry");
+    renderer.highlight_only(Lit {
+        tag: Tag::new(1),
+        look: Highlight::new(Vec3::X),
+    });
+    renderer.refresh(1.0);
+    let owed = renderer.cpu.solids.take_dirty();
+    assert!(owed.vertices, "a relit mesh keeps its old colour");
+    assert!(
+        !owed.indices,
+        "a colour change re-uploaded indices that cannot carry one"
+    );
+
+    // And dropping the highlight owes the vertices once more, to take the
+    // colour back off. This is the half a batch cannot learn from the new set
+    // alone — it no longer names the object at all.
+    renderer.clear_highlights();
+    renderer.refresh(1.0);
+    assert!(
+        renderer.cpu.solids.take_dirty().vertices,
+        "an unlit mesh kept the colour it had just lost"
+    );
+
+    // Settled again, and now nothing is lit on either side, so the next relight
+    // is refused as the first one was.
+    renderer.highlight_only(Lit {
+        tag: Tag::new(404),
+        look: Highlight::new(Vec3::Z),
+    });
+    renderer.refresh(1.0);
+    assert!(
+        !renderer.cpu.solids.take_dirty().vertices,
+        "a relight naming nothing in the batch still rewrote it"
+    );
 }
 
 #[test]

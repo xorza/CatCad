@@ -284,23 +284,28 @@ impl Pass {
 
     /// Refill from the flattened objects: one triangle list, drawn once.
     ///
-    /// Does nothing while the list stands as the pass already has it, which the
-    /// list is what answers for — see [`Triangles::take_dirty`].
+    /// Does nothing while the list stands as the pass already has it, and each
+    /// half apart — which the list is what answers for, see
+    /// [`Triangles::take_dirty`]. Every upload costs the queue its staging
+    /// whatever is in it, so the half that did not move is worth not asking
+    /// about.
     pub(super) fn upload_mesh(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         triangles: &mut Triangles,
     ) {
-        if !triangles.take_dirty() {
-            return;
+        let rewritten = triangles.take_dirty();
+        if rewritten.vertices {
+            self.records
+                .write(device, queue, bytemuck::cast_slice(&triangles.vertices));
+            self.instances = 1;
         }
-        self.records
-            .write(device, queue, bytemuck::cast_slice(&triangles.vertices));
-        self.indices
-            .write(device, queue, bytemuck::cast_slice(&triangles.indices));
-        self.index_count = triangles.indices.len() as u32;
-        self.instances = 1;
+        if rewritten.indices {
+            self.indices
+                .write(device, queue, bytemuck::cast_slice(&triangles.indices));
+            self.index_count = triangles.indices.len() as u32;
+        }
     }
 
     /// Refill from overlay instances, every one of them drawn through the
