@@ -3,10 +3,11 @@ use crate::model::Model;
 use crate::paint;
 use crate::paint::layout::Layout;
 use crate::part::Part;
+use crate::timeline::Timeline;
 use crate::workshop::Workshop;
 use aperture::Scene;
 use glam::DVec2;
-use silverpoint::{Constraint, Plane, PointId};
+use silverpoint::{Constraint, PointId};
 
 /// Where a point of `plane` lands in the world as the drawing draws it — the
 /// model's `f64` read out into the `f32` a renderer wants, which is the same
@@ -19,7 +20,7 @@ fn on(plane: Plane, at: DVec2) -> Vec3 {
 /// drawing that can actually be dragged, and the shape the demo's linkage has.
 #[derive(Debug)]
 struct Linkage {
-    drawing: Drawing,
+    timeline: Timeline,
     /// The room a drag's solve works in and what it leaves behind. In
     /// production this belongs to whatever is applying edits; a test doing its
     /// own dragging keeps its own.
@@ -40,29 +41,39 @@ impl Linkage {
             distance: 2.0,
         });
         let mut workshop = Workshop::default();
+        let mut timeline = Timeline::of(sketch);
+        timeline.edit(timeline.only_sketch()).opened(&mut workshop);
         Self {
-            drawing: Drawing::new(&mut workshop, sketch, Plane::GROUND),
+            timeline,
             workshop,
             grip,
             swing,
         }
     }
 
-    /// The two halves as a reader of the drawing wants them.
+    /// The sketch and its plane, as a reader of the drawing wants them.
+    fn drawing(&self) -> Drawing<'_> {
+        self.timeline.drawing(self.timeline.only_sketch())
+    }
+
+    /// The two halves as a reader of the model wants them.
     fn model(&self) -> Model<'_> {
-        Model::new(&self.drawing, &self.workshop)
+        Model::new(self.drawing(), &self.workshop)
     }
 
     /// Where a point has ended up, in the world.
     /// Take `grip` to `world`, as the application's edit path would.
     fn drag_to(&mut self, grip: Grip, world: Vec3) {
-        self.drawing.drag_to(&mut self.workshop, grip, world);
+        let at = self.timeline.only_sketch();
+        self.timeline
+            .edit(at)
+            .drag_to(&mut self.workshop, grip, world);
     }
 
     fn world_of(&self, point: PointId) -> Vec3 {
         on(
-            self.drawing.plane,
-            self.drawing.sketch.point(point).position,
+            self.drawing().plane(),
+            self.drawing().sketch().point(point).position,
         )
     }
 }
@@ -72,7 +83,7 @@ impl Linkage {
 #[test]
 fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
     let mut linkage = Linkage::new();
-    let plane = linkage.drawing.plane;
+    let plane = linkage.drawing().plane();
 
     // Straight up the plane's own y, four along — a 3-4-5 away from where the
     // partner sits, so where it must swing to is hand-checkable.
@@ -97,7 +108,7 @@ fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
 #[test]
 fn a_drag_off_the_plane_lands_on_it() {
     let mut linkage = Linkage::new();
-    let plane = linkage.drawing.plane;
+    let plane = linkage.drawing().plane();
     let off = on(plane, DVec2::new(1.0, 3.0)) + plane.normal().as_vec3() * 5.0;
 
     linkage.drag_to(Grip::Point(linkage.grip), off);
@@ -124,7 +135,8 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let hub = sketch.add_point(DVec2::new(2.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     sketch.fix(pinned);
-    let drawing = Drawing::new(&mut Workshop::default(), sketch, Plane::GROUND);
+    let timeline = Timeline::of(sketch);
+    let drawing = timeline.drawing(timeline.only_sketch());
 
     assert_eq!(
         drawing.grip(Entity::Point(free), HitAt::Point),
@@ -155,8 +167,8 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     // Whatever the grip, the answer is the drawing's own plane — a plane is
     // named by any point of it, so there is nothing per-grip to say.
     let Motion { origin, normal } = drawing.motion();
-    assert_eq!(origin, drawing.plane.origin.as_vec3());
-    assert_eq!(normal, drawing.plane.normal().as_vec3());
+    assert_eq!(origin, drawing.plane().origin.as_vec3());
+    assert_eq!(normal, drawing.plane().normal().as_vec3());
 }
 
 /// Dragging an edge slides it whole: both ends travel by the same amount, and
@@ -164,10 +176,10 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
 #[test]
 fn dragging_a_segment_translates_both_of_its_ends() {
     let mut linkage = Linkage::new();
-    let plane = linkage.drawing.plane;
+    let plane = linkage.drawing().plane();
     let edge = linkage
-        .drawing
-        .sketch
+        .drawing()
+        .sketch()
         .segments()
         .next()
         .expect("the linkage draws one edge")
@@ -205,29 +217,32 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let hub = sketch.add_point(DVec2::new(1.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     let mut workshop = Workshop::default();
-    let mut drawing = Drawing::new(&mut workshop, sketch, Plane::GROUND);
-    let plane = drawing.plane;
+    let mut timeline = Timeline::of(sketch);
+    let at = timeline.only_sketch();
+    let plane = timeline.plane_of(at);
 
     // Three across and four up from the centre is a radius of five.
     let sent = on(plane, DVec2::new(4.0, 6.0));
-    drawing.drag_to(&mut workshop, Grip::Rim(hole), sent);
+    timeline
+        .edit(at)
+        .drag_to(&mut workshop, Grip::Rim(hole), sent);
 
     assert!(workshop.outcome().converged(), "{:?}", workshop.outcome());
-    let circle = drawing.sketch.circle(hole);
+    let circle = timeline.drawing(at).sketch().circle(hole);
     assert!((circle.radius - 5.0).abs() < 1e-9, "{}", circle.radius);
     assert_eq!(
-        drawing.sketch.point(hub).position,
+        timeline.drawing(at).sketch().point(hub).position,
         DVec2::new(1.0, 2.0),
         "resizing walked the circle"
     );
 
     // And back down again, so the radius follows rather than only growing.
-    drawing.drag_to(
+    timeline.edit(at).drag_to(
         &mut workshop,
         Grip::Rim(hole),
         on(plane, DVec2::new(3.0, 2.0)),
     );
-    assert!((drawing.sketch.circle(hole).radius - 2.0).abs() < 1e-9);
+    assert!((timeline.drawing(at).sketch().circle(hole).radius - 2.0).abs() < 1e-9);
 }
 
 /// A rewrite renames the drawing from scratch, so the tags have to come out
@@ -249,7 +264,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     assert!(before.iter().all(Option::is_some));
 
     // Move something, so the rewrite has different geometry to emit.
-    let plane = linkage.drawing.plane;
+    let plane = linkage.drawing().plane();
     linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
     paint::redraw(linkage.model(), &mut layout, None, &mut scene);
 
@@ -273,7 +288,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
 /// numbers between them.
 #[derive(Debug)]
 struct Assorted {
-    drawing: Drawing,
+    timeline: Timeline,
     /// The room an edit's solve works in, kept beside the drawing for the same
     /// reason [`Linkage`] keeps one.
     workshop: Workshop,
@@ -288,6 +303,11 @@ struct Assorted {
 }
 
 impl Assorted {
+    /// The sketch and its plane, as a reader of the drawing wants them.
+    fn drawing(&self) -> Drawing<'_> {
+        self.timeline.drawing(self.timeline.only_sketch())
+    }
+
     fn new() -> Self {
         let mut sketch = Sketch::default();
         let a = sketch.add_point(DVec2::new(0.0, 0.0));
@@ -298,8 +318,10 @@ impl Assorted {
         let circle = sketch.add_circle(c, 2.5);
         let other = sketch.add_circle(a, 1.0);
         let mut workshop = Workshop::default();
+        let mut timeline = Timeline::of(sketch);
+        timeline.edit(timeline.only_sketch()).opened(&mut workshop);
         Self {
-            drawing: Drawing::new(&mut workshop, sketch, Plane::GROUND),
+            timeline,
             workshop,
             a: Entity::Point(a),
             b: Entity::Point(b),
@@ -318,8 +340,9 @@ impl Assorted {
 /// shows up. Nothing else in the crate knows the mapping.
 #[test]
 fn a_selection_admits_exactly_the_relations_it_can_bear() {
+    let assorted = Assorted::new();
+    let drawing = assorted.drawing();
     let Assorted {
-        drawing,
         a,
         b,
         first,
@@ -327,7 +350,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
         circle,
         other,
         ..
-    } = Assorted::new();
+    } = assorted;
     let mut offers = Vec::new();
     // Named here rather than borrowed from the bar that draws them: what the
     // drawing offers is the drawing's, and a test reading the HUD's wording
@@ -428,7 +451,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
 #[test]
 fn constraining_settles_the_drawing_and_deleting_cascades() {
     let Assorted {
-        mut drawing,
+        mut timeline,
         mut workshop,
         a,
         b,
@@ -436,38 +459,48 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
         circle,
         ..
     } = Assorted::new();
+    let at = timeline.only_sketch();
     let (Entity::Point(pa), Entity::Point(pb)) = (a, b) else {
         panic!("the fixture picks two points");
     };
 
     // The two points sit 4 apart in y; asked to be level, they meet.
     let mut offers = Vec::new();
-    drawing.offers(&[Part::Entity(a), Part::Entity(b)], &mut offers);
+    timeline
+        .drawing(at)
+        .offers(&[Part::Entity(a), Part::Entity(b)], &mut offers);
     let level = offers[2];
     assert!(matches!(level, Constraint::Horizontal { .. }));
-    drawing.constrain(&mut workshop, level);
+    timeline.edit(at).constrain(&mut workshop, level);
     assert!(workshop.outcome().converged(), "{:?}", workshop.outcome());
-    let apart = drawing.sketch().point(pa).position.y - drawing.sketch().point(pb).position.y;
+    let apart = timeline.drawing(at).sketch().point(pa).position.y
+        - timeline.drawing(at).sketch().point(pb).position.y;
     assert!(apart.abs() < 1e-9, "{apart}");
 
     // The constraint is a thing the drawing holds, and taking it away leaves
     // the geometry where the solve had put it.
-    let stated = drawing
+    let stated = timeline
+        .drawing(at)
         .sketch()
         .constraints()
         .map(|(id, _)| id)
         .last()
         .expect("the relation was stated");
-    assert!(drawing.holds(stated));
-    drawing.remove(&mut workshop, Entity::Constraint(stated));
-    assert!(!drawing.holds(stated));
-    assert!(drawing.holds(a) && drawing.holds(b));
+    assert!(timeline.drawing(at).holds(stated));
+    timeline
+        .edit(at)
+        .remove(&mut workshop, Entity::Constraint(stated));
+    assert!(!timeline.drawing(at).holds(stated));
+    assert!(timeline.drawing(at).holds(a) && timeline.drawing(at).holds(b));
 
     // Removing a point takes the edges it ends with it, and leaves the rest.
-    drawing.remove(&mut workshop, a);
-    assert!(!drawing.holds(a));
-    assert!(!drawing.holds(first), "the edge outlived its endpoint");
-    assert!(drawing.holds(b) && drawing.holds(circle));
+    timeline.edit(at).remove(&mut workshop, a);
+    assert!(!timeline.drawing(at).holds(a));
+    assert!(
+        !timeline.drawing(at).holds(first),
+        "the edge outlived its endpoint"
+    );
+    assert!(timeline.drawing(at).holds(b) && timeline.drawing(at).holds(circle));
 }
 
 /// An edge drawn onto a point already there gets its own point and a
@@ -485,20 +518,23 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     let b = sketch.add_point(DVec2::new(2.0, 0.0));
     sketch.add_segment(a, b);
     let mut workshop = Workshop::default();
-    let mut drawing = Drawing::new(&mut workshop, sketch, Plane::GROUND);
+    let mut timeline = Timeline::of(sketch);
+    let at = timeline.only_sketch();
+    let ground = timeline.plane_of(at);
 
     // A second edge begun on the first one's far end.
-    drawing.add_segment(
+    timeline.edit(at).add_segment(
         &mut workshop,
         Anchor::On(b),
-        Anchor::At(on(Plane::GROUND, DVec2::new(2.0, 2.0))),
+        Anchor::At(on(ground, DVec2::new(2.0, 2.0))),
     );
 
     // Two new points, not one: the corner is two points that agree, and the
     // agreement is written down.
-    assert_eq!(drawing.sketch.points().count(), 4);
-    assert_eq!(drawing.sketch.segments().count(), 2);
-    let ends: Vec<PointId> = drawing
+    assert_eq!(timeline.drawing(at).sketch().points().count(), 4);
+    assert_eq!(timeline.drawing(at).sketch().segments().count(), 2);
+    let ends: Vec<PointId> = timeline
+        .drawing(at)
         .sketch
         .segments()
         .flat_map(|(_, edge)| [edge.a, edge.b])
@@ -508,7 +544,8 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
         1,
         "the new edge took the point that was already there: {ends:?}"
     );
-    let (tie, coincidence) = drawing
+    let (tie, coincidence) = timeline
+        .drawing(at)
         .sketch
         .constraints()
         .find(|(_, c)| matches!(c, Constraint::Coincident { .. }))
@@ -522,16 +559,16 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     // neither is spare however exactly they sit on each other — which is what
     // stops the command from quietly undoing every join in the drawing.
     let before = (
-        drawing.sketch.points().count(),
-        drawing.sketch.segments().count(),
-        drawing.sketch.constraints().count(),
+        timeline.drawing(at).sketch().points().count(),
+        timeline.drawing(at).sketch().segments().count(),
+        timeline.drawing(at).sketch().constraints().count(),
     );
-    drawing.remove_duplicates(&mut workshop);
+    timeline.edit(at).remove_duplicates(&mut workshop);
     assert_eq!(
         (
-            drawing.sketch.points().count(),
-            drawing.sketch.segments().count(),
-            drawing.sketch.constraints().count(),
+            timeline.drawing(at).sketch().points().count(),
+            timeline.drawing(at).sketch().segments().count(),
+            timeline.drawing(at).sketch().constraints().count(),
         ),
         before,
         "a cleanup pulled a join apart"
@@ -539,33 +576,37 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
 
     // Stated, the join holds: taking `b` somewhere brings the corner with it,
     // which is the behaviour sharing a handle used to give for free.
-    drawing.drag_to(
+    timeline.edit(at).drag_to(
         &mut workshop,
         Grip::Point(b),
-        on(Plane::GROUND, DVec2::new(2.5, 0.5)),
+        on(ground, DVec2::new(2.5, 0.5)),
     );
-    let moved = drawing.sketch.point(b).position;
+    let moved = timeline.drawing(at).sketch().point(b).position;
     assert!(
-        drawing
+        timeline
+            .drawing(at)
             .sketch
             .point(corner)
             .position
             .abs_diff_eq(moved, 1e-6),
         "the corner came apart under a drag: {:?} against {moved:?}",
-        drawing.sketch.point(corner).position
+        timeline.drawing(at).sketch().point(corner).position
     );
 
     // Deleted, it does not. This is the whole point: the second edge is now
     // free of the first and stays where it was left.
-    let parted = drawing.sketch.point(corner).position;
-    drawing.remove(&mut workshop, Entity::Constraint(tie));
-    drawing.drag_to(
+    let parted = timeline.drawing(at).sketch().point(corner).position;
+    timeline
+        .edit(at)
+        .remove(&mut workshop, Entity::Constraint(tie));
+    timeline.edit(at).drag_to(
         &mut workshop,
         Grip::Point(b),
-        on(Plane::GROUND, DVec2::new(0.5, -1.5)),
+        on(ground, DVec2::new(0.5, -1.5)),
     );
     assert!(
-        drawing
+        timeline
+            .drawing(at)
             .sketch
             .point(corner)
             .position
@@ -573,7 +614,12 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
         "the untied corner followed the drag anyway"
     );
     assert!(
-        !drawing.sketch.point(b).position.abs_diff_eq(parted, 1e-3),
+        !timeline
+            .drawing(at)
+            .sketch()
+            .point(b)
+            .position
+            .abs_diff_eq(parted, 1e-3),
         "the drag went nowhere, so this proves nothing"
     );
 }

@@ -20,6 +20,7 @@ mod preview;
 mod scene_view;
 mod selection;
 mod session;
+mod timeline;
 mod tool;
 mod workshop;
 

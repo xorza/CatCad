@@ -27,18 +27,18 @@ use crate::workshop::{Revision, Workshop};
 /// [`Workshop`].
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Model<'a> {
-    drawing: &'a Drawing,
+    drawing: Drawing<'a>,
     workshop: &'a Workshop,
 }
 
 impl<'a> Model<'a> {
     /// The drawing as `workshop` last left it.
-    pub(crate) fn new(drawing: &'a Drawing, workshop: &'a Workshop) -> Self {
+    pub(crate) fn new(drawing: Drawing<'a>, workshop: &'a Workshop) -> Self {
         Self { drawing, workshop }
     }
 
     /// The sketch and the plane it lies on.
-    pub(crate) fn drawing(self) -> &'a Drawing {
+    pub(crate) fn drawing(self) -> Drawing<'a> {
         self.drawing
     }
 

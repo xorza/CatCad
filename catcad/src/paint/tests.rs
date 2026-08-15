@@ -1,24 +1,25 @@
 use super::*;
 use crate::demo;
-use crate::drawing::Drawing;
 use crate::model::Model;
 use crate::part::Part;
+use crate::timeline::Timeline;
 use crate::workshop::Workshop;
 use aperture::Scene;
 use glam::DVec2;
-use silverpoint::{Plane, Sketch};
+use silverpoint::Sketch;
 
 /// A drawing and what solving it decided — the pair every writer here takes.
 #[derive(Debug)]
 struct Drawn {
-    drawing: Drawing,
+    timeline: Timeline,
     workshop: Workshop,
 }
 
 impl Drawn {
     /// The two halves as the writers want them.
     fn model(&self) -> Model<'_> {
-        Model::new(&self.drawing, &self.workshop)
+        let drawing = self.timeline.drawing(self.timeline.only_sketch());
+        Model::new(drawing, &self.workshop)
     }
 }
 
@@ -29,8 +30,9 @@ impl Drawn {
 /// to arrange, so this asks for one rather than assembling the parts.
 fn drawn(sketch: Sketch) -> Drawn {
     let mut workshop = Workshop::default();
-    let drawing = Drawing::new(&mut workshop, sketch, Plane::GROUND);
-    Drawn { drawing, workshop }
+    let mut timeline = Timeline::of(sketch);
+    timeline.edit(timeline.only_sketch()).opened(&mut workshop);
+    Drawn { timeline, workshop }
 }
 
 #[test]
@@ -340,7 +342,10 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
     let circle = sketch.add_circle(c, 2.0);
     let other = sketch.add_circle(a, 1.0);
     let mut workshop = Workshop::default();
-    let drawing = Drawing::new(&mut workshop, sketch, Plane::GROUND);
+    let mut timeline = Timeline::of(sketch);
+    let at = timeline.only_sketch();
+    timeline.edit(at).opened(&mut workshop);
+    let drawing = timeline.drawing(at);
 
     let mut every = Vec::new();
     let mut offers = Vec::new();

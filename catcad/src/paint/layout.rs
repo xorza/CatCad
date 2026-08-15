@@ -36,12 +36,20 @@ pub(crate) struct Layout {
     /// write but the call that made the claim true.
     pub(super) names: Names,
     pub(super) sheets: Sheets,
-    /// Which revision of the drawing this describes.
+    /// Which revision of the drawing this describes, or `None` where it
+    /// describes nothing because nothing has been drawn into it yet.
     ///
     /// Compared rather than trusted: a caller could say whether it had just
     /// edited the document, but then a caller that forgot would leave the view
     /// drawing last frame's geometry with no way to notice.
-    revision: Revision,
+    ///
+    /// An `Option` rather than the revision a fresh [`Workshop`] starts at,
+    /// which is the same number: an empty layout and an unsolved drawing would
+    /// then agree, and the one frame that must never be skipped — the first —
+    /// is exactly the one that would be.
+    ///
+    /// [`Workshop`]: crate::workshop::Workshop
+    revision: Option<Revision>,
     /// The band this was written with, compared like the revision beside it: a
     /// band is written among the strokes and rims, so there is no rewriting one
     /// without the rest — and a band that has not moved is a frame that need
@@ -61,12 +69,12 @@ impl Layout {
     /// moved, or the band over it may have, and either means every batch is
     /// rewritten.
     pub(crate) fn stale(&self, revision: Revision, band: Option<Preview>) -> bool {
-        self.revision != revision || self.band != band
+        self.revision != Some(revision) || self.band != band
     }
 
     /// Note what was just written, which is what makes the claim above true.
     pub(crate) fn drawn(&mut self, revision: Revision, band: Option<Preview>) {
-        self.revision = revision;
+        self.revision = Some(revision);
         self.band = band;
     }
 }

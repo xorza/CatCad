@@ -75,7 +75,7 @@ impl Hud {
     fn constraints(
         &mut self,
         ui: &mut Ui,
-        drawing: &Drawing,
+        drawing: Drawing<'_>,
         selection: &Selection,
         intents: &mut Intents,
     ) {
@@ -207,7 +207,7 @@ pub(crate) struct Shown<'a> {
     /// has to be lowered in the pass that minted it.
     pub(crate) status: InternedStr,
     pub(crate) projection: Projection,
-    pub(crate) drawing: &'a Drawing,
+    pub(crate) drawing: Drawing<'a>,
     pub(crate) selection: &'a Selection,
 }
 
@@ -221,7 +221,7 @@ const DIMENSION_SPEED: f64 = 0.01;
 /// One rather than any, because the field edits a value and two values have no
 /// single answer. A selection holding a dimension *and* something else is
 /// someone part-way through picking a pair, so the field stays away.
-fn dimension_picked(drawing: &Drawing, selection: &Selection) -> Option<(ConstraintId, f64)> {
+fn dimension_picked(drawing: Drawing<'_>, selection: &Selection) -> Option<(ConstraintId, f64)> {
     let [Part::Entity(Entity::Constraint(id))] = *selection.picked() else {
         return None;
     };

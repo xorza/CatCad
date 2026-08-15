@@ -7,9 +7,11 @@
 
 use aperture::{Mesh, Object, Styled};
 use glam::{DVec2, Mat4, Vec3};
-use silverpoint::{Constraint, Plane, Sketch};
+use silverpoint::{Constraint, Sketch};
 
 use crate::document::Document;
+use crate::timeline::Timeline;
+use crate::timeline::feature::{Datum, Feature};
 use crate::workshop::Workshop;
 
 /// The demo as a document: its sketch on the ground plane, and the solids
@@ -18,7 +20,7 @@ use crate::workshop::Workshop;
 /// The sketch and the solids share one world — the drawing lies on the ground
 /// plane and the boxes stand on it — so orbiting the view moves both together.
 pub(crate) fn document(workshop: &mut Workshop) -> Document {
-    let plane = Plane::GROUND;
+    let plane = silverpoint::Plane::GROUND;
     let mut solids = Vec::new();
     // The ground the drawing lies on, and the reason the drawing carries a
     // depth bias at all: the slab's top face *is* the sketch plane, so the
@@ -41,7 +43,15 @@ pub(crate) fn document(workshop: &mut Workshop) -> Document {
         let base = plane.point(at).as_vec3() + Vec3::Y * size * 0.5;
         solids.push(Object::new(Mesh::cube(size)).at(base).colored(color));
     }
-    Document::new(workshop, sketch(), plane, solids)
+    // Two steps: the ground to draw on, and the drawing. The plane is named
+    // rather than carried, so the sketch would follow it anywhere it went.
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: sketch(),
+    });
+    Document::new(workshop, timeline, solids)
 }
 
 /// A rigid frame, a hole through it that can be resized, and a jointed arm
