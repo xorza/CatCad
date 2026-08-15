@@ -52,11 +52,17 @@ pub enum Motion {
     Plane { origin: Vec3, normal: Vec3 },
     /// Anywhere along the line through `origin` in the direction `along`.
     ///
-    /// A datum sliding on its offset, and an arrow handle on a gizmo. Nothing
-    /// about the answer depends on where along the line `origin` sits, so a
-    /// caller names whichever point of it it already has — but where a drag
-    /// reads the *distance* it travelled, that is measured from this origin, and
-    /// then the choice is the whole meaning of the number.
+    /// A datum sliding on its offset, and an arrow handle on a gizmo.
+    ///
+    /// Where *along* the line `origin` sits makes no difference to the answer,
+    /// so a caller names whichever point of it it already has. Which of the
+    /// *parallel* lines makes every difference, and is the one worth getting
+    /// right: the answer is read off the projection, so it is read at this
+    /// origin's depth — and under perspective the same world distance does not
+    /// look the same at another. Name the line through whatever the pointer has
+    /// hold of and that thing stays under it; name one through anything else
+    /// and it runs ahead of the pointer from one side of the model and lags it
+    /// from the other, by however much the two depths differ.
     Line { origin: Vec3, along: Vec3 },
 }
 

@@ -81,14 +81,17 @@ struct Held {
     /// Where what was grabbed sits relative to where the press landed on the
     /// motion, so a grab three pixels off centre does not snap it to the cursor.
     ///
-    /// Three pixels for geometry, which is grabbed by the very thing that moves.
-    /// A datum is not: the whole outline is its handle, and the outline stands
-    /// well off the line the plane travels on — so this is metres, and most of
-    /// it points across that line. That part is dropped rather than carried,
-    /// because a plane has nowhere across its line to go; see
-    /// [`Movable::offset_at`](crate::timeline::Movable::offset_at), which is
-    /// what drops it. What survives the projection is the along-the-line half,
-    /// which is the three pixels again.
+    /// Three pixels either way. Geometry is grabbed by the very thing that
+    /// moves, and a datum by an outline whose travel line is taken through the
+    /// grab — see [`Movable::travel`](crate::timeline::Movable::travel) — so
+    /// what is left over in both cases is only how far the pick landed from the
+    /// cursor, which is the width of a stroke and no more.
+    ///
+    /// Kept even so, because a plane has nowhere across its line to go and this
+    /// carries a little of *across*: a pick on an outline answers with the
+    /// nearest point of the stroke rather than the one under the cursor. The
+    /// part that cannot be used is dropped where the travel becomes a number —
+    /// see [`Movable::offset_at`](crate::timeline::Movable::offset_at).
     offset: Vec3,
 }
 

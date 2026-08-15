@@ -519,7 +519,7 @@ fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
         .resolve(&Aim::new(&camera, cursor, viewport, 6.0))
         .unwrap_or_else(|| panic!("yaw {yaw}: the press missed the plane"));
 
-        let step = DVec2::new(0.0, 45.0).as_vec2();
+        let step = Vec2::new(0.0, 45.0);
         raised.harness.press_at(cursor);
         raised.frame();
         raised.harness.drag_to(cursor + step);
@@ -541,12 +541,10 @@ fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
         // Where that grabbed point now looks, against where the pointer now is.
         // Only along the axis: a pointer may wander across a line all it likes,
         // and a line drag is right to ignore that half.
-        let view_proj = camera.view_proj(viewport.aspect());
-        let seen = |world: Vec3| viewport.pixel_from_clip(view_proj * world.extend(1.0));
         let normal = shelf.normal().as_vec3();
         let carried = grabbed + normal * travelled as f32;
-        let axis = (seen(grabbed + normal) - seen(grabbed)).normalize();
-        let adrift = (seen(carried) - (cursor + step)).dot(axis);
+        let axis = (raised.cursor_on(grabbed + normal) - raised.cursor_on(grabbed)).normalize();
+        let adrift = (raised.cursor_on(carried) - (cursor + step)).dot(axis);
         assert!(
             adrift.abs() < 4.0,
             "yaw {yaw}: forty-five pixels of pointer left the grabbed point \
