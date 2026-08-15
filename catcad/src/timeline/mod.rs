@@ -89,6 +89,17 @@ impl Timeline {
         *by = to;
     }
 
+    /// Every step, in the order they were taken, each with the handle that
+    /// names it.
+    ///
+    /// The whole recipe, which is what saving writes down — and the one caller
+    /// that wants all of it rather than the sketches or the planes. Ordered, so
+    /// a step's position in this is a name a file can use: everything a step is
+    /// built on comes earlier, so a reference is only ever backwards.
+    pub(crate) fn steps(&self) -> impl Iterator<Item = (FeatureId, &Feature)> {
+        self.steps.iter().map(|step| (step.id, &step.feature))
+    }
+
     /// Every plane that can be moved, in the order they were put there.
     ///
     /// Only these are drawn. The world's own ground is what everything else is

@@ -439,7 +439,7 @@ fn a_drag_in_one_sketch_does_not_extend_a_step_opened_in_another() {
     };
     let (here, one) = lone();
     let (there, other) = lone();
-    let mut document = Document::new(&mut build, timeline, Vec::new());
+    let mut document = Document::new(&mut build, timeline);
 
     let at = |document: &Document, sketch, point| {
         document.drawing_at(sketch).sketch().point(point).position
@@ -512,7 +512,7 @@ fn moving_a_plane_carries_what_is_drawn_on_it_and_solves_nothing() {
         on: shelf,
         sketch: sketch.clone(),
     });
-    let mut document = Document::new(&mut build, timeline, Vec::new());
+    let mut document = Document::new(&mut build, timeline);
 
     // The ground's own axes are world +X and −Z and its normal is +Y, so a
     // point at (3, 4) on a plane two above it lands at (3, 2, −4).

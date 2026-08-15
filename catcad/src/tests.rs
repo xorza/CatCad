@@ -211,6 +211,8 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             redundant_constraints: 0,
             hovered: None,
             cleaned: None,
+            unsaved: false,
+            filed: None,
         }
         .to_string(),
         "solved · 0 dof · 0 redundant · 4 iterations"
@@ -247,6 +249,8 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
                 redundant_constraints: 0,
                 hovered: Some(hovered),
                 cleaned: None,
+                unsaved: false,
+                filed: None,
             }
             .to_string(),
             format!("solved · 0 dof · 0 redundant · 4 iterations{tail}")
@@ -262,6 +266,8 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             redundant_constraints: 2,
             hovered: None,
             cleaned: None,
+            unsaved: false,
+            filed: None,
         }
         .to_string(),
         "unsolved · 3 dof · 2 redundant · 100 iterations"
@@ -278,6 +284,8 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             redundant_constraints: 0,
             hovered: None,
             cleaned: Some(cleaned),
+            unsaved: false,
+            filed: None,
         }
         .to_string()
     };
@@ -312,11 +320,13 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
         format!("{head} · removed 4 circles")
     );
 
-    // And the app's own opening state agrees with the demo's solve.
+    // And the app's own opening state agrees with the demo's solve. It reads
+    // as unsaved from the first frame, which is the honest answer: the demo has
+    // never been anywhere, so there is nowhere its contents are already safe.
     let app = CatCad::build();
     assert_eq!(
         app.status().to_string(),
-        "solved · 5 dof · 0 redundant · 4 iterations",
+        "solved · 5 dof · 0 redundant · 4 iterations · unsaved",
         "the demo opens with its arm free and its frame determined"
     );
 }
@@ -1087,4 +1097,191 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
         !line.contains("clean up") && !line.contains("removed"),
         "a stale cleanup note outlived the edit after it: {line}"
     );
+}
+
+/// A document written out comes back the way it was left, and everything this
+/// run made of the one that was open goes with it.
+///
+/// The whole loop, through the real application. What each half of it is worth
+/// on its own is checked nearer where it lives — the format in
+/// `document::file`, the stamp in `filing` — so what this adds is that the
+/// pieces are wired to each other and to the keyboard.
+///
+/// The dialogs are stepped around by naming the path directly, which is what
+/// answering one comes to: they put a window on the screen and wait for a
+/// person, so a test that reached them would wait for one too. The Ctrl+S in
+/// the middle is the exception and is the point of being able to: a document
+/// that already has a name must be written *without* asking, and a version of
+/// that branch which asked would hang this test rather than fail it.
+#[test]
+fn a_document_written_out_comes_back_the_way_it_was_left() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    // Somewhere to put it, named for this process so two runs of the suite
+    // cannot land on one file.
+    let path = std::env::temp_dir().join(format!("catcad-{}.cat", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+
+    // Something to notice afterwards: the arm moved somewhere the demo does not
+    // start, which is a thing only this document says.
+    let held = wrist(&app);
+    drag(
+        &mut app,
+        &mut harness,
+        held,
+        held + Vec3::new(0.0, 0.0, 0.6),
+    );
+    assert!(app.status().to_string().contains(" · unsaved"));
+
+    // As answering a Save As dialog would.
+    app.write(path.clone());
+    frame(&mut app, &mut harness);
+    assert!(path.exists(), "the document was not written");
+    assert!(
+        !app.status().to_string().contains(" · unsaved"),
+        "a written document still reads as unsaved: {}",
+        app.status()
+    );
+
+    // Move it again, and this time let the keyboard write it. The document has
+    // a name now, so Ctrl+S goes straight to the disk.
+    let held = wrist(&app);
+    drag(
+        &mut app,
+        &mut harness,
+        held,
+        held + Vec3::new(0.0, 0.0, -1.2),
+    );
+    let drawn: Vec<DVec2> = points(&app);
+    assert!(app.status().to_string().contains(" · unsaved"));
+    ctrl(&mut harness, Key::Char('S'));
+    frame(&mut app, &mut harness);
+    assert!(
+        !app.status().to_string().contains(" · unsaved"),
+        "Ctrl+S on a named document did not write it: {}",
+        app.status()
+    );
+
+    // Now spoil it: a third drag, and a tool in hand.
+    let held = wrist(&app);
+    drag(
+        &mut app,
+        &mut harness,
+        held,
+        held + Vec3::new(0.0, 0.0, 0.9),
+    );
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(app.session.tool(), Tool::Point);
+    assert_ne!(points(&app), drawn, "the third drag moved nothing");
+
+    // Opening the file puts the drawing back where Ctrl+S left it, and takes
+    // the session with it: nothing in hand, and nothing to take back.
+    app.read(path.clone());
+    frame(&mut app, &mut harness);
+
+    assert_eq!(
+        points(&app),
+        drawn,
+        "the reopened drawing is not the one saved"
+    );
+    assert_eq!(
+        app.session.tool(),
+        Tool::Pointer,
+        "opening a document left the last one's tool in hand"
+    );
+    assert_eq!(app.session.selection().count(), 0);
+    assert!(!app.status().to_string().contains(" · unsaved"));
+    assert!(
+        app.status().to_string().contains("opened"),
+        "the readout said nothing about the file: {}",
+        app.status()
+    );
+
+    // The undo that would have taken the third drag back finds a history that
+    // never saw it — what was done to the document that was open cannot be
+    // taken back off the one that replaced it.
+    ctrl(&mut harness, Key::Char('Z'));
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        points(&app),
+        drawn,
+        "an undo reached past the document it opened"
+    );
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// A file that will not open leaves the document that is open exactly as it
+/// was, and says why.
+///
+/// The claim the ordering in [`Document::read`](crate::document::Document) is
+/// there to make: nothing is written until the file has been read, parsed,
+/// checked and solved. A build reset before that would have taken the *open*
+/// document's report with it, and every reader of it would panic.
+#[test]
+fn a_file_that_will_not_open_disturbs_nothing() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+    let drawn = points(&app);
+
+    let path = std::env::temp_dir().join(format!("catcad-bad-{}.cat", std::process::id()));
+    std::fs::write(&path, "this is not a document").expect("the scratch file is writable");
+
+    app.read(path.clone());
+    // A whole frame afterwards, because the failure that would matter is the
+    // one the *next* frame trips over: a build that had forgotten the open
+    // document has nothing to draw it from.
+    frame(&mut app, &mut harness);
+
+    assert_eq!(points(&app), drawn, "a refused file moved the drawing");
+    assert!(
+        app.status().to_string().contains("is not a document"),
+        "the readout said nothing about the refusal: {}",
+        app.status()
+    );
+    // Still where it was, which is nowhere: a refused open does not name the
+    // document after the file it would not read, so the next Ctrl+S asks rather
+    // than writing over something that is not a document.
+    assert!(app.filing.path().is_none());
+
+    let _ = std::fs::remove_file(&path);
+}
+
+/// Where every point of the open sketch is, in sketch coordinates — the whole
+/// of what a document says, for a test comparing one against itself later.
+fn points(app: &CatCad) -> Vec<DVec2> {
+    app.document
+        .drawing_at(app.session.editing())
+        .sketch()
+        .points()
+        .map(|(_, point)| point.position)
+        .collect()
+}
+
+/// Press `key` with the command modifier down, and let it up again.
+fn ctrl(harness: &mut UiHarness, key: Key) {
+    harness.set_modifiers(Modifiers {
+        ctrl: true,
+        ..Modifiers::NONE
+    });
+    harness.key(key);
+    harness.set_modifiers(Modifiers::NONE);
+}
+
+/// Take hold of the drawing at `from` and let go at `to`.
+fn drag(app: &mut CatCad, harness: &mut UiHarness, from: Vec3, to: Vec3) {
+    let start = cursor_on(app, from);
+    harness.move_to(start);
+    frame(app, harness);
+    harness.press_at(start);
+    frame(app, harness);
+    let end = cursor_on(app, to);
+    harness.drag_to(end);
+    frame(app, harness);
+    harness.release();
+    frame(app, harness);
 }

@@ -7,7 +7,7 @@ use palantir::{
     Sizing, Text, Ui,
 };
 
-use crate::intent::{Change, Choice, Intents, Step};
+use crate::intent::{Change, Choice, Errand, Intents, Step};
 use crate::model::{Model, Models};
 use crate::paint::DECIMALS;
 use crate::selection::Selection;
@@ -145,6 +145,7 @@ impl Hud {
             projection_toggle(ui, projection, intents);
             Text::new(status).auto_id().show(ui);
             tidy_button(ui, sketch, intents);
+            filing_buttons(ui, intents);
         });
     }
 
@@ -306,6 +307,40 @@ fn tidy_button(ui: &mut Ui, sketch: FeatureId, intents: &mut Intents) {
     if pressed {
         intents.push(Change::Tidy { sketch });
     }
+}
+
+/// Puts the document away, and fetches one back.
+///
+/// Beside the readout with the cleanup, and for the same reason: neither is
+/// about what is picked out. Both are here rather than on a menu bar because
+/// there is no menu bar — and two buttons that say what they do beat a File
+/// menu holding two buttons.
+///
+/// Neither is ever dark. Whether saving would ask for a path is [`Filing`]'s to
+/// know and the answer changes nothing about whether the command is available,
+/// so a button that greyed itself out would be answering a question nobody
+/// asked.
+///
+/// [`Filing`]: crate::filing::Filing
+fn filing_buttons(ui: &mut Ui, intents: &mut Intents) {
+    Panel::hstack()
+        .id_salt("filing")
+        .background(Background::NONE)
+        .size((Sizing::HUG, Sizing::HUG))
+        .gap(GAP)
+        .show(ui, |ui| {
+            for (label, errand) in [("Open", Errand::Open), ("Save", Errand::Save)] {
+                if Button::new()
+                    .id_salt(label)
+                    .label(label)
+                    .show(ui)
+                    .left
+                    .clicked()
+                {
+                    intents.push(errand);
+                }
+            }
+        });
 }
 
 impl Default for Hud {

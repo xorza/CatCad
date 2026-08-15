@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Bounds, Highlight, Lit, Motion, Renderer};
+use aperture::{Bounds, Highlight, Lit, Motion, Object, Renderer};
 use glam::{Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
@@ -182,18 +182,25 @@ pub(crate) struct SceneView {
 }
 
 impl SceneView {
-    /// A view of `document`, laid out as it stands.
+    /// A view of `document`, laid out as it stands, with `solids` standing
+    /// around it.
     ///
     /// The view lays it out itself rather than being handed a scene, which is
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
-    pub(crate) fn new(document: &Document, build: &Build, editing: FeatureId) -> Self {
+    ///
+    /// The solids come from the caller rather than the document, because no
+    /// step made them — see [`demo::scenery`](crate::demo::scenery). They are
+    /// written once, here: [`SceneView::settle`] rewrites the drawing and
+    /// leaves them alone, so a view outlives every document opened through it.
+    pub(crate) fn new(
+        document: &Document,
+        build: &Build,
+        editing: FeatureId,
+        solids: &[Object],
+    ) -> Self {
         let mut layout = Layout::default();
-        let scene = paint::scene(
-            document.models(build, editing),
-            document.solids(),
-            &mut layout,
-        );
+        let scene = paint::scene(document.models(build, editing), solids, &mut layout);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             layout,

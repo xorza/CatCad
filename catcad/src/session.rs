@@ -93,7 +93,12 @@ impl Session {
                 // The history's, and the document's through it. Landed by
                 // `CatCad::apply` right after this, in the order the pointer
                 // made them.
-                Intent::Step(_) | Intent::Change(_) => {}
+                //
+                // An errand is the application's, and is the one that takes
+                // this away: opening a file leaves a session that was never
+                // started rather than this one carried over. See
+                // [`CatCad::run`](crate::CatCad).
+                Intent::Step(_) | Intent::Change(_) | Intent::Errand(_) => {}
             }
         }
     }

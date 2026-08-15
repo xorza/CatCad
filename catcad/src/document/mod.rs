@@ -1,8 +1,15 @@
-//! What a saved file would hold, and the one thing that owns it.
+//! What a saved file holds, and the one thing that owns it.
 
-use aperture::{Bounds, Camera, Object};
+pub(crate) mod file;
+
+use std::fs;
+use std::path::Path;
+
+use aperture::{Bounds, Camera};
 
 use crate::build::Build;
+use crate::document::file::error::{LoadError, SaveError};
+use crate::document::file::saved::Saved;
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
@@ -10,15 +17,17 @@ use crate::model::Models;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Movable, Timeline};
 
-/// A drawing, the solids modelled beside it, and how it is being looked at —
-/// everything a session would have to write down to be opened again.
+/// A drawing and how it is being looked at — everything a session would have to
+/// write down to be opened again.
 ///
 /// The point of gathering these is that the boundary is the file format. What
 /// is in here is what saving has to write and loading has to rebuild; what is
 /// not is either derived from it — the solve's report, which geometry the
 /// constraints have decided, the tags the renderer picks against — or belongs
 /// to this run of the program alone: the GPU buffers, and where the pointer
-/// happens to be.
+/// happens to be. What stands *around* the drawing without any step having put
+/// it there is not in either half, and is not here — see
+/// [`CatCad::scenery`](crate::CatCad).
 ///
 /// The camera is in rather than out, though nothing about it is modelled.
 /// Reopening a drawing at someone else's viewpoint is not reopening it, and a
@@ -28,29 +37,24 @@ use crate::timeline::{FeatureId, Movable, Timeline};
 pub(crate) struct Document {
     /// Every step taken to build it, which is the whole of what it says.
     timeline: Timeline,
-    /// The solids the drawing is modelled alongside.
-    ///
-    /// A stand-in, and the one thing here that no step made. Solids become what
-    /// an extrude *makes*, and this field goes when one exists — until then the
-    /// demo needs ground to stand on, and a document with no way to say where
-    /// that came from is the honest state of things.
-    solids: Vec<Object>,
     camera: Camera,
+    /// How many times it has been changed, so a caller can tell whether what it
+    /// last wrote down still describes this.
+    edits: Edits,
 }
 
 impl Document {
-    /// A document built by `timeline`, with `solids` standing around it, seen
-    /// from wherever the camera starts.
+    /// A document built by `timeline`, seen from wherever the camera starts.
     ///
     /// The camera is left at its default rather than aimed at anything: what
     /// has to fit on screen is what will be *drawn*, and that is not known
     /// until the document has been raised. Whoever raises one is who can
     /// measure it, so whoever raises one is who aims the camera.
-    pub(crate) fn new(build: &mut Build, timeline: Timeline, solids: Vec<Object>) -> Self {
+    pub(crate) fn new(build: &mut Build, timeline: Timeline) -> Self {
         let mut document = Self {
             timeline,
-            solids,
             camera: Camera::default(),
+            edits: Edits::default(),
         };
         // Every sketch, not only the one a session starts in. A sketch arrives
         // as coordinates its constraints have not been checked against, whether
@@ -66,6 +70,58 @@ impl Document {
             document.sketching(at).opened(build);
         }
         document
+    }
+
+    /// Write the document to `path`, making it if it is not there and replacing
+    /// whatever is if it is.
+    ///
+    /// The whole of it in memory before a byte reaches the disk, which is what
+    /// keeps a document that fails to encode from having half-overwritten the
+    /// one that was already there.
+    pub(crate) fn save_to(&self, path: &Path) -> Result<(), SaveError> {
+        let text = Saved::of(&self.timeline, self.camera).text()?;
+        fs::write(path, text).map_err(SaveError::Write)
+    }
+
+    /// The document `path` holds, solved and ready to be looked at.
+    ///
+    /// An associated function rather than something done to a document, because
+    /// opening one is not an edit: what it hands back is a *different*
+    /// document, and the caller decides what becomes of the one it had. That is
+    /// what keeps a file that will not open from having disturbed anything —
+    /// see [`Filing`](crate::filing::Filing), which is what holds one side of
+    /// that decision.
+    ///
+    /// `build` is the caller's, as it is everywhere: opening a document is a
+    /// solve, and a solve wants room to work in. What it settled for the
+    /// document that was open is forgotten here rather than by the caller —
+    /// see the note on ordering below.
+    pub(crate) fn open(build: &mut Build, path: &Path) -> Result<Self, LoadError> {
+        let text = fs::read_to_string(path).map_err(LoadError::Read)?;
+        Self::read(build, &text)
+    }
+
+    /// The same from text already in hand, which is what a test opens.
+    ///
+    /// Every way this can fail happens before `build` is touched, and that
+    /// ordering is the whole of what makes a failed open harmless: a file that
+    /// will not parse or does not make sense leaves the caller holding exactly
+    /// the document and the build it had, still agreeing with each other. Reset
+    /// first and a refused file would have taken the *open* document's report
+    /// with it — see [`Build::reopened`].
+    pub(crate) fn read(build: &mut Build, text: &str) -> Result<Self, LoadError> {
+        let saved = Saved::parse(text)?;
+        let timeline = saved.timeline().map_err(LoadError::Fault)?;
+        let camera = saved.camera();
+        build.reopened();
+        // Through `new`, so a document read from a file is raised exactly as
+        // any other is: every sketch solved, because coordinates arrive as
+        // something the constraints have not been checked against however they
+        // were come by. The camera is written after, being the one thing here
+        // that `new` has an opinion about.
+        let mut document = Self::new(build, timeline);
+        document.camera = camera;
+        Ok(document)
     }
 
     /// The sketch at `at`, paired with the plane it lies on.
@@ -126,14 +182,24 @@ impl Document {
         Models::new(&self.timeline, build, editing)
     }
 
-    /// The solids modelled alongside the drawing.
-    pub(crate) fn solids(&self) -> &[Object] {
-        &self.solids
-    }
-
     /// Where the document is being looked at from.
     pub(crate) fn camera(&self) -> Camera {
         self.camera
+    }
+
+    /// How many times this has been changed.
+    ///
+    /// What [`Filing`](crate::filing::Filing) stamps at a save and compares
+    /// against afterwards, which is the whole of how a document knows it has
+    /// gone unsaved.
+    ///
+    /// Its own count rather than [`Build::revision`](crate::build::Build),
+    /// which is the nearest thing already here and cannot serve: turning the
+    /// camera changes the document and settles nothing, so the revision does
+    /// not move for it — and making it move would relayout the whole drawing on
+    /// every frame of an orbit.
+    pub(crate) fn edits(&self) -> Edits {
+        self.edits
     }
 
     /// Aim the camera to take `bounds` in.
@@ -145,6 +211,7 @@ impl Document {
     /// before anyone has looked at it.
     pub(crate) fn frame(&mut self, bounds: Bounds) {
         self.camera.frame(bounds);
+        self.edits = self.edits.next();
     }
 
     /// Put the drawing back the way `snapshot` found it.
@@ -170,6 +237,7 @@ impl Document {
             Feature::Sketch { .. } => self.sketching(at).measured(build),
             Feature::Plane(_) => build.revised(),
         }
+        self.edits = self.edits.next();
     }
 
     /// Land what `change` asks for.
@@ -232,6 +300,28 @@ impl Document {
             Change::Pan { by } => self.camera.pan(by),
             Change::Project(projection) => self.camera.projection = projection,
         }
+        self.edits = self.edits.next();
+    }
+}
+
+/// How many times a document has been changed.
+///
+/// Compared and never read, like [`Revision`](crate::build::Revision): the
+/// number means nothing beyond not being the one before it.
+///
+/// Conservative in the same direction, and for the same reason. A drag the
+/// constraints refuse counts, and so does an undo that lands back on what was
+/// last saved — what can cheaply be said is that the document has been worked
+/// on, not whether the work came to anything. A stamp that missed a change
+/// would lose it silently at the next quit; a spare one costs an asterisk in
+/// the corner.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct Edits(u64);
+
+impl Edits {
+    /// The one after this.
+    fn next(self) -> Self {
+        Self(self.0 + 1)
     }
 }
 
@@ -243,7 +333,23 @@ impl Document {
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::document::Document;
+    #[cfg(test)]
+    use crate::document::Edits;
     use aperture::Camera;
+
+    /// Narrower than the mod around it, which the visual suite reaches through
+    /// as well: this is wanted by one unit test and nothing a harness links.
+    #[cfg(test)]
+    impl Edits {
+        /// One more edit than this.
+        ///
+        /// A document is what counts its own edits, so nothing outside can
+        /// advance one honestly — and a test about what a *stamp* means has no
+        /// document to hand and wants no solve to get a second value out of.
+        pub(crate) fn stepped(self) -> Self {
+            self.next()
+        }
+    }
 
     impl Document {
         pub(crate) fn camera_mut(&mut self) -> &mut Camera {

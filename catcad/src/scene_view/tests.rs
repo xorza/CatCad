@@ -40,7 +40,7 @@ impl Raised {
         let mut document = demo::document(&mut build);
         // Opened in its first sketch, exactly as the application opens one.
         let session = Session::new(document.opening());
-        let mut view = SceneView::new(&document, &build, session.editing());
+        let mut view = SceneView::new(&document, &build, session.editing(), &demo::scenery());
         if let Some(bounds) = view.bounds() {
             document.camera_mut().frame(bounds);
         }

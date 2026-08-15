@@ -1,0 +1,408 @@
+use super::*;
+
+use crate::build::Build;
+use crate::demo;
+
+/// The text `timeline` is written as.
+///
+/// Every test here goes through the text rather than through the pair of
+/// conversions either side of it, because the text is what is being checked: a
+/// writer and a reader that agree with each other and with nothing else would
+/// pass every round trip and save nothing anyone could open.
+fn written(timeline: &Timeline) -> String {
+    Saved::of(timeline, aperture::Camera::default())
+        .text()
+        .expect("a document encodes")
+}
+
+/// The timeline `text` says, which has to be a document that parses and makes
+/// sense.
+fn read(text: &str) -> Timeline {
+    Saved::parse(text)
+        .expect("the text is a document")
+        .timeline()
+        .expect("the document makes sense")
+}
+
+/// A document of `steps`, stamped `version`.
+///
+/// Written by hand and on one line, which is the second thing it is for: a file
+/// this compact is nothing the writer would ever produce, so parsing one proves
+/// the format is a grammar rather than the exact shape
+/// [`pretty`] happens to lay out.
+fn document(version: u32, steps: &str) -> String {
+    format!(
+        "(version: {version}, camera: (projection: Perspective, target: (0.0, 0.0, 0.0), \
+         distance: 6.0, yaw: 0.0, pitch: 0.0, fov_y: 0.8, near_ratio: 0.01), steps: [{steps}])"
+    )
+}
+
+/// A sketch of one point at the origin, for a step that has to hold a sketch
+/// and is not what the test is about.
+const A_SKETCH: &str = "sketch: (points: [(at: (0.0, 0.0))], segments: [], circles: [], \
+                        relations: [])";
+
+/// The demo comes back exactly as it went in — both sketches, both planes, and
+/// the camera.
+///
+/// Exactly, down to `PartialEq` on the timeline, which is a stronger claim than
+/// it looks: a sketch compares equal only if every arena position and every
+/// generation matches, so this says the reloaded drawing is the same drawing and
+/// not merely one that draws the same. It holds because nothing in the demo has
+/// been deleted — see the compaction test below for what happens when something
+/// has.
+#[test]
+fn the_demo_comes_back_the_way_it_went_in() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let saved = Saved::parse(&written(&document.timeline)).expect("the text is a document");
+
+    assert_eq!(
+        saved.timeline().expect("the document makes sense"),
+        document.timeline
+    );
+    // Through `sane`, as opening one does. The demo's camera is the default,
+    // which is already inside every limit, so nothing is clamped on the way.
+    assert_eq!(saved.camera(), document.camera);
+}
+
+/// A document is exactly this on the page.
+///
+/// The golden, and the format's own documentation: three steps covering all
+/// three kinds, and every list a sketch holds. What it guards is silent drift —
+/// a field renamed while refactoring writes a file the old reader refuses, and
+/// nothing but a checked-in expectation notices that the rename was a change to
+/// the format.
+///
+/// The layout is part of it. One line per point, edge and relation is what makes
+/// a saved document diffable, and it is a `depth_limit` away from four lines
+/// each — see [`pretty`].
+#[test]
+fn a_document_is_written_exactly_like_this() {
+    let mut sketch = silverpoint::Sketch::default();
+    let origin = sketch.add_point(DVec2::ZERO);
+    let across = sketch.add_point(DVec2::new(2.0, 0.5));
+    sketch.fix(origin);
+    sketch.add_segment(origin, across);
+    sketch.add_circle(across, 0.25);
+    sketch.add_constraint(Constraint::Horizontal {
+        a: origin,
+        b: across,
+    });
+
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let shelf = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: 2.2,
+    }));
+    timeline.add(Feature::Sketch { on: shelf, sketch });
+
+    assert_eq!(
+        written(&timeline),
+        "\
+(
+    version: 1,
+    camera: (
+        projection: Perspective,
+        target: (0.0, 0.0, 0.0),
+        distance: 6.0,
+        yaw: 0.6,
+        pitch: 0.4,
+        fov_y: 0.7853982,
+        near_ratio: 0.0078125,
+    ),
+    steps: [
+        Ground,
+        Plane(
+            from: 0,
+            by: 2.2,
+        ),
+        Sketch(
+            on: 1,
+            sketch: (
+                points: [
+                    (at: (0.0, 0.0), fixed: true),
+                    (at: (2.0, 0.5), fixed: false),
+                ],
+                segments: [
+                    (a: 0, b: 1),
+                ],
+                circles: [
+                    (center: 1, radius: 0.25),
+                ],
+                relations: [
+                    Horizontal(a: 0, b: 1),
+                ],
+            ),
+        ),
+    ],
+)"
+    );
+}
+
+/// Every relation the drawing can state survives, and is written as itself.
+///
+/// The sweep that keeps [`Relation`] honest. Both conversions match
+/// [`Constraint`] exhaustively, so a relation added to silverpoint cannot
+/// quietly stop being saved — but exhaustive matches would still let two
+/// variants be *swapped*, which compiles and round-trips through this crate's
+/// own reader while writing a file that says the wrong thing. The text is
+/// checked for each name to close that.
+///
+/// Deliberately over-constrained: nothing is solved here, and what is under test
+/// is whether the file can say a thing rather than whether the thing is true.
+#[test]
+fn every_relation_the_drawing_can_state_survives_the_round_trip() {
+    let mut sketch = silverpoint::Sketch::default();
+    let point = [
+        sketch.add_point(DVec2::ZERO),
+        sketch.add_point(DVec2::new(2.0, 0.0)),
+        sketch.add_point(DVec2::new(2.0, 3.0)),
+        sketch.add_point(DVec2::new(0.0, 3.0)),
+    ];
+    let first = sketch.add_segment(point[0], point[1]);
+    let second = sketch.add_segment(point[2], point[3]);
+    let round = sketch.add_circle(point[0], 1.0);
+    let other = sketch.add_circle(point[2], 2.0);
+    let stated = [
+        Constraint::Coincident {
+            a: point[0],
+            b: point[1],
+        },
+        Constraint::Distance {
+            a: point[0],
+            b: point[1],
+            distance: 2.0,
+        },
+        Constraint::Horizontal {
+            a: point[1],
+            b: point[2],
+        },
+        Constraint::Vertical {
+            a: point[2],
+            b: point[3],
+        },
+        Constraint::Parallel { first, second },
+        Constraint::Perpendicular { first, second },
+        Constraint::EqualLength { first, second },
+        Constraint::PointOnSegment {
+            point: point[3],
+            segment: second,
+        },
+        Constraint::Radius {
+            circle: round,
+            radius: 1.0,
+        },
+        Constraint::PointOnCircle {
+            point: point[1],
+            circle: round,
+        },
+        Constraint::Tangent {
+            segment: first,
+            circle: other,
+        },
+        Constraint::EqualRadius {
+            first: round,
+            second: other,
+        },
+    ];
+    for constraint in stated {
+        sketch.add_constraint(constraint);
+    }
+
+    let timeline = Timeline::of(sketch);
+    let text = written(&timeline);
+    for name in [
+        "Coincident",
+        "Distance",
+        "Horizontal",
+        "Vertical",
+        "Parallel",
+        "Perpendicular",
+        "EqualLength",
+        "PointOnSegment",
+        "Radius",
+        "PointOnCircle",
+        "Tangent",
+        "EqualRadius",
+    ] {
+        assert!(
+            text.contains(name),
+            "a document stating every relation never writes {name}:\n{text}"
+        );
+    }
+    assert_eq!(read(&text), timeline);
+}
+
+/// Saving compacts the holes an edit left, and the drawing is the same drawing
+/// afterwards.
+///
+/// The one way a saved document differs from the one that was saved. A deletion
+/// leaves a hole in the sketch's arenas and bumps the generation of the position
+/// it freed; writing walks only what is live, so what comes back is numbered as
+/// though the drawing had been made in one go.
+///
+/// What that costs is exactly the equality the demo enjoys above, which is why
+/// this checks the geometry itself instead: the same points in the same order,
+/// and the edge still between the two it was between — renumbered, not
+/// re-pointed.
+#[test]
+fn saving_compacts_the_holes_an_edit_left() {
+    let mut sketch = silverpoint::Sketch::default();
+    let kept = sketch.add_point(DVec2::new(1.0, 1.0));
+    let doomed = sketch.add_point(DVec2::new(2.0, 2.0));
+    let far = sketch.add_point(DVec2::new(3.0, 3.0));
+    sketch.add_segment(kept, far);
+    // The middle position falls out, and the edge that spanned it does not:
+    // nothing was built on the point that goes.
+    sketch.remove_point(doomed);
+
+    let timeline = Timeline::of(sketch);
+    let text = written(&timeline);
+    // Numbered 0 and 1 in the file, where the survivors held positions 0 and 2.
+    assert!(
+        text.contains("(a: 0, b: 1)"),
+        "the edge was not renumbered onto the compacted points:\n{text}"
+    );
+
+    let reopened = read(&text);
+    let drawing = reopened.drawing(reopened.first_sketch());
+    let sketch = drawing.sketch();
+    let points: Vec<DVec2> = sketch.points().map(|(_, point)| point.position).collect();
+    assert_eq!(points, [DVec2::new(1.0, 1.0), DVec2::new(3.0, 3.0)]);
+
+    let [(_, edge)] = *sketch.segments().collect::<Vec<_>>() else {
+        panic!("the reopened sketch does not hold exactly one edge");
+    };
+    assert_eq!(sketch.point(edge.a).position, DVec2::new(1.0, 1.0));
+    assert_eq!(sketch.point(edge.b).position, DVec2::new(3.0, 3.0));
+    // Compacted, not merely reordered: the file rewound the generations too, so
+    // the reopened sketch is one that was never edited.
+    assert_ne!(reopened, timeline);
+}
+
+/// A file that parses and says something impossible is refused, and says which
+/// step was impossible.
+///
+/// One assertion per way a document can be wrong, together in one sweep because
+/// they are one claim: nothing a file says reaches
+/// [`Timeline::add`](crate::timeline::Timeline) or
+/// [`add_constraint`](silverpoint::Sketch::add_constraint), both of which assert
+/// that what a thing is built on is there. An assertion is a contract between
+/// two pieces of this program; a file is neither piece.
+#[test]
+fn a_document_that_says_something_impossible_is_refused() {
+    let refused: [(String, Fault); 10] = [
+        // A version this cannot claim to understand, whatever it goes on to
+        // say.
+        (
+            document(2, &format!("Ground, Sketch(on: 0, {A_SKETCH})")),
+            Fault::Version(2),
+        ),
+        // Planes and nothing to draw on them. A document is opened *in* a
+        // sketch, so one holding none has nowhere to put you.
+        (document(1, "Ground"), Fault::NoSketch),
+        // A step built on one the file has not got.
+        (
+            document(1, &format!("Ground, Sketch(on: 4, {A_SKETCH})")),
+            Fault::UnknownStep { at: 1, names: 4 },
+        ),
+        // A step built on itself, which is the same failure: a reference only
+        // ever points backwards, and this one does not.
+        (
+            document(1, &format!("Sketch(on: 0, {A_SKETCH})")),
+            Fault::UnknownStep { at: 0, names: 0 },
+        ),
+        // A step built on a later one, likewise.
+        (
+            document(1, "Plane(from: 1, by: 1.0), Ground"),
+            Fault::UnknownStep { at: 0, names: 1 },
+        ),
+        // A sketch drawn on a sketch.
+        (
+            document(
+                1,
+                &format!("Ground, Sketch(on: 0, {A_SKETCH}), Sketch(on: 1, {A_SKETCH})"),
+            ),
+            Fault::NotAPlane { at: 2, names: 1 },
+        ),
+        // An edge between points the sketch does not hold.
+        (
+            document(
+                1,
+                "Ground, Sketch(on: 0, sketch: (points: [(at: (0.0, 0.0))], \
+                 segments: [(a: 0, b: 5)], circles: [], relations: []))",
+            ),
+            Fault::Unknown {
+                at: 1,
+                what: Missing::Point(5),
+            },
+        ),
+        // A relation about an edge that is not there.
+        (
+            document(
+                1,
+                "Ground, Sketch(on: 0, sketch: (points: [], segments: [], circles: [], \
+                 relations: [Parallel(first: 0, second: 1)]))",
+            ),
+            Fault::Unknown {
+                at: 1,
+                what: Missing::Segment(0),
+            },
+        ),
+        // And about a circle that is not there.
+        (
+            document(
+                1,
+                "Ground, Sketch(on: 0, sketch: (points: [], segments: [], circles: [], \
+                 relations: [Radius(circle: 2, radius: 1.0)]))",
+            ),
+            Fault::Unknown {
+                at: 1,
+                what: Missing::Circle(2),
+            },
+        ),
+        // A number that is not one. It parses perfectly well and would reach
+        // the solver, which has no way to report having been handed it.
+        (
+            document(
+                1,
+                "Ground, Sketch(on: 0, sketch: (points: [(at: (0.0, inf))], segments: [], \
+                 circles: [], relations: []))",
+            ),
+            Fault::NotFinite { at: 1 },
+        ),
+    ];
+
+    for (text, expected) in refused {
+        let outcome = Saved::parse(&text).and_then(|saved| {
+            saved
+                .timeline()
+                .map(|_| ())
+                .map_err(crate::document::file::error::LoadError::Fault)
+        });
+        match outcome {
+            Err(crate::document::file::error::LoadError::Fault(fault)) => {
+                assert_eq!(fault, expected, "the wrong complaint about:\n{text}")
+            }
+            Err(other) => panic!("{text}\nwas refused for the wrong reason: {other}"),
+            Ok(()) => panic!("this was accepted:\n{text}"),
+        }
+    }
+}
+
+/// Text that is not a document at all is refused by the parser rather than
+/// reaching anything that would have to guess at it.
+#[test]
+fn text_that_is_not_a_document_is_refused() {
+    for text in ["", "hello", "(version: 1)", "{\"version\": 1}"] {
+        assert!(
+            matches!(
+                Saved::parse(text),
+                Err(crate::document::file::error::LoadError::Parse(_))
+            ),
+            "this parsed as a document: {text:?}"
+        );
+    }
+}

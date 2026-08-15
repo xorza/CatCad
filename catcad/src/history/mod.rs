@@ -57,7 +57,11 @@ impl History {
                 // Taken before this ran, by the app that owns them. What is in
                 // hand and what is picked out are not steps to take back — see
                 // `CatCad::apply`.
-                Intent::Choice(_) => {}
+                //
+                // Nor is opening a file, which is not a step *in* a history but
+                // a different history: what has been done to the document that
+                // was open cannot be taken back off the one that replaced it.
+                Intent::Choice(_) | Intent::Errand(_) => {}
             }
         }
     }

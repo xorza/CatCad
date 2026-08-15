@@ -282,7 +282,7 @@ fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
     let document = demo::document(&mut build);
     let picture = scene(
         document.models(&build, document.opening()),
-        document.solids(),
+        &demo::scenery(),
         &mut Layout::default(),
     );
 
@@ -390,7 +390,7 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     let document = demo::document(&mut build);
     let scene = scene(
         document.models(&build, document.opening()),
-        document.solids(),
+        &demo::scenery(),
         &mut Layout::default(),
     );
 
@@ -488,7 +488,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     let there = lone();
 
     let mut build = Build::default();
-    let document = Document::new(&mut build, timeline, Vec::new());
+    let document = Document::new(&mut build, timeline);
     let mut layout = Layout::default();
     let mut scene = Scene::default();
 

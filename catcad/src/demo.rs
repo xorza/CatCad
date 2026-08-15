@@ -1,4 +1,5 @@
-//! The document the app opens with, until it can open a real one.
+//! The document the app opens with when it is given no file, and the scenery it
+//! stands around every document.
 //!
 //! Placeholder content rather than a file: what the app starts with has to come
 //! from somewhere, and a fixture whose answer is known is what makes a wrong
@@ -20,12 +21,17 @@ use crate::timeline::feature::{Datum, Feature};
 /// so much that what is drawn on it leaves the frame.
 pub(crate) const SHELF: f64 = 2.2;
 
-/// The demo as a document: its sketch on the ground plane, and the solids
-/// that stand on it.
+/// The solids the drawing is modelled alongside.
 ///
-/// The sketch and the solids share one world — the drawing lies on the ground
-/// plane and the boxes stand on it — so orbiting the view moves both together.
-pub(crate) fn document(build: &mut Build) -> Document {
+/// No step made any of these, which is why they are not in the document and are
+/// not written down by saving: they stand around whichever document is open.
+/// They are a stand-in, and this goes when an extrude exists to *make* a solid —
+/// until then the drawing needs ground to lie on, and scenery nobody authored is
+/// the honest name for that.
+///
+/// The same world as the drawing — the slab's top face is the ground plane and
+/// the boxes stand on it — so orbiting the view moves both together.
+pub(crate) fn scenery() -> Vec<Object> {
     let plane = silverpoint::Plane::GROUND;
     let mut solids = Vec::new();
     // The ground the drawing lies on, and the reason the drawing carries a
@@ -48,6 +54,11 @@ pub(crate) fn document(build: &mut Build) -> Document {
         let base = plane.point(at).as_vec3() + Vec3::Y * size * 0.5;
         solids.push(Object::new(Mesh::cube(size)).at(base).colored(color));
     }
+    solids
+}
+
+/// The demo as a document: two sketches, on two planes.
+pub(crate) fn document(build: &mut Build) -> Document {
     // Four steps: the ground, a drawing on it, a plane held clear of the
     // ground, and a drawing on that. Neither sketch carries a plane — each
     // names one — so the second follows its datum wherever that goes, and
@@ -66,7 +77,7 @@ pub(crate) fn document(build: &mut Build) -> Document {
         on: shelf,
         sketch: aside(),
     });
-    Document::new(build, timeline, solids)
+    Document::new(build, timeline)
 }
 
 /// A second drawing, on the shelf held clear of the ground the first lies on.

@@ -154,6 +154,26 @@ impl Build {
         *cleaned = None;
     }
 
+    /// Forget everything settled for the document that was open, for one that
+    /// is about to be.
+    ///
+    /// Everything here is keyed by [`FeatureId`], and a document opened from a
+    /// file numbers its steps from zero like any other — so what the last one
+    /// settled is not stale so much as *wrong*, a report about a sketch that no
+    /// longer exists filed under the name of one that does.
+    ///
+    /// The revision counts on rather than starting over, and that is the whole
+    /// reason this is a call rather than a fresh [`Build`]. A view compares the
+    /// revision it last drew against this one to decide whether to draw again
+    /// — see [`Made`](crate::paint::layout::Made) — so a document opened into a
+    /// reset counter could land on a number the view believes it has already
+    /// drawn, and leave the old picture on screen with no way to notice.
+    pub(crate) fn reopened(&mut self) {
+        self.settled.clear();
+        self.cleaned = None;
+        self.revision = self.revision.next();
+    }
+
     /// Note that the document has moved without anything being solved.
     ///
     /// What moving a plane leaves behind. A sketch's coordinates are its

@@ -185,8 +185,8 @@ const MARK: Vec3 = Vec3::new(0.62, 0.58, 0.78);
 /// and on a sketch whose constraints disagree, it is exactly the mark to delete.
 const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 
-/// The whole picture of `document` as it stands — the solids it holds, its
-/// drawing over them, and a name for every part that can be pointed at.
+/// The whole picture of a document as it stands — the `solids` standing around
+/// it, its drawing over them, and a name for every part that can be pointed at.
 ///
 /// Where a scene comes from, and the only place one does. Hands back a fresh
 /// scene rather than filling one the caller owns, which is the shape the cost
@@ -195,8 +195,11 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 /// [`redraw`] instead — and the two are shaped as differently as they are so
 /// that reaching for the wrong one is a change of code rather than of nothing.
 ///
-/// The solids are written here rather than by the document, so that a document
-/// says what it holds and one module decides what all of it looks like.
+/// The solids arrive beside the model rather than out of it, because no step
+/// made them — see [`demo::scenery`](crate::demo::scenery). That is also why
+/// they are written once here and never by [`redraw`]: what the drawing says
+/// changes sixty times a second, and what stands around it does not change at
+/// all.
 pub(crate) fn scene(models: Models<'_>, solids: &[Object], layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
     write_solids(solids, &mut scene.solids);

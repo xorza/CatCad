@@ -224,6 +224,47 @@ impl Camera {
         ray
     }
 
+    /// The same camera with everything it insists on brought back into range.
+    ///
+    /// What a camera arriving from outside goes through — read out of a file,
+    /// or typed in. Every other way one moves keeps its own limits as it goes:
+    /// [`Camera::orbit`] clamps the pitch it lands on, [`Camera::dolly`] the
+    /// distance it lands at, and the fields are public so that a gesture can
+    /// name one without a setter apiece. This is the one arrival that has no
+    /// such call to come through, and a camera outside its range would trip the
+    /// assertion in `z_near` rather than merely looking wrong.
+    ///
+    /// A number that is not one is replaced rather than refused, which is the
+    /// difference between a viewpoint and the drawing it looks at: the drawing
+    /// is what someone authored and a wrong number in it has to be reported,
+    /// where a camera is only where you happen to be standing. Losing that and
+    /// opening the document beats keeping it and refusing to.
+    pub fn sane(self) -> Self {
+        let default = Self::default();
+        // Field by field rather than a check over the whole, so one bad number
+        // costs its own field and not the rest of the viewpoint.
+        let finite = |value: f32, fallback: f32| if value.is_finite() { value } else { fallback };
+        let target = if self.target.is_finite() {
+            self.target
+        } else {
+            default.target
+        };
+        Self {
+            projection: self.projection,
+            target,
+            distance: finite(self.distance, default.distance).max(MIN_DISTANCE),
+            yaw: finite(self.yaw, default.yaw),
+            pitch: finite(self.pitch, default.pitch).clamp(-PITCH_LIMIT, PITCH_LIMIT),
+            // Zero would flatten the view to a line and π or more would turn it
+            // inside out, so the range is open at both ends and the bounds are
+            // a degree off each.
+            fov_y: finite(self.fov_y, default.fov_y).clamp(1f32.to_radians(), 179f32.to_radians()),
+            // Strictly inside (0, 1): at either end the near plane lands on the
+            // eye or on what is being looked at.
+            near_ratio: finite(self.near_ratio, default.near_ratio).clamp(1e-6, 1.0 - 1e-6),
+        }
+    }
+
     /// Turn the eye around the target by the given angles, in radians.
     pub fn orbit(&mut self, yaw_delta: f32, pitch_delta: f32) {
         self.yaw += yaw_delta;

@@ -8,8 +8,10 @@
 mod bench;
 mod build;
 mod demo;
+mod dialog;
 mod document;
 mod drawing;
+mod filing;
 mod history;
 mod hud;
 mod intent;
@@ -30,15 +32,17 @@ mod tool;
 pub use bench::alloc_bench;
 
 use std::fmt;
+use std::path::PathBuf;
 
 use palantir::{App, Configure, HostHandle, Key, Panel, Shortcut, Sizing, Ui, WindowToken};
 use silverpoint::{Entity, Removed};
 
 use crate::build::Build;
 use crate::document::Document;
+use crate::filing::Filing;
 use crate::history::History;
 use crate::hud::{Hud, Shown};
-use crate::intent::{Change, Choice, Intents, Step};
+use crate::intent::{Change, Choice, Errand, Intent, Intents, Step};
 use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::session::Session;
@@ -60,12 +64,21 @@ const REDO: Shortcut = Shortcut::ctrl_shift('Z');
 /// to answer for it.
 const DELETE: Shortcut = Shortcut::key(Key::Delete);
 
+/// Put the document away, and fetch one back.
+///
+/// The three every modeller binds, in the places every modeller binds them.
+/// Save As is Save with Shift, which is why the two are matched exactly rather
+/// than by modifier subset — see [`UNDO`].
+const SAVE: Shortcut = Shortcut::ctrl('S');
+const SAVE_AS: Shortcut = Shortcut::ctrl_shift('S');
+const OPEN: Shortcut = Shortcut::ctrl('O');
+
 /// One view of one scene, with the controls and the solve's verdict laid over
 /// it.
 #[derive(Debug)]
 pub struct CatCad {
     /// Everything a session would have to write down to be opened again: the
-    /// sketch, the solids beside it, and the camera looking at them.
+    /// sketch, and the camera looking at it.
     document: Document,
     /// How the document came to say what it says. Beside the document rather
     /// than in it: what is in one is what saving writes down, and the way here
@@ -97,6 +110,11 @@ pub struct CatCad {
     /// What floats over the view: the tool bar, and the readout in the
     /// corner.
     hud: Hud,
+    /// Where the document came from, whether it has been written since, and the
+    /// question being asked about it. Beside the document rather than in it,
+    /// like the history and the session: where a drawing lives is not something
+    /// the drawing says.
+    filing: Filing,
 }
 
 impl CatCad {
@@ -123,7 +141,11 @@ impl CatCad {
         // Opened in its first sketch, so a tool has somewhere to draw before
         // anything has been picked out.
         let session = Session::new(document.opening());
-        let mut view = SceneView::new(&document, &build, session.editing());
+        // Handed over once and not kept. The scenery stands in the view's scene
+        // from here on and nothing rewrites it — a redraw touches the drawing
+        // and leaves the solids where they are — so it outlives every document
+        // opened through the view without anything having to hold on to it.
+        let mut view = SceneView::new(&document, &build, session.editing(), &demo::scenery());
         if let Some(bounds) = view.bounds() {
             document.frame(bounds);
         }
@@ -143,6 +165,7 @@ impl CatCad {
             view,
             session,
             hud: Hud::default(),
+            filing: Filing::default(),
         }
     }
 
@@ -161,6 +184,15 @@ impl CatCad {
         }
         if ui.key_pressed(REDO) {
             self.intents.push(Step::Redo);
+        }
+        if ui.key_pressed(SAVE) {
+            self.intents.push(Errand::Save);
+        }
+        if ui.key_pressed(SAVE_AS) {
+            self.intents.push(Errand::SaveAs);
+        }
+        if ui.key_pressed(OPEN) {
+            self.intents.push(Errand::Open);
         }
         // Escape puts down whatever is in hand wherever the pointer happens to
         // be. The view answers for the right button over the drawing, which is
@@ -190,8 +222,8 @@ impl CatCad {
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
         let status = ui.fmt(format_args!("{}", self.status()));
-        // Last, so what floats over the view is the topmost thing in the zstack
-        // and takes its own presses rather than the view beneath it.
+        // Over the view, so what floats on it is what takes its own presses
+        // rather than the view beneath.
         self.hud.show(
             ui,
             Shown {
@@ -219,17 +251,103 @@ impl CatCad {
         self.session.apply(&self.intents);
         self.history
             .apply(&mut self.document, &mut self.build, &self.intents);
-        // Last, because an undo can take geometry the session was still holding
-        // on to — see [`Session::prune`].
+        // After the history, because an undo can take geometry the session was
+        // still holding on to — see [`Session::prune`].
         self.session
             .prune(self.document.models(&self.build, self.session.editing()));
+        // Last of all, because saving has to write down what this frame's
+        // edits left rather than what they started from — and because opening
+        // replaces the three things above, so anything landing after it would
+        // be landing on a document that was never asked.
+        self.run();
+    }
+
+    /// Run everything the frame asked of the application itself.
+    ///
+    /// The fourth group, and the only one that does not write a field beside
+    /// the document — it writes the document, and the history and session with
+    /// it. That is why this walks the inbox by index where its three peers
+    /// iterate: an errand cannot be holding a borrow of the application while
+    /// it replaces most of one. See [`Intents::at`].
+    fn run(&mut self) {
+        let mut nth = 0;
+        while let Some(intent) = self.intents.at(nth) {
+            nth += 1;
+            let Intent::Errand(errand) = intent else {
+                continue;
+            };
+            match errand {
+                // Where it came from, and a dialog only if it came from
+                // nowhere. That is what makes it the one worth binding: a
+                // document that has a name is written without being asked
+                // anything.
+                Errand::Save => match self.filing.path() {
+                    Some(path) => self.write(path.to_path_buf()),
+                    None => self.save_as(),
+                },
+                Errand::SaveAs => self.save_as(),
+                // A dismissed dialog is an answer, and the answer is no. It
+                // says nothing about the document, so nothing here says
+                // anything about it either — not even in the readout, where a
+                // note about a dialog nobody used would push out whatever the
+                // last thing that *did* happen was.
+                Errand::Open => {
+                    if let Some(path) = dialog::open(self.filing.path()) {
+                        self.read(path);
+                    }
+                }
+            }
+        }
+    }
+
+    /// Ask where to put the document, and put it there.
+    ///
+    /// Both commands that need a dialog to save go through here — Save As, and
+    /// the Save of a document that has never been anywhere — so the two cannot
+    /// come to differ about what a Save As is.
+    fn save_as(&mut self) {
+        if let Some(path) = dialog::save(self.filing.path()) {
+            self.write(path);
+        }
+    }
+
+    /// Write the document to `path`, and note how it went.
+    fn write(&mut self, path: PathBuf) {
+        match self.document.save_to(&path) {
+            Ok(()) => self.filing.settled(path, self.document.edits(), "saved to"),
+            // Where the document lives is left where it was. A write that
+            // failed changed nothing, and a document that had been saved
+            // before this one is still saved.
+            Err(error) => self.filing.refused_write(&path, error),
+        }
+    }
+
+    /// Open the document at `path`, or leave everything alone and say why.
+    ///
+    /// Everything this run has made of the document that was open goes with it,
+    /// and the order is what makes a refusal harmless: nothing here is written
+    /// until the file has been read, parsed, checked and solved — see
+    /// [`Document::read`].
+    fn read(&mut self, path: PathBuf) {
+        let document = match Document::open(&mut self.build, &path) {
+            Ok(document) => document,
+            Err(error) => return self.filing.refused_read(&path, error),
+        };
+        self.document = document;
+        // A different document is a different session and a different history.
+        // Nothing that was in hand is in hand, nothing picked out still exists
+        // to be picked out, and what was done to the document that was open
+        // cannot be taken back off the one that replaced it.
+        self.session = Session::new(self.document.opening());
+        self.history = History::default();
+        self.filing.settled(path, self.document.edits(), "opened");
+        // The scenery stays. Nothing put it there and nothing takes it away —
+        // it stands around whichever document is open.
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
-    /// A sketch is only as useful as it is determined, so the report reads
-    /// over the drawing rather than into a log.
-    fn status(&self) -> Status {
+    fn status(&self) -> Status<'_> {
         let model = self
             .document
             .models(&self.build, self.session.editing())
@@ -242,6 +360,8 @@ impl CatCad {
             redundant_constraints: outcome.redundant_constraints(),
             hovered: self.view.hovered(),
             cleaned: self.build.cleaned(),
+            unsaved: self.filing.unsaved(self.document.edits()),
+            filed: self.filing.report(),
         }
     }
 }
@@ -260,7 +380,7 @@ impl CatCad {
 /// allocation to say so. And a value that can be written to any formatter is
 /// one a test can read without raising a `Ui` to do it.
 #[derive(Debug)]
-struct Status {
+struct Status<'a> {
     converged: bool,
     iterations: u32,
     /// What the sketch can still do, where the two above are only how the last
@@ -275,6 +395,13 @@ struct Status {
     /// reason this is an `Option` — a command that answers a press with silence
     /// reads as a command that did not work.
     cleaned: Option<Removed>,
+    /// Whether the document has been changed since it was last written.
+    unsaved: bool,
+    /// What the last thing asked of the filing came to, where anything has
+    /// been. Already a sentence — see [`Filing::report`] — because there is
+    /// nothing here that could word one: a path is not a number and this line
+    /// is built sixty times a second.
+    filed: Option<&'a str>,
 }
 
 /// What to call a part of the drawing where a person will read it.
@@ -306,7 +433,7 @@ fn noun(part: Part) -> &'static str {
     }
 }
 
-impl fmt::Display for Status {
+impl fmt::Display for Status<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let state = if self.converged { "solved" } else { "unsolved" };
         write!(
@@ -314,6 +441,12 @@ impl fmt::Display for Status {
             "{state} · {} dof · {} redundant · {} iterations",
             self.degrees_of_freedom, self.redundant_constraints, self.iterations,
         )?;
+        if self.unsaved {
+            f.write_str(" · unsaved")?;
+        }
+        if let Some(filed) = self.filed {
+            write!(f, " · {filed}")?;
+        }
         if let Some(entity) = self.hovered {
             write!(f, " · {}", noun(entity))?;
         }

@@ -46,6 +46,9 @@ pub(crate) enum Intent {
     /// The [`Session`](crate::session::Session)'s, and nobody else's: none of it
     /// is in the document, and none of it is a step to take back.
     Choice(Choice),
+    /// The application's own — the one group that lands on none of the three
+    /// things below it, because what it does is *replace* them.
+    Errand(Errand),
 }
 
 impl From<Change> for Intent {
@@ -63,6 +66,12 @@ impl From<Step> for Intent {
 impl From<Choice> for Intent {
     fn from(choice: Choice) -> Self {
         Intent::Choice(choice)
+    }
+}
+
+impl From<Errand> for Intent {
+    fn from(errand: Errand) -> Self {
+        Intent::Errand(errand)
     }
 }
 
@@ -283,6 +292,40 @@ pub(crate) enum Choice {
     Hold(Tool),
 }
 
+/// What the application answers: putting the document away, and fetching one
+/// back.
+///
+/// The fourth group, and the odd one out. The other three each land on
+/// something the application holds — the document, the history, the session —
+/// and this one lands on the application itself, because opening a file
+/// replaces all three at once: a different document, nothing done to it yet, and
+/// nothing in hand. Nothing below the application could answer that, which is
+/// why it is not a [`Change`].
+///
+/// **None of these carries a path.** An [`Intent`] is `Copy` and load-bearingly
+/// so, and a [`PathBuf`](std::path::PathBuf) would end that — applying one could
+/// no longer lift it out of the inbox. It would be the wrong place for one
+/// anyway: which file is a question the desktop answers, and it is asked when
+/// the errand lands rather than when it is raised — see [`dialog`](crate::dialog).
+/// Where the answer then lives is [`Filing`](crate::filing::Filing)'s.
+///
+/// Landing twice is harmless, by the rule every intent here follows — though
+/// none of them can, because all three are gated on a keypress or a click and
+/// palantir delivers those to one pass of a frame. Writing the same document to
+/// the same path twice would put the same bytes there; opening the same file
+/// twice would arrive at the same document. Neither is a step, so neither asks
+/// the history for anything.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Errand {
+    /// Write the document back where it came from, or ask where to put it if it
+    /// came from nowhere.
+    Save,
+    /// Ask where to put it, whether or not it already has somewhere.
+    SaveAs,
+    /// Ask which document to open.
+    Open,
+}
+
 /// Everything asked for during one frame.
 ///
 /// Cleared and refilled rather than rebuilt, so the inbox costs one allocation
@@ -313,5 +356,21 @@ impl Intents {
     /// be resolved against a camera the wheel had already moved.
     pub(crate) fn iter(&self) -> impl Iterator<Item = Intent> {
         self.queue.iter().copied()
+    }
+
+    /// The `nth` thing asked for, or `None` past the end.
+    ///
+    /// The way in for a reader that has to let go of the inbox between one
+    /// intent and the next. Everything else here walks with [`Intents::iter`]
+    /// and writes one field of the application beside it, which the borrow
+    /// checker is happy to allow; an [`Errand`] replaces most of the
+    /// application at once, and cannot be holding a borrow of part of it while
+    /// it lands.
+    ///
+    /// A walk by index rather than a list of errands gathered first, because
+    /// the record pass allocates nothing and a `Vec` built to hold the two
+    /// errands a session ever raises would be an allocation every frame.
+    pub(crate) fn at(&self, nth: usize) -> Option<Intent> {
+        self.queue.get(nth).copied()
     }
 }
