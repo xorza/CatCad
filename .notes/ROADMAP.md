@@ -39,3 +39,6 @@ rather than rework.
 
 - Solids built from profiles, replacing the hard-coded demo cubes.
 - A feature tree that rebuilds on edit.
+- Designed in `FEATURES.md`, staged in six steps. Stage 1 is done: the
+  document is a timeline, and a sketch names its plane rather than carrying
+  one.
