@@ -129,6 +129,11 @@ impl Arrangement {
     /// Which sketch entities draw the outline of `face`, in the order it is
     /// walked and without repeats where one curve contributes several pieces.
     ///
+    /// Fills `into` rather than returning it, like everything else here: this
+    /// is the one question about an arrangement a caller would ask every frame
+    /// once anything is built from a profile, and a fresh list per face would
+    /// undo what the rest of this rebuild is careful about.
+    ///
     /// Nothing calls this yet, and it is kept deliberately: what bounds a face
     /// is what a *profile* is, so this is the question anything built from one
     /// asks first — and the answer is already lying about, since cutting a
@@ -138,15 +143,14 @@ impl Arrangement {
     /// Two halves of a cut circle are drawn by the same two curves, so this
     /// tells them apart not at all — naming one is
     /// [`Arrangement::faces`]'s order, and nothing else.
-    pub fn drawn_by(&self, face: &Face) -> Vec<Entity> {
-        let mut named: Vec<Entity> = Vec::new();
+    pub fn drawn_by(&self, face: &Face, into: &mut Vec<Entity>) {
+        into.clear();
         for half in &face.outline {
             let of = self.edges[half.edge].of;
-            if !named.contains(&of) {
-                named.push(of);
+            if !into.contains(&of) {
+                into.push(of);
             }
         }
-        named
     }
 
     /// A loop as a closed polyline, each corner named once.
@@ -372,33 +376,54 @@ impl Arrangement {
             scratch,
             ..
         } = self;
-        let Departures { leaving, at } = &mut scratch.departures;
-        // Grown to reach every corner and never shrunk: a fan left over from a
-        // larger drawing is emptied like the rest and simply never read.
-        while leaving.len() < corners.len() {
-            leaving.push(Vec::new());
-        }
-        for fan in leaving.iter_mut() {
-            fan.clear();
-        }
-        for (edge, of) in edges.iter().enumerate() {
-            for forward in [true, false] {
-                let [from, _] = of.ends(forward);
-                leaving[from].push(Half { edge, forward });
-            }
-        }
+        let Departures {
+            leaving,
+            starts,
+            at,
+        } = &mut scratch.departures;
+        let leaves = |half: Half| edges[half.edge].ends(half.forward)[0];
         let angle = |half: Half| {
             let out = edges[half.edge].departure(corners, half.forward);
             out.y.atan2(out.x)
         };
-        at.clear();
-        at.resize(edges.len() * 2, 0);
-        for fan in leaving.iter_mut() {
-            fan.sort_by(|&a, &b| {
+
+        leaving.clear();
+        leaving.reserve_exact(edges.len() * 2);
+        for edge in 0..edges.len() {
+            for forward in [true, false] {
+                leaving.push(Half { edge, forward });
+            }
+        }
+        // Gathered by corner, and within a corner ordered by the direction the
+        // edge leaves in — which is the fan the walk turns through. One sort
+        // rather than one per corner, and no dearer for it: the angle is
+        // measured only where the corners already match, which is exactly the
+        // comparison a fan of its own would have made.
+        leaving.sort_by(|&a, &b| {
+            leaves(a).cmp(&leaves(b)).then_with(|| {
                 angle(a)
                     .partial_cmp(&angle(b))
                     .expect("a direction between finite corners is finite")
-            });
+            })
+        });
+
+        // Where each corner's fan begins, by counting what landed in it and
+        // running the counts up.
+        starts.clear();
+        starts.resize(corners.len() + 1, 0);
+        for &half in leaving.iter() {
+            starts[leaves(half) + 1] += 1;
+        }
+        for corner in 1..starts.len() {
+            starts[corner] += starts[corner - 1];
+        }
+
+        // Where each half-edge sits within its own fan, which is what the walk
+        // reads to decide where to turn.
+        at.clear();
+        at.resize(edges.len() * 2, 0);
+        for corner in 0..corners.len() {
+            let fan = &leaving[starts[corner]..starts[corner + 1]];
             for (position, half) in fan.iter().enumerate() {
                 at[half.slot()] = position;
             }
@@ -499,16 +524,27 @@ struct Scratch {
 }
 
 /// Where each half-edge sits in the fan of them leaving its corner.
+///
+/// One run of half-edges gathered by corner rather than a vector per corner: a
+/// drawing with a hundred corners would otherwise be a hundred heap blocks, and
+/// emptying them to rebuild would hand every one of them straight back.
 #[derive(Debug, Default)]
 struct Departures {
-    leaving: Vec<Vec<Half>>,
+    /// Every half-edge, gathered by the corner it leaves and ordered within
+    /// each corner by the direction it leaves in.
+    leaving: Vec<Half>,
+    /// Where each corner's fan begins in `leaving`, with the total on the end —
+    /// so a corner's fan is `starts[corner]..starts[corner + 1]`, and a corner
+    /// nothing leaves is the empty stretch between two equal entries.
+    starts: Vec<usize>,
+    /// Where each half-edge sits within its own fan.
     at: Vec<usize>,
 }
 
 impl Departures {
     /// The half-edge leaving `corner` just clockwise of `half`.
     fn after(&self, corner: usize, half: Half) -> Half {
-        let fan = &self.leaving[corner];
+        let fan = &self.leaving[self.starts[corner]..self.starts[corner + 1]];
         let position = self.at[half.slot()];
         fan[(position + fan.len() - 1) % fan.len()]
     }

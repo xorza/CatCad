@@ -246,11 +246,9 @@ fn a_face_fills_to_the_area_it_encloses() {
     );
 
     // And it says what draws it, which is what a later feature selects by.
-    assert_eq!(
-        found.drawn_by(ring).len(),
-        1,
-        "the ring is drawn by one circle"
-    );
+    let mut drawn = Vec::new();
+    found.drawn_by(ring, &mut drawn);
+    assert_eq!(drawn.len(), 1, "the ring is drawn by one circle");
 }
 
 /// The order faces come back in survives the geometry moving.
@@ -379,6 +377,7 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
 
     let mut reused = Arrangement::default();
     let mut filler = Filler::default();
+    let (mut one_drawn, mut other_drawn) = (Vec::new(), Vec::new());
     for (before, first) in drawings {
         for (after, build) in drawings {
             // Wound up to the first drawing, then over to the second — against
@@ -405,9 +404,10 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
                     is.holes(),
                     "{before} then {after}: face {at} kept a hole it does not have"
                 );
+                fresh.drawn_by(was, &mut one_drawn);
+                reused.drawn_by(is, &mut other_drawn);
                 assert_eq!(
-                    fresh.drawn_by(was).len(),
-                    reused.drawn_by(is).len(),
+                    one_drawn, other_drawn,
                     "{before} then {after}: face {at} is drawn by different curves"
                 );
             }
