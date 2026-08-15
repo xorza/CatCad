@@ -151,7 +151,13 @@ fn crossed(ray: Ray, corners: [Vec3; 3]) -> Option<f32> {
     if v < 0.0 || u + v > 1.0 {
         return None;
     }
-    // Behind the eye is not something the cursor is over.
+    // Behind the near plane is not something the cursor is over. The ray starts
+    // *on* that plane rather than at the eye — see
+    // [`Camera::ray_through`](crate::Camera) — so this one comparison refuses
+    // both what is behind the viewer and what the near plane cut away, which is
+    // what keeps a surface pickable exactly where it is drawn. The overlays
+    // reach the same answer by a different route, testing the clip position
+    // against the planes the hardware clips against.
     let travelled = across.dot(upward) * inverse;
     (travelled >= 0.0).then_some(travelled)
 }

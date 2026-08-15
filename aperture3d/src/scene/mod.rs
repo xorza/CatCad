@@ -68,31 +68,6 @@ fn shows(front: f32, hit: &Hit) -> bool {
     hit.distance <= front * (1.0 + BEHIND)
 }
 
-/// What the aim landed on that a drawing is drawn *on*, and how much of what is
-/// behind it that hides.
-///
-/// Two answers rather than one, because they are asked of different things: what
-/// *hides* is asked of everything the aim crosses, and what *wins* only of the
-/// surfaces still standing after the hiding.
-///
-/// A surface hides other surfaces as readily as it hides what is drawn over
-/// them, and that is what settles the two against each other — depth first, and
-/// [`Hit::aim_order`] only among those level with one another. What a thing is
-/// *for* cannot outrank being in front here, however it does elsewhere: a
-/// preference between two surfaces is a preference between one you can see and
-/// one you cannot, and answering with the one behind hands back something the
-/// cursor was never over. That is [`HitAt::backdrop`]'s own argument, asked of
-/// two backdrops instead of a backdrop and an overlay.
-#[derive(Debug, Clone, Copy)]
-struct Ground {
-    /// How far along the aim the first surface is, or infinity where the aim
-    /// crossed none — which then hides nothing, at no cost to the arithmetic.
-    front: f32,
-    /// The surface a pick answers with once nothing else is in reach — the
-    /// frontmost, or the one the ordering prefers among those level with it.
-    best: Option<Hit>,
-}
-
 impl Scene {
     /// What the scene occupies in world space, or `None` when there is
     /// nothing in it.
@@ -126,7 +101,8 @@ impl Scene {
     /// than the aim's radius is pickable anywhere it is visible — you can always
     /// grab what you can see.
     pub fn nearest(&self, aim: Aim) -> Option<Hit> {
-        // Two phases and not one list, because the question genuinely has two.
+        // Three phases and not one list, because the question genuinely has
+        // three.
         // A surface the aim lands on hides what is behind it, which the ordering
         // cannot say and should not try to: it puts a backdrop last whatever the
         // depth, so that a face never takes the click meant for its own
@@ -146,6 +122,12 @@ impl Scene {
         // so the ground answers exactly when nothing else survived being behind
         // it.
         let ground = self.ground(&aim);
+        // Its own distance is the threshold the rest are held to, because it is
+        // already the frontmost surface or level with one — see [`Scene::ground`].
+        // That reads a hair looser than the frontmost distance itself, by the
+        // tolerance twice over rather than once; against a next plane a fifth of
+        // the viewing distance away, two thousandths and one are the same answer.
+        let grounded = ground.map_or(f32::INFINITY, |hit| hit.distance);
         // The same question a second time, about frames rather than surfaces. A
         // frame is furniture *around* a drawing and yields its click to the
         // geometry it frames — which is geometry it is level with, being drawn
@@ -159,9 +141,9 @@ impl Scene {
         // above and unchanged by which of the two is asking.
         let framed = self.frame_front(&aim);
         self.overlays(&aim)
-            .filter(|hit| shows(ground.front, hit) && shows(framed, hit))
+            .filter(|hit| shows(grounded, hit) && shows(framed, hit))
             .min_by(Hit::aim_order)
-            .or(ground.best)
+            .or(ground)
     }
 
     /// How far off the nearest frame the aim crosses lies, or infinity where it
@@ -180,36 +162,73 @@ impl Scene {
     /// A second walk of the overlays rather than a list kept from the first, for
     /// the reason the ground is settled by name above: what a pick hands back is
     /// one hit, and holding every hit in order to take one is the cost this is
-    /// shaped to avoid. The walk is linear and runs once a frame; if it ever
-    /// shows up, the cheaper form is to ask each primitive what it is for before
-    /// picking it rather than after, since frames are the rarest thing a scene
-    /// holds.
+    /// shaped to avoid.
+    ///
+    /// What it is for is asked *before* it is picked, which is what keeps the
+    /// second walk from costing what the first does. A frame is the rarest thing
+    /// a scene holds — a drawing has one per datum and no more — and picking is
+    /// where the arithmetic is: a rim alone answers by sweeping its circumference
+    /// and then bisecting, and a walk that picked every rim in the drawing to
+    /// find out none of them was a frame would double the cost of every pick to
+    /// learn nothing. Standing is a field on the primitive and reading it is
+    /// free, so the four kinds are filtered where they lie rather than after.
     fn frame_front(&self, aim: &Aim) -> f32 {
-        self.overlays(aim)
-            .filter(|hit| hit.precedence == Precedence::Frame)
+        let framed = |precedence: &Precedence| *precedence == Precedence::Frame;
+        let points = self
+            .points
+            .iter()
+            .filter(|point| framed(&point.precedence))
+            .filter_map(|point| point.pick(aim));
+        let texts = self
+            .texts
+            .iter()
+            .filter(|text| framed(&text.precedence))
+            .filter_map(|text| text.pick(aim));
+        let curves = self
+            .curves
+            .iter()
+            .filter(|curve| framed(&curve.precedence))
+            .filter_map(|curve| curve.pick(aim));
+        let rings = self
+            .rings
+            .iter()
+            .filter(|ring| framed(&ring.precedence))
+            .filter_map(|ring| ring.pick(aim));
+        points
+            .chain(texts)
+            .chain(curves)
+            .chain(rings)
             .fold(f32::INFINITY, |front, hit| front.min(hit.distance))
     }
 
-    /// What the aim crosses of the surfaces a drawing stands on.
+    /// The surface a pick answers with once nothing else is in reach, and the
+    /// one everything else is held in front of.
     ///
     /// Both mesh batches, because which one an object is in decides how it is
     /// *drawn* and says nothing about whether it can be aimed at — an untagged
     /// one is scenery and answers nothing either way.
-    fn ground(&self, aim: &Aim) -> Ground {
+    ///
+    /// A surface hides other surfaces as readily as it hides what is drawn over
+    /// them, and that is what settles the two against each other: depth first,
+    /// and [`Hit::aim_order`] only among those level with one another. What a
+    /// thing is *for* cannot outrank being in front here, however it does
+    /// elsewhere — a preference between two surfaces is a preference between one
+    /// you can see and one you cannot, and answering with the one behind hands
+    /// back something the cursor was never over.
+    ///
+    /// One answer rather than two, though it is asked for as both the winner and
+    /// the threshold: whichever wins is level with the frontmost by the line
+    /// below, so its distance stands for the frontmost's to within the tolerance
+    /// that put it there.
+    fn ground(&self, aim: &Aim) -> Option<Hit> {
         let meshes = || self.faces.iter().chain(self.solids.iter());
         let front = meshes()
             .filter_map(|mesh| mesh.pick(aim))
             .fold(f32::INFINITY, |front, hit| front.min(hit.distance));
-        // Only the surfaces that survive being behind the frontmost one, which
-        // between surfaces is nearly always the frontmost one alone. A surface
-        // covers whatever it is drawn over — that is the whole of what makes it
-        // a backdrop — so one behind another is not merely a worse answer than
-        // it, it is an answer the cursor could not have been pointing at.
-        let best = meshes()
+        meshes()
             .filter_map(|mesh| mesh.pick(aim))
             .filter(|hit| shows(front, hit))
-            .min_by(Hit::aim_order);
-        Ground { front, best }
+            .min_by(Hit::aim_order)
     }
 
     /// Every overlay the aim reaches — the markers, labels, strokes and rims a

@@ -52,13 +52,18 @@ fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
 fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) -> Vec<Hit> {
     let aim = Aim::new(through, cursor, viewport(), radius);
     let ground = scene.ground(&aim);
+    let grounded = ground.map_or(f32::INFINITY, |hit| hit.distance);
     let framed = scene.frame_front(&aim);
     let mut hits: Vec<Hit> = scene
         .overlays(&aim)
-        .filter(|hit| shows(ground.front, hit) && shows(framed, hit))
+        .filter(|hit| shows(grounded, hit) && shows(framed, hit))
         .collect();
-    hits.extend(ground.best);
     hits.sort_by(Hit::aim_order);
+    // The ground last, and put there rather than sorted there: a surviving
+    // overlay always beats it, which `nearest` says with an `or` and nothing in
+    // the ordering says at all. Sorting it in with the rest would be this
+    // helper claiming an ordering the pick does not have.
+    hits.extend(ground);
     hits
 }
 
@@ -418,6 +423,41 @@ fn only_what_survived_the_near_plane_can_be_picked() {
         .push(Point::new(Vec3::new(0.0, 0.0, 4.5)).tagged(Tag::new(1)));
     assert!(ranked(&scene, CENTRE, 50.0).is_empty());
 
+    // A surface the near plane cut is refused too, and by a different route: a
+    // mesh is picked along the cursor's ray rather than against the clip
+    // planes, and the ray starts *on* the near plane. So a sheet in front of it
+    // neither answers nor hides the drawn one behind it — which is the half
+    // that would bite, an undrawn surface being enough to swallow every pick.
+    scene.points.clear();
+    let sheet = |z: f32| {
+        let at = |x: f32, y: f32| Vertex {
+            position: Vec3::new(x, y, z),
+            normal: Vec3::Z,
+        };
+        Object::new(Mesh {
+            vertices: vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
+            indices: vec![0, 1, 2, 0, 2, 3],
+        })
+    };
+    scene.faces.push(sheet(4.5).tagged(Tag::new(4)));
+    scene.faces.push(sheet(0.0).tagged(Tag::new(5)));
+    scene
+        .points
+        .push(Point::new(Vec3::ZERO).tagged(Tag::new(6)));
+    let aim = Aim::new(&head_on(), CENTRE, viewport(), 1.0);
+    assert_eq!(
+        scene.nearest(aim).map(|hit| hit.tag),
+        Some(Tag::new(6)),
+        "a sheet the near plane cut hid the drawing behind it"
+    );
+    scene.points.clear();
+    assert_eq!(
+        scene.nearest(aim).map(|hit| hit.tag),
+        Some(Tag::new(5)),
+        "a sheet the near plane cut answered a pick"
+    );
+    scene.faces.clear();
+
     // Straddling. The visible half still picks, and reports a parameter on
     // the *whole* segment rather than on the surviving piece. This one
     // recedes straight down the view axis, so all of it lands on one
@@ -583,6 +623,29 @@ fn a_surface_is_picked_anywhere_over_it_and_loses_to_what_is_drawn_on_it() {
         hit.tag, edge,
         "the face swallowed a click meant for an edge"
     );
+
+    // And no standing puts the face back in front. The edge is set aside and
+    // then made furniture outright, while the face belongs to the sketch being
+    // worked in — and the edge takes it both times, because a face beating what
+    // stands on it is a face with no boundary anyone can click. This is the
+    // strong form, and it is structural: the ordering is never asked, since a
+    // surviving overlay is taken before the ground is looked at.
+    for standing in [Precedence::Aside, Precedence::Frame] {
+        scene.curves.clear();
+        scene.curves.push(
+            Curve::new(vec![Vec3::new(-1.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)])
+                .width(2.0)
+                .tagged(edge)
+                .precedence(standing),
+        );
+        let hit = scene
+            .nearest(Aim::new(&camera, middle, viewport, 6.0))
+            .expect("both are under the cursor");
+        assert_eq!(
+            hit.tag, edge,
+            "a {standing:?} edge lost to the face under it"
+        );
+    }
 }
 
 /// A sheet answers from either side, because a sheet has no outside.
