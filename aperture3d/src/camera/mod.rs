@@ -1,6 +1,6 @@
 //! Where the scene is viewed from, and the matrix that follows from it.
 
-use crate::bounds::Bounds;
+use crate::extent::Extent;
 use crate::ray::Ray;
 use crate::viewport::Viewport;
 use glam::camera::rh::{proj::directx, view};
@@ -305,16 +305,16 @@ impl Camera {
         (right * screen.x - up * screen.y) * world_per_pixel
     }
 
-    /// Look at `bounds` from the current angles, far enough back that all of
+    /// Look at `extent` from the current angles, far enough back that all of
     /// it is in frame.
     ///
     /// The fit is against the *vertical* field of view, so a viewport wider
     /// than it is tall has room to spare and a taller one crops. What is
     /// fitted is the bounding sphere rather than the box, which is why
     /// orbiting afterwards never swings a corner out of view.
-    pub fn frame(&mut self, bounds: Bounds) {
-        self.target = bounds.centre();
-        let radius = bounds.radius();
+    pub fn frame(&mut self, extent: Extent) {
+        self.target = extent.centre();
+        let radius = extent.radius();
         self.distance = (radius / (self.fov_y * 0.5).sin()).max(MIN_DISTANCE);
     }
 }

@@ -167,17 +167,13 @@ impl Arrangement {
     /// back, so it appears both ways round and bounds nothing at all; without
     /// the second rule, drawing a stray line touching a region would rename it.
     fn bounding(&self, face: &Face) -> impl Iterator<Item = Bound> {
-        face.outline
-            .iter()
-            .enumerate()
-            .filter_map(move |(at, &of)| {
-                let bound = self.bound(of);
-                let walked =
-                    |run: &[Half], want: Bound| run.iter().any(|&had| self.bound(had) == want);
-                let kept =
-                    !walked(&face.outline[..at], bound) && !walked(&face.outline, bound.turned());
-                kept.then_some(bound)
-            })
+        let outline = face.outline();
+        outline.iter().enumerate().filter_map(move |(at, &half)| {
+            let bound = self.bound(half);
+            let holds = |run: &[Half], want: Bound| run.iter().any(|&had| self.bound(had) == want);
+            let kept = !holds(&outline[..at], bound) && !holds(outline, bound.turned());
+            kept.then_some(bound)
+        })
     }
 
     /// The curve a half-edge is a piece of, and the side of it being walked.

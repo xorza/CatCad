@@ -257,7 +257,7 @@ impl Primitive for Curve {
         self.tag
     }
 
-    fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
+    fn reaches(&self, mut include: impl FnMut(Vec3)) {
         for point in &self.points {
             include(*point);
         }

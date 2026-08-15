@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Bounds, Highlight, Lit, Motion, Object, Renderer};
+use aperture::{Extent, Highlight, Lit, Motion, Object, Renderer};
 use glam::{Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
@@ -220,8 +220,8 @@ impl SceneView {
     /// what you are showing is a fair question to ask a view, and the caller
     /// would otherwise reach through `renderer().borrow().scene()` to ask the
     /// scene the same thing.
-    pub(crate) fn bounds(&self) -> Option<Bounds> {
-        self.renderer.borrow().scene().bounds()
+    pub(crate) fn extent(&self) -> Option<Extent> {
+        self.renderer.borrow().scene().extent()
     }
 
     /// What the pointer is working on, if anything.

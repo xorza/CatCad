@@ -1,6 +1,6 @@
 //! What everything a scene holds has in common.
 
-use crate::bounds::Bounds;
+use crate::extent::Extent;
 use crate::renderer::record::Instance;
 use crate::tag::Tag;
 use glam::Vec3;
@@ -48,7 +48,7 @@ pub(crate) trait Primitive {
     /// What it *reaches*, not what it is drawn as: a stroke's width, a marker's
     /// glyph and a label's box are screen-space quantities and say nothing about
     /// where the world extends, so none of them counts.
-    fn extend_bounds(&self, include: impl FnMut(Vec3));
+    fn reaches(&self, include: impl FnMut(Vec3));
 }
 
 /// A primitive that can turn itself into records from `&self` alone.
@@ -80,11 +80,11 @@ pub(crate) trait Flatten: Primitive {
 }
 
 /// Widen `into` to hold everything `items` reaches.
-pub(crate) fn bounds<P: Primitive>(items: &[P], into: &mut Option<Bounds>) {
+pub(crate) fn extent<P: Primitive>(items: &[P], into: &mut Option<Extent>) {
     for item in items {
-        item.extend_bounds(|point| match into.as_mut() {
-            Some(bounds) => bounds.include(point),
-            None => *into = Some(Bounds::point(point)),
+        item.reaches(|point| match into.as_mut() {
+            Some(extent) => extent.include(point),
+            None => *into = Some(Extent::point(point)),
         });
     }
 }

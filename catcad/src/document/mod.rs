@@ -5,7 +5,7 @@ pub(crate) mod file;
 use std::fs;
 use std::path::Path;
 
-use aperture::{Bounds, Camera};
+use aperture::{Camera, Extent};
 
 use crate::build::Build;
 use crate::document::file::error::{LoadError, SaveError};
@@ -195,15 +195,15 @@ impl Document {
         self.edits
     }
 
-    /// Aim the camera to take `bounds` in.
+    /// Aim the camera to take `extent` in.
     ///
     /// Named rather than handing out the camera, for the same reason everything
     /// below is: a document that lent out `&mut Camera` would be a document
     /// whose every change no longer passed a place that could be watched. This
     /// is the one aiming nobody asked for — what a document does on being opened,
     /// before anyone has looked at it.
-    pub(crate) fn frame(&mut self, bounds: Bounds) {
-        self.camera.frame(bounds);
+    pub(crate) fn frame(&mut self, extent: Extent) {
+        self.camera.frame(extent);
         self.edits = self.edits.next();
     }
 

@@ -175,7 +175,7 @@ impl Primitive for Object {
     /// Measured after the transform, so this is where the geometry actually
     /// lands — and the one kind whose extent is the model rather than a claim
     /// about legibility.
-    fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
+    fn reaches(&self, mut include: impl FnMut(Vec3)) {
         for vertex in &self.mesh.vertices {
             include(self.transform.transform_point3(vertex.position));
         }

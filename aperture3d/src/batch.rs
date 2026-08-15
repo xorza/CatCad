@@ -19,7 +19,7 @@ use std::ops::{Deref, DerefMut};
 /// first time, since refilling an empty one stands up everything it needs.
 ///
 /// Reads go through the slice it derefs to, so `len`, `iter`, indexing and the
-/// rest are all there, and everything downstream — picking, bounds, the records
+/// rest are all there, and everything downstream — picking, extents, the records
 /// the renderer flattens these into — keeps taking `&[T]` and never names this
 /// at all.
 ///

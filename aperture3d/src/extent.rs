@@ -3,15 +3,15 @@
 use glam::Vec3;
 
 /// A world-space axis-aligned box. Built by growing from a first point, so an
-/// empty scene has no bounds at all rather than a degenerate one at the
+/// empty scene has no extent at all rather than a degenerate one at the
 /// origin.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Bounds {
+pub struct Extent {
     pub min: Vec3,
     pub max: Vec3,
 }
 
-impl Bounds {
+impl Extent {
     /// The box containing one point, and nothing else yet.
     pub(crate) fn point(point: Vec3) -> Self {
         Self {
@@ -43,20 +43,20 @@ mod tests {
 
     #[test]
     fn growing_covers_every_point_seen() {
-        let mut bounds = Bounds::point(Vec3::new(1.0, 2.0, 3.0));
-        assert_eq!(bounds.centre(), Vec3::new(1.0, 2.0, 3.0));
-        assert_eq!(bounds.radius(), 0.0, "one point has no extent");
+        let mut extent = Extent::point(Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(extent.centre(), Vec3::new(1.0, 2.0, 3.0));
+        assert_eq!(extent.radius(), 0.0, "one point has no extent");
 
-        bounds.include(Vec3::new(-1.0, 6.0, 3.0));
-        assert_eq!(bounds.min, Vec3::new(-1.0, 2.0, 3.0));
-        assert_eq!(bounds.max, Vec3::new(1.0, 6.0, 3.0));
-        assert_eq!(bounds.centre(), Vec3::new(0.0, 4.0, 3.0));
+        extent.include(Vec3::new(-1.0, 6.0, 3.0));
+        assert_eq!(extent.min, Vec3::new(-1.0, 2.0, 3.0));
+        assert_eq!(extent.max, Vec3::new(1.0, 6.0, 3.0));
+        assert_eq!(extent.centre(), Vec3::new(0.0, 4.0, 3.0));
         // 2 × 4 × 0 box: the diagonal is √20, and the radius is half of it.
-        assert!((bounds.radius() - 20f32.sqrt() * 0.5).abs() < 1e-6);
+        assert!((extent.radius() - 20f32.sqrt() * 0.5).abs() < 1e-6);
 
         // A point already inside changes nothing.
-        let before = bounds;
-        bounds.include(Vec3::new(0.0, 3.0, 3.0));
-        assert_eq!(bounds, before);
+        let before = extent;
+        extent.include(Vec3::new(0.0, 3.0, 3.0));
+        assert_eq!(extent, before);
     }
 }

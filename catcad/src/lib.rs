@@ -146,8 +146,8 @@ impl CatCad {
         // and leaves the solids where they are — so it outlives every document
         // opened through the view without anything having to hold on to it.
         let mut view = SceneView::new(&document, &build, session.editing(), &demo::scenery());
-        if let Some(bounds) = view.bounds() {
-            document.frame(bounds);
+        if let Some(extent) = view.extent() {
+            document.frame(extent);
         }
         // Aiming the camera is not something the view was watching for, so it
         // is handed on here rather than left to the first frame. Not for the

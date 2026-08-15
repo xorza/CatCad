@@ -330,7 +330,7 @@ impl Primitive for Ring {
     /// A circle reaches its radius along every world axis except in so far as
     /// its plane leans away from that axis, which is what the normal's
     /// component in it measures.
-    fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
+    fn reaches(&self, mut include: impl FnMut(Vec3)) {
         let normal = self.normal();
         let spread = Vec3::new(
             (1.0 - normal.x * normal.x).max(0.0).sqrt(),

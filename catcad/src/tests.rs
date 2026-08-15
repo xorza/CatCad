@@ -847,19 +847,19 @@ fn the_app_opens_looking_at_the_whole_of_what_it_draws() {
     let app = CatCad::build();
     let renderer = app.renderer().borrow();
     let camera = *renderer.camera();
-    let bounds = renderer.scene().bounds().expect("the demo draws something");
+    let extent = renderer.scene().extent().expect("the demo draws something");
 
     // Aimed at the middle of what it holds, which for the demo is the slab:
     // twelve wide and nine deep, centred on the sketch's own origin.
     assert!(
-        camera.target.abs_diff_eq(bounds.centre(), 1e-4),
-        "aimed at {:?} rather than the middle of {bounds:?}",
+        camera.target.abs_diff_eq(extent.centre(), 1e-4),
+        "aimed at {:?} rather than the middle of {extent:?}",
         camera.target
     );
     // And far enough back to take it all in.
     assert!(
-        camera.distance > bounds.radius(),
-        "{camera:?} vs {bounds:?}"
+        camera.distance > extent.radius(),
+        "{camera:?} vs {extent:?}"
     );
     assert_ne!(
         camera,

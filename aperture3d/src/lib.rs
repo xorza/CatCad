@@ -30,7 +30,7 @@
 //!
 //! Input is deliberately absent: palantir owns the pointer, so orbit and zoom
 //! are the host's job — drive [`Camera::orbit`] and [`Camera::dolly`] from the
-//! `GpuView`'s `Response`, and [`Camera::frame`] from [`Scene::bounds`].
+//! `GpuView`'s `Response`, and [`Camera::frame`] from [`Scene::extent`].
 //!
 //! # Overlays
 //!
@@ -81,9 +81,9 @@
 
 pub(crate) mod aim;
 pub(crate) mod batch;
-pub(crate) mod bounds;
 pub(crate) mod camera;
 pub(crate) mod curve;
+pub(crate) mod extent;
 pub(crate) mod highlight;
 pub(crate) mod hit;
 pub(crate) mod mesh;
@@ -107,9 +107,9 @@ pub use renderer::bench::alloc_bench;
 
 pub use aim::Aim;
 pub use batch::Batch;
-pub use bounds::Bounds;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;
+pub use extent::Extent;
 pub use highlight::{Highlight, Lit};
 pub use hit::{Hit, HitAt, Precedence};
 pub use mesh::{Mesh, Vertex};

@@ -513,8 +513,8 @@ fn only_what_survived_the_near_plane_can_be_picked() {
 }
 
 #[test]
-fn bounds_cover_transformed_meshes_and_curves() {
-    assert!(Scene::default().bounds().is_none());
+fn the_extent_covers_transformed_meshes_and_curves() {
+    assert!(Scene::default().extent().is_none());
 
     let mut scene = Scene::default();
     // A size-2 cube spans ±1 about its own origin, so shifting it 10 along
@@ -522,15 +522,15 @@ fn bounds_cover_transformed_meshes_and_curves() {
     scene
         .solids
         .push(Object::new(Mesh::cube(2.0)).at(Vec3::new(10.0, 0.0, 0.0)));
-    let cube = scene.bounds().unwrap();
+    let cube = scene.extent().unwrap();
     assert_eq!(cube.min, Vec3::new(9.0, -1.0, -1.0));
     assert_eq!(cube.max, Vec3::new(11.0, 1.0, 1.0));
 
-    // A curve reaching past the cube drags the bounds out with it.
+    // A curve reaching past the cube drags the extent out with it.
     scene
         .curves
         .push(Curve::segment(Vec3::new(0.0, 4.0, 0.0), Vec3::ZERO));
-    let both = scene.bounds().unwrap();
+    let both = scene.extent().unwrap();
     assert_eq!(both.min, Vec3::new(0.0, -1.0, -1.0));
     assert_eq!(both.max, Vec3::new(11.0, 4.0, 1.0));
     assert_eq!(both.centre(), Vec3::new(5.5, 1.5, 0.0));

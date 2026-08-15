@@ -30,6 +30,19 @@ fn covers(of: &Arrangement, want: &[f64]) -> bool {
             .all(|(got, want)| (got - want).abs() < 1e-9)
 }
 
+/// Where the face covering `want` fell.
+///
+/// How a test names a region it did not draw — and most of the regions here are
+/// ones nobody drew, being what a heap of curves happened to shut in. What a
+/// face covers is the one thing it says about itself that can be worked out by
+/// hand, so it is what a test has to find one by.
+fn covering(of: &Arrangement, want: f64) -> usize {
+    of.faces()
+        .iter()
+        .position(|face| (face.area() - want).abs() < 1e-9)
+        .unwrap_or_else(|| panic!("no face covers {want}: {:?}", areas(of)))
+}
+
 /// One arrangement of `sketch`, through an arrangement stood up for the call.
 ///
 /// Most tests here ask about one drawing, so nothing is saved by keeping the
@@ -396,14 +409,7 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
     let cap = 4.0 * (turn - turn.sin()) / 2.0;
 
     let found = arranged(&sketch);
-    let covering = |want: f64| {
-        found
-            .faces()
-            .iter()
-            .position(|face| (face.area() - want).abs() < 1e-9)
-            .unwrap_or_else(|| panic!("no face covers {want}: {:?}", areas(&found)))
-    };
-    let (above, below) = (covering(cap), covering(PI * 4.0 - cap));
+    let (above, below) = (covering(&found, cap), covering(&found, PI * 4.0 - cap));
     let named = |face: usize| {
         let mut bounds = Vec::new();
         found.bounds(&found.faces()[face], &mut bounds);
@@ -411,8 +417,10 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
     };
     let (above_by, below_by) = (named(above), named(below));
 
-    // The same two curves bound both, which is the whole reason the curves
-    // alone could not name either.
+    // Panics where the curve bounds nothing here, so the four calls below say
+    // between them that both halves are bounded by both curves — which with the
+    // count is the whole of "the same two curves bound both", and that is the
+    // reason the curves alone could not name either.
     let side = |bounds: &[Bound], of: Entity| {
         bounds
             .iter()
@@ -422,8 +430,6 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
     };
     for bounds in [&above_by, &below_by] {
         assert_eq!(bounds.len(), 2, "not a circle and a chord: {bounds:?}");
-        side(bounds, Entity::Circle(circle));
-        side(bounds, Entity::Segment(chord));
     }
 
     // And the sides are what tell them apart. The chord was drawn left to
@@ -551,11 +557,7 @@ fn a_name_holds_where_a_position_does_not() {
     found.rebuild(&sketch);
 
     // Half the circle falls each side of the edge it is centred on.
-    let bitten = found
-        .faces()
-        .iter()
-        .position(|face| (face.area() - (12.0 - PI / 2.0)).abs() < 1e-9)
-        .unwrap_or_else(|| panic!("nothing was bitten out of the square: {:?}", areas(&found)));
+    let bitten = covering(&found, 12.0 - PI / 2.0);
     let mut bitten_by = Vec::new();
     found.bounds(&found.faces()[bitten], &mut bitten_by);
     assert!(

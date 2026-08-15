@@ -113,7 +113,7 @@ impl Primitive for Point {
         self.tag
     }
 
-    fn extend_bounds(&self, mut include: impl FnMut(Vec3)) {
+    fn reaches(&self, mut include: impl FnMut(Vec3)) {
         include(self.position);
     }
 }

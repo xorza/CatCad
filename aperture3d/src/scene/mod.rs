@@ -2,8 +2,8 @@
 
 use crate::aim::Aim;
 use crate::batch::Batch;
-use crate::bounds::Bounds;
 use crate::curve::Curve;
+use crate::extent::Extent;
 use crate::hit::{Hit, Precedence};
 use crate::object::Object;
 use crate::point::Point;
@@ -75,21 +75,21 @@ fn shows(front: f32, distance: f32) -> bool {
 impl Scene {
     /// What the scene occupies in world space, or `None` when there is
     /// nothing in it.
-    pub fn bounds(&self) -> Option<Bounds> {
+    pub fn extent(&self) -> Option<Extent> {
         // Each kind knows how far it reaches, so there is nothing to decide
         // here but which batches to ask. An object's extent is its transformed
         // vertices; an overlay's is its anchors alone, because a stroke's
         // width, a marker's glyph and a label's box are screen-space
         // quantities, and the distance that would satisfy one of those is the
         // distance being solved for.
-        let mut bounds: Option<Bounds> = None;
-        primitive::bounds(&self.solids, &mut bounds);
-        primitive::bounds(&self.faces, &mut bounds);
-        primitive::bounds(&self.curves, &mut bounds);
-        primitive::bounds(&self.rings, &mut bounds);
-        primitive::bounds(&self.points, &mut bounds);
-        primitive::bounds(&self.texts, &mut bounds);
-        bounds
+        let mut extent: Option<Extent> = None;
+        primitive::extent(&self.solids, &mut extent);
+        primitive::extent(&self.faces, &mut extent);
+        primitive::extent(&self.curves, &mut extent);
+        primitive::extent(&self.rings, &mut extent);
+        primitive::extent(&self.points, &mut extent);
+        primitive::extent(&self.texts, &mut extent);
+        extent
     }
 
     /// What the aim was most likely meant for, or `None` if nothing is near
