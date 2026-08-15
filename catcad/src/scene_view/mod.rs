@@ -74,7 +74,9 @@ struct Held {
     /// Kept beside [`Grabbed`] rather than derived from it: that one says what
     /// the drag *writes*, in the vocabulary the change needs, and this says what
     /// the user grabbed, in the vocabulary the selection needs. A datum is a
-    /// `Movable` to one and a `Part::Plane` to the other.
+    /// `Movable` to one and a `Part::Plane` to the other, and a solid's far end
+    /// is the same `Movable` to one and a `Part::Solid` to the other — which is
+    /// exactly why neither can be worked out from the other.
     part: Part,
     grabbed: Grabbed,
     motion: Motion,
@@ -97,11 +99,17 @@ struct Held {
 
 /// What a drag took hold of, and so which change its travel is written as.
 ///
-/// Two kinds rather than one, because they are two different edits: geometry
-/// moves within a sketch and is solved for afterwards, and a datum moves the
-/// sketches drawn on it without any of them saying anything different. Which of
-/// the two a press found is settled once, at the press, exactly as everything
-/// else about a gesture is.
+/// Three kinds rather than one, because they are three different edits:
+/// geometry moves within a sketch and is solved for afterwards, a datum moves
+/// the sketches drawn on it without any of them saying anything different, and a
+/// solid's far end restates how far it was carried. Which of the three a press
+/// found is settled once, at the press, exactly as everything else about a
+/// gesture is.
+///
+/// The last two carry the same [`Movable`] and stay separate arms even so. What
+/// they share is the arithmetic — one number along a normal — and what they
+/// differ in is the change they come out as, which is the whole of what this
+/// enum is read for.
 #[derive(Debug, Clone, Copy)]
 enum Grabbed {
     /// Geometry of the sketch being worked in, at the grip the press settled on.
@@ -316,10 +324,11 @@ impl SceneView {
                 // lands plus however far off centre it was grabbed.
                 if let Some(to) = aimed::landing(&response, document, held.motion) {
                     let to = to + held.offset;
-                    // A plane names a distance where geometry names a place,
-                    // because that is what each of them *is*: a datum has one
-                    // number, and asking it to be somewhere would be asking a
-                    // question with two answers it does not have.
+                    // A plane and a solid's far end name a distance where
+                    // geometry names a place, because that is what each of them
+                    // *is*: either has one number, and asking it to be somewhere
+                    // would be asking a question with two answers it does not
+                    // have.
                     intents.push(match held.grabbed {
                         Grabbed::Sketch(grip) => Change::Drag { sketch, grip, to },
                         Grabbed::Datum(movable) => Change::MovePlane {

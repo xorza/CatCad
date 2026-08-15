@@ -309,8 +309,7 @@ pub(crate) struct Movable {
 }
 
 impl Movable {
-    /// The line the plane travels along — its base's normal — taken through
-    /// `grabbed`.
+    /// The line it travels along — its base's normal — taken through `grabbed`.
     ///
     /// Which of the parallel lines is not a free choice, and this is the whole
     /// of why it is asked for. A drag is answered by asking where the cursor
@@ -318,10 +317,11 @@ impl Movable {
     /// far a world distance looks depends on how far off it is. Take the line
     /// through the base's origin and the drag tracks the cursor at that origin's
     /// depth, while the corner the pointer actually has hold of sits at another
-    /// — so the plane runs ahead of the cursor from one side and lags it from
-    /// the other, by as much as the two depths differ. Measured on a plane
-    /// grabbed at its corner: twenty pixels of pointer carried it twenty-five
-    /// from one side and fourteen from the mirrored one.
+    /// — so what is held runs ahead of the cursor from one side and lags it
+    /// from the other, by as much as the two depths differ. Measured on a datum
+    /// grabbed at its corner, which is the case the wandering is worst in:
+    /// twenty pixels of pointer carried it twenty-five from one side and
+    /// fourteen from the mirrored one.
     ///
     /// Through the grab, the two depths are the same one and the corner stays
     /// under the cursor. Nothing else moves with it: where along the line the
@@ -335,8 +335,8 @@ impl Movable {
         }
     }
 
-    /// The offset that puts the plane at `world` — how far along [`travel`] it
-    /// stands, with whatever lies across the line dropped.
+    /// The offset that puts it at `world` — how far along [`travel`] it stands,
+    /// with whatever lies across the line dropped.
     ///
     /// Dropping it is the point rather than a rounding: a drag resolves onto
     /// the line already, and a grab taken a few pixels off centre carries an
