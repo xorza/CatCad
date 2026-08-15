@@ -1,7 +1,7 @@
 //! The room an edit works in, and everything replaying the timeline leaves
 //! behind.
 
-use silverpoint::{Drive, Outcome, PointId, Removed, Sketch, Solver};
+use silverpoint::{Drive, PointId, Removed, Sketch, Solver};
 
 use crate::build::settled::Settled;
 use crate::timeline::FeatureId;
@@ -62,11 +62,16 @@ pub(crate) struct Build {
 }
 
 impl Build {
-    /// Add to the sketch at `of` with `edit`, and settle everything around what
-    /// that left.
+    /// Settle the sketch at `of` by asking the constraints everything, holding
+    /// nothing.
     ///
     /// The first of the three shapes an edit takes, and what separates them is
-    /// what the solver is asked for. This asks it everything, holding nothing.
+    /// what the solver is asked for.
+    ///
+    /// Whatever changed the sketch has already changed it. A caller holds the
+    /// sketch — that is what it hands over here — so an edit taken as a closure
+    /// would be a call deferred by one line and nothing else, and it cost the
+    /// callers that wanted an *answer* out of their edit a place to put it.
     ///
     /// It ought to have nothing to do. What is added arrives already satisfying
     /// what it states — a point put on an edge is *placed* on the edge, by
@@ -76,35 +81,20 @@ impl Build {
     /// future addition that could not place itself exactly would be settled by
     /// it, and until then it costs one assembly to say that nothing needed
     /// settling.
-    pub(crate) fn solved(
-        &mut self,
-        of: FeatureId,
-        sketch: &mut Sketch,
-        edit: impl FnOnce(&mut Sketch),
-    ) {
-        self.settle(of, sketch, |solver, sketch, outcome| {
-            edit(sketch);
-            solver.solve(sketch, outcome);
-        });
+    pub(crate) fn solved(&mut self, of: FeatureId, sketch: &mut Sketch) {
+        self.settle(of, sketch, Settling::Solved);
     }
 
-    /// Change the sketch at `of` with `edit`, and take everything measuring
-    /// what that leaves decides.
+    /// Settle the sketch at `of` by measuring it and asking the constraints
+    /// nothing.
     ///
     /// The second shape, and the one that asks the constraints nothing — so it
     /// only measures, and measuring moves nothing. That is the whole of what it
     /// is for: an edit whose result is already the answer, where a solve would
-    /// be free to wander off it.
-    pub(crate) fn measured(
-        &mut self,
-        of: FeatureId,
-        sketch: &mut Sketch,
-        edit: impl FnOnce(&mut Sketch),
-    ) {
-        self.settle(of, sketch, |solver, sketch, outcome| {
-            edit(sketch);
-            solver.measure(sketch, outcome);
-        });
+    /// be free to wander off it. Like [`Build::solved`], whatever changed the
+    /// sketch has already changed it.
+    pub(crate) fn measured(&mut self, of: FeatureId, sketch: &mut Sketch) {
+        self.settle(of, sketch, Settling::Measured);
     }
 
     /// Drive `driving` where the pointer is asking for it, `holding` pinned for
@@ -124,9 +114,7 @@ impl Build {
         driving: &[Drive],
         holding: &[PointId],
     ) {
-        self.settle(of, sketch, |solver, sketch, outcome| {
-            solver.drag(sketch, driving, holding, outcome);
-        });
+        self.settle(of, sketch, Settling::Dragged { driving, holding });
     }
 
     /// Run `solve` over the sketch at `of`, and record everything the document
@@ -140,12 +128,7 @@ impl Build {
     /// Private, and the three above are the whole of what it is reachable
     /// through — one per entry point the solver has, each of which fills the
     /// whole outcome from the same measurement it reports.
-    fn settle(
-        &mut self,
-        of: FeatureId,
-        sketch: &mut Sketch,
-        solve: impl FnOnce(&mut Solver, &mut Sketch, &mut Outcome),
-    ) {
+    fn settle(&mut self, of: FeatureId, sketch: &mut Sketch, settling: Settling<'_>) {
         let Self {
             solver,
             settled,
@@ -163,7 +146,7 @@ impl Build {
                 settled.len() - 1
             }
         };
-        settled[at].settle(solver, sketch, solve);
+        settled[at].settle(solver, sketch, settling);
         *revision = revision.next();
         // Whatever this edit was, it is now the last thing done — so a cleanup
         // before it has stopped describing the document. The one that *is* a
@@ -223,6 +206,29 @@ impl Build {
     pub(crate) fn cleaned(&self) -> Option<Removed> {
         self.cleaned
     }
+}
+
+/// Which of the solver's entry points an edit is settled through.
+///
+/// Named rather than handed over as a closure that runs one. A closure would be
+/// free to run none of them, or two, or something else entirely with the three
+/// `&mut`s it was given — where this is the whole list, in one place, and the
+/// only thing a settle can be.
+///
+/// The edit that *precedes* a solve is still a closure, and rightly: adding a
+/// point, adding a constraint and rewriting a dimension are not a closed set and
+/// never will be. What a solve is, is.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Settling<'a> {
+    /// Ask the constraints everything, holding nothing.
+    Solved,
+    /// Ask them nothing, and only read what the sketch already says.
+    Measured,
+    /// Drive geometry where the pointer is asking for it. See [`Solver::drag`].
+    Dragged {
+        driving: &'a [Drive],
+        holding: &'a [PointId],
+    },
 }
 
 /// Which version of a document something describes.

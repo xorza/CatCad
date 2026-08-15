@@ -2,6 +2,7 @@
 
 use silverpoint::{Arrangement, Outcome, Sketch, Solver};
 
+use crate::build::Settling;
 use crate::timeline::FeatureId;
 
 /// Everything that follows from one sketch by running the solver over it.
@@ -51,8 +52,8 @@ impl Settled {
         self.of
     }
 
-    /// Run `solve` over `sketch`, and record everything it then says about
-    /// itself.
+    /// Settle `sketch` the way `settling` says, and record everything it then
+    /// says about itself.
     ///
     /// The solver comes from outside rather than being reached through here,
     /// because one solver serves every sketch — see [`Build`](super::Build),
@@ -61,9 +62,15 @@ impl Settled {
         &mut self,
         solver: &mut Solver,
         sketch: &mut Sketch,
-        solve: impl FnOnce(&mut Solver, &mut Sketch, &mut Outcome),
+        settling: Settling<'_>,
     ) {
-        solve(solver, sketch, &mut self.outcome);
+        match settling {
+            Settling::Solved => solver.solve(sketch, &mut self.outcome),
+            Settling::Measured => solver.measure(sketch, &mut self.outcome),
+            Settling::Dragged { driving, holding } => {
+                solver.drag(sketch, driving, holding, &mut self.outcome)
+            }
+        }
         // After the solve, because what the curves enclose depends on where the
         // solve left them — and unconditionally, because there is no cheaper
         // question than this one to ask first. Rebuilt in place rather than

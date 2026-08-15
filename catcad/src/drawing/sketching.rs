@@ -1,7 +1,7 @@
 //! A sketch open for editing, and where it lies while that happens.
 
 use glam::Vec3;
-use silverpoint::{Constraint, ConstraintId, Drive, Entity, Plane, Removed, Sketch};
+use silverpoint::{Constraint, ConstraintId, Drive, Entity, Plane, Sketch};
 
 use crate::build::Build;
 use crate::drawing::anchor::Anchor;
@@ -52,7 +52,7 @@ impl<'a> Sketching<'a> {
     /// empty and the solve is the whole of it: what a sketch arrives needing is
     /// the check, not a change.
     pub(crate) fn opened(&mut self, build: &mut Build) {
-        build.solved(self.at, self.sketch, |_| {});
+        build.solved(self.at, self.sketch);
     }
 
     /// Put a point where `at` names, held to whatever it landed on.
@@ -65,30 +65,28 @@ impl<'a> Sketching<'a> {
     /// its own call: that one settles an edit against the sketch it was handed
     /// and refuses one that adds to it.
     pub(crate) fn add_point(&mut self, build: &mut Build, at: Anchor) {
-        let plane = self.plane;
-        build.solved(self.at, self.sketch, |sketch| {
-            // The one place a click on a point already there is *not* worth its
-            // own point. Asking for a point where one is asks for nothing; an
-            // edge's end is the other way round, and wants its own even on top
-            // of another so the edge can be taken off it later — see
-            // [`Anchor::point_in`].
-            if at.point().is_none() {
-                at.point_in(sketch, plane);
-            }
-        });
+        // The one place a click on a point already there is *not* worth its own
+        // point. Asking for a point where one is asks for nothing; an edge's end
+        // is the other way round, and wants its own even on top of another so
+        // the edge can be taken off it later — see [`Anchor::point_in`].
+        if at.point().is_none() {
+            at.point_in(self.sketch, self.plane);
+        }
+        build.solved(self.at, self.sketch);
     }
 
     /// Put a straight edge between `from` and `to`, making a point at either
     /// end that did not land on one and holding it to whatever it did.
     pub(crate) fn add_segment(&mut self, build: &mut Build, from: Anchor, to: Anchor) {
-        let plane = self.plane;
-        build.solved(self.at, self.sketch, |sketch| {
-            // Both ends resolved before either is used, so an edge drawn from a
-            // point back to itself is the degenerate thing the user asked for
-            // rather than two points in the same place.
-            let (a, b) = (from.point_in(sketch, plane), to.point_in(sketch, plane));
-            sketch.add_segment(a, b);
-        });
+        // Both ends resolved before either is used, so an edge drawn from a
+        // point back to itself is the degenerate thing the user asked for rather
+        // than two points in the same place.
+        let (a, b) = (
+            from.point_in(self.sketch, self.plane),
+            to.point_in(self.sketch, self.plane),
+        );
+        self.sketch.add_segment(a, b);
+        build.solved(self.at, self.sketch);
     }
 
     /// Put a circle about `center` reaching as far as `rim`, making a point at
@@ -99,18 +97,17 @@ impl<'a> Sketching<'a> {
     /// already there is held to it — the circle is then as big as that point
     /// says, and stays so however either is dragged.
     pub(crate) fn add_circle(&mut self, build: &mut Build, center: Anchor, rim: Anchor) {
-        let plane = self.plane;
         // Taken before the edit, because resolving the centre may add a point
         // and this reads the sketch as the clicks found it.
-        let through = plane.flatten(self.drawn().at(rim).as_dvec3());
-        build.solved(self.at, self.sketch, |sketch| {
-            let middle = center.point_in(sketch, plane);
-            let radius = (through - sketch.point(middle).position).length();
-            let circle = sketch.add_circle(middle, radius);
-            if let Some(point) = rim.point() {
-                sketch.add_constraint(Constraint::PointOnCircle { point, circle });
-            }
-        });
+        let through = self.plane.flatten(self.drawn().at(rim).as_dvec3());
+        let middle = center.point_in(self.sketch, self.plane);
+        let radius = (through - self.sketch.point(middle).position).length();
+        let circle = self.sketch.add_circle(middle, radius);
+        if let Some(point) = rim.point() {
+            self.sketch
+                .add_constraint(Constraint::PointOnCircle { point, circle });
+        }
+        build.solved(self.at, self.sketch);
     }
 
     /// Take out geometry that duplicates other geometry and carries nothing.
@@ -122,10 +119,8 @@ impl<'a> Sketching<'a> {
     /// there rather than here — this is a drawing, and what makes two points
     /// the same one is a question about a sketch.
     pub(crate) fn remove_duplicates(&mut self, build: &mut Build) {
-        let mut cleaned = Removed::default();
-        build.solved(self.at, self.sketch, |sketch| {
-            cleaned = sketch.remove_duplicates()
-        });
+        let cleaned = self.sketch.remove_duplicates();
+        build.solved(self.at, self.sketch);
         build.cleaned_up(cleaned);
     }
 
@@ -137,9 +132,8 @@ impl<'a> Sketching<'a> {
     /// not. Moving the drawing onto what was asked for is the whole of what
     /// happens.
     pub(crate) fn constrain(&mut self, build: &mut Build, constraint: Constraint) {
-        build.solved(self.at, self.sketch, |sketch| {
-            sketch.add_constraint(constraint);
-        });
+        self.sketch.add_constraint(constraint);
+        build.solved(self.at, self.sketch);
     }
 
     /// Restate a dimension at `value`, and let the geometry follow it.
@@ -149,9 +143,8 @@ impl<'a> Sketching<'a> {
     /// distance retyped from 8 to 12 lengthens the thing it measures, and
     /// everything the constraints tie to that follows.
     pub(crate) fn resize(&mut self, build: &mut Build, constraint: ConstraintId, value: f64) {
-        build.solved(self.at, self.sketch, |sketch| {
-            sketch.set_value(constraint, value)
-        });
+        self.sketch.set_value(constraint, value);
+        build.solved(self.at, self.sketch);
     }
 
     /// Take `entity` out of the drawing, with whatever was built on it.
@@ -166,12 +159,13 @@ impl<'a> Sketching<'a> {
     /// What the cascade takes with it is [`Sketch`]'s to decide — see
     /// [`Sketch::remove_point`].
     pub(crate) fn remove(&mut self, build: &mut Build, entity: Entity) {
-        build.solved(self.at, self.sketch, |sketch| match entity {
-            Entity::Point(id) => sketch.remove_point(id),
-            Entity::Segment(id) => sketch.remove_segment(id),
-            Entity::Circle(id) => sketch.remove_circle(id),
-            Entity::Constraint(id) => sketch.remove_constraint(id),
-        });
+        match entity {
+            Entity::Point(id) => self.sketch.remove_point(id),
+            Entity::Segment(id) => self.sketch.remove_segment(id),
+            Entity::Circle(id) => self.sketch.remove_circle(id),
+            Entity::Constraint(id) => self.sketch.remove_constraint(id),
+        }
+        build.solved(self.at, self.sketch);
     }
 
     /// Take the report again over the geometry as it now stands.
@@ -182,7 +176,7 @@ impl<'a> Sketching<'a> {
     /// and measuring moves nothing, so the exactness a restore promises
     /// survives.
     pub(crate) fn measured(&mut self, build: &mut Build) {
-        build.measured(self.at, self.sketch, |_| {});
+        build.measured(self.at, self.sketch);
     }
 
     /// Take what `grip` holds to `world`, and settle the rest of the drawing
