@@ -1,4 +1,7 @@
 use super::*;
+use crate::math::triangulate::Fill;
+use crate::sketch::PointId;
+use crate::sketch::arrangement::filler::Filler;
 use std::f64::consts::PI;
 
 /// Every face's area, largest first — which is the order they come back in, and
@@ -26,7 +29,19 @@ fn covers(of: &Arrangement, want: &[f64]) -> bool {
             .all(|(got, want)| (got - want).abs() < 1e-9)
 }
 
-fn point(sketch: &mut Sketch, x: f64, y: f64) -> crate::sketch::PointId {
+/// One arrangement of `sketch`, through an arrangement stood up for the call.
+///
+/// Most tests here ask about one drawing, so nothing is saved by keeping the
+/// arrangement — what keeping it saves is pinned by
+/// `a_reused_arrangement_answers_exactly_as_a_fresh_one_would` and by the
+/// application's allocation gates.
+fn arranged(sketch: &Sketch) -> Arrangement {
+    let mut found = Arrangement::default();
+    found.rebuild(sketch);
+    found
+}
+
+fn point(sketch: &mut Sketch, x: f64, y: f64) -> PointId {
     sketch.add_point(DVec2::new(x, y))
 }
 
@@ -47,9 +62,9 @@ fn a_closed_outline_encloses_a_face_and_an_open_one_does_not() {
         &[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)],
     );
     assert!(
-        covers(&Arrangement::of(&sketch), &[12.0]),
+        covers(&arranged(&sketch), &[12.0]),
         "{:?}",
-        areas(&Arrangement::of(&sketch))
+        areas(&arranged(&sketch))
     );
 
     // The same run with one edge missing shuts in nothing at all: three sides
@@ -62,7 +77,7 @@ fn a_closed_outline_encloses_a_face_and_an_open_one_does_not() {
     for at in 0..3 {
         open.add_segment(placed[at], placed[at + 1]);
     }
-    assert!(Arrangement::of(&open).faces().is_empty());
+    assert!(arranged(&open).faces().is_empty());
 }
 
 /// A lone circle is its own loop, with no corner on it until one is planted.
@@ -72,7 +87,7 @@ fn a_circle_nothing_crosses_encloses_its_own_disc() {
     let middle = point(&mut sketch, 1.0, -2.0);
     sketch.add_circle(middle, 3.0);
 
-    let found = Arrangement::of(&sketch);
+    let found = arranged(&sketch);
     assert!(covers(&found, &[PI * 9.0]), "{:?}", areas(&found));
     assert_eq!(found.faces()[0].holes(), 0);
 }
@@ -94,7 +109,7 @@ fn a_segment_across_a_circle_cuts_it_into_two_faces() {
     let right = point(&mut sketch, 5.0, 0.0);
     sketch.add_segment(left, right);
 
-    let found = Arrangement::of(&sketch);
+    let found = arranged(&sketch);
     let half = PI * 4.0 / 2.0;
     assert!(covers(&found, &[half, half]), "{:?}", areas(&found));
     assert!(found.faces().iter().all(|face| face.holes() == 0));
@@ -109,7 +124,7 @@ fn a_segment_across_a_circle_cuts_it_into_two_faces() {
     let right = point(&mut offset, 5.0, 1.0);
     offset.add_segment(left, right);
 
-    let found = Arrangement::of(&offset);
+    let found = arranged(&offset);
     let turn = 2.0 * (0.5_f64).acos();
     let cap = 4.0 * (turn - turn.sin()) / 2.0;
     assert!(
@@ -136,7 +151,7 @@ fn a_circle_inside_a_circle_makes_a_disc_and_a_ring_around_it() {
     let inner = point(&mut sketch, 0.5, -0.25);
     sketch.add_circle(inner, 1.0);
 
-    let found = Arrangement::of(&sketch);
+    let found = arranged(&sketch);
     assert!(covers(&found, &[PI * 9.0 - PI, PI]), "{:?}", areas(&found));
     // The ring is the one with something missing from it.
     assert_eq!(found.faces()[0].holes(), 1, "the ring has no hole in it");
@@ -159,7 +174,7 @@ fn a_polyline_crossing_itself_makes_a_face_on_either_side() {
         &[(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)],
     );
 
-    let found = Arrangement::of(&sketch);
+    let found = arranged(&sketch);
     // Each lobe is a triangle two across its base and one tall, so one apiece
     // — and the crossing at the origin is a corner no point of the sketch
     // sits at.
@@ -176,7 +191,7 @@ fn a_ring_inside_a_ring_puts_each_hole_where_it_belongs() {
         sketch.add_circle(middle, radius);
     }
 
-    let found = Arrangement::of(&sketch);
+    let found = arranged(&sketch);
     // Four circles nested make four faces: three rings and the disc in the
     // middle, each the difference of two consecutive discs.
     assert!(
@@ -204,9 +219,10 @@ fn a_face_fills_to_the_area_it_encloses() {
     let inner = point(&mut sketch, 0.5, -0.25);
     sketch.add_circle(inner, 1.0);
 
-    let found = Arrangement::of(&sketch);
+    let found = arranged(&sketch);
     let ring = &found.faces()[0];
-    let fill = found.fill(ring, 1e-4);
+    let mut fill = Fill::default();
+    Filler::default().fill(&found, ring, 1e-4, &mut fill);
 
     let covered: f64 = fill
         .triangles
@@ -264,7 +280,12 @@ fn the_order_faces_come_back_in_survives_the_geometry_moving() {
         &[(20.0, 0.0), (23.0, 0.0), (23.0, 3.0), (20.0, 3.0)],
     );
 
-    let before = areas(&Arrangement::of(&sketch));
+    // One arrangement rebuilt twice rather than two of them, because that is
+    // what a drag does — and because a position only means anything if it
+    // means the same thing across a rebuild in place.
+    let mut found = Arrangement::default();
+    found.rebuild(&sketch);
+    let before = areas(&found);
     assert!(
         before
             .iter()
@@ -277,7 +298,8 @@ fn the_order_faces_come_back_in_survives_the_geometry_moving() {
     let corner = sketch.points().next().expect("the first square has one").0;
     sketch.set_point(corner, DVec2::new(-10.0, -10.0));
 
-    let after = areas(&Arrangement::of(&sketch));
+    found.rebuild(&sketch);
+    let after = areas(&found);
     assert!(
         (after[2] - 9.0).abs() < 1e-9,
         "{after:?} moved an untouched square out of third place"
@@ -289,4 +311,123 @@ fn the_order_faces_come_back_in_survives_the_geometry_moving() {
     // And the growth was real: sorting by size would have put this one first
     // and shuffled the other two down, which is exactly what must not happen.
     assert!(after[0] > after[2], "{after:?} did not grow past the third");
+}
+
+/// A reused arrangement answers exactly as a fresh one would.
+///
+/// What keeping the room costs, if it costs anything. Every list a rebuild
+/// works in is emptied and refilled rather than dropped, and several are
+/// emptied by a *count* rather than by clearing — so the failure this is
+/// looking for is a rebuild reading something the last one left: a face that
+/// keeps a hole it no longer has, a fan of departures with a stale half-edge
+/// still in it, an outside loop assigned twice.
+///
+/// Swept over drawings that differ in every way one rebuild could carry into
+/// the next — more faces then fewer, holes then none, curves then none at all —
+/// and each is asked in both orders, because a leak only shows going one way.
+#[test]
+fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
+    let nested = || {
+        let mut sketch = Sketch::default();
+        for radius in [4.0, 3.0, 2.0, 1.0] {
+            let middle = point(&mut sketch, 0.0, 0.0);
+            sketch.add_circle(middle, radius);
+        }
+        sketch
+    };
+    let bowtie = || {
+        let mut sketch = Sketch::default();
+        outline(
+            &mut sketch,
+            &[(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)],
+        );
+        sketch
+    };
+    let square = || {
+        let mut sketch = Sketch::default();
+        outline(
+            &mut sketch,
+            &[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)],
+        );
+        sketch
+    };
+    // Three sides of a rectangle: curves that shut nothing in, so a rebuild
+    // over it has to leave no face behind from whatever came before.
+    let open = || {
+        let mut sketch = Sketch::default();
+        let placed: Vec<_> = [(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]
+            .iter()
+            .map(|&(x, y)| point(&mut sketch, x, y))
+            .collect();
+        for at in 0..3 {
+            sketch.add_segment(placed[at], placed[at + 1]);
+        }
+        sketch
+    };
+    let empty = Sketch::default;
+
+    /// One drawing in the sweep, and what to call it when it fails.
+    type Case = (&'static str, fn() -> Sketch);
+
+    let drawings: [Case; 5] = [
+        ("nested", nested),
+        ("bowtie", bowtie),
+        ("square", square),
+        ("open", open),
+        ("empty", empty),
+    ];
+
+    let mut reused = Arrangement::default();
+    let mut filler = Filler::default();
+    for (before, first) in drawings {
+        for (after, build) in drawings {
+            // Wound up to the first drawing, then over to the second — against
+            // an arrangement that has only ever seen the second.
+            reused.rebuild(&first());
+            let sketch = build();
+            reused.rebuild(&sketch);
+            let fresh = arranged(&sketch);
+
+            assert_eq!(
+                reused.faces().len(),
+                fresh.faces().len(),
+                "{before} then {after} left a different number of faces"
+            );
+            for (at, (was, is)) in fresh.faces().iter().zip(reused.faces()).enumerate() {
+                assert!(
+                    (was.area() - is.area()).abs() < 1e-12,
+                    "{before} then {after}: face {at} covers {} against {}",
+                    is.area(),
+                    was.area()
+                );
+                assert_eq!(
+                    was.holes(),
+                    is.holes(),
+                    "{before} then {after}: face {at} kept a hole it does not have"
+                );
+                assert_eq!(
+                    fresh.drawn_by(was).len(),
+                    reused.drawn_by(is).len(),
+                    "{before} then {after}: face {at} is drawn by different curves"
+                );
+            }
+
+            // And the fills agree, which is the other half kept across a
+            // rebuild — the tracing buffers and the cutter's contour.
+            let (mut one, mut other) = (Fill::default(), Fill::default());
+            for (was, is) in fresh.faces().iter().zip(reused.faces()) {
+                filler.fill(&fresh, was, 1e-3, &mut one);
+                filler.fill(&reused, is, 1e-3, &mut other);
+                assert_eq!(
+                    one.corners.len(),
+                    other.corners.len(),
+                    "{before} then {after}: a fill came out a different shape"
+                );
+                assert_eq!(
+                    one.triangles, other.triangles,
+                    "{before} then {after}: a fill came out cut differently"
+                );
+            }
+        }
+    }
 }

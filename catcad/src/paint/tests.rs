@@ -1,17 +1,27 @@
 use super::*;
 use crate::demo;
 use crate::part::Part;
+use crate::settled::Settled;
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Plane, Sketch, Solver};
+
+/// A drawing and what solving it decided — the pair every writer here takes.
+#[derive(Debug)]
+struct Drawn {
+    drawing: Drawing,
+    settled: Settled,
+}
 
 /// The drawing the writers take: `sketch` on the ground, solved.
 ///
 /// Solved because determinacy is measured where the geometry stands, and an
 /// unsolved guess is not where it will stand — which is the drawing's own job
 /// to arrange, so this asks for one rather than assembling the parts.
-fn drawn(sketch: Sketch) -> Drawing {
-    Drawing::new(&mut Solver::default(), sketch, Plane::GROUND)
+fn drawn(sketch: Sketch) -> Drawn {
+    let mut settled = Settled::default();
+    let drawing = Drawing::new(&mut Solver::default(), &mut settled, sketch, Plane::GROUND);
+    Drawn { drawing, settled }
 }
 
 #[test]
@@ -25,8 +35,8 @@ fn every_entity_becomes_a_curve() {
 
     // One edge. Circles are rings now, and markers were never strokes.
     let mut curves = Batch::default();
-    let drawing = drawn(sketch);
-    write_curves(&drawing, &mut Names::default(), None, &mut curves);
+    let Drawn { drawing, settled } = drawn(sketch);
+    write_curves(&drawing, &settled, &mut Names::default(), None, &mut curves);
     assert_eq!(curves.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
@@ -56,7 +66,14 @@ fn every_entity_becomes_a_curve() {
     let d = fewer.add_point(DVec2::new(4.0, 0.0));
     fewer.add_segment(c, d);
     fewer.add_segment(d, c);
-    write_curves(&drawn(fewer), &mut Names::default(), None, &mut curves);
+    let two = drawn(fewer);
+    write_curves(
+        &two.drawing,
+        &two.settled,
+        &mut Names::default(),
+        None,
+        &mut curves,
+    );
     assert_eq!(curves.len(), 2, "the list did not grow to the new sketch");
     // The ground plane's +y runs to world −Z, so a sketch x-axis stays x.
     assert_eq!(
@@ -68,7 +85,7 @@ fn every_entity_becomes_a_curve() {
         [Vec3::new(4.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]
     );
 
-    write_curves(&drawing, &mut Names::default(), None, &mut curves);
+    write_curves(&drawing, &settled, &mut Names::default(), None, &mut curves);
     assert_eq!(curves.len(), 1, "the list did not shrink back");
     assert_eq!(
         curves[0].points,
@@ -81,7 +98,7 @@ fn every_entity_becomes_a_curve() {
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
     let mut rings = Batch::default();
-    write_rings(&drawing, &mut Names::default(), None, &mut rings);
+    write_rings(&drawing, &settled, &mut Names::default(), None, &mut rings);
     assert_eq!(rings.len(), 1);
     let ring = rings[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
@@ -105,8 +122,8 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     sketch.fix(a);
 
     let mut points = Batch::default();
-    let drawing = drawn(sketch);
-    write_points(&drawing, &mut Names::default(), &mut points);
+    let Drawn { drawing, settled } = drawn(sketch);
+    write_points(&drawing, &settled, &mut Names::default(), &mut points);
     assert_eq!(points.len(), 2);
     // Above the strokes, not merely above the solids: a marker lands on
     // the end of the segments meeting it, and is drawn after them.
@@ -142,7 +159,8 @@ fn marker_size_ignores_how_big_the_drawing_is() {
 
     let sizes = |sketch: Sketch| -> Vec<f32> {
         let mut points = Batch::default();
-        write_points(&drawn(sketch), &mut Names::default(), &mut points);
+        let Drawn { drawing, settled } = drawn(sketch);
+        write_points(&drawing, &settled, &mut Names::default(), &mut points);
         points.iter().map(|point| point.size).collect()
     };
     assert_eq!(sizes(small.clone()), sizes(large));
@@ -176,13 +194,13 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     });
     sketch.add_circle(anchor, 2.0);
 
-    let drawing = drawn(sketch);
+    let Drawn { drawing, settled } = drawn(sketch);
     let mut points = Batch::default();
     let mut curves = Batch::default();
     let mut rings = Batch::default();
-    write_points(&drawing, &mut Names::default(), &mut points);
-    write_curves(&drawing, &mut Names::default(), None, &mut curves);
-    write_rings(&drawing, &mut Names::default(), None, &mut rings);
+    write_points(&drawing, &settled, &mut Names::default(), &mut points);
+    write_curves(&drawing, &settled, &mut Names::default(), None, &mut curves);
+    write_rings(&drawing, &settled, &mut Names::default(), None, &mut rings);
 
     // Three markers, three different things to say about them.
     assert_eq!(points[0].color, PINNED, "the anchor was pinned by hand");
@@ -216,10 +234,17 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
 /// impossible to point at.
 #[test]
 fn the_demo_draws_every_part_it_holds_and_names_each_one() {
-    let drawing = drawn(demo::sketch());
+    let Drawn { drawing, settled } = drawn(demo::sketch());
     let mut scene = Scene::default();
     let mut names = Names::default();
-    redraw(&drawing, &mut names, None, &mut scene);
+    redraw(
+        &drawing,
+        &settled,
+        &mut names,
+        None,
+        &mut Sheets::default(),
+        &mut scene,
+    );
 
     // Seven segments — four sides, the rail, and the arm's two bars — two
     // circles, and a marker on each of the nine points.
@@ -239,7 +264,14 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
 
     // Written again into the same scene, it says the same thing rather than
     // adding to it.
-    redraw(&drawing, &mut names, None, &mut scene);
+    redraw(
+        &drawing,
+        &settled,
+        &mut names,
+        None,
+        &mut Sheets::default(),
+        &mut scene,
+    );
     assert_eq!(scene.curves.len(), 7);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
@@ -255,9 +287,10 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
 /// one call produces both halves.
 #[test]
 fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
-    let document = demo::document(&mut Solver::default());
+    let mut settled = Settled::default();
+    let document = demo::document(&mut Solver::default(), &mut settled);
     let mut names = Names::default();
-    let picture = scene(&document, &mut names);
+    let picture = scene(&document, &settled, &mut names, &mut Sheets::default());
 
     // The slab and the three boxes standing on it.
     assert_eq!(picture.solids.len(), 4);
@@ -316,7 +349,8 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
     let second = sketch.add_segment(b, c);
     let circle = sketch.add_circle(c, 2.0);
     let other = sketch.add_circle(a, 1.0);
-    let drawing = Drawing::new(&mut Solver::default(), sketch, Plane::GROUND);
+    let mut settled = Settled::default();
+    let drawing = Drawing::new(&mut Solver::default(), &mut settled, sketch, Plane::GROUND);
 
     let mut every = Vec::new();
     let mut offers = Vec::new();
@@ -349,8 +383,14 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
 #[test]
 fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     let mut solver = Solver::default();
-    let document = demo::document(&mut solver);
-    let scene = scene(&document, &mut Names::default());
+    let mut settled = Settled::default();
+    let document = demo::document(&mut solver, &mut settled);
+    let scene = scene(
+        &document,
+        &settled,
+        &mut Names::default(),
+        &mut Sheets::default(),
+    );
 
     // The demo draws a rectangle with a circle inside it, and an eye at the end
     // of the arm: the ring between rectangle and circle, the circle's own disc,

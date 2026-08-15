@@ -1,7 +1,9 @@
 use super::*;
 use crate::names::Names;
 use crate::paint;
+use crate::paint::Sheets;
 use crate::part::Part;
+use crate::settled::Settled;
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Constraint, Plane, PointId, Solver};
@@ -21,6 +23,9 @@ struct Linkage {
     /// The room a drag's solve works in. In production this belongs to whatever
     /// is applying edits; a test doing its own dragging keeps its own.
     solver: Solver,
+    /// What the last solve made of it, which in production belongs to the
+    /// application — a test doing its own editing keeps its own.
+    settled: Settled,
     grip: PointId,
     swing: PointId,
 }
@@ -37,9 +42,11 @@ impl Linkage {
             distance: 2.0,
         });
         let mut solver = Solver::default();
+        let mut settled = Settled::default();
         Self {
-            drawing: Drawing::new(&mut solver, sketch, Plane::GROUND),
+            drawing: Drawing::new(&mut solver, &mut settled, sketch, Plane::GROUND),
             solver,
+            settled,
             grip,
             swing,
         }
@@ -48,7 +55,8 @@ impl Linkage {
     /// Where a point has ended up, in the world.
     /// Take `grip` to `world`, as the application's edit path would.
     fn drag_to(&mut self, grip: Grip, world: Vec3) {
-        self.drawing.drag_to(&mut self.solver, grip, world);
+        self.drawing
+            .drag_to(&mut self.solver, &mut self.settled, grip, world);
     }
 
     fn world_of(&self, point: PointId) -> Vec3 {
@@ -71,7 +79,7 @@ fn dragging_a_point_puts_it_where_it_was_sent_and_the_rest_follows() {
     let sent = on(plane, DVec2::new(0.0, 4.0));
     linkage.drag_to(Grip::Point(linkage.grip), sent);
 
-    let outcome = linkage.drawing.outcome();
+    let outcome = linkage.settled.outcome();
     assert!(outcome.converged(), "{outcome:?}");
     assert!(
         linkage.world_of(linkage.grip).abs_diff_eq(sent, 1e-5),
@@ -116,7 +124,12 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let hub = sketch.add_point(DVec2::new(2.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     sketch.fix(pinned);
-    let drawing = Drawing::new(&mut Solver::default(), sketch, Plane::GROUND);
+    let drawing = Drawing::new(
+        &mut Solver::default(),
+        &mut Settled::default(),
+        sketch,
+        Plane::GROUND,
+    );
 
     assert_eq!(
         drawing.grip(Entity::Point(free), HitAt::Point),
@@ -197,14 +210,15 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let hub = sketch.add_point(DVec2::new(1.0, 2.0));
     let hole = sketch.add_circle(hub, 1.0);
     let mut solver = Solver::default();
-    let mut drawing = Drawing::new(&mut solver, sketch, Plane::GROUND);
+    let mut settled = Settled::default();
+    let mut drawing = Drawing::new(&mut solver, &mut settled, sketch, Plane::GROUND);
     let plane = drawing.plane;
 
     // Three across and four up from the centre is a radius of five.
     let sent = on(plane, DVec2::new(4.0, 6.0));
-    drawing.drag_to(&mut solver, Grip::Rim(hole), sent);
+    drawing.drag_to(&mut solver, &mut settled, Grip::Rim(hole), sent);
 
-    assert!(drawing.outcome().converged(), "{:?}", drawing.outcome());
+    assert!(settled.outcome().converged(), "{:?}", settled.outcome());
     let circle = drawing.sketch.circle(hole);
     assert!((circle.radius - 5.0).abs() < 1e-9, "{}", circle.radius);
     assert_eq!(
@@ -216,6 +230,7 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     // And back down again, so the radius follows rather than only growing.
     drawing.drag_to(
         &mut solver,
+        &mut settled,
         Grip::Rim(hole),
         on(plane, DVec2::new(3.0, 2.0)),
     );
@@ -231,7 +246,14 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     let mut scene = Scene::default();
 
     let mut names = Names::default();
-    paint::redraw(&linkage.drawing, &mut names, None, &mut scene);
+    paint::redraw(
+        &linkage.drawing,
+        &linkage.settled,
+        &mut names,
+        None,
+        &mut Sheets::default(),
+        &mut scene,
+    );
     let before: Vec<Option<Part>> = scene
         .points
         .iter()
@@ -243,7 +265,14 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     // Move something, so the rewrite has different geometry to emit.
     let plane = linkage.drawing.plane;
     linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
-    paint::redraw(&linkage.drawing, &mut names, None, &mut scene);
+    paint::redraw(
+        &linkage.drawing,
+        &linkage.settled,
+        &mut names,
+        None,
+        &mut Sheets::default(),
+        &mut scene,
+    );
 
     let after: Vec<Option<Part>> = scene
         .points
@@ -269,6 +298,7 @@ struct Assorted {
     /// The room an edit's solve works in, kept beside the drawing for the same
     /// reason [`Linkage`] keeps one.
     solver: Solver,
+    settled: Settled,
     a: Entity,
     b: Entity,
     first: Entity,
@@ -290,9 +320,11 @@ impl Assorted {
         let circle = sketch.add_circle(c, 2.5);
         let other = sketch.add_circle(a, 1.0);
         let mut solver = Solver::default();
+        let mut settled = Settled::default();
         Self {
-            drawing: Drawing::new(&mut solver, sketch, Plane::GROUND),
+            drawing: Drawing::new(&mut solver, &mut settled, sketch, Plane::GROUND),
             solver,
+            settled,
             a: Entity::Point(a),
             b: Entity::Point(b),
             first: Entity::Segment(first),
@@ -422,6 +454,7 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
     let Assorted {
         mut drawing,
         mut solver,
+        mut settled,
         a,
         b,
         first,
@@ -437,8 +470,8 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
     drawing.offers(&[Part::Entity(a), Part::Entity(b)], &mut offers);
     let level = offers[2];
     assert!(matches!(level, Constraint::Horizontal { .. }));
-    drawing.constrain(&mut solver, level);
-    assert!(drawing.outcome().converged(), "{:?}", drawing.outcome());
+    drawing.constrain(&mut solver, &mut settled, level);
+    assert!(settled.outcome().converged(), "{:?}", settled.outcome());
     let apart = drawing.sketch().point(pa).position.y - drawing.sketch().point(pb).position.y;
     assert!(apart.abs() < 1e-9, "{apart}");
 
@@ -451,12 +484,12 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
         .last()
         .expect("the relation was stated");
     assert!(drawing.holds(stated));
-    drawing.remove(&mut solver, Entity::Constraint(stated));
+    drawing.remove(&mut solver, &mut settled, Entity::Constraint(stated));
     assert!(!drawing.holds(stated));
     assert!(drawing.holds(a) && drawing.holds(b));
 
     // Removing a point takes the edges it ends with it, and leaves the rest.
-    drawing.remove(&mut solver, a);
+    drawing.remove(&mut solver, &mut settled, a);
     assert!(!drawing.holds(a));
     assert!(!drawing.holds(first), "the edge outlived its endpoint");
     assert!(drawing.holds(b) && drawing.holds(circle));
@@ -477,11 +510,13 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     let b = sketch.add_point(DVec2::new(2.0, 0.0));
     sketch.add_segment(a, b);
     let mut solver = Solver::default();
-    let mut drawing = Drawing::new(&mut solver, sketch, Plane::GROUND);
+    let mut settled = Settled::default();
+    let mut drawing = Drawing::new(&mut solver, &mut settled, sketch, Plane::GROUND);
 
     // A second edge begun on the first one's far end.
     drawing.add_segment(
         &mut solver,
+        &mut settled,
         Anchor::On(b),
         Anchor::At(on(Plane::GROUND, DVec2::new(2.0, 2.0))),
     );
@@ -518,7 +553,7 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
         drawing.sketch.segments().count(),
         drawing.sketch.constraints().count(),
     );
-    drawing.remove_duplicates(&mut solver);
+    drawing.remove_duplicates(&mut solver, &mut settled);
     assert_eq!(
         (
             drawing.sketch.points().count(),
@@ -533,6 +568,7 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     // which is the behaviour sharing a handle used to give for free.
     drawing.drag_to(
         &mut solver,
+        &mut settled,
         Grip::Point(b),
         on(Plane::GROUND, DVec2::new(2.5, 0.5)),
     );
@@ -550,9 +586,10 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     // Deleted, it does not. This is the whole point: the second edge is now
     // free of the first and stays where it was left.
     let parted = drawing.sketch.point(corner).position;
-    drawing.remove(&mut solver, Entity::Constraint(tie));
+    drawing.remove(&mut solver, &mut settled, Entity::Constraint(tie));
     drawing.drag_to(
         &mut solver,
+        &mut settled,
         Grip::Point(b),
         on(Plane::GROUND, DVec2::new(0.5, -1.5)),
     );

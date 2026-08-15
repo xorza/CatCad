@@ -1,5 +1,16 @@
 use super::*;
 
+/// One polygon cut, through a cutter stood up for the call.
+///
+/// Every test here asks about one shape, so nothing is saved by keeping the
+/// cutter — what it saves is measured where it matters, in the arrangement's
+/// own sweep and in the application's allocation gates.
+fn polygon(around: &[DVec2], holes: &[Vec<DVec2>]) -> Fill {
+    let mut fill = Fill::default();
+    Cutter::default().polygon(around, holes, &mut fill);
+    fill
+}
+
 fn corners(of: &[(f64, f64)]) -> Vec<DVec2> {
     of.iter().map(|&(x, y)| DVec2::new(x, y)).collect()
 }
