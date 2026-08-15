@@ -37,6 +37,19 @@ use glam::UVec2;
 /// they meet, and not fighting.
 const FACE_BIAS: i32 = 2048;
 
+/// How solid a sketch face reads, where 1 would hide what it is drawn over.
+///
+/// A face is a region shown *over* the model rather than part of it, so it has
+/// to be seen through: what a sketch encloses is worth showing, and the geometry
+/// underneath is what the sketch is being drawn against.
+///
+/// It still writes depth, which is what keeps the drawing's own layering — a
+/// stroke or a marker behind a face stays behind it, rather than reading through
+/// a surface that is nearer the eye than it is. What that costs is that faces do
+/// not blend with *each other*, which is why they are drawn back to front; see
+/// [`Order`](super::cpu::Order).
+const FACE_OPACITY: f32 = 0.45;
+
 /// Strokes and rims, which are the drawing itself and read over the faces they
 /// enclose.
 ///
@@ -363,6 +376,7 @@ impl Gpu {
             alpha_to_coverage: false,
             blend: None,
             depth_bias: 0,
+            opacity: 1.0,
             depth_write: true,
         });
         // The same shader as the solids, and the same growing triangle list —
@@ -374,8 +388,9 @@ impl Gpu {
             indices: None,
             cull: None,
             alpha_to_coverage: false,
-            blend: None,
+            blend: Some(wgpu::BlendState::ALPHA_BLENDING),
             depth_bias: FACE_BIAS,
+            opacity: FACE_OPACITY,
             depth_write: true,
         });
         let curves = Passes::build::<CurveInstance>(

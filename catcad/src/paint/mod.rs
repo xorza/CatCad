@@ -78,16 +78,23 @@ const DATUM_MARGIN: f64 = 0.9;
 const DORMANT: Vec3 = Vec3::new(0.42, 0.45, 0.50);
 
 /// What a face of one is filled with — the same step down from [`FACE`].
-const DORMANT_FACE: Vec3 = Vec3::new(0.15, 0.19, 0.24);
+const DORMANT_FACE: Vec3 = Vec3::new(0.11, 0.20, 0.29);
 
 /// What a face the drawing encloses is filled with.
 ///
 /// Cool and dim, and deliberately not on the ladder above: a face reports no
 /// freedom of its own — it is whatever its boundary shuts in, and the boundary
 /// is already painted in what it has left to decide. So it reads as ground for
-/// the drawing to sit on rather than as another thing with a state, which is
-/// also why it is nearer the slab's grey than to any of the geometry's colours.
-const FACE: Vec3 = Vec3::new(0.24, 0.31, 0.40);
+/// the drawing to sit on rather than as another thing with a state.
+///
+/// Stated at the strength it has to survive being *seen through*, which is what
+/// makes it look so much bluer here than it does on screen: a face is drawn
+/// translucent, so what lands is a little over half of this mixed into whatever
+/// it covers. Measured against the demo's slab it comes out sixteen levels of
+/// red and fourteen of blue away from bare ground — a shade more separation
+/// than it had when it was opaque, and none of it borrowed from the geometry's
+/// own colours.
+const FACE: Vec3 = Vec3::new(0.18, 0.32, 0.46);
 
 /// What a shape still being drawn is drawn in — a grey that belongs to none of
 /// the states above, because a rubber band has no freedom to report: it is not

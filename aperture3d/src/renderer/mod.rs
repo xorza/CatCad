@@ -27,7 +27,7 @@ pub(crate) mod retained;
 pub(crate) mod target;
 pub(crate) mod uniforms;
 
-use crate::renderer::cpu::Cpu;
+use crate::renderer::cpu::{Cpu, Order};
 use crate::renderer::gpu::{Attachments, Gpu};
 use crate::renderer::uniforms::Uniforms;
 
@@ -175,11 +175,22 @@ impl Renderer {
             relight,
             cpu,
             shaper,
+            camera,
             ..
         } = self;
         let relight = std::mem::take(relight);
-        cpu.solids.refresh(&mut scene.solids, highlights, relight);
-        cpu.faces.refresh(&mut scene.faces, highlights, relight);
+        cpu.solids
+            .refresh(&mut scene.solids, highlights, relight, Order::Given);
+        // Back to front, because the faces pass is the one that blends — see
+        // [`Order`]. Read from the camera the frame will actually be drawn
+        // through, which is this one: a scene laid out against the last camera
+        // would sort a drag one frame behind the view.
+        cpu.faces.refresh(
+            &mut scene.faces,
+            highlights,
+            relight,
+            Order::BackToFront(camera.eye()),
+        );
         cpu.curves
             .refill_from(&mut scene.curves, highlights, relight);
         cpu.rings.refill_from(&mut scene.rings, highlights, relight);

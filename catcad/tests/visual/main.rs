@@ -15,7 +15,8 @@
 use std::sync::mpsc;
 
 use aperture::{
-    Camera, Curve, Highlight, Lit, Mesh, Object, Projection, Ring, Scene, Styled, Text, Viewport,
+    Camera, Curve, Highlight, Lit, Mesh, Object, Projection, Ring, Scene, Styled, Text, Vertex,
+    Viewport,
 };
 use glam::{Mat4, UVec2, Vec2, Vec3};
 use image::RgbaImage;
@@ -1409,16 +1410,18 @@ fn differing(a: &Frame, b: &Frame) -> u32 {
 /// triangles. What that looked like was slivers of slab lying *along* the face's
 /// own triangle edges.
 ///
-/// Weighed against the same frame with the slab dropped out of the plane, which
-/// is the one reference that needs no threshold: nothing else moves, the cubes
-/// standing on the face occlude exactly what they did, and so the face has to
-/// come out the same size. Anything it is short by is the slab taking pixels of
-/// a surface it is level with.
+/// Counted as the pixels the face *changes*, rather than as pixels of its own
+/// colour, because a translucent face has no colour of its own — what it comes
+/// out as depends on what it was drawn over. Weighed against the same frame with
+/// the slab dropped out of the plane, which is the one reference that needs no
+/// threshold: nothing else moves, the cubes standing on the face occlude exactly
+/// what they did, so the face has to reach exactly as many pixels either way.
+/// Any it is short of is the slab taking pixels of a surface it is level with.
 #[test]
 fn a_face_coplanar_with_the_slab_under_it_is_not_fought_for() {
-    /// The demo's face ink at arm's length and `pitch`, with the slab either in
-    /// the sketch plane or `dropped` below it.
-    fn face_ink(pitch: f32, dropped: f32) -> u32 {
+    /// The demo at `pitch`, with the slab either in the sketch plane or
+    /// `dropped` below it, and the faces either drawn or taken away.
+    fn frame_of(pitch: f32, dropped: f32, faces: bool) -> Frame {
         let app = CatCad::build();
         {
             let mut renderer = app.renderer().borrow_mut();
@@ -1431,6 +1434,9 @@ fn a_face_coplanar_with_the_slab_under_it_is_not_fought_for() {
             scene.rings.clear();
             scene.points.clear();
             scene.texts.clear();
+            if !faces {
+                scene.faces.clear();
+            }
             // The slab is the first solid the demo pushes; the cubes after it
             // stay where they are, so what they hide does not move either.
             let slab = scene
@@ -1443,41 +1449,105 @@ fn a_face_coplanar_with_the_slab_under_it_is_not_fought_for() {
         let mut pane = ScenePane {
             view: app.renderer().clone(),
         };
-        let frame = capture(UVec2::new(700, 520), &mut pane);
-        let mut ink = 0;
-        for y in 0..frame.size.y {
-            for x in 0..frame.size.x {
-                // The face is the one blue surface; the slab is grey and the
-                // cubes carry far more red or far more of everything.
-                let [r, _, b, _] = frame.pixel(UVec2::new(x, y));
-                if i32::from(b) - i32::from(r) > 20 {
-                    ink += 1;
-                }
-            }
-        }
-        ink
+        capture(UVec2::new(700, 520), &mut pane)
     }
 
-    // Overhead, and then down to where the plane is nearly edge-on. The
-    // shallow end is where a bias too small shows worst — the depth of a plane
-    // changes fastest across a pixel there, so two copies of it disagree by the
-    // most — and it is where sixteen steps lost eleven thousand pixels.
+    // How many pixels the faces reach with the slab `dropped` this far.
+    let reach = |pitch: f32, dropped: f32| {
+        differing(
+            &frame_of(pitch, dropped, true),
+            &frame_of(pitch, dropped, false),
+        )
+    };
+
+    // Overhead, and then down to where the plane is nearly edge-on. The shallow
+    // end is where too small a bias shows worst — the depth of a plane changes
+    // fastest across a pixel there, so two copies of it disagree by the most.
     for pitch in [0.9f32, 0.4, 0.15, 0.05] {
-        let clear = face_ink(pitch, 5.0);
-        let level = face_ink(pitch, 0.0);
+        let clear = reach(pitch, 5.0);
+        let level = reach(pitch, 0.0);
         assert!(
-            clear > 20_000,
-            "at pitch {pitch} only {clear} px of face with the slab out of the way, so this \
-             measures nothing"
+            // Well under the seventeen thousand the shallowest of these reaches
+            // and the quarter-million the steepest does. A floor at all is here
+            // so that a build drawing no faces cannot pass by drawing none twice.
+            clear > 10_000,
+            "at pitch {pitch} the faces reach only {clear} px with the slab out of the way, \
+             so this measures nothing"
         );
         // A few hundred, for the multisampled edge where the two now meet in one
-        // plane rather than one standing well below the other. What the fighting
-        // cost was two orders of magnitude past this.
+        // plane rather than one standing well below the other.
         assert!(
-            clear - level < 400,
-            "at pitch {pitch} the face draws {level} px level with the slab against {clear} px \
-             clear of it, so the slab is taking {} px of a surface it is level with",
-            clear - level
+            clear.abs_diff(level) < 400,
+            "at pitch {pitch} the faces reach {level} px level with the slab against {clear} px \
+             clear of it, so the two are fighting over {} px",
+            clear.abs_diff(level)
         );
     }
+}
+
+/// A translucent face shows what is behind it, whichever order the faces were
+/// handed over in.
+///
+/// Blending mixes a surface with what is *already* in the target, so a face has
+/// to be drawn after whatever stands behind it. Nothing about the order a caller
+/// pushes faces in says anything about depth — it is the order the sketches were
+/// created in — so the pass sorts. Drawn the other way round the near face
+/// writes depth first and the far one is rejected outright: not faint, gone.
+///
+/// Two sheets facing the camera, one red in front of one blue, pushed both ways
+/// round. What comes out has to be the same picture, and it has to carry blue.
+#[test]
+fn a_translucent_face_blends_with_the_one_behind_it_either_way_round() {
+    /// A flat quad facing the camera at `z`.
+    fn sheet(z: f32, color: Vec3) -> Object {
+        let at = |x: f32, y: f32| Vertex {
+            position: Vec3::new(x, y, z),
+            normal: Vec3::Z,
+        };
+        Object {
+            color,
+            ..Object::new(Mesh {
+                vertices: vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
+                indices: vec![0, 1, 2, 0, 2, 3],
+            })
+        }
+    }
+
+    /// The pixel where the two overlap, with the near sheet pushed first or last.
+    fn overlap(near_first: bool) -> [u8; 4] {
+        let mut scene = Scene::default();
+        let (near, far) = (
+            sheet(1.0, Vec3::new(1.0, 0.0, 0.0)),
+            sheet(-1.0, Vec3::new(0.0, 0.0, 1.0)),
+        );
+        for object in if near_first { [near, far] } else { [far, near] } {
+            scene.faces.push(object);
+        }
+        let mut renderer = Renderer::new(scene);
+        *renderer.camera_mut() = Camera {
+            yaw: 0.0,
+            pitch: 0.0,
+            distance: 10.0,
+            target: Vec3::ZERO,
+            ..Camera::default()
+        };
+        let mut pane = ScenePane {
+            view: Rc::new(RefCell::new(renderer)),
+        };
+        capture(UVec2::new(400, 400), &mut pane).pixel(UVec2::new(200, 200))
+    }
+
+    let [.., blue_of_first, _] = overlap(true);
+    let [.., blue_of_last, _] = overlap(false);
+    // The blue sheet is behind and has to reach the frame either way. Before the
+    // pass sorted, pushing the near one first left this at the background's 28
+    // against the 111 the other order gave.
+    assert!(
+        blue_of_first > 80,
+        "the far face contributed {blue_of_first} of blue, so it was rejected rather than blended"
+    );
+    assert_eq!(
+        blue_of_first, blue_of_last,
+        "the same two faces came out differently for having been pushed the other way round"
+    );
 }

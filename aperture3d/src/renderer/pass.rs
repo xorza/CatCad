@@ -9,19 +9,24 @@ use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 
 /// What every pipeline built from the shared module is told.
 ///
-/// Between them only the ring and the curve passes read these; every pipeline is
-/// handed both because the declarations they override are module-scope in the
-/// shader, and so this has to be.
+/// Between them only the ring, the curve and the mesh passes read these; every
+/// pipeline is handed all of them because the declarations they override are
+/// module-scope in the shader, and so this has to be.
 ///
 /// This is the whole of what crosses from Rust into WGSL as a number. Anything
 /// that has to agree across the two languages belongs here, where the Rust side
 /// is the one that states it — a constant written out in both is one that
 /// nothing checks.
 ///
-const OVERRIDES: [(&str, f64); 2] = [
-    ("RING_STEPS", band::RING_STEPS as f64),
-    ("MIN_RUN_PX", curve::MIN_RUN_PX as f64),
-];
+/// The first two are the same for every pass and the last is the pass's own,
+/// which is what makes this a function rather than the constant it was.
+fn overrides(spec: &PassSpec) -> [(&'static str, f64); 3] {
+    [
+        ("RING_STEPS", band::RING_STEPS as f64),
+        ("MIN_RUN_PX", curve::MIN_RUN_PX as f64),
+        ("MESH_ALPHA", f64::from(spec.opacity)),
+    ]
+}
 
 pub(super) struct PassSpec {
     /// Names the pipeline, both its entry points and all three of its buffers:
@@ -69,6 +74,13 @@ pub(super) struct PassSpec {
     /// [`Camera::view_proj`](crate::Camera::view_proj) — and a positive bias is
     /// what brings a pass forward.
     pub(super) depth_bias: i32,
+    /// How opaque the pass draws, where 1 is solid.
+    ///
+    /// Only the mesh passes read it; the overlays are shapes rather than
+    /// regions and shade their own coverage. A pass under 1 wants a `blend` to
+    /// go with it, and wants the passes it should be seen through drawn before
+    /// it — which for the faces is what [`Order`](super::cpu::Order) settles.
+    pub(super) opacity: f32,
     /// Whether the pass writes what it draws into the depth buffer.
     ///
     /// Every opaque pass does, and the blended one must not: two blended
@@ -96,6 +108,7 @@ impl PassSpec {
             alpha_to_coverage: true,
             blend: None,
             depth_bias: 0,
+            opacity: 1.0,
             depth_write: true,
         }
     }
@@ -114,8 +127,9 @@ pub(super) struct Pipelines<'a> {
 impl Pipelines<'_> {
     pub(super) fn build<R: Record>(&self, spec: PassSpec) -> Pass {
         let () = R::LAYOUT_SPANS_STRUCT;
+        let constants = overrides(&spec);
         let compilation_options = wgpu::PipelineCompilationOptions {
-            constants: &OVERRIDES,
+            constants: &constants,
             ..Default::default()
         };
         let pipeline = self

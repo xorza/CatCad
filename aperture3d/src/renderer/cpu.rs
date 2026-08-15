@@ -9,7 +9,7 @@ use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, Instance, PointInstance, RingInstance,
 };
 use crate::text::{self, Text};
-use glam::Mat3;
+use glam::{Mat3, Vec3};
 use palantir::{PlacedGlyph, TextGlyphs};
 
 /// The whole scene in the shape the GPU takes it.
@@ -337,10 +337,48 @@ impl<R> Records<R> {
 pub(super) struct Triangles {
     pub(super) vertices: Vec<GpuVertex>,
     pub(super) indices: Vec<u32>,
+    /// Where each object's geometry centres, in world space.
+    ///
+    /// Kept so that ordering the objects costs a sort of *them* rather than a
+    /// walk of their vertices: it is measured when the geometry moves, which is
+    /// rarely, and read when the camera does, which is every frame of a drag.
+    centres: Vec<Vec3>,
+    /// Which object to draw when, as positions in the batch.
+    ///
+    /// Held rather than recomputed into the flatten because it is also the
+    /// answer to *whether to flatten*: an order that came out the same as last
+    /// frame's is a frame the triangle list already agrees with.
+    order: Vec<u32>,
+    /// Scratch the next order is built in, so comparing it against the one in
+    /// force costs no allocation.
+    next: Vec<u32>,
     /// Whether the list has been rewritten since the GPU was handed it. One
     /// where [`Records`] has two, because the vertices and the indices are
     /// uploaded together and there is no rewriting one without the other.
     dirty: bool,
+}
+
+/// What order a mesh pass draws its objects in.
+#[derive(Debug, Clone, Copy)]
+pub(super) enum Order {
+    /// However the batch holds them.
+    ///
+    /// What opaque geometry wants: the depth test settles what covers what, and
+    /// an order would buy nothing but the work of deciding it.
+    Given,
+    /// Farthest from `eye` first.
+    ///
+    /// What a blended pass needs, and the whole of why it needs it: a
+    /// translucent surface is mixed with what is *already* in the target, so
+    /// whatever stands behind it has to have been drawn by the time it is. Drawn
+    /// the other way round the near one writes depth first and the far one is
+    /// rejected outright — not blended faintly, but gone.
+    ///
+    /// Ordered per object, which is exact while the objects do not interpenetrate
+    /// — sketch faces are flat and the ones sharing a plane are disjoint by
+    /// construction, so only two sketches on *crossing* planes could defeat it,
+    /// and then only where they cross.
+    BackToFront(Vec3),
 }
 
 impl Triangles {
@@ -358,13 +396,62 @@ impl Triangles {
         objects: &mut Batch<Object>,
         highlights: &Highlights,
         relight: bool,
+        order: Order,
     ) {
         // Both marks taken, not either: `take_dirty` clears the batch's, and one
         // left behind is one that fires again next frame.
-        if objects.take_dirty() | relight {
+        let moved = objects.take_dirty();
+        if moved {
+            self.remeasure(objects);
+        }
+        // Asked every frame and answering `false` on almost all of them: a
+        // camera turning through a view where nothing changes places leaves the
+        // triangle list exactly as the GPU already has it.
+        let resorted = self.resort(order);
+        if moved | relight | resorted {
             self.flatten(objects, highlights);
             self.dirty = true;
         }
+    }
+
+    /// Take each object's centre afresh, for whatever order the next frames ask
+    /// for.
+    fn remeasure(&mut self, objects: &[Object]) {
+        self.centres.clear();
+        self.centres.reserve_exact(objects.len());
+        self.centres.extend(objects.iter().map(|object| {
+            let mut sum = Vec3::ZERO;
+            for vertex in &object.mesh.vertices {
+                sum += object.transform.transform_point3(vertex.position);
+            }
+            // A mesh with no vertices contributes no triangles either, so where
+            // it sorts is a question with no consequence.
+            sum / object.mesh.vertices.len().max(1) as f32
+        }));
+    }
+
+    /// Put the objects in `order`, answering whether that moved any of them.
+    ///
+    /// Built in scratch and compared rather than sorted in place, because the
+    /// answer is what decides whether the list is flattened again — and sorting
+    /// in place would destroy the very thing being compared against.
+    fn resort(&mut self, order: Order) -> bool {
+        self.next.clear();
+        self.next.extend(0..self.centres.len() as u32);
+        if let Order::BackToFront(eye) = order {
+            let centres = &self.centres;
+            // Descending, so the farthest is drawn first. Squared distance,
+            // because a square root is monotonic and orders nothing it did not.
+            self.next.sort_unstable_by(|&a, &b| {
+                let far = |at: u32| centres[at as usize].distance_squared(eye);
+                far(b).total_cmp(&far(a))
+            });
+        }
+        let moved = self.next != self.order;
+        if moved {
+            std::mem::swap(&mut self.next, &mut self.order);
+        }
+        moved
     }
 
     /// Whether the list has been rewritten since this last said so, clearing the
@@ -395,7 +482,11 @@ impl Triangles {
             objects.iter().map(|o| o.mesh.vertices.len()).sum(),
             objects.iter().map(|o| o.mesh.indices.len()).sum(),
         );
-        for object in objects {
+        // Lifted out for the walk and put back after it, so the order can be
+        // read while the lists it decides are being written.
+        let order = std::mem::take(&mut self.order);
+        for &at in &order {
+            let object = &objects[at as usize];
             // Normals survive non-uniform scale only under the inverse
             // transpose; it's once per object, so the generality is free.
             let normal_matrix = Mat3::from_mat4(object.transform).inverse().transpose();
@@ -415,6 +506,7 @@ impl Triangles {
             });
             self.extend(vertices, &object.mesh.indices);
         }
+        self.order = order;
     }
 
     /// Empty it, keeping whatever room it has already grown to.
