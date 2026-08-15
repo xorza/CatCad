@@ -142,7 +142,13 @@ const EDGE_WIDTH: f32 = 1.6;
 /// model and shows through solids standing in front of it. Reversed depth is
 /// what opens that up to four decades — under the old convention the same two
 /// bounds sat barely two apart.
-const STROKE_LIFT: i32 = 512;
+///
+/// The binding lower bound is not that 128 any more, though: a stroke is drawn
+/// on a *face*, and a face is itself lifted off whatever it is coplanar with by
+/// `FACE_LIFT` — 2048 of these same steps, because two differently meshed copies
+/// of one plane disagree by far more than two shaders do. So the floor here is
+/// that, and this stands four times clear of it.
+const STROKE_LIFT: i32 = 8192;
 
 /// How far the markers ride in front of the strokes.
 ///
@@ -152,9 +158,10 @@ const STROKE_LIFT: i32 = 512;
 /// marker is cut by the very edges it terminates.
 ///
 /// The step is what matters, not the height: the drawing stacks solids, then
-/// strokes, then the handles you grab. Doubling puts 512 steps of daylight
-/// between the layers, which is four hundred times the odd ULP two shaders
-/// disagree by and still three decades short of showing through the model.
+/// faces, then strokes, then the handles you grab, and each layer wants daylight
+/// under it rather than a particular altitude. Doubling puts 8192 steps between
+/// these two, which is thousands of times the odd ULP two shaders disagree by
+/// and still two decades short of showing through the model.
 const MARKER_LIFT: i32 = STROKE_LIFT * 2;
 
 /// Type size of a constraint's mark, in logical pixels. Small: a drawing may

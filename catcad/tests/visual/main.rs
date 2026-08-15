@@ -1398,3 +1398,86 @@ fn differing(a: &Frame, b: &Frame) -> u32 {
     }
     n
 }
+
+/// A sketch face lying in the very plane of the slab under it wins that plane
+/// outright, rather than fighting it.
+///
+/// The demo puts the two exactly coplanar on purpose — the slab's top face *is*
+/// the sketch plane. They are meshed quite differently, though: the slab's top
+/// is one quad and the face is an arrangement triangulated to a sagitta, so
+/// their rasterised depths disagree by rounding, and worst along the long thin
+/// triangles. What that looked like was slivers of slab lying *along* the face's
+/// own triangle edges.
+///
+/// Weighed against the same frame with the slab dropped out of the plane, which
+/// is the one reference that needs no threshold: nothing else moves, the cubes
+/// standing on the face occlude exactly what they did, and so the face has to
+/// come out the same size. Anything it is short by is the slab taking pixels of
+/// a surface it is level with.
+#[test]
+fn a_face_coplanar_with_the_slab_under_it_is_not_fought_for() {
+    /// The demo's face ink at arm's length and `pitch`, with the slab either in
+    /// the sketch plane or `dropped` below it.
+    fn face_ink(pitch: f32, dropped: f32) -> u32 {
+        let app = CatCad::build();
+        {
+            let mut renderer = app.renderer().borrow_mut();
+            edge_on(pitch)(renderer.camera_mut());
+            renderer.camera_mut().distance = 6.0;
+            let scene = renderer.scene_mut();
+            // Only the two surfaces in question. The drawing standing on the
+            // face is neither, and would only be noise here.
+            scene.curves.clear();
+            scene.rings.clear();
+            scene.points.clear();
+            scene.texts.clear();
+            // The slab is the first solid the demo pushes; the cubes after it
+            // stay where they are, so what they hide does not move either.
+            let slab = scene
+                .solids
+                .iter_mut()
+                .next()
+                .expect("the demo stands its drawing on a slab");
+            slab.transform = Mat4::from_translation(Vec3::new(0.0, -dropped, 0.0)) * slab.transform;
+        }
+        let mut pane = ScenePane {
+            view: app.renderer().clone(),
+        };
+        let frame = capture(UVec2::new(700, 520), &mut pane);
+        let mut ink = 0;
+        for y in 0..frame.size.y {
+            for x in 0..frame.size.x {
+                // The face is the one blue surface; the slab is grey and the
+                // cubes carry far more red or far more of everything.
+                let [r, _, b, _] = frame.pixel(UVec2::new(x, y));
+                if i32::from(b) - i32::from(r) > 20 {
+                    ink += 1;
+                }
+            }
+        }
+        ink
+    }
+
+    // Overhead, and then down to where the plane is nearly edge-on. The
+    // shallow end is where a bias too small shows worst — the depth of a plane
+    // changes fastest across a pixel there, so two copies of it disagree by the
+    // most — and it is where sixteen steps lost eleven thousand pixels.
+    for pitch in [0.9f32, 0.4, 0.15, 0.05] {
+        let clear = face_ink(pitch, 5.0);
+        let level = face_ink(pitch, 0.0);
+        assert!(
+            clear > 20_000,
+            "at pitch {pitch} only {clear} px of face with the slab out of the way, so this \
+             measures nothing"
+        );
+        // A few hundred, for the multisampled edge where the two now meet in one
+        // plane rather than one standing well below the other. What the fighting
+        // cost was two orders of magnitude past this.
+        assert!(
+            clear - level < 400,
+            "at pitch {pitch} the face draws {level} px level with the slab against {clear} px \
+             clear of it, so the slab is taking {} px of a surface it is level with",
+            clear - level
+        );
+    }
+}

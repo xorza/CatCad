@@ -11,14 +11,31 @@ use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::renderer::uniforms::Uniforms;
 use glam::UVec2;
 
-/// How many depth steps a sketch face is brought forward, so that lying in the
-/// very plane of what it is drawn on is settled rather than left to whichever
-/// fragment the rasteriser reached first.
+/// How many steps of depth resolution a sketch face is brought forward, so that
+/// lying in the very plane of what it is drawn on is settled rather than left to
+/// whichever fragment the rasteriser reached first.
 ///
-/// Sixteen because it has to beat the rounding of one plane against another and
-/// nothing more — the strokes above a face clear it by their own `z_offset`,
-/// which is decades larger, so there is no ladder here to fit into.
-const FACE_BIAS: i32 = 16;
+/// The bottom of the one ladder every layer of the drawing stands on — this,
+/// then `STROKE_LIFT`, then `MARKER_LIFT`, all of them steps of the same
+/// [`lift`]. There is deliberately no second mechanism: the rasteriser's own
+/// `depth_bias` moves depth by the same unit, one place in the last of the
+/// primitive's own depth, so a face biased that way and a stroke lifted this way
+/// share one ladder while being set in two files — and raising either silently
+/// reorders the other. It cannot be the surviving one, either, because a
+/// highlight *adds* to a primitive's lift and shares its pipeline, which is a
+/// thing pipeline state cannot say.
+///
+/// Large, and it needs to be: it is measured not against the depth buffer's
+/// resolution but against how far two differently meshed copies of one plane
+/// disagree, and a slab's top is one quad where a sketch face is an arrangement
+/// triangulated to a sagitta. Sixteen left the two fighting at arm's length, in
+/// slivers lying along the face's own triangle edges. This is where it
+/// converges: at a pitch of 0.05 radians the slab still took three thousand
+/// pixels of the face at 512, two hundred at 2048, and the same two hundred at
+/// 8192 — which is the multisampled edge where they meet, and not fighting.
+///
+/// [`lift`]: crate::renderer::shader
+const FACE_LIFT: i32 = 2048;
 
 /// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU
 /// encodes on write.
@@ -314,7 +331,7 @@ impl Gpu {
             cull: Some(wgpu::Face::Back),
             alpha_to_coverage: false,
             blend: None,
-            depth_bias: 0,
+            lift: 0,
             depth_write: true,
         });
         // The same shader as the solids, and the same growing triangle list —
@@ -327,7 +344,7 @@ impl Gpu {
             cull: None,
             alpha_to_coverage: false,
             blend: None,
-            depth_bias: FACE_BIAS,
+            lift: FACE_LIFT,
             depth_write: true,
         });
         let curves =
