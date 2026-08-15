@@ -78,13 +78,14 @@ const MIN_W: f32 = 1e-6;
 // covers no screen area and has no gradient to read.
 const MIN_DET: f32 = 1e-6;
 
-// The reversed-depth volume a plane's extrapolated gradient is held inside.
+// The reversed-depth volume a plane's extrapolated gradient has to land inside
+// to be believed.
 //
 // Zero is the far end and one is the near plane. Both are stepped off the edge
-// rather than sitting on it: a corner pinned to a limit has still to survive the
-// clip and the depth test, and `lift` runs *after* this and scales what it is
-// given — so the near limit leaves room for the largest bias any overlay
-// carries, which is decades below the 1% held back here.
+// rather than sitting on it: a corner has still to survive the clip and the
+// depth test after `lift` has run and scaled what it was given, so the near
+// limit leaves room for the largest bias any overlay carries — which is decades
+// below the 1% held back here.
 const MIN_NDC_Z: f32 = 1e-6;
 const MAX_NDC_Z: f32 = 0.99;
 
@@ -195,31 +196,28 @@ fn plane_depth_shift(
     let dzdy = (a1.x * a2.z - a1.z * a2.x) / det;
     let raw = dzdx * offset_ndc.x + dzdy * offset_ndc.y;
 
-    // Held inside the depth volume, because the affine answer above is exact
-    // over the plane and the plane only reaches so far. Its horizon is where
-    // the surface runs to infinity, and screen positions past that line name
-    // points *behind* the eye: reversed depth carries them through zero and out
-    // the far side, taking the fragments with them. That is a label cut across
-    // its waist by nothing at all — no surface is involved, and no amount of
-    // `z_offset` moves it, because what is thrown away was never depth-tested.
+    // Dropped where it would carry the corner out of the depth volume, because
+    // the affine answer above is exact over the plane and the plane only reaches
+    // so far. Its horizon is where the surface runs to infinity, and screen
+    // positions past that line name points *behind* the eye: reversed depth
+    // carries them through zero and out the far side, taking the fragments with
+    // them. That is a label cut across its waist by nothing at all — no surface
+    // is involved, and no `z_offset` moves it, because what is thrown away was
+    // never depth-tested.
     //
-    // Clamped here where [`lift`] deliberately refuses to be. That refusal is
-    // about world geometry, whose clip has to land where the geometry does — a
-    // face reaching past the camera keeps the part in front by being cut. What
-    // is widened here is a screen-space quad standing in for a point, and it has
-    // no far half to lose: pinning it to the volume's edge draws the whole of it
-    // at the limit the gradient was running to.
-    // Widened around the anchor's own depth where that already sits outside,
-    // so this only ever pulls a corner *in*. An anchor past the near plane is
-    // one the camera has moved through, and the clip is what takes it away;
-    // bounding it here would hand back a shift at zero offset and paste the
-    // whole quad to the near plane instead.
-    let depth = clamp(
-        here_ndc.z + raw,
-        min(MIN_NDC_Z, here_ndc.z),
-        max(MAX_NDC_Z, here_ndc.z),
-    );
-    out.shift = depth - here_ndc.z;
+    // Dropped rather than pinned to the edge, which is the same mistake wearing
+    // the other face: a corner held at the far limit is a corner at infinity,
+    // and a label with half of it out there reads *behind* everything standing
+    // on the very surface it annotates. The anchor's own depth is the honest
+    // stand-in — it is a real point of the plane, the one the label is placed
+    // by, and exactly what a label naming no plane gets.
+    //
+    // It also settles the anchor sitting outside the volume itself, which is the
+    // camera having moved through it: every corner falls back, the quad keeps
+    // the depth it would have had, and the clip takes it away as before.
+    let toward = max(raw, 0.0);
+    let depth = here_ndc.z + toward;
+    out.shift = select(0.0, toward, depth < MAX_NDC_Z);
     out.found = true;
     return out;
 }

@@ -1290,3 +1290,111 @@ fn a_rim_seen_edge_on_thins_rather_than_fanning_out() {
         drawn as i64 - without as i64
     );
 }
+
+/// Type lying in a plane is not swallowed by what stands on that plane beyond
+/// it.
+///
+/// The other half of what naming a plane must not cost, and the one that only
+/// became visible once the horizon above stopped eating the type outright. A
+/// label is a few pixels tall on screen; seen along the plane it lies in, those
+/// few pixels span *metres* of ground. Following the surface exactly therefore
+/// ramps the far edge of a run back past whatever stands between — so a
+/// dimension anchored well in front of a solid was drawn diving behind it,
+/// which is the ground's depth honestly reported and not the label's.
+///
+/// The rule that settles it is that an overlay may lean toward the viewer to
+/// clear the surface it lies on and never away from it: leaning away buys
+/// nothing, because a receding surface is one there is nothing left to clear,
+/// and it costs the label to everything standing on ground it never touched.
+///
+/// Measured with the demo's solids in place, against the same run naming no
+/// plane — which is hidden exactly when its anchor is, and is the answer this
+/// has to match.
+/// Far enough back that the demo's solids stand between the eye and ground the
+/// far edge of a run ramps onto. Closer in, the run's whole span is in front of
+/// them and there is nothing for a sinking label to be swallowed by.
+const SUNK_DISTANCE: f32 = 9.0;
+
+#[test]
+fn type_lying_in_a_plane_is_hidden_only_by_what_hides_its_anchor() {
+    for pitch in [0.08f32, 0.15, 0.4] {
+        let bare = marks(pitch, SUNK_DISTANCE, Marks::Gone, true);
+        let planed = differing(&marks(pitch, SUNK_DISTANCE, Marks::InPlane, true), &bare);
+        let flat = differing(&marks(pitch, SUNK_DISTANCE, Marks::Flat, true), &bare);
+        assert!(
+            // Half of what the shallowest of these leaves, which is the
+            // least: a floor at all is only here so that a frame drawing no
+            // type at all cannot pass by agreeing with another that draws none.
+            flat > 350,
+            "at pitch {pitch} a flat run leaves only {flat} px past the solids, so this \
+             measures nothing"
+        );
+        assert_eq!(
+            planed, flat,
+            "at pitch {pitch} type lying in its plane keeps {planed} px past the solids \
+             against {flat} for the same run laid flat, so the plane sank it behind them"
+        );
+    }
+}
+
+/// Which of the demo's constraint marks to paint, and how.
+#[derive(Clone, Copy, Debug)]
+enum Marks {
+    /// Lying in the sketch plane, which is how the app draws them.
+    InPlane,
+    /// The same run carrying no plane, which is what the one above is weighed
+    /// against.
+    Flat,
+    /// None at all, so a frame can be differenced against the type it lacks.
+    Gone,
+}
+
+/// The demo's constraint marks at `pitch`, with everything but the type and —
+/// at the caller's word — the solids emptied out, so what moves between two of
+/// these is only ever the thing under test.
+fn marks(pitch: f32, distance: f32, marks: Marks, solids: bool) -> Frame {
+    let app = CatCad::build();
+    {
+        let mut renderer = app.renderer().borrow_mut();
+        edge_on(pitch)(renderer.camera_mut());
+        renderer.camera_mut().distance = distance;
+        let scene = renderer.scene_mut();
+        scene.faces.clear();
+        scene.curves.clear();
+        scene.rings.clear();
+        scene.points.clear();
+        if !solids {
+            scene.solids.clear();
+        }
+        match marks {
+            Marks::InPlane => {}
+            Marks::Flat => {
+                for text in scene.texts.iter_mut() {
+                    text.plane_normal = None;
+                }
+            }
+            Marks::Gone => scene.texts.clear(),
+        }
+    }
+    let mut pane = ScenePane {
+        view: app.renderer().clone(),
+    };
+    capture(UVec2::new(800, 628), &mut pane)
+}
+
+/// How many pixels two frames disagree about.
+///
+/// Differenced rather than counted against a threshold, because type drawn over
+/// a lit solid lands on pixels that were already lit — a count would see none of
+/// exactly the ink this is about.
+fn differing(a: &Frame, b: &Frame) -> u32 {
+    let mut n = 0;
+    for y in 0..a.size.y {
+        for x in 0..a.size.x {
+            if a.pixel(UVec2::new(x, y)) != b.pixel(UVec2::new(x, y)) {
+                n += 1;
+            }
+        }
+    }
+    n
+}
