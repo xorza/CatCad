@@ -33,10 +33,7 @@ wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl"] 
 # as the tagged object JSON would make of one.
 ron = "0.12"
 serde = { version = "1.0", features = ["derive"] }
-# `common`'s to depend on; every other member reaches dhat through it.
-# Pinned to palantir's version so the workspace resolves one copy —
-# `dhat::Alloc` is a global allocator, and two of them would be two profilers
-# fighting over the same process.
+rfd = "0.17"
 dhat = "0.3"
 
 [workspace.lints.rust]
