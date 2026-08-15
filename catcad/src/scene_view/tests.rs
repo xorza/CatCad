@@ -1390,10 +1390,15 @@ fn a_face_is_hovered_and_picked_out_like_any_other_part() {
         "the click picked out something else"
     );
 
-    // And it survives the drawing being laid out again. Dragging the arm moves
-    // geometry without changing what crosses what, so the face is still the
-    // face it was — a name that did not survive would be one dropped by the
+    // And its name survives the drawing being laid out again. Dragging the arm
+    // moves geometry without changing what crosses what, so the face is still
+    // the face it was — a name that did not survive would be one dropped by the
     // prune every frame of a drag.
+    //
+    // Asked of the hover rather than of the selection, because taking hold of
+    // the arm picks the arm out: what is checked here is that the *name* still
+    // resolves to the same face, which is what a position-in-the-walk has to do
+    // and a handle would get for free.
     let wrist = raised.cursor_on(raised.wrist());
     raised.harness.press_at(wrist);
     raised.frame();
@@ -1401,10 +1406,12 @@ fn a_face_is_hovered_and_picked_out_like_any_other_part() {
     raised.frame();
     raised.harness.release();
     raised.frame();
+    raised.harness.move_to(inside);
+    raised.frame();
     assert_eq!(
-        raised.session.selection().picked(),
-        [hovered.expect("the hover found one")],
-        "a drag dropped the face that was picked out"
+        raised.view.hovered(),
+        hovered,
+        "the face came back as a different face after the drawing moved"
     );
 }
 
@@ -1440,5 +1447,60 @@ fn what_is_drawn_on_a_face_takes_the_click_over_it() {
         ),
         "a face took a cursor over the drawing: {:?}",
         raised.view.hovered()
+    );
+}
+
+/// Taking hold of something picks it out, and stops the pointer lighting
+/// whatever else it sweeps over.
+///
+/// Two halves of one idea: mid-drag the pointer has already acted. A hover says
+/// what pressing *would* act on, so lighting geometry the cursor happens to
+/// cross on its way offers a choice that is not on offer — and the thing that
+/// is actually moving reads as picked out instead.
+///
+/// The drag runs across the drawing rather than into empty space, so there is
+/// something for a live hover to have found.
+#[test]
+fn a_drag_picks_out_what_it_holds_and_lights_nothing_else() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let wrist = raised.cursor_on(raised.wrist());
+    raised.harness.move_to(wrist);
+    raised.frame();
+    let held = raised.view.hovered().expect("the cursor is on the wrist");
+
+    raised.harness.press_at(wrist);
+    raised.frame();
+    raised.harness.drag_to(wrist + Vec2::new(30.0, 20.0));
+    raised.frame();
+
+    assert_eq!(
+        raised.session.selection().picked(),
+        [held],
+        "the drag did not pick out what it took hold of"
+    );
+    assert_eq!(
+        raised.view.hovered(),
+        None,
+        "the pointer went on hovering while it was dragging"
+    );
+
+    // Sweeping across the rest of the drawing changes neither. Without the
+    // guard this is where a marker the drag passed over would light up.
+    raised
+        .harness
+        .drag_to(raised.cursor_on(raised.empty_spot()));
+    raised.frame();
+    assert_eq!(raised.view.hovered(), None, "a hover came back mid-drag");
+    assert_eq!(raised.session.selection().picked(), [held]);
+
+    // And the hover returns once the button is up.
+    raised.harness.release();
+    raised.frame();
+    raised.harness.move_to(raised.cursor_on(raised.wrist()));
+    raised.frame();
+    assert!(
+        raised.view.hovered().is_some(),
+        "the hover never came back after the drag"
     );
 }

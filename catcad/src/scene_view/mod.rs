@@ -69,6 +69,13 @@ const SELECTED: Highlight = Highlight {
 /// the base plane's rather than anything the outline says.
 #[derive(Debug, Clone, Copy)]
 struct Held {
+    /// What was taken hold of, as something that can be picked out.
+    ///
+    /// Kept beside [`Grabbed`] rather than derived from it: that one says what
+    /// the drag *writes*, in the vocabulary the change needs, and this says what
+    /// the user grabbed, in the vocabulary the selection needs. A datum is a
+    /// `Movable` to one and a `Part::Plane` to the other.
+    part: Part,
     grabbed: Grabbed,
     motion: Motion,
     /// Where what was grabbed sits relative to where the press landed on the
@@ -257,6 +264,19 @@ impl SceneView {
                 });
             }
             (Gesture::Move(held), Drag::Started { .. } | Drag::Active { .. }) => {
+                // Taking hold of something picks it out. On the frame the drag
+                // *starts* rather than the frame the button goes down: a press
+                // that never travels is a click, and what a click means is
+                // settled further down — including a shift-click, which adds
+                // where this replaces. Selecting on the press was tried and
+                // measured to work too, so this is the narrower statement of
+                // the same rule rather than a fix for anything.
+                //
+                // Naming the whole selection rather than an addition, like every
+                // other `Select`: a replayed pass lands on the same answer.
+                if matches!(response.left.drag, Drag::Started { .. }) {
+                    intents.push(Choice::Select(Some(held.part)));
+                }
                 // Where what is held should end up, which is where the cursor
                 // lands plus however far off centre it was grabbed.
                 if let Some(to) = aimed::landing(&response, document, held.motion) {
@@ -478,10 +498,19 @@ impl SceneView {
         // marker sits on the end of every edge that meets it, and lighting all
         // of them would answer a question nobody asked.
         //
+        // Nothing at all while something is being dragged. A hover says what the
+        // pointer would act on if you pressed, and mid-drag the pointer has
+        // already acted — lighting whatever it happens to sweep over offers a
+        // choice that is not on offer, and the thing actually moving is picked
+        // out and lit as such. Turning the view is left alone: there the scene
+        // moves under a still cursor, and what is under it afterwards is a fair
+        // question.
+        //
         // Aimed through the *document's* camera, not the renderer's copy of it:
         // the copy is written below, so a pick that read it would answer
         // through wherever the camera was before this frame's orbit.
-        let under = self.aimed.and_then(|aimed| {
+        let dragging = matches!(self.gesture, Gesture::Move(_));
+        let under = self.aimed.filter(|_| !dragging).and_then(|aimed| {
             let aim = aimed.aim(&document.camera());
             renderer.scene().nearest(aim).map(|hit| hit.tag)
         });
@@ -632,6 +661,7 @@ impl SceneView {
                 // Where the press landed on the motion, against where what was
                 // grabbed actually is: a grab is not a teleport.
                 Some(Held {
+                    part,
                     grabbed,
                     motion,
                     offset: hit.world - motion.resolve(aim.ray())?,
