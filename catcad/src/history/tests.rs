@@ -1,13 +1,12 @@
 use super::*;
 use crate::demo;
 use crate::drawing::Grip;
-use crate::names::Names;
 use crate::paint;
-use crate::paint::Sheets;
-use crate::settled::Settled;
+use crate::paint::layout::Layout;
+use crate::workshop::Workshop;
 use aperture::Scene;
 use glam::{DVec2, Vec3};
-use silverpoint::{CircleId, Plane, PointId, Solver};
+use silverpoint::{CircleId, Plane, PointId};
 
 /// One intent, as a frame that asked for exactly that would deliver it.
 fn once(intent: impl Into<Intent>) -> Intents {
@@ -18,14 +17,12 @@ fn once(intent: impl Into<Intent>) -> Intents {
 
 /// Where the drawing's markers stand, which is what a drag moves and an undo
 /// has to put back.
-fn markers(document: &Document, settled: &Settled) -> Vec<Vec3> {
+fn markers(document: &Document, workshop: &Workshop) -> Vec<Vec3> {
     let mut scene = Scene::default();
     paint::redraw(
-        document.drawing(),
-        settled,
-        &mut Names::default(),
+        document.model(workshop),
+        &mut Layout::default(),
         None,
-        &mut Sheets::default(),
         &mut scene,
     );
     scene.points.iter().map(|point| point.position).collect()
@@ -100,13 +97,12 @@ fn assert_rim(document: &Document, asked: f64) {
 fn relaid(
     history: &mut History,
     document: &mut Document,
-    solver: &mut Solver,
-    settled: &mut Settled,
+    workshop: &mut Workshop,
     intent: impl Into<Intent>,
 ) -> bool {
-    let was = settled.revision();
-    history.apply(document, solver, settled, &once(intent));
-    settled.revision() != was
+    let was = workshop.revision();
+    history.apply(document, workshop, &once(intent));
+    workshop.revision() != was
 }
 
 /// Where to send `id`, `by` from where it now stands on the drawing's plane.
@@ -125,13 +121,12 @@ fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
 /// the frames it was delivered in.
 #[test]
 fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
-    let mut solver = Solver::default();
-    let mut settled = Settled::default();
-    let mut document = demo::document(&mut solver, &mut settled);
+    let mut workshop = Workshop::default();
+    let mut document = demo::document(&mut workshop);
     let mut history = History::default();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
-    let at_rest = markers(&document, &settled);
+    let at_rest = markers(&document, &workshop);
 
     // Ten frames of one gesture, walking the wrist out across the plane.
     for frame in 0..10 {
@@ -140,21 +135,15 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
             relaid(
                 &mut history,
                 &mut document,
-                &mut solver,
-                &mut settled,
+                &mut workshop,
                 Change::Drag { grip, to }
             ),
             "frame {frame} of a drag moved nothing"
         );
     }
-    let dragged = markers(&document, &settled);
+    let dragged = markers(&document, &workshop);
     assert_ne!(dragged, at_rest, "ten frames of dragging moved nothing");
-    history.apply(
-        &mut document,
-        &mut solver,
-        &mut settled,
-        &once(Step::Release),
-    );
+    history.apply(&mut document, &mut workshop, &once(Step::Release));
     assert_eq!(
         history.edits.len(),
         1,
@@ -166,24 +155,17 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
     assert!(relaid(
         &mut history,
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         Step::Undo
     ));
     assert_eq!(
-        markers(&document, &settled),
+        markers(&document, &workshop),
         at_rest,
         "one Ctrl+Z left part of the drag behind"
     );
     assert!(!history.can_undo());
     assert!(
-        !relaid(
-            &mut history,
-            &mut document,
-            &mut solver,
-            &mut settled,
-            Step::Undo
-        ),
+        !relaid(&mut history, &mut document, &mut workshop, Step::Undo),
         "took back a step that was not there"
     );
 
@@ -191,23 +173,16 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
     assert!(relaid(
         &mut history,
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         Step::Redo
     ));
     assert_eq!(
-        markers(&document, &settled),
+        markers(&document, &workshop),
         dragged,
         "redo landed somewhere else"
     );
     assert!(
-        !relaid(
-            &mut history,
-            &mut document,
-            &mut solver,
-            &mut settled,
-            Step::Redo
-        ),
+        !relaid(&mut history, &mut document, &mut workshop, Step::Redo),
         "put back a step that was not there"
     );
 }
@@ -220,11 +195,10 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
 /// keep in step with the intents.
 #[test]
 fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
-    let mut solver = Solver::default();
-    let mut settled = Settled::default();
-    let mut document = demo::document(&mut solver, &mut settled);
+    let mut workshop = Workshop::default();
+    let mut document = demo::document(&mut workshop);
     let mut history = History::default();
-    let at_rest = markers(&document, &settled);
+    let at_rest = markers(&document, &workshop);
     let camera = document.camera();
 
     // Turning the camera is not editing the drawing, which is the convention a
@@ -240,7 +214,7 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
         Change::Project(document.camera().projection.toggled()),
     ] {
         assert!(
-            !relaid(&mut history, &mut document, &mut solver, &mut settled, turn),
+            !relaid(&mut history, &mut document, &mut workshop, turn),
             "{turn:?} asked the drawing to be laid out again"
         );
     }
@@ -259,21 +233,15 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
     // cheaply it has moved on. What did not happen is a step.
     history.apply(
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         &once(Change::Drag {
             grip: Grip::Point(corner),
             to,
         }),
     );
-    history.apply(
-        &mut document,
-        &mut solver,
-        &mut settled,
-        &once(Step::Release),
-    );
+    history.apply(&mut document, &mut workshop, &once(Step::Release));
     assert_eq!(
-        markers(&document, &settled),
+        markers(&document, &workshop),
         at_rest,
         "a refused drag moved the drawing"
     );
@@ -295,50 +263,38 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
 /// release arriving twice is what makes closing have to be idempotent.
 #[test]
 fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
-    let mut solver = Solver::default();
-    let mut settled = Settled::default();
-    let mut document = demo::document(&mut solver, &mut settled);
+    let mut workshop = Workshop::default();
+    let mut document = demo::document(&mut workshop);
     let mut history = History::default();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
-    let at_rest = markers(&document, &settled);
+    let at_rest = markers(&document, &workshop);
 
     let to = shifted(&document, arm, DVec2::new(0.5, -0.2));
     let drag = once(Change::Drag { grip, to });
-    history.apply(&mut document, &mut solver, &mut settled, &drag);
-    let once_over = markers(&document, &settled);
+    history.apply(&mut document, &mut workshop, &drag);
+    let once_over = markers(&document, &workshop);
     // The same intent again, as the settling pass would deliver it. It names
     // where the wrist should be rather than how far to go, so it lands in the
     // same place.
-    history.apply(&mut document, &mut solver, &mut settled, &drag);
+    history.apply(&mut document, &mut workshop, &drag);
     assert_eq!(
-        markers(&document, &settled),
+        markers(&document, &workshop),
         once_over,
         "the second pass moved the drawing further"
     );
 
-    history.apply(
-        &mut document,
-        &mut solver,
-        &mut settled,
-        &once(Step::Release),
-    );
-    history.apply(
-        &mut document,
-        &mut solver,
-        &mut settled,
-        &once(Step::Release),
-    );
+    history.apply(&mut document, &mut workshop, &once(Step::Release));
+    history.apply(&mut document, &mut workshop, &once(Step::Release));
     assert_eq!(history.edits.len(), 1, "a settling frame left two steps");
 
     assert!(relaid(
         &mut history,
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         Step::Undo
     ));
-    assert_eq!(markers(&document, &settled), at_rest);
+    assert_eq!(markers(&document, &workshop), at_rest);
     assert!(!history.can_undo(), "half the drag was left behind");
 }
 
@@ -348,9 +304,8 @@ fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
 /// put back — the alternative is a tree, and a tree is not what Ctrl+Y means.
 #[test]
 fn something_new_after_an_undo_throws_away_what_was_undone() {
-    let mut solver = Solver::default();
-    let mut settled = Settled::default();
-    let mut document = demo::document(&mut solver, &mut settled);
+    let mut workshop = Workshop::default();
+    let mut document = demo::document(&mut workshop);
     let mut history = History::default();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
@@ -359,16 +314,10 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
         let to = rim_at(&document, circle, out);
         history.apply(
             &mut document,
-            &mut solver,
-            &mut settled,
+            &mut workshop,
             &once(Change::Drag { grip, to }),
         );
-        history.apply(
-            &mut document,
-            &mut solver,
-            &mut settled,
-            &once(Step::Release),
-        );
+        history.apply(&mut document, &mut workshop, &once(Step::Release));
     }
     assert_eq!(history.edits.len(), 2);
 
@@ -376,8 +325,7 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
     assert!(relaid(
         &mut history,
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         Step::Undo
     ));
     assert_rim(&document, 2.0);
@@ -387,28 +335,16 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
     let to = rim_at(&document, circle, 0.8);
     history.apply(
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         &once(Change::Drag { grip, to }),
     );
-    history.apply(
-        &mut document,
-        &mut solver,
-        &mut settled,
-        &once(Step::Release),
-    );
+    history.apply(&mut document, &mut workshop, &once(Step::Release));
     assert!(
         !history.can_redo(),
         "the undone step survived being replaced"
     );
     assert!(
-        !relaid(
-            &mut history,
-            &mut document,
-            &mut solver,
-            &mut settled,
-            Step::Redo
-        ),
+        !relaid(&mut history, &mut document, &mut workshop, Step::Redo),
         "put back a step that had been thrown away"
     );
     assert_rim(&document, 0.8);
@@ -418,16 +354,14 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
     assert!(relaid(
         &mut history,
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         Step::Undo
     ));
     assert_rim(&document, 2.0);
     assert!(relaid(
         &mut history,
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         Step::Undo
     ));
     assert_eq!(
@@ -441,9 +375,8 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
 /// The history is bounded, and forgets from the far end.
 #[test]
 fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() {
-    let mut solver = Solver::default();
-    let mut settled = Settled::default();
-    let mut document = demo::document(&mut solver, &mut settled);
+    let mut workshop = Workshop::default();
+    let mut document = demo::document(&mut workshop);
     let mut history = History::default();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
@@ -455,16 +388,10 @@ fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() 
         let to = rim_at(&document, circle, 1.5 + 0.01 * step as f64);
         history.apply(
             &mut document,
-            &mut solver,
-            &mut settled,
+            &mut workshop,
             &once(Change::Drag { grip, to }),
         );
-        history.apply(
-            &mut document,
-            &mut solver,
-            &mut settled,
-            &once(Step::Release),
-        );
+        history.apply(&mut document, &mut workshop, &once(Step::Release));
     }
     assert_eq!(history.edits.len(), DEPTH, "the history grew past its cap");
     assert_eq!(history.applied, DEPTH);
@@ -472,21 +399,14 @@ fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() 
     // Every step it still holds goes back, and then no more.
     for step in 0..DEPTH {
         assert!(
-            relaid(
-                &mut history,
-                &mut document,
-                &mut solver,
-                &mut settled,
-                Step::Undo
-            ),
+            relaid(&mut history, &mut document, &mut workshop, Step::Undo),
             "step {step} of {DEPTH} would not go back"
         );
     }
     assert!(!relaid(
         &mut history,
         &mut document,
-        &mut solver,
-        &mut settled,
+        &mut workshop,
         Step::Undo
     ));
     // And the five it forgot stay forgotten: undoing everything it has does not

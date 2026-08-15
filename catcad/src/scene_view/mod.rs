@@ -14,14 +14,14 @@ use crate::document::Document;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
 use crate::intent::{Change, Choice, Intents, Step};
-use crate::names::Names;
-use crate::paint::{self, Sheets};
+use crate::paint::layout::Layout;
+use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
-use crate::settled::{Revision, Settled};
 use crate::tool::Tool;
+use crate::workshop::Workshop;
 
 mod aimed;
 
@@ -101,37 +101,19 @@ enum Gesture {
 #[derive(Debug)]
 pub(crate) struct SceneView {
     renderer: Rc<RefCell<Renderer>>,
-    /// What each tag in the scene stands for.
+    /// The picture of the drawing this view last wrote, and the room it was
+    /// written in.
     ///
     /// The view's rather than the drawing's, for the same reason the scene is:
-    /// a tag is an index into a list of what was *laid out*, so it describes
-    /// this view's picture of the drawing and would mean nothing to another. It
-    /// is rewritten with the scene, by the one call that rewrites both.
-    names: Names,
-    /// The room laying out the drawing's faces takes.
-    ///
-    /// Kept for its room rather than its contents, like `lit` below: a face is
-    /// flattened and cut afresh whenever the drawing moves, and a drag moves it
-    /// every frame.
-    sheets: Sheets,
-    /// Which revision of the drawing `names` and the scene's overlays were laid
-    /// out from.
-    ///
-    /// Compared rather than trusted: a caller could say whether it had just
-    /// edited the document, but then a caller that forgot would leave the view
-    /// drawing last frame's geometry with no way to notice. Written only where
-    /// the laying out happens, so it cannot claim more than was done.
-    laid_out: Revision,
+    /// what it holds describes this view's picture of the drawing and would
+    /// mean nothing to another. It says which revision it drew and is written
+    /// only by the call that draws — see [`Layout`].
+    layout: Layout,
     gesture: Gesture,
     /// The part of the drawing under the pointer, if any.
     hovered: Option<Part>,
     /// The shape a two-click tool is half-way through, if one is.
     preview: Option<Preview>,
-    /// The band the last layout was written with, compared like the revision
-    /// beside it: a band is written among the strokes and rims, so there is no
-    /// rewriting one without the rest — and a band that has not moved is a
-    /// frame that need not.
-    laid_band: Option<Preview>,
     /// What the renderer was last told to light: the hover and the selection,
     /// rebuilt every settle. Kept for its room rather than its contents, so a
     /// frame that lights the same set as the last asks the heap for nothing.
@@ -152,19 +134,15 @@ impl SceneView {
     /// The view lays it out itself rather than being handed a scene, which is
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
-    pub(crate) fn new(document: &Document, settled: &Settled) -> Self {
-        let mut names = Names::default();
-        let mut sheets = Sheets::default();
-        let scene = paint::scene(document, settled, &mut names, &mut sheets);
+    pub(crate) fn new(document: &Document, workshop: &Workshop) -> Self {
+        let mut layout = Layout::default();
+        let scene = paint::scene(document, workshop, &mut layout);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
-            names,
-            sheets,
-            laid_out: settled.revision(),
+            layout,
             gesture: Gesture::None,
             hovered: None,
             preview: None,
-            laid_band: None,
             lit: Vec::new(),
             aimed: None,
         }
@@ -429,28 +407,29 @@ impl SceneView {
     /// command holding the renderer and calls it at submit, after the record
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
-    pub(crate) fn settle(&mut self, document: &Document, settled: &Settled, selection: &Selection) {
+    pub(crate) fn settle(
+        &mut self,
+        document: &Document,
+        workshop: &Workshop,
+        selection: &Selection,
+    ) {
         let mut renderer = self.renderer.borrow_mut();
-        let drawing = document.drawing();
-        // A rubber band is written after the drawing and wiped out by the next
-        // rewrite of it, so a live one is laid out every frame — and the frame
-        // it stops being live has to lay out once more to take it away. That is
-        // what a drag already costs, and refilling reaches the heap for none of
-        // it.
-        if self.laid_out != settled.revision() || self.laid_band != self.preview {
-            // Into the batches the renderer already holds, so a drag rewrites
-            // the drawing every frame without asking the heap for anything.
-            paint::redraw(
-                drawing,
-                settled,
-                &mut self.names,
-                self.preview,
-                &mut self.sheets,
-                renderer.scene_mut(),
-            );
-            self.laid_out = settled.revision();
-            self.laid_band = self.preview;
-        }
+        // Unconditionally, and cheap when nothing moved: the layout compares
+        // what it describes against what it is handed and returns without
+        // writing a batch. A rubber band is written after the drawing and wiped
+        // out by the next rewrite of it, so a live one is laid out every frame
+        // — and the frame it stops being live lays out once more to take it
+        // away. That is what a drag already costs, and refilling reaches the
+        // heap for none of it.
+        //
+        // Into the batches the renderer already holds, so a drag rewrites the
+        // drawing every frame without asking the heap for anything.
+        paint::redraw(
+            document.model(workshop),
+            &mut self.layout,
+            self.preview,
+            renderer.scene_mut(),
+        );
 
         // What the pointer is over is one thing, however many are picked out: a
         // marker sits on the end of every edge that meets it, and lighting all
@@ -463,7 +442,7 @@ impl SceneView {
             let aim = aimed.aim(&document.camera());
             renderer.scene().nearest(aim).map(|hit| hit.tag)
         });
-        self.hovered = under.and_then(|tag| self.names.get(tag));
+        self.hovered = under.and_then(|tag| self.layout.names().get(tag));
 
         // The hover first, because where two entries name one tag the renderer
         // takes the first: the thing under the cursor reads as hovered even
@@ -474,7 +453,7 @@ impl SceneView {
         // Asked of the names rather than of the selection, because the walk has
         // to go the other way: what is picked out are the sketch's own handles,
         // and what is lit are the tags this layout gave them.
-        for (tag, entity) in self.names.iter() {
+        for (tag, entity) in self.layout.names().iter() {
             if Some(tag) != under && selection.contains(entity) {
                 self.lit.push(Lit {
                     tag,
@@ -505,7 +484,7 @@ impl SceneView {
         let aimed = Aimed::of(response).filter(|_| response.hovered)?;
         let renderer = self.renderer.borrow();
         let aim = aimed.aim(&document.camera());
-        self.names.get(renderer.scene().nearest(aim)?.tag)
+        self.layout.names().get(renderer.scene().nearest(aim)?.tag)
     }
 
     /// What a click here would build on: what it landed on and where.
@@ -572,7 +551,7 @@ impl SceneView {
                 let hit = scene.nearest(aim)?;
                 let grip = document
                     .drawing()
-                    .grip(self.names.get(hit.tag)?.entity()?, hit.at)?;
+                    .grip(self.layout.names().get(hit.tag)?.entity()?, hit.at)?;
                 let motion = document.drawing().motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
@@ -630,7 +609,7 @@ pub(crate) mod internals {
             /// drawing will let go of, so a sweep looking for one has nothing
             /// to find in a face.
             pub(crate) fn named(&self, tag: Tag) -> Option<Entity> {
-                self.names.get(tag).and_then(Part::entity)
+                self.layout.names().get(tag).and_then(Part::entity)
             }
         }
     }

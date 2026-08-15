@@ -7,17 +7,17 @@
 
 use aperture::{Mesh, Object, Styled};
 use glam::{DVec2, Mat4, Vec3};
-use silverpoint::{Constraint, Plane, Sketch, Solver};
+use silverpoint::{Constraint, Plane, Sketch};
 
 use crate::document::Document;
-use crate::settled::Settled;
+use crate::workshop::Workshop;
 
 /// The demo as a document: its sketch on the ground plane, and the solids
 /// that stand on it.
 ///
 /// The sketch and the solids share one world — the drawing lies on the ground
 /// plane and the boxes stand on it — so orbiting the view moves both together.
-pub(crate) fn document(solver: &mut Solver, settled: &mut Settled) -> Document {
+pub(crate) fn document(workshop: &mut Workshop) -> Document {
     let plane = Plane::GROUND;
     let mut solids = Vec::new();
     // The ground the drawing lies on, and the reason the drawing carries a
@@ -41,7 +41,7 @@ pub(crate) fn document(solver: &mut Solver, settled: &mut Settled) -> Document {
         let base = plane.point(at).as_vec3() + Vec3::Y * size * 0.5;
         solids.push(Object::new(Mesh::cube(size)).at(base).colored(color));
     }
-    Document::new(solver, settled, sketch(), plane, solids)
+    Document::new(workshop, sketch(), plane, solids)
 }
 
 /// A rigid frame, a hole through it that can be resized, and a jointed arm

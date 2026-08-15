@@ -4,9 +4,10 @@ use aperture::{Bounds, Camera, Object};
 
 use crate::drawing::Drawing;
 use crate::intent::Change;
-use crate::settled::Settled;
+use crate::model::Model;
+use crate::workshop::Workshop;
 use silverpoint::Plane;
-use silverpoint::{Sketch, Snapshot, Solver};
+use silverpoint::{Sketch, Snapshot};
 
 /// A drawing, the solids modelled beside it, and how it is being looked at —
 /// everything a session would have to write down to be opened again.
@@ -41,14 +42,13 @@ impl Document {
     /// until the document has been raised. Whoever raises one is who can
     /// measure it, so whoever raises one is who aims the camera.
     pub(crate) fn new(
-        solver: &mut Solver,
-        settled: &mut Settled,
+        workshop: &mut Workshop,
         sketch: Sketch,
         plane: Plane,
         solids: Vec<Object>,
     ) -> Self {
         Self {
-            drawing: Drawing::new(solver, settled, sketch, plane),
+            drawing: Drawing::new(workshop, sketch, plane),
             solids,
             camera: Camera::default(),
         }
@@ -57,6 +57,16 @@ impl Document {
     /// The model, which is the whole of what the document says.
     pub(crate) fn drawing(&self) -> &Drawing {
         &self.drawing
+    }
+
+    /// The drawing as `workshop` last left it.
+    ///
+    /// The pairing everything that reads the model reads it through — see
+    /// [`Model`]. Here because a caller holding a document and a workshop is
+    /// holding both halves already, and naming the type to put them together
+    /// would be ceremony.
+    pub(crate) fn model<'a>(&'a self, workshop: &'a Workshop) -> Model<'a> {
+        Model::new(&self.drawing, workshop)
     }
 
     /// The solids modelled alongside the drawing.
@@ -91,13 +101,8 @@ impl Document {
     /// two ways a document changes are two calls on the document. An undo is the
     /// path that most wants watching — it is the one that can make geometry stop
     /// existing — and it would have been the one going round the back.
-    pub(crate) fn restore(
-        &mut self,
-        solver: &mut Solver,
-        settled: &mut Settled,
-        snapshot: &Snapshot,
-    ) {
-        self.drawing.restore(solver, settled, snapshot);
+    pub(crate) fn restore(&mut self, workshop: &mut Workshop, snapshot: &Snapshot) {
+        self.drawing.restore(workshop, snapshot);
     }
 
     /// Land what `change` asks for.
@@ -120,29 +125,22 @@ impl Document {
     /// asked for, and what the history puts back. Everything else a document
     /// hands out is `&self`.
     ///
-    /// `solver` is the caller's. Solving is what an edit to a drawing *is*, and
-    /// a solve wants room to work in that is worth keeping across a drag and
-    /// worth nothing in a saved file — so the room belongs to whoever is doing
-    /// the editing, and the document borrows it for the length of the call.
-    ///
-    /// `settled` is the caller's for the same reason, and is what the solve
-    /// reports into. Everything it holds follows from the sketch by running the
-    /// solver over it again, so a file writes none of it — and an edit that
-    /// could happen without it in hand would be one that left it stale.
-    pub(crate) fn apply(&mut self, solver: &mut Solver, settled: &mut Settled, change: Change) {
+    /// `workshop` is the caller's. Solving is what an edit to a drawing *is*,
+    /// and a solve wants room to work in — and leaves a report behind — that is
+    /// worth keeping across a drag and worth nothing in a saved file. So both
+    /// belong to whoever is doing the editing, and the document borrows them
+    /// for the length of the call. An edit that could happen without one in
+    /// hand would be an edit that left its report stale.
+    pub(crate) fn apply(&mut self, workshop: &mut Workshop, change: Change) {
         match change {
-            Change::Drag { grip, to } => self.drawing.drag_to(solver, settled, grip, to),
-            Change::AddPoint(at) => self.drawing.add_point(solver, settled, at),
-            Change::AddSegment { from, to } => self.drawing.add_segment(solver, settled, from, to),
-            Change::AddCircle { center, rim } => {
-                self.drawing.add_circle(solver, settled, center, rim)
-            }
-            Change::Constrain(constraint) => self.drawing.constrain(solver, settled, constraint),
-            Change::Resize { constraint, to } => {
-                self.drawing.resize(solver, settled, constraint, to)
-            }
-            Change::Delete(entity) => self.drawing.remove(solver, settled, entity),
-            Change::Tidy => self.drawing.remove_duplicates(solver, settled),
+            Change::Drag { grip, to } => self.drawing.drag_to(workshop, grip, to),
+            Change::AddPoint(at) => self.drawing.add_point(workshop, at),
+            Change::AddSegment { from, to } => self.drawing.add_segment(workshop, from, to),
+            Change::AddCircle { center, rim } => self.drawing.add_circle(workshop, center, rim),
+            Change::Constrain(constraint) => self.drawing.constrain(workshop, constraint),
+            Change::Resize { constraint, to } => self.drawing.resize(workshop, constraint, to),
+            Change::Delete(entity) => self.drawing.remove(workshop, entity),
+            Change::Tidy => self.drawing.remove_duplicates(workshop),
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),

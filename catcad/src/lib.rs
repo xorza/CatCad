@@ -12,6 +12,7 @@ mod drawing;
 mod history;
 mod hud;
 mod intent;
+mod model;
 mod names;
 mod paint;
 mod part;
@@ -19,8 +20,8 @@ mod preview;
 mod scene_view;
 mod selection;
 mod session;
-mod settled;
 mod tool;
+mod workshop;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
@@ -30,7 +31,7 @@ pub use bench::alloc_bench;
 use std::fmt;
 
 use palantir::{App, Configure, HostHandle, Key, Panel, Shortcut, Sizing, Ui, WindowToken};
-use silverpoint::{Entity, Removed, Solver};
+use silverpoint::{Entity, Removed};
 
 use crate::document::Document;
 use crate::history::History;
@@ -40,8 +41,8 @@ use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::selection::Selection;
 use crate::session::Session;
-use crate::settled::Settled;
 use crate::tool::Tool;
+use crate::workshop::Workshop;
 
 /// Take back the last step, and put it back.
 ///
@@ -74,23 +75,18 @@ pub struct CatCad {
     /// raised them and the document they land on. Kept across frames for its
     /// room rather than its contents, which are cleared before each one.
     intents: Intents,
-    /// The room an edit's solve works in.
+    /// The room an edit's solve works in, and everything that solve leaves
+    /// behind: its report, the drawing's faces, and the buffers those were
+    /// worked out in.
     ///
     /// A tool rather than anything the app *is* — kept for exactly the reason
     /// the inbox above is, that a drag would otherwise ask the heap for the
-    /// same buffers sixty times a second. Lent to whatever is editing for the
-    /// length of the call, which is why it is neither in the document that
-    /// would be saved nor in the history of what has been done to it.
-    solver: Solver,
-    /// What the last solve made of the drawing: its report, its faces, and the
-    /// room those were worked out in.
-    ///
-    /// Beside the document rather than in it, for the same reason the solver
-    /// above is: all of it follows from the sketch by running the solver over
-    /// it again, so saving writes none of it and opening rebuilds it. Lent to
+    /// same buffers sixty times a second. Beside the document rather than in
+    /// it, because all of it follows from the sketch by running the solver over
+    /// it again: saving writes none of it and opening rebuilds it. Lent to
     /// whatever is editing, which is what keeps it in step — an edit that could
     /// happen without this in hand would be one that left it stale.
-    settled: Settled,
+    workshop: Workshop,
     /// What draws that, and what the pointer over it is in the middle of. Owns
     /// nothing the document would be saved without.
     view: SceneView,
@@ -113,11 +109,10 @@ impl CatCad {
 
     /// The app without a host, which is what the visual suite raises.
     pub fn build() -> Self {
-        // The one solver, made before anything that needs one. Opening a
+        // The one workshop, made before anything that needs one. Opening a
         // document is a solve, so it is wanted here as much as it is per frame.
-        let mut solver = Solver::default();
-        let mut settled = Settled::default();
-        let mut document = demo::document(&mut solver, &mut settled);
+        let mut workshop = Workshop::default();
+        let mut document = demo::document(&mut workshop);
         // Laid out before it is aimed at, and measured off the view rather than
         // off the document. What has to fit on screen is what will be *drawn*,
         // and how far that reaches is aperture's to say, not this crate's: a
@@ -125,7 +120,7 @@ impl CatCad {
         // plane does not lean away from it, and a stroke's width and a marker's
         // glyph reach nowhere at all, being screen-sized. A document measuring
         // itself would be a second copy of all of that, free to drift.
-        let mut view = SceneView::new(&document, &settled);
+        let mut view = SceneView::new(&document, &workshop);
         if let Some(bounds) = view.bounds() {
             document.frame(bounds);
         }
@@ -136,13 +131,12 @@ impl CatCad {
         // but so that what `build` returns already agrees with itself, and a
         // caller can measure the view it was given without recording a frame to
         // make the answer true.
-        view.settle(&document, &settled, &Selection::default());
+        view.settle(&document, &workshop, &Selection::default());
         Self {
             document,
             history: History::default(),
             intents: Intents::default(),
-            solver,
-            settled,
+            workshop,
             view,
             session: Session::default(),
             hud: Hud::default(),
@@ -224,28 +218,26 @@ impl CatCad {
     /// mean.
     fn apply(&mut self) {
         self.session.apply(&self.intents);
-        self.history.apply(
-            &mut self.document,
-            &mut self.solver,
-            &mut self.settled,
-            &self.intents,
-        );
+        self.history
+            .apply(&mut self.document, &mut self.workshop, &self.intents);
         // Last, because an undo can take geometry the session was still holding
         // on to — see [`Session::prune`].
-        self.session.prune(self.document.drawing(), &self.settled);
+        self.session.prune(self.document.model(&self.workshop));
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
+    /// A sketch is only as useful as it is determined, so the report reads
+    /// over the drawing rather than into a log.
     fn status(&self) -> Status {
-        let outcome = self.settled.outcome();
+        let outcome = self.workshop.outcome();
         Status {
             converged: outcome.converged(),
             iterations: outcome.iterations(),
             degrees_of_freedom: outcome.degrees_of_freedom(),
             redundant_constraints: outcome.redundant_constraints(),
             hovered: self.view.hovered(),
-            cleaned: self.settled.cleaned(),
+            cleaned: self.workshop.cleaned(),
         }
     }
 }
@@ -358,7 +350,7 @@ impl App for CatCad {
                 self.ask(ui);
                 self.apply();
                 self.view
-                    .settle(&self.document, &self.settled, self.session.selection());
+                    .settle(&self.document, &self.workshop, self.session.selection());
             });
     }
 }

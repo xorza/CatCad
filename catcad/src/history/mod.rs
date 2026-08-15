@@ -2,8 +2,8 @@
 
 use crate::document::Document;
 use crate::intent::{Change, Intent, Intents, Step};
-use crate::settled::Settled;
-use silverpoint::{Snapshot, Solver};
+use crate::workshop::Workshop;
+use silverpoint::Snapshot;
 
 /// How many steps back the history goes.
 ///
@@ -49,21 +49,20 @@ impl History {
     ///
     /// Says nothing about what it did. Whether the drawing moved is a fact
     /// about the drawing, and anything that needs it reads
-    /// [`Settled::revision`](crate::settled::Settled::revision) — which cannot
+    /// [`Workshop::revision`](crate::workshop::Workshop::revision) — which cannot
     /// be forgotten to pass on, or passed on wrongly.
     pub(crate) fn apply(
         &mut self,
         document: &mut Document,
-        solver: &mut Solver,
-        settled: &mut Settled,
+        workshop: &mut Workshop,
         intents: &Intents,
     ) {
         for intent in intents.iter() {
             match intent {
-                Intent::Step(Step::Undo) => self.undo(document, solver, settled),
-                Intent::Step(Step::Redo) => self.redo(document, solver, settled),
+                Intent::Step(Step::Undo) => self.undo(document, workshop),
+                Intent::Step(Step::Redo) => self.redo(document, workshop),
                 Intent::Step(Step::Release) => self.close(),
-                Intent::Change(change) => self.edit(document, solver, settled, change),
+                Intent::Change(change) => self.edit(document, workshop, change),
                 // Taken before this ran, by the app that owns them. What is in
                 // hand and what is picked out are not steps to take back — see
                 // `CatCad::apply`.
@@ -92,19 +91,13 @@ impl History {
     /// refuse records nothing, because
     /// [`Solver::edit_holding`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
-    fn edit(
-        &mut self,
-        document: &mut Document,
-        solver: &mut Solver,
-        settled: &mut Settled,
-        change: Change,
-    ) {
+    fn edit(&mut self, document: &mut Document, workshop: &mut Workshop, change: Change) {
         let extending = self.open && change.coalesces();
         if !extending {
             self.close();
             document.drawing().snapshot_into(&mut self.before);
         }
-        document.apply(solver, settled, change);
+        document.apply(workshop, change);
         document.drawing().snapshot_into(&mut self.after);
 
         if extending {
@@ -132,22 +125,22 @@ impl History {
     }
 
     /// Take back the last step, if there is one.
-    fn undo(&mut self, document: &mut Document, solver: &mut Solver, settled: &mut Settled) {
+    fn undo(&mut self, document: &mut Document, workshop: &mut Workshop) {
         self.close();
         if !self.can_undo() {
             return;
         }
         self.applied -= 1;
-        document.restore(solver, settled, &self.edits[self.applied].before);
+        document.restore(workshop, &self.edits[self.applied].before);
     }
 
     /// Put back the last step taken away, if there is one.
-    fn redo(&mut self, document: &mut Document, solver: &mut Solver, settled: &mut Settled) {
+    fn redo(&mut self, document: &mut Document, workshop: &mut Workshop) {
         self.close();
         if !self.can_redo() {
             return;
         }
-        document.restore(solver, settled, &self.edits[self.applied].after);
+        document.restore(workshop, &self.edits[self.applied].after);
         self.applied += 1;
     }
 

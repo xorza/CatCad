@@ -10,17 +10,18 @@
 use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text, Vertex};
 use glam::{Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{
-    Circle, CircleId, Constraint, Entity, Fill, Filler, Freedom, Segment, SegmentId,
-};
+use silverpoint::{Circle, CircleId, Constraint, Entity, Freedom, Segment, SegmentId};
 use std::fmt::Write;
 
 use crate::document::Document;
-use crate::drawing::Drawing;
+use crate::model::Model;
 use crate::names::Names;
+use crate::paint::layout::{Layout, Sheets};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
-use crate::settled::Settled;
+use crate::workshop::Workshop;
+
+pub(crate) mod layout;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -159,16 +160,11 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 ///
 /// The solids are written here rather than by the document, so that a document
 /// says what it holds and one module decides what all of it looks like.
-pub(crate) fn scene(
-    document: &Document,
-    settled: &Settled,
-    names: &mut Names,
-    sheets: &mut Sheets,
-) -> Scene {
+pub(crate) fn scene(document: &Document, workshop: &Workshop, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
     write_solids(document.solids(), &mut scene.solids);
     // No band. Nothing can be half-drawn in a document nobody has looked at yet.
-    redraw(document.drawing(), settled, names, None, sheets, &mut scene);
+    redraw(document.model(workshop), layout, None, &mut scene);
     scene
 }
 
@@ -179,8 +175,8 @@ fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
     into.refill(solids, |object, solid| object.clone_from(solid));
 }
 
-/// Draw the whole of `drawing`, and `band` over it, naming each part into
-/// `names`.
+/// Draw the whole of `model`, and `band` over it, into the room `layout` keeps
+/// and under the names it holds.
 ///
 /// The half of a picture that moves. A drawing is edited and the solids beside
 /// it are not, so this rewrites what the drawing is made of — the four overlay
@@ -193,43 +189,42 @@ fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
 /// out the same across a rewrite, because they are positions in a list built in
 /// the same order — which is what lets a drag keep hold of what it grabbed.
 ///
-/// `names` is the caller's, not the drawing's. A tag is an index into a list of
-/// what was drawn, so it describes a *layout* of a drawing and not the drawing
-/// itself — nothing here would be written down by saving, and whoever laid the
-/// drawing out is who has to be able to read its tags back. Emptied here rather
-/// than by the caller, because a name list half from one layout and half from
-/// another names nothing.
+/// `layout` is the caller's, not the drawing's. A tag is an index into a list
+/// of what was drawn, so it describes a *layout* of a drawing and not the
+/// drawing itself — nothing in one would be written down by saving, and whoever
+/// laid the drawing out is who has to be able to read its tags back. Its names
+/// are emptied here rather than by the caller, because a name list half from
+/// one layout and half from another names nothing.
 ///
 /// `band` is what a tool is half-way through and the drawing knows nothing
-/// about — which is why this is here rather than on [`Drawing`]. It is written
-/// among the strokes and rims and never named, so it cannot be picked; see the
-/// two writers below.
+/// about — which is why this is here rather than on
+/// [`Drawing`](crate::drawing::Drawing). It is written among the strokes and
+/// rims and never named, so it cannot be picked; see the two writers below.
+///
+/// Does nothing where the layout already describes what it would draw, and says
+/// so on the layout when it has drawn — so a caller settles a frame by calling
+/// this and reading nothing back.
 pub(crate) fn redraw(
-    drawing: &Drawing,
-    settled: &Settled,
-    names: &mut Names,
+    model: Model<'_>,
+    layout: &mut Layout,
     band: Option<Preview>,
-    sheets: &mut Sheets,
     into: &mut Scene,
 ) {
+    // The check is here rather than at the call, so that what a layout claims
+    // to describe and what was drawn into it are decided in one place. A caller
+    // that skipped the call would leave a stale picture; one that made it and
+    // forgot to stamp would redraw for ever.
+    if !layout.stale(model.revision(), band) {
+        return;
+    }
+    let Layout { names, sheets, .. } = &mut *layout;
     names.clear();
-    write_curves(
-        drawing,
-        settled,
-        names,
-        band.and_then(Preview::line),
-        &mut into.curves,
-    );
-    write_rings(
-        drawing,
-        settled,
-        names,
-        band.and_then(Preview::ring),
-        &mut into.rings,
-    );
-    write_points(drawing, settled, names, &mut into.points);
-    write_marks(drawing, settled, names, &mut into.texts);
-    write_faces(drawing, settled, names, sheets, &mut into.faces);
+    write_curves(model, names, band.and_then(Preview::line), &mut into.curves);
+    write_rings(model, names, band.and_then(Preview::ring), &mut into.rings);
+    write_points(model, names, &mut into.points);
+    write_marks(model, names, &mut into.texts);
+    write_faces(model, names, sheets, &mut into.faces);
+    layout.drawn(model.revision(), band);
 }
 
 /// A sheet per face the drawing's curves shut in.
@@ -253,15 +248,14 @@ pub(crate) fn redraw(
 /// Named *by position*, which is the one thing about a face that is not a
 /// handle. See [`Part::Face`].
 fn write_faces(
-    drawing: &Drawing,
-    settled: &Settled,
+    model: Model<'_>,
     names: &mut Names,
     sheets: &mut Sheets,
     faces: &mut Batch<Object>,
 ) {
-    let plane = drawing.plane();
+    let plane = model.plane();
     let normal = plane.normal().as_vec3();
-    let arrangement = settled.arrangement();
+    let arrangement = model.arrangement();
     let Sheets { filler, fill } = sheets;
     faces.refill(
         arrangement.faces().iter().enumerate(),
@@ -290,20 +284,6 @@ fn write_faces(
     );
 }
 
-/// The room turning a drawing's faces into sheets takes, kept across frames.
-///
-/// The caller's rather than the drawing's, like [`Names`] beside it and for the
-/// same reason turned the other way round: how finely to flatten a face is a
-/// decision about *appearance*, so the buffers that flattening works in belong
-/// with whoever is deciding it rather than with the model being drawn.
-#[derive(Debug, Default)]
-pub(crate) struct Sheets {
-    filler: Filler,
-    /// One face's triangles, overwritten by the next — a sheet reads its fill
-    /// into a mesh and is done with it, so one is all that is ever live.
-    fill: Fill,
-}
-
 /// A mark per constraint, saying what relation holds and where.
 ///
 /// Set in type rather than drawn as geometry, which is what makes the whole set
@@ -314,9 +294,9 @@ pub(crate) struct Sheets {
 /// Tagged like everything else, so a mark is picked and deleted the way the
 /// geometry it is about is — which is the whole of how an over-constrained
 /// sketch gets un-stuck.
-fn write_marks(drawing: &Drawing, settled: &Settled, names: &mut Names, marks: &mut Batch<Text>) {
-    let outcome = settled.outcome();
-    marks.refill(drawing.sketch().constraints(), |mark, (id, constraint)| {
+fn write_marks(model: Model<'_>, names: &mut Names, marks: &mut Batch<Text>) {
+    let outcome = model.outcome();
+    marks.refill(model.sketch().constraints(), |mark, (id, constraint)| {
         // Rewritten in place rather than assigned, so a drawing whose marks are
         // laid out every frame keeps the string it already has — which is what
         // keeps a scrubbed dimension off the heap sixty times a second.
@@ -333,7 +313,7 @@ fn write_marks(drawing: &Drawing, settled: &Settled, names: &mut Names, marks: &
             }
             None => mark.content.push_str(symbol(constraint)),
         }
-        mark.position = drawing.mark_at(constraint);
+        mark.position = model.drawing().mark_at(constraint);
         mark.font = mark_font();
         // Above the middle of what it names, so the mark clears the geometry it
         // is about rather than sitting on top of it.
@@ -344,7 +324,7 @@ fn write_marks(drawing: &Drawing, settled: &Settled, names: &mut Names, marks: &
             MARK
         };
         mark.z_offset = MARKER_LIFT;
-        mark.plane_normal = Some(drawing.plane().normal().as_vec3());
+        mark.plane_normal = Some(model.plane().normal().as_vec3());
         mark.tag = Some(names.tag(Entity::Constraint(id)));
     });
 }
@@ -404,15 +384,14 @@ fn symbol(constraint: Constraint) -> &'static str {
 /// the solids in depth so the drawing reads over them. Circles are not
 /// strokes — see [`write_rings`].
 fn write_curves(
-    drawing: &Drawing,
-    settled: &Settled,
+    model: Model<'_>,
     names: &mut Names,
     band: Option<Ends>,
     curves: &mut Batch<Curve>,
 ) {
-    let sketch = drawing.sketch();
-    let outcome = settled.outcome();
-    let plane = drawing.plane();
+    let sketch = model.sketch();
+    let outcome = model.outcome();
+    let plane = model.plane();
     // The drawing rides on one plane and above the solids as one thing, and
     // nothing in it outranks the rest — so the bias and the plane are the same
     // for every stroke.
@@ -469,15 +448,10 @@ enum Stroke {
 /// The plane comes along for the same reason a stroke's does: a disc is
 /// flat in depth and the surface under it is not, so without it the glyph
 /// is sliced wherever the plane is seen at an angle.
-fn write_points(
-    drawing: &Drawing,
-    settled: &Settled,
-    names: &mut Names,
-    points: &mut Batch<Point>,
-) {
-    let sketch = drawing.sketch();
-    let outcome = settled.outcome();
-    let plane = drawing.plane();
+fn write_points(model: Model<'_>, names: &mut Names, points: &mut Batch<Point>) {
+    let sketch = model.sketch();
+    let outcome = model.outcome();
+    let plane = model.plane();
     let normal = plane.normal().as_vec3();
     points.refill(sketch.points(), |marker, (id, point)| {
         // Pinned by hand outranks pinned by consequence: a fixed point is
@@ -508,16 +482,10 @@ fn write_points(
 ///
 /// No plane named, unlike the strokes — a ring's band is widened in its
 /// own plane, so the depth it carries is already the surface's.
-fn write_rings(
-    drawing: &Drawing,
-    settled: &Settled,
-    names: &mut Names,
-    band: Option<Ends>,
-    rings: &mut Batch<Ring>,
-) {
-    let sketch = drawing.sketch();
-    let outcome = settled.outcome();
-    let plane = drawing.plane();
+fn write_rings(model: Model<'_>, names: &mut Names, band: Option<Ends>, rings: &mut Batch<Ring>) {
+    let sketch = model.sketch();
+    let outcome = model.outcome();
+    let plane = model.plane();
     let normal = plane.normal().as_vec3();
     rings.refill(
         sketch

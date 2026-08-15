@@ -8,8 +8,8 @@ use silverpoint::{Entity, Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::demo;
 use crate::part::Part;
-use crate::settled::Settled;
 use crate::tool::Tool;
+use crate::workshop::Workshop;
 use crate::{CatCad, Status};
 
 /// The surface every test that records frames raises the app at.
@@ -887,7 +887,7 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
 /// and both follow from this one line of `demo`.
 #[test]
 fn the_demo_is_drawn_on_the_ground_plane() {
-    let document = demo::document(&mut Solver::default(), &mut Settled::default());
+    let document = demo::document(&mut Workshop::default());
     assert_eq!(document.drawing().plane(), Plane::GROUND);
 }
 

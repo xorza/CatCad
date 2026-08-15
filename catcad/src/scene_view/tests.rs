@@ -3,16 +3,15 @@ use crate::demo;
 use crate::history::History;
 use crate::intent::{Choice, Intent, Intents};
 use crate::paint;
-use crate::paint::Sheets;
+use crate::paint::layout::Layout;
 use crate::part::Part;
 use crate::selection::Selection;
-use crate::settled::Settled;
 use crate::tool::Tool;
+use crate::workshop::Workshop;
 use aperture::{Aim, Scene, Viewport};
 use glam::{DVec2, UVec2};
 use palantir::Modifiers;
 use palantir::internals::UiHarness;
-use silverpoint::Solver;
 
 const SIZE: UVec2 = UVec2::new(800, 600);
 
@@ -21,10 +20,9 @@ const SIZE: UVec2 = UVec2::new(800, 600);
 struct Raised {
     document: Document,
     history: History,
-    solver: Solver,
     /// What the last solve made of the drawing, which in the application
     /// belongs to `CatCad` — a harness driving its own frames keeps its own.
-    settled: Settled,
+    workshop: Workshop,
     intents: Intents,
     view: SceneView,
     harness: UiHarness,
@@ -40,19 +38,17 @@ struct Raised {
 
 impl Raised {
     fn new() -> Self {
-        let mut solver = Solver::default();
-        let mut settled = Settled::default();
-        let mut document = demo::document(&mut solver, &mut settled);
-        let mut view = SceneView::new(&document, &settled);
+        let mut workshop = Workshop::default();
+        let mut document = demo::document(&mut workshop);
+        let mut view = SceneView::new(&document, &workshop);
         if let Some(bounds) = view.bounds() {
             document.camera_mut().frame(bounds);
         }
-        view.settle(&document, &settled, &Selection::default());
+        view.settle(&document, &workshop, &Selection::default());
         Self {
             document,
             history: History::default(),
-            solver,
-            settled,
+            workshop,
             intents: Intents::default(),
             view,
             harness: UiHarness::new(SIZE),
@@ -70,8 +66,7 @@ impl Raised {
         let Self {
             document,
             history,
-            solver,
-            settled,
+            workshop,
             intents,
             view,
             harness,
@@ -91,9 +86,9 @@ impl Raised {
                     Intent::Step(_) | Intent::Change(_) => {}
                 }
             }
-            history.apply(document, solver, settled, intents);
-            selection.retain(|part| settled.holds_part(document.drawing(), part));
-            view.settle(document, settled, selection);
+            history.apply(document, workshop, intents);
+            selection.retain(|part| document.model(workshop).holds(part));
+            view.settle(document, workshop, selection);
         });
     }
 
@@ -123,11 +118,9 @@ impl Raised {
     fn asked_for(&self) -> Vec<Vec3> {
         let mut scene = Scene::default();
         paint::redraw(
-            self.document.drawing(),
-            &self.settled,
-            &mut Names::default(),
+            self.document.model(&self.workshop),
+            &mut Layout::default(),
             None,
-            &mut Sheets::default(),
             &mut scene,
         );
         scene.points.iter().map(|point| point.position).collect()
@@ -346,7 +339,7 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
     raised.frame();
     let at_rest = raised.markers();
     assert!(
-        raised.settled.outcome().converged(),
+        raised.workshop.outcome().converged(),
         "the demo has to open solved for this to mean anything"
     );
 
@@ -367,7 +360,7 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
         "a drag the constraints forbid deformed the drawing"
     );
     assert!(
-        raised.settled.outcome().converged(),
+        raised.workshop.outcome().converged(),
         "a refused drag left the drawing unsolved"
     );
     raised.harness.release();
@@ -471,15 +464,12 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
 
     // Applying is what moves it, and what marks the drawing as needing to be
     // laid out again — which the settle says of itself rather than being told.
-    let unlaid = raised.settled.revision();
-    raised.history.apply(
-        &mut raised.document,
-        &mut raised.solver,
-        &mut raised.settled,
-        &raised.intents,
-    );
+    let unlaid = raised.workshop.revision();
+    raised
+        .history
+        .apply(&mut raised.document, &mut raised.workshop, &raised.intents);
     assert_ne!(
-        raised.settled.revision(),
+        raised.workshop.revision(),
         unlaid,
         "a drag left the drawing looking exactly as laid out as before"
     );
@@ -509,15 +499,12 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
     // which drives whole frames — an orbit is a delta against what the last
     // pass already took, so how far this one turns depends on which pass is
     // being read, and only the whole frame has a stable answer.
-    let unlaid = raised.settled.revision();
-    raised.history.apply(
-        &mut raised.document,
-        &mut raised.solver,
-        &mut raised.settled,
-        &raised.intents,
-    );
+    let unlaid = raised.workshop.revision();
+    raised
+        .history
+        .apply(&mut raised.document, &mut raised.workshop, &raised.intents);
     assert_eq!(
-        raised.settled.revision(),
+        raised.workshop.revision(),
         unlaid,
         "an orbit asked the drawing to be laid out again"
     );
@@ -882,7 +869,7 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
 fn a_point_clicked_onto_an_edge_is_held_to_it() {
     let mut raised = Raised::new();
     raised.frame();
-    let free = raised.settled.outcome().degrees_of_freedom();
+    let free = raised.workshop.outcome().degrees_of_freedom();
 
     let over_edge = raised
         .over(|grip| matches!(grip, Grip::Segment { .. }))
@@ -912,12 +899,12 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     // more degree of freedom than it had — the point may slide along the edge
     // and do nothing else.
     assert_eq!(
-        raised.settled.outcome().degrees_of_freedom(),
+        raised.workshop.outcome().degrees_of_freedom(),
         free + 1,
         "a point on an edge should be free along it and nowhere else"
     );
     assert!(
-        raised.settled.outcome().converged(),
+        raised.workshop.outcome().converged(),
         "the solve that puts the point on the edge did not converge"
     );
 
@@ -1143,7 +1130,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
     );
     raised
         .view
-        .settle(&raised.document, &raised.settled, &raised.selection);
+        .settle(&raised.document, &raised.workshop, &raised.selection);
     assert_eq!(*raised.view.renderer().borrow().camera(), turned);
 
     // The projection rides along with it, which is the toggle's whole path.
@@ -1151,7 +1138,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
     raised.document.camera_mut().projection = was.toggled();
     raised
         .view
-        .settle(&raised.document, &raised.settled, &raised.selection);
+        .settle(&raised.document, &raised.workshop, &raised.selection);
     let now = raised.view.renderer().borrow().camera().projection;
     assert_eq!(now, was.toggled());
     assert_ne!(now, was);

@@ -1,9 +1,8 @@
 //! What the user is working *with*, as against what they are working *on*.
 
-use crate::drawing::Drawing;
 use crate::intent::{Choice, Intent, Intents};
+use crate::model::Model;
 use crate::selection::Selection;
-use crate::settled::Settled;
 use crate::tool::Tool;
 
 /// What is in hand, and what is picked out.
@@ -56,7 +55,7 @@ impl Session {
         }
     }
 
-    /// Let go of whatever `drawing` no longer holds.
+    /// Let go of whatever the model no longer holds.
     ///
     /// After the history rather than before it, because a step taken back can
     /// take geometry with it — and a handle left pointing at what has gone would
@@ -68,13 +67,12 @@ impl Session {
     /// undo that takes its first point away leaves it hanging off nothing. The
     /// tool stays in hand and starts over rather than going down: what was taken
     /// back is the point, not the intention to draw.
-    pub(crate) fn prune(&mut self, drawing: &Drawing, settled: &Settled) {
-        self.selection
-            .retain(|part| settled.holds_part(drawing, part));
+    pub(crate) fn prune(&mut self, model: Model<'_>) {
+        self.selection.retain(|part| model.holds(part));
         if self
             .tool
             .started()
-            .is_some_and(|anchor| !drawing.holds_anchor(anchor))
+            .is_some_and(|anchor| !model.drawing().holds_anchor(anchor))
         {
             self.tool = self.tool.restarted();
         }
