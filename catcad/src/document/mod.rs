@@ -126,6 +126,7 @@ impl Document {
             Change::Constrain(constraint) => self.drawing.constrain(solver, constraint),
             Change::Resize { constraint, to } => self.drawing.resize(solver, constraint, to),
             Change::Delete(entity) => self.drawing.remove(solver, entity),
+            Change::Tidy => self.drawing.remove_duplicates(solver),
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),

@@ -428,3 +428,111 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
     assert!(!drawing.holds(first), "the edge outlived its endpoint");
     assert!(drawing.holds(b) && drawing.holds(circle));
 }
+
+/// An edge drawn onto a point already there gets its own point and a
+/// coincidence, so the join holds while it is stated and comes apart when it is
+/// deleted.
+///
+/// The whole of why a join is a constraint rather than a shared handle. Sharing
+/// holds the two together more exactly and holds them together *for good*:
+/// there is nothing to delete, so a corner once drawn can never be pulled
+/// apart, and nothing on the drawing says why dragging one edge moves another.
+#[test]
+fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::new(0.0, 0.0));
+    let b = sketch.add_point(DVec2::new(2.0, 0.0));
+    sketch.add_segment(a, b);
+    let mut solver = Solver::default();
+    let mut drawing = Drawing::new(&mut solver, sketch, Plane::GROUND);
+
+    // A second edge begun on the first one's far end.
+    drawing.add_segment(
+        &mut solver,
+        Anchor::On(b),
+        Anchor::At(on(Plane::GROUND, DVec2::new(2.0, 2.0))),
+    );
+
+    // Two new points, not one: the corner is two points that agree, and the
+    // agreement is written down.
+    assert_eq!(drawing.sketch.points().count(), 4);
+    assert_eq!(drawing.sketch.segments().count(), 2);
+    let ends: Vec<PointId> = drawing
+        .sketch
+        .segments()
+        .flat_map(|(_, edge)| [edge.a, edge.b])
+        .collect();
+    assert_eq!(
+        ends.iter().filter(|&&id| id == b).count(),
+        1,
+        "the new edge took the point that was already there: {ends:?}"
+    );
+    let (tie, coincidence) = drawing
+        .sketch
+        .constraints()
+        .find(|(_, c)| matches!(c, Constraint::Coincident { .. }))
+        .expect("the join is stated");
+    let Constraint::Coincident { a: corner, .. } = coincidence else {
+        unreachable!("found by the match above")
+    };
+    assert_ne!(corner, b, "the coincidence ties a point to itself");
+
+    // A cleanup leaves the corner alone. Both of its points end an edge, so
+    // neither is spare however exactly they sit on each other — which is what
+    // stops the command from quietly undoing every join in the drawing.
+    let before = (
+        drawing.sketch.points().count(),
+        drawing.sketch.segments().count(),
+        drawing.sketch.constraints().count(),
+    );
+    drawing.remove_duplicates(&mut solver);
+    assert_eq!(
+        (
+            drawing.sketch.points().count(),
+            drawing.sketch.segments().count(),
+            drawing.sketch.constraints().count(),
+        ),
+        before,
+        "a cleanup pulled a join apart"
+    );
+
+    // Stated, the join holds: taking `b` somewhere brings the corner with it,
+    // which is the behaviour sharing a handle used to give for free.
+    drawing.drag_to(
+        &mut solver,
+        Grip::Point(b),
+        on(Plane::GROUND, DVec2::new(2.5, 0.5)),
+    );
+    let moved = drawing.sketch.point(b).position;
+    assert!(
+        drawing
+            .sketch
+            .point(corner)
+            .position
+            .abs_diff_eq(moved, 1e-6),
+        "the corner came apart under a drag: {:?} against {moved:?}",
+        drawing.sketch.point(corner).position
+    );
+
+    // Deleted, it does not. This is the whole point: the second edge is now
+    // free of the first and stays where it was left.
+    let parted = drawing.sketch.point(corner).position;
+    drawing.remove(&mut solver, Entity::Constraint(tie));
+    drawing.drag_to(
+        &mut solver,
+        Grip::Point(b),
+        on(Plane::GROUND, DVec2::new(0.5, -1.5)),
+    );
+    assert!(
+        drawing
+            .sketch
+            .point(corner)
+            .position
+            .abs_diff_eq(parted, 1e-9),
+        "the untied corner followed the drag anyway"
+    );
+    assert!(
+        !drawing.sketch.point(b).position.abs_diff_eq(parted, 1e-3),
+        "the drag went nowhere, so this proves nothing"
+    );
+}

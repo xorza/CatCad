@@ -23,6 +23,11 @@ const POINT_BUTTON: Vec2 = Vec2::new(325.0, 26.0);
 const LINE_BUTTON: Vec2 = Vec2::new(395.0, 26.0);
 const CIRCLE_BUTTON: Vec2 = Vec2::new(470.0, 26.0);
 
+/// The clean-up command, which sits under the readout in the top-left corner
+/// rather than on the toolbar — it asks something of the whole drawing, not of
+/// what is picked out.
+const TIDY_BUTTON: Vec2 = Vec2::new(58.0, 99.0);
+
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
 /// agree about what is determined and what is not.
@@ -523,18 +528,22 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
 }
 
 /// The line and circle tools take two clicks, reach the document only on the
-/// second, and share a point the first click landed on.
+/// second, and tie themselves to a point the first click landed on.
 ///
-/// The sharing is the half that matters. An edge drawn onto a point already
-/// there is what makes a sketch a sketch rather than a heap of unrelated
-/// coordinates — drag that point and both edges follow — so what this pins is
-/// that the second line has *three* new points between two edges and not four.
+/// The tie is the half that matters. An edge drawn onto a point already there
+/// is what makes a sketch a sketch rather than a heap of unrelated coordinates
+/// — drag that point and both edges follow — and it is *stated* rather than
+/// shared, so the second line brings its own corner point and a coincidence
+/// saying the two are one. That is what this pins: four new points across two
+/// edges, no handle held in common, and a relation to show for it. Taking one
+/// apart again is `an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied`,
+/// which drives the drawing directly and can drag.
 ///
 /// And that nothing lands until the shape is finished: a line abandoned after
 /// one click leaves no stray point behind, which is what lets the whole edge be
 /// one step to take back.
 #[test]
-fn a_line_takes_two_clicks_and_shares_the_point_it_started_on() {
+fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     let mut app = CatCad::build();
     let mut harness = UiHarness::new(SIZE);
     frame(&mut app, &mut harness);
@@ -581,8 +590,10 @@ fn a_line_takes_two_clicks_and_shares_the_point_it_started_on() {
         "it left the hand"
     );
 
-    // A second line begun on the first one's far end shares that point, so this
-    // one costs a single new point rather than two.
+    // A second line begun on the first one's far end brings its own corner, so
+    // this one costs two new points and a coincidence tying one of them to the
+    // point it was started on.
+    let relations = app.document.drawing().sketch().constraints().count();
     harness.click_at(at[1]);
     frame(&mut app, &mut harness);
     harness.click_at(at[2]);
@@ -590,14 +601,20 @@ fn a_line_takes_two_clicks_and_shares_the_point_it_started_on() {
     let sketch = app.document.drawing().sketch();
     assert_eq!(
         sketch.points().count(),
-        at_rest + 3,
-        "the second line laid a new point over the one it started on"
+        at_rest + 4,
+        "the second line took the point it started on instead of tying to it"
     );
     assert_eq!(sketch.segments().count(), edges + 2);
+    assert_eq!(
+        sketch.constraints().count(),
+        relations + 1,
+        "the join was not written down"
+    );
 
-    // The two edges name one point between them, which is what "shared" means.
-    // Counted rather than sorted: a handle carries no order, only whether it is
-    // the same handle, and that is the whole of the question here.
+    // The two edges name four points between them and hold none in common:
+    // what joins them is the relation, not the handle. Counted rather than
+    // sorted, because a handle carries no order — only whether it is the same
+    // handle, which is the whole of the question here.
     let ends: Vec<PointId> = sketch
         .segments()
         .skip(edges)
@@ -608,7 +625,7 @@ fn a_line_takes_two_clicks_and_shares_the_point_it_started_on() {
         .enumerate()
         .filter(|(seen, id)| !ends[..*seen].contains(id))
         .count();
-    assert_eq!(distinct, 3, "the two edges share no point: {ends:?}");
+    assert_eq!(distinct, 4, "the two edges share a point: {ends:?}");
 
     // Ctrl+Z takes back a whole edge, both its points with it.
     harness.set_modifiers(Modifiers {
@@ -812,4 +829,93 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
 fn the_demo_is_drawn_on_the_ground_plane() {
     let document = demo::document(&mut Solver::default());
     assert_eq!(document.drawing().plane(), Plane::GROUND);
+}
+
+/// The clean-up button takes out geometry a deletion left behind, and leaves
+/// the drawing it was pressed on otherwise alone.
+///
+/// The end of the wiring the sketch's own tests start: a press reaches the
+/// document as [`Change::Tidy`] and lands on the drawing. What makes a spare
+/// here is the realistic route to one — an edge deleted out from under a join
+/// leaves its corner point tied to a neighbour and holding up nothing, which is
+/// exactly the litter the command exists for.
+#[test]
+fn the_clean_up_button_clears_what_a_deletion_left_behind() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+    let at_rest = app.document.drawing().sketch().points().count();
+    let edges = app.document.drawing().sketch().segments().count();
+
+    let plane = app.document.drawing().plane();
+    let corner = [
+        plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
+        plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
+        plane.point(DVec2::new(-4.0, 3.5)).as_vec3(),
+    ];
+    let at = corner.map(|world| cursor_on(&mut app, world));
+
+    // Two edges meeting at a corner: four points and the coincidence tying the
+    // middle pair.
+    harness.click_at(LINE_BUTTON);
+    frame(&mut app, &mut harness);
+    for spot in [at[0], at[1], at[1], at[2]] {
+        harness.click_at(spot);
+        frame(&mut app, &mut harness);
+    }
+    assert_eq!(
+        app.document.drawing().sketch().points().count(),
+        at_rest + 4
+    );
+
+    // Pressed on that, the command finds nothing: every one of those points
+    // ends an edge.
+    harness.click_at(TIDY_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.document.drawing().sketch().points().count(),
+        at_rest + 4,
+        "a cleanup ate a corner that was holding an edge up"
+    );
+
+    // Now take the second edge away. Its far end is left over but duplicates
+    // nothing, and its corner end is left over *and* still tied to the first
+    // edge's — so one of the two goes and the other does not.
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    harness.click_at(POINT_BUTTON);
+    frame(&mut app, &mut harness);
+    let midpoint = cursor_on(&mut app, corner[1].midpoint(corner[2]));
+    harness.click_at(midpoint);
+    frame(&mut app, &mut harness);
+    harness.key(Key::Delete);
+    frame(&mut app, &mut harness);
+    let sketch = app.document.drawing().sketch();
+    assert_eq!(
+        sketch.segments().count(),
+        edges + 1,
+        "the edge was not deleted"
+    );
+    assert_eq!(sketch.points().count(), at_rest + 4, "its ends stayed");
+
+    harness.click_at(TIDY_BUTTON);
+    frame(&mut app, &mut harness);
+    let sketch = app.document.drawing().sketch();
+    assert_eq!(
+        sketch.points().count(),
+        at_rest + 3,
+        "the orphaned corner was not cleared"
+    );
+    assert_eq!(
+        sketch.segments().count(),
+        edges + 1,
+        "the surviving edge went too"
+    );
+    // And pressing it again finds nothing, which is what makes it safe to lean on.
+    harness.click_at(TIDY_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.document.drawing().sketch().points().count(),
+        at_rest + 3
+    );
 }

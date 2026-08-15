@@ -47,4 +47,4 @@ pub use sketch::solver::Solver;
 pub use sketch::solver::bench::alloc_bench;
 pub use sketch::solver::freedoms::Freedom;
 pub use sketch::solver::outcome::Outcome;
-pub use sketch::{Circle, CircleId, Point, PointId, Segment, SegmentId, Sketch};
+pub use sketch::{Circle, CircleId, Point, PointId, Removed, Segment, SegmentId, Sketch};

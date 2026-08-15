@@ -114,6 +114,14 @@ pub(crate) enum Change {
     /// here: a scrub sends one of these a frame and a replayed pass restates the
     /// same number, where "a bit larger" would grow twice over.
     Resize { constraint: ConstraintId, to: f64 },
+    /// Take out geometry that duplicates other geometry and carries nothing.
+    ///
+    /// Names no geometry, unlike [`Change::Delete`] beside it, and needs to
+    /// name none: what qualifies is a property of the drawing rather than of
+    /// what is picked out, so a replayed pass asks the same question of the
+    /// same sketch. The second pass finds nothing left to remove, which is the
+    /// same answer arrived at twice rather than a second removal.
+    Tidy,
     /// Take this out of the drawing, with whatever was built on it.
     ///
     /// Names what to remove rather than saying "the selection", for the same

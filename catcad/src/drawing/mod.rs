@@ -130,7 +130,14 @@ impl Drawing {
     pub(crate) fn add_point(&mut self, solver: &mut Solver, at: Anchor) {
         let plane = self.plane;
         self.solved(solver, |sketch| {
-            at.point_in(sketch, plane);
+            // The one place a click on a point already there is *not* worth its
+            // own point. Asking for a point where one is asks for nothing; an
+            // edge's end is the other way round, and wants its own even on top
+            // of another so the edge can be taken off it later — see
+            // [`Anchor::point_in`].
+            if at.point().is_none() {
+                at.point_in(sketch, plane);
+            }
         });
     }
 
@@ -166,6 +173,20 @@ impl Drawing {
             if let Some(point) = rim.point() {
                 sketch.add_constraint(Constraint::PointOnCircle { point, circle });
             }
+        });
+    }
+
+    /// Take out geometry that duplicates other geometry and carries nothing.
+    ///
+    /// The drawing's half is only which shape of edit it is: [`Drawing::solved`]
+    /// like every other removal, because taking geometry away can only relax a
+    /// sketch and a solve over what is left is the check that it did. Which
+    /// geometry qualifies is [`Sketch::remove_duplicates`]'s, and is stated
+    /// there rather than here — this is a drawing, and what makes two points
+    /// the same one is a question about a sketch.
+    pub(crate) fn remove_duplicates(&mut self, solver: &mut Solver) {
+        self.solved(solver, |sketch| {
+            sketch.remove_duplicates();
         });
     }
 

@@ -109,31 +109,47 @@ impl Anchor {
         }
     }
 
-    /// The point it names, made where it names bare plane and held to whatever
-    /// else it names.
+    /// A new point where it names, held to whatever else it names.
+    ///
+    /// One rule for all four: put a point where the anchor landed, then state
+    /// the relation the anchor *is*. A click on a point already drawn makes its
+    /// own point and a [`Constraint::Coincident`] tying the two, rather than
+    /// handing back the point that was there.
+    ///
+    /// Sharing the point would hold them together more exactly — a coincidence
+    /// is satisfied to the solver's tolerance where being the same point is
+    /// satisfied by construction — and it is still the wrong trade. A shared
+    /// point cannot be taken apart: there is no relation to delete, so geometry
+    /// joined at a vertex is joined for good, and dragging one edge silently
+    /// drags every other edge that ever started there. Stating it instead
+    /// leaves the join visible on the drawing and undoable, which is the whole
+    /// of what a parametric sketch is for. It also stops a deletion from
+    /// reaching further than what was deleted, since each piece now owns its
+    /// own end.
+    ///
+    /// The cost is two parameters and two equations per join, and a spare
+    /// marker under the one you can see. [`Sketch::remove_duplicates`] is what
+    /// clears the spares back out.
     ///
     /// Takes the sketch rather than being asked of the drawing, which is what
     /// lets it run inside the closure an edit is made in: the drawing has lent
     /// its sketch out for the length of that and cannot be asked anything while
     /// it is gone, and an anchor is a `Copy` value that was never the drawing's.
     pub(super) fn point_in(self, sketch: &mut Sketch, plane: Plane) -> PointId {
-        // Already a point, so there is nothing to make and nothing to say: two
-        // pieces of geometry sharing one point are held together by being the
-        // same point, which no constraint could state more strongly.
-        if let Some(id) = self.point() {
-            return id;
-        }
         // On what it landed on, so the constraint below is satisfied the moment
         // it is stated and the solve that follows has nothing to negotiate.
         let point = sketch.add_point(self.on_sketch(sketch, plane));
         match self {
+            Anchor::On(other) => {
+                sketch.add_constraint(Constraint::Coincident { a: point, b: other });
+            }
             Anchor::OnSegment { segment, .. } => {
                 sketch.add_constraint(Constraint::PointOnSegment { point, segment });
             }
             Anchor::OnCircle { circle, .. } => {
                 sketch.add_constraint(Constraint::PointOnCircle { point, circle });
             }
-            Anchor::On(_) | Anchor::At(_) => {}
+            Anchor::At(_) => {}
         }
         point
     }

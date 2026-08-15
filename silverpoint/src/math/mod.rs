@@ -7,5 +7,6 @@
 //! matrices, not about geometry. Nothing here knows about constraints, and
 //! nothing under `sketch` reaches in.
 
+pub(crate) mod approx;
 pub(crate) mod dense;
 pub(crate) mod plane;

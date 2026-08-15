@@ -138,6 +138,7 @@ impl Hud {
         floating(Panel::vstack(), "readout", Align::TOP_LEFT).show(ui, |ui| {
             projection_toggle(ui, projection, intents);
             Text::new(status).auto_id().show(ui);
+            tidy_button(ui, intents);
         });
     }
 
@@ -257,6 +258,28 @@ fn projection_toggle(ui: &mut Ui, projection: Projection, intents: &mut Intents)
     };
     if Button::new().auto_id().label(label).show(ui).left.clicked() {
         intents.push(Change::Project(projection.toggled()));
+    }
+}
+
+/// Asks for the drawing's spare geometry to be taken out.
+///
+/// Beside the readout rather than on the constraint bar, because it is not
+/// about what is picked out — it asks a question of the whole drawing, and the
+/// bar below appears and vanishes with the selection.
+///
+/// Always live, rather than shown only when it would do something. Answering
+/// "is there anything to clean up?" means running the whole search, and the
+/// record pass allocates nothing — so the choice is between a search a frame
+/// and a button that is sometimes a no-op, and a no-op costs nothing.
+fn tidy_button(ui: &mut Ui, intents: &mut Intents) {
+    if Button::new()
+        .auto_id()
+        .label("Clean up")
+        .show(ui)
+        .left
+        .clicked()
+    {
+        intents.push(Change::Tidy);
     }
 }
 

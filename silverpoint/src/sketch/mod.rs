@@ -9,6 +9,7 @@ pub(crate) mod snapshot;
 pub(crate) mod solver;
 
 use crate::arena::{Arena, Id};
+use crate::math::approx::ApproxEq;
 use crate::sketch::constraint::{Constraint, ConstraintId};
 use crate::sketch::entity::Entity;
 use crate::sketch::params::{Params, ParamsMut};
@@ -31,6 +32,40 @@ const REMOVED_POINT: &str = "this point is no longer in the sketch";
 const REMOVED_SEGMENT: &str = "this segment is no longer in the sketch";
 const REMOVED_CIRCLE: &str = "this circle is no longer in the sketch";
 const REMOVED_CONSTRAINT: &str = "this constraint is no longer in the sketch";
+
+/// How near two pieces of geometry have to be to count as the same one, in
+/// sketch units.
+///
+/// An order of magnitude above the residual tolerance a solve converges to,
+/// which is what makes the two tests in [`Sketch::remove_duplicates`] agree
+/// instead of disagreeing at the boundary:
+/// a pair a solve has driven together sits within the residual tolerance, so it
+/// reads as positionally equal here too, and a coincidence and a measurement
+/// never answer differently about the same pair.
+///
+/// Far below anything a pointer can distinguish — a click resolves to a
+/// fraction of a sketch unit at any sane zoom — so nothing a user placed on
+/// purpose is ever within it of something else.
+const DUPLICATE_EPSILON: f64 = 1e-9;
+
+/// What a cleanup took out of a sketch.
+///
+/// Counts rather than handles: what was removed is gone, so a handle to one
+/// would name nothing — and what a caller wants of this is to say what
+/// happened, or to notice that nothing did.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct Removed {
+    pub points: usize,
+    pub segments: usize,
+    pub circles: usize,
+}
+
+impl Removed {
+    /// Whether the cleanup found nothing to do.
+    pub fn is_empty(self) -> bool {
+        self == Self::default()
+    }
+}
 
 /// A point's position, and whether the solver may move it.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -317,6 +352,174 @@ impl Sketch {
         let entity = entity.into();
         self.constraints
             .retain(|constraint| !constraint.names(entity));
+    }
+
+    /// Take out geometry that duplicates other geometry and carries nothing.
+    ///
+    /// Two halves, and a thing has to fail both to go: it must **duplicate**
+    /// something the sketch keeps, and nothing may **depend** on it. That
+    /// second half is what makes this safe to run on any sketch at any time —
+    /// removing geometry cascades to the constraints naming it (see
+    /// [`Sketch::remove_point`]), so anything a relation is built on stays put
+    /// and no statement the user made is ever dropped on their behalf. What
+    /// goes is only ever geometry nothing was said about.
+    ///
+    /// It is deliberately *not* a merge. Two segments meeting at a corner both
+    /// name their own endpoint, so neither point duplicates a spare one and
+    /// neither goes; folding those together would relabel geometry the rest of
+    /// the sketch is written in terms of, which is a different operation with
+    /// different failure modes. This one only ever deletes.
+    ///
+    /// Ordered circles, then segments, then points, because that is the
+    /// direction dependency runs: a point left carrying nothing by a duplicate
+    /// segment going is considered in the same pass rather than needing a
+    /// second one.
+    ///
+    /// Cold — a command, not a frame — so it collects and allocates freely.
+    pub fn remove_duplicates(&mut self) -> Removed {
+        let mut removed = Removed::default();
+
+        // Everything depended on is seeded as a keeper before any duplicate is
+        // looked for, so a stray beside real geometry loses to it rather than
+        // to whichever the arena happens to hold first.
+        let doomed = self.spare_circles();
+        removed.circles = doomed.len();
+        for circle in doomed {
+            self.remove_circle(circle);
+        }
+
+        let doomed = self.spare_segments();
+        removed.segments = doomed.len();
+        for segment in doomed {
+            self.remove_segment(segment);
+        }
+
+        let doomed = self.spare_points();
+        removed.points = doomed.len();
+        for point in doomed {
+            self.remove_point(point);
+        }
+
+        removed
+    }
+
+    /// The circles nothing names that another circle already covers.
+    fn spare_circles(&self) -> Vec<CircleId> {
+        let same = |a: &Circle, b: &Circle| {
+            self.point(a.center)
+                .position
+                .approx_eq(self.point(b.center).position, DUPLICATE_EPSILON)
+                && a.radius.approx_eq(b.radius, DUPLICATE_EPSILON)
+        };
+        self.spares(&self.circles, |id| self.is_named(Entity::Circle(id)), same)
+    }
+
+    /// The segments nothing names that another segment already covers.
+    ///
+    /// Compared by where their ends *are* rather than by which points they run
+    /// between: two edges drawn over each other through separate endpoints are
+    /// the duplicate this is looking for, and one written the other way round
+    /// is the same edge — so both orientations count.
+    fn spare_segments(&self) -> Vec<SegmentId> {
+        let ends = |s: &Segment| (self.point(s.a).position, self.point(s.b).position);
+        let same = |a: &Segment, b: &Segment| {
+            let ((a1, a2), (b1, b2)) = (ends(a), ends(b));
+            (a1.approx_eq(b1, DUPLICATE_EPSILON) && a2.approx_eq(b2, DUPLICATE_EPSILON))
+                || (a1.approx_eq(b2, DUPLICATE_EPSILON) && a2.approx_eq(b1, DUPLICATE_EPSILON))
+        };
+        self.spares(
+            &self.segments,
+            |id| self.is_named(Entity::Segment(id)),
+            same,
+        )
+    }
+
+    /// The points carrying nothing that sit on top of another point.
+    ///
+    /// A coincidence counts as sitting on top whatever the coordinates say. The
+    /// two agree on a solved sketch — [`DUPLICATE_EPSILON`] is the looser of the
+    /// two — and on one a solve has not reached, what the drawing *states* is a
+    /// better answer than where it currently happens to be.
+    ///
+    /// Coincidences are also the one relation that does not count as carrying
+    /// something. A point tied only to other points, ending no edge and
+    /// centring no circle, is a spare marker however many coincidences say so;
+    /// anything else said about it — a distance, a horizontal, a point on an
+    /// edge — is structure, and structure keeps it.
+    fn spare_points(&self) -> Vec<PointId> {
+        let carries = |id: PointId| {
+            let entity = Entity::Point(id);
+            self.segments
+                .iter()
+                .any(|(_, segment)| segment.a == id || segment.b == id)
+                || self.circles.iter().any(|(_, circle)| circle.center == id)
+                || self.constraints.iter().any(|(_, constraint)| {
+                    constraint.names(entity) && !matches!(constraint, Constraint::Coincident { .. })
+                })
+        };
+        let tied = |a: PointId, b: PointId| {
+            self.constraints.iter().any(|(_, constraint)| {
+                matches!(*constraint, Constraint::Coincident { a: x, b: y }
+                    if (x == a && y == b) || (x == b && y == a))
+            })
+        };
+        // By id as well as by value, because two points are the same one when a
+        // coincidence says so and the arena cannot be asked that from a `Point`
+        // alone.
+        let ids: Vec<PointId> = self.points.iter().map(|(id, _)| id).collect();
+        let same = |a: PointId, b: PointId| {
+            self.point(a)
+                .position
+                .approx_eq(self.point(b).position, DUPLICATE_EPSILON)
+                || tied(a, b)
+        };
+        let mut kept: Vec<PointId> = ids.iter().copied().filter(|&id| carries(id)).collect();
+        let mut doomed = Vec::new();
+        for id in ids.into_iter().filter(|&id| !carries(id)) {
+            if kept.iter().any(|&keeper| same(id, keeper)) {
+                doomed.push(id);
+            } else {
+                kept.push(id);
+            }
+        }
+        doomed
+    }
+
+    /// Whether any constraint is about `entity`.
+    fn is_named(&self, entity: Entity) -> bool {
+        self.constraints
+            .iter()
+            .any(|(_, constraint)| constraint.names(entity))
+    }
+
+    /// The ids in `arena` that carry nothing and duplicate something kept.
+    ///
+    /// The shape both [`Sketch::spare_circles`] and [`Sketch::spare_segments`]
+    /// have: seed the keepers with everything depended on, then walk the rest
+    /// in order, each one either matching a keeper and going or becoming a
+    /// keeper itself. That last part is what stops a pair of identical spares
+    /// from taking each other out and leaving neither.
+    fn spares<T>(
+        &self,
+        arena: &Arena<T>,
+        carries: impl Fn(Id<T>) -> bool,
+        same: impl Fn(&T, &T) -> bool,
+    ) -> Vec<Id<T>> {
+        let mut kept: Vec<Id<T>> = arena
+            .iter()
+            .filter(|&(id, _)| carries(id))
+            .map(|(id, _)| id)
+            .collect();
+        let mut doomed = Vec::new();
+        for (id, value) in arena.iter().filter(|&(id, _)| !carries(id)) {
+            let kept_value = |id| arena.get(id).expect("a keeper came from this arena");
+            if kept.iter().any(|&keeper| same(value, kept_value(keeper))) {
+                doomed.push(id);
+            } else {
+                kept.push(id);
+            }
+        }
+        doomed
     }
 
     /// Positions the points occupy, holes from removals included — the length
