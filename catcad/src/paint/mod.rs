@@ -344,7 +344,7 @@ fn write_faces(
 /// A plane with nothing on it has no size to be drawn at. A nominal square
 /// would be a number invented here and belonging to nothing — where an outline
 /// around what is actually there says what the plane is *for*.
-fn spanned(models: Models<'_>, at: FeatureId) -> Option<(DVec2, DVec2)> {
+fn spanned(models: Models<'_>, at: FeatureId) -> Option<Span> {
     let mut low = DVec2::splat(f64::INFINITY);
     let mut high = DVec2::splat(f64::NEG_INFINITY);
     for model in models.iter().filter(|model| model.on() == at) {
@@ -353,10 +353,21 @@ fn spanned(models: Models<'_>, at: FeatureId) -> Option<(DVec2, DVec2)> {
             high = high.max(point.position);
         }
     }
-    (low.x <= high.x).then(|| {
-        let margin = DVec2::splat(DATUM_MARGIN);
-        ((low + high) * 0.5, (high - low) * 0.5 + margin)
+    (low.x <= high.x).then(|| Span {
+        middle: (low + high) * 0.5,
+        reach: (high - low) * 0.5 + DVec2::splat(DATUM_MARGIN),
     })
+}
+
+/// How far a rectangle reaches from its middle, in the plane's own axes.
+///
+/// A middle and a half-extent rather than two corners, because that is what
+/// drawing one from its corners wants: each is the middle plus the reach with
+/// a sign apiece.
+#[derive(Debug, Clone, Copy)]
+struct Span {
+    middle: DVec2,
+    reach: DVec2,
 }
 
 /// A mark per constraint, saying what relation holds and where.
@@ -488,10 +499,7 @@ fn write_curves(
     curves.refill(
         models
             .planes()
-            .filter_map(|(at, plane)| {
-                let (middle, reach) = spanned(models, at)?;
-                Some(Stroke::Datum(at, plane, middle, reach))
-            })
+            .filter_map(|(at, plane)| Some(Stroke::Datum(at, plane, spanned(models, at)?)))
             .chain(models.iter().flat_map(|model| {
                 model
                     .sketch()
@@ -518,12 +526,16 @@ fn write_curves(
                 // resolves against the geometry behind it.
                 // One closed stroke rather than four, so a datum is one thing
                 // to hover, one thing to pick and one tag to light.
-                Stroke::Datum(at, plane, middle, reach) => {
+                Stroke::Datum(at, plane, span) => {
                     curve.points.clear();
                     curve
                         .points
                         .extend([(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(
-                            |(x, y)| plane.point(middle + reach * DVec2::new(x, y)).as_vec3(),
+                            |(x, y)| {
+                                plane
+                                    .point(span.middle + span.reach * DVec2::new(x, y))
+                                    .as_vec3()
+                            },
                         ));
                     curve.closed = true;
                     curve.color = DATUM;
@@ -547,7 +559,7 @@ fn write_curves(
 enum Stroke<'a> {
     Edge(Model<'a>, SegmentId, Segment),
     /// A datum plane, as the rectangle around what is drawn on it.
-    Datum(FeatureId, Plane, DVec2, DVec2),
+    Datum(FeatureId, Plane, Span),
     Band(Ends),
 }
 

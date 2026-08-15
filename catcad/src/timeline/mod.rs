@@ -99,18 +99,13 @@ impl Timeline {
             .map(|step| step.id)
     }
 
-    /// Which plane the sketch at `at` is drawn on.
-    pub(crate) fn drawn_on(&self, at: FeatureId) -> FeatureId {
-        self.sketch_plane(at)
-    }
-
     /// The plane the sketch at `at` is drawn on, if it is one that can be
     /// moved.
     ///
     /// `None` for a sketch on the ground, which is where the world is rather
     /// than somewhere a plane was put.
     pub(crate) fn movable(&self, at: FeatureId) -> Option<Movable> {
-        let on = self.sketch_plane(at);
+        let on = self.drawn_on(at);
         match self.feature(on) {
             Feature::Plane(Datum::Offset { by, .. }) => Some(Movable { plane: on, by: *by }),
             Feature::Plane(Datum::Ground) => None,
@@ -159,7 +154,7 @@ impl Timeline {
 
     /// Where the sketch at `at` lies in the world.
     pub(crate) fn plane_of(&self, at: FeatureId) -> Plane {
-        self.plane(self.sketch_plane(at))
+        self.plane(self.drawn_on(at))
     }
 
     /// Every sketch the timeline holds, in the order they were drawn.
@@ -171,7 +166,7 @@ impl Timeline {
     }
 
     /// Which plane the sketch at `at` is drawn on.
-    fn sketch_plane(&self, at: FeatureId) -> FeatureId {
+    pub(crate) fn drawn_on(&self, at: FeatureId) -> FeatureId {
         match self.feature(at) {
             Feature::Sketch { on, .. } => *on,
             Feature::Plane(_) => not_a_sketch(at),
