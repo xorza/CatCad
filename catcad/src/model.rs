@@ -7,7 +7,7 @@ use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
 use crate::drawing::Drawing;
 use crate::part::Part;
-use crate::timeline::FeatureId;
+use crate::timeline::{FeatureId, Timeline};
 
 /// A sketch and what the last solve made of it, read together.
 ///
@@ -40,21 +40,28 @@ pub(crate) struct Model<'a> {
     /// Which sketch of the timeline this is, which is half of what names
     /// anything picked out of it — see [`Part`].
     of: FeatureId,
+    /// Whether this is the sketch being edited.
+    ///
+    /// Not a fact about the document — which sketch you have open is the
+    /// session's, and saving writes none of it. It is here because a model is a
+    /// *reading* of a sketch rather than the sketch itself, and how a sketch
+    /// stands to a reader includes whether it is the one being worked in: what
+    /// draws one draws it in the colours of what it has left to decide, and
+    /// what draws the rest draws them as ground.
+    live: bool,
     drawing: Drawing<'a>,
     settled: &'a Settled,
-    /// The document's, not this sketch's: what compares it is a picture of the
-    /// whole of it — see [`Build::revision`](crate::build::Build::revision).
-    revision: Revision,
 }
 
 impl<'a> Model<'a> {
-    /// The drawing at `at`, as `build` last left it.
+    /// The drawing at `at`, as `build` last left it, read as the one being
+    /// edited.
     pub(crate) fn new(drawing: Drawing<'a>, build: &'a Build, at: FeatureId) -> Self {
         Self {
             of: at,
+            live: true,
             drawing,
             settled: build.settled(at),
-            revision: build.revision(),
         }
     }
 
@@ -83,9 +90,9 @@ impl<'a> Model<'a> {
         self.settled.arrangement()
     }
 
-    /// Which version of the drawing this is.
-    pub(crate) fn revision(self) -> Revision {
-        self.revision
+    /// Whether this is the sketch being edited.
+    pub(crate) fn live(self) -> bool {
+        self.live
     }
 
     /// One of this sketch's entities, as something that can be picked out.
@@ -124,6 +131,83 @@ impl<'a> Model<'a> {
             Part::Entity { sketch, entity } => sketch == self.of && self.drawing.holds(entity),
             Part::Face { sketch, at } => sketch == self.of && at < self.arrangement().faces().len(),
         }
+    }
+}
+
+/// Every sketch a document holds, as it currently stands.
+///
+/// The plural of [`Model`], and what anything drawing or pruning a *document*
+/// reads: a picture is made of every sketch it holds, not of the one you happen
+/// to be in. Which one that is comes along, because it is what tells a model
+/// apart from its neighbours to a reader.
+///
+/// Borrowed and [`Copy`] like the models it hands out, and for the same reason
+/// — but it hands them out by walking rather than by holding a list, so a
+/// caller that wants them five times over asks five times. Each walk is over
+/// the timeline's own steps and costs what that costs; holding the models
+/// instead would mean a buffer of borrows, which is a thing no struct can keep.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Models<'a> {
+    timeline: &'a Timeline,
+    build: &'a Build,
+    editing: FeatureId,
+}
+
+impl<'a> Models<'a> {
+    /// Every sketch `timeline` holds as `build` last left it, with `editing`
+    /// the one being worked in.
+    ///
+    /// The timeline rather than the document, because that is where the
+    /// sketches are: a picture of them wants nothing the document adds — not
+    /// the camera looking at them, and not the solids standing beside them.
+    pub(crate) fn new(timeline: &'a Timeline, build: &'a Build, editing: FeatureId) -> Self {
+        Self {
+            timeline,
+            build,
+            editing,
+        }
+    }
+
+    /// Each of them, in the order the timeline holds them.
+    pub(crate) fn iter(self) -> impl Iterator<Item = Model<'a>> {
+        let Self {
+            timeline,
+            build,
+            editing,
+        } = self;
+        timeline.sketches().map(move |at| Model {
+            of: at,
+            live: at == editing,
+            drawing: timeline.drawing(at),
+            settled: build.settled(at),
+        })
+    }
+
+    /// The one being edited.
+    pub(crate) fn open(self) -> Model<'a> {
+        Model::new(
+            self.timeline.drawing(self.editing),
+            self.build,
+            self.editing,
+        )
+    }
+
+    /// Which version of the document these describe.
+    pub(crate) fn revision(self) -> Revision {
+        self.build.revision()
+    }
+
+    /// Which sketch is being edited.
+    pub(crate) fn editing(self) -> FeatureId {
+        self.editing
+    }
+
+    /// Whether any of them still holds `part`.
+    ///
+    /// Asked of all rather than of the open one: what is picked out may span
+    /// sketches, and a part of one nobody is in is still there to be picked.
+    pub(crate) fn holds(self, part: Part) -> bool {
+        self.iter().any(|model| model.holds(part))
     }
 }
 

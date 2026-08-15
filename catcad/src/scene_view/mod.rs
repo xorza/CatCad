@@ -20,8 +20,8 @@ use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
-use crate::selection::Selection;
 use crate::session::Session;
+use crate::timeline::FeatureId;
 use crate::tool::Tool;
 
 mod aimed;
@@ -135,9 +135,13 @@ impl SceneView {
     /// The view lays it out itself rather than being handed a scene, which is
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
-    pub(crate) fn new(document: &Document, build: &Build) -> Self {
+    pub(crate) fn new(document: &Document, build: &Build, editing: FeatureId) -> Self {
         let mut layout = Layout::default();
-        let scene = paint::scene(document, build, &mut layout);
+        let scene = paint::scene(
+            document.models(build, editing),
+            document.solids(),
+            &mut layout,
+        );
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             layout,
@@ -188,11 +192,7 @@ impl SceneView {
         intents: &mut Intents,
     ) {
         let tool = session.tool();
-        // Nothing open is nothing to draw in. A view over a document with no
-        // sketch being edited still turns, picks and hovers; what it cannot do
-        // is put geometry anywhere, because there is nowhere to put it — so a
-        // tool falls through to picking, and a drag raises nothing.
-        let editing = session.editing();
+        let sketch = session.editing();
         // A bare pointer move only wakes a frame for a widget that asked for
         // one: palantir skips a `PointerMoved` that crosses no boundary and
         // latches no press, and a viewport filling the window has no boundary
@@ -216,7 +216,7 @@ impl SceneView {
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
         if matches!(response.left.phase, ButtonPhase::Down { .. }) {
-            self.gesture = self.grab(&response, document, tool);
+            self.gesture = self.grab(&response, document, sketch, tool);
         }
         match (self.gesture, response.left.drag) {
             (Gesture::Orbit { travel: was }, Drag::Started { delta } | Drag::Active { delta }) => {
@@ -232,9 +232,7 @@ impl SceneView {
             (Gesture::Move(held), Drag::Started { .. } | Drag::Active { .. }) => {
                 // Where the entity should end up, which is where the cursor
                 // lands plus however far off centre it was grabbed.
-                if let (Some(to), Some(sketch)) =
-                    (aimed::landing(&response, document, held.motion), editing)
-                {
+                if let Some(to) = aimed::landing(&response, document, held.motion) {
                     intents.push(Change::Drag {
                         sketch,
                         grip: held.grip,
@@ -269,23 +267,23 @@ impl SceneView {
             // clicked is what the new geometry is *held to*, so a click on the
             // drawing is worth more to a tool than one beside it. Nothing is
             // picked out by a click a tool took — selecting is the pointer's.
-            match (tool, self.anchor(&response, document, under), editing) {
+            match (tool, self.anchor(&response, document, sketch, under)) {
                 // One click. On a point already there it adds nothing, and the
                 // drawing comes out of it unchanged.
-                (Tool::Point, Some(at), Some(sketch)) => {
+                (Tool::Point, Some(at)) => {
                     intents.push(Change::AddPoint { sketch, at });
                 }
                 // Two clicks each. The first is remembered in the tool and
                 // reaches the document not at all; the second commits the whole
                 // shape as one step.
-                (Tool::Line { from: None }, Some(start), Some(_)) => {
+                (Tool::Line { from: None }, Some(start)) => {
                     intents.push(Choice::Hold(Tool::Line { from: Some(start) }));
                 }
-                (Tool::Line { from: Some(from) }, Some(to), Some(sketch)) => {
+                (Tool::Line { from: Some(from) }, Some(to)) => {
                     intents.push(Change::AddSegment { sketch, from, to });
                     intents.push(Choice::Hold(Tool::Line { from: None }));
                 }
-                (Tool::Circle { center: None }, Some(middle), Some(_)) => {
+                (Tool::Circle { center: None }, Some(middle)) => {
                     intents.push(Choice::Hold(Tool::Circle {
                         center: Some(middle),
                     }));
@@ -295,7 +293,6 @@ impl SceneView {
                         center: Some(center),
                     },
                     Some(rim),
-                    Some(sketch),
                 ) => {
                     intents.push(Change::AddCircle {
                         sketch,
@@ -305,10 +302,9 @@ impl SceneView {
                     intents.push(Choice::Hold(Tool::Circle { center: None }));
                 }
                 // Nothing in hand — or a plane seen so nearly edge-on that a
-                // click names nowhere on it, or no sketch open to draw in. In
-                // all three there is nothing to build from, and picking out
-                // what was clicked is all that is left.
-                (Tool::Pointer, _, _) | (_, None, _) | (_, _, None) => {
+                // click names nowhere on it, where there is nothing to build
+                // from and picking out what was clicked is all that is left.
+                (Tool::Pointer, _) | (_, None) => {
                     match under {
                         // Shift adds to what is picked out.
                         Some(entity) if adding => intents.push(Choice::Include(entity)),
@@ -339,11 +335,11 @@ impl SceneView {
             .zip(aimed::landing(
                 &response,
                 document,
-                document.drawing().motion(),
+                document.drawing_at(sketch).motion(),
             ))
             .map(|(started, at)| {
                 let ends = Ends {
-                    from: document.drawing().at(started),
+                    from: document.drawing_at(sketch).at(started),
                     to: at,
                 };
                 match tool {
@@ -425,7 +421,7 @@ impl SceneView {
     /// command holding the renderer and calls it at submit, after the record
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
-    pub(crate) fn settle(&mut self, document: &Document, build: &Build, selection: &Selection) {
+    pub(crate) fn settle(&mut self, document: &Document, build: &Build, session: &Session) {
         let mut renderer = self.renderer.borrow_mut();
         // Unconditionally, and cheap when nothing moved: the layout compares
         // what it describes against what it is handed and returns without
@@ -438,7 +434,7 @@ impl SceneView {
         // Into the batches the renderer already holds, so a drag rewrites the
         // drawing every frame without asking the heap for anything.
         paint::redraw(
-            document.model(build),
+            document.models(build, session.editing()),
             &mut self.layout,
             self.preview,
             renderer.scene_mut(),
@@ -467,7 +463,7 @@ impl SceneView {
         // to go the other way: what is picked out are the sketch's own handles,
         // and what is lit are the tags this layout gave them.
         for (tag, entity) in self.layout.names().iter() {
-            if Some(tag) != under && selection.contains(entity) {
+            if Some(tag) != under && session.selection().contains(entity) {
                 self.lit.push(Lit {
                     tag,
                     look: SELECTED,
@@ -524,9 +520,14 @@ impl SceneView {
         &self,
         response: &Response<'_>,
         document: &Document,
+        editing: FeatureId,
         under: Option<Part>,
     ) -> Option<Anchor> {
-        let at = aimed::landing(response, document, document.drawing().motion());
+        let at = aimed::landing(response, document, document.drawing_at(editing).motion());
+        // Only what the open sketch holds is something to build *on*: a point
+        // of another names a handle this sketch would read as one of its own,
+        // so anything else is a click on the bare plane behind it.
+        let under = under.filter(|part| part.sketch() == editing);
         match under.and_then(Part::entity) {
             Some(Entity::Point(id)) => Some(Anchor::On(id)),
             Some(Entity::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
@@ -544,7 +545,13 @@ impl SceneView {
     /// else — empty space, a solid, a point the drawing pins — turns the
     /// camera. Grabbing nothing has to stay the way the view is orbited, or
     /// the pointer would lose its only way to look around.
-    fn grab(&self, response: &Response<'_>, document: &Document, tool: Tool) -> Gesture {
+    fn grab(
+        &self,
+        response: &Response<'_>,
+        document: &Document,
+        editing: FeatureId,
+        tool: Tool,
+    ) -> Gesture {
         if tool != Tool::Pointer {
             // A tool with something to put down has no business picking up what
             // is already there. The view is still turned under it, so a point
@@ -562,10 +569,18 @@ impl SceneView {
                 // and the ray cast through the document's.
                 let aim = aimed.aim(&document.camera());
                 let hit = scene.nearest(aim)?;
-                let grip = document
-                    .drawing()
-                    .grip(self.layout.names().get(hit.tag)?.entity()?, hit.at)?;
-                let motion = document.drawing().motion();
+                let part = self.layout.names().get(hit.tag)?;
+                // Only the sketch being worked in can be taken hold of. A drag
+                // is an edit and an edit lands where you are — and the handles
+                // would not even tell the two apart: two sketches are two
+                // arenas and mint the same ones, so a grip that read the
+                // entity alone would take hold of whatever sat at that slot in
+                // the open sketch. See [`Part`](crate::part::Part).
+                let drawing = document.drawing_at(editing);
+                let grip = (part.sketch() == editing)
+                    .then(|| drawing.grip(part.entity()?, hit.at))
+                    .flatten()?;
+                let motion = drawing.motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
                 Some(Held {

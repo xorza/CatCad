@@ -13,11 +13,9 @@ use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
 use std::fmt::Write;
 
-use crate::build::Build;
-use crate::document::Document;
-use crate::model::Model;
+use crate::model::{Model, Models};
 use crate::names::Names;
-use crate::paint::layout::{Layout, Sheets};
+use crate::paint::layout::{Layout, Made, Sheets};
 use crate::preview::{Ends, Preview};
 
 pub(crate) mod layout;
@@ -51,6 +49,21 @@ const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
 const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
 const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
 
+/// What a sketch that is not the one open is drawn in.
+///
+/// One colour rather than the freedom ladder above. How much a sketch you are
+/// not in has left to decide is not something you can act on without opening it
+/// first, so saying it would be saying something unusable — and a second ladder
+/// in the same picture reads as a second *kind* of geometry rather than as the
+/// same kind, set aside.
+///
+/// Dimmer than [`GHOST`], which is the other thing here drawn in no state at
+/// all: a rubber band is what you are doing now, and this is what you are not.
+const DORMANT: Vec3 = Vec3::new(0.42, 0.45, 0.50);
+
+/// What a face of one is filled with — the same step down from [`FACE`].
+const DORMANT_FACE: Vec3 = Vec3::new(0.15, 0.19, 0.24);
+
 /// What a face the drawing encloses is filled with.
 ///
 /// Cool and dim, and deliberately not on the ladder above: a face reports no
@@ -72,6 +85,15 @@ fn colour(freedom: Freedom) -> Vec3 {
         Freedom::Partly => PARTLY,
         Freedom::Free => FREE,
     }
+}
+
+/// `lit` where `model` is the sketch being edited, and ground where it is not.
+///
+/// The one place the difference is made, so every kind of mark in a dormant
+/// sketch is dimmed by the same rule rather than each writer having its own
+/// idea of what "not here" looks like.
+fn ink(model: Model<'_>, lit: Vec3) -> Vec3 {
+    if model.live() { lit } else { DORMANT }
 }
 
 /// Logical pixels.
@@ -159,11 +181,11 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 ///
 /// The solids are written here rather than by the document, so that a document
 /// says what it holds and one module decides what all of it looks like.
-pub(crate) fn scene(document: &Document, build: &Build, layout: &mut Layout) -> Scene {
+pub(crate) fn scene(models: Models<'_>, solids: &[Object], layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
-    write_solids(document.solids(), &mut scene.solids);
+    write_solids(solids, &mut scene.solids);
     // No band. Nothing can be half-drawn in a document nobody has looked at yet.
-    redraw(document.model(build), layout, None, &mut scene);
+    redraw(models, layout, None, &mut scene);
     scene
 }
 
@@ -204,7 +226,7 @@ fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
 /// so on the layout when it has drawn — so a caller settles a frame by calling
 /// this and reading nothing back.
 pub(crate) fn redraw(
-    model: Model<'_>,
+    models: Models<'_>,
     layout: &mut Layout,
     band: Option<Preview>,
     into: &mut Scene,
@@ -213,17 +235,27 @@ pub(crate) fn redraw(
     // to describe and what was drawn into it are decided in one place. A caller
     // that skipped the call would leave a stale picture; one that made it and
     // forgot to stamp would redraw for ever.
-    if !layout.stale(model.revision(), band) {
+    let made = Made {
+        revision: models.revision(),
+        editing: models.editing(),
+        band,
+    };
+    if !layout.stale(made) {
         return;
     }
     let Layout { names, sheets, .. } = &mut *layout;
     names.clear();
-    write_curves(model, names, band.and_then(Preview::line), &mut into.curves);
-    write_rings(model, names, band.and_then(Preview::ring), &mut into.rings);
-    write_points(model, names, &mut into.points);
-    write_marks(model, names, &mut into.texts);
-    write_faces(model, names, sheets, &mut into.faces);
-    layout.drawn(model.revision(), band);
+    write_curves(
+        models,
+        names,
+        band.and_then(Preview::line),
+        &mut into.curves,
+    );
+    write_rings(models, names, band.and_then(Preview::ring), &mut into.rings);
+    write_points(models, names, &mut into.points);
+    write_marks(models, names, &mut into.texts);
+    write_faces(models, names, sheets, &mut into.faces);
+    layout.drawn(made);
 }
 
 /// A sheet per face the drawing's curves shut in.
@@ -247,18 +279,21 @@ pub(crate) fn redraw(
 /// Named *by position*, which is the one thing about a face that is not a
 /// handle. See [`Part::Face`](crate::part::Part).
 fn write_faces(
-    model: Model<'_>,
+    models: Models<'_>,
     names: &mut Names,
     sheets: &mut Sheets,
     faces: &mut Batch<Object>,
 ) {
-    let plane = model.plane();
-    let normal = plane.normal().as_vec3();
-    let arrangement = model.arrangement();
     let Sheets { filler, fill } = sheets;
     faces.refill(
-        arrangement.faces().iter().enumerate(),
-        |object, (at, face)| {
+        models
+            .iter()
+            .flat_map(|model| (0..model.arrangement().faces().len()).map(move |at| (model, at))),
+        |object, (model, at)| {
+            let plane = model.plane();
+            let normal = plane.normal().as_vec3();
+            let arrangement = model.arrangement();
+            let face = &arrangement.faces()[at];
             filler.fill(arrangement, face, FACE_SAGITTA, fill);
             // Rewritten in place rather than assigned, so a drag that redraws every
             // face keeps the buffers it filled last frame.
@@ -277,7 +312,7 @@ fn write_faces(
             object.mesh.indices.reserve_exact(fill.triangles.len() * 3);
             object.mesh.indices.extend(fill.triangles.iter().flatten());
             object.transform = Mat4::IDENTITY;
-            object.color = FACE;
+            object.color = if model.live() { FACE } else { DORMANT_FACE };
             object.tag = Some(names.tag(model.face(at)));
         },
     );
@@ -293,39 +328,50 @@ fn write_faces(
 /// Tagged like everything else, so a mark is picked and deleted the way the
 /// geometry it is about is — which is the whole of how an over-constrained
 /// sketch gets un-stuck.
-fn write_marks(model: Model<'_>, names: &mut Names, marks: &mut Batch<Text>) {
-    let outcome = model.outcome();
-    marks.refill(model.sketch().constraints(), |mark, (id, constraint)| {
-        // Rewritten in place rather than assigned, so a drawing whose marks are
-        // laid out every frame keeps the string it already has — which is what
-        // keeps a scrubbed dimension off the heap sixty times a second.
-        mark.content.clear();
-        match constraint.value() {
-            // A dimension reads as its measurement. That *is* the mark: a
-            // number beside a length says both that the length is stated and
-            // what it is stated as, where a symbol would say only the first and
-            // leave the drawing unreadable.
-            Some(value) => {
-                let unit = radius_prefix(constraint);
-                write!(mark.content, "{unit}{value:.*}", DECIMALS)
-                    .expect("writing to a string cannot fail");
+fn write_marks(models: Models<'_>, names: &mut Names, marks: &mut Batch<Text>) {
+    marks.refill(
+        models.iter().flat_map(|model| {
+            model
+                .sketch()
+                .constraints()
+                .map(move |stated| (model, stated))
+        }),
+        |mark, (model, (id, constraint))| {
+            let outcome = model.outcome();
+            // Rewritten in place rather than assigned, so a drawing whose marks are
+            // laid out every frame keeps the string it already has — which is what
+            // keeps a scrubbed dimension off the heap sixty times a second.
+            mark.content.clear();
+            match constraint.value() {
+                // A dimension reads as its measurement. That *is* the mark: a
+                // number beside a length says both that the length is stated and
+                // what it is stated as, where a symbol would say only the first and
+                // leave the drawing unreadable.
+                Some(value) => {
+                    let unit = radius_prefix(constraint);
+                    write!(mark.content, "{unit}{value:.*}", DECIMALS)
+                        .expect("writing to a string cannot fail");
+                }
+                None => mark.content.push_str(symbol(constraint)),
             }
-            None => mark.content.push_str(symbol(constraint)),
-        }
-        mark.position = model.drawing().mark_at(constraint);
-        mark.font = mark_font();
-        // Above the middle of what it names, so the mark clears the geometry it
-        // is about rather than sitting on top of it.
-        mark.anchor = Vec2::new(0.5, 1.6);
-        mark.color = if outcome.is_redundant(id) {
-            REDUNDANT
-        } else {
-            MARK
-        };
-        mark.z_offset = MARKER_LIFT;
-        mark.plane_normal = Some(model.plane().normal().as_vec3());
-        mark.tag = Some(names.tag(model.part(id)));
-    });
+            mark.position = model.drawing().mark_at(constraint);
+            mark.font = mark_font();
+            // Above the middle of what it names, so the mark clears the geometry it
+            // is about rather than sitting on top of it.
+            mark.anchor = Vec2::new(0.5, 1.6);
+            mark.color = ink(
+                model,
+                if outcome.is_redundant(id) {
+                    REDUNDANT
+                } else {
+                    MARK
+                },
+            );
+            mark.z_offset = MARKER_LIFT;
+            mark.plane_normal = Some(model.plane().normal().as_vec3());
+            mark.tag = Some(names.tag(model.part(id)));
+        },
+    );
 }
 
 /// Decimal places a dimension is read out to.
@@ -383,18 +429,14 @@ fn symbol(constraint: Constraint) -> &'static str {
 /// the solids in depth so the drawing reads over them. Circles are not
 /// strokes — see [`write_rings`].
 fn write_curves(
-    model: Model<'_>,
+    models: Models<'_>,
     names: &mut Names,
     band: Option<Ends>,
     curves: &mut Batch<Curve>,
 ) {
-    let sketch = model.sketch();
-    let outcome = model.outcome();
-    let plane = model.plane();
-    // The drawing rides on one plane and above the solids as one thing, and
-    // nothing in it outranks the rest — so the bias and the plane are the same
-    // for every stroke.
-    let normal = plane.normal().as_vec3();
+    // The band belongs to the sketch being drawn in, which is the one plane it
+    // could lie in: a tool draws where you are, not where you are not.
+    let banding = models.open().plane().normal().as_vec3();
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
     // one that does not — see `Batch::refill`. The band is chained on rather
@@ -402,21 +444,26 @@ fn write_curves(
     // the next rewrite of the drawing and allocated afresh by the one after,
     // once a frame for as long as a line is being drawn.
     curves.refill(
-        sketch
-            .segments()
-            .map(|(id, edge)| Stroke::Edge(id, edge))
+        models
+            .iter()
+            .flat_map(|model| {
+                model
+                    .sketch()
+                    .segments()
+                    .map(move |(id, edge)| Stroke::Edge(model, id, edge))
+            })
             .chain(band.map(Stroke::Band)),
         |curve, stroke| {
             curve.width = EDGE_WIDTH;
             curve.z_offset = STROKE_LIFT;
-            curve.plane_normal = Some(normal);
             match stroke {
-                Stroke::Edge(id, edge) => {
+                Stroke::Edge(model, id, edge) => {
+                    let (sketch, plane) = (model.sketch(), model.plane());
                     let a = plane.point(sketch.point(edge.a).position).as_vec3();
                     let b = plane.point(sketch.point(edge.b).position).as_vec3();
-                    let freedom = outcome.segment(id);
                     curve.set_segment(a, b);
-                    curve.color = colour(freedom);
+                    curve.color = ink(model, colour(model.outcome().segment(id)));
+                    curve.plane_normal = Some(plane.normal().as_vec3());
                     curve.tag = Some(names.tag(model.part(id)));
                 }
                 // Untagged, which is what keeps the band out of the way: a pick
@@ -426,6 +473,7 @@ fn write_curves(
                 Stroke::Band(ends) => {
                     curve.set_segment(ends.from, ends.to);
                     curve.color = GHOST;
+                    curve.plane_normal = Some(banding);
                     curve.tag = None;
                 }
             }
@@ -436,8 +484,8 @@ fn write_curves(
 /// One stroke to write: an edge the sketch holds, or the band a tool is in the
 /// middle of drawing.
 #[derive(Debug)]
-enum Stroke {
-    Edge(SegmentId, Segment),
+enum Stroke<'a> {
+    Edge(Model<'a>, SegmentId, Segment),
     Band(Ends),
 }
 
@@ -447,29 +495,31 @@ enum Stroke {
 /// The plane comes along for the same reason a stroke's does: a disc is
 /// flat in depth and the surface under it is not, so without it the glyph
 /// is sliced wherever the plane is seen at an angle.
-fn write_points(model: Model<'_>, names: &mut Names, points: &mut Batch<Point>) {
-    let sketch = model.sketch();
-    let outcome = model.outcome();
-    let plane = model.plane();
-    let normal = plane.normal().as_vec3();
-    points.refill(sketch.points(), |marker, (id, point)| {
-        // Pinned by hand outranks pinned by consequence: a fixed point is
-        // determined too, but saying so in the same colour would lose the
-        // one thing about it the user chose.
-        let (color, size) = if point.fixed {
-            (PINNED, FIXED_MARKER)
-        } else {
-            (colour(outcome.point(id)), FREE_MARKER)
-        };
-        // Assigned whole where a stroke is edited in place: a marker owns
-        // nothing, so replacing one costs what overwriting it would.
-        *marker = Point::new(plane.point(point.position).as_vec3())
-            .colored(color)
-            .size(size)
-            .z_offset(MARKER_LIFT)
-            .in_plane(normal)
-            .tagged(names.tag(model.part(id)));
-    });
+fn write_points(models: Models<'_>, names: &mut Names, points: &mut Batch<Point>) {
+    points.refill(
+        models
+            .iter()
+            .flat_map(|model| model.sketch().points().map(move |at| (model, at))),
+        |marker, (model, (id, point))| {
+            let plane = model.plane();
+            // Pinned by hand outranks pinned by consequence: a fixed point is
+            // determined too, but saying so in the same colour would lose the
+            // one thing about it the user chose.
+            let (color, size) = if point.fixed {
+                (PINNED, FIXED_MARKER)
+            } else {
+                (colour(model.outcome().point(id)), FREE_MARKER)
+            };
+            // Assigned whole where a stroke is edited in place: a marker owns
+            // nothing, so replacing one costs what overwriting it would.
+            *marker = Point::new(plane.point(point.position).as_vec3())
+                .colored(ink(model, color))
+                .size(size)
+                .z_offset(MARKER_LIFT)
+                .in_plane(plane.normal().as_vec3())
+                .tagged(names.tag(model.part(id)));
+        },
+    );
 }
 
 /// The sketch's circles, one ring apiece.
@@ -481,35 +531,38 @@ fn write_points(model: Model<'_>, names: &mut Names, points: &mut Batch<Point>) 
 ///
 /// No plane named, unlike the strokes — a ring's band is widened in its
 /// own plane, so the depth it carries is already the surface's.
-fn write_rings(model: Model<'_>, names: &mut Names, band: Option<Ends>, rings: &mut Batch<Ring>) {
-    let sketch = model.sketch();
-    let outcome = model.outcome();
-    let plane = model.plane();
-    let normal = plane.normal().as_vec3();
+fn write_rings(models: Models<'_>, names: &mut Names, band: Option<Ends>, rings: &mut Batch<Ring>) {
+    // The band's plane is the open sketch's, exactly as among the strokes.
+    let banding = models.open().plane().normal().as_vec3();
     rings.refill(
-        sketch
-            .circles()
-            .map(|(id, circle)| Rim::Circle(id, circle))
+        models
+            .iter()
+            .flat_map(|model| {
+                model
+                    .sketch()
+                    .circles()
+                    .map(move |(id, circle)| Rim::Circle(model, id, circle))
+            })
             .chain(band.map(Rim::Band)),
         |ring, rim| {
             // Assigned whole, like a marker and unlike a stroke: a rim owns
             // nothing either.
             *ring = match rim {
-                Rim::Circle(id, circle) => {
-                    let freedom = outcome.circle(id);
+                Rim::Circle(model, id, circle) => {
+                    let (sketch, plane) = (model.sketch(), model.plane());
                     Ring::new(
                         plane.point(sketch.point(circle.center).position).as_vec3(),
                         circle.radius.abs() as f32,
-                        normal,
+                        plane.normal().as_vec3(),
                     )
-                    .colored(colour(freedom))
+                    .colored(ink(model, colour(model.outcome().circle(id))))
                     .tagged(names.tag(model.part(id)))
                 }
                 // Through the cursor rather than out to it: the second click
                 // says how big by naming somewhere on the rim. Untagged, like
                 // the band among the strokes.
                 Rim::Band(ends) => {
-                    Ring::new(ends.from, ends.from.distance(ends.to), normal).colored(GHOST)
+                    Ring::new(ends.from, ends.from.distance(ends.to), banding).colored(GHOST)
                 }
             }
             .width(EDGE_WIDTH)
@@ -521,8 +574,8 @@ fn write_rings(model: Model<'_>, names: &mut Names, band: Option<Ends>, rings: &
 /// One rim to write: a circle the sketch holds, or the band a tool is in the
 /// middle of drawing.
 #[derive(Debug)]
-enum Rim {
-    Circle(CircleId, Circle),
+enum Rim<'a> {
+    Circle(Model<'a>, CircleId, Circle),
     Band(Ends),
 }
 

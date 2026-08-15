@@ -1,6 +1,6 @@
 use super::*;
 use crate::build::Build;
-use crate::model::Model;
+use crate::model::{Model, Models};
 use crate::paint;
 use crate::paint::layout::Layout;
 use crate::part::Part;
@@ -62,7 +62,12 @@ impl Linkage {
         Model::new(self.timeline.drawing(at), &self.build, at)
     }
 
-    /// Where a point has ended up, in the world.
+    /// Every sketch it holds, which for a fixture of one is that one — open,
+    /// so it draws in the colours of what it has left to decide.
+    fn models(&self) -> Models<'_> {
+        Models::new(&self.timeline, &self.build, self.timeline.only_sketch())
+    }
+
     /// Take `grip` to `world`, as the application's edit path would.
     fn drag_to(&mut self, grip: Grip, world: Vec3) {
         let at = self.timeline.only_sketch();
@@ -254,7 +259,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     let mut scene = Scene::default();
 
     let mut layout = Layout::default();
-    paint::redraw(linkage.model(), &mut layout, None, &mut scene);
+    paint::redraw(linkage.models(), &mut layout, None, &mut scene);
     let before: Vec<Option<Part>> = scene
         .points
         .iter()
@@ -266,7 +271,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     // Move something, so the rewrite has different geometry to emit.
     let plane = linkage.drawing().plane();
     linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
-    paint::redraw(linkage.model(), &mut layout, None, &mut scene);
+    paint::redraw(linkage.models(), &mut layout, None, &mut scene);
 
     let after: Vec<Option<Part>> = scene
         .points

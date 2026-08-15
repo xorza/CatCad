@@ -22,7 +22,7 @@ fn once(intent: impl Into<Intent>) -> Intents {
 fn markers(document: &Document, build: &Build) -> Vec<Vec3> {
     let mut scene = Scene::default();
     paint::redraw(
-        document.model(build),
+        document.models(build, document.opening()),
         &mut Layout::default(),
         None,
         &mut scene,
@@ -35,7 +35,7 @@ fn markers(document: &Document, build: &Build) -> Vec<Vec3> {
 /// point a drag can take anywhere.
 fn point(document: &Document, index: usize) -> PointId {
     document
-        .drawing()
+        .drawing_at(document.opening())
         .sketch()
         .points()
         .nth(index)
@@ -47,7 +47,7 @@ fn point(document: &Document, index: usize) -> PointId {
 /// by whatever a drag gives it and nothing pulls back.
 fn hole(document: &Document) -> CircleId {
     document
-        .drawing()
+        .drawing_at(document.opening())
         .sketch()
         .circles()
         .next()
@@ -62,7 +62,7 @@ fn hole(document: &Document) -> CircleId {
 /// drag, so this is the one edit in the demo that moves a single parameter and
 /// leaves everything else exactly where it stands.
 fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
-    let sketch = document.drawing().sketch();
+    let sketch = document.drawing_at(document.opening()).sketch();
     let centre = sketch.point(sketch.circle(circle).center).position;
     Plane::GROUND
         .point(centre + DVec2::new(radius, 0.0))
@@ -70,7 +70,7 @@ fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
 }
 
 fn radius(document: &Document) -> f64 {
-    let sketch = document.drawing().sketch();
+    let sketch = document.drawing_at(document.opening()).sketch();
     sketch.circle(hole(document)).radius
 }
 
@@ -110,7 +110,14 @@ fn relaid(
 /// Where to send `id`, `by` from where it now stands on the drawing's plane.
 fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
     Plane::GROUND
-        .point(document.drawing().sketch().point(id).position + by)
+        .point(
+            document
+                .drawing_at(document.opening())
+                .sketch()
+                .point(id)
+                .position
+                + by,
+        )
         .as_vec3()
 }
 
@@ -434,7 +441,7 @@ fn a_drag_in_one_sketch_does_not_extend_a_step_opened_in_another() {
     let mut document = Document::new(&mut build, timeline, Vec::new());
 
     let at = |document: &Document, sketch, point| {
-        document.drawing_of(sketch).sketch().point(point).position
+        document.drawing_at(sketch).sketch().point(point).position
     };
     let mut history = History::default();
     // Neither drag is released, so the first leaves a step open — which is the

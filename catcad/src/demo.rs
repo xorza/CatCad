@@ -43,15 +43,49 @@ pub(crate) fn document(build: &mut Build) -> Document {
         let base = plane.point(at).as_vec3() + Vec3::Y * size * 0.5;
         solids.push(Object::new(Mesh::cube(size)).at(base).colored(color));
     }
-    // Two steps: the ground to draw on, and the drawing. The plane is named
-    // rather than carried, so the sketch would follow it anywhere it went.
+    // Three steps: the ground to draw on, and two drawings sharing it. The
+    // plane is named rather than carried by either, so both would follow it
+    // anywhere it went.
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::Ground));
     timeline.add(Feature::Sketch {
         on: ground,
         sketch: sketch(),
     });
+    timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: aside(),
+    });
     Document::new(build, timeline, solids)
+}
+
+/// A second drawing, in the corner of the ground the first leaves free.
+///
+/// Small on purpose. What it is *for* is being another sketch: something to
+/// click into, and something drawn as ground while you are working in its
+/// neighbour. What it draws is a triangle, which is the least geometry that
+/// still shuts a face in — so switching between the two shows the difference on
+/// every kind of mark there is, strokes and markers and a filled face.
+///
+/// Determined but for its apex: the left corner is pinned, the base is
+/// horizontal and 2.5 long, which leaves the apex free to be dragged about
+/// while the base holds.
+fn aside() -> Sketch {
+    let mut sketch = Sketch::default();
+    let left = sketch.add_point(DVec2::new(6.9, -1.9));
+    let right = sketch.add_point(DVec2::new(9.3, -1.6));
+    let apex = sketch.add_point(DVec2::new(8.1, -0.5));
+    sketch.fix(left);
+    sketch.add_segment(left, right);
+    sketch.add_segment(right, apex);
+    sketch.add_segment(apex, left);
+    sketch.add_constraint(Constraint::Horizontal { a: left, b: right });
+    sketch.add_constraint(Constraint::Distance {
+        a: left,
+        b: right,
+        distance: 2.5,
+    });
+    sketch
 }
 
 /// A rigid frame, a hole through it that can be resized, and a jointed arm

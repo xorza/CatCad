@@ -1,9 +1,11 @@
 use super::*;
 use crate::build::Build;
 use crate::demo;
-use crate::model::Model;
+use crate::document::Document;
+use crate::model::Models;
 use crate::part::Part;
 use crate::timeline::Timeline;
+use crate::timeline::feature::{Datum, Feature};
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Entity, Sketch};
@@ -16,10 +18,10 @@ struct Drawn {
 }
 
 impl Drawn {
-    /// The two halves as the writers want them.
-    fn model(&self) -> Model<'_> {
-        let at = self.timeline.only_sketch();
-        Model::new(self.timeline.drawing(at), &self.build, at)
+    /// Every sketch it holds, which for a fixture of one is that one — open,
+    /// so it is drawn in the colours of what it has left to decide.
+    fn models(&self) -> Models<'_> {
+        Models::new(&self.timeline, &self.build, self.timeline.only_sketch())
     }
 }
 
@@ -47,7 +49,7 @@ fn every_entity_becomes_a_curve() {
     // One edge. Circles are rings now, and markers were never strokes.
     let mut curves = Batch::default();
     let one = drawn(sketch);
-    write_curves(one.model(), &mut Names::default(), None, &mut curves);
+    write_curves(one.models(), &mut Names::default(), None, &mut curves);
     assert_eq!(curves.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
@@ -78,7 +80,7 @@ fn every_entity_becomes_a_curve() {
     fewer.add_segment(c, d);
     fewer.add_segment(d, c);
     let two = drawn(fewer);
-    write_curves(two.model(), &mut Names::default(), None, &mut curves);
+    write_curves(two.models(), &mut Names::default(), None, &mut curves);
     assert_eq!(curves.len(), 2, "the list did not grow to the new sketch");
     // The ground plane's +y runs to world −Z, so a sketch x-axis stays x.
     assert_eq!(
@@ -90,7 +92,7 @@ fn every_entity_becomes_a_curve() {
         [Vec3::new(4.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]
     );
 
-    write_curves(one.model(), &mut Names::default(), None, &mut curves);
+    write_curves(one.models(), &mut Names::default(), None, &mut curves);
     assert_eq!(curves.len(), 1, "the list did not shrink back");
     assert_eq!(
         curves[0].points,
@@ -103,7 +105,7 @@ fn every_entity_becomes_a_curve() {
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
     let mut rings = Batch::default();
-    write_rings(one.model(), &mut Names::default(), None, &mut rings);
+    write_rings(one.models(), &mut Names::default(), None, &mut rings);
     assert_eq!(rings.len(), 1);
     let ring = rings[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
@@ -128,7 +130,7 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
 
     let mut points = Batch::default();
     let one = drawn(sketch);
-    write_points(one.model(), &mut Names::default(), &mut points);
+    write_points(one.models(), &mut Names::default(), &mut points);
     assert_eq!(points.len(), 2);
     // Above the strokes, not merely above the solids: a marker lands on
     // the end of the segments meeting it, and is drawn after them.
@@ -165,7 +167,7 @@ fn marker_size_ignores_how_big_the_drawing_is() {
     let sizes = |sketch: Sketch| -> Vec<f32> {
         let mut points = Batch::default();
         let one = drawn(sketch);
-        write_points(one.model(), &mut Names::default(), &mut points);
+        write_points(one.models(), &mut Names::default(), &mut points);
         points.iter().map(|point| point.size).collect()
     };
     assert_eq!(sizes(small.clone()), sizes(large));
@@ -203,9 +205,9 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     let mut points = Batch::default();
     let mut curves = Batch::default();
     let mut rings = Batch::default();
-    write_points(one.model(), &mut Names::default(), &mut points);
-    write_curves(one.model(), &mut Names::default(), None, &mut curves);
-    write_rings(one.model(), &mut Names::default(), None, &mut rings);
+    write_points(one.models(), &mut Names::default(), &mut points);
+    write_curves(one.models(), &mut Names::default(), None, &mut curves);
+    write_rings(one.models(), &mut Names::default(), None, &mut rings);
 
     // Three markers, three different things to say about them.
     assert_eq!(points[0].color, PINNED, "the anchor was pinned by hand");
@@ -242,7 +244,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let one = drawn(demo::sketch());
     let mut scene = Scene::default();
     let mut layout = Layout::default();
-    redraw(one.model(), &mut layout, None, &mut scene);
+    redraw(one.models(), &mut layout, None, &mut scene);
 
     // Seven segments — four sides, the rail, and the arm's two bars — two
     // circles, and a marker on each of the nine points.
@@ -264,7 +266,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     // adding to it. Through a layout that has drawn nothing, because one that
     // has already drawn this revision correctly declines to draw it twice —
     // and what is being checked here is the refill, not the skip.
-    redraw(one.model(), &mut Layout::default(), None, &mut scene);
+    redraw(one.models(), &mut Layout::default(), None, &mut scene);
     assert_eq!(scene.curves.len(), 7);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
@@ -282,13 +284,19 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
 fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
-    let picture = scene(&document, &build, &mut Layout::default());
+    let picture = scene(
+        document.models(&build, document.opening()),
+        document.solids(),
+        &mut Layout::default(),
+    );
 
-    // The slab and the three boxes standing on it.
+    // The slab and the three boxes standing on it, and both sketches: the
+    // frame's seven edges and the triangle's three, two rims, nine markers and
+    // three.
     assert_eq!(picture.solids.len(), 4);
-    assert_eq!(picture.curves.len(), 7);
+    assert_eq!(picture.curves.len(), 10);
     assert_eq!(picture.rings.len(), 2);
-    assert_eq!(picture.points.len(), 9);
+    assert_eq!(picture.points.len(), 12);
 }
 
 /// Every symbol a mark is drawn as has a glyph in the faces the shaper falls
@@ -383,12 +391,16 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
 fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
-    let scene = scene(&document, &build, &mut Layout::default());
+    let scene = scene(
+        document.models(&build, document.opening()),
+        document.solids(),
+        &mut Layout::default(),
+    );
 
-    // The demo draws a rectangle with a circle inside it, and an eye at the end
-    // of the arm: the ring between rectangle and circle, the circle's own disc,
-    // and the eye's.
-    assert_eq!(scene.faces.len(), 3, "the demo encloses three faces");
+    // The demo's first sketch draws a rectangle with a circle inside it and an
+    // eye at the end of the arm — the ring between rectangle and circle, the
+    // circle's own disc, and the eye's — and its second draws a triangle.
+    assert_eq!(scene.faces.len(), 4, "the demo encloses four faces");
 
     // Every sheet has triangles and lies flat on the sketch plane, which is the
     // ground — a face with vertices off it would be one built through the wrong
@@ -408,10 +420,9 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
         }
     }
 
-    // Together they cover the rectangle and the eye — the circle inside the
-    // rectangle is a hole in one sheet and the whole of another, so it neither
-    // adds nor subtracts. The demo's frame is 8 by 5 and its eye has a radius
-    // of 0.45.
+    // Together they cover the rectangle, the eye and the triangle — the circle
+    // inside the rectangle is a hole in one sheet and the whole of another, so
+    // it neither adds nor subtracts.
     // Each face is measured against its own corners: the batch is a list of
     // sheets, and an index means anything only inside the one it came from.
     let covered: f32 = scene
@@ -434,9 +445,79 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
                 .sum::<f32>()
         })
         .sum();
-    let want = 40.0 + std::f32::consts::PI * 0.45 * 0.45;
+    // The frame is 8 by 5 and its eye has a radius of 0.45; the triangle is
+    // 2.5 across its stated base and 1.4 up to its free apex, so half of that
+    // is 1.75.
+    let want = 40.0 + std::f32::consts::PI * 0.45 * 0.45 + 1.75;
     assert!(
         (covered - want).abs() < want * 0.001,
         "{covered} covered against {want}"
     );
+}
+
+/// The sketch being worked in is drawn in what it has left to decide; every
+/// other is drawn as ground — and switching which is which redraws the picture
+/// though no geometry moved.
+///
+/// Two claims that are one thing. A document holds several sketches and the
+/// picture is of all of them, so something has to say which one you are in; and
+/// because saying it moves nothing, a layout watching only the revision would
+/// go on drawing the sketch you just left as the live one. The second redraw
+/// below goes through the *same* layout for exactly that reason.
+#[test]
+fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let mut lone = || {
+        let mut sketch = Sketch::default();
+        let a = sketch.add_point(DVec2::ZERO);
+        let b = sketch.add_point(DVec2::new(2.0, 0.0));
+        sketch.add_segment(a, b);
+        timeline.add(Feature::Sketch { on: ground, sketch })
+    };
+    let here = lone();
+    let there = lone();
+
+    let mut build = Build::default();
+    let document = Document::new(&mut build, timeline, Vec::new());
+    let mut layout = Layout::default();
+    let mut scene = Scene::default();
+
+    // What each sketch's one stroke was drawn in, found through the names,
+    // because the batch is one run of strokes from every sketch at once.
+    let drawn = |scene: &Scene, layout: &Layout, of| {
+        scene
+            .curves
+            .iter()
+            .filter(|curve| {
+                curve
+                    .tag
+                    .and_then(|tag| layout.names().get(tag))
+                    .is_some_and(|part| part.sketch() == of)
+            })
+            .map(|curve| curve.color)
+            .collect::<Vec<_>>()
+    };
+
+    redraw(document.models(&build, here), &mut layout, None, &mut scene);
+    assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
+    // Two free ends are two degrees of freedom apiece, so the live one is drawn
+    // in what a wholly free edge is drawn in.
+    assert_eq!(drawn(&scene, &layout, here), [FREE]);
+    assert_eq!(drawn(&scene, &layout, there), [DORMANT]);
+
+    // The same layout, so the only thing that has changed is which sketch is
+    // open — and it is enough to make the picture stale.
+    redraw(
+        document.models(&build, there),
+        &mut layout,
+        None,
+        &mut scene,
+    );
+    assert_eq!(
+        drawn(&scene, &layout, here),
+        [DORMANT],
+        "the picture did not follow the open sketch"
+    );
+    assert_eq!(drawn(&scene, &layout, there), [FREE]);
 }

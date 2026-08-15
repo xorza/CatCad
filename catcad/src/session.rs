@@ -1,7 +1,7 @@
 //! What the user is working *with*, as against what they are working *on*.
 
 use crate::intent::{Choice, Intent, Intents};
-use crate::model::Model;
+use crate::model::Models;
 use crate::part::Part;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
@@ -21,33 +21,44 @@ use crate::tool::Tool;
 /// both, and a click that picks something out is the same click that a tool in
 /// hand would have taken instead. Which drawing is being edited belongs here too
 /// once there is more than one — it is session state of exactly this kind.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Session {
     tool: Tool,
     selection: Selection,
-    /// The sketch open for editing, or `None` where none is.
+    /// The sketch open for editing.
     ///
     /// What every edit names, and so what decides which sketch a click builds
     /// in. Session state like the rest of this: nothing about what you happen
     /// to have open is written down by saving, and an undo should not close the
     /// sketch you were working in.
-    editing: Option<FeatureId>,
+    ///
+    /// Never absent, because a session is always *in* something: a document is
+    /// raised with its first sketch open and nothing here closes one. When
+    /// looking at a document without a sketch open becomes a thing a user can
+    /// do, this becomes an `Option` and the compiler will point at every place
+    /// that then has to answer for it.
+    editing: FeatureId,
 }
 
 impl Session {
+    /// A session in `editing`, holding nothing and with nothing picked out —
+    /// which is what raising a document leaves.
+    pub(crate) fn new(editing: FeatureId) -> Self {
+        Self {
+            tool: Tool::default(),
+            selection: Selection::default(),
+            editing,
+        }
+    }
+
     /// The tool in hand, which is what a click in the viewport means.
     pub(crate) fn tool(&self) -> Tool {
         self.tool
     }
 
-    /// The sketch open for editing, or `None` where none is.
-    pub(crate) fn editing(&self) -> Option<FeatureId> {
+    /// The sketch open for editing.
+    pub(crate) fn editing(&self) -> FeatureId {
         self.editing
-    }
-
-    /// Open `at` for editing, which is what raising a document does.
-    pub(crate) fn edit(&mut self, at: FeatureId) {
-        self.editing = Some(at);
     }
 
     /// What the next command would act on.
@@ -70,11 +81,11 @@ impl Session {
                 // learn — and a click on empty space says nothing, so it leaves
                 // open whatever was.
                 Intent::Choice(Choice::Select(what)) => {
-                    self.editing = what.map(Part::sketch).or(self.editing);
+                    self.editing = what.map_or(self.editing, Part::sketch);
                     self.selection.select(what);
                 }
                 Intent::Choice(Choice::Include(what)) => {
-                    self.editing = Some(what.sketch());
+                    self.editing = what.sketch();
                     self.selection.include(what);
                 }
                 // The history's, and the document's through it. Landed by
@@ -97,12 +108,15 @@ impl Session {
     /// undo that takes its first point away leaves it hanging off nothing. The
     /// tool stays in hand and starts over rather than going down: what was taken
     /// back is the point, not the intention to draw.
-    pub(crate) fn prune(&mut self, model: Model<'_>) {
-        self.selection.retain(|part| model.holds(part));
+    pub(crate) fn prune(&mut self, models: Models<'_>) {
+        self.selection.retain(|part| models.holds(part));
+        // The tool draws in the open sketch and nowhere else, so what it is
+        // half-way through hangs off that one — asking the rest would be asking
+        // after a point they never held.
         if self
             .tool
             .started()
-            .is_some_and(|anchor| !model.drawing().holds_anchor(anchor))
+            .is_some_and(|anchor| !models.open().drawing().holds_anchor(anchor))
         {
             self.tool = self.tool.restarted();
         }
@@ -146,28 +160,19 @@ mod tests {
         let first = Model::new(timeline.drawing(here), &build, here);
         let second = Model::new(timeline.drawing(there), &build, there);
 
-        let mut session = Session::default();
-        session.edit(here);
+        let mut session = Session::new(here);
 
         let mut intents = Intents::default();
         intents.push(Choice::Select(Some(second.part(other))));
         session.apply(&intents);
-        assert_eq!(
-            session.editing(),
-            Some(there),
-            "the pick did not open its sketch"
-        );
+        assert_eq!(session.editing(), there, "the pick did not open its sketch");
 
         // A click on empty space picks nothing out and says nothing about which
         // sketch, so the one that was open stays open.
         intents.clear();
         intents.push(Choice::Select(None));
         session.apply(&intents);
-        assert_eq!(
-            session.editing(),
-            Some(there),
-            "an empty click closed the sketch"
-        );
+        assert_eq!(session.editing(), there, "an empty click closed the sketch");
         assert_eq!(session.selection().count(), 0);
 
         // Shift-adding does the same as a plain pick, because it too names a
@@ -175,6 +180,6 @@ mod tests {
         intents.clear();
         intents.push(Choice::Include(first.part(Entity::Point(one))));
         session.apply(&intents);
-        assert_eq!(session.editing(), Some(here));
+        assert_eq!(session.editing(), here);
     }
 }

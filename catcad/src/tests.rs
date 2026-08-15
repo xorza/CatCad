@@ -13,6 +13,22 @@ use crate::timeline::Timeline;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
 
+/// The far end of the demo's arm, which is the freest thing it draws.
+///
+/// The arm's points are added last of its *sketch's*, so the wrist is that
+/// sketch's last point — not the scene's last marker, which belongs to
+/// whichever sketch the document drew last. A drag takes hold of the sketch
+/// being worked in and no other, so the two are not interchangeable.
+fn wrist(app: &CatCad) -> Vec3 {
+    let drawing = app.document.drawing_at(app.session.editing());
+    let (_, wrist) = drawing
+        .sketch()
+        .points()
+        .last()
+        .expect("the demo draws points");
+    drawing.plane().point(wrist.position).as_vec3()
+}
+
 /// The surface every test that records frames raises the app at.
 const SIZE: UVec2 = UVec2::new(800, 600);
 
@@ -311,10 +327,8 @@ fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
     let mut harness = UiHarness::new(SIZE);
     frame(&mut app, &mut harness);
 
-    // The far end of the arm, which is drawn last and is the freest thing the
-    // demo has.
     let at_rest = markers(&app);
-    let world = *at_rest.last().expect("the demo draws markers");
+    let world = wrist(&app);
     let cursor = cursor_on(&mut app, world);
 
     // Press, travel past palantir's four-pixel latch, release.
@@ -404,12 +418,8 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     let placed = markers(&app);
     assert_eq!(placed.len(), at_rest.len() + 1, "the click placed nothing");
     assert!(
-        placed
-            .last()
-            .expect("a point was just added")
-            .abs_diff_eq(empty, 1e-3),
-        "placed at {:?} rather than under the cursor at {empty:?}",
-        placed.last()
+        placed.iter().any(|at| at.abs_diff_eq(empty, 1e-3)),
+        "nothing was placed under the cursor at {empty:?}, only {placed:?}"
     );
     // A free point is two more things the drawing can decide, and the status
     // line is where that shows — so the freedoms were measured again over the
@@ -554,7 +564,7 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
     // one had. Nobody picked it, so nothing is picked out.
     let elsewhere = app
         .document
-        .drawing()
+        .drawing_at(app.session.editing())
         .plane()
         .point(DVec2::new(-1.5, 4.5))
         .as_vec3();
@@ -571,20 +581,21 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         "the second click placed nothing"
     );
     assert!(
-        now.last()
-            .expect("a point was just added")
-            .abs_diff_eq(elsewhere, 1e-3),
+        now.iter().any(|at| at.abs_diff_eq(elsewhere, 1e-3)),
         "the second point did not land where it was asked for"
     );
     let newest = app
         .document
-        .drawing()
+        .drawing_at(app.session.editing())
         .sketch()
         .points()
         .last()
         .expect("the sketch holds points")
         .0;
-    let newest = app.document.model(&app.build).part(newest);
+    let newest = app
+        .document
+        .model(&app.build, app.session.editing())
+        .part(newest);
     assert!(
         !app.session.selection().contains(newest),
         "a point nobody picked came up selected, on a handle left over from an undo"
@@ -611,11 +622,21 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     let mut app = CatCad::build();
     let mut harness = UiHarness::new(SIZE);
     frame(&mut app, &mut harness);
-    let at_rest = app.document.drawing().sketch().points().count();
-    let edges = app.document.drawing().sketch().segments().count();
+    let at_rest = app
+        .document
+        .drawing_at(app.session.editing())
+        .sketch()
+        .points()
+        .count();
+    let edges = app
+        .document
+        .drawing_at(app.session.editing())
+        .sketch()
+        .segments()
+        .count();
 
     // Three spots on bare plane, left of the demo's frame.
-    let plane = app.document.drawing().plane();
+    let plane = app.document.drawing_at(app.session.editing()).plane();
     let corner = [
         plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
         plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
@@ -629,7 +650,11 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     harness.click_at(at[0]);
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.document.drawing().sketch().points().count(),
+        app.document
+            .drawing_at(app.session.editing())
+            .sketch()
+            .points()
+            .count(),
         at_rest,
         "the first click of a line reached the document"
     );
@@ -642,7 +667,7 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     // tool starts over ready for another.
     harness.click_at(at[1]);
     frame(&mut app, &mut harness);
-    let sketch = app.document.drawing().sketch();
+    let sketch = app.document.drawing_at(app.session.editing()).sketch();
     assert_eq!(sketch.points().count(), at_rest + 2);
     assert_eq!(sketch.segments().count(), edges + 1);
     assert!(
@@ -657,12 +682,17 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     // A second line begun on the first one's far end brings its own corner, so
     // this one costs two new points and a coincidence tying one of them to the
     // point it was started on.
-    let relations = app.document.drawing().sketch().constraints().count();
+    let relations = app
+        .document
+        .drawing_at(app.session.editing())
+        .sketch()
+        .constraints()
+        .count();
     harness.click_at(at[1]);
     frame(&mut app, &mut harness);
     harness.click_at(at[2]);
     frame(&mut app, &mut harness);
-    let sketch = app.document.drawing().sketch();
+    let sketch = app.document.drawing_at(app.session.editing()).sketch();
     assert_eq!(
         sketch.points().count(),
         at_rest + 4,
@@ -699,7 +729,7 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     harness.key(Key::Char('Z'));
     frame(&mut app, &mut harness);
     harness.set_modifiers(Modifiers::NONE);
-    let sketch = app.document.drawing().sketch();
+    let sketch = app.document.drawing_at(app.session.editing()).sketch();
     assert_eq!(
         sketch.segments().count(),
         edges + 1,
@@ -719,11 +749,21 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
     let mut app = CatCad::build();
     let mut harness = UiHarness::new(SIZE);
     frame(&mut app, &mut harness);
-    let at_rest = app.document.drawing().sketch().points().count();
-    let rings = app.document.drawing().sketch().circles().count();
+    let at_rest = app
+        .document
+        .drawing_at(app.session.editing())
+        .sketch()
+        .points()
+        .count();
+    let rings = app
+        .document
+        .drawing_at(app.session.editing())
+        .sketch()
+        .circles()
+        .count();
 
     // Centre and rim two units apart on the plane, so the radius is known.
-    let plane = app.document.drawing().plane();
+    let plane = app.document.drawing_at(app.session.editing()).plane();
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
     let rim = plane.point(DVec2::new(-1.0, 2.5)).as_vec3();
     let (at_middle, at_rim) = (cursor_on(&mut app, middle), cursor_on(&mut app, rim));
@@ -733,14 +773,18 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
     harness.click_at(at_middle);
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.document.drawing().sketch().circles().count(),
+        app.document
+            .drawing_at(app.session.editing())
+            .sketch()
+            .circles()
+            .count(),
         rings,
         "the first click of a circle reached the document"
     );
 
     harness.click_at(at_rim);
     frame(&mut app, &mut harness);
-    let sketch = app.document.drawing().sketch();
+    let sketch = app.document.drawing_at(app.session.editing()).sketch();
     assert_eq!(sketch.circles().count(), rings + 1);
     // One point, at the centre. Nothing was made out on the rim.
     assert_eq!(sketch.points().count(), at_rest + 1);
@@ -774,7 +818,7 @@ fn frame(app: &mut CatCad, harness: &mut UiHarness) {
 /// on the slab, on screen, and well clear of the nearest stroke.
 fn empty_spot(app: &CatCad) -> Vec3 {
     app.document
-        .drawing()
+        .drawing_at(app.session.editing())
         .plane()
         .point(DVec2::new(-1.5, 2.5))
         .as_vec3()
@@ -856,7 +900,7 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
         app.status()
     );
 
-    let world = *markers(&app).last().expect("the demo draws markers");
+    let world = wrist(&app);
     let cursor = cursor_on(&mut app, world);
 
     harness.move_to(cursor);
@@ -892,7 +936,10 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
 #[test]
 fn the_demo_is_drawn_on_the_ground_plane() {
     let document = demo::document(&mut Build::default());
-    assert_eq!(document.drawing().plane(), Plane::GROUND);
+    assert_eq!(
+        document.drawing_at(document.opening()).plane(),
+        Plane::GROUND
+    );
 }
 
 /// The clean-up button takes out geometry a deletion left behind, and leaves
@@ -908,10 +955,20 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     let mut app = CatCad::build();
     let mut harness = UiHarness::new(SIZE);
     frame(&mut app, &mut harness);
-    let at_rest = app.document.drawing().sketch().points().count();
-    let edges = app.document.drawing().sketch().segments().count();
+    let at_rest = app
+        .document
+        .drawing_at(app.session.editing())
+        .sketch()
+        .points()
+        .count();
+    let edges = app
+        .document
+        .drawing_at(app.session.editing())
+        .sketch()
+        .segments()
+        .count();
 
-    let plane = app.document.drawing().plane();
+    let plane = app.document.drawing_at(app.session.editing()).plane();
     let corner = [
         plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
         plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
@@ -928,7 +985,11 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
         frame(&mut app, &mut harness);
     }
     assert_eq!(
-        app.document.drawing().sketch().points().count(),
+        app.document
+            .drawing_at(app.session.editing())
+            .sketch()
+            .points()
+            .count(),
         at_rest + 4
     );
 
@@ -937,7 +998,11 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     harness.click_at(TIDY_BUTTON);
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.document.drawing().sketch().points().count(),
+        app.document
+            .drawing_at(app.session.editing())
+            .sketch()
+            .points()
+            .count(),
         at_rest + 4,
         "a cleanup ate a corner that was holding an edge up"
     );
@@ -960,7 +1025,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     frame(&mut app, &mut harness);
     harness.key(Key::Delete);
     frame(&mut app, &mut harness);
-    let sketch = app.document.drawing().sketch();
+    let sketch = app.document.drawing_at(app.session.editing()).sketch();
     assert_eq!(
         sketch.segments().count(),
         edges + 1,
@@ -970,7 +1035,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
 
     harness.click_at(TIDY_BUTTON);
     frame(&mut app, &mut harness);
-    let sketch = app.document.drawing().sketch();
+    let sketch = app.document.drawing_at(app.session.editing()).sketch();
     assert_eq!(
         sketch.points().count(),
         at_rest + 3,
@@ -992,7 +1057,11 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     harness.click_at(TIDY_BUTTON);
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.document.drawing().sketch().points().count(),
+        app.document
+            .drawing_at(app.session.editing())
+            .sketch()
+            .points()
+            .count(),
         at_rest + 3
     );
     assert!(app.status().to_string().ends_with(" · nothing to clean up"));

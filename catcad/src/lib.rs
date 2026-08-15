@@ -41,7 +41,6 @@ use crate::hud::{Hud, Shown};
 use crate::intent::{Change, Choice, Intents, Step};
 use crate::part::Part;
 use crate::scene_view::SceneView;
-use crate::selection::Selection;
 use crate::session::Session;
 use crate::tool::Tool;
 
@@ -121,7 +120,10 @@ impl CatCad {
         // plane does not lean away from it, and a stroke's width and a marker's
         // glyph reach nowhere at all, being screen-sized. A document measuring
         // itself would be a second copy of all of that, free to drift.
-        let mut view = SceneView::new(&document, &build);
+        // Opened in its first sketch, so a tool has somewhere to draw before
+        // anything has been picked out.
+        let session = Session::new(document.opening());
+        let mut view = SceneView::new(&document, &build, session.editing());
         if let Some(bounds) = view.bounds() {
             document.frame(bounds);
         }
@@ -132,11 +134,7 @@ impl CatCad {
         // but so that what `build` returns already agrees with itself, and a
         // caller can measure the view it was given without recording a frame to
         // make the answer true.
-        view.settle(&document, &build, &Selection::default());
-        // Opened in its first sketch, so a tool has somewhere to draw before
-        // anything has been picked out.
-        let mut session = Session::default();
-        session.edit(document.opening());
+        view.settle(&document, &build, &session);
         Self {
             document,
             history: History::default(),
@@ -203,7 +201,7 @@ impl CatCad {
                 tool: self.session.tool(),
                 status,
                 projection: self.document.camera().projection,
-                drawing: self.document.drawing(),
+                drawing: self.document.drawing_at(self.session.editing()),
                 selection: self.session.selection(),
                 editing: self.session.editing(),
             },
@@ -227,7 +225,8 @@ impl CatCad {
             .apply(&mut self.document, &mut self.build, &self.intents);
         // Last, because an undo can take geometry the session was still holding
         // on to — see [`Session::prune`].
-        self.session.prune(self.document.model(&self.build));
+        self.session
+            .prune(self.document.models(&self.build, self.session.editing()));
     }
 
     /// A sketch is only as useful as it is determined, so the report reads
@@ -235,7 +234,7 @@ impl CatCad {
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
-        let model = self.document.model(&self.build);
+        let model = self.document.model(&self.build, self.session.editing());
         let outcome = model.outcome();
         Status {
             converged: outcome.converged(),
@@ -367,8 +366,7 @@ impl App for CatCad {
                 // until everything has finished reading it.
                 self.ask(ui);
                 self.apply();
-                self.view
-                    .settle(&self.document, &self.build, self.session.selection());
+                self.view.settle(&self.document, &self.build, &self.session);
             });
     }
 }

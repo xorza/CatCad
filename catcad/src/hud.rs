@@ -77,7 +77,7 @@ impl Hud {
         let Shown {
             drawing,
             selection,
-            editing,
+            editing: sketch,
             ..
         } = shown;
         drawing.offers(selection.picked(), &mut self.offers);
@@ -100,9 +100,7 @@ impl Hud {
                     .speed(DIMENSION_SPEED)
                     .decimals(DECIMALS)
                     .show(ui);
-                if edited.changed
-                    && let Some(sketch) = editing
-                {
+                if edited.changed {
                     intents.push(Change::Resize {
                         sketch,
                         constraint: id,
@@ -124,7 +122,7 @@ impl Hud {
                     .show(ui)
                     .left
                     .clicked();
-                if pressed && let Some(sketch) = editing {
+                if pressed {
                     intents.push(Change::Constrain { sketch, constraint });
                 }
             }
@@ -141,13 +139,13 @@ impl Hud {
         let Shown {
             status,
             projection,
-            editing,
+            editing: sketch,
             ..
         } = shown;
         floating(Panel::vstack(), "readout", Align::TOP_LEFT).show(ui, |ui| {
             projection_toggle(ui, projection, intents);
             Text::new(status).auto_id().show(ui);
-            tidy_button(ui, editing, intents);
+            tidy_button(ui, sketch, intents);
         });
     }
 
@@ -215,7 +213,7 @@ pub(crate) struct Shown<'a> {
     pub(crate) selection: &'a Selection,
     /// The sketch open for editing, which is what every control here that asks
     /// for a change names — see [`Session::editing`](crate::session::Session).
-    pub(crate) editing: Option<FeatureId>,
+    pub(crate) editing: FeatureId,
 }
 
 /// Sketch units per pixel of scrub. A hundredth, so a drag reads a dimension
@@ -294,14 +292,14 @@ fn projection_toggle(ui: &mut Ui, projection: Projection, intents: &mut Intents)
 /// "is there anything to clean up?" means running the whole search, and the
 /// record pass allocates nothing — so the choice is between a search a frame
 /// and a button that is sometimes a no-op, and a no-op costs nothing.
-fn tidy_button(ui: &mut Ui, editing: Option<FeatureId>, intents: &mut Intents) {
+fn tidy_button(ui: &mut Ui, sketch: FeatureId, intents: &mut Intents) {
     let pressed = Button::new()
         .auto_id()
         .label("Clean up")
         .show(ui)
         .left
         .clicked();
-    if pressed && let Some(sketch) = editing {
+    if pressed {
         intents.push(Change::Tidy { sketch });
     }
 }

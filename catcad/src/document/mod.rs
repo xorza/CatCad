@@ -6,7 +6,7 @@ use crate::build::Build;
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
-use crate::model::Model;
+use crate::model::{Model, Models};
 use crate::timeline::{FeatureId, Timeline};
 use silverpoint::Snapshot;
 
@@ -68,12 +68,13 @@ impl Document {
         document
     }
 
-    /// The sketch being edited, paired with the plane it lies on.
+    /// The sketch at `at`, paired with the plane it lies on.
     ///
-    /// The one sketch, while there is only one — see
-    /// [`Timeline::only_sketch`](crate::timeline::Timeline::only_sketch).
-    pub(crate) fn drawing(&self) -> Drawing<'_> {
-        self.timeline.drawing(self.timeline.only_sketch())
+    /// Named rather than implied. A document holds several and every reader
+    /// wants a particular one — which is the one open, and that is the
+    /// session's to say.
+    pub(crate) fn drawing_at(&self, at: FeatureId) -> Drawing<'_> {
+        self.timeline.drawing(at)
     }
 
     /// The sketch a session should start in.
@@ -102,9 +103,14 @@ impl Document {
     /// [`Model`]. Here because a caller holding a document and a build is
     /// holding both halves already, and naming the type to put them together
     /// would be ceremony.
-    pub(crate) fn model<'a>(&'a self, build: &'a Build) -> Model<'a> {
-        let at = self.timeline.only_sketch();
+    pub(crate) fn model<'a>(&'a self, build: &'a Build, at: FeatureId) -> Model<'a> {
         Model::new(self.timeline.drawing(at), build, at)
+    }
+
+    /// Every sketch it holds as `build` last left them, with `editing` the one
+    /// being worked in.
+    pub(crate) fn models<'a>(&'a self, build: &'a Build, editing: FeatureId) -> Models<'a> {
+        Models::new(&self.timeline, build, editing)
     }
 
     /// The solids modelled alongside the drawing.
@@ -212,30 +218,6 @@ pub(crate) mod internals {
     impl Document {
         pub(crate) fn camera_mut(&mut self) -> &mut Camera {
             &mut self.camera
-        }
-    }
-}
-
-/// What a unit test reaches past the document for.
-///
-/// Its own mod beside [`internals`] rather than an item within it, because the
-/// two are gated differently: the visual suite aims a camera by hand and so
-/// wants a feature it can turn on, where nothing outside this crate has any
-/// business naming a sketch nobody has open.
-#[cfg(test)]
-mod unopened {
-    use crate::document::Document;
-    use crate::drawing::Drawing;
-    use crate::timeline::FeatureId;
-
-    impl Document {
-        /// The sketch at `at`, paired with the plane it lies on.
-        ///
-        /// Reaching past the one that is *open* is standing outside a session:
-        /// the application draws and edits the sketch it has open, and a caller
-        /// naming another is a test asking after one nobody is in.
-        pub(crate) fn drawing_of(&self, at: FeatureId) -> Drawing<'_> {
-            self.timeline.drawing(at)
         }
     }
 }

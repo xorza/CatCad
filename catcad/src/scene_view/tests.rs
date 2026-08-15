@@ -6,7 +6,6 @@ use crate::intent::{Choice, Intent, Intents};
 use crate::paint;
 use crate::paint::layout::Layout;
 use crate::part::Part;
-use crate::selection::Selection;
 use crate::session::Session;
 use crate::tool::Tool;
 use aperture::{Aim, Scene, Viewport};
@@ -39,14 +38,13 @@ impl Raised {
     fn new() -> Self {
         let mut build = Build::default();
         let mut document = demo::document(&mut build);
-        let mut view = SceneView::new(&document, &build);
+        // Opened in its first sketch, exactly as the application opens one.
+        let session = Session::new(document.opening());
+        let mut view = SceneView::new(&document, &build, session.editing());
         if let Some(bounds) = view.bounds() {
             document.camera_mut().frame(bounds);
         }
-        view.settle(&document, &build, &Selection::default());
-        // Opened in its first sketch, exactly as the application opens one.
-        let mut session = Session::default();
-        session.edit(document.opening());
+        view.settle(&document, &build, &session);
         Self {
             document,
             history: History::default(),
@@ -82,8 +80,8 @@ impl Raised {
             history.apply(document, build, intents);
             // Last, because an undo can take geometry the session was still
             // holding on to — see `CatCad::apply`.
-            session.prune(document.model(build));
-            view.settle(document, build, session.selection());
+            session.prune(document.models(build, session.editing()));
+            view.settle(document, build, session);
         });
     }
 
@@ -121,7 +119,9 @@ impl Raised {
 
     /// One of the drawing's entities, as something that can be picked out.
     fn part(&self, entity: Entity) -> Part {
-        self.document.model(&self.build).part(entity)
+        self.document
+            .model(&self.build, self.session.editing())
+            .part(entity)
     }
 
     /// Where the *document* says its markers are, which is not the same
@@ -129,7 +129,7 @@ impl Raised {
     fn asked_for(&self) -> Vec<Vec3> {
         let mut scene = Scene::default();
         paint::redraw(
-            self.document.model(&self.build),
+            self.document.models(&self.build, self.session.editing()),
             &mut Layout::default(),
             None,
             &mut scene,
@@ -176,7 +176,11 @@ impl Raised {
                     ))
                     .is_some_and(|hit| {
                         let under = self.view.named(hit.tag);
-                        keep(under.and_then(|entity| self.document.drawing().grip(entity, hit.at)))
+                        keep(under.and_then(|entity| {
+                            self.document
+                                .drawing_at(self.session.editing())
+                                .grip(entity, hit.at)
+                        }))
                     })
             })
     }
@@ -206,10 +210,19 @@ impl Raised {
         viewport.pixel_from_clip(clip)
     }
 
-    /// The far end of the demo's arm, which is the freest thing it draws. The
-    /// arm's points are added last, so the wrist is drawn last of all.
+    /// The far end of the demo's arm, which is the freest thing it draws.
+    ///
+    /// The arm's points are added last of its *sketch's*, so the wrist is that
+    /// sketch's last point — not the scene's last marker, which belongs to
+    /// whichever sketch the document drew last.
     fn wrist(&self) -> Vec3 {
-        *self.markers().last().expect("the demo draws markers")
+        let drawing = self.document.drawing_at(self.session.editing());
+        let (_, wrist) = drawing
+            .sketch()
+            .points()
+            .last()
+            .expect("the demo draws points");
+        drawing.plane().point(wrist.position).as_vec3()
     }
 
     /// A spot on the sketch plane with nothing drawn near it — where a tool has
@@ -222,7 +235,7 @@ impl Raised {
     /// pixels clear of the nearest stroke.
     fn empty_spot(&self) -> Vec3 {
         self.document
-            .drawing()
+            .drawing_at(self.session.editing())
             .plane()
             .point(DVec2::new(-1.5, 2.5))
             .as_vec3()
@@ -350,7 +363,11 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
     raised.frame();
     let at_rest = raised.markers();
     assert!(
-        raised.document.model(&raised.build).outcome().converged(),
+        raised
+            .document
+            .model(&raised.build, raised.session.editing())
+            .outcome()
+            .converged(),
         "the demo has to open solved for this to mean anything"
     );
 
@@ -371,7 +388,11 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
         "a drag the constraints forbid deformed the drawing"
     );
     assert!(
-        raised.document.model(&raised.build).outcome().converged(),
+        raised
+            .document
+            .model(&raised.build, raised.session.editing())
+            .outcome()
+            .converged(),
         "a refused drag left the drawing unsolved"
     );
     raised.harness.release();
@@ -734,14 +755,23 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
         before.len() + 1,
         "the click placed nothing at all"
     );
-    let point = *placed.last().expect("a point was just added");
+    // Somewhere among them rather than last: the scene draws every sketch the
+    // document holds, so what comes last is whatever the last sketch drew.
     assert!(
-        point.abs_diff_eq(empty, 1e-3),
-        "placed at {point:?} rather than under the cursor at {empty:?}"
+        placed.iter().any(|at| at.abs_diff_eq(empty, 1e-3)),
+        "nothing was placed under the cursor at {empty:?}, only {placed:?}"
     );
     // A placement adds; it does not edit what it lands on. The point goes down
-    // free and unconstrained, so nothing the solver already settled moves.
-    assert_eq!(&placed[..before.len()], &before[..]);
+    // free and unconstrained, so nothing the solver already settled moves —
+    // exactly, since the solve it runs starts from where the last one left off.
+    //
+    // Every one of them still there rather than the first n of them: the new
+    // marker lands among its own sketch's, which is in the middle of a scene
+    // drawing two.
+    assert!(
+        before.iter().all(|was| placed.contains(was)),
+        "placing a point moved geometry that was already settled"
+    );
 
     // Still in hand afterwards, so a row of points is a row of clicks.
     assert_eq!(raised.session.tool(), Tool::Point);
@@ -890,7 +920,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     raised.frame();
     let free = raised
         .document
-        .model(&raised.build)
+        .model(&raised.build, raised.session.editing())
         .outcome()
         .degrees_of_freedom();
 
@@ -905,7 +935,10 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     raised.harness.click_at(over_edge);
     raised.frame();
 
-    let sketch = raised.document.drawing().sketch();
+    let sketch = raised
+        .document
+        .drawing_at(raised.session.editing())
+        .sketch();
     let (placed, at) = sketch.points().last().expect("a point was just added");
     let at = at.position;
     // On the edge's infinite line, which is what `PointOnSegment` says: the
@@ -924,14 +957,18 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     assert_eq!(
         raised
             .document
-            .model(&raised.build)
+            .model(&raised.build, raised.session.editing())
             .outcome()
             .degrees_of_freedom(),
         free + 1,
         "a point on an edge should be free along it and nowhere else"
     );
     assert!(
-        raised.document.model(&raised.build).outcome().converged(),
+        raised
+            .document
+            .model(&raised.build, raised.session.editing())
+            .outcome()
+            .converged(),
         "the solve that puts the point on the edge did not converge"
     );
 
@@ -940,7 +977,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     // all — what makes this work is the second attempt `edit_holding` makes,
     // which lets the point settle back onto the edge as near the cursor as it
     // can get.
-    let plane = raised.document.drawing().plane();
+    let plane = raised.document.drawing_at(raised.session.editing()).plane();
     // Along the edge on screen, so the drag unarguably asks the point to travel
     // rather than nudging it across a line it is already on.
     let ends = [a, b].map(|end| raised.cursor_on(plane.point(end).as_vec3()));
@@ -961,7 +998,10 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     raised.harness.release();
     raised.frame();
 
-    let sketch = raised.document.drawing().sketch();
+    let sketch = raised
+        .document
+        .drawing_at(raised.session.editing())
+        .sketch();
     let now = sketch.point(placed).position;
     assert!(
         (now - at).length() > 1e-3,
@@ -996,16 +1036,23 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
     // The far bar of the arm, which is free at both ends.
     let (edge, bar) = raised
         .document
-        .drawing()
+        .drawing_at(raised.session.editing())
         .sketch()
         .segments()
         .last()
         .expect("the demo draws edges");
-    let plane = raised.document.drawing().plane();
-    let ends = [bar.a, bar.b].map(|id| raised.document.drawing().sketch().point(id).position);
+    let plane = raised.document.drawing_at(raised.session.editing()).plane();
+    let ends = [bar.a, bar.b].map(|id| {
+        raised
+            .document
+            .drawing_at(raised.session.editing())
+            .sketch()
+            .point(id)
+            .position
+    });
     let was: Vec<DVec2> = raised
         .document
-        .drawing()
+        .drawing_at(raised.session.editing())
         .sketch()
         .points()
         .map(|(_, at)| at.position)
@@ -1027,7 +1074,10 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
     raised.frame();
 
     // The bar has not budged — nor has anything else that was already drawn.
-    let sketch = raised.document.drawing().sketch();
+    let sketch = raised
+        .document
+        .drawing_at(raised.session.editing())
+        .sketch();
     let now: Vec<DVec2> = sketch.points().map(|(_, at)| at.position).collect();
     for (index, (before, after)) in was.iter().zip(&now).enumerate() {
         assert!(
@@ -1058,7 +1108,12 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
 fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     let mut raised = Raised::new();
     raised.frame();
-    let edges = raised.document.drawing().sketch().segments().count();
+    let edges = raised
+        .document
+        .drawing_at(raised.session.editing())
+        .sketch()
+        .segments()
+        .count();
     let strokes = raised.strokes();
 
     let from = raised.empty_spot();
@@ -1067,7 +1122,12 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     raised.harness.click_at(start);
     raised.frame();
     assert_eq!(
-        raised.document.drawing().sketch().segments().count(),
+        raised
+            .document
+            .drawing_at(raised.session.editing())
+            .sketch()
+            .segments()
+            .count(),
         edges,
         "the first click of a line reached the document"
     );
@@ -1075,7 +1135,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     // Away from where it started, so the band has somewhere to reach.
     let to = raised
         .document
-        .drawing()
+        .drawing_at(raised.session.editing())
         .plane()
         .point(DVec2::new(-4.0, 0.5))
         .as_vec3();
@@ -1106,7 +1166,15 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     raised.frame();
     assert_eq!(raised.session.tool(), Tool::Pointer);
     assert_eq!(raised.strokes(), strokes, "the band outlived the tool");
-    assert_eq!(raised.document.drawing().sketch().segments().count(), edges);
+    assert_eq!(
+        raised
+            .document
+            .drawing_at(raised.session.editing())
+            .sketch()
+            .segments()
+            .count(),
+        edges
+    );
 
     // A circle bands the same way, as a rim rather than a stroke: its size is
     // how far the cursor is from where the first click landed, so a cursor two
@@ -1117,7 +1185,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     raised.frame();
     let out = raised
         .document
-        .drawing()
+        .drawing_at(raised.session.editing())
         .plane()
         .point(DVec2::new(-1.5 + 2.5, 2.5))
         .as_vec3();
@@ -1157,7 +1225,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
     );
     raised
         .view
-        .settle(&raised.document, &raised.build, raised.session.selection());
+        .settle(&raised.document, &raised.build, &raised.session);
     assert_eq!(*raised.view.renderer().borrow().camera(), turned);
 
     // The projection rides along with it, which is the toggle's whole path.
@@ -1165,7 +1233,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
     raised.document.camera_mut().projection = was.toggled();
     raised
         .view
-        .settle(&raised.document, &raised.build, raised.session.selection());
+        .settle(&raised.document, &raised.build, &raised.session);
     let now = raised.view.renderer().borrow().camera().projection;
     assert_eq!(now, was.toggled());
     assert_ne!(now, was);
@@ -1189,7 +1257,7 @@ fn a_face_is_hovered_and_picked_out_like_any_other_part() {
     let inside = raised.cursor_on(
         raised
             .document
-            .drawing()
+            .drawing_at(raised.session.editing())
             .plane()
             .point(DVec2::new(6.6, 1.2))
             .as_vec3(),
@@ -1244,7 +1312,7 @@ fn what_is_drawn_on_a_face_takes_the_click_over_it() {
     let corner = raised.cursor_on(
         raised
             .document
-            .drawing()
+            .drawing_at(raised.session.editing())
             .plane()
             .point(DVec2::new(8.0, 5.0))
             .as_vec3(),
