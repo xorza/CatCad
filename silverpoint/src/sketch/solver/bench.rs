@@ -102,8 +102,8 @@ fn fixture() -> Sketch {
 }
 
 /// Where the sketch stands, which is what says whether a drag was taken: one
-/// that was moves geometry, and one the constraints refuse leaves every last bit
-/// of it alone.
+/// that was moves geometry, and one with nowhere to go leaves every last bit of
+/// it alone.
 fn taken_down(sketch: &Sketch) -> Snapshot {
     let mut at = Snapshot::default();
     sketch.snapshot_into(&mut at);
@@ -119,8 +119,8 @@ struct Chain {
 
 /// A fixed anchor, an elbow five away, a wrist five beyond that.
 ///
-/// Its own fixture because [`fixture`] is determined and every drag on one of
-/// its points is refused — a gate over the drag that is *taken* has to have
+/// Its own fixture because [`fixture`] is determined and no drag on one of its
+/// points can move anything — a gate over the drag that *is* taken has to have
 /// somewhere to go.
 fn chain() -> Chain {
     let mut sketch = Sketch::default();

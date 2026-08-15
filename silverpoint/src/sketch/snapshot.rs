@@ -19,8 +19,9 @@ use crate::sketch::Sketch;
 /// Equality answers the second question, and answers it exactly. Positions come
 /// back through the same arithmetic that wrote them, so a sketch nothing moved
 /// compares equal rather than nearly equal — which is what lets a caller record
-/// an edit only where there was one, and treat a drag the constraints refused
-/// as the nothing it was.
+/// an edit only where there was one. A drag with nowhere to go reads as the
+/// nothing it was because [`Solver::drag`](crate::Solver) hands back the
+/// parameters it was given, not because anything here is approximate.
 #[derive(Debug, Default, PartialEq)]
 pub struct Snapshot {
     pub(super) sketch: Sketch,

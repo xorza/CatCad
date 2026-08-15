@@ -15,9 +15,10 @@
 //! The status line is formatted into the record pass's own text arena rather
 //! than a `String`; `Scene::nearest` answers a hover without building a list;
 //! the drawing is laid out over the primitives the renderer already holds
-//! rather than into fresh ones; the sketch snapshots a dragged frame takes —
-//! the solver's, to put back a step the constraints refuse, and the history's
-//! two ends of what it is recording — all refill buffers that have the room;
+//! rather than into fresh ones; what a dragged frame takes down — the solver's
+//! parameter vector, so a drag with nowhere to go can be handed back untouched,
+//! and the history's two ends of what it is recording — all refill buffers that
+//! have the room;
 //! and what the curves enclose is worked out in an
 //! [`Arrangement`](silverpoint::Arrangement) kept across frames, which refills
 //! the list per corner of what leaves it, the list per loop, the list per curve

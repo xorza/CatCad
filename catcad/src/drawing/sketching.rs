@@ -48,9 +48,9 @@ impl<'a> Sketching<'a> {
     ///
     /// A sketch arrives as coordinates its constraints have not been checked
     /// against — a guess, whether it was typed in or read from a file — so
-    /// opening one is a solve like any other. Nothing is added, so the edit is
-    /// empty and the solve is the whole of it: what a sketch arrives needing is
-    /// the check, not a change.
+    /// opening one is a solve like any other. Nothing is written first, so the
+    /// solve is the whole of it: what a sketch arrives needing is the check,
+    /// not a change.
     pub(crate) fn opened(&mut self, build: &mut Build) {
         build.solved(self.at, self.sketch);
     }
@@ -61,9 +61,9 @@ impl<'a> Sketching<'a> {
     /// sketch comes out of this unchanged, which is what leaves nothing for a
     /// history to record.
     ///
-    /// Not [`Build::dragged`], which is the other half of what makes this
-    /// its own call: that one settles an edit against the sketch it was handed
-    /// and refuses one that adds to it.
+    /// Not [`Build::dragged`], which is the other half of what makes this its
+    /// own call: that one drives geometry that is already there, and putting
+    /// some there is exactly what it cannot do.
     pub(crate) fn add_point(&mut self, build: &mut Build, at: Anchor) {
         // The one place a click on a point already there is *not* worth its own
         // point. Asking for a point where one is asks for nothing; an edge's end
@@ -171,9 +171,9 @@ impl<'a> Sketching<'a> {
     /// Take the report again over the geometry as it now stands.
     ///
     /// What an undo does once the sketch itself has been put back — see
-    /// [`Document::restore`](crate::document::Document). The edit is empty
-    /// because the change has already happened; what is left is to measure it,
-    /// and measuring moves nothing, so the exactness a restore promises
+    /// [`Document::restore`](crate::document::Document). Nothing is written
+    /// here because the change has already happened; what is left is to measure
+    /// it, and measuring moves nothing, so the exactness a restore promises
     /// survives.
     pub(crate) fn measured(&mut self, build: &mut Build) {
         build.measured(self.at, self.sketch);
@@ -182,12 +182,11 @@ impl<'a> Sketching<'a> {
     /// Take what `grip` holds to `world`, and settle the rest of the drawing
     /// around it.
     ///
-    /// Held rather than merely written, so the rest of the sketch moves to
-    /// accommodate the drag instead of the solver pulling what is dragged back
-    /// onto its constraints — and attempted rather than applied, so a drag the
-    /// constraints refuse leaves the drawing alone. Both belong to
-    /// [`Build::dragged`]; all that is decided here is what each kind of
-    /// grip means.
+    /// Pulled toward rather than written, so the drawing reaches for the cursor
+    /// through its constraints instead of being put somewhere they forbid and
+    /// tidied up after — which is also why a drag they leave nowhere to go moves
+    /// nothing at all. Both belong to [`Build::dragged`]; all that is decided
+    /// here is what each kind of grip means.
     pub(crate) fn drag_to(&mut self, build: &mut Build, grip: Grip, world: Vec3) {
         let at = self.plane.flatten(world.as_dvec3());
         match grip {

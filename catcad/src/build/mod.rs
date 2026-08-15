@@ -219,7 +219,7 @@ impl Build {
 /// point, adding a constraint and rewriting a dimension are not a closed set and
 /// never will be. What a solve is, is.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Settling<'a> {
+enum Settling<'a> {
     /// Ask the constraints everything, holding nothing.
     Solved,
     /// Ask them nothing, and only read what the sketch already says.
