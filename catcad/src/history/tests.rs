@@ -4,6 +4,8 @@ use crate::demo;
 use crate::drawing::Grip;
 use crate::paint;
 use crate::paint::layout::Layout;
+use crate::timeline::Timeline;
+use crate::timeline::feature::{Datum, Feature};
 use aperture::Scene;
 use glam::{DVec2, Vec3};
 use silverpoint::{CircleId, Plane, PointId};
@@ -123,6 +125,7 @@ fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
 fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
     let mut build = Build::default();
     let mut document = demo::document(&mut build);
+    let at = document.opening();
     let mut history = History::default();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
@@ -136,7 +139,11 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
                 &mut history,
                 &mut document,
                 &mut build,
-                Change::Drag { grip, to }
+                Change::Drag {
+                    sketch: at,
+                    grip,
+                    to,
+                }
             ),
             "frame {frame} of a drag moved nothing"
         );
@@ -187,6 +194,7 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
 fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
     let mut build = Build::default();
     let mut document = demo::document(&mut build);
+    let at = document.opening();
     let mut history = History::default();
     let at_rest = markers(&document, &build);
     let camera = document.camera();
@@ -225,6 +233,7 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
         &mut document,
         &mut build,
         &once(Change::Drag {
+            sketch: at,
             grip: Grip::Point(corner),
             to,
         }),
@@ -255,13 +264,18 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
 fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
     let mut build = Build::default();
     let mut document = demo::document(&mut build);
+    let at = document.opening();
     let mut history = History::default();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
     let at_rest = markers(&document, &build);
 
     let to = shifted(&document, arm, DVec2::new(0.5, -0.2));
-    let drag = once(Change::Drag { grip, to });
+    let drag = once(Change::Drag {
+        sketch: at,
+        grip,
+        to,
+    });
     history.apply(&mut document, &mut build, &drag);
     let once_over = markers(&document, &build);
     // The same intent again, as the settling pass would deliver it. It names
@@ -291,13 +305,22 @@ fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
 fn something_new_after_an_undo_throws_away_what_was_undone() {
     let mut build = Build::default();
     let mut document = demo::document(&mut build);
+    let at = document.opening();
     let mut history = History::default();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
 
     for out in [2.0, 3.0] {
         let to = rim_at(&document, circle, out);
-        history.apply(&mut document, &mut build, &once(Change::Drag { grip, to }));
+        history.apply(
+            &mut document,
+            &mut build,
+            &once(Change::Drag {
+                sketch: at,
+                grip,
+                to,
+            }),
+        );
         history.apply(&mut document, &mut build, &once(Step::Release));
     }
     assert_eq!(history.edits.len(), 2);
@@ -309,7 +332,15 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
 
     // Something else instead, and the road not taken is gone.
     let to = rim_at(&document, circle, 0.8);
-    history.apply(&mut document, &mut build, &once(Change::Drag { grip, to }));
+    history.apply(
+        &mut document,
+        &mut build,
+        &once(Change::Drag {
+            sketch: at,
+            grip,
+            to,
+        }),
+    );
     history.apply(&mut document, &mut build, &once(Step::Release));
     assert!(
         !history.can_redo(),
@@ -339,6 +370,7 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
 fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() {
     let mut build = Build::default();
     let mut document = demo::document(&mut build);
+    let at = document.opening();
     let mut history = History::default();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
@@ -348,7 +380,15 @@ fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() 
     let over = 5;
     for step in 1..=DEPTH + over {
         let to = rim_at(&document, circle, 1.5 + 0.01 * step as f64);
-        history.apply(&mut document, &mut build, &once(Change::Drag { grip, to }));
+        history.apply(
+            &mut document,
+            &mut build,
+            &once(Change::Drag {
+                sketch: at,
+                grip,
+                to,
+            }),
+        );
         history.apply(&mut document, &mut build, &once(Step::Release));
     }
     assert_eq!(history.edits.len(), DEPTH, "the history grew past its cap");
@@ -370,4 +410,72 @@ fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() 
         "the cap kept every step after all"
     );
     assert_rim(&document, 1.5 + 0.01 * over as f64);
+}
+
+/// A gesture in one sketch does not extend a step opened in another.
+///
+/// The condition a timeline adds to coalescing. With one drawing, an open step
+/// and a change that coalesces were between them enough to say "this is more of
+/// what is already being recorded"; with several, they are not — the two drags
+/// below are both coalescing and both land while a step is open, and they are
+/// two things the user did to two sketches.
+#[test]
+fn a_drag_in_one_sketch_does_not_extend_a_step_opened_in_another() {
+    let mut build = Build::default();
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let mut lone = || {
+        let mut sketch = silverpoint::Sketch::default();
+        let point = sketch.add_point(DVec2::ZERO);
+        (timeline.add(Feature::Sketch { on: ground, sketch }), point)
+    };
+    let (here, one) = lone();
+    let (there, other) = lone();
+    let mut document = Document::new(&mut build, timeline, Vec::new());
+
+    let at = |document: &Document, sketch, point| {
+        document.drawing_of(sketch).sketch().point(point).position
+    };
+    let mut history = History::default();
+    // Neither drag is released, so the first leaves a step open — which is the
+    // whole point: the second must not join it.
+    history.apply(
+        &mut document,
+        &mut build,
+        &once(Change::Drag {
+            sketch: here,
+            grip: Grip::Point(one),
+            to: Plane::GROUND.point(DVec2::new(5.0, 0.0)).as_vec3(),
+        }),
+    );
+    history.apply(
+        &mut document,
+        &mut build,
+        &once(Change::Drag {
+            sketch: there,
+            grip: Grip::Point(other),
+            to: Plane::GROUND.point(DVec2::new(0.0, 7.0)).as_vec3(),
+        }),
+    );
+    assert_eq!(at(&document, here, one), DVec2::new(5.0, 0.0));
+    assert_eq!(at(&document, there, other), DVec2::new(0.0, 7.0));
+
+    // One undo takes back the second drag and leaves the first standing. Merged
+    // into one step, this would have put the *first* sketch back and left the
+    // second where it was.
+    history.apply(&mut document, &mut build, &once(Step::Undo));
+    assert_eq!(
+        at(&document, there, other),
+        DVec2::ZERO,
+        "undo did not take back the drag that was made last"
+    );
+    assert_eq!(
+        at(&document, here, one),
+        DVec2::new(5.0, 0.0),
+        "undo reached past the last step into another sketch's"
+    );
+
+    // And the second takes back the first, which is what says there were two.
+    history.apply(&mut document, &mut build, &once(Step::Undo));
+    assert_eq!(at(&document, here, one), DVec2::ZERO);
 }

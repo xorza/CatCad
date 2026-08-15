@@ -7,6 +7,7 @@ use crate::paint;
 use crate::paint::layout::Layout;
 use crate::part::Part;
 use crate::selection::Selection;
+use crate::session::Session;
 use crate::tool::Tool;
 use aperture::{Aim, Scene, Viewport};
 use glam::{DVec2, UVec2};
@@ -26,14 +27,12 @@ struct Raised {
     intents: Intents,
     view: SceneView,
     harness: UiHarness,
-    /// What the bar would be showing as in hand. Set straight to arm one,
-    /// because the bar is the application's and this raises the view alone —
-    /// but taken off the inbox like the application's, so what the view asks
-    /// for lands the same way here.
-    tool: Tool,
-    /// What is picked out, taken off the inbox exactly as the application takes
-    /// it — which is the only way anything gets into it.
-    selection: Selection,
+    /// What is in hand, what is picked out and which sketch is open. The
+    /// application's own type rather than a stand-in for it, taken off the
+    /// inbox exactly as the application takes it — which is the only way
+    /// anything gets into it. A tool is armed by reaching in, because the bar
+    /// that would arm one is the application's and this raises the view alone.
+    session: Session,
 }
 
 impl Raised {
@@ -45,6 +44,9 @@ impl Raised {
             document.camera_mut().frame(bounds);
         }
         view.settle(&document, &build, &Selection::default());
+        // Opened in its first sketch, exactly as the application opens one.
+        let mut session = Session::default();
+        session.edit(document.opening());
         Self {
             document,
             history: History::default(),
@@ -52,8 +54,7 @@ impl Raised {
             intents: Intents::default(),
             view,
             harness: UiHarness::new(SIZE),
-            tool: Tool::Pointer,
-            selection: Selection::default(),
+            session,
         }
     }
 
@@ -70,25 +71,19 @@ impl Raised {
             intents,
             view,
             harness,
-            tool,
-            selection,
+            session,
         } = self;
         harness.frame(|ui| {
             intents.clear();
-            view.ask(ui, document, *tool, intents);
+            view.ask(ui, document, session, intents);
             // The app's own apply, minus the bar it has no toolbar for: what
             // the session owns comes off the inbox before the history reads it.
-            for intent in intents.iter() {
-                match intent {
-                    Intent::Choice(Choice::Hold(held)) => *tool = held,
-                    Intent::Choice(Choice::Select(what)) => selection.select(what),
-                    Intent::Choice(Choice::Include(what)) => selection.include(what),
-                    Intent::Step(_) | Intent::Change(_) => {}
-                }
-            }
+            session.apply(intents);
             history.apply(document, build, intents);
-            selection.retain(|part| document.model(build).holds(part));
-            view.settle(document, build, selection);
+            // Last, because an undo can take geometry the session was still
+            // holding on to — see `CatCad::apply`.
+            session.prune(document.model(build));
+            view.settle(document, build, session.selection());
         });
     }
 
@@ -104,13 +99,24 @@ impl Raised {
             intents,
             view,
             harness,
-            tool,
+            session,
             ..
         } = self;
         harness.frame(|ui| {
             intents.clear();
-            view.ask(ui, document, *tool, intents);
+            view.ask(ui, document, session, intents);
         });
+    }
+
+    /// Take up `tool`, as the toolbar would.
+    ///
+    /// Through the inbox rather than by reaching into the session, because that
+    /// is the only way the application arms one — a harness that set the field
+    /// would be testing the view against a session no gesture could produce.
+    fn hold(&mut self, tool: Tool) {
+        let mut intents = Intents::default();
+        intents.push(Choice::Hold(tool));
+        self.session.apply(&intents);
     }
 
     /// One of the drawing's entities, as something that can be picked out.
@@ -716,7 +722,7 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
     let cursor = raised.cursor_on(empty);
     let before = raised.markers();
 
-    raised.tool = Tool::Point;
+    raised.hold(Tool::Point);
     raised.harness.move_to(cursor);
     raised.frame();
     raised.harness.click_at(cursor);
@@ -738,7 +744,7 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
     assert_eq!(&placed[..before.len()], &before[..]);
 
     // Still in hand afterwards, so a row of points is a row of clicks.
-    assert_eq!(raised.tool, Tool::Point);
+    assert_eq!(raised.session.tool(), Tool::Point);
 
     // And a press that travels orbits: the drawing stays put, and the click
     // palantir suppresses in favour of the drag places nothing on release.
@@ -763,7 +769,7 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
     raised.harness.right_click_at(cursor);
     raised.frame();
     assert_eq!(
-        raised.tool,
+        raised.session.tool(),
         Tool::Pointer,
         "the right button left it in hand"
     );
@@ -801,13 +807,13 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     // Nothing is picked out until something is clicked.
     raised.harness.click_at(empty);
     raised.frame();
-    assert_eq!(raised.selection.count(), 0);
+    assert_eq!(raised.session.selection().count(), 0);
 
     raised.harness.click_at(over_point);
     raised.frame();
     let point = raised.named_at(over_point).expect("a point is there");
-    assert!(raised.selection.contains(raised.part(point)));
-    assert_eq!(raised.selection.count(), 1);
+    assert!(raised.session.selection().contains(raised.part(point)));
+    assert_eq!(raised.session.selection().count(), 1);
 
     // Shift adds, leaving what was already picked out where it was.
     raised.harness.set_modifiers(Modifiers {
@@ -818,44 +824,52 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     raised.frame();
     let rim = raised.named_at(over_rim).expect("a circle is there");
     assert!(
-        raised.selection.contains(raised.part(point)),
+        raised.session.selection().contains(raised.part(point)),
         "shift dropped the first"
     );
-    assert!(raised.selection.contains(raised.part(rim)));
-    assert_eq!(raised.selection.count(), 2);
+    assert!(raised.session.selection().contains(raised.part(rim)));
+    assert_eq!(raised.session.selection().count(), 2);
 
     // A shift-click on empty space adds nothing and clears nothing.
     raised.harness.click_at(empty);
     raised.frame();
-    assert_eq!(raised.selection.count(), 2, "shift on nothing changed it");
+    assert_eq!(
+        raised.session.selection().count(),
+        2,
+        "shift on nothing changed it"
+    );
 
     // A plain click starts over with what it landed on.
     raised.harness.set_modifiers(Modifiers::NONE);
     raised.harness.click_at(over_rim);
     raised.frame();
-    assert!(raised.selection.contains(raised.part(rim)));
+    assert!(raised.session.selection().contains(raised.part(rim)));
     assert!(
-        !raised.selection.contains(raised.part(point)),
+        !raised.session.selection().contains(raised.part(point)),
         "the first survived"
     );
-    assert_eq!(raised.selection.count(), 1);
+    assert_eq!(raised.session.selection().count(), 1);
 
     // And on nothing, it clears.
     raised.harness.click_at(empty);
     raised.frame();
-    assert_eq!(raised.selection.count(), 0);
+    assert_eq!(raised.session.selection().count(), 0);
 
     // A tool in hand takes the click instead: nothing is picked out by it, and
     // the tool stays in hand. A point already there is the one click that
     // builds nothing — there is a point there.
-    raised.tool = Tool::Point;
+    raised.hold(Tool::Point);
     let before = raised.markers();
     raised.harness.click_at(over_point);
     raised.frame();
-    assert_eq!(raised.tool, Tool::Point, "the tool went out of hand");
+    assert_eq!(
+        raised.session.tool(),
+        Tool::Point,
+        "the tool went out of hand"
+    );
     assert_eq!(raised.markers(), before, "it laid a point over a point");
     assert_eq!(
-        raised.selection.count(),
+        raised.session.selection().count(),
         0,
         "a click the tool took picked something out"
     );
@@ -887,7 +901,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
         panic!("the sweep found something that is not an edge");
     };
 
-    raised.tool = Tool::Point;
+    raised.hold(Tool::Point);
     raised.harness.click_at(over_edge);
     raised.frame();
 
@@ -935,7 +949,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
 
     // The tool goes down first: a press with one in hand turns the view rather
     // than taking hold of anything.
-    raised.tool = Tool::Pointer;
+    raised.hold(Tool::Pointer);
     // And the pointer has to arrive a frame before it presses: what a press
     // finds is the hit index the last frame left behind.
     raised.harness.move_to(grab);
@@ -1008,7 +1022,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
         "the cursor did not land near the bar it was aimed at"
     );
 
-    raised.tool = Tool::Point;
+    raised.hold(Tool::Point);
     raised.harness.click_at(cursor);
     raised.frame();
 
@@ -1049,7 +1063,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
 
     let from = raised.empty_spot();
     let start = raised.cursor_on(from);
-    raised.tool = Tool::Line { from: None };
+    raised.hold(Tool::Line { from: None });
     raised.harness.click_at(start);
     raised.frame();
     assert_eq!(
@@ -1090,7 +1104,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     // Put the tool down and it goes, leaving the drawing exactly as it was.
     raised.harness.right_click_at(raised.cursor_on(to));
     raised.frame();
-    assert_eq!(raised.tool, Tool::Pointer);
+    assert_eq!(raised.session.tool(), Tool::Pointer);
     assert_eq!(raised.strokes(), strokes, "the band outlived the tool");
     assert_eq!(raised.document.drawing().sketch().segments().count(), edges);
 
@@ -1098,7 +1112,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     // how far the cursor is from where the first click landed, so a cursor two
     // and a half units out is a band of that radius.
     let rims = raised.view.renderer().borrow().scene().rings.len();
-    raised.tool = Tool::Circle { center: None };
+    raised.hold(Tool::Circle { center: None });
     raised.harness.click_at(raised.cursor_on(from));
     raised.frame();
     let out = raised
@@ -1143,7 +1157,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
     );
     raised
         .view
-        .settle(&raised.document, &raised.build, &raised.selection);
+        .settle(&raised.document, &raised.build, raised.session.selection());
     assert_eq!(*raised.view.renderer().borrow().camera(), turned);
 
     // The projection rides along with it, which is the toggle's whole path.
@@ -1151,7 +1165,7 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
     raised.document.camera_mut().projection = was.toggled();
     raised
         .view
-        .settle(&raised.document, &raised.build, &raised.selection);
+        .settle(&raised.document, &raised.build, raised.session.selection());
     let now = raised.view.renderer().borrow().camera().projection;
     assert_eq!(now, was.toggled());
     assert_ne!(now, was);
@@ -1192,7 +1206,7 @@ fn a_face_is_hovered_and_picked_out_like_any_other_part() {
     raised.harness.click_at(inside);
     raised.frame();
     assert_eq!(
-        raised.selection.picked(),
+        raised.session.selection().picked(),
         [hovered.expect("the hover found one")],
         "the click picked out something else"
     );
@@ -1209,7 +1223,7 @@ fn a_face_is_hovered_and_picked_out_like_any_other_part() {
     raised.harness.release();
     raised.frame();
     assert_eq!(
-        raised.selection.picked(),
+        raised.session.selection().picked(),
         [hovered.expect("the hover found one")],
         "a drag dropped the face that was picked out"
     );

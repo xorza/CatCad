@@ -21,6 +21,7 @@ use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
+use crate::session::Session;
 use crate::tool::Tool;
 
 mod aimed;
@@ -183,9 +184,15 @@ impl SceneView {
         &mut self,
         ui: &mut Ui,
         document: &Document,
-        tool: Tool,
+        session: &Session,
         intents: &mut Intents,
     ) {
+        let tool = session.tool();
+        // Nothing open is nothing to draw in. A view over a document with no
+        // sketch being edited still turns, picks and hovers; what it cannot do
+        // is put geometry anywhere, because there is nowhere to put it — so a
+        // tool falls through to picking, and a drag raises nothing.
+        let editing = session.editing();
         // A bare pointer move only wakes a frame for a widget that asked for
         // one: palantir skips a `PointerMoved` that crosses no boundary and
         // latches no press, and a viewport filling the window has no boundary
@@ -225,8 +232,11 @@ impl SceneView {
             (Gesture::Move(held), Drag::Started { .. } | Drag::Active { .. }) => {
                 // Where the entity should end up, which is where the cursor
                 // lands plus however far off centre it was grabbed.
-                if let Some(to) = aimed::landing(&response, document, held.motion) {
+                if let (Some(to), Some(sketch)) =
+                    (aimed::landing(&response, document, held.motion), editing)
+                {
                     intents.push(Change::Drag {
+                        sketch,
                         grip: held.grip,
                         to: to + held.offset,
                     });
@@ -259,21 +269,23 @@ impl SceneView {
             // clicked is what the new geometry is *held to*, so a click on the
             // drawing is worth more to a tool than one beside it. Nothing is
             // picked out by a click a tool took — selecting is the pointer's.
-            match (tool, self.anchor(&response, document, under)) {
+            match (tool, self.anchor(&response, document, under), editing) {
                 // One click. On a point already there it adds nothing, and the
                 // drawing comes out of it unchanged.
-                (Tool::Point, Some(at)) => intents.push(Change::AddPoint(at)),
+                (Tool::Point, Some(at), Some(sketch)) => {
+                    intents.push(Change::AddPoint { sketch, at });
+                }
                 // Two clicks each. The first is remembered in the tool and
                 // reaches the document not at all; the second commits the whole
                 // shape as one step.
-                (Tool::Line { from: None }, Some(start)) => {
+                (Tool::Line { from: None }, Some(start), Some(_)) => {
                     intents.push(Choice::Hold(Tool::Line { from: Some(start) }));
                 }
-                (Tool::Line { from: Some(from) }, Some(to)) => {
-                    intents.push(Change::AddSegment { from, to });
+                (Tool::Line { from: Some(from) }, Some(to), Some(sketch)) => {
+                    intents.push(Change::AddSegment { sketch, from, to });
                     intents.push(Choice::Hold(Tool::Line { from: None }));
                 }
-                (Tool::Circle { center: None }, Some(middle)) => {
+                (Tool::Circle { center: None }, Some(middle), Some(_)) => {
                     intents.push(Choice::Hold(Tool::Circle {
                         center: Some(middle),
                     }));
@@ -283,14 +295,20 @@ impl SceneView {
                         center: Some(center),
                     },
                     Some(rim),
+                    Some(sketch),
                 ) => {
-                    intents.push(Change::AddCircle { center, rim });
+                    intents.push(Change::AddCircle {
+                        sketch,
+                        center,
+                        rim,
+                    });
                     intents.push(Choice::Hold(Tool::Circle { center: None }));
                 }
                 // Nothing in hand — or a plane seen so nearly edge-on that a
-                // click names nowhere on it, where there is nothing to build
-                // from and picking out what was clicked is all that is left.
-                (Tool::Pointer, _) | (_, None) => {
+                // click names nowhere on it, or no sketch open to draw in. In
+                // all three there is nothing to build from, and picking out
+                // what was clicked is all that is left.
+                (Tool::Pointer, _, _) | (_, None, _) | (_, _, None) => {
                     match under {
                         // Shift adds to what is picked out.
                         Some(entity) if adding => intents.push(Choice::Include(entity)),

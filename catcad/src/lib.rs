@@ -133,13 +133,17 @@ impl CatCad {
         // caller can measure the view it was given without recording a frame to
         // make the answer true.
         view.settle(&document, &build, &Selection::default());
+        // Opened in its first sketch, so a tool has somewhere to draw before
+        // anything has been picked out.
+        let mut session = Session::default();
+        session.edit(document.opening());
         Self {
             document,
             history: History::default(),
             intents: Intents::default(),
             build,
             view,
-            session: Session::default(),
+            session,
             hud: Hud::default(),
         }
     }
@@ -176,18 +180,17 @@ impl CatCad {
             // Entities only. Deleting a face would mean deleting whatever
             // draws it, which is a different command and not this one — so a
             // face picked out alongside an edge lets the edge go and stays.
-            for entity in self
-                .session
-                .selection()
-                .picked()
-                .iter()
-                .filter_map(|part| part.entity())
-            {
-                self.intents.push(Change::Delete(entity));
+            for part in self.session.selection().picked() {
+                if let Some(entity) = part.entity() {
+                    self.intents.push(Change::Delete {
+                        sketch: part.sketch(),
+                        entity,
+                    });
+                }
             }
         }
         self.view
-            .ask(ui, &self.document, self.session.tool(), &mut self.intents);
+            .ask(ui, &self.document, &self.session, &mut self.intents);
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
@@ -202,6 +205,7 @@ impl CatCad {
                 projection: self.document.camera().projection,
                 drawing: self.document.drawing(),
                 selection: self.session.selection(),
+                editing: self.session.editing(),
             },
             &mut self.intents,
         );

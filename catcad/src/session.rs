@@ -2,7 +2,9 @@
 
 use crate::intent::{Choice, Intent, Intents};
 use crate::model::Model;
+use crate::part::Part;
 use crate::selection::Selection;
+use crate::timeline::FeatureId;
 use crate::tool::Tool;
 
 /// What is in hand, and what is picked out.
@@ -23,12 +25,29 @@ use crate::tool::Tool;
 pub(crate) struct Session {
     tool: Tool,
     selection: Selection,
+    /// The sketch open for editing, or `None` where none is.
+    ///
+    /// What every edit names, and so what decides which sketch a click builds
+    /// in. Session state like the rest of this: nothing about what you happen
+    /// to have open is written down by saving, and an undo should not close the
+    /// sketch you were working in.
+    editing: Option<FeatureId>,
 }
 
 impl Session {
     /// The tool in hand, which is what a click in the viewport means.
     pub(crate) fn tool(&self) -> Tool {
         self.tool
+    }
+
+    /// The sketch open for editing, or `None` where none is.
+    pub(crate) fn editing(&self) -> Option<FeatureId> {
+        self.editing
+    }
+
+    /// Open `at` for editing, which is what raising a document does.
+    pub(crate) fn edit(&mut self, at: FeatureId) {
+        self.editing = Some(at);
     }
 
     /// What the next command would act on.
@@ -45,8 +64,19 @@ impl Session {
         for intent in intents.iter() {
             match intent {
                 Intent::Choice(Choice::Hold(tool)) => self.tool = tool,
-                Intent::Choice(Choice::Select(what)) => self.selection.select(what),
-                Intent::Choice(Choice::Include(what)) => self.selection.include(what),
+                // Picking something out opens the sketch it came from. The
+                // one gesture that says which sketch you mean is the one that
+                // says which *thing* you mean, so there is no second one to
+                // learn — and a click on empty space says nothing, so it leaves
+                // open whatever was.
+                Intent::Choice(Choice::Select(what)) => {
+                    self.editing = what.map(Part::sketch).or(self.editing);
+                    self.selection.select(what);
+                }
+                Intent::Choice(Choice::Include(what)) => {
+                    self.editing = Some(what.sketch());
+                    self.selection.include(what);
+                }
                 // The history's, and the document's through it. Landed by
                 // `CatCad::apply` right after this, in the order the pointer
                 // made them.
@@ -76,5 +106,75 @@ impl Session {
         {
             self.tool = self.tool.restarted();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::build::Build;
+    use crate::intent::Choice;
+    use crate::model::Model;
+    use crate::timeline::Timeline;
+    use crate::timeline::feature::{Datum, Feature};
+    use glam::DVec2;
+    use silverpoint::{Entity, Sketch};
+
+    /// Picking something out opens the sketch it came from, and clicking
+    /// nothing leaves open whatever was.
+    ///
+    /// The one gesture that says which sketch you mean is the one that says
+    /// which *thing* you mean, so there is no second one to learn. The empty
+    /// click is the half worth pinning: it says nothing about which sketch, and
+    /// a rule that read it as "none" would drop you out of the sketch you were
+    /// working in every time you clicked past the geometry.
+    #[test]
+    fn picking_something_out_opens_the_sketch_it_came_from() {
+        let mut timeline = Timeline::default();
+        let ground = timeline.add(Feature::Plane(Datum::Ground));
+        let mut lone = || {
+            let mut sketch = Sketch::default();
+            let point = sketch.add_point(DVec2::ZERO);
+            (timeline.add(Feature::Sketch { on: ground, sketch }), point)
+        };
+        let (here, one) = lone();
+        let (there, other) = lone();
+
+        let mut build = Build::default();
+        timeline.edit(here).opened(&mut build);
+        timeline.edit(there).opened(&mut build);
+        let first = Model::new(timeline.drawing(here), &build, here);
+        let second = Model::new(timeline.drawing(there), &build, there);
+
+        let mut session = Session::default();
+        session.edit(here);
+
+        let mut intents = Intents::default();
+        intents.push(Choice::Select(Some(second.part(other))));
+        session.apply(&intents);
+        assert_eq!(
+            session.editing(),
+            Some(there),
+            "the pick did not open its sketch"
+        );
+
+        // A click on empty space picks nothing out and says nothing about which
+        // sketch, so the one that was open stays open.
+        intents.clear();
+        intents.push(Choice::Select(None));
+        session.apply(&intents);
+        assert_eq!(
+            session.editing(),
+            Some(there),
+            "an empty click closed the sketch"
+        );
+        assert_eq!(session.selection().count(), 0);
+
+        // Shift-adding does the same as a plain pick, because it too names a
+        // thing and so names a sketch.
+        intents.clear();
+        intents.push(Choice::Include(first.part(Entity::Point(one))));
+        session.apply(&intents);
+        assert_eq!(session.editing(), Some(here));
     }
 }

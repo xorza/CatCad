@@ -12,6 +12,7 @@ use crate::intent::{Change, Choice, Intents, Step};
 use crate::paint::DECIMALS;
 use crate::part::Part;
 use crate::selection::Selection;
+use crate::timeline::FeatureId;
 use crate::tool::Tool;
 use silverpoint::{Constraint, ConstraintId, Entity};
 
@@ -44,11 +45,11 @@ pub(crate) struct Hud {
     /// bar rebuilt sixty times a second would otherwise ask the heap for a list
     /// each time.
     offers: Vec<Constraint>,
-    /// The number the field is showing, re-seeded from the drawing every frame
-    /// and written over by the widget when it is being edited. Scratch: what a
-    /// dimension *is* lives in the sketch, and this is only what one gesture has
-    /// made of it so far.
-    editing: f64,
+    /// The number the dimension field is showing, re-seeded from the drawing
+    /// every frame and written over by the widget while it is being scrubbed.
+    /// Scratch: what a dimension *is* lives in the sketch, and this is only
+    /// what one gesture has made of it so far.
+    draft: f64,
 }
 
 impl Hud {
@@ -58,8 +59,8 @@ impl Hud {
     /// it — and it has to be lowered in the pass that minted it, which is the
     /// same pass that is calling.
     pub(crate) fn show(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
-        self.readout(ui, shown.status, shown.projection, intents);
-        self.constraints(ui, shown.drawing, shown.selection, intents);
+        self.readout(ui, shown.status, shown.projection, shown.editing, intents);
+        self.constraints(ui, shown.drawing, shown.selection, shown.editing, intents);
         // Last, so the bar is the topmost thing in the zstack and takes its own
         // presses rather than the readout or the view beneath it.
         self.tools(ui, shown.tool, intents);
@@ -77,6 +78,7 @@ impl Hud {
         ui: &mut Ui,
         drawing: Drawing<'_>,
         selection: &Selection,
+        editing: Option<FeatureId>,
         intents: &mut Intents,
     ) {
         drawing.offers(selection.picked(), &mut self.offers);
@@ -90,19 +92,22 @@ impl Hud {
         // having to notice. The widget writes its draft over the seed and says
         // so, and that is the only frame anything is asked for.
         if let Some((_, value)) = dimension {
-            self.editing = value;
+            self.draft = value;
         }
         floating(Panel::hstack(), "constraints", Align::BOTTOM).show(ui, |ui| {
             if let Some((id, _)) = dimension {
-                let edited = DragValue::new(&mut self.editing)
+                let edited = DragValue::new(&mut self.draft)
                     .auto_id()
                     .speed(DIMENSION_SPEED)
                     .decimals(DECIMALS)
                     .show(ui);
-                if edited.changed {
+                if edited.changed
+                    && let Some(sketch) = editing
+                {
                     intents.push(Change::Resize {
+                        sketch,
                         constraint: id,
-                        to: self.editing,
+                        to: self.draft,
                     });
                 }
                 // One gesture, one step to take back. `Resize` coalesces, so
@@ -114,14 +119,14 @@ impl Hud {
             }
             for &constraint in &self.offers {
                 let label = label(constraint);
-                if Button::new()
+                let pressed = Button::new()
                     .id_salt(label)
                     .label(label)
                     .show(ui)
                     .left
-                    .clicked()
-                {
-                    intents.push(Change::Constrain(constraint));
+                    .clicked();
+                if pressed && let Some(sketch) = editing {
+                    intents.push(Change::Constrain { sketch, constraint });
                 }
             }
         });
@@ -138,12 +143,13 @@ impl Hud {
         ui: &mut Ui,
         status: InternedStr,
         projection: Projection,
+        editing: Option<FeatureId>,
         intents: &mut Intents,
     ) {
         floating(Panel::vstack(), "readout", Align::TOP_LEFT).show(ui, |ui| {
             projection_toggle(ui, projection, intents);
             Text::new(status).auto_id().show(ui);
-            tidy_button(ui, intents);
+            tidy_button(ui, editing, intents);
         });
     }
 
@@ -209,6 +215,9 @@ pub(crate) struct Shown<'a> {
     pub(crate) projection: Projection,
     pub(crate) drawing: Drawing<'a>,
     pub(crate) selection: &'a Selection,
+    /// The sketch open for editing, which is what every control here that asks
+    /// for a change names — see [`Session::editing`](crate::session::Session).
+    pub(crate) editing: Option<FeatureId>,
 }
 
 /// Sketch units per pixel of scrub. A hundredth, so a drag reads a dimension
@@ -287,15 +296,15 @@ fn projection_toggle(ui: &mut Ui, projection: Projection, intents: &mut Intents)
 /// "is there anything to clean up?" means running the whole search, and the
 /// record pass allocates nothing — so the choice is between a search a frame
 /// and a button that is sometimes a no-op, and a no-op costs nothing.
-fn tidy_button(ui: &mut Ui, intents: &mut Intents) {
-    if Button::new()
+fn tidy_button(ui: &mut Ui, editing: Option<FeatureId>, intents: &mut Intents) {
+    let pressed = Button::new()
         .auto_id()
         .label("Clean up")
         .show(ui)
         .left
-        .clicked()
-    {
-        intents.push(Change::Tidy);
+        .clicked();
+    if pressed && let Some(sketch) = editing {
+        intents.push(Change::Tidy { sketch });
     }
 }
 
@@ -313,7 +322,7 @@ impl Default for Hud {
         Self {
             armed,
             offers: Vec::new(),
-            editing: 0.0,
+            draft: 0.0,
         }
     }
 }

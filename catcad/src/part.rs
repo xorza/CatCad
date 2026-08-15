@@ -38,6 +38,16 @@ pub(crate) enum Part {
 }
 
 impl Part {
+    /// Which sketch this belongs to.
+    ///
+    /// Total where [`Part::entity`] is not: everything a cursor can land on is
+    /// part of some sketch, and which one is half of what names it.
+    pub(crate) fn sketch(self) -> FeatureId {
+        match self {
+            Part::Entity { sketch, .. } | Part::Face { sketch, .. } => sketch,
+        }
+    }
+
     /// The sketch entity this names, or `None` where it names a face.
     ///
     /// What everything the sketch itself answers goes through: constraining,

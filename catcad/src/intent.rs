@@ -7,6 +7,7 @@ use silverpoint::{Constraint, ConstraintId, Entity};
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
 use crate::part::Part;
+use crate::timeline::FeatureId;
 use crate::tool::Tool;
 
 /// One thing the user asked for.
@@ -80,13 +81,17 @@ pub(crate) enum Change {
     /// Names where the entity should end up rather than how far to move it,
     /// which is what lets a settling frame apply the same drag twice and land
     /// in the same place. See the note on clearing the inbox in `CatCad::record`.
-    Drag { grip: Grip, to: Vec3 },
+    Drag {
+        sketch: FeatureId,
+        grip: Grip,
+        to: Vec3,
+    },
     /// Put a point where this click landed, held to whatever it landed on.
     ///
     /// An [`Anchor`] rather than a place, because where a click landed is only
     /// half of what it said: on an edge or a rim it also said what the new point
     /// is to be held to, and a position alone would have thrown that away.
-    AddPoint(Anchor),
+    AddPoint { sketch: FeatureId, at: Anchor },
     /// Put a straight edge between these two ends.
     ///
     /// One intent for the whole edge, though it is asked for by two clicks and
@@ -94,12 +99,20 @@ pub(crate) enum Change {
     /// second click, so a line abandoned half-drawn leaves no stray point
     /// behind — and the one that is finished is one step to take back rather
     /// than three.
-    AddSegment { from: Anchor, to: Anchor },
+    AddSegment {
+        sketch: FeatureId,
+        from: Anchor,
+        to: Anchor,
+    },
     /// Put a circle about `center`, out as far as `rim`.
     ///
     /// The rim says how big and nothing else: a radius is a number, so no point
     /// is made out there however the click that gave it landed.
-    AddCircle { center: Anchor, rim: Anchor },
+    AddCircle {
+        sketch: FeatureId,
+        center: Anchor,
+        rim: Anchor,
+    },
     /// State this relation over the drawing.
     ///
     /// The whole constraint rather than what was picked and which button was
@@ -107,14 +120,21 @@ pub(crate) enum Change {
     /// see [`Drawing::offers`](crate::drawing::Drawing). What arrives here is
     /// already an answer, so a replayed pass states the same relation twice
     /// rather than reading a selection that has since moved on.
-    Constrain(Constraint),
+    Constrain {
+        sketch: FeatureId,
+        constraint: Constraint,
+    },
     /// Restate a dimension at a new magnitude, and let the drawing settle onto
     /// it.
     ///
     /// Names the value it wants rather than a step to take, like everything
     /// here: a scrub sends one of these a frame and a replayed pass restates the
     /// same number, where "a bit larger" would grow twice over.
-    Resize { constraint: ConstraintId, to: f64 },
+    Resize {
+        sketch: FeatureId,
+        constraint: ConstraintId,
+        to: f64,
+    },
     /// Take out geometry that duplicates other geometry and carries nothing.
     ///
     /// Names no geometry, unlike [`Change::Delete`] beside it, and needs to
@@ -122,13 +142,13 @@ pub(crate) enum Change {
     /// what is picked out, so a replayed pass asks the same question of the
     /// same sketch. The second pass finds nothing left to remove, which is the
     /// same answer arrived at twice rather than a second removal.
-    Tidy,
+    Tidy { sketch: FeatureId },
     /// Take this out of the drawing, with whatever was built on it.
     ///
     /// Names what to remove rather than saying "the selection", for the same
     /// reason: a replayed pass would otherwise delete whatever is picked out by
     /// the time it ran, which after the first pass is nothing.
-    Delete(Entity),
+    Delete { sketch: FeatureId, entity: Entity },
     /// Turn the camera about what it is looking at, in radians.
     Orbit { yaw: f32, pitch: f32 },
     /// Move the camera in or out by a multiple of how far off it is.
@@ -159,6 +179,36 @@ impl Change {
     /// driving them raises when its gesture ends.
     pub(crate) fn coalesces(self) -> bool {
         matches!(self, Change::Drag { .. } | Change::Resize { .. })
+    }
+
+    /// Which sketch this is about, or `None` where it is about the camera.
+    ///
+    /// What the history records a step against — see
+    /// [`History::edit`](crate::history::History). The camera is not the
+    /// drawing, so turning it names no sketch and there is nothing to take
+    /// back.
+    ///
+    /// A match rather than a comparison of before and after, which is what this
+    /// used to be. Naming the sketch is what a document holding several needs
+    /// of every edit, and once an edit names one there is nothing to compare a
+    /// camera move *against*. What the exhaustive match buys back is that a
+    /// variant added later cannot quietly land on either side: the compiler
+    /// asks which it is.
+    pub(crate) fn sketch(self) -> Option<FeatureId> {
+        match self {
+            Change::Drag { sketch, .. }
+            | Change::AddPoint { sketch, .. }
+            | Change::AddSegment { sketch, .. }
+            | Change::AddCircle { sketch, .. }
+            | Change::Constrain { sketch, .. }
+            | Change::Resize { sketch, .. }
+            | Change::Tidy { sketch }
+            | Change::Delete { sketch, .. } => Some(sketch),
+            Change::Orbit { .. }
+            | Change::Dolly { .. }
+            | Change::Pan { .. }
+            | Change::Project(_) => None,
+        }
     }
 }
 

@@ -96,16 +96,20 @@ impl Timeline {
     /// session starts saying which is being edited — every caller of it is a
     /// caller that will then be asking the session instead.
     pub(crate) fn only_sketch(&self) -> FeatureId {
-        self.steps
-            .iter()
-            .find(|step| matches!(step.feature, Feature::Sketch { .. }))
-            .expect("the document holds a sketch")
-            .id
+        self.sketches().next().expect("the document holds a sketch")
     }
 
     /// Where the sketch at `at` lies in the world.
     pub(crate) fn plane_of(&self, at: FeatureId) -> Plane {
         self.plane(self.sketch_plane(at))
+    }
+
+    /// Every sketch the timeline holds, in the order they were drawn.
+    pub(crate) fn sketches(&self) -> impl Iterator<Item = FeatureId> {
+        self.steps
+            .iter()
+            .filter(|step| matches!(step.feature, Feature::Sketch { .. }))
+            .map(|step| step.id)
     }
 
     /// Which plane the sketch at `at` is drawn on.

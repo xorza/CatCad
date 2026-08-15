@@ -7,7 +7,7 @@ use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
 use crate::model::Model;
-use crate::timeline::Timeline;
+use crate::timeline::{FeatureId, Timeline};
 use silverpoint::Snapshot;
 
 /// A drawing, the solids modelled beside it, and how it is being looked at —
@@ -52,10 +52,19 @@ impl Document {
             solids,
             camera: Camera::default(),
         };
-        // A sketch arrives as coordinates its constraints have not been checked
-        // against, whether they were typed in or read from a file, so opening a
-        // document is a solve like any other.
-        document.sketching().opened(build);
+        // Every sketch, not only the one a session starts in. A sketch arrives
+        // as coordinates its constraints have not been checked against, whether
+        // they were typed in or read from a file, so opening a document is a
+        // solve like any other — and one left unsolved would have no report and
+        // no faces for anything reading it to find.
+        //
+        // Gathered before any of them is opened, because opening one borrows
+        // the timeline the rest are still to be found in. One list, once, when
+        // a document is raised.
+        let sketches: Vec<_> = document.timeline.sketches().collect();
+        for at in sketches {
+            document.sketching(at).opened(build);
+        }
         document
     }
 
@@ -67,10 +76,24 @@ impl Document {
         self.timeline.drawing(self.timeline.only_sketch())
     }
 
-    /// The same pair, open for editing.
-    fn sketching(&mut self) -> Sketching<'_> {
-        let at = self.timeline.only_sketch();
+    /// The sketch a session should start in.
+    ///
+    /// The first one the timeline holds, which is where a document that has
+    /// just been raised puts you. Which sketch is open after that is the
+    /// session's — see [`Session::editing`](crate::session::Session) — because
+    /// nothing about what you have open is written down by saving.
+    pub(crate) fn opening(&self) -> FeatureId {
+        self.timeline.only_sketch()
+    }
+
+    /// The sketch at `at`, open for editing.
+    fn sketching(&mut self, at: FeatureId) -> Sketching<'_> {
         self.timeline.edit(at)
+    }
+
+    /// Take down where the sketch at `at` stands, so it can be put back later.
+    pub(crate) fn snapshot_of(&self, at: FeatureId, into: &mut Snapshot) {
+        self.timeline.drawing(at).snapshot_into(into);
     }
 
     /// The drawing as `build` last left it.
@@ -116,8 +139,8 @@ impl Document {
     /// two ways a document changes are two calls on the document. An undo is the
     /// path that most wants watching — it is the one that can make geometry stop
     /// existing — and it would have been the one going round the back.
-    pub(crate) fn restore(&mut self, build: &mut Build, snapshot: &Snapshot) {
-        self.sketching().restore(build, snapshot);
+    pub(crate) fn restore(&mut self, build: &mut Build, at: FeatureId, snapshot: &Snapshot) {
+        self.sketching(at).restore(build, snapshot);
     }
 
     /// Land what `change` asks for.
@@ -148,14 +171,26 @@ impl Document {
     /// hand would be an edit that left its report stale.
     pub(crate) fn apply(&mut self, build: &mut Build, change: Change) {
         match change {
-            Change::Drag { grip, to } => self.sketching().drag_to(build, grip, to),
-            Change::AddPoint(at) => self.sketching().add_point(build, at),
-            Change::AddSegment { from, to } => self.sketching().add_segment(build, from, to),
-            Change::AddCircle { center, rim } => self.sketching().add_circle(build, center, rim),
-            Change::Constrain(constraint) => self.sketching().constrain(build, constraint),
-            Change::Resize { constraint, to } => self.sketching().resize(build, constraint, to),
-            Change::Delete(entity) => self.sketching().remove(build, entity),
-            Change::Tidy => self.sketching().remove_duplicates(build),
+            Change::Drag { sketch, grip, to } => self.sketching(sketch).drag_to(build, grip, to),
+            Change::AddPoint { sketch, at } => self.sketching(sketch).add_point(build, at),
+            Change::AddSegment { sketch, from, to } => {
+                self.sketching(sketch).add_segment(build, from, to)
+            }
+            Change::AddCircle {
+                sketch,
+                center,
+                rim,
+            } => self.sketching(sketch).add_circle(build, center, rim),
+            Change::Constrain { sketch, constraint } => {
+                self.sketching(sketch).constrain(build, constraint)
+            }
+            Change::Resize {
+                sketch,
+                constraint,
+                to,
+            } => self.sketching(sketch).resize(build, constraint, to),
+            Change::Delete { sketch, entity } => self.sketching(sketch).remove(build, entity),
+            Change::Tidy { sketch } => self.sketching(sketch).remove_duplicates(build),
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),
@@ -177,6 +212,30 @@ pub(crate) mod internals {
     impl Document {
         pub(crate) fn camera_mut(&mut self) -> &mut Camera {
             &mut self.camera
+        }
+    }
+}
+
+/// What a unit test reaches past the document for.
+///
+/// Its own mod beside [`internals`] rather than an item within it, because the
+/// two are gated differently: the visual suite aims a camera by hand and so
+/// wants a feature it can turn on, where nothing outside this crate has any
+/// business naming a sketch nobody has open.
+#[cfg(test)]
+mod unopened {
+    use crate::document::Document;
+    use crate::drawing::Drawing;
+    use crate::timeline::FeatureId;
+
+    impl Document {
+        /// The sketch at `at`, paired with the plane it lies on.
+        ///
+        /// Reaching past the one that is *open* is standing outside a session:
+        /// the application draws and edits the sketch it has open, and a caller
+        /// naming another is a test asking after one nobody is in.
+        pub(crate) fn drawing_of(&self, at: FeatureId) -> Drawing<'_> {
+            self.timeline.drawing(at)
         }
     }
 }

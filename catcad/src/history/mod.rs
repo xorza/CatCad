@@ -3,6 +3,7 @@
 use crate::build::Build;
 use crate::document::Document;
 use crate::intent::{Change, Intent, Intents, Step};
+use crate::timeline::FeatureId;
 use silverpoint::Snapshot;
 
 /// How many steps back the history goes.
@@ -78,22 +79,34 @@ impl History {
 
     /// Do what `change` asks, and record an [`Edit`] if it moved the drawing.
     ///
-    /// The comparison is the whole of what decides that, and it earns two
-    /// things at once rather than being told either. Turning the camera records
-    /// nothing, because the camera is not the drawing — which is the CAD
-    /// convention, arrived at rather than declared, and with no list of exempt
-    /// intents to keep in step with the intents. And a drag the constraints
+    /// A change that names no sketch is the camera's, and the camera is not the
+    /// drawing — so it lands and is not recorded. Which side of that line a
+    /// change falls on is [`Change::sketch`]'s to say, and it says it with an
+    /// exhaustive match: a variant added later cannot quietly join either side
+    /// without the compiler asking which.
+    ///
+    /// Everything else is recorded only if it moved the sketch it named, and
+    /// the comparison is the whole of what decides that. A drag the constraints
     /// refuse records nothing, because
     /// [`Solver::edit_holding`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
     fn edit(&mut self, document: &mut Document, build: &mut Build, change: Change) {
-        let extending = self.open && change.coalesces();
+        let Some(at) = change.sketch() else {
+            document.apply(build, change);
+            return;
+        };
+        // The open step has to name the same sketch, not merely be open. With
+        // one drawing there was nothing else a change could be about; with
+        // several, a drag in one sketch followed by a drag in another would
+        // otherwise extend the first step with the second's far end.
+        let extending =
+            self.open && change.coalesces() && self.edits.last().is_some_and(|edit| edit.at == at);
         if !extending {
             self.close();
-            document.drawing().snapshot_into(&mut self.before);
+            document.snapshot_of(at, &mut self.before);
         }
         document.apply(build, change);
-        document.drawing().snapshot_into(&mut self.after);
+        document.snapshot_of(at, &mut self.after);
 
         if extending {
             // The open step's far end follows the gesture, in place: a drag
@@ -111,6 +124,7 @@ impl History {
         // else is done — there is no longer a history in which it happened.
         self.edits.truncate(self.applied);
         self.edits.push(Edit {
+            at,
             before: self.before.clone(),
             after: self.after.clone(),
         });
@@ -126,7 +140,8 @@ impl History {
             return;
         }
         self.applied -= 1;
-        document.restore(build, &self.edits[self.applied].before);
+        let step = &self.edits[self.applied];
+        document.restore(build, step.at, &step.before);
     }
 
     /// Put back the last step taken away, if there is one.
@@ -135,7 +150,8 @@ impl History {
         if !self.can_redo() {
             return;
         }
-        document.restore(build, &self.edits[self.applied].after);
+        let step = &self.edits[self.applied];
+        document.restore(build, step.at, &step.after);
         self.applied += 1;
     }
 
@@ -166,12 +182,19 @@ impl History {
     }
 }
 
-/// One step there and back: the drawing at each end of something that was done.
+/// One step there and back: one sketch at each end of something that was done.
 ///
 /// Both ends rather than one and a way to recompute the other, because there is
 /// no recomputing either — see [`History`].
+///
+/// One sketch rather than the whole document, because an edit only ever touches
+/// one: every [`Change`] that records anything names the sketch it is about, so
+/// a step that stored the document would be storing everything that did not
+/// move alongside the one thing that did.
 #[derive(Debug)]
 struct Edit {
+    /// The sketch this step is about.
+    at: FeatureId,
     before: Snapshot,
     after: Snapshot,
 }
