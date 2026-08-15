@@ -94,23 +94,16 @@ impl Document {
     ///
     /// `build` is the caller's, as it is everywhere: opening a document is a
     /// solve, and a solve wants room to work in. What it settled for the
-    /// document that was open is forgotten here rather than by the caller —
-    /// see the note on ordering below.
-    pub(crate) fn open(build: &mut Build, path: &Path) -> Result<Self, LoadError> {
-        let text = fs::read_to_string(path).map_err(LoadError::Read)?;
-        Self::read(build, &text)
-    }
-
-    /// The same from text already in hand, which is what a test opens.
-    ///
-    /// Every way this can fail happens before `build` is touched, and that
-    /// ordering is the whole of what makes a failed open harmless: a file that
-    /// will not parse or does not make sense leaves the caller holding exactly
-    /// the document and the build it had, still agreeing with each other. Reset
+    /// document that was open is forgotten here rather than by the caller,
+    /// because the ordering is what makes a refusal harmless: every way this
+    /// can fail happens before `build` is touched, so a file that will not
+    /// parse or does not make sense leaves the caller holding exactly the
+    /// document and the build it had, still agreeing with each other. Reset
     /// first and a refused file would have taken the *open* document's report
     /// with it — see [`Build::reopened`].
-    pub(crate) fn read(build: &mut Build, text: &str) -> Result<Self, LoadError> {
-        let saved = Saved::parse(text)?;
+    pub(crate) fn open(build: &mut Build, path: &Path) -> Result<Self, LoadError> {
+        let text = fs::read_to_string(path).map_err(LoadError::Read)?;
+        let saved = Saved::parse(&text)?;
         let timeline = saved.timeline().map_err(LoadError::Fault)?;
         let camera = saved.camera();
         build.reopened();

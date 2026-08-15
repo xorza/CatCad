@@ -273,6 +273,86 @@ fn orbit_accumulates_yaw_and_clamps_pitch() {
     assert!((camera.yaw + 3.0).abs() < 1e-6);
 }
 
+/// A camera arriving from outside comes back inside every limit it has, and one
+/// already inside them is handed back untouched.
+///
+/// The entry the two clamps above have no say over. [`Camera::orbit`] and
+/// [`Camera::dolly`] guard the pitch and the distance as they move, but a camera
+/// read out of a file was never moved — so this is the only thing between what
+/// a file said and the assertion in `z_near`.
+///
+/// The pass-through half is the one worth pinning: a `sane` that clamped
+/// everything to a default would satisfy every bound below and lose the
+/// viewpoint, and only checking that a good camera survives says it does not.
+#[test]
+fn a_camera_from_outside_is_brought_back_inside_its_limits() {
+    // Already legal, so nothing moves. Field for field, because a `sane` that
+    // dropped one would still pass a comparison against a rebuilt default.
+    let sound = unit_camera();
+    assert_eq!(sound.sane(), sound);
+
+    // Past the pole either way, and short of the eye.
+    let mut wild = unit_camera();
+    wild.pitch = 4.0;
+    assert_eq!(wild.sane().pitch, PITCH_LIMIT);
+    wild.pitch = -4.0;
+    assert_eq!(wild.sane().pitch, -PITCH_LIMIT);
+    wild.pitch = 0.0;
+
+    wild.distance = -3.0;
+    assert_eq!(wild.sane().distance, MIN_DISTANCE);
+    wild.distance = 0.0;
+    assert_eq!(wild.sane().distance, MIN_DISTANCE);
+    wild.distance = 5.0;
+
+    // The near ratio is what `z_near` asserts on, and both ends of its range
+    // are illegal: at 0 the near plane lands on the eye, at 1 on the target.
+    wild.near_ratio = 0.0;
+    let floor = wild.sane().near_ratio;
+    assert!(floor > 0.0 && floor < 1.0, "near ratio {floor}");
+    wild.near_ratio = 1.0;
+    let ceiling = wild.sane().near_ratio;
+    assert!(ceiling > 0.0 && ceiling < 1.0, "near ratio {ceiling}");
+    // And the two are not the same answer — a clamp that collapsed the range to
+    // one value would pass both assertions above.
+    assert!(floor < ceiling);
+    wild.near_ratio = 1.0 / 5.0;
+
+    // A field of view of nothing would flatten the view to a line, and one of
+    // half a turn or more turns it inside out.
+    wild.fov_y = 0.0;
+    assert!(wild.sane().fov_y > 0.0);
+    wild.fov_y = std::f32::consts::PI;
+    assert!(wild.sane().fov_y < std::f32::consts::PI);
+
+    // A number that is not one is replaced rather than clamped: `f32::clamp`
+    // hands NaN straight back, so a camera holding one would reach the renderer
+    // through every bound above.
+    let default = Camera::default();
+    for poison in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        let mut sick = unit_camera();
+        sick.yaw = poison;
+        assert_eq!(sick.sane().yaw, default.yaw);
+
+        let mut sick = unit_camera();
+        sick.distance = poison;
+        assert_eq!(sick.sane().distance, default.distance);
+
+        // The target is three numbers and goes as one: half a position is not
+        // a position, so a single bad axis takes the whole point with it.
+        let mut sick = unit_camera();
+        sick.target = Vec3::new(1.0, poison, 3.0);
+        assert_eq!(sick.sane().target, default.target);
+    }
+
+    // The projection is not a number and has no range to fall outside of, so it
+    // comes through whatever else did not.
+    let mut ortho = unit_camera();
+    ortho.projection = Projection::Orthographic;
+    ortho.pitch = 9.0;
+    assert_eq!(ortho.sane().projection, Projection::Orthographic);
+}
+
 #[test]
 fn frame_pulls_back_until_the_bounds_fit() {
     let mut camera = unit_camera();

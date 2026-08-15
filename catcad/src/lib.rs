@@ -314,7 +314,7 @@ impl CatCad {
     /// Write the document to `path`, and note how it went.
     fn write(&mut self, path: PathBuf) {
         match self.document.save_to(&path) {
-            Ok(()) => self.filing.settled(path, self.document.edits(), "saved to"),
+            Ok(()) => self.filing.wrote(path, self.document.edits()),
             // Where the document lives is left where it was. A write that
             // failed changed nothing, and a document that had been saved
             // before this one is still saved.
@@ -327,7 +327,7 @@ impl CatCad {
     /// Everything this run has made of the document that was open goes with it,
     /// and the order is what makes a refusal harmless: nothing here is written
     /// until the file has been read, parsed, checked and solved — see
-    /// [`Document::read`].
+    /// [`Document::open`].
     fn read(&mut self, path: PathBuf) {
         let document = match Document::open(&mut self.build, &path) {
             Ok(document) => document,
@@ -340,7 +340,7 @@ impl CatCad {
         // cannot be taken back off the one that replaced it.
         self.session = Session::new(self.document.opening());
         self.history = History::default();
-        self.filing.settled(path, self.document.edits(), "opened");
+        self.filing.opened(path, self.document.edits());
         // The scenery stays. Nothing put it there and nothing takes it away —
         // it stands around whichever document is open.
     }

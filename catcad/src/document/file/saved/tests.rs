@@ -15,13 +15,22 @@ fn written(timeline: &Timeline) -> String {
         .expect("a document encodes")
 }
 
+/// The timeline `text` says, or the first thing wrong with it.
+///
+/// Both refusals under one type, which is what lets the sweep below hold a
+/// version stamp and a dangling reference in the same table: one is found while
+/// parsing and the other while walking, and to whoever opened the file they are
+/// the same answer. The same pair, in the same order, as
+/// [`Document::open`](crate::document::Document) — this is that call without a
+/// disk under it.
+fn opened(text: &str) -> Result<Timeline, LoadError> {
+    Saved::parse(text)?.timeline().map_err(LoadError::Fault)
+}
+
 /// The timeline `text` says, which has to be a document that parses and makes
 /// sense.
 fn read(text: &str) -> Timeline {
-    Saved::parse(text)
-        .expect("the text is a document")
-        .timeline()
-        .expect("the document makes sense")
+    opened(text).expect("the text is a document that makes sense")
 }
 
 /// A document of `steps`, stamped `version`.
@@ -376,18 +385,12 @@ fn a_document_that_says_something_impossible_is_refused() {
     ];
 
     for (text, expected) in refused {
-        let outcome = Saved::parse(&text).and_then(|saved| {
-            saved
-                .timeline()
-                .map(|_| ())
-                .map_err(crate::document::file::error::LoadError::Fault)
-        });
-        match outcome {
-            Err(crate::document::file::error::LoadError::Fault(fault)) => {
+        match opened(&text) {
+            Err(LoadError::Fault(fault)) => {
                 assert_eq!(fault, expected, "the wrong complaint about:\n{text}")
             }
             Err(other) => panic!("{text}\nwas refused for the wrong reason: {other}"),
-            Ok(()) => panic!("this was accepted:\n{text}"),
+            Ok(_) => panic!("this was accepted:\n{text}"),
         }
     }
 }
@@ -398,10 +401,7 @@ fn a_document_that_says_something_impossible_is_refused() {
 fn text_that_is_not_a_document_is_refused() {
     for text in ["", "hello", "(version: 1)", "{\"version\": 1}"] {
         assert!(
-            matches!(
-                Saved::parse(text),
-                Err(crate::document::file::error::LoadError::Parse(_))
-            ),
+            matches!(opened(text), Err(LoadError::Parse(_))),
             "this parsed as a document: {text:?}"
         );
     }

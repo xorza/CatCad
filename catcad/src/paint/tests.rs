@@ -268,16 +268,18 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     assert_eq!(scene.points.len(), 9);
 }
 
-/// A scene is the document's solids and its drawing over them, and nothing that
-/// is not in the document.
+/// A scene is the solids it was handed and the drawing over them, and nothing
+/// else.
 ///
 /// What this pins is that the picture is *derived* — nothing stands in it that
 /// the document does not hold, which is the whole reason saving the document is
-/// enough. The overlay counts are the fixture above's, laid out from the same
-/// sketch by the same writer, so what this adds is the solids and the fact that
-/// one call produces both halves.
+/// enough. The solids are the exception that proves it, and they arrive from
+/// beside the document rather than out of it precisely because no step made
+/// them: they are what saving does *not* write. The overlay counts are the
+/// fixture above's, laid out from the same sketch by the same writer, so what
+/// this adds is the solids and the fact that one call produces both halves.
 #[test]
-fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
+fn a_scene_holds_the_solids_it_was_given_and_the_drawing_and_nothing_else() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
     let picture = scene(

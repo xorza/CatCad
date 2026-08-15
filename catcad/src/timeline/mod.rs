@@ -92,10 +92,13 @@ impl Timeline {
     /// Every step, in the order they were taken, each with the handle that
     /// names it.
     ///
-    /// The whole recipe, which is what saving writes down — and the one caller
-    /// that wants all of it rather than the sketches or the planes. Ordered, so
-    /// a step's position in this is a name a file can use: everything a step is
-    /// built on comes earlier, so a reference is only ever backwards.
+    /// The whole recipe, which is what saving writes down. Ordered, so a step's
+    /// position in this is a name a file can use: everything a step is built on
+    /// comes earlier, so a reference is only ever backwards.
+    ///
+    /// The one walk of the store, which [`Timeline::sketches`] and
+    /// [`Timeline::movable_planes`] narrow rather than repeat — so what a step
+    /// is made of is known in one place.
     pub(crate) fn steps(&self) -> impl Iterator<Item = (FeatureId, &Feature)> {
         self.steps.iter().map(|step| (step.id, &step.feature))
     }
@@ -106,10 +109,9 @@ impl Timeline {
     /// measured *from* rather than something anybody put anywhere, and a
     /// rectangle standing for it would be a rectangle standing for the world.
     pub(crate) fn movable_planes(&self) -> impl Iterator<Item = FeatureId> {
-        self.steps
-            .iter()
-            .filter(|step| matches!(step.feature, Feature::Plane(Datum::Offset { .. })))
-            .map(|step| step.id)
+        self.steps()
+            .filter(|(_, feature)| matches!(feature, Feature::Plane(Datum::Offset { .. })))
+            .map(|(id, _)| id)
     }
 
     /// The plane at `at` as something that can be moved, or `None` where it is
@@ -176,10 +178,9 @@ impl Timeline {
 
     /// Every sketch the timeline holds, in the order they were drawn.
     pub(crate) fn sketches(&self) -> impl Iterator<Item = FeatureId> {
-        self.steps
-            .iter()
-            .filter(|step| matches!(step.feature, Feature::Sketch { .. }))
-            .map(|step| step.id)
+        self.steps()
+            .filter(|(_, feature)| matches!(feature, Feature::Sketch { .. }))
+            .map(|(id, _)| id)
     }
 
     /// Which plane the sketch at `at` is drawn on.

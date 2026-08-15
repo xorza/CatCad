@@ -3,7 +3,7 @@
 use glam::DVec2;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
-use silverpoint::{CircleId, Constraint, Id, PointId, SegmentId};
+use silverpoint::{CircleId, Constraint, PointId, SegmentId};
 
 use crate::document::file::error::{Fault, LoadError, Missing, SaveError};
 use crate::timeline::feature::{Datum, Feature};
@@ -141,11 +141,11 @@ impl Step {
         match feature {
             Feature::Plane(Datum::Ground) => Step::Ground,
             Feature::Plane(Datum::Offset { from, by }) => Step::Plane {
-                from: step_at(steps, *from),
+                from: filed(steps, *from),
                 by: *by,
             },
             Feature::Sketch { on, sketch } => Step::Sketch {
-                on: step_at(steps, *on),
+                on: filed(steps, *on),
                 sketch: Sketch::of(sketch),
             },
         }
@@ -561,25 +561,35 @@ impl Handles {
     }
 
     fn point(&self, at: usize, names: usize) -> Result<PointId, Fault> {
-        self.points.get(names).copied().ok_or(Fault::Unknown {
-            at,
-            what: Missing::Point(names),
-        })
+        held(&self.points, at, names, Missing::Point)
     }
 
     fn segment(&self, at: usize, names: usize) -> Result<SegmentId, Fault> {
-        self.segments.get(names).copied().ok_or(Fault::Unknown {
-            at,
-            what: Missing::Segment(names),
-        })
+        held(&self.segments, at, names, Missing::Segment)
     }
 
     fn circle(&self, at: usize, names: usize) -> Result<CircleId, Fault> {
-        self.circles.get(names).copied().ok_or(Fault::Unknown {
-            at,
-            what: Missing::Circle(names),
-        })
+        held(&self.circles, at, names, Missing::Circle)
     }
+}
+
+/// The handle filed under `names`, or which kind of thing was missing.
+///
+/// `missing` is the [`Missing`] variant for whichever list this is, which is
+/// what the three callers above differ by and the whole of what they differ by.
+/// It is passed rather than inferred because the list cannot say what it is: a
+/// `Vec<Id<T>>` knows its `T`, and `Missing` is about what a *reader* should be
+/// told, which is a noun rather than a type.
+fn held<T: Copy>(
+    ids: &[T],
+    at: usize,
+    names: usize,
+    missing: fn(usize) -> Missing,
+) -> Result<T, Fault> {
+    ids.get(names).copied().ok_or(Fault::Unknown {
+        at,
+        what: missing(names),
+    })
 }
 
 /// Which number `id` is filed under.
@@ -589,14 +599,18 @@ impl Handles {
 /// cold either way: saving happens when someone asks for it, not sixty times a
 /// second.
 ///
+/// One function for a sketch's handles and a timeline's alike, because the
+/// question is the same one twice: both lists were built by walking what is
+/// being written down, so a name that is not in one could not have been written.
+///
 /// Panics where the handle is not in the list, which is a logic error and never
-/// a file's doing: what is being written is what the sketch just handed over,
-/// and geometry naming geometry the same sketch does not hold could not have
-/// been added in the first place.
-fn filed<T>(ids: &[Id<T>], id: Id<T>) -> usize {
+/// a file's doing: what is being written is what the sketch or the timeline just
+/// handed over, and geometry naming geometry the same sketch does not hold could
+/// not have been added in the first place.
+fn filed<T: PartialEq>(ids: &[T], id: T) -> usize {
     ids.iter()
-        .position(|&had| had == id)
-        .expect("the sketch names geometry it holds")
+        .position(|had| *had == id)
+        .expect("what is being written names only what it holds")
 }
 
 /// The plane step `names` refers to, checked both ways a reference can be wrong.
@@ -620,14 +634,6 @@ fn plane_at(
         Feature::Plane(_) => Ok(id),
         Feature::Sketch { .. } => Err(Fault::NotAPlane { at, names }),
     }
-}
-
-/// The step `id` is filed under, for the same reasons [`filed`] is what it is.
-fn step_at(steps: &[FeatureId], id: FeatureId) -> usize {
-    steps
-        .iter()
-        .position(|&had| had == id)
-        .expect("the timeline names a step it holds")
 }
 
 /// Refuse a number that is not one.

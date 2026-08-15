@@ -104,9 +104,51 @@ fn any_sketch_settling_moves_the_documents_one_revision() {
     assert_ne!(after_first, fresh, "settling one sketch went uncounted");
 
     timeline.edit(rings).opened(&mut build);
+    let settled = build.revision();
     assert_ne!(
-        build.revision(),
-        after_first,
+        settled, after_first,
         "settling the other sketch went uncounted"
     );
+
+    // Opening a document counts as a move of it, and counts *on*. A fresh
+    // `Build` would start over at the number this one began at, and a view
+    // compares the revision it last drew against this — so a document opened
+    // into a reset counter could land on one the view believes it has already
+    // drawn and leave the old picture on screen.
+    build.reopened();
+    assert_ne!(build.revision(), settled, "reopening went uncounted");
+    assert_ne!(
+        build.revision(),
+        fresh,
+        "reopening restarted the count, so a view could miss the change"
+    );
+}
+
+/// What a closed document settled is gone rather than left to be read.
+///
+/// The half of [`Build::reopened`] a value cannot show. Everything it holds is
+/// keyed by [`FeatureId`](crate::timeline::FeatureId), and a document opened
+/// from a file numbers its steps from zero like any other — so a report left
+/// behind is not stale so much as *wrong*, an answer about a sketch that no
+/// longer exists filed under the name of one that does. Settling the new sketch
+/// would overwrite it, which is exactly why the reach that has to be caught is
+/// the one *before* it is settled: that is the moment a leftover would answer
+/// instead of admitting it has nothing to say.
+#[test]
+#[should_panic(expected = "this sketch has not been settled")]
+fn reopening_forgets_what_the_last_document_settled() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let boxy = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: square(),
+    });
+
+    let mut build = Build::default();
+    timeline.edit(boxy).opened(&mut build);
+    // Settled, so this answers.
+    let _ = build.settled(boxy).outcome();
+
+    build.reopened();
+    let _ = build.settled(boxy).outcome();
 }

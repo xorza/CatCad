@@ -62,13 +62,25 @@ impl Filing {
         self.report.as_deref()
     }
 
+    /// Note that the document was written to `path`.
+    pub(crate) fn wrote(&mut self, path: PathBuf, edits: Edits) {
+        self.settled(path, edits, "saved to");
+    }
+
+    /// Note that the document was read from `path`.
+    pub(crate) fn opened(&mut self, path: PathBuf, edits: Edits) {
+        self.settled(path, edits, "opened");
+    }
+
     /// Note that the document now lives at `path` and agrees with what is
     /// there.
     ///
-    /// One call for both directions, because saving and opening leave the same
+    /// One body for both directions, because saving and opening leave the same
     /// three facts behind: this is where it lives, this is what it said when it
-    /// got there, and this is what to tell the reader.
-    pub(crate) fn settled(&mut self, path: PathBuf, edits: Edits, did: &str) {
+    /// got there, and this is what to tell the reader. Private, and reached
+    /// through the two above, so the words a reader sees are chosen here rather
+    /// than passed in from wherever the errand landed.
+    fn settled(&mut self, path: PathBuf, edits: Edits, did: &str) {
         self.report = Some(format!("{did} {}", path.display()));
         self.path = Some(path);
         self.saved = Some(edits);
@@ -112,10 +124,10 @@ mod tests {
         assert!(filing.path().is_none());
         assert!(filing.report().is_none());
 
-        filing.settled(PathBuf::from("/tmp/frame.cat"), fresh, "saved to");
+        filing.wrote(PathBuf::from("/tmp/frame.catcad"), fresh);
         assert!(!filing.unsaved(fresh));
-        assert_eq!(filing.path(), Some(Path::new("/tmp/frame.cat")));
-        assert_eq!(filing.report(), Some("saved to /tmp/frame.cat"));
+        assert_eq!(filing.path(), Some(Path::new("/tmp/frame.catcad")));
+        assert_eq!(filing.report(), Some("saved to /tmp/frame.catcad"));
 
         // One edit, and it is unsaved again.
         assert!(filing.unsaved(fresh.stepped()));
@@ -130,18 +142,18 @@ mod tests {
     fn a_refusal_moves_nothing_but_what_the_readout_says() {
         let mut filing = Filing::default();
         let saved = Edits::default();
-        filing.settled(PathBuf::from("/tmp/frame.cat"), saved, "saved to");
+        filing.wrote(PathBuf::from("/tmp/frame.catcad"), saved);
 
         let error = SaveError::Write(std::io::Error::other("the disk is full"));
-        filing.refused_write(Path::new("/tmp/elsewhere.cat"), error);
-        assert_eq!(filing.path(), Some(Path::new("/tmp/frame.cat")));
+        filing.refused_write(Path::new("/tmp/elsewhere.catcad"), error);
+        assert_eq!(filing.path(), Some(Path::new("/tmp/frame.catcad")));
         assert!(
             !filing.unsaved(saved),
             "a refused write unsaved the document"
         );
         assert_eq!(
             filing.report(),
-            Some("/tmp/elsewhere.cat could not be written: the disk is full")
+            Some("/tmp/elsewhere.catcad could not be written: the disk is full")
         );
     }
 }

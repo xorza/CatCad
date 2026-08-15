@@ -56,7 +56,7 @@ pub(crate) fn save(near: Option<&Path>) -> Option<PathBuf> {
     dialog.save_file().as_deref().map(named)
 }
 
-/// A dialog over `.cat` files, opened wherever `near` lives.
+/// A dialog over documents, opened wherever `near` lives.
 ///
 /// The one place either of the two is built, so both wear the same filter and
 /// neither can be given one the other has not.
@@ -73,7 +73,7 @@ fn at(near: Option<&Path>, title: &str) -> rfd::FileDialog {
 /// `path` with the document extension, if it had none of its own.
 ///
 /// Only where there is no extension at all. A name typed bare is a name and
-/// wants one; `drawing.old.cat` already has one, and so does `notes.txt` — a
+/// wants one; `drawing.old.catcad` already has one, and so does `notes.txt` — a
 /// path someone meant, and not this crate's to correct.
 fn named(path: &Path) -> PathBuf {
     match path.extension() {
@@ -90,7 +90,7 @@ mod tests {
     /// already has any is left alone.
     ///
     /// Any, not this one: `notes.txt` is a path someone meant, and a rule that
-    /// counted dots would turn `frame.old.cat` into `frame.old.cat.cat`.
+    /// counted dots would turn `frame.old.catcad` into `frame.old.catcad.catcad`.
     ///
     /// The one thing here a test can reach. What the dialogs above do is put a
     /// window on the screen and wait for a person, so the rest of this module
@@ -98,11 +98,13 @@ mod tests {
     #[test]
     fn a_chosen_path_without_an_extension_is_given_one() {
         for (chosen, want) in [
-            ("frame", "frame.cat"),
-            ("frame.cat", "frame.cat"),
-            ("frame.old.cat", "frame.old.cat"),
+            ("frame", "frame.catcad"),
+            ("frame.catcad", "frame.catcad"),
+            ("frame.old.catcad", "frame.old.catcad"),
             ("notes.txt", "notes.txt"),
-            ("/tmp/a.b/frame", "/tmp/a.b/frame.cat"),
+            // A directory with a dot in it does not count as the file having
+            // one, which is the case a naive search for `.` would get wrong.
+            ("/tmp/a.b/frame", "/tmp/a.b/frame.catcad"),
         ] {
             assert_eq!(
                 named(Path::new(chosen)),

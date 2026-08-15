@@ -3,7 +3,7 @@
 use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
-use palantir::{App, Key, Modifiers, WindowToken};
+use palantir::{App, InputDelta, Key, Modifiers, WindowToken};
 use silverpoint::{Drive, Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::build::Build;
@@ -364,11 +364,7 @@ fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
     // Now the keyboard. The chord has to wake a frame of its own: nothing else
     // is happening, and an undo that waited for an unrelated event would sit
     // unapplied on screen.
-    harness.set_modifiers(Modifiers {
-        ctrl: true,
-        ..Modifiers::NONE
-    });
-    let woken = harness.key(Key::Char('Z'));
+    let woken = ctrl(&mut harness, Key::Char('Z'));
     assert!(
         woken.requests_repaint,
         "Ctrl+Z left the frame asleep, so the undo would not be drawn"
@@ -378,17 +374,12 @@ fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
 
     // And Ctrl+Shift+Z puts it back. The modifiers are matched exactly, so the
     // two chords cannot be confused for one another.
-    harness.set_modifiers(Modifiers {
-        ctrl: true,
-        shift: true,
-        ..Modifiers::NONE
-    });
-    harness.key(Key::Char('Z'));
+    ctrl_shift(&mut harness, Key::Char('Z'));
     frame(&mut app, &mut harness);
     assert_eq!(markers(&app), dragged, "Ctrl+Shift+Z did not put it back");
 
     // With nothing left to put back, the chord changes nothing.
-    harness.key(Key::Char('Z'));
+    ctrl_shift(&mut harness, Key::Char('Z'));
     frame(&mut app, &mut harness);
     assert_eq!(markers(&app), dragged);
 }
@@ -451,11 +442,7 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     );
 
     // Taken back: the point is gone, and so are the freedoms it brought.
-    harness.set_modifiers(Modifiers {
-        ctrl: true,
-        ..Modifiers::NONE
-    });
-    harness.key(Key::Char('Z'));
+    ctrl(&mut harness, Key::Char('Z'));
     frame(&mut app, &mut harness);
     assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the point back");
     assert!(
@@ -468,12 +455,7 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
 
     // And put back, which is the harder direction: the redo has to widen a
     // sketch that has since been narrowed.
-    harness.set_modifiers(Modifiers {
-        ctrl: true,
-        shift: true,
-        ..Modifiers::NONE
-    });
-    harness.key(Key::Char('Z'));
+    ctrl_shift(&mut harness, Key::Char('Z'));
     frame(&mut app, &mut harness);
     assert_eq!(
         markers(&app),
@@ -483,7 +465,6 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
 
     // Three ways to put a tool down, all landing on the same field through the
     // same inbox. Escape first, from wherever the pointer happens to be.
-    harness.set_modifiers(Modifiers::NONE);
     harness.key(Key::Escape);
     frame(&mut app, &mut harness);
     assert_eq!(
@@ -564,13 +545,8 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
     );
 
     // Take the creation back. The point goes, and so does the handle to it.
-    harness.set_modifiers(Modifiers {
-        ctrl: true,
-        ..Modifiers::NONE
-    });
-    harness.key(Key::Char('Z'));
+    ctrl(&mut harness, Key::Char('Z'));
     frame(&mut app, &mut harness);
-    harness.set_modifiers(Modifiers::NONE);
     assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the point back");
     assert_eq!(
         app.session.selection().count(),
@@ -741,13 +717,8 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     assert_eq!(distinct, 4, "the two edges share a point: {ends:?}");
 
     // Ctrl+Z takes back a whole edge, both its points with it.
-    harness.set_modifiers(Modifiers {
-        ctrl: true,
-        ..Modifiers::NONE
-    });
-    harness.key(Key::Char('Z'));
+    ctrl(&mut harness, Key::Char('Z'));
     frame(&mut app, &mut harness);
-    harness.set_modifiers(Modifiers::NONE);
     let sketch = app.document.drawing_at(app.session.editing()).sketch();
     assert_eq!(
         sketch.segments().count(),
@@ -1217,7 +1188,7 @@ fn a_document_written_out_comes_back_the_way_it_was_left() {
 /// A file that will not open leaves the document that is open exactly as it
 /// was, and says why.
 ///
-/// The claim the ordering in [`Document::read`](crate::document::Document) is
+/// The claim the ordering in [`Document::open`](crate::document::Document) is
 /// there to make: nothing is written until the file has been read, parsed,
 /// checked and solved. A build reset before that would have taken the *open*
 /// document's report with it, and every reader of it would panic.
@@ -1263,13 +1234,44 @@ fn points(app: &CatCad) -> Vec<DVec2> {
 }
 
 /// Press `key` with the command modifier down, and let it up again.
-fn ctrl(harness: &mut UiHarness, key: Key) {
-    harness.set_modifiers(Modifiers {
-        ctrl: true,
-        ..Modifiers::NONE
-    });
-    harness.key(key);
+///
+/// Named chords rather than a modifier set spelled out at each press, because
+/// the modifiers are matched *exactly* — `Ctrl+Z` does not fire on
+/// `Ctrl+Shift+Z` — so a press that left a modifier latched from the one before
+/// it would be asking for a different command than it reads as. Letting go is
+/// the half that is easy to forget and impossible to see.
+///
+/// Hands back what the harness said about the press, which is how a test asks
+/// whether the chord woke a frame of its own.
+fn ctrl(harness: &mut UiHarness, key: Key) -> InputDelta {
+    chord(
+        harness,
+        Modifiers {
+            ctrl: true,
+            ..Modifiers::NONE
+        },
+        key,
+    )
+}
+
+/// The same with Shift held too — the other half of every undo pair.
+fn ctrl_shift(harness: &mut UiHarness, key: Key) -> InputDelta {
+    chord(
+        harness,
+        Modifiers {
+            ctrl: true,
+            shift: true,
+            ..Modifiers::NONE
+        },
+        key,
+    )
+}
+
+fn chord(harness: &mut UiHarness, modifiers: Modifiers, key: Key) -> InputDelta {
+    harness.set_modifiers(modifiers);
+    let pressed = harness.key(key);
     harness.set_modifiers(Modifiers::NONE);
+    pressed
 }
 
 /// Take hold of the drawing at `from` and let go at `to`.
