@@ -198,29 +198,30 @@ names entities of *another* step's sketch, so `Saved::timeline` has to keep a
 3. **Done.** `Prism`, `Skinner`, paint, `Part::Solid`; scenery removed, demo and
    visual suite updated.
 4. **Done.** The cap drag.
+5. **Done.** Growing one from the UI, which needed roadmap §5's `Edit` enum
+   first — a step that was not there has no *before* to record.
 
-## What step 4 found
+## What step 2 found
 
-- **`Movable` covers both**, and only its field name had to change. A datum
-  standing off the plane it is measured from and a solid's far end standing off
-  its region's plane are the same arithmetic — one number along a normal, and a
-  line to read it off — so `Grabbed::Datum` and `Grabbed::Cap` carry the same
-  type and differ only in the change they come out as.
-- **The far end alone.** The base lies in the plane the region was drawn on and
-  has nowhere of its own to go, and a wall is carried by both ends at once, so a
-  press on either has to orbit.
-- **A test helper was relying on a coincidence.** `over_pinned` was
-  `sweep(|grip| grip.is_none())` — "anything the drawing will not let go of" —
-  which used to find only the pinned point. A region, a datum and every face of
-  every solid are gripless too, so it started finding the cylinder. It now looks
-  for a fixed point by name.
-
-## Still to do
-
-The extrude cannot be *made* from the UI. Creating one adds a step, and the
-history records a step by keeping what it held before and after — a step that was
-not there has no before. That is roadmap §5, and `Document::extrude` is the seam
-it routes through.
+- **The file format could not wait.** Adding `Feature::Extrude` breaks `Step::of`
+  and `plane_at` the moment the variant exists, because both match `Feature`
+  exhaustively — and a stub would be the shim the house rules refuse. So
+  `VERSION` is 2 and `Profiled`/`Bounded` landed here rather than last.
+- **A profile is written under its own sketch's numbering**, so the loader keeps
+  a `Handles` per step rather than dropping it inside `Sketch::build`.
+  `Step::loaded` hands back a `Loaded` carrying both.
+- **Adding a step is its own way a document changes**, beside `apply` and
+  `restore`, because it has no "before" for the history to record. It went in as
+  `Document::extrude` and stayed that way until step 5 taught the history
+  structural edits — at which point it folded into `apply` and the method went.
+- **The demo grows its solid from the hub, not the frame.** The frame is bounded
+  by the rectangle the arm swings past, and the arm is *made* to be dragged: push
+  it up and two of its bars and the eye cross the base, cutting the frame into
+  six regions and leaving the name fitting none of them. Correct, and a poor
+  thing to open the application on. The hub is one circle nothing else reaches,
+  and the drag it offers is the rim — so the solid resizes rather than vanishing.
+- **The status line reports lost profiles**, which is what makes resolution
+  visible at all before anything draws a solid.
 
 ## What step 3 found
 
@@ -245,33 +246,66 @@ it routes through.
   than scenery hiding it, and the width-measuring helper drops solids for the
   reason it already dropped faces and markers.
 
-## What step 2 found
+## What step 4 found
 
-- **The file format could not wait.** Adding `Feature::Extrude` breaks `Step::of`
-  and `plane_at` the moment the variant exists, because both match `Feature`
-  exhaustively — and a stub would be the shim the house rules refuse. So
-  `VERSION` is 2 and `Profiled`/`Bounded` landed here rather than last.
-- **A profile is written under its own sketch's numbering**, so the loader keeps
-  a `Handles` per step rather than dropping it inside `Sketch::build`.
-  `Step::loaded` hands back a `Loaded` carrying both.
-- **`Document::extrude` is a third way a document changes**, beside `apply` and
-  `restore`, because adding a step has no "before" for the history to record. It
-  is what `Change::Extrude` will route through once the history learns
-  structural edits — roadmap §5, and the same lesson delete and reorder want.
-- **The demo grows its solid from the hub, not the frame.** The frame is bounded
-  by the rectangle the arm swings past, and the arm is *made* to be dragged: push
-  it up and two of its bars and the eye cross the base, cutting the frame into
-  six regions and leaving the name fitting none of them. Correct, and a poor
-  thing to open the application on. The hub is one circle nothing else reaches,
-  and the drag it offers is the rim — so the solid resizes rather than vanishing.
-- **The status line reports lost profiles**, which is what makes resolution
-  visible at all before anything draws a solid.
+- **`Movable` covers both**, and only its field name had to change. A datum
+  standing off the plane it is measured from and a solid's far end standing off
+  its region's plane are the same arithmetic — one number along a normal, and a
+  line to read it off — so `Grabbed::Datum` and `Grabbed::Cap` carry the same
+  type and differ only in the change they come out as.
+- **The far end alone.** The base lies in the plane the region was drawn on and
+  has nowhere of its own to go, and a wall is carried by both ends at once, so a
+  press on either has to orbit.
+- **A test helper was relying on a coincidence.** `over_pinned` was
+  `sweep(|grip| grip.is_none())` — "anything the drawing will not let go of" —
+  which used to find only the pinned point. A region, a datum and every face of
+  every solid are gripless too, so it started finding the cylinder. It now looks
+  for a fixed point by name.
+
+## What step 5 found
+
+- **An intent is `Copy`, and a profile is not.** So `Change::Extrude` carries
+  `{ sketch, region: usize, distance }` and the *document* mints the durable name
+  a line later, where it has the arrangement. Nothing is lost: a region position
+  holds as long as the arrangement it was read from, and that is the frame the
+  intent lands in.
+- **`Edit` is an enum now**, which is what roadmap §5 called for. `Wrote` keeps a
+  step's value at either end; `Added` keeps the step itself, because a redo puts
+  the *same* step back under the same name and by then the timeline no longer has
+  it to copy. `Timeline::drop_newest` and `append` are the pair, and the dropped
+  handle is deliberately never reissued.
+- **"State, not actions" needed a caveat.** It holds for rewrites — a solve can
+  settle on a different branch, a refused drag has no opposite — but undoing a
+  creation really is doing the opposite. That asymmetry is why `Edit` is an enum
+  rather than a wider struct.
+- **`Document::extrude` is gone.** The demo raises the same `Change` a press on
+  the button does, so startup content is made the way a user makes it and there
+  is no second door into creation.
 
 ## Left open
 
 - `Bound { of: Entity, … }` admits points and constraints, which can never bound
   a face. A two-arm `Curve` would be exact and means changing `Edge::of` or
   converting at the boundary. `Entity` for now.
-- `Change::Extent` as the name for restating the depth. `Project(_)` names its
-  value the same way, but `MovePlane` is the closer relative and is verb-shaped.
 - `Prism` becomes `Solid` when a second kind of sweep exists.
+
+(`Change::Extent` was the third of these; it landed as `Change::Carry`, which
+matches the vocabulary the prism is documented in — a region *carried* off its
+plane — and stays clear of `aperture::Extent`.)
+
+## What is not built
+
+Everything the plan set out to do is done. What an extrude still cannot do, and
+where each belongs:
+
+- **Be deleted.** `Edit::Added` undoes a creation, but there is no `Change` that
+  removes a step someone asked to remove. That is the other half of roadmap §5,
+  along with reordering, and deleting a plane cascading to the sketches on it.
+- **Have its depth typed.** The distance is set by the button's default and then
+  dragged. Typing one is roadmap §1, which is about dimensions generally.
+- **Carry a sketch.** `Grown` names a solid's faces durably so that
+  `Datum::OnFace` can be built on one, and `Datum` still has only `Ground` and
+  `Offset`. That is what the naming was *for*, and it is the next thing this
+  design is owed.
+- **Cut rather than add.** No booleans, and none were in scope: `Feature::Extrude`
+  deliberately has no operation field until there is a second operation to name.
