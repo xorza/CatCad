@@ -9,12 +9,6 @@ rather than rework.
 - `DragValue` already has click-to-type and it is off by default; turning it on
   is most of the work.
 
-## 2. Save and load
-
-- Serialize `Document` — the timeline, the camera, and whatever stands in for
-  solids at the time. Open and write files.
-- Needs a serialization dependency — to be agreed.
-
 ## 3. `Profile`: naming a face durably
 
 `Part::Face { sketch, at }` names a face by where it falls in the arrangement's
