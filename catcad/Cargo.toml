@@ -10,6 +10,8 @@ repository.workspace = true
 aperture3d.workspace = true
 glam = { workspace = true, features = ["f64"] }
 palantir.workspace = true
+ron.workspace = true
+serde.workspace = true
 silverpoint.workspace = true
 common = { workspace = true, optional = true }
 
