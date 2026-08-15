@@ -370,7 +370,11 @@ pub(super) struct Triangles {
     /// change — and the second half is the one that is easy to leave out: an
     /// object going *un*lit is not named by the set any more, so asking only
     /// what the set names would leave it drawn in the colour it has just lost.
-    lit: bool,
+    ///
+    /// Named for what was done to the vertices rather than `lit`, which in this
+    /// file is already the buffer a [`Records`] keeps its highlighted copies in
+    /// — a different thing, and one a mesh has no equivalent of.
+    highlighted: bool,
 }
 
 /// Which halves of a triangle list the GPU has yet to be handed.
@@ -416,7 +420,7 @@ impl Triangles {
     /// mesh carries its look in the vertices it was flattened into, so a
     /// highlight that arrives without the geometry moving still has to be
     /// written in — where an overlay would only rebuild its `lit` list. Only
-    /// when it can change something, though: see [`Triangles::relights`].
+    /// when it can change something, though: see [`Triangles::relit_by`].
     pub(super) fn refresh(
         &mut self,
         objects: &mut Batch<Object>,
@@ -439,7 +443,7 @@ impl Triangles {
         let resorted = self.resort(objects.len(), order);
         // What the geometry itself did, which is the half that moves an index.
         let rebuilt = moved | resorted;
-        if rebuilt || (relight && self.relights(objects, highlights)) {
+        if rebuilt || (relight && self.relit_by(objects, highlights)) {
             self.flatten(objects, highlights);
             self.vertices_dirty = true;
             self.indices_dirty |= rebuilt;
@@ -456,8 +460,8 @@ impl Triangles {
     ///
     /// A walk of the objects where being wrong costs a walk of their vertices,
     /// so the asking is free against what it saves.
-    fn relights(&self, objects: &[Object], highlights: &Highlights) -> bool {
-        self.lit
+    fn relit_by(&self, objects: &[Object], highlights: &Highlights) -> bool {
+        self.highlighted
             || objects
                 .iter()
                 .any(|object| highlights.look_of(object.tag).is_some())
@@ -534,7 +538,7 @@ impl Triangles {
             objects.iter().map(|o| o.mesh.vertices.len()).sum(),
             objects.iter().map(|o| o.mesh.indices.len()).sum(),
         );
-        let mut lit = false;
+        let mut highlighted = false;
         for step in 0..self.order.len() {
             // Read out as a number rather than held as a borrow, so the lists
             // this order decides can be written while it is being walked.
@@ -545,7 +549,7 @@ impl Triangles {
             let look = highlights.look_of(object.tag);
             // Remembered rather than recomputed, because the next relight has to
             // know whether this one left a colour behind to undo.
-            lit |= look.is_some();
+            highlighted |= look.is_some();
             let color = look.map_or(object.color, |look| look.color).to_array();
             let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
                 position: object
@@ -559,7 +563,7 @@ impl Triangles {
             });
             self.extend(vertices, &object.mesh.indices);
         }
-        self.lit = lit;
+        self.highlighted = highlighted;
     }
 
     /// Empty it, keeping whatever room it has already grown to.

@@ -299,13 +299,18 @@ impl Pass {
         if rewritten.vertices {
             self.records
                 .write(device, queue, bytemuck::cast_slice(&triangles.vertices));
-            self.instances = 1;
         }
         if rewritten.indices {
             self.indices
                 .write(device, queue, bytemuck::cast_slice(&triangles.indices));
             self.index_count = triangles.indices.len() as u32;
         }
+        // Outside both, because it is not something an upload decides: a
+        // triangle list is one draw of one instance however it got here. Inside
+        // either branch it would be a count that depends on which half was
+        // rewritten, and a mesh whose indices moved alone would quietly stop
+        // being drawn at all.
+        self.instances = 1;
     }
 
     /// Refill from overlay instances, every one of them drawn through the
