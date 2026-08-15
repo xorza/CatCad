@@ -78,14 +78,16 @@ impl Session {
                 // Picking something out opens the sketch it came from. The
                 // one gesture that says which sketch you mean is the one that
                 // says which *thing* you mean, so there is no second one to
-                // learn — and a click on empty space says nothing, so it leaves
-                // open whatever was.
+                // learn — and a click that names no sketch says nothing about
+                // which, so it leaves open whatever was. Empty space is one
+                // such click; a datum plane is the other, being what sketches
+                // are drawn on rather than anything drawn.
                 Intent::Choice(Choice::Select(what)) => {
-                    self.editing = what.map_or(self.editing, Part::sketch);
+                    self.editing = what.and_then(Part::sketch).unwrap_or(self.editing);
                     self.selection.select(what);
                 }
                 Intent::Choice(Choice::Include(what)) => {
-                    self.editing = what.sketch();
+                    self.editing = what.sketch().unwrap_or(self.editing);
                     self.selection.include(what);
                 }
                 // The history's, and the document's through it. Landed by
@@ -181,5 +183,21 @@ mod tests {
         intents.push(Choice::Include(first.part(Entity::Point(one))));
         session.apply(&intents);
         assert_eq!(session.editing(), here);
+
+        // A datum plane is the other click that names no sketch: it is what
+        // sketches are drawn *on*, so picking one leaves open whatever was —
+        // and it stays picked out, because the document still holds it.
+        intents.clear();
+        intents.push(Choice::Select(Some(Part::Plane(ground))));
+        session.apply(&intents);
+        assert_eq!(session.editing(), here, "picking a plane closed the sketch");
+        assert!(session.selection().contains(Part::Plane(ground)));
+
+        let models = Models::new(&timeline, &build, here);
+        session.prune(models);
+        assert!(
+            session.selection().contains(Part::Plane(ground)),
+            "a plane the document still holds was pruned out of the selection"
+        );
     }
 }

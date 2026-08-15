@@ -8,15 +8,17 @@
 //! the renderer's `f32`, and the only place it does.
 
 use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text, Vertex};
-use glam::{Mat4, Vec2, Vec3};
+use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Constraint, Freedom, Plane, Segment, SegmentId};
 use std::fmt::Write;
 
 use crate::model::{Model, Models};
 use crate::names::Names;
 use crate::paint::layout::{Layout, Made, Sheets};
+use crate::part::Part;
 use crate::preview::{Ends, Preview};
+use crate::timeline::FeatureId;
 
 pub(crate) mod layout;
 
@@ -48,6 +50,20 @@ const DETERMINED: Vec3 = Vec3::new(0.35, 0.55, 0.80);
 const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
 const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
 const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
+
+/// What a datum plane is outlined in.
+///
+/// Dimmer than anything drawn *on* one and cooler than all of it: a datum is
+/// where geometry goes rather than geometry, and reads as the frame around a
+/// drawing rather than as part of it.
+const DATUM: Vec3 = Vec3::new(0.33, 0.40, 0.50);
+
+/// How far a datum's outline stands clear of what is drawn on it, in sketch
+/// units.
+///
+/// Enough that the outline is not mistaken for something the sketch states,
+/// and little enough that a plane still reads as belonging to what is on it.
+const DATUM_MARGIN: f64 = 0.9;
 
 /// What a sketch that is not the one open is drawn in.
 ///
@@ -318,6 +334,31 @@ fn write_faces(
     );
 }
 
+/// The middle of everything drawn on the plane at `at`, and how far it reaches
+/// from there — or `None` where nothing is drawn on it.
+///
+/// In the plane's own coordinates, because that is what a datum is outlined in:
+/// a plane that moves carries its outline with it for the same reason it
+/// carries the sketches, which is that neither is measured in the world.
+///
+/// A plane with nothing on it has no size to be drawn at. A nominal square
+/// would be a number invented here and belonging to nothing — where an outline
+/// around what is actually there says what the plane is *for*.
+fn spanned(models: Models<'_>, at: FeatureId) -> Option<(DVec2, DVec2)> {
+    let mut low = DVec2::splat(f64::INFINITY);
+    let mut high = DVec2::splat(f64::NEG_INFINITY);
+    for model in models.iter().filter(|model| model.on() == at) {
+        for (_, point) in model.sketch().points() {
+            low = low.min(point.position);
+            high = high.max(point.position);
+        }
+    }
+    (low.x <= high.x).then(|| {
+        let margin = DVec2::splat(DATUM_MARGIN);
+        ((low + high) * 0.5, (high - low) * 0.5 + margin)
+    })
+}
+
 /// A mark per constraint, saying what relation holds and where.
 ///
 /// Set in type rather than drawn as geometry, which is what makes the whole set
@@ -446,13 +487,17 @@ fn write_curves(
     // once a frame for as long as a line is being drawn.
     curves.refill(
         models
-            .iter()
-            .flat_map(|model| {
+            .planes()
+            .filter_map(|(at, plane)| {
+                let (middle, reach) = spanned(models, at)?;
+                Some(Stroke::Datum(at, plane, middle, reach))
+            })
+            .chain(models.iter().flat_map(|model| {
                 model
                     .sketch()
                     .segments()
                     .map(move |(id, edge)| Stroke::Edge(model, id, edge))
-            })
+            }))
             .chain(band.map(Stroke::Band)),
         |curve, stroke| {
             curve.width = EDGE_WIDTH;
@@ -471,6 +516,20 @@ fn write_curves(
                 // skips a primitive with no tag, so it cannot be hovered,
                 // grabbed or picked out, and the click that finishes the line
                 // resolves against the geometry behind it.
+                // One closed stroke rather than four, so a datum is one thing
+                // to hover, one thing to pick and one tag to light.
+                Stroke::Datum(at, plane, middle, reach) => {
+                    curve.points.clear();
+                    curve
+                        .points
+                        .extend([(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(
+                            |(x, y)| plane.point(middle + reach * DVec2::new(x, y)).as_vec3(),
+                        ));
+                    curve.closed = true;
+                    curve.color = DATUM;
+                    curve.plane_normal = Some(plane.normal().as_vec3());
+                    curve.tag = Some(names.tag(Part::Plane(at)));
+                }
                 Stroke::Band(ends) => {
                     curve.set_segment(ends.from, ends.to);
                     curve.color = GHOST;
@@ -487,6 +546,8 @@ fn write_curves(
 #[derive(Debug)]
 enum Stroke<'a> {
     Edge(Model<'a>, SegmentId, Segment),
+    /// A datum plane, as the rectangle around what is drawn on it.
+    Datum(FeatureId, Plane, DVec2, DVec2),
     Band(Ends),
 }
 

@@ -40,6 +40,8 @@ pub(crate) struct Model<'a> {
     /// Which sketch of the timeline this is, which is half of what names
     /// anything picked out of it — see [`Part`].
     of: FeatureId,
+    /// Which plane it is drawn on.
+    on: FeatureId,
     /// Whether this is the sketch being edited.
     ///
     /// Not a fact about the document — which sketch you have open is the
@@ -54,22 +56,6 @@ pub(crate) struct Model<'a> {
 }
 
 impl<'a> Model<'a> {
-    /// The drawing at `at`, as `build` last left it, read as the one being
-    /// edited.
-    ///
-    /// Private, and [`Models`] is the whole of what it is reachable through.
-    /// Whether a model is the live one is not something a caller can be trusted
-    /// to say — it is whether it is the one the session has open, and the only
-    /// thing holding both halves of that is a `Models`.
-    fn new(drawing: Drawing<'a>, build: &'a Build, at: FeatureId) -> Self {
-        Self {
-            of: at,
-            live: true,
-            drawing,
-            settled: build.settled(at),
-        }
-    }
-
     /// The sketch and the plane it lies on.
     pub(crate) fn drawing(self) -> Drawing<'a> {
         self.drawing
@@ -98,6 +84,11 @@ impl<'a> Model<'a> {
     /// Which sketch of the timeline this is.
     pub(crate) fn of(self) -> FeatureId {
         self.of
+    }
+
+    /// Which plane this sketch is drawn on.
+    pub(crate) fn on(self) -> FeatureId {
+        self.on
     }
 
     /// Whether this is the sketch being edited.
@@ -133,7 +124,9 @@ impl<'a> Model<'a> {
     /// another would resolve here as whatever happens to sit at that slot. What
     /// asks this is anything that would go on to *use* the handle.
     pub(crate) fn entity(self, part: Part) -> Option<Entity> {
-        (part.sketch() == self.of).then(|| part.entity()).flatten()
+        (part.sketch() == Some(self.of))
+            .then(|| part.entity())
+            .flatten()
     }
 
     /// Every constraint `picked` admits, written into `into`.
@@ -235,6 +228,9 @@ impl<'a> Model<'a> {
         match part {
             Part::Entity { sketch, entity } => sketch == self.of && self.drawing.holds(entity),
             Part::Face { sketch, at } => sketch == self.of && at < self.arrangement().faces().len(),
+            // Not a sketch's to answer for — see [`Models::holds`], which puts
+            // the question to whatever can.
+            Part::Plane(_) => false,
         }
     }
 }
@@ -282,6 +278,7 @@ impl<'a> Models<'a> {
         } = self;
         timeline.sketches().map(move |at| Model {
             of: at,
+            on: timeline.drawn_on(at),
             live: at == editing,
             drawing: timeline.drawing(at),
             settled: build.settled(at),
@@ -289,12 +286,25 @@ impl<'a> Models<'a> {
     }
 
     /// The one being edited.
+    ///
+    /// Found among the rest rather than built apart from them, so there is one
+    /// place a model is made and no second one to drift: whether a model is
+    /// live is decided by the same line for all of them.
     pub(crate) fn open(self) -> Model<'a> {
-        Model::new(
-            self.timeline.drawing(self.editing),
-            self.build,
-            self.editing,
-        )
+        self.iter()
+            .find(|model| model.of() == self.editing)
+            .expect("the sketch being edited is one the document holds")
+    }
+
+    /// Every plane that can be moved, with where it lies.
+    ///
+    /// What is *drawn* as a datum — see
+    /// [`Timeline::movable_planes`](crate::timeline::Timeline::movable_planes).
+    pub(crate) fn planes(self) -> impl Iterator<Item = (FeatureId, Plane)> {
+        let timeline = self.timeline;
+        timeline
+            .movable_planes()
+            .map(move |at| (at, timeline.plane(at)))
     }
 
     /// The plane the open sketch is drawn on, if it is one that can be moved.
@@ -312,12 +322,17 @@ impl<'a> Models<'a> {
         self.editing
     }
 
-    /// Whether any of them still holds `part`.
+    /// Whether the document still holds `part`.
     ///
-    /// Asked of all rather than of the open one: what is picked out may span
-    /// sketches, and a part of one nobody is in is still there to be picked.
+    /// Asked of every sketch rather than of the open one: what is picked out
+    /// may span them, and a part of one nobody is in is still there to be
+    /// picked. A plane belongs to no sketch, so it is the timeline that
+    /// answers for one.
     pub(crate) fn holds(self, part: Part) -> bool {
-        self.iter().any(|model| model.holds(part))
+        match part {
+            Part::Plane(at) => self.timeline.holds(at),
+            _ => self.iter().any(|model| model.holds(part)),
+        }
     }
 }
 

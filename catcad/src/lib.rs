@@ -179,11 +179,8 @@ impl CatCad {
             // draws it, which is a different command and not this one — so a
             // face picked out alongside an edge lets the edge go and stays.
             for part in self.session.selection().picked() {
-                if let Some(entity) = part.entity() {
-                    self.intents.push(Change::Delete {
-                        sketch: part.sketch(),
-                        entity,
-                    });
+                if let (Some(sketch), Some(entity)) = (part.sketch(), part.entity()) {
+                    self.intents.push(Change::Delete { sketch, entity });
                 }
             }
         }
@@ -305,6 +302,7 @@ fn noun(part: Part) -> &'static str {
             ..
         } => "constraint",
         Part::Face { .. } => "face",
+        Part::Plane(_) => "plane",
     }
 }
 

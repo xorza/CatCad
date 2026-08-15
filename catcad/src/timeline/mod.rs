@@ -49,7 +49,7 @@ impl Timeline {
     }
 
     /// Whether the timeline still has the step `id` names.
-    fn holds(&self, id: FeatureId) -> bool {
+    pub(crate) fn holds(&self, id: FeatureId) -> bool {
         self.steps.iter().any(|step| step.id == id)
     }
 
@@ -85,6 +85,23 @@ impl Timeline {
             panic!("{at:?} does not name a plane that can be moved");
         };
         *by = to;
+    }
+
+    /// Every plane that can be moved, in the order they were put there.
+    ///
+    /// Only these are drawn. The world's own ground is what everything else is
+    /// measured *from* rather than something anybody put anywhere, and a
+    /// rectangle standing for it would be a rectangle standing for the world.
+    pub(crate) fn movable_planes(&self) -> impl Iterator<Item = FeatureId> {
+        self.steps
+            .iter()
+            .filter(|step| matches!(step.feature, Feature::Plane(Datum::Offset { .. })))
+            .map(|step| step.id)
+    }
+
+    /// Which plane the sketch at `at` is drawn on.
+    pub(crate) fn drawn_on(&self, at: FeatureId) -> FeatureId {
+        self.sketch_plane(at)
     }
 
     /// The plane the sketch at `at` is drawn on, if it is one that can be

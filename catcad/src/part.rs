@@ -35,16 +35,24 @@ pub(crate) enum Part {
     /// geometry leaves a face where it was in the list, and something that
     /// changes what crosses what may not.
     Face { sketch: FeatureId, at: usize },
+    /// A datum plane, named by the step that put it there.
+    ///
+    /// The one part that belongs to no sketch. A plane is a step of the
+    /// timeline in its own right — what sketches are drawn *on* rather than
+    /// anything drawn — which is why the sketch below is an answer some parts
+    /// do not have.
+    Plane(FeatureId),
 }
 
 impl Part {
-    /// Which sketch this belongs to.
+    /// Which sketch this belongs to, or `None` where it belongs to none.
     ///
-    /// Total where [`Part::entity`] is not: everything a cursor can land on is
-    /// part of some sketch, and which one is half of what names it.
-    pub(crate) fn sketch(self) -> FeatureId {
+    /// A plane is the one thing here that is not part of a sketch, and the
+    /// `None` is what says so: it is what a sketch is drawn on.
+    pub(crate) fn sketch(self) -> Option<FeatureId> {
         match self {
-            Part::Entity { sketch, .. } | Part::Face { sketch, .. } => sketch,
+            Part::Entity { sketch, .. } | Part::Face { sketch, .. } => Some(sketch),
+            Part::Plane(_) => None,
         }
     }
 
@@ -55,7 +63,7 @@ impl Part {
     pub(crate) fn entity(self) -> Option<Entity> {
         match self {
             Part::Entity { entity, .. } => Some(entity),
-            Part::Face { .. } => None,
+            Part::Face { .. } | Part::Plane(_) => None,
         }
     }
 }

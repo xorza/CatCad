@@ -527,7 +527,7 @@ impl SceneView {
         // Only what the open sketch holds is something to build *on*: a point
         // of another names a handle this sketch would read as one of its own,
         // so anything else is a click on the bare plane behind it.
-        let under = under.filter(|part| part.sketch() == editing);
+        let under = under.filter(|part| part.sketch() == Some(editing));
         match under.and_then(Part::entity) {
             Some(Entity::Point(id)) => Some(Anchor::On(id)),
             Some(Entity::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
@@ -577,7 +577,7 @@ impl SceneView {
                 // entity alone would take hold of whatever sat at that slot in
                 // the open sketch. See [`Part`](crate::part::Part).
                 let drawing = document.drawing_at(editing);
-                let grip = (part.sketch() == editing)
+                let grip = (part.sketch() == Some(editing))
                     .then(|| drawing.grip(part.entity()?, hit.at))
                     .flatten()?;
                 let motion = drawing.motion();

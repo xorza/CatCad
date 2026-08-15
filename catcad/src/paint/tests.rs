@@ -292,9 +292,11 @@ fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
 
     // The slab and the three boxes standing on it, and both sketches: the
     // frame's seven edges and the triangle's three, two rims, nine markers and
-    // three.
+    // three. The eleventh stroke is the shelf plane's own outline — the ground
+    // draws none, being where the world is rather than a plane anybody put
+    // there.
     assert_eq!(picture.solids.len(), 4);
-    assert_eq!(picture.curves.len(), 10);
+    assert_eq!(picture.curves.len(), 11);
     assert_eq!(picture.rings.len(), 2);
     assert_eq!(picture.points.len(), 12);
 }
@@ -504,7 +506,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
                 curve
                     .tag
                     .and_then(|tag| layout.names().get(tag))
-                    .is_some_and(|part| part.sketch() == of)
+                    .is_some_and(|part| part.sketch() == Some(of))
             })
             .map(|curve| curve.color)
             .collect::<Vec<_>>()
@@ -531,4 +533,85 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
         "the picture did not follow the open sketch"
     );
     assert_eq!(drawn(&scene, &layout, there), [FREE]);
+}
+
+/// A plane that can be moved is outlined around what is drawn on it, and one
+/// that cannot is not drawn at all.
+///
+/// The outline is what makes a datum a thing to aim at — and it is one closed
+/// stroke rather than four, so a cursor over any edge of it is over the plane
+/// rather than over a quarter of one.
+///
+/// The ground draws nothing. It is what everything else is measured *from*
+/// rather than something anybody put anywhere, and a rectangle standing for it
+/// would be a rectangle standing for the world.
+#[test]
+fn a_movable_plane_is_outlined_around_what_is_drawn_on_it() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let mut layout = Layout::default();
+    let mut scene = Scene::default();
+    redraw(
+        document.models(&build, document.opening()),
+        &mut layout,
+        None,
+        &mut scene,
+    );
+
+    let outlines: Vec<_> = scene
+        .curves
+        .iter()
+        .filter(|curve| {
+            matches!(
+                curve.tag.and_then(|tag| layout.names().get(tag)),
+                Some(Part::Plane(_))
+            )
+        })
+        .collect();
+    let [outline] = outlines[..] else {
+        panic!("the demo holds one movable plane, not {}", outlines.len());
+    };
+    assert!(
+        outline.closed,
+        "a datum was drawn as an open run of strokes"
+    );
+    assert_eq!(outline.points.len(), 4, "a datum is a rectangle");
+
+    // It brackets every point of the sketch on it, clear by the margin. Read
+    // in the world, where the plane put both: the outline is drawn in the same
+    // coordinates the sketch is, so a plane that moved would carry the two
+    // together and this would still hold.
+    let Some(Part::Plane(at)) = outline.tag.and_then(|tag| layout.names().get(tag)) else {
+        unreachable!("the outline was found by its tag naming a plane");
+    };
+    let models = document.models(&build, document.opening());
+    let on_it: Vec<_> = models
+        .iter()
+        .filter(|model| model.on() == at)
+        .flat_map(|model| {
+            let plane = model.plane();
+            model
+                .sketch()
+                .points()
+                .map(move |(_, point)| plane.point(point.position).as_vec3())
+        })
+        .collect();
+    assert!(
+        !on_it.is_empty(),
+        "nothing is drawn on the plane that was drawn"
+    );
+    let low = outline
+        .points
+        .iter()
+        .fold(Vec3::MAX, |low, &at| low.min(at));
+    let high = outline
+        .points
+        .iter()
+        .fold(Vec3::MIN, |high, &at| high.max(at));
+    for point in on_it {
+        assert!(
+            point.cmpge(low).all() && point.cmple(high).all(),
+            "{point:?} is drawn outside the outline of the plane it is on"
+        );
+    }
 }
