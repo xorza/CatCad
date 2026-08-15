@@ -21,14 +21,21 @@ const DEPTH: usize = 100;
 /// writes down; how it came to say that belongs to this run of the program and
 /// is thrown away with it.
 ///
-/// **State, not actions.** A step records where the drawing was and where it
-/// went, and undoing puts a value back rather than doing the opposite of what
-/// was done. There is no choice about that: an edit is followed by a solve, and
-/// a solve moves whatever the constraints couple to what was edited. Dragging a
-/// point back to where it started runs a *different* solve from a *different*
-/// starting guess, and one that can settle on a different branch — the demo's
-/// own hub admits a mirrored solution. And a drag the constraints refuse did
-/// nothing at all, which has no opposite to do.
+/// **State, not actions, wherever there is a state to keep.** A rewritten step
+/// records where the drawing was and where it went, and undoing puts a value
+/// back rather than doing the opposite of what was done. There is no choice
+/// about that: an edit is followed by a solve, and a solve moves whatever the
+/// constraints couple to what was edited. Dragging a point back to where it
+/// started runs a *different* solve from a *different* starting guess, and one
+/// that can settle on a different branch — the demo's own hub admits a mirrored
+/// solution. And a drag the constraints refuse did nothing at all, which has no
+/// opposite to do.
+///
+/// A *creation* is the one place the rule cannot hold, and it is why [`Edit`] is
+/// an enum. There is no earlier state of a step that was not there, so undoing
+/// one really is doing the opposite: the step comes off again. Nothing is lost
+/// by it, because taking a step away has none of the ambiguity putting geometry
+/// somewhere has — it is gone or it is not.
 #[derive(Debug, Default)]
 pub(crate) struct History {
     edits: Vec<Edit>,
@@ -106,22 +113,25 @@ impl History {
             document.apply(build, change);
             return;
         };
-        // The open step has to name the same step of the timeline, not merely
-        // be open. With one drawing there was nothing else a change could be
-        // about; with several, a gesture in one followed by a gesture in
-        // another would otherwise extend the first step with the second's far
-        // end.
-        let extending = self.open
+        // The open step has to be a rewrite *of this step*, not merely open.
+        // With one drawing there was nothing else a change could be about; with
+        // several, a gesture in one followed by a gesture in another would
+        // otherwise extend the first step with the second's far end. And a
+        // creation is never extended: it happened once, and whatever the pointer
+        // does next is a different thing done.
+        //
+        // One chain rather than a test and a match, so what the test established
+        // is what the binding carries — there is no arm left over for a
+        // `unreachable!` to stand in.
+        if self.open
             && change.coalesces()
-            && self.edits.last().is_some_and(|edit| edit.rewrote(at));
-        if extending {
+            && let Some(Edit::Wrote { at: had, after, .. }) = self.edits.last_mut()
+            && *had == at
+        {
             document.apply(build, change);
             // The open step's far end follows the gesture, in place: a drag
             // lasting a second rewrites one buffer sixty times rather than
             // leaving sixty steps to take back one at a time.
-            let Some(Edit::Wrote { after, .. }) = self.edits.last_mut() else {
-                unreachable!("an open step is a rewrite, and one is on the stack");
-            };
             document.feature_into(at, after);
             return;
         }
@@ -256,17 +266,6 @@ pub(crate) enum Edit {
     /// The feature travels with it because a redo puts the *same* step back
     /// under the same name, and by then the timeline no longer has it to copy.
     Added { at: FeatureId, feature: Feature },
-}
-
-impl Edit {
-    /// Whether this is a rewrite of the step at `at`, which is what a gesture
-    /// still under way extends.
-    ///
-    /// A creation is never extended: it happened once, and the next thing the
-    /// pointer does is a different thing done.
-    fn rewrote(&self, at: FeatureId) -> bool {
-        matches!(self, Edit::Wrote { at: had, .. } if *had == at)
-    }
 }
 
 #[cfg(test)]

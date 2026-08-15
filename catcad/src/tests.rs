@@ -8,6 +8,7 @@ use silverpoint::{Drive, Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::build::Build;
 use crate::demo;
+use crate::intent::{Choice, Intents};
 use crate::model::Models;
 use crate::timeline::Timeline;
 use crate::tool::Tool;
@@ -1335,8 +1336,8 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
         .models(&app.build, app.session.editing())
         .open()
         .region(0);
-    let mut intents = crate::intent::Intents::default();
-    intents.push(crate::intent::Choice::Select(Some(frame_region)));
+    let mut intents = Intents::default();
+    intents.push(Choice::Select(Some(frame_region)));
     app.session.apply(&intents);
     frame(&mut app, &mut harness);
 

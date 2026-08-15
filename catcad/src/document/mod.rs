@@ -305,12 +305,12 @@ impl Document {
     /// stands are each somebody else's, and none of them can be handed here to
     /// be refused at runtime — the type refuses them.
     ///
-    /// One of exactly three ways a document changes, and one of the two that
-    /// rewrite a step already there: this is what someone asked for and
-    /// [`Document::restore`] is what the history puts back. The third is
-    /// [`Document::extrude`], which adds a step rather than writing one — see
-    /// its own doc for why that cannot be a [`Change`]. Everything else a
-    /// document hands out is `&self`.
+    /// One of exactly four ways a document changes, and the only one anybody
+    /// *asks* for. [`Document::restore`] is what the history puts back, and
+    /// [`Document::take_back`] and [`Document::put_again`] are how it undoes and
+    /// redoes a step being added — which this call is what performs, since a
+    /// creation is asked for like anything else and only its *recording* is
+    /// special. Everything else a document hands out is `&self`.
     ///
     /// `build` is the caller's. Solving is what an edit to a drawing *is*,
     /// and a solve wants room to work in — and leaves a report behind — that is
