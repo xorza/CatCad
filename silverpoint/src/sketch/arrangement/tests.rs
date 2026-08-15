@@ -249,6 +249,60 @@ fn a_face_fills_to_the_area_it_encloses() {
     let mut drawn = Vec::new();
     found.drawn_by(ring, &mut drawn);
     assert_eq!(drawn.len(), 1, "the ring is drawn by one circle");
+
+    // A second hole, clear of the first, and the fill still covers exactly what
+    // the face says it does.
+    //
+    // The one that has to be asked separately rather than trusted to follow.
+    // Every hole of a face is traced into *one* buffer, each recording where it
+    // landed in it — so a tracer that emptied that buffer rather than appending
+    // to it would leave the first hole overwritten by the second and the second
+    // recorded as the fragment past where the first had ended. Neither hole
+    // then closes, and the region lost outright gets filled over: with one hole
+    // there is nothing to overwrite and nothing to notice.
+    let far = point(&mut sketch, -1.2, 1.0);
+    sketch.add_circle(far, 0.6);
+    let found = arranged(&sketch);
+    let ring = found
+        .faces()
+        .iter()
+        .find(|face| face.holes() == 2)
+        .expect("the outer circle has both smaller ones cut from it");
+    Filler::default().fill(&found, ring, 1e-4, &mut fill);
+
+    // Both holes are there to be cut out: the corners are the outline's and
+    // then each hole's, so a hole that went missing shows up as a short list
+    // before it shows up as area.
+    assert!(
+        fill.corners.len() > 3,
+        "the fill kept no corners: {}",
+        fill.corners.len()
+    );
+    let covered: f64 = fill
+        .triangles
+        .iter()
+        .map(|&[a, b, c]| {
+            let (a, b, c) = (
+                fill.corners[a as usize],
+                fill.corners[b as usize],
+                fill.corners[c as usize],
+            );
+            (b - a).perp_dot(c - a) / 2.0
+        })
+        .sum();
+    assert!(
+        covered < ring.area() && covered > ring.area() * 0.9999,
+        "{covered} against {} — a hole was filled over",
+        ring.area()
+    );
+    // The area itself is the three circles, so the fill is being checked
+    // against a number the drawing states rather than one it computed.
+    let stated = PI * (3.0 * 3.0 - 1.0 * 1.0 - 0.6 * 0.6);
+    assert!(
+        (ring.area() - stated).abs() < 1e-9,
+        "{} against {stated}",
+        ring.area()
+    );
 }
 
 /// The order faces come back in survives the geometry moving.

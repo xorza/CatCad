@@ -131,8 +131,16 @@ impl Arrangement {
     /// place curves become corners: the topology above is exact, and how fine
     /// this should be depends on how large the face lands on screen, which is
     /// the caller's question and not the arrangement's.
+    ///
+    /// **Appends.** Whatever is already in `into` stays, because a caller
+    /// tracing the holes of a face traces them all into one buffer — see
+    /// [`Loops::add`], which hands over the shared run and records where this
+    /// left off. Clearing here emptied that run instead, so the second hole of
+    /// any face wiped the first and the run recorded for it read the front of
+    /// the second: one hole lost outright, the other cut down to a fragment
+    /// that no longer closed. A caller wanting the buffer emptied empties it,
+    /// which is what filling an outline does.
     fn trace(&self, boundary: &[Half], sagitta: f64, into: &mut Vec<DVec2>) {
-        into.clear();
         for half in boundary {
             self.edges[half.edge].walk(&self.corners, half.forward, sagitta, into);
         }
