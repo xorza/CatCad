@@ -515,9 +515,12 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
     let mut app = CatCad::build();
     {
         let mut view = app.renderer().borrow_mut();
-        // Nothing else in the frame, so every lit pixel is the rim.
+        // Nothing else in the frame, so every lit pixel is the rim. The faces
+        // among them: the demo's outlines enclose a filled sheet, and a sheet
+        // is as much "something else" as the slab under it.
         let scene = view.scene_mut();
-        scene.objects.clear();
+        scene.solids.clear();
+        scene.faces.clear();
         scene.curves.clear();
         scene.points.clear();
         // Square to the eye, so the circle projects to a circle and roundness
@@ -622,12 +625,15 @@ fn deposited(pitch: f32, overlay: Overlay) -> f32 {
     edge_on(pitch)(app.camera_mut());
     {
         let mut renderer = app.renderer().borrow_mut();
-        // The markers and the constraint marks go in both cases: they are
-        // neither of the two, and they sit on the ends of every edge the column
-        // crosses and in the middle of what each relation names.
+        // The markers, the constraint marks and the faces go in both cases:
+        // none is either of the two overlays being weighed, and each lands in
+        // the columns measured below — the first two on the ends of every edge
+        // the column crosses and in the middle of what each relation names, and
+        // the last as a change of ground behind the very stroke being counted.
         let scene = renderer.scene_mut();
         scene.points.clear();
         scene.texts.clear();
+        scene.faces.clear();
         match overlay {
             Overlay::Curves => scene.rings.clear(),
             Overlay::Rings => scene.curves.clear(),
@@ -999,7 +1005,7 @@ fn a_label_is_drawn_at_its_anchor_and_hidden_by_what_is_in_front_of_it() {
     // The same label behind a plate. Thin, so it is wholly between the eye at
     // five and the anchor at zero rather than straddling either.
     let mut behind = alone.clone();
-    behind.objects.push(Object {
+    behind.solids.push(Object {
         mesh: Mesh::cube(1.0),
         transform: Mat4::from_translation(Vec3::new(0.0, 0.0, 2.0))
             * Mat4::from_scale(Vec3::new(8.0, 8.0, 0.2)),

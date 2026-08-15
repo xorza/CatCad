@@ -11,7 +11,7 @@
 //! # use palantir::{Configure, GpuPaint, GpuView, Sizing, Ui};
 //! # fn demo(ui: &mut Ui, renderer: &Rc<RefCell<Renderer>>) {
 //! let mut scene = Scene::default();
-//! scene.objects.push(Object::new(Mesh::cube(1.0)));
+//! scene.solids.push(Object::new(Mesh::cube(1.0)));
 //! scene.curves.push(Curve::segment(Vec3::ZERO, Vec3::X));
 //! scene.points.push(Point::new(Vec3::X));
 //! scene.texts.push(Text::new(Vec3::X, "1.0", 12.0));
@@ -34,12 +34,21 @@
 //!
 //! # Overlays
 //!
-//! An [`Object`] is modelled geometry: shaded, back-face culled, and measured
-//! in world units. A [`Curve`], a [`Ring`], a [`Point`] and a [`Text`] are
-//! overlays — unlit, unculled, and sized in *logical pixels*, so a stroke holds
-//! its width, a marker its diameter, and a label its type size however far the
-//! camera pulls back. That fixed size is what tells drawn geometry from modelled
-//! geometry: it is a claim about legibility, not about the model.
+//! An [`Object`] in [`Scene::solids`] is modelled geometry: shaded, back-face
+//! culled, and measured in world units. A [`Curve`], a [`Ring`], a [`Point`]
+//! and a [`Text`] are overlays — unlit, unculled, and sized in *logical
+//! pixels*, so a stroke holds its width, a marker its diameter, and a label its
+//! type size however far the camera pulls back. That fixed size is what tells
+//! drawn geometry from modelled geometry: it is a claim about legibility, not
+//! about the model.
+//!
+//! An `Object` in [`Scene::faces`] is neither, and is the same type drawn by
+//! different rules: a flat sheet lying *in* a drawing rather than standing in
+//! the world. It is measured in world units like a model and shaded like one,
+//! but it is two-sided — a sheet has no outside to be culled from — and its
+//! whole pass is biased toward the camera, because it lies in the very plane
+//! whatever it is drawn on does. Which batch it is in is the whole of what
+//! decides this; nothing on the object itself says so.
 //!
 //! An overlay drawn on the surface it describes is in a depth fight with that
 //! surface, and two fields on the overlay settle it. `z_offset` biases the

@@ -2,6 +2,21 @@
 
 use glam::DVec2;
 
+/// How near two places have to be to count as one, in sketch units.
+///
+/// The tolerance the geometry works to wherever a coincidence has to be
+/// admitted through a rounding rather than found exactly. A line that grazes a
+/// circle meets it twice in the algebra and once on the page, and the two roots
+/// come out a hair apart; a corner meant to land on another misses it by the
+/// last bit of a division. Left alone, either becomes a vertex nobody drew and
+/// a sliver of face between two edges that were meant to meet.
+///
+/// Here rather than with whichever routine reads it, because more than one
+/// does: crossings are folded to it, an endpoint is allowed to reach that far
+/// past a curve, and a triangulation counts a corner this close to one of a
+/// triangle's own as being that corner.
+pub(crate) const TOUCHING: f64 = 1e-9;
+
 /// Equality to within a tolerance.
 ///
 /// Geometry that a solve has settled is equal in the sense that matters and

@@ -6,6 +6,7 @@ use silverpoint::{Constraint, ConstraintId, Entity};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
+use crate::part::Part;
 use crate::tool::Tool;
 
 /// One thing the user asked for.
@@ -193,21 +194,21 @@ pub(crate) enum Step {
 /// where it was pressed would arm it and put it straight back down.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Choice {
-    /// Pick out this entity and nothing else, or nothing at all when it is
-    /// `None`.
+    /// Pick out this part of the drawing and nothing else, or nothing at all
+    /// when it is `None`.
     ///
     /// The whole of what is selected rather than one addition to it, so a
     /// replayed pass lands on the same answer — see the note on naming above.
     /// A plain click raises one whatever it landed on: `None` is what a click
     /// on empty space asks for, by the same rule that a click on a point asks
     /// for that point.
-    Select(Option<Entity>),
+    Select(Option<Part>),
     /// Pick this out as well as whatever already is.
     ///
     /// What a shift-click asks for. Names an addition where [`Choice::Select`]
     /// names the whole, and is safe to land twice for a different reason: an
     /// entity already picked out is not picked out again.
-    Include(Entity),
+    Include(Part),
     /// Take up this tool, or put down whatever is in hand by naming
     /// [`Tool::Pointer`].
     ///

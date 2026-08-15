@@ -178,7 +178,8 @@ impl Renderer {
             ..
         } = self;
         let relight = std::mem::take(relight);
-        cpu.meshes.refresh(&mut scene.objects);
+        cpu.solids.refresh(&mut scene.solids, highlights, relight);
+        cpu.faces.refresh(&mut scene.faces, highlights, relight);
         cpu.curves
             .refill_from(&mut scene.curves, highlights, relight);
         cpu.rings.refill_from(&mut scene.rings, highlights, relight);
@@ -248,8 +249,9 @@ impl GpuPaint for Renderer {
         // is owed and does nothing when that is nothing.
         let Self { cpu, gpu, .. } = self;
         let gpu = gpu.as_mut().expect("init runs before paint");
-        gpu.meshes
-            .upload_mesh(ctx.device, ctx.queue, &mut cpu.meshes);
+        gpu.solids
+            .upload_mesh(ctx.device, ctx.queue, &mut cpu.solids);
+        gpu.faces.upload_mesh(ctx.device, ctx.queue, &mut cpu.faces);
         gpu.curves.upload(ctx.device, ctx.queue, &mut cpu.curves);
         gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings);
         gpu.points.upload(ctx.device, ctx.queue, &mut cpu.points);
@@ -273,10 +275,14 @@ impl GpuPaint for Renderer {
         pass.set_viewport(0.0, 0.0, size.x as f32, size.y as f32, 0.0, 1.0);
         pass.set_scissor_rect(0, 0, size.x, size.y);
         pass.set_bind_group(0, &gpu.bind_group, &[]);
-        // Overlays after solids: the opaque kinds write depth, so what hides
-        // what is the depth test's answer either way, and this order keeps the
-        // pipeline switch to one per pass.
-        gpu.meshes.draw(&mut pass);
+        // Overlays after the two mesh passes: the opaque kinds write depth, so
+        // what hides what is the depth test's answer either way, and this order
+        // keeps the pipeline switch to one per pass.
+        gpu.solids.draw(&mut pass);
+        // After the solids and before the overlays: a face is drawn over
+        // whatever it lies on and under every stroke of the drawing it belongs
+        // to.
+        gpu.faces.draw(&mut pass);
         // Every ordinary pass before any highlight, rather than each kind's two
         // together: a highlight has to read over anything it doubles whatever
         // kind that is, and not merely over its own kind.

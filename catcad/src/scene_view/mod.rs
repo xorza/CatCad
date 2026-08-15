@@ -16,6 +16,7 @@ use crate::drawing::{Grip, Revision};
 use crate::intent::{Change, Choice, Intents, Step};
 use crate::names::Names;
 use crate::paint;
+use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
@@ -116,7 +117,7 @@ pub(crate) struct SceneView {
     laid_out: Revision,
     gesture: Gesture,
     /// The sketch entity under the pointer, if any.
-    hovered: Option<Entity>,
+    hovered: Option<Part>,
     /// The shape a two-click tool is half-way through, if one is.
     preview: Option<Preview>,
     /// The band the last layout was written with, compared like the revision
@@ -172,7 +173,7 @@ impl SceneView {
     }
 
     /// The sketch entity under the pointer, if any.
-    pub(crate) fn hovered(&self) -> Option<Entity> {
+    pub(crate) fn hovered(&self) -> Option<Part> {
         self.hovered
     }
 
@@ -484,7 +485,7 @@ impl SceneView {
     /// What a click asks, where [`SceneView::grab`] asks the fuller question —
     /// a press needs where on the primitive it landed and where that is in the
     /// world, and a click needs only what the thing is.
-    fn named_under(&self, response: &Response<'_>, document: &Document) -> Option<Entity> {
+    fn named_under(&self, response: &Response<'_>, document: &Document) -> Option<Part> {
         let aimed = Aimed::of(response).filter(|_| response.hovered)?;
         let renderer = self.renderer.borrow();
         let aim = aimed.aim(&document.camera());
@@ -515,13 +516,16 @@ impl SceneView {
         &self,
         response: &Response<'_>,
         document: &Document,
-        under: Option<Entity>,
+        under: Option<Part>,
     ) -> Option<Anchor> {
         let at = aimed::landing(response, document, document.drawing().motion());
-        match under {
+        match under.and_then(Part::entity) {
             Some(Entity::Point(id)) => Some(Anchor::On(id)),
             Some(Entity::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
             Some(Entity::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
+            // A constraint is a statement rather than a place, and a face is
+            // what the curves enclose rather than one of them — so a click on
+            // either builds on the bare plane behind it.
             Some(Entity::Constraint(_)) | None => at.map(Anchor::At),
         }
     }
@@ -550,7 +554,9 @@ impl SceneView {
                 // and the ray cast through the document's.
                 let aim = aimed.aim(&document.camera());
                 let hit = scene.nearest(aim)?;
-                let grip = document.drawing().grip(self.names.get(hit.tag)?, hit.at)?;
+                let grip = document
+                    .drawing()
+                    .grip(self.names.get(hit.tag)?.entity()?, hit.at)?;
                 let motion = document.drawing().motion();
                 // Where the press landed on the motion, against where the
                 // geometry actually is: a grab is not a teleport.
@@ -592,6 +598,7 @@ pub(crate) mod internals {
     /// nothing outside can call.
     #[cfg(test)]
     mod picking {
+        use crate::part::Part;
         use crate::scene_view::SceneView;
         use aperture::Tag;
         use silverpoint::Entity;
@@ -602,8 +609,12 @@ pub(crate) mod internals {
             /// For a test sweeping candidate cursors to find one that would
             /// grab something — which asks what a press would find without a
             /// press to ask it through.
+            ///
+            /// Entities only, because grabbing is: a face is not something the
+            /// drawing will let go of, so a sweep looking for one has nothing
+            /// to find in a face.
             pub(crate) fn named(&self, tag: Tag) -> Option<Entity> {
-                self.names.get(tag)
+                self.names.get(tag).and_then(Part::entity)
             }
         }
     }

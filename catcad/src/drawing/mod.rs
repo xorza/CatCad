@@ -3,11 +3,12 @@
 use aperture::{HitAt, Motion};
 use glam::{DVec2, Vec3};
 use silverpoint::{
-    CircleId, Constraint, ConstraintId, Entity, Outcome, Plane, PointId, Removed, SegmentId,
-    Sketch, Snapshot, Solver,
+    Arrangement, CircleId, Constraint, ConstraintId, Entity, Outcome, Plane, PointId, Removed,
+    SegmentId, Sketch, Snapshot, Solver,
 };
 
 use crate::drawing::anchor::Anchor;
+use crate::part::Part;
 
 pub(crate) mod anchor;
 
@@ -31,6 +32,14 @@ pub(crate) struct Drawing {
     /// Which version of the drawing this is, so anything holding a layout of it
     /// can tell whether that layout is still current.
     revision: Revision,
+    /// What the curves shut in, worked out afresh whenever they move.
+    ///
+    /// Derived like `outcome` beside it and for the same reason: the sketch
+    /// says where its curves are, and what those enclose follows from that
+    /// rather than being kept in step by hand. A face nobody could have drawn
+    /// on purpose — half a circle, the ring between two others — exists exactly
+    /// as much as one that traces edges the user placed.
+    arrangement: Arrangement,
     /// What the last cleanup took out, or `None` where the last thing done to
     /// the drawing was not one.
     ///
@@ -60,6 +69,7 @@ impl Drawing {
             outcome: Outcome::default(),
             revision: Revision::default(),
             cleaned: None,
+            arrangement: Arrangement::default(),
         };
         drawing.settled(|sketch, outcome| solver.solve(sketch, outcome));
         drawing
@@ -80,6 +90,10 @@ impl Drawing {
     fn settled(&mut self, solve: impl FnOnce(&mut Sketch, &mut Outcome)) {
         solve(&mut self.sketch, &mut self.outcome);
         self.revision = self.revision.next();
+        // After the solve, because what the curves enclose depends on where the
+        // solve left them — and unconditionally, because there is no cheaper
+        // question than this one to ask first.
+        self.arrangement = Arrangement::of(&self.sketch);
         // Whatever this edit was, it is now the last thing done — so a cleanup
         // before it has stopped describing the drawing. The one that *is* a
         // cleanup writes its own answer back after this returns.
@@ -272,10 +286,37 @@ impl Drawing {
     ///
     /// Fills rather than returns, because the bar asks this every frame and the
     /// record pass allocates nothing.
-    pub(crate) fn offers(&self, picked: &[Entity], into: &mut Vec<Constraint>) {
+    pub(crate) fn offers(&self, picked: &[Part], into: &mut Vec<Constraint>) {
         into.clear();
         match *picked {
-            [Entity::Point(a), Entity::Point(b)] => into.extend([
+            // Entities only. A face is what the curves *enclose* rather than
+            // something the sketch holds, so there is nothing to state a
+            // relation about — and a pair with one in it admits nothing at all,
+            // rather than admitting whatever the other half would on its own.
+            [one, two] => {
+                if let (Some(one), Some(two)) = (one.entity(), two.entity()) {
+                    self.between(one, two, into);
+                }
+            }
+            // The one relation a single pick admits: a radius takes the size
+            // the circle already is, so asking for one locks what is there
+            // rather than demanding a number nobody can type yet.
+            [Part::Entity(Entity::Circle(circle))] => into.push(Constraint::Radius {
+                circle,
+                radius: self.sketch.circle(circle).radius,
+            }),
+            _ => {}
+        }
+    }
+
+    /// What a pair of entities admits, in the order they were picked.
+    ///
+    /// Order matters only where the relation is not symmetric, and none of
+    /// these is: every pair below reads the same whichever way round it was
+    /// reached, which is why each mixed one is matched both ways.
+    fn between(&self, one: Entity, two: Entity, into: &mut Vec<Constraint>) {
+        match (one, two) {
+            (Entity::Point(a), Entity::Point(b)) => into.extend([
                 Constraint::Coincident { a, b },
                 Constraint::Distance {
                     a,
@@ -286,39 +327,26 @@ impl Drawing {
                 Constraint::Horizontal { a, b },
                 Constraint::Vertical { a, b },
             ]),
-            [Entity::Segment(first), Entity::Segment(second)] => into.extend([
+            (Entity::Segment(first), Entity::Segment(second)) => into.extend([
                 Constraint::Parallel { first, second },
                 Constraint::Perpendicular { first, second },
                 Constraint::EqualLength { first, second },
             ]),
-            // Either way round: which was picked first says nothing about which
-            // is held to which, because a point on an edge is one relation
-            // however it was reached.
-            [Entity::Point(point), Entity::Segment(segment)]
-            | [Entity::Segment(segment), Entity::Point(point)] => {
+            (Entity::Point(point), Entity::Segment(segment))
+            | (Entity::Segment(segment), Entity::Point(point)) => {
                 into.push(Constraint::PointOnSegment { point, segment });
             }
-            [Entity::Point(point), Entity::Circle(circle)]
-            | [Entity::Circle(circle), Entity::Point(point)] => {
+            (Entity::Point(point), Entity::Circle(circle))
+            | (Entity::Circle(circle), Entity::Point(point)) => {
                 into.push(Constraint::PointOnCircle { point, circle });
             }
-            // Either way round, like a point on an edge: which circle was
-            // picked first says nothing about which is held to which, because
-            // two circles being the same size is one relation however it was
-            // reached.
-            [Entity::Circle(first), Entity::Circle(second)] => {
+            (Entity::Circle(first), Entity::Circle(second)) => {
                 into.push(Constraint::EqualRadius { first, second });
             }
-            // A tangency is the one relation between an edge and a rim, and it
-            // reads the same whichever was picked first.
-            [Entity::Segment(segment), Entity::Circle(circle)]
-            | [Entity::Circle(circle), Entity::Segment(segment)] => {
+            (Entity::Segment(segment), Entity::Circle(circle))
+            | (Entity::Circle(circle), Entity::Segment(segment)) => {
                 into.push(Constraint::Tangent { segment, circle });
             }
-            [Entity::Circle(circle)] => into.push(Constraint::Radius {
-                circle,
-                radius: self.sketch.circle(circle).radius,
-            }),
             _ => {}
         }
     }
@@ -420,6 +448,11 @@ impl Drawing {
         &self.outcome
     }
 
+    /// What the drawing's curves shut in.
+    pub(crate) fn arrangement(&self) -> &Arrangement {
+        &self.arrangement
+    }
+
     /// The sketch the drawing is of.
     pub(crate) fn sketch(&self) -> &Sketch {
         &self.sketch
@@ -444,6 +477,20 @@ impl Drawing {
     /// has one.
     pub(crate) fn holds(&self, entity: impl Into<Entity>) -> bool {
         self.sketch.holds(entity)
+    }
+
+    /// Whether the drawing still has `part` in it.
+    ///
+    /// The same question [`Drawing::holds`] answers, asked of anything that can
+    /// be picked out rather than only of what the sketch holds — which is what
+    /// a caller pruning a selection has in hand. A face is named by where it
+    /// falls among the faces rather than by a handle, so what says it is still
+    /// there is that there are still that many.
+    pub(crate) fn holds_part(&self, part: Part) -> bool {
+        match part {
+            Part::Entity(entity) => self.holds(entity),
+            Part::Face(at) => at < self.arrangement.faces().len(),
+        }
     }
 
     /// Put the drawing back the way `snapshot` found it.

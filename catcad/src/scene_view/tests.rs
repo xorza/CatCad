@@ -3,6 +3,7 @@ use crate::demo;
 use crate::history::History;
 use crate::intent::{Choice, Intent, Intents};
 use crate::paint;
+use crate::part::Part;
 use crate::selection::Selection;
 use crate::tool::Tool;
 use aperture::{Aim, Scene, Viewport};
@@ -83,7 +84,7 @@ impl Raised {
                 }
             }
             history.apply(document, solver, intents);
-            selection.retain(|entity| document.drawing().holds(entity));
+            selection.retain(|part| document.drawing().holds_part(part));
             view.settle(document, selection);
         });
     }
@@ -797,7 +798,7 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     raised.harness.click_at(over_point);
     raised.frame();
     let point = raised.named_at(over_point).expect("a point is there");
-    assert!(raised.selection.contains(point));
+    assert!(raised.selection.contains(Part::Entity(point)));
     assert_eq!(raised.selection.count(), 1);
 
     // Shift adds, leaving what was already picked out where it was.
@@ -808,8 +809,11 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     raised.harness.click_at(over_rim);
     raised.frame();
     let rim = raised.named_at(over_rim).expect("a circle is there");
-    assert!(raised.selection.contains(point), "shift dropped the first");
-    assert!(raised.selection.contains(rim));
+    assert!(
+        raised.selection.contains(Part::Entity(point)),
+        "shift dropped the first"
+    );
+    assert!(raised.selection.contains(Part::Entity(rim)));
     assert_eq!(raised.selection.count(), 2);
 
     // A shift-click on empty space adds nothing and clears nothing.
@@ -821,8 +825,11 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
     raised.harness.set_modifiers(Modifiers::NONE);
     raised.harness.click_at(over_rim);
     raised.frame();
-    assert!(raised.selection.contains(rim));
-    assert!(!raised.selection.contains(point), "the first survived");
+    assert!(raised.selection.contains(Part::Entity(rim)));
+    assert!(
+        !raised.selection.contains(Part::Entity(point)),
+        "the first survived"
+    );
     assert_eq!(raised.selection.count(), 1);
 
     // And on nothing, it clears.
@@ -1128,4 +1135,94 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
     let now = raised.view.renderer().borrow().camera().projection;
     assert_eq!(now, was.toggled());
     assert_ne!(now, was);
+}
+
+/// A face is hovered and picked out like anything else, and loses the click to
+/// whatever is drawn on it.
+///
+/// The three things "selectable like the rest" has to mean: the cursor over one
+/// reports it, a click picks it out, and it is named by something that survives
+/// the drawing being laid out again — which for a face is where it falls among
+/// the faces, since it has no handle of its own.
+#[test]
+fn a_face_is_hovered_and_picked_out_like_any_other_part() {
+    let mut raised = Raised::new();
+    raised.frame();
+
+    // Well inside the demo's rectangle and clear of everything drawn on it: the
+    // sketch's frame runs to 8 by 5, and this corner of it holds no edge, no
+    // marker and no dimension.
+    let inside = raised.cursor_on(
+        raised
+            .document
+            .drawing()
+            .plane()
+            .point(DVec2::new(6.6, 1.2))
+            .as_vec3(),
+    );
+    raised.harness.move_to(inside);
+    raised.frame();
+    let hovered = raised.view.hovered();
+    assert!(
+        matches!(hovered, Some(Part::Face(_))),
+        "the cursor over a face reported {hovered:?}"
+    );
+
+    // A click picks it out, and what is picked is the same face the hover was.
+    raised.harness.click_at(inside);
+    raised.frame();
+    assert_eq!(
+        raised.selection.picked(),
+        [hovered.expect("the hover found one")],
+        "the click picked out something else"
+    );
+
+    // And it survives the drawing being laid out again. Dragging the arm moves
+    // geometry without changing what crosses what, so the face is still the
+    // face it was — a name that did not survive would be one dropped by the
+    // prune every frame of a drag.
+    let wrist = raised.cursor_on(raised.wrist());
+    raised.harness.press_at(wrist);
+    raised.frame();
+    raised.harness.drag_to(wrist + Vec2::new(20.0, 12.0));
+    raised.frame();
+    raised.harness.release();
+    raised.frame();
+    assert_eq!(
+        raised.selection.picked(),
+        [hovered.expect("the hover found one")],
+        "a drag dropped the face that was picked out"
+    );
+}
+
+/// A click on the drawing over a face takes the drawing, not the face.
+///
+/// The rule the surface rank exists for: every stroke and marker bounding a
+/// face lies *within* it, so a face that ranked with them would swallow every
+/// click meant for its own boundary.
+#[test]
+fn what_is_drawn_on_a_face_takes_the_click_over_it() {
+    let mut raised = Raised::new();
+    raised.frame();
+
+    // A point of the demo's frame, which sits on the rectangle's corner — so
+    // the face and the marker are both under this cursor.
+    let corner = raised.cursor_on(
+        raised
+            .document
+            .drawing()
+            .plane()
+            .point(DVec2::new(8.0, 5.0))
+            .as_vec3(),
+    );
+    raised.harness.move_to(corner);
+    raised.frame();
+    assert!(
+        matches!(
+            raised.view.hovered(),
+            Some(Part::Entity(Entity::Point(_))) | Some(Part::Entity(Entity::Segment(_)))
+        ),
+        "a face took a cursor over the drawing: {:?}",
+        raised.view.hovered()
+    );
 }

@@ -37,6 +37,8 @@ pub(crate) mod sketch;
 
 pub use arena::Id;
 pub use math::plane::Plane;
+pub use math::triangulate::Fill;
+pub use sketch::arrangement::{Arrangement, Face};
 pub use sketch::constraint::{Constraint, ConstraintId};
 pub use sketch::entity::Entity;
 pub use sketch::snapshot::Snapshot;

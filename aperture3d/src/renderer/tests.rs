@@ -22,15 +22,15 @@ use std::rc::Rc;
 #[test]
 fn flatten_bakes_transforms_into_world_space() {
     let mut scene = Scene::default();
-    scene.objects.push(Object::new(Mesh::cube(2.0)));
-    scene.objects.push(
+    scene.solids.push(Object::new(Mesh::cube(2.0)));
+    scene.solids.push(
         Object::new(Mesh::cube(2.0))
             .at(Vec3::new(10.0, 0.0, 0.0))
             .colored(Vec3::new(1.0, 0.0, 0.0)),
     );
     let mut renderer = Renderer::new(scene);
     renderer.refresh(1.0);
-    let triangles = &renderer.cpu.meshes;
+    let triangles = &renderer.cpu.solids;
 
     // Two cubes: 24 corners and 36 indices each.
     assert_eq!(triangles.vertices.len(), 48);
@@ -77,7 +77,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
         indices: vec![0, 1, 2],
     };
     let mut scene = Scene::default();
-    scene.objects.push(Object {
+    scene.solids.push(Object {
         mesh,
         transform: Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0)),
         color: Vec3::ZERO,
@@ -85,7 +85,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
     });
     let mut renderer = Renderer::new(scene);
     renderer.refresh(1.0);
-    let triangles = &renderer.cpu.meshes;
+    let triangles = &renderer.cpu.solids;
 
     // Scaling x by 2 flattens the surface toward the x axis, so its normal
     // tips *away* from x: inverse transpose diag(0.5, 1, 1) sends
@@ -108,7 +108,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
 #[test]
 fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     let mut scene = Scene::default();
-    scene.objects.push(Object::new(Mesh::cube(2.0)));
+    scene.solids.push(Object::new(Mesh::cube(2.0)));
     scene.curves.push(Curve::segment(Vec3::ZERO, Vec3::X));
     scene.rings.push(Ring::new(Vec3::ZERO, 1.0, Vec3::Y));
     scene.points.push(Point::new(Vec3::X));
@@ -118,7 +118,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // takes the mark, which is what the second refresh below then relies on.
     renderer.refresh(1.0);
     let cpu = &mut renderer.cpu;
-    assert!(cpu.meshes.take_dirty());
+    assert!(cpu.solids.take_dirty());
     assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(1));
     assert_eq!(cpu.rings.ordinary_to_upload().map(<[_]>::len), Some(1));
     assert_eq!(cpu.points.ordinary_to_upload().map(<[_]>::len), Some(1));
@@ -129,7 +129,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // And nothing twice. A still frame is the common case, not the odd one.
     renderer.refresh(1.0);
     let cpu = &mut renderer.cpu;
-    assert!(!cpu.meshes.take_dirty());
+    assert!(!cpu.solids.take_dirty());
     assert!(cpu.curves.ordinary_to_upload().is_none());
     assert!(cpu.rings.ordinary_to_upload().is_none());
     assert!(cpu.points.ordinary_to_upload().is_none());
@@ -146,7 +146,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     let cpu = &mut renderer.cpu;
     assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(2));
     assert!(
-        !cpu.meshes.take_dirty(),
+        !cpu.solids.take_dirty(),
         "adding a stroke asked for every mesh to be flattened again"
     );
     assert!(cpu.rings.ordinary_to_upload().is_none());
@@ -159,8 +159,8 @@ fn flatten_of_an_empty_scene_uploads_nothing() {
     renderer.refresh(1.0);
 
     let cpu = &renderer.cpu;
-    assert!(cpu.meshes.vertices.is_empty());
-    assert!(cpu.meshes.indices.is_empty());
+    assert!(cpu.solids.vertices.is_empty());
+    assert!(cpu.solids.indices.is_empty());
     assert!(cpu.curves.ordinary.is_empty());
     assert!(cpu.points.ordinary.is_empty());
 }
@@ -583,12 +583,12 @@ fn every_pipeline_builds() {
 
     // Meshes are the one pass whose list changes, so it grows like the records
     // do and there is nothing in it yet.
-    assert_eq!(built.meshes.index_count, 0);
-    assert!(built.meshes.indices.buffer().is_none());
+    assert_eq!(built.solids.index_count, 0);
+    assert!(built.solids.indices.buffer().is_none());
 
     // Nothing is drawn until something is uploaded, whichever kind.
     for pass in [
-        &built.meshes,
+        &built.solids,
         &built.curves.ordinary,
         &built.curves.lit,
         &built.rings.ordinary,
@@ -731,7 +731,7 @@ fn every_kind_reaches_the_frame() {
     let kinds = [
         Staged {
             batch: "objects",
-            stage: |scene| scene.objects.push(Object::new(Mesh::cube(2.0))),
+            stage: |scene| scene.solids.push(Object::new(Mesh::cube(2.0))),
         },
         Staged {
             batch: "curves",
@@ -762,7 +762,7 @@ fn every_kind_reaches_the_frame() {
         {
             let mut view = pane.view.borrow_mut();
             let scene = view.scene_mut();
-            scene.objects.clear();
+            scene.solids.clear();
             scene.curves.clear();
             scene.rings.clear();
             scene.points.clear();
@@ -798,7 +798,7 @@ fn a_frame_uploads_every_kind() {
     // overlay pass and leave the solids alone.
     let lit = Tag::new(1);
     let mut scene = Scene::default();
-    scene.objects.push(Object::new(Mesh::cube(1.0)));
+    scene.solids.push(Object::new(Mesh::cube(1.0)));
     scene
         .curves
         .push(Curve::segment(Vec3::ZERO, Vec3::X).tagged(lit));
@@ -821,8 +821,8 @@ fn a_frame_uploads_every_kind() {
 
         // A cube is 24 corners and 36 indices, drawn as one instance of one
         // triangle list.
-        assert_eq!(built.meshes.instances, 1);
-        assert_eq!(built.meshes.index_count, 36);
+        assert_eq!(built.solids.instances, 1);
+        assert_eq!(built.solids.index_count, 36);
         // One record apiece: a segment, a rim, a marker.
         assert_eq!(built.curves.ordinary.instances, 1);
         assert_eq!(built.rings.ordinary.instances, 1);
@@ -864,7 +864,7 @@ fn a_frame_uploads_every_kind() {
     // The ordinary passes are untouched by a highlight: it doubles what is
     // drawn rather than replacing it.
     assert_eq!(built.curves.ordinary.instances, 1);
-    assert_eq!(built.meshes.instances, 1);
+    assert_eq!(built.solids.instances, 1);
 }
 
 #[test]
@@ -879,5 +879,86 @@ fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
     assert!(
         !renderer.scene_mut().texts.take_dirty(),
         "the mark outlived the refresh that had nothing to do with it"
+    );
+}
+
+/// A highlighted mesh is written in the colour it was given, where it stands.
+///
+/// The one kind that cannot be *doubled*: an overlay grows and rides forward of
+/// what it repeats, and a mesh has neither a width nor a bias to do it with. So
+/// a highlight reaches it by changing the colour flattened into its vertices,
+/// which means it has to be re-flattened when the highlights move and not only
+/// when the geometry does.
+#[test]
+fn a_highlighted_mesh_is_recoloured_where_it_stands() {
+    let plain = Vec3::new(0.2, 0.3, 0.4);
+    let mut scene = Scene::default();
+    scene.faces.push(
+        Object::new(Mesh::cube(1.0))
+            .colored(plain)
+            .tagged(Tag::new(1)),
+    );
+    // Untagged, so it is scenery and never lit however the highlights move.
+    scene
+        .faces
+        .push(Object::new(Mesh::cube(1.0)).colored(plain));
+    let mut renderer = Renderer::new(scene);
+
+    renderer.refresh(1.0);
+    let corners = renderer.cpu.faces.vertices.len();
+    assert!(corners > 0, "the faces were never flattened");
+    assert!(
+        renderer
+            .cpu
+            .faces
+            .vertices
+            .iter()
+            .all(|v| v.color == plain.to_array()),
+        "a mesh was lit before anything named it"
+    );
+
+    // Named, and re-flattened though not one vertex moved — which is the whole
+    // of what this pins. A `refresh` that only watched the batch's own mark
+    // would leave the colour where it was.
+    let look = Highlight::new(Vec3::new(1.0, 0.0, 0.0)).scale(3.0).lift(64);
+    renderer.highlight_only(Lit {
+        tag: Tag::new(1),
+        look,
+    });
+    renderer.refresh(1.0);
+
+    let lit: Vec<[f32; 3]> = renderer
+        .cpu
+        .faces
+        .vertices
+        .iter()
+        .map(|v| v.color)
+        .collect();
+    assert_eq!(lit.len(), corners, "the flatten dropped geometry");
+    // Half the corners are the named cube and half the untagged one, and only
+    // the first half moved: `scale` and `lift` have nothing to act on here, so
+    // the colour is the whole of what a highlight does to a mesh.
+    let (named, scenery) = lit.split_at(corners / 2);
+    assert!(
+        named.iter().all(|&color| color == [1.0, 0.0, 0.0]),
+        "the named mesh kept its own colour"
+    );
+    assert!(
+        scenery.iter().all(|&color| color == plain.to_array()),
+        "an untagged mesh was lit"
+    );
+
+    // And it goes back when the highlight does, rather than staying lit for
+    // the rest of the run.
+    renderer.highlight_all(&[]);
+    renderer.refresh(1.0);
+    assert!(
+        renderer
+            .cpu
+            .faces
+            .vertices
+            .iter()
+            .all(|v| v.color == plain.to_array()),
+        "a mesh stayed lit after nothing named it"
     );
 }

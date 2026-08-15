@@ -1,6 +1,7 @@
 //! 2D sketching: the geometry being solved, and the constraints tying it
 //! together.
 
+pub(crate) mod arrangement;
 pub(crate) mod constraint;
 pub(crate) mod entity;
 mod jacobian_row;

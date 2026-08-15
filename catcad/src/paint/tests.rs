@@ -1,5 +1,6 @@
 use super::*;
 use crate::demo;
+use crate::part::Part;
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Plane, Sketch, Solver};
@@ -259,7 +260,7 @@ fn a_scene_holds_a_documents_solids_and_its_drawing_and_nothing_else() {
     let picture = scene(&document, &mut names);
 
     // The slab and the three boxes standing on it.
-    assert_eq!(picture.objects.len(), 4);
+    assert_eq!(picture.solids.len(), 4);
     assert_eq!(picture.curves.len(), 7);
     assert_eq!(picture.rings.len(), 2);
     assert_eq!(picture.points.len(), 9);
@@ -328,6 +329,7 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
         vec![Entity::Segment(first), Entity::Circle(circle)],
         vec![Entity::Circle(circle), Entity::Circle(other)],
     ] {
+        let picked: Vec<Part> = picked.into_iter().map(Part::Entity).collect();
         drawing.offers(&picked, &mut offers);
         every.extend(offers.iter().copied());
     }
@@ -335,4 +337,73 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
     // variant nothing can state, which is its own bug.
     assert_eq!(every.len(), 12, "{every:?}");
     every
+}
+
+/// The drawing's faces reach the scene as sheets, and what they cover is what
+/// its curves shut in.
+///
+/// The join between the arrangement and the picture. Everything else in this
+/// module turns one piece of geometry into one primitive; a face is the one
+/// thing drawn that no piece of the sketch corresponds to, so what it takes to
+/// go wrong is a whole step being skipped rather than a field being mis-set.
+#[test]
+fn the_faces_a_drawing_encloses_are_written_as_sheets() {
+    let mut solver = Solver::default();
+    let document = demo::document(&mut solver);
+    let scene = scene(&document, &mut Names::default());
+
+    // The demo draws a rectangle with a circle inside it, and an eye at the end
+    // of the arm: the ring between rectangle and circle, the circle's own disc,
+    // and the eye's.
+    assert_eq!(scene.faces.len(), 3, "the demo encloses three faces");
+
+    // Every sheet has triangles and lies flat on the sketch plane, which is the
+    // ground — a face with vertices off it would be one built through the wrong
+    // basis.
+    for face in scene.faces.iter() {
+        assert!(!face.mesh.indices.is_empty(), "a face was written empty");
+        assert_eq!(face.mesh.indices.len() % 3, 0, "a face is triangles");
+        for vertex in &face.mesh.vertices {
+            assert!(
+                vertex.position.y.abs() < 1e-5,
+                "{vertex:?} is off the plane"
+            );
+            assert!(
+                vertex.normal.abs_diff_eq(Vec3::Y, 1e-5),
+                "{vertex:?} faces away from the plane it lies in"
+            );
+        }
+    }
+
+    // Together they cover the rectangle and the eye — the circle inside the
+    // rectangle is a hole in one sheet and the whole of another, so it neither
+    // adds nor subtracts. The demo's frame is 8 by 5 and its eye has a radius
+    // of 0.45.
+    // Each face is measured against its own corners: the batch is a list of
+    // sheets, and an index means anything only inside the one it came from.
+    let covered: f32 = scene
+        .faces
+        .iter()
+        .map(|face| {
+            face.mesh
+                .indices
+                .chunks_exact(3)
+                .map(|triangle| {
+                    // The ground plane's axes are world +X and −Z, so this
+                    // reads a corner back into the coordinates it was drawn in.
+                    let at = |of: usize| {
+                        let corner = face.mesh.vertices[triangle[of] as usize].position;
+                        Vec2::new(corner.x, -corner.z)
+                    };
+                    let (a, b, c) = (at(0), at(1), at(2));
+                    (b - a).perp_dot(c - a) / 2.0
+                })
+                .sum::<f32>()
+        })
+        .sum();
+    let want = 40.0 + std::f32::consts::PI * 0.45 * 0.45;
+    assert!(
+        (covered - want).abs() < want * 0.001,
+        "{covered} covered against {want}"
+    );
 }

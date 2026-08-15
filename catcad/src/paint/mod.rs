@@ -7,8 +7,8 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text};
-use glam::{Vec2, Vec3};
+use aperture::{Batch, Curve, Object, Point, Ring, Scene, Styled, Text, Vertex};
+use glam::{Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Entity, Freedom, Segment, SegmentId};
 use std::fmt::Write;
@@ -16,12 +16,22 @@ use std::fmt::Write;
 use crate::document::Document;
 use crate::drawing::Drawing;
 use crate::names::Names;
+use crate::part::Part;
 use crate::preview::{Ends, Preview};
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
 const FIXED_MARKER: f32 = 9.0;
 const FREE_MARKER: f32 = 7.0;
+
+/// How far a face's edge may sit from the curve it was cut from, in sketch
+/// units.
+///
+/// A face is flattened once, when the drawing moves, rather than again whenever
+/// the camera does — so this is chosen for the drawing rather than for the
+/// zoom. At the size a sketch is worked at it puts forty-odd corners around a
+/// rim, which reads round without giving the triangulation a hundred to chew.
+const FACE_SAGITTA: f64 = 0.005;
 
 /// Linear-RGB, unlit — these reach the target as authored.
 ///
@@ -37,6 +47,15 @@ const DETERMINED: Vec3 = Vec3::new(0.35, 0.55, 0.80);
 const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
 const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
 const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
+
+/// What a face the drawing encloses is filled with.
+///
+/// Cool and dim, and deliberately not on the ladder above: a face reports no
+/// freedom of its own — it is whatever its boundary shuts in, and the boundary
+/// is already painted in what it has left to decide. So it reads as ground for
+/// the drawing to sit on rather than as another thing with a state, which is
+/// also why it is nearer the slab's grey than to any of the geometry's colours.
+const FACE: Vec3 = Vec3::new(0.24, 0.31, 0.40);
 
 /// What a shape still being drawn is drawn in — a grey that belongs to none of
 /// the states above, because a rubber band has no freedom to report: it is not
@@ -139,7 +158,7 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 /// says what it holds and one module decides what all of it looks like.
 pub(crate) fn scene(document: &Document, names: &mut Names) -> Scene {
     let mut scene = Scene::default();
-    write_solids(document.solids(), &mut scene.objects);
+    write_solids(document.solids(), &mut scene.solids);
     // No band. Nothing can be half-drawn in a document nobody has looked at yet.
     redraw(document.drawing(), names, None, &mut scene);
     scene
@@ -156,9 +175,10 @@ fn write_solids(solids: &[Object], into: &mut Batch<Object>) {
 /// `names`.
 ///
 /// The half of a picture that moves. A drawing is edited and the solids beside
-/// it are not, so this writes the three overlay batches and leaves `into.objects`
-/// untouched — which is what keeps a drag from re-uploading every mesh in the
-/// model, since a batch nobody wrote to reports nothing to upload.
+/// it are not, so this rewrites what the drawing is made of — the four overlay
+/// batches, and the sheets its curves enclose — and leaves `into.solids`
+/// untouched, which is what keeps a drag from re-uploading every mesh in the
+/// model: a batch nobody wrote to reports nothing to upload.
 ///
 /// Fills buffers rather than returning them, so a drag refills what the renderer
 /// already holds instead of handing it new vectors every frame. The tags come
@@ -197,6 +217,54 @@ pub(crate) fn redraw(
     );
     write_points(drawing, names, &mut into.points);
     write_marks(drawing, names, &mut into.texts);
+    write_faces(drawing, names, &mut into.faces);
+}
+
+/// A sheet per face the drawing's curves shut in.
+///
+/// The one part of a drawing that is not drawn: a face is what the curves
+/// *enclose*, so nothing here reads a segment or a circle — it reads what
+/// [`Arrangement`](silverpoint::Arrangement) made of all of them together, and
+/// a half-circle cut by an edge is as much a face as a rectangle traced by four.
+///
+/// Meshes rather than overlays, because a face has area in the world where a
+/// stroke has width on the screen. They go to the scene's own batch for them,
+/// which is drawn two-sided and biased forward off the plane they lie in — see
+/// [`Scene::faces`](aperture::Scene).
+///
+/// Named like everything else, so a face can be hovered and picked out. A
+/// cursor over one still reaches the geometry bounding it first: a surface is
+/// the least specific thing a pick can land on — see
+/// [`HitAt`](aperture::HitAt) — and every stroke and marker that draws a face
+/// lies within it.
+///
+/// Named *by position*, which is the one thing about a face that is not a
+/// handle. See [`Part::Face`].
+fn write_faces(drawing: &Drawing, names: &mut Names, faces: &mut Batch<Object>) {
+    let plane = drawing.plane();
+    let normal = plane.normal().as_vec3();
+    let arrangement = drawing.arrangement();
+    faces.refill(
+        arrangement.faces().iter().enumerate(),
+        |object, (at, face)| {
+            let fill = arrangement.fill(face, FACE_SAGITTA);
+            // Rewritten in place rather than assigned, so a drag that redraws every
+            // face keeps the buffers it filled last frame.
+            object.mesh.vertices.clear();
+            object
+                .mesh
+                .vertices
+                .extend(fill.corners.iter().map(|&corner| Vertex {
+                    position: plane.point(corner).as_vec3(),
+                    normal,
+                }));
+            object.mesh.indices.clear();
+            object.mesh.indices.extend(fill.triangles.iter().flatten());
+            object.transform = Mat4::IDENTITY;
+            object.color = FACE;
+            object.tag = Some(names.tag(Part::Face(at)));
+        },
+    );
 }
 
 /// A mark per constraint, saying what relation holds and where.

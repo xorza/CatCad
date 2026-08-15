@@ -19,7 +19,7 @@ use glam::Vec3;
 /// [`Point`]: crate::Point
 pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 1.5;
 
-/// Anything a [`Scene`](crate::Scene) holds: a solid, a stroke, a rim, a
+/// Anything a [`Scene`](crate::Scene) holds: an object, a stroke, a rim, a
 /// marker, a label.
 ///
 /// The five are different shapes, picked by different arithmetic and drawn by
@@ -30,14 +30,15 @@ pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 1.5;
 /// Turning one into records is [`Flatten`], a second trait rather than two more
 /// methods on this one, because it is the one thing the five do not share.
 ///
-/// Picking is deliberately absent, though a scene asks four of them for it.
-/// Those are four different algorithms wearing a three-line frame — take the
-/// tag, compare against the reach, build the hit — and hoisting the frame onto a
+/// Picking is deliberately absent, though a scene asks all five for it. Those
+/// are five different algorithms wearing a three-line frame — take the tag,
+/// compare against the reach, build the hit — and hoisting the frame onto a
 /// trait was tried and measured at forty-four lines *more* than it saved, since
 /// naming the result each kind hands back costs more than the frame does. If it
-/// is revisited: a label's bare `aim.radius` is exactly `aim.reach(0.0)`, and a
+/// is revisited: a label's bare `aim.radius` is exactly `aim.reach(0.0)`, a
 /// stroke's reach test can leave its loop, because its nearest segment being out
-/// of reach means all of them were.
+/// of reach means all of them were, and an object has no reach test at all — the
+/// cursor is over it or it is not.
 pub(crate) trait Primitive {
     /// What a pick that lands on it reports, and what a highlight names.
     fn tag(&self) -> Option<Tag>;
@@ -56,7 +57,7 @@ pub(crate) trait Primitive {
 /// marker are one record each however large they are drawn. A run of text cannot
 /// — how many glyphs it is worth is the shaper's answer and where each one is
 /// read from is the atlas's, and neither is something a [`Text`](crate::Text)
-/// holds. Nor can a solid, whose mesh is baked into a shared triangle list
+/// holds. Nor can an object, whose mesh is baked into a shared triangle list
 /// rather than shipped a record apiece.
 ///
 /// So this is where the other two part company, and it is a trait of its own so

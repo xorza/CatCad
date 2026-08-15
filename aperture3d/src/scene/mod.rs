@@ -11,9 +11,9 @@ use crate::primitive;
 use crate::ring::Ring;
 use crate::text::Text;
 
-/// The whole of the drawable world: shaded meshes, stroked curves, rims,
-/// markers and labels. Flat for now — hierarchy, if it earns its place, goes
-/// here.
+/// The whole of the drawable world: shaded solids, the flat sheets a drawing
+/// encloses, stroked curves, rims, markers and labels. Flat for now —
+/// hierarchy, if it earns its place, goes here.
 ///
 /// Every field is public and writable, because each [`Batch`] reports its own
 /// edits: a caller handed the whole scene and writing to one of them costs
@@ -25,7 +25,17 @@ use crate::text::Text;
 /// silently use two.
 #[derive(Debug, Clone, Default)]
 pub struct Scene {
-    pub objects: Batch<Object>,
+    pub solids: Batch<Object>,
+    /// Flat sheets lying in the drawing rather than standing in the world —
+    /// what a sketch's closed outlines enclose.
+    ///
+    /// Apart from `objects` for two reasons that both come of being a
+    /// *drawing*. They are two-sided, because a sheet has no outside to be
+    /// culled from; and they are biased toward the camera, because they lie in
+    /// the very plane whatever they are drawn on does. Their own batch as well
+    /// as their own pass, so a drag that redraws every face leaves the solids
+    /// standing beside it untouched.
+    pub faces: Batch<Object>,
     pub curves: Batch<Curve>,
     pub rings: Batch<Ring>,
     pub points: Batch<Point>,
@@ -37,13 +47,14 @@ impl Scene {
     /// nothing in it.
     pub fn bounds(&self) -> Option<Bounds> {
         // Each kind knows how far it reaches, so there is nothing to decide
-        // here but which batches to ask. A solid's extent is its transformed
+        // here but which batches to ask. An object's extent is its transformed
         // vertices; an overlay's is its anchors alone, because a stroke's
         // width, a marker's glyph and a label's box are screen-space
         // quantities, and the distance that would satisfy one of those is the
         // distance being solved for.
         let mut bounds: Option<Bounds> = None;
-        primitive::bounds(&self.objects, &mut bounds);
+        primitive::bounds(&self.solids, &mut bounds);
+        primitive::bounds(&self.faces, &mut bounds);
         primitive::bounds(&self.curves, &mut bounds);
         primitive::bounds(&self.rings, &mut bounds);
         primitive::bounds(&self.points, &mut bounds);
@@ -75,6 +86,9 @@ impl Scene {
             .chain(self.texts.iter().filter_map(move |text| text.pick(&aim)))
             .chain(self.curves.iter().filter_map(move |curve| curve.pick(&aim)))
             .chain(self.rings.iter().filter_map(move |ring| ring.pick(&aim)))
+            // Last, and ranked last — every stroke and marker bounding a face
+            // lies within it, so a face has to lose to all of them.
+            .chain(self.faces.iter().filter_map(move |face| face.pick(&aim)))
     }
 }
 

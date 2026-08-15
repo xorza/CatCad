@@ -25,6 +25,9 @@ pub enum HitAt {
         /// Radians round from the ring's own `x_axis`.
         angle: f32,
     },
+    /// Anywhere on a mesh — the whole of it is one target, because a surface
+    /// has no part of itself that is nearer the aim than the rest.
+    Surface,
 }
 
 impl HitAt {
@@ -48,6 +51,12 @@ impl HitAt {
             // An edge is an edge however it curves, so a stroke and a rim rank
             // together and the cursor's distance decides between them.
             Self::Segment { .. } | Self::Ring { .. } => 2,
+            // Last, and by a rule the others do not need: a surface is not
+            // merely a larger target, it is one the smaller targets are drawn
+            // *on*. Every marker and every stroke bounding a face lies within
+            // it, so a face that ranked with them would take every click meant
+            // for its own boundary.
+            Self::Surface => 3,
         }
     }
 }

@@ -14,6 +14,7 @@ mod hud;
 mod intent;
 mod names;
 mod paint;
+mod part;
 mod preview;
 mod scene_view;
 mod selection;
@@ -34,6 +35,7 @@ use crate::document::Document;
 use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::{Change, Choice, Intents, Step};
+use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::selection::Selection;
 use crate::session::Session;
@@ -163,7 +165,16 @@ impl CatCad {
         // selection again would find it already gone. Landing twice is harmless
         // — the second removal finds nothing to remove.
         if ui.key_pressed(DELETE) {
-            for &entity in self.session.selection().picked() {
+            // Entities only. Deleting a face would mean deleting whatever
+            // draws it, which is a different command and not this one — so a
+            // face picked out alongside an edge lets the edge go and stays.
+            for entity in self
+                .session
+                .selection()
+                .picked()
+                .iter()
+                .filter_map(|part| part.entity())
+            {
                 self.intents.push(Change::Delete(entity));
             }
         }
@@ -244,7 +255,7 @@ struct Status {
     /// run getting it there went.
     degrees_of_freedom: usize,
     redundant_constraints: usize,
-    hovered: Option<Entity>,
+    hovered: Option<Part>,
     /// What the last cleanup took out, where that was the last thing done.
     ///
     /// Three states rather than two counts: nothing to say, a cleanup that
@@ -254,18 +265,19 @@ struct Status {
     cleaned: Option<Removed>,
 }
 
-/// What to call a sketch entity where a person will read it.
+/// What to call a part of the drawing where a person will read it.
 ///
 /// Here rather than on [`Entity`], which is silverpoint's: what a thing is
 /// called is this crate's business, and a segment reads as an *edge* — what the
 /// drawing shows is the boundary of something, and "segment" is the solver's
 /// word for it rather than the draughtsman's.
-fn noun(entity: Entity) -> &'static str {
-    match entity {
-        Entity::Point(_) => "point",
-        Entity::Segment(_) => "edge",
-        Entity::Circle(_) => "circle",
-        Entity::Constraint(_) => "constraint",
+fn noun(part: Part) -> &'static str {
+    match part {
+        Part::Entity(Entity::Point(_)) => "point",
+        Part::Entity(Entity::Segment(_)) => "edge",
+        Part::Entity(Entity::Circle(_)) => "circle",
+        Part::Entity(Entity::Constraint(_)) => "constraint",
+        Part::Face(_) => "face",
     }
 }
 

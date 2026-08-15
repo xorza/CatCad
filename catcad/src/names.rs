@@ -1,9 +1,10 @@
-//! What a pick reports, turned back into the sketch entity it came from.
+//! What a pick reports, turned back into the part of the drawing it came from.
 
 use aperture::Tag;
-use silverpoint::Entity;
 
-/// Every entity the drawing named, in the order it was drawn.
+use crate::part::Part;
+
+/// Every part the drawing named, in the order it was drawn.
 ///
 /// A [`Tag`] is one opaque `u64`, and a sketch handle no longer fits in one:
 /// [`Id`](silverpoint::Id) spends a `u32` on the slot and another on the
@@ -12,40 +13,40 @@ use silverpoint::Entity;
 /// bit layout.
 ///
 /// So the tag is an index into this instead. It costs a rebuild whenever the
-/// drawing is rebuilt — which is the same moment the entities themselves would
-/// have moved — and in exchange nothing has to agree about anything but the
-/// order things were pushed in.
+/// drawing is rebuilt — which is the same moment what it names would have moved
+/// — and in exchange nothing has to agree about anything but the order things
+/// were pushed in.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Names {
-    entities: Vec<Entity>,
+    parts: Vec<Part>,
 }
 
 impl Names {
-    /// Name `entity`, and hand back the tag that will report it.
-    pub(crate) fn tag(&mut self, entity: Entity) -> Tag {
-        self.entities.push(entity);
-        Tag::new((self.entities.len() - 1) as u64)
+    /// Name `part`, and hand back the tag that will report it.
+    pub(crate) fn tag(&mut self, part: impl Into<Part>) -> Tag {
+        self.parts.push(part.into());
+        Tag::new((self.parts.len() - 1) as u64)
     }
 
     /// What `tag` was given to, or `None` if it came from a drawing older than
     /// this one.
-    pub(crate) fn get(&self, tag: Tag) -> Option<Entity> {
-        self.entities.get(usize::try_from(tag.get()).ok()?).copied()
+    pub(crate) fn get(&self, tag: Tag) -> Option<Part> {
+        self.parts.get(usize::try_from(tag.get()).ok()?).copied()
     }
 
-    /// Every entity named, each with the tag that reports it.
+    /// Every part named, each with the tag that reports it.
     ///
-    /// The way back from an entity to its tag, which a caller lighting a
-    /// *selection* needs: what it holds are the sketch's own handles, which
-    /// survive a relayout, and what the renderer lights are tags, which do not.
-    /// A walk rather than a lookup, because there is nothing to look up in — a
-    /// tag *is* a position here — and because a caller asking this is asking it
-    /// of every entity anyway.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (Tag, Entity)> {
-        self.entities
+    /// The way back from a part to its tag, which a caller lighting a
+    /// *selection* needs: what it holds are [`Part`]s, which name what they
+    /// name across a relayout, and what the renderer lights are tags, which do
+    /// not. A walk rather than a lookup, because there is nothing to look up in
+    /// — a tag *is* a position here — and because a caller asking this is
+    /// asking it of everything named anyway.
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (Tag, Part)> {
+        self.parts
             .iter()
             .enumerate()
-            .map(|(index, entity)| (Tag::new(index as u64), *entity))
+            .map(|(index, part)| (Tag::new(index as u64), *part))
     }
 
     /// Forget every name, keeping the room they took.
@@ -54,6 +55,6 @@ impl Names {
     /// drag is every frame — so this empties rather than replaces, and the
     /// tags come out the same because the order they are pushed in does.
     pub(crate) fn clear(&mut self) {
-        self.entities.clear();
+        self.parts.clear();
     }
 }

@@ -1,26 +1,27 @@
 //! What the user has picked out, and the collection of it.
 
-use silverpoint::Entity;
+use crate::part::Part;
 
-/// The sketch entities currently picked out.
+/// The parts of the drawing currently picked out.
 ///
 /// Session state rather than the document's, like the tool in hand: what is
 /// selected is what the *next* command will act on, and says nothing about what
 /// the drawing is. So nothing here is written down by saving, and an undo puts
 /// geometry back without disturbing what is picked out around it.
 ///
-/// Sketch entities rather than tags, deliberately. A tag is an index into one
-/// layout of the drawing and is minted afresh whenever the drawing is laid out
-/// again — which a drag does every frame — where an [`Entity`] holds the
-/// sketch's own handle and survives it.
+/// [`Part`]s rather than tags, deliberately. A tag is an index into one layout
+/// of the drawing and is minted afresh whenever the drawing is laid out again —
+/// which a drag does every frame — where a part names what it names across one:
+/// a sketch handle for anything the sketch holds, and for a face, a position
+/// among the faces that holds while the drawing's topology does.
 ///
-/// In the order things were added, and no entity twice. Order is not used for
+/// In the order things were added, and nothing twice. Order is not used for
 /// anything yet and is kept because it is free: the first thing picked is the
 /// reference in every modeller's alignment commands, and a set would have
 /// thrown that away before there was anything to ask it.
 #[derive(Debug, Default)]
 pub(crate) struct Selection {
-    picked: Vec<Entity>,
+    picked: Vec<Part>,
 }
 
 impl Selection {
@@ -29,7 +30,7 @@ impl Selection {
     ///
     /// What a plain click asks for, whether or not it landed on anything: one
     /// rule, which is that a click selects exactly what is under it.
-    pub(crate) fn select(&mut self, what: Option<Entity>) {
+    pub(crate) fn select(&mut self, what: Option<Part>) {
         self.picked.clear();
         self.picked.extend(what);
     }
@@ -40,14 +41,14 @@ impl Selection {
     /// asks a second time and the answer does not move. See [`Intent`].
     ///
     /// [`Intent`]: crate::intent::Intent
-    pub(crate) fn include(&mut self, what: Entity) {
+    pub(crate) fn include(&mut self, what: Part) {
         if !self.contains(what) {
             self.picked.push(what);
         }
     }
 
     /// Whether `what` is picked out.
-    pub(crate) fn contains(&self, what: Entity) -> bool {
+    pub(crate) fn contains(&self, what: Part) -> bool {
         self.picked.contains(&what)
     }
 
@@ -58,7 +59,7 @@ impl Selection {
     /// [`Drawing::offers`](crate::drawing::Drawing) — and a pair read the other
     /// way round is a different relation for every constraint that is not
     /// symmetric.
-    pub(crate) fn picked(&self) -> &[Entity] {
+    pub(crate) fn picked(&self) -> &[Part] {
         &self.picked
     }
 
@@ -70,8 +71,8 @@ impl Selection {
     /// next entity created takes the very same one and would come up selected
     /// without anyone having picked it. So the selection is put back against
     /// the drawing whenever the drawing might have moved.
-    pub(crate) fn retain(&mut self, keep: impl Fn(Entity) -> bool) {
-        self.picked.retain(|&entity| keep(entity));
+    pub(crate) fn retain(&mut self, keep: impl Fn(Part) -> bool) {
+        self.picked.retain(|&part| keep(part));
     }
 }
 
@@ -93,6 +94,7 @@ impl Selection {
 mod tests {
     use super::*;
     use glam::DVec2;
+    use silverpoint::Entity;
     use silverpoint::Sketch;
 
     /// A click replaces what is selected and a shift-click adds to it, and
@@ -106,8 +108,11 @@ mod tests {
         let mut sketch = Sketch::default();
         let start = sketch.add_point(DVec2::ZERO);
         let end = sketch.add_point(DVec2::new(1.0, 0.0));
-        let (a, b) = (Entity::Point(start), Entity::Point(end));
-        let c = Entity::Segment(sketch.add_segment(start, end));
+        let (a, b) = (
+            Part::Entity(Entity::Point(start)),
+            Part::Entity(Entity::Point(end)),
+        );
+        let c = Part::Entity(Entity::Segment(sketch.add_segment(start, end)));
 
         let mut selection = Selection::default();
         assert!(!selection.contains(a));

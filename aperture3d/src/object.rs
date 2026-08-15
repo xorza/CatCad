@@ -1,7 +1,10 @@
 //! A mesh placed in the world.
 
+use crate::aim::Aim;
+use crate::hit::{Hit, HitAt};
 use crate::mesh::Mesh;
 use crate::primitive::Primitive;
+use crate::ray::Ray;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Mat4, Vec3};
@@ -29,8 +32,8 @@ impl Default for Object {
 
 // Written out for `clone_from`, which `derive(Clone)` leaves at the trait's
 // default — `*self = source.clone()`, a fresh mesh every call. A caller
-// refilling a batch of these is copying a document's solids over the objects it
-// already holds, and the vertices are what make that worth not re-allocating.
+// refilling a batch of these is writing a document's geometry over the objects
+// it already holds, and the vertices are what make that worth not re-allocating.
 impl Clone for Object {
     fn clone(&self) -> Self {
         Self {
@@ -70,6 +73,36 @@ impl Object {
         self.transform.w_axis = position.extend(1.0);
         self
     }
+
+    /// Where the aim's ray first goes through this mesh, or `None` where it
+    /// misses or the mesh is scenery.
+    ///
+    /// Every triangle tested, front and back alike. A sheet has no outside to
+    /// be culled from — see [`Scene::faces`](crate::Scene) — and one that could
+    /// only be picked from the side it happens to face would be one that stops
+    /// answering as the view goes round it.
+    ///
+    /// The screen distance comes back zero, because a surface is not something
+    /// the cursor is *near*: it is either over it or it is not, and a face
+    /// reported at some distance would beat a nearer one for no reason a user
+    /// could see. What separates two faces under one cursor is depth alone.
+    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
+        let tag = self.tag?;
+        let ray = aim.ray();
+        let mut along = f32::INFINITY;
+        for triangle in self.mesh.indices.chunks_exact(3) {
+            let corner = |of: usize| {
+                self.transform
+                    .transform_point3(self.mesh.vertices[triangle[of] as usize].position)
+            };
+            if let Some(travelled) = crossed(ray, [corner(0), corner(1), corner(2)]) {
+                along = along.min(travelled);
+            }
+        }
+        along
+            .is_finite()
+            .then(|| aim.hit(tag, HitAt::Surface, ray.at(along), 0.0))
+    }
 }
 
 impl Styled for Object {
@@ -82,7 +115,36 @@ impl Styled for Object {
     }
 }
 
-/// A solid is a primitive like the overlays, and not a [`Flatten`]: a mesh is
+/// How far along `ray` it goes through the triangle, or `None` where it misses.
+///
+/// Möller–Trumbore, without the early-out that culls a back face: the
+/// determinant's *sign* is which side is being entered, and only its magnitude
+/// says whether the ray runs in the triangle's own plane.
+fn crossed(ray: Ray, corners: [Vec3; 3]) -> Option<f32> {
+    let [a, b, c] = corners;
+    let (along, across) = (b - a, c - a);
+    let sideways = ray.direction.cross(across);
+    let determinant = along.dot(sideways);
+    if determinant.abs() < f32::EPSILON {
+        return None;
+    }
+    let inverse = 1.0 / determinant;
+    let offset = ray.origin - a;
+    let u = offset.dot(sideways) * inverse;
+    if !(0.0..=1.0).contains(&u) {
+        return None;
+    }
+    let upward = offset.cross(along);
+    let v = ray.direction.dot(upward) * inverse;
+    if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    // Behind the eye is not something the cursor is over.
+    let travelled = across.dot(upward) * inverse;
+    (travelled >= 0.0).then_some(travelled)
+}
+
+/// An object is a primitive like the overlays, and not a [`Flatten`]: a mesh is
 /// baked into a shared triangle list rather than shipped as a record apiece,
 /// and its vertices and indices go to the GPU together.
 ///

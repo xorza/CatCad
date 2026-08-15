@@ -68,7 +68,7 @@ impl Session {
     /// tool stays in hand and starts over rather than going down: what was taken
     /// back is the point, not the intention to draw.
     pub(crate) fn prune(&mut self, drawing: &Drawing) {
-        self.selection.retain(|entity| drawing.holds(entity));
+        self.selection.retain(|part| drawing.holds_part(part));
         if self
             .tool
             .started()

@@ -7,6 +7,7 @@ use palantir::{App, Key, Modifiers, WindowToken};
 use silverpoint::{Entity, Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::demo;
+use crate::part::Part;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
 
@@ -189,16 +190,24 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
         "solved · 0 dof · 0 redundant · 4 iterations"
     );
 
-    // A sketch entity under the pointer adds itself to the end, in the word a
-    // draughtsman would use rather than the solver's.
+    // Whatever is under the pointer adds itself to the end, in the word a
+    // draughtsman would use rather than the solver's — and a face among them,
+    // which is named by where it falls rather than by a handle and so is the
+    // one that could be left out of the naming without anything else noticing.
     let sketch = demo::sketch();
     let point = sketch.points().next().unwrap().0;
     let segment = sketch.segments().next().unwrap().0;
     let circle = sketch.circles().next().unwrap().0;
+    let constraint = sketch.constraints().next().unwrap().0;
     for (hovered, tail) in [
-        (Entity::Point(point), " · point"),
-        (Entity::Segment(segment), " · edge"),
-        (Entity::Circle(circle), " · circle"),
+        (Part::Entity(Entity::Point(point)), " · point"),
+        (Part::Entity(Entity::Segment(segment)), " · edge"),
+        (Part::Entity(Entity::Circle(circle)), " · circle"),
+        (
+            Part::Entity(Entity::Constraint(constraint)),
+            " · constraint",
+        ),
+        (Part::Face(0), " · face"),
     ] {
         assert_eq!(
             Status {
@@ -570,7 +579,9 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         .expect("the sketch holds points")
         .0;
     assert!(
-        !app.session.selection().contains(Entity::Point(newest)),
+        !app.session
+            .selection()
+            .contains(Part::Entity(Entity::Point(newest))),
         "a point nobody picked came up selected, on a handle left over from an undo"
     );
 }

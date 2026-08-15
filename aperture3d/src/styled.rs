@@ -7,7 +7,8 @@ use glam::Vec3;
 /// [`Tag`] a pick that lands on it reports.
 ///
 /// Two rather than three: an overlay's depth bias would be the obvious third,
-/// but [`Object`](crate::Object) is styled too and a solid has no bias to give.
+/// but [`Object`](crate::Object) is styled too and an object has no bias to
+/// give — what needs one biases its whole pass instead.
 /// The four overlays restate `z_offset` instead, which measured cheaper — a
 /// setter needs a *public* trait, and the only one covering those four kinds
 /// would publish the crate's private picking vocabulary behind it.
