@@ -6,6 +6,7 @@ use crate::ray::Ray;
 use crate::tag::Tag;
 use crate::viewport::Viewport;
 use glam::{Mat4, Vec2, Vec3, Vec4};
+use palantir::Rect;
 
 /// Where the cursor is, how far it reaches, and the projection that puts the
 /// scene under it.
@@ -75,6 +76,26 @@ impl Aim {
     /// at. You can always grab what you can see.
     pub(crate) fn reach(&self, drawn_width: f32) -> f32 {
         self.radius.max(drawn_width * 0.5)
+    }
+
+    /// How far the cursor fell outside `rect`, and zero anywhere within it.
+    ///
+    /// Per axis, how far past an edge the cursor sits — negative between them,
+    /// which the floor at zero discards. The length of what survives is the
+    /// distance to the nearest corner when the cursor is diagonally out, and to
+    /// the nearest edge when it is out on one axis alone, both of which fall out
+    /// of the same two lines.
+    ///
+    /// Here rather than on [`Rect`], which is palantir's and answers
+    /// [`contains`](Rect::contains) but not this: a pick needs how far
+    /// *outside* as well, because a cursor a pixel off a small label should
+    /// still find it. And on the aim rather than beside either caller, because
+    /// the two ask it for opposite reasons — a label's box is what it *is*, a
+    /// rim's is only what it cannot reach past — and the measurement between
+    /// them is one.
+    pub(crate) fn reach_to_box(&self, rect: Rect) -> f32 {
+        let past = (rect.min - self.cursor).max(self.cursor - rect.max());
+        past.max(Vec2::ZERO).length()
     }
 
     /// A hit on `world`, measured from the eye along the cursor's own ray so

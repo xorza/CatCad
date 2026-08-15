@@ -6,7 +6,8 @@ use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::RingInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
-use glam::Vec3;
+use glam::{Vec2, Vec3, Vec4Swizzles};
+use palantir::Rect;
 
 /// A stroked circle lying in a plane, resolved in the fragment shader rather
 /// than tessellated — an [overlay](crate#overlays), like [`Curve`](crate::Curve).
@@ -99,8 +100,20 @@ impl Ring {
     /// Whether the cursor landed on this rim, and where round it.
     pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
         let tag = self.tag?;
+        let reach = aim.reach(self.width);
+        // Dismissed before the walk wherever the whole rim lands clear of the
+        // cursor, which in a drawing of many circles is nearly every one of
+        // them. A rim with no bound is not a rim that can be dismissed, which
+        // is why this reads as "said so" rather than "did not say otherwise" —
+        // see [`Ring::bound_on_screen`].
+        if self
+            .bound_on_screen(aim)
+            .is_some_and(|bound| aim.reach_to_box(bound) > reach)
+        {
+            return None;
+        }
         let near = self.nearest_to(aim)?;
-        (near.screen <= aim.reach(self.width)).then(|| {
+        (near.screen <= reach).then(|| {
             aim.hit(
                 tag,
                 HitAt::Ring { angle: near.angle },
@@ -109,6 +122,65 @@ impl Ring {
                 near.screen,
             )
         })
+    }
+
+    /// A box on screen the whole rim lands inside, or `None` where it has no
+    /// bound at all.
+    ///
+    /// A *bound* and not a box, which is what separates this from the box a
+    /// [`Text`](crate::Text) answers with: a label's box is where the label is,
+    /// and a pick measures against it. A rim only touches this one's edges and
+    /// is nowhere else near it, so nothing may be measured against it — it
+    /// answers whether the rim is worth walking, and nothing else.
+    ///
+    /// One-sided on purpose. A bound too large costs only a walk that need not
+    /// have happened, where one too small loses a click outright. `None` says
+    /// that more strongly still: a rim reaching the eye plane has no bound at
+    /// all, and the walk decides.
+    ///
+    /// Clip space is linear in world position, so the rim is exactly
+    /// `centre + cos θ · across + sin θ · up` there, component by component.
+    /// Each component of that runs over `centre ± hypot(across, up)`, being the
+    /// amplitude of `a cos θ + b sin θ` — which is not a bound but the true
+    /// range. The only slack comes of taking the numerator's range and `w`'s
+    /// apart when in truth the two move together, and a rim square to the view
+    /// has no spread in `w` at all: there this is the rim's own box.
+    ///
+    /// The alternative was a bound on the projected conic, which is what the
+    /// walk exists to avoid — it has no simple form once the circle crosses the
+    /// near plane. This has no form there either, and says so.
+    fn bound_on_screen(&self, aim: &Aim) -> Option<Rect> {
+        let centre = aim.view_proj * self.center.extend(1.0);
+        // Directions rather than positions, so the translation stays out and
+        // what comes back is how far the rim reaches from its own centre.
+        let across = aim.view_proj * (self.x_axis * self.radius).extend(0.0);
+        let up = aim.view_proj * (self.y_axis * self.radius).extend(0.0);
+
+        let amplitude = |a: f32, b: f32| (a * a + b * b).sqrt();
+        let depth = amplitude(across.w, up.w);
+        // The whole rim in front of the eye plane, which is the whole of what
+        // makes dividing by `w` mean anything.
+        let near = centre.w - depth;
+        if near <= 0.0 {
+            return None;
+        }
+        let far = centre.w + depth;
+        let spread = Vec2::new(amplitude(across.x, up.x), amplitude(across.y, up.y));
+        let (low, high) = (centre.xy() - spread, centre.xy() + spread);
+        // Each end over both depths, keeping the outermost: the numerator's
+        // range and `w`'s are known apart, so every pairing has to be allowed
+        // for. Both are positive by the refusal above, so the two are the
+        // extremes and nothing between them can escape.
+        let (min, max) = ((low / near).min(low / far), (high / near).max(high / far));
+
+        // Squared up again after the trip through pixels, because NDC counts y
+        // the other way and which corner is which does not survive it.
+        let (a, b) = (
+            aim.viewport.pixel_from_ndc(min),
+            aim.viewport.pixel_from_ndc(max),
+        );
+        let (top_left, size) = (a.min(b), (b - a).abs());
+        Some(Rect::new(top_left.x, top_left.y, size.x, size.y))
     }
 
     /// The point of the ring whose *projection* comes nearest the cursor.
@@ -130,12 +202,11 @@ impl Ring {
     /// side and the far, and a search started from a guess can settle on the wrong
     /// one.
     ///
-    /// Every ring in the scene walks in full, with no cheap rejection first, so
-    /// a rim far off screen costs what the one under the cursor does. Left that
-    /// way deliberately: rejecting would need a conservative screen bound on the
-    /// projected conic, which has no simple form once the circle crosses the
-    /// near plane, and the walk measures 0.3 µs — a drawing of two hundred
-    /// circles spends 61 µs of a 16 ms frame on it.
+    /// Thirty-two projections, which is why [`Ring::pick`] refuses what it can
+    /// before reaching here: a rim costs fifty times what a stroke's segment
+    /// does and a hundred and eighty times what a marker does, so a drawing of
+    /// many circles is a drawing that spends its pick almost entirely on rims
+    /// the cursor is nowhere near.
     fn nearest_to(&self, aim: &Aim) -> Option<NearestOnRing> {
         /// Arcs the rim is cut into before refining. Enough to tell the near side
         /// of the ellipse from the far one, which is all this pass has to do.

@@ -42,6 +42,44 @@ pub struct Scene {
     pub texts: Batch<Text>,
 }
 
+/// How much farther than a surface a hit has to be before the surface counts as
+/// hiding it, as a fraction of the surface's own distance.
+///
+/// Not zero, because a face and the strokes bounding it are the same surface:
+/// they are built from the same coordinates and their two distances differ only
+/// by the arithmetic that produced them. A boundary has to keep beating its own
+/// face, which is the whole reason a backdrop ranks last in the first place.
+///
+/// Not large, because the next thing behind a face is a whole plane away. The
+/// demo's two sketches sit a fifth of the viewing distance apart — two hundred
+/// times this.
+const BEHIND: f32 = 1e-3;
+
+/// What the aim landed on that a drawing is drawn *on*, and how much of what is
+/// behind it that hides.
+///
+/// Two answers rather than one, because they are the least of different things.
+/// What *hides* is whatever the aim crosses first, whoever drew it. What *wins*,
+/// once nothing is left standing in front of it, is decided by
+/// [`Hit::aim_order`] — so a nearer sheet the caller set aside hides everything
+/// behind it and still loses the answer to a further one it did not.
+#[derive(Debug, Clone, Copy)]
+struct Ground {
+    /// How far along the aim the first surface is, or infinity where the aim
+    /// crossed none — which then hides nothing, at no cost to the arithmetic.
+    front: f32,
+    /// The surface a pick answers with once nothing else is in reach.
+    best: Option<Hit>,
+}
+
+impl Ground {
+    /// Whether `hit` is near enough the eye to be seen past this — level with
+    /// the ground as well as in front of it. See [`BEHIND`].
+    fn shows(&self, hit: &Hit) -> bool {
+        hit.distance <= self.front * (1.0 + BEHIND)
+    }
+}
+
 impl Scene {
     /// What the scene occupies in world space, or `None` when there is
     /// nothing in it.
@@ -75,24 +113,64 @@ impl Scene {
     /// than the aim's radius is pickable anywhere it is visible — you can always
     /// grab what you can see.
     pub fn nearest(&self, aim: Aim) -> Option<Hit> {
-        self.hits(aim).min_by(Hit::aim_order)
+        // Two phases and not one list, because the question genuinely has two.
+        // A surface the aim lands on hides what is behind it, which the ordering
+        // cannot say and should not try to: it puts a backdrop last whatever the
+        // depth, so that a face never takes the click meant for its own
+        // boundary. A boundary is coplanar with its face; a sketch on some other
+        // plane is not, and had been answering through one.
+        //
+        // A filter rather than a rule inside [`Hit::aim_order`], because "behind
+        // *that* one" is a fact about a pair where an ordering has to be a fact
+        // about each. A comparator that asked it could rank three hits in a
+        // cycle, and `min_by` would then answer with whichever it happened to
+        // reach last.
+        //
+        // So the ground is settled first and by name, and nothing has to be kept
+        // to be looked at again — where gathering every hit meant holding a list
+        // of them, and holding it somewhere, only to take one. What is left is
+        // the fall-through: an overlay beats a backdrop by the ordering alone,
+        // so the ground answers exactly when nothing else survived being behind
+        // it.
+        let ground = self.ground(&aim);
+        self.overlays(&aim)
+            .filter(|hit| ground.shows(hit))
+            .min_by(Hit::aim_order)
+            .or(ground.best)
     }
 
-    /// Every primitive the aim reaches, in no particular order.
-    fn hits(&self, aim: Aim) -> impl Iterator<Item = Hit> {
+    /// What the aim crosses of the surfaces a drawing stands on.
+    ///
+    /// Both mesh batches, because which one an object is in decides how it is
+    /// *drawn* and says nothing about whether it can be aimed at — an untagged
+    /// one is scenery and answers nothing either way.
+    fn ground(&self, aim: &Aim) -> Ground {
+        let mut ground = Ground {
+            front: f32::INFINITY,
+            best: None,
+        };
+        let meshes = self.faces.iter().chain(self.solids.iter());
+        for hit in meshes.filter_map(|mesh| mesh.pick(aim)) {
+            ground.front = ground.front.min(hit.distance);
+            if ground.best.is_none_or(|best| hit.aim_order(&best).is_lt()) {
+                ground.best = Some(hit);
+            }
+        }
+        ground
+    }
+
+    /// Every overlay the aim reaches — the markers, labels, strokes and rims a
+    /// drawing is made of — in no particular order.
+    ///
+    /// Never a backdrop, which is what lets [`Scene::nearest`] take the least of
+    /// these and fall through to the ground only when there is none.
+    fn overlays(&self, aim: &Aim) -> impl Iterator<Item = Hit> {
         self.points
             .iter()
-            .filter_map(move |point| point.pick(&aim))
-            .chain(self.texts.iter().filter_map(move |text| text.pick(&aim)))
-            .chain(self.curves.iter().filter_map(move |curve| curve.pick(&aim)))
-            .chain(self.rings.iter().filter_map(move |ring| ring.pick(&aim)))
-            // Last, and ranked last — every stroke and marker bounding a face
-            // lies within it, so a face has to lose to all of them. Both mesh
-            // batches, because which one an object is in decides how it is
-            // *drawn* and says nothing about whether it can be aimed at: an
-            // untagged one is scenery and answers nothing either way.
-            .chain(self.faces.iter().filter_map(move |face| face.pick(&aim)))
-            .chain(self.solids.iter().filter_map(move |solid| solid.pick(&aim)))
+            .filter_map(move |point| point.pick(aim))
+            .chain(self.texts.iter().filter_map(move |text| text.pick(aim)))
+            .chain(self.curves.iter().filter_map(move |curve| curve.pick(aim)))
+            .chain(self.rings.iter().filter_map(move |ring| ring.pick(aim)))
     }
 }
 

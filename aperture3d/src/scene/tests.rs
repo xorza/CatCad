@@ -1,7 +1,7 @@
 use super::*;
 use crate::camera::Camera;
 use crate::camera::Projection;
-use crate::hit::HitAt;
+use crate::hit::{HitAt, Precedence};
 use crate::mesh::{Mesh, Vertex};
 use crate::styled::Styled;
 use crate::tag::Tag;
@@ -43,10 +43,19 @@ fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
 }
 
 /// The same, seen from somewhere else.
+///
+/// Exactly the set [`Scene::nearest`] takes the least of — the overlays the
+/// ground leaves visible, and the ground itself — so that the assertion below
+/// that `nearest` is this list's head is a claim about the whole answer and not
+/// about half of it.
 fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) -> Vec<Hit> {
+    let aim = Aim::new(through, cursor, viewport(), radius);
+    let ground = scene.ground(&aim);
     let mut hits: Vec<Hit> = scene
-        .hits(Aim::new(through, cursor, viewport(), radius))
+        .overlays(&aim)
+        .filter(|hit| ground.shows(hit))
         .collect();
+    hits.extend(ground.best);
     hits.sort_by(Hit::aim_order);
     hits
 }
@@ -613,4 +622,93 @@ fn a_surface_is_picked_from_behind_as_well_as_in_front() {
             .unwrap_or_else(|| panic!("the sheet vanished seen from yaw {yaw}"));
         assert_eq!(hit.tag, sheet);
     }
+}
+
+/// A surface hides what is behind it from the aim, and never what is level with
+/// it.
+///
+/// The two halves are one rule and they pull opposite ways, which is why the
+/// ordering alone could not say it. A face has to lose to the strokes bounding
+/// it — they lie *within* it on screen, so a face that could beat them would
+/// swallow every click meant for its own boundary, and that is what ranking a
+/// backdrop last buys. But a label on some other plane, genuinely behind, was
+/// answering through the face as well; a face you can see a drawing through is
+/// not a face you should be able to click a drawing through.
+#[test]
+fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
+    /// A quad facing the camera at `z`, as a two-sided sheet.
+    fn sheet(z: f32) -> Object {
+        let at = |x: f32, y: f32| Vertex {
+            position: Vec3::new(x, y, z),
+            normal: Vec3::Z,
+        };
+        Object::new(Mesh {
+            vertices: vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
+            indices: vec![0, 1, 2, 0, 2, 3],
+        })
+    }
+
+    let mut scene = Scene::default();
+    scene.faces.push(sheet(0.0).tagged(Tag::new(1)));
+    // A label a whole unit behind the sheet — another sketch's, seen through it.
+    scene.texts.push(
+        Text::new(Vec3::new(0.0, 0.0, -1.0), "8.00", 12.0)
+            .measured(Vec2::new(40.0, 12.0))
+            .tagged(Tag::new(2)),
+    );
+    let aim = Aim::new(&head_on(), CENTRE, viewport(), 1.0);
+    assert_eq!(
+        scene.nearest(aim).map(|hit| hit.tag),
+        Some(Tag::new(1)),
+        "the aim reached a label through the surface in front of it"
+    );
+
+    // The same label brought level with the sheet — its own sketch's, now —
+    // beats it, which is the half the ordering was already right about.
+    scene.texts.clear();
+    scene.texts.push(
+        Text::new(Vec3::ZERO, "8.00", 12.0)
+            .measured(Vec2::new(40.0, 12.0))
+            .tagged(Tag::new(2)),
+    );
+    assert_eq!(
+        scene.nearest(aim).map(|hit| hit.tag),
+        Some(Tag::new(2)),
+        "a surface took the click meant for what is drawn on it"
+    );
+
+    // And the surface that hides need not be the surface that answers. A sheet
+    // set aside sits in front of one being worked in: the near one hides the
+    // label behind them both, and the far one still takes the click, because
+    // what hides is whatever the aim crosses first and what wins is what the
+    // caller said it was for. One accumulator would have to serve both and get
+    // whichever it was not built for wrong.
+    scene.texts.clear();
+    scene.faces.clear();
+    scene
+        .faces
+        .push(sheet(0.0).tagged(Tag::new(1)).precedence(Precedence::Aside));
+    scene.faces.push(sheet(-1.0).tagged(Tag::new(3)));
+    scene.texts.push(
+        Text::new(Vec3::new(0.0, 0.0, -2.0), "8.00", 12.0)
+            .measured(Vec2::new(40.0, 12.0))
+            .tagged(Tag::new(2)),
+    );
+    assert_eq!(
+        scene.nearest(aim).map(|hit| hit.tag),
+        Some(Tag::new(3)),
+        "the sheet set aside took the answer from the one being worked in"
+    );
+
+    // Which is not the label merely losing on rank: bring the near sheet's
+    // standing back up and the answer moves to it, so the sweep above turned on
+    // precedence and the label stayed hidden throughout either way.
+    scene.faces.clear();
+    scene.faces.push(sheet(0.0).tagged(Tag::new(1)));
+    scene.faces.push(sheet(-1.0).tagged(Tag::new(3)));
+    assert_eq!(
+        scene.nearest(aim).map(|hit| hit.tag),
+        Some(Tag::new(1)),
+        "between two sheets alike, the nearer one answers"
+    );
 }

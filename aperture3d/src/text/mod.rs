@@ -128,7 +128,7 @@ impl Text {
     /// still find it.
     pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
         let tag = self.tag?;
-        let screen = distance_to(self.box_on_screen(aim)?, aim.cursor);
+        let screen = aim.reach_to_box(self.box_on_screen(aim)?);
         (screen <= aim.radius)
             .then(|| aim.hit(tag, HitAt::Text, self.precedence, self.position, screen))
     }
@@ -176,22 +176,6 @@ impl Styled for Text {
     fn precedence_mut(&mut self) -> &mut Precedence {
         &mut self.precedence
     }
-}
-
-/// How far `point` fell outside `rect`, and zero anywhere within.
-///
-/// Per axis, how far past an edge the point sits — negative between them, which
-/// the floor at zero discards. The length of what survives is the distance to
-/// the nearest corner when the point is diagonally out, and to the nearest edge
-/// when it is out on one axis alone, both of which fall out of the same two
-/// lines.
-///
-/// Here rather than on [`Rect`], which is palantir's and answers
-/// [`contains`](Rect::contains) but not this. A pick needs how far *outside* as
-/// well, because a cursor a pixel off a small label should still find it.
-fn distance_to(rect: Rect, point: Vec2) -> f32 {
-    let past = (rect.min - point).max(point - rect.max());
-    past.max(Vec2::ZERO).length()
 }
 
 /// Take every run's extent from `shaper`, so that what has been laid out knows
