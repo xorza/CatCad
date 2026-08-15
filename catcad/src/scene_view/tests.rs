@@ -949,7 +949,11 @@ fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
     raised.harness.drag_to(cursor + Vec2::new(50.0, 0.0));
     raised.frame();
 
-    assert_ne!(raised.camera(), camera, "a press on scenery has to orbit");
+    assert_ne!(
+        raised.camera(),
+        camera,
+        "a press on something that does not move has to orbit"
+    );
     assert_eq!(raised.markers(), before, "a pinned point was dragged");
 }
 

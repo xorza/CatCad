@@ -26,9 +26,9 @@ use crate::timeline::{FeatureId, Movable, Timeline};
 /// not is either derived from it — the solve's report, which geometry the
 /// constraints have decided, the tags the renderer picks against — or belongs
 /// to this run of the program alone: the GPU buffers, and where the pointer
-/// happens to be. What stands *around* the drawing without any step having put
-/// it there is not in either half, and is not here — see
-/// [`CatCad::scenery`](crate::CatCad).
+/// happens to be. Nothing at all stands outside the two: everything drawn was
+/// put there by a step, solids included, which is the whole of why writing this
+/// down is enough to open the picture again.
 ///
 /// The camera is in rather than out, though nothing about it is modelled.
 /// Reopening a drawing at someone else's viewpoint is not reopening it, and a

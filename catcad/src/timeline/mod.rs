@@ -189,15 +189,21 @@ impl Timeline {
             .map(|(id, _)| id)
     }
 
-    /// Every extrude the timeline holds, with the region each is grown from.
+    /// Every extrude the timeline holds, whole.
     ///
-    /// The pair rather than the handle alone, unlike [`Timeline::sketches`]:
-    /// what reads this is working out afresh where each extrude's region
-    /// currently falls — see [`Build::remodel`](crate::build::Build::remodel) —
-    /// and the profile is the whole of what that question is asked with.
-    pub(crate) fn extrudes(&self) -> impl Iterator<Item = (FeatureId, &Profile)> {
-        self.steps().filter_map(|(id, feature)| match feature {
-            Feature::Extrude { profile, .. } => Some((id, profile)),
+    /// What a step *says* rather than the handle alone, unlike
+    /// [`Timeline::sketches`]: an extrude is two values and every reader wants
+    /// both — resolving one asks the profile, drawing one asks the profile and
+    /// the distance together. Handing back the handle and making each caller
+    /// fetch the step again would be a second lookup and a match on an arm the
+    /// walk has already ruled out.
+    pub(crate) fn extrudes(&self) -> impl Iterator<Item = Extruded<'_>> {
+        self.steps().filter_map(|(at, feature)| match feature {
+            Feature::Extrude { profile, distance } => Some(Extruded {
+                at,
+                profile,
+                distance: *distance,
+            }),
             Feature::Plane(_) | Feature::Sketch { .. } => None,
         })
     }
@@ -302,6 +308,25 @@ impl Movable {
     pub(crate) fn offset_at(self, world: Vec3) -> f64 {
         (world.as_dvec3() - self.from.origin).dot(self.from.normal())
     }
+}
+
+/// One extrude the timeline holds: which step it is, what it is grown from, and
+/// how far.
+///
+/// A named satellite rather than a tuple, for the reason [`Movable`] above is
+/// one: the three answer one question between them and none of them answers it
+/// alone. Where a solid *is* follows from the region and the distance at once,
+/// and which step it is names it.
+///
+/// Borrowed and [`Copy`], like every other reading here — the profile belongs to
+/// the step, and this is a way of looking at one rather than a thing the
+/// timeline holds.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Extruded<'a> {
+    pub(crate) at: FeatureId,
+    pub(crate) profile: &'a Profile,
+    /// How far it is carried off its region's plane, and which way.
+    pub(crate) distance: f64,
 }
 
 /// One step of a timeline, and the handle that names it.

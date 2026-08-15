@@ -5,8 +5,7 @@ use silverpoint::{Drive, PointId, Removed, Sketch, Solver};
 
 use crate::build::modelled::Modelled;
 use crate::build::settled::Settled;
-use crate::profile::Profile;
-use crate::timeline::FeatureId;
+use crate::timeline::{Extruded, FeatureId};
 
 pub(crate) mod modelled;
 pub(crate) mod settled;
@@ -201,7 +200,7 @@ impl Build {
     /// [`Document`](crate::document::Document)'s: what crosses between the two
     /// is the pair each step names and nothing else, which is the same line
     /// [`Models`](crate::model::Models) sits on.
-    pub(crate) fn remodel<'a>(&mut self, extrudes: impl Iterator<Item = (FeatureId, &'a Profile)>) {
+    pub(crate) fn remodel<'a>(&mut self, extrudes: impl Iterator<Item = Extruded<'a>>) {
         let Self {
             settled, modelled, ..
         } = self;
@@ -209,9 +208,12 @@ impl Build {
         // have been added or taken away since the last time, and there is no
         // position here worth keeping — a caller names an extrude by its handle.
         modelled.clear();
-        for (of, profile) in extrudes {
-            let settled = filed_under(settled, profile.sketch(), Settled::of, UNSETTLED);
-            modelled.push(Modelled::new(of, profile.face_in(settled.arrangement())));
+        for step in extrudes {
+            let settled = filed_under(settled, step.profile.sketch(), Settled::of, UNSETTLED);
+            modelled.push(Modelled::new(
+                step.at,
+                step.profile.face_in(settled.arrangement()),
+            ));
         }
     }
 

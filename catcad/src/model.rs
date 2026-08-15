@@ -8,7 +8,6 @@ use crate::build::{Build, Revision};
 use crate::drawing::Drawing;
 use crate::part::Part;
 use crate::profile::Profile;
-use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Timeline};
 
 /// A sketch and what the last solve made of it, read together.
@@ -125,9 +124,9 @@ impl<'a> Model<'a> {
     /// every edit that follows — see [`Profile`], on why the two are different
     /// types rather than one.
     ///
-    /// Here beside [`Model::face`] for the reason that one is here: the sketch
-    /// half of the name is what a face position cannot supply, and a caller
-    /// holding both is holding a model.
+    /// Here beside [`Model::region`] for the reason that one is here: the
+    /// sketch half of the name is what a position among the faces cannot
+    /// supply, and a caller holding both is holding a model.
     pub(crate) fn profile(self, at: usize) -> Profile {
         let arrangement = self.arrangement();
         let mut bounds = Vec::new();
@@ -135,8 +134,8 @@ impl<'a> Model<'a> {
         Profile::new(self.of, bounds)
     }
 
-    /// The entity `part` names, or `None` where it names a face or belongs to
-    /// another sketch.
+    /// The entity `part` names, or `None` where it names a region or belongs
+    /// to another sketch.
     ///
     /// The sketch half of the check is the one a handle cannot make for itself:
     /// two sketches are two arenas and mint the same handles, so a part of
@@ -164,7 +163,7 @@ impl<'a> Model<'a> {
     pub(crate) fn offers(self, picked: &[Part], into: &mut Vec<Constraint>) {
         into.clear();
         match *picked {
-            // Entities of *this* sketch only. A face is what the curves
+            // Entities of *this* sketch only. A region is what the curves
             // enclose rather than something a sketch holds, so there is nothing
             // to state a relation about — and neither is a part of another
             // sketch, which is a different system entirely. A pair with either
@@ -235,8 +234,8 @@ impl<'a> Model<'a> {
     /// Whether `part` is still there to be picked out.
     ///
     /// The two halves of what a part can be, answered by the two halves of the
-    /// model: an entity by the drawing that holds it, and a face by there still
-    /// being that many. Here rather than on either half, because neither can
+    /// model: an entity by the drawing that holds it, and a region by there
+    /// still being that many. Here rather than on either half, because neither can
     /// answer the whole question — which is the same reason they are borrowed
     /// together at all.
     ///
@@ -348,7 +347,7 @@ impl<'a> Models<'a> {
     pub(crate) fn lost(self) -> usize {
         self.timeline
             .extrudes()
-            .filter(|&(at, _)| self.build.modelled(at).is_none())
+            .filter(|step| self.build.modelled(step.at).is_none())
             .count()
     }
 
@@ -396,14 +395,12 @@ impl<'a> Models<'a> {
         let Self {
             timeline, build, ..
         } = self;
-        timeline.extrudes().filter_map(move |(at, profile)| {
-            let region = build.modelled(at)?;
-            let Feature::Extrude { distance, .. } = timeline.feature(at) else {
-                unreachable!("{at:?} came back from a walk of the extrudes");
-            };
-            let plane = timeline.plane_of(profile.sketch());
-            let arrangement = build.settled(profile.sketch()).arrangement();
-            Some((at, Prism::new(arrangement, region, plane, *distance)))
+        timeline.extrudes().filter_map(move |step| {
+            let region = build.modelled(step.at)?;
+            let of = step.profile.sketch();
+            let arrangement = build.settled(of).arrangement();
+            let prism = Prism::new(arrangement, region, timeline.plane_of(of), step.distance);
+            Some((step.at, prism))
         })
     }
 }

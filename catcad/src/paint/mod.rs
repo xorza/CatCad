@@ -7,7 +7,7 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
+use aperture::{Batch, Curve, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
 use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Freedom, Plane, Segment, SegmentId};
@@ -106,11 +106,9 @@ const DORMANT_FACE: Vec3 = Vec3::new(0.11, 0.20, 0.29);
 /// the drawing to sit on rather than as another thing with a state.
 ///
 /// Stated at the strength it has to survive being *seen through*, which is what
-/// makes it look so much bluer here than it does on screen: a face is drawn
+/// makes it look so much bluer here than it does on screen: a region is drawn
 /// translucent, so what lands is a fraction of this mixed into whatever it
-/// covers. Measured against the demo's slab it comes out thirteen levels of red
-/// and eleven of blue away from bare ground — about what it was worth when it
-/// was opaque, and none of it borrowed from the geometry's own colours.
+/// covers — the bare background, or a solid standing behind it.
 ///
 /// How much of it lands is `FACE_OPACITY`'s, not this file's. Lower that and
 /// this wants restating, because the two are one decision about how a region
@@ -255,25 +253,18 @@ fn write_solids(
         .flat_map(|(at, prism)| prism.grown().map(move |face| (at, prism, face)));
     into.refill(faces, |object, (at, prism, face)| {
         skinner.cut(&prism, face, SOLID_SAGITTA, patch);
-        // Rewritten in place rather than assigned, so a drag that recuts every
-        // solid keeps the buffers it filled last frame.
-        object.mesh.vertices.clear();
-        object
-            .mesh
-            .vertices
-            .extend(
-                patch
-                    .corners
-                    .iter()
-                    .zip(&patch.normals)
-                    .map(|(&corner, &normal)| Vertex {
-                        position: corner.as_vec3(),
-                        normal: normal.as_vec3(),
-                    }),
-            );
-        object.mesh.indices.clear();
-        object.mesh.indices.reserve_exact(patch.triangles.len() * 3);
-        object.mesh.indices.extend(patch.triangles.iter().flatten());
+        remesh(
+            &mut object.mesh,
+            patch
+                .corners
+                .iter()
+                .zip(&patch.normals)
+                .map(|(&corner, &normal)| Vertex {
+                    position: corner.as_vec3(),
+                    normal: normal.as_vec3(),
+                }),
+            &patch.triangles,
+        );
         object.transform = Mat4::IDENTITY;
         object.color = SOLID;
         object.precedence = Precedence::Shaped;
@@ -344,25 +335,48 @@ pub(crate) fn redraw(
     layout.drawn(made);
 }
 
-/// A sheet per face the drawing's curves shut in.
+/// Write `corners` and the `triangles` over them into `mesh`.
 ///
-/// The one part of a drawing that is not drawn: a face is what the curves
+/// The one place a mesh is rewritten, which both writers below go through:
+/// what a region's fill and a solid's patch have in common is exactly this, and
+/// what they differ in is where the corners come from and what colour goes on
+/// afterwards.
+///
+/// Written over what is already there rather than assigned, which is what keeps
+/// a drag off the heap: every face of a drawing and every face of every solid is
+/// cut afresh whenever the document moves, and they come back the same size.
+///
+/// The indices are reserved for exactly and the corners are not, and the
+/// asymmetry is the iterators': flattening triangles hides the count, where an
+/// `extend` over corners carries its own.
+fn remesh(mesh: &mut Mesh, corners: impl Iterator<Item = Vertex>, triangles: &[[u32; 3]]) {
+    mesh.vertices.clear();
+    mesh.vertices.extend(corners);
+    mesh.indices.clear();
+    mesh.indices.reserve_exact(triangles.len() * 3);
+    mesh.indices.extend(triangles.iter().flatten());
+}
+
+/// A sheet per region the drawing's curves shut in.
+///
+/// The one part of a drawing that is not drawn: a region is what the curves
 /// *enclose*, so nothing here reads a segment or a circle — it reads what
 /// [`Arrangement`](silverpoint::Arrangement) made of all of them together, and
-/// a half-circle cut by an edge is as much a face as a rectangle traced by four.
+/// a half-circle cut by an edge is as much a region as a rectangle traced by
+/// four.
 ///
-/// Meshes rather than overlays, because a face has area in the world where a
+/// Meshes rather than overlays, because a region has area in the world where a
 /// stroke has width on the screen. They go to the scene's own batch for them,
 /// which is drawn two-sided and biased forward off the plane they lie in — see
 /// [`Scene::faces`](aperture::Scene).
 ///
-/// Named like everything else, so a face can be hovered and picked out. A
+/// Named like everything else, so a region can be hovered and picked out. A
 /// cursor over one still reaches the geometry bounding it first: a surface is
 /// the least specific thing a pick can land on — see
-/// [`HitAt`](aperture::HitAt) — and every stroke and marker that draws a face
+/// [`HitAt`](aperture::HitAt) — and every stroke and marker that draws a region
 /// lies within it.
 ///
-/// Named *by position*, which is the one thing about a face that is not a
+/// Named *by position*, which is the one thing about a region that is not a
 /// handle. See [`Part::Region`](crate::part::Part).
 fn write_faces(
     models: Models<'_>,
@@ -381,22 +395,14 @@ fn write_faces(
             let arrangement = model.arrangement();
             let face = &arrangement.faces()[at];
             filler.fill(arrangement, face, FACE_SAGITTA, fill);
-            // Rewritten in place rather than assigned, so a drag that redraws every
-            // face keeps the buffers it filled last frame.
-            object.mesh.vertices.clear();
-            object
-                .mesh
-                .vertices
-                .extend(fill.corners.iter().map(|&corner| Vertex {
+            remesh(
+                &mut object.mesh,
+                fill.corners.iter().map(|&corner| Vertex {
                     position: plane.point(corner).as_vec3(),
                     normal,
-                }));
-            object.mesh.indices.clear();
-            // Reserved rather than left to grow: flattening triangles hides the
-            // count from the iterator, where the corners above carry theirs and
-            // are reserved for exactly.
-            object.mesh.indices.reserve_exact(fill.triangles.len() * 3);
-            object.mesh.indices.extend(fill.triangles.iter().flatten());
+                }),
+                &fill.triangles,
+            );
             object.transform = Mat4::IDENTITY;
             object.color = if model.live() { FACE } else { DORMANT_FACE };
             object.precedence = standing(model);
