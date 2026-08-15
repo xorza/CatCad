@@ -21,7 +21,7 @@ impl Drawn {
     /// Every sketch it holds, which for a fixture of one is that one — open,
     /// so it is drawn in the colours of what it has left to decide.
     fn models(&self) -> Models<'_> {
-        Models::new(&self.timeline, &self.build, self.timeline.only_sketch())
+        Models::new(&self.timeline, &self.build, self.timeline.first_sketch())
     }
 }
 
@@ -33,7 +33,7 @@ impl Drawn {
 fn drawn(sketch: Sketch) -> Drawn {
     let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
-    timeline.edit(timeline.only_sketch()).opened(&mut build);
+    timeline.edit(timeline.first_sketch()).opened(&mut build);
     Drawn { timeline, build }
 }
 
@@ -351,10 +351,9 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
     let other = sketch.add_circle(a, 1.0);
     let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
-    let at = timeline.only_sketch();
+    let at = timeline.first_sketch();
     timeline.edit(at).opened(&mut build);
-    let drawing = timeline.drawing(at);
-    let model = Model::new(drawing, &build, at);
+    let model = Models::new(&timeline, &build, at).open();
 
     let mut every = Vec::new();
     let mut offers = Vec::new();
@@ -371,7 +370,7 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
             .into_iter()
             .map(|entity| model.part(entity))
             .collect();
-        drawing.offers(&picked, &mut offers);
+        model.offers(&picked, &mut offers);
         every.extend(offers.iter().copied());
     }
     // The twelve the enum has; a variant `offers` cannot reach would be a

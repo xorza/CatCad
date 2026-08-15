@@ -1,7 +1,7 @@
 //! The drawing as it currently stands: what is written down, and what the last
 //! solve made of it.
 
-use silverpoint::{Arrangement, Entity, Outcome, Plane, Sketch};
+use silverpoint::{Arrangement, Constraint, Entity, Outcome, Plane, Sketch};
 
 use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
@@ -56,7 +56,12 @@ pub(crate) struct Model<'a> {
 impl<'a> Model<'a> {
     /// The drawing at `at`, as `build` last left it, read as the one being
     /// edited.
-    pub(crate) fn new(drawing: Drawing<'a>, build: &'a Build, at: FeatureId) -> Self {
+    ///
+    /// Private, and [`Models`] is the whole of what it is reachable through.
+    /// Whether a model is the live one is not something a caller can be trusted
+    /// to say — it is whether it is the one the session has open, and the only
+    /// thing holding both halves of that is a `Models`.
+    fn new(drawing: Drawing<'a>, build: &'a Build, at: FeatureId) -> Self {
         Self {
             of: at,
             live: true,
@@ -90,6 +95,11 @@ impl<'a> Model<'a> {
         self.settled.arrangement()
     }
 
+    /// Which sketch of the timeline this is.
+    pub(crate) fn of(self) -> FeatureId {
+        self.of
+    }
+
     /// Whether this is the sketch being edited.
     pub(crate) fn live(self) -> bool {
         self.live
@@ -112,6 +122,101 @@ impl<'a> Model<'a> {
         Part::Face {
             sketch: self.of,
             at,
+        }
+    }
+
+    /// The entity `part` names, or `None` where it names a face or belongs to
+    /// another sketch.
+    ///
+    /// The sketch half of the check is the one a handle cannot make for itself:
+    /// two sketches are two arenas and mint the same handles, so a part of
+    /// another would resolve here as whatever happens to sit at that slot. What
+    /// asks this is anything that would go on to *use* the handle.
+    pub(crate) fn entity(self, part: Part) -> Option<Entity> {
+        (part.sketch() == self.of).then(|| part.entity()).flatten()
+    }
+
+    /// Every constraint `picked` admits, written into `into`.
+    ///
+    /// What the bar offers, and so the one statement of which selections mean
+    /// what. Order matters where the constraint is not symmetric, and the
+    /// selection keeps the order things were picked in for exactly this.
+    ///
+    /// A constraint carrying a number takes the one the drawing already has, so
+    /// asking for a distance *locks* what is there rather than demanding a value
+    /// the user has no way to type yet. That is also what a modeller does: the
+    /// dimension appears reading what it measured, and is retyped afterwards.
+    ///
+    /// Fills rather than returns, because the bar asks this every frame and the
+    /// record pass allocates nothing.
+    pub(crate) fn offers(self, picked: &[Part], into: &mut Vec<Constraint>) {
+        into.clear();
+        match *picked {
+            // Entities of *this* sketch only. A face is what the curves
+            // enclose rather than something a sketch holds, so there is nothing
+            // to state a relation about — and neither is a part of another
+            // sketch, which is a different system entirely. A pair with either
+            // in it admits nothing at all, rather than admitting whatever the
+            // other half would on its own.
+            [one, two] => {
+                if let (Some(one), Some(two)) = (self.entity(one), self.entity(two)) {
+                    self.between(one, two, into);
+                }
+            }
+            // The one relation a single pick admits: a radius takes the size
+            // the circle already is, so asking for one locks what is there
+            // rather than demanding a number nobody can type yet.
+            [only] => {
+                if let Some(Entity::Circle(circle)) = self.entity(only) {
+                    into.push(Constraint::Radius {
+                        circle,
+                        radius: self.sketch().circle(circle).radius,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// What a pair of entities admits, in the order they were picked.
+    ///
+    /// Order matters only where the relation is not symmetric, and none of
+    /// these is: every pair below reads the same whichever way round it was
+    /// reached, which is why each mixed one is matched both ways.
+    fn between(self, one: Entity, two: Entity, into: &mut Vec<Constraint>) {
+        match (one, two) {
+            (Entity::Point(a), Entity::Point(b)) => into.extend([
+                Constraint::Coincident { a, b },
+                Constraint::Distance {
+                    a,
+                    b,
+                    distance: (self.sketch().point(a).position - self.sketch().point(b).position)
+                        .length(),
+                },
+                Constraint::Horizontal { a, b },
+                Constraint::Vertical { a, b },
+            ]),
+            (Entity::Segment(first), Entity::Segment(second)) => into.extend([
+                Constraint::Parallel { first, second },
+                Constraint::Perpendicular { first, second },
+                Constraint::EqualLength { first, second },
+            ]),
+            (Entity::Point(point), Entity::Segment(segment))
+            | (Entity::Segment(segment), Entity::Point(point)) => {
+                into.push(Constraint::PointOnSegment { point, segment });
+            }
+            (Entity::Point(point), Entity::Circle(circle))
+            | (Entity::Circle(circle), Entity::Point(point)) => {
+                into.push(Constraint::PointOnCircle { point, circle });
+            }
+            (Entity::Circle(first), Entity::Circle(second)) => {
+                into.push(Constraint::EqualRadius { first, second });
+            }
+            (Entity::Segment(segment), Entity::Circle(circle))
+            | (Entity::Circle(circle), Entity::Segment(segment)) => {
+                into.push(Constraint::Tangent { segment, circle });
+            }
+            _ => {}
         }
     }
 
@@ -249,8 +354,10 @@ mod tests {
         let mut build = Build::default();
         timeline.edit(first).opened(&mut build);
         timeline.edit(second).opened(&mut build);
-        let a = Model::new(timeline.drawing(first), &build, first);
-        let b = Model::new(timeline.drawing(second), &build, second);
+        // Each through its own `Models`, because that is the only way to one:
+        // whether a model is the live one is not a caller's to assert.
+        let a = Models::new(&timeline, &build, first).open();
+        let b = Models::new(&timeline, &build, second).open();
 
         // The same entity, named twice, comes out as two different parts.
         assert_ne!(a.part(one), b.part(other), "one name for two points");
@@ -263,5 +370,25 @@ mod tests {
             "a model answered for another sketch"
         );
         assert!(!b.holds(a.part(one)));
+
+        // And nothing can be stated across the two. The handles are the same,
+        // so a pair read without their sketches would resolve entirely inside
+        // whichever model was asked — and would state a relation about geometry
+        // nobody picked.
+        let mut offers = Vec::new();
+        a.offers(&[a.part(one), b.part(other)], &mut offers);
+        assert!(offers.is_empty(), "a relation was offered across sketches");
+        b.offers(&[a.part(one), b.part(other)], &mut offers);
+        assert!(offers.is_empty(), "a relation was offered across sketches");
+
+        // The same pair within one sketch does admit something, which is what
+        // says the refusal above is about the sketches and not the shape of the
+        // selection.
+        let also = a.drawing().sketch().points().last().expect("a point").0;
+        a.offers(&[a.part(one), a.part(also)], &mut offers);
+        assert!(
+            !offers.is_empty(),
+            "a pair of one sketch's points admitted nothing"
+        );
     }
 }

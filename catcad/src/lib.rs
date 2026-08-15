@@ -201,9 +201,11 @@ impl CatCad {
                 tool: self.session.tool(),
                 status,
                 projection: self.document.camera().projection,
-                drawing: self.document.drawing_at(self.session.editing()),
+                model: self
+                    .document
+                    .models(&self.build, self.session.editing())
+                    .open(),
                 selection: self.session.selection(),
-                editing: self.session.editing(),
             },
             &mut self.intents,
         );
@@ -234,7 +236,10 @@ impl CatCad {
     /// A sketch is only as useful as it is determined, so the report reads
     /// over the drawing rather than into a log.
     fn status(&self) -> Status {
-        let model = self.document.model(&self.build, self.session.editing());
+        let model = self
+            .document
+            .models(&self.build, self.session.editing())
+            .open();
         let outcome = model.outcome();
         Status {
             converged: outcome.converged(),

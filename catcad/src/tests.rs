@@ -8,7 +8,7 @@ use silverpoint::{Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::build::Build;
 use crate::demo;
-use crate::model::Model;
+use crate::model::Models;
 use crate::timeline::Timeline;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
@@ -221,9 +221,9 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     // well as the thing within it.
     let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
-    let at = timeline.only_sketch();
+    let at = timeline.first_sketch();
     timeline.edit(at).opened(&mut build);
-    let model = Model::new(timeline.drawing(at), &build, at);
+    let model = Models::new(&timeline, &build, at).open();
     for (hovered, tail) in [
         (model.part(point), " · point"),
         (model.part(segment), " · edge"),
@@ -594,7 +594,8 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         .0;
     let newest = app
         .document
-        .model(&app.build, app.session.editing())
+        .models(&app.build, app.session.editing())
+        .open()
         .part(newest);
     assert!(
         !app.session.selection().contains(newest),

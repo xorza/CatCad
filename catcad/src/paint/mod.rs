@@ -435,8 +435,9 @@ fn write_curves(
     curves: &mut Batch<Curve>,
 ) {
     // The band belongs to the sketch being drawn in, which is the one plane it
-    // could lie in: a tool draws where you are, not where you are not.
-    let banding = models.open().plane().normal().as_vec3();
+    // could lie in: a tool draws where you are, not where you are not. Worked
+    // out only where there is one, since most frames have none.
+    let banding = band.map(|_| models.open().plane().normal().as_vec3());
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
     // one that does not — see `Batch::refill`. The band is chained on rather
@@ -473,7 +474,7 @@ fn write_curves(
                 Stroke::Band(ends) => {
                     curve.set_segment(ends.from, ends.to);
                     curve.color = GHOST;
-                    curve.plane_normal = Some(banding);
+                    curve.plane_normal = banding;
                     curve.tag = None;
                 }
             }
@@ -533,7 +534,7 @@ fn write_points(models: Models<'_>, names: &mut Names, points: &mut Batch<Point>
 /// own plane, so the depth it carries is already the surface's.
 fn write_rings(models: Models<'_>, names: &mut Names, band: Option<Ends>, rings: &mut Batch<Ring>) {
     // The band's plane is the open sketch's, exactly as among the strokes.
-    let banding = models.open().plane().normal().as_vec3();
+    let banding = band.map(|_| models.open().plane().normal().as_vec3());
     rings.refill(
         models
             .iter()
@@ -561,9 +562,12 @@ fn write_rings(models: Models<'_>, names: &mut Names, band: Option<Ends>, rings:
                 // Through the cursor rather than out to it: the second click
                 // says how big by naming somewhere on the rim. Untagged, like
                 // the band among the strokes.
-                Rim::Band(ends) => {
-                    Ring::new(ends.from, ends.from.distance(ends.to), banding).colored(GHOST)
-                }
+                Rim::Band(ends) => Ring::new(
+                    ends.from,
+                    ends.from.distance(ends.to),
+                    banding.expect("a band is drawn only where there is one"),
+                )
+                .colored(GHOST),
             }
             .width(EDGE_WIDTH)
             .z_offset(STROKE_LIFT);

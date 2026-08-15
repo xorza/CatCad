@@ -45,7 +45,7 @@ fn a_sketch_lands_where_its_plane_says_and_stores_none_of_it() {
     let mut sketch = Sketch::default();
     let corner = sketch.add_point(DVec2::new(3.0, 4.0));
     let timeline = Timeline::of(sketch);
-    let at = timeline.only_sketch();
+    let at = timeline.first_sketch();
 
     // The ground's own axes are world +X and −Z, so (3, 4) on it is (3, 0, −4).
     assert_eq!(timeline.plane_of(at), Plane::GROUND);
@@ -74,7 +74,7 @@ fn an_edit_through_the_timeline_reaches_the_sketch_it_names() {
 
     let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
-    let at = timeline.only_sketch();
+    let at = timeline.first_sketch();
     let was = build.revision();
 
     timeline.edit(at).drag_to(

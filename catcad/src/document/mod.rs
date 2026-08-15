@@ -6,7 +6,7 @@ use crate::build::Build;
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::intent::Change;
-use crate::model::{Model, Models};
+use crate::model::Models;
 use crate::timeline::{FeatureId, Timeline};
 use silverpoint::Snapshot;
 
@@ -84,7 +84,7 @@ impl Document {
     /// session's — see [`Session::editing`](crate::session::Session) — because
     /// nothing about what you have open is written down by saving.
     pub(crate) fn opening(&self) -> FeatureId {
-        self.timeline.only_sketch()
+        self.timeline.first_sketch()
     }
 
     /// The sketch at `at`, open for editing.
@@ -103,10 +103,6 @@ impl Document {
     /// [`Model`]. Here because a caller holding a document and a build is
     /// holding both halves already, and naming the type to put them together
     /// would be ceremony.
-    pub(crate) fn model<'a>(&'a self, build: &'a Build, at: FeatureId) -> Model<'a> {
-        Model::new(self.timeline.drawing(at), build, at)
-    }
-
     /// Every sketch it holds as `build` last left them, with `editing` the one
     /// being worked in.
     pub(crate) fn models<'a>(&'a self, build: &'a Build, editing: FeatureId) -> Models<'a> {

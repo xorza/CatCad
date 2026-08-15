@@ -42,7 +42,7 @@ impl Linkage {
         });
         let mut build = Build::default();
         let mut timeline = Timeline::of(sketch);
-        timeline.edit(timeline.only_sketch()).opened(&mut build);
+        timeline.edit(timeline.first_sketch()).opened(&mut build);
         Self {
             timeline,
             build,
@@ -53,24 +53,23 @@ impl Linkage {
 
     /// The sketch and its plane, as a reader of the drawing wants them.
     fn drawing(&self) -> Drawing<'_> {
-        self.timeline.drawing(self.timeline.only_sketch())
+        self.timeline.drawing(self.timeline.first_sketch())
     }
 
     /// The two halves as a reader of the model wants them.
     fn model(&self) -> Model<'_> {
-        let at = self.timeline.only_sketch();
-        Model::new(self.timeline.drawing(at), &self.build, at)
+        self.models().open()
     }
 
     /// Every sketch it holds, which for a fixture of one is that one — open,
     /// so it draws in the colours of what it has left to decide.
     fn models(&self) -> Models<'_> {
-        Models::new(&self.timeline, &self.build, self.timeline.only_sketch())
+        Models::new(&self.timeline, &self.build, self.timeline.first_sketch())
     }
 
     /// Take `grip` to `world`, as the application's edit path would.
     fn drag_to(&mut self, grip: Grip, world: Vec3) {
-        let at = self.timeline.only_sketch();
+        let at = self.timeline.first_sketch();
         self.timeline.edit(at).drag_to(&mut self.build, grip, world);
     }
 
@@ -141,7 +140,7 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let hole = sketch.add_circle(hub, 1.0);
     sketch.fix(pinned);
     let timeline = Timeline::of(sketch);
-    let drawing = timeline.drawing(timeline.only_sketch());
+    let drawing = timeline.drawing(timeline.first_sketch());
 
     assert_eq!(
         drawing.grip(Entity::Point(free), HitAt::Point),
@@ -223,7 +222,7 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     let hole = sketch.add_circle(hub, 1.0);
     let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
-    let at = timeline.only_sketch();
+    let at = timeline.first_sketch();
     let plane = timeline.plane_of(at);
 
     // Three across and four up from the centre is a radius of five.
@@ -308,15 +307,14 @@ struct Assorted {
 }
 
 impl Assorted {
-    /// The sketch and its plane, as a reader of the drawing wants them.
-    fn drawing(&self) -> Drawing<'_> {
-        self.timeline.drawing(self.timeline.only_sketch())
+    /// Every sketch it holds, which for a fixture of one is that one.
+    fn models(&self) -> Models<'_> {
+        Models::new(&self.timeline, &self.build, self.timeline.first_sketch())
     }
 
     /// The two halves as a reader of the model wants them.
     fn model(&self) -> Model<'_> {
-        let at = self.timeline.only_sketch();
-        Model::new(self.timeline.drawing(at), &self.build, at)
+        self.models().open()
     }
 
     fn new() -> Self {
@@ -330,7 +328,7 @@ impl Assorted {
         let other = sketch.add_circle(a, 1.0);
         let mut build = Build::default();
         let mut timeline = Timeline::of(sketch);
-        timeline.edit(timeline.only_sketch()).opened(&mut build);
+        timeline.edit(timeline.first_sketch()).opened(&mut build);
         Self {
             timeline,
             build,
@@ -352,7 +350,6 @@ impl Assorted {
 #[test]
 fn a_selection_admits_exactly_the_relations_it_can_bear() {
     let assorted = Assorted::new();
-    let drawing = assorted.drawing();
     let model = assorted.model();
     let Assorted {
         a,
@@ -390,7 +387,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
             .collect()
     };
 
-    drawing.offers(&[model.part(a), model.part(b)], &mut offers);
+    model.offers(&[model.part(a), model.part(b)], &mut offers);
     assert_eq!(
         kinds(&offers),
         ["coincident", "distance", "horizontal", "vertical"]
@@ -401,7 +398,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     };
     assert!((distance - 5.0).abs() < 1e-9, "{distance}");
 
-    drawing.offers(&[model.part(first), model.part(second)], &mut offers);
+    model.offers(&[model.part(first), model.part(second)], &mut offers);
     assert_eq!(
         kinds(&offers),
         ["parallel", "perpendicular", "equal length"]
@@ -410,25 +407,25 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     // Either way round is the same relation — which was picked first says
     // nothing about which is held to which.
     for pair in [[a, second], [second, a]] {
-        drawing.offers(&pair.map(|entity| model.part(entity)), &mut offers);
+        model.offers(&pair.map(|entity| model.part(entity)), &mut offers);
         assert_eq!(kinds(&offers), ["on edge"], "{pair:?}");
     }
     for pair in [[a, circle], [circle, a]] {
-        drawing.offers(&pair.map(|entity| model.part(entity)), &mut offers);
+        model.offers(&pair.map(|entity| model.part(entity)), &mut offers);
         assert_eq!(kinds(&offers), ["on circle"], "{pair:?}");
     }
     for pair in [[first, circle], [circle, first]] {
-        drawing.offers(&pair.map(|entity| model.part(entity)), &mut offers);
+        model.offers(&pair.map(|entity| model.part(entity)), &mut offers);
         assert_eq!(kinds(&offers), ["tangent"], "{pair:?}");
     }
     for pair in [[circle, other], [other, circle]] {
-        drawing.offers(&pair.map(|entity| model.part(entity)), &mut offers);
+        model.offers(&pair.map(|entity| model.part(entity)), &mut offers);
         assert_eq!(kinds(&offers), ["equal radius"], "{pair:?}");
     }
 
     // A radius takes the size the circle already is, so asking for one locks
     // what is there rather than demanding a number nobody can type yet.
-    drawing.offers(&[model.part(circle)], &mut offers);
+    model.offers(&[model.part(circle)], &mut offers);
     assert_eq!(kinds(&offers), ["radius"]);
     let Constraint::Radius { radius, .. } = offers[0] else {
         panic!("{offers:?}");
@@ -453,7 +450,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
         &[face, model.part(a)][..],
         &[model.part(a), face][..],
     ] {
-        drawing.offers(picked, &mut offers);
+        model.offers(picked, &mut offers);
         assert!(offers.is_empty(), "{picked:?} offered {:?}", kinds(&offers));
     }
 }
@@ -471,17 +468,15 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
         circle,
         ..
     } = Assorted::new();
-    let at = timeline.only_sketch();
+    let at = timeline.first_sketch();
     let (Entity::Point(pa), Entity::Point(pb)) = (a, b) else {
         panic!("the fixture picks two points");
     };
 
     // The two points sit 4 apart in y; asked to be level, they meet.
     let mut offers = Vec::new();
-    let model = Model::new(timeline.drawing(at), &build, at);
-    timeline
-        .drawing(at)
-        .offers(&[model.part(a), model.part(b)], &mut offers);
+    let model = Models::new(&timeline, &build, at).open();
+    model.offers(&[model.part(a), model.part(b)], &mut offers);
     let level = offers[2];
     assert!(matches!(level, Constraint::Horizontal { .. }));
     timeline.edit(at).constrain(&mut build, level);
@@ -536,7 +531,7 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     sketch.add_segment(a, b);
     let mut build = Build::default();
     let mut timeline = Timeline::of(sketch);
-    let at = timeline.only_sketch();
+    let at = timeline.first_sketch();
     let ground = timeline.plane_of(at);
 
     // A second edge begun on the first one's far end.

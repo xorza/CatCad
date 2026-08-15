@@ -128,7 +128,7 @@ mod tests {
     use super::*;
     use crate::build::Build;
     use crate::intent::Choice;
-    use crate::model::Model;
+    use crate::model::Models;
     use crate::timeline::Timeline;
     use crate::timeline::feature::{Datum, Feature};
     use glam::DVec2;
@@ -157,8 +157,8 @@ mod tests {
         let mut build = Build::default();
         timeline.edit(here).opened(&mut build);
         timeline.edit(there).opened(&mut build);
-        let first = Model::new(timeline.drawing(here), &build, here);
-        let second = Model::new(timeline.drawing(there), &build, there);
+        let first = Models::new(&timeline, &build, here).open();
+        let second = Models::new(&timeline, &build, there).open();
 
         let mut session = Session::new(here);
 

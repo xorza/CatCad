@@ -120,7 +120,8 @@ impl Raised {
     /// One of the drawing's entities, as something that can be picked out.
     fn part(&self, entity: Entity) -> Part {
         self.document
-            .model(&self.build, self.session.editing())
+            .models(&self.build, self.session.editing())
+            .open()
             .part(entity)
     }
 
@@ -365,7 +366,8 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
     assert!(
         raised
             .document
-            .model(&raised.build, raised.session.editing())
+            .models(&raised.build, raised.session.editing())
+            .open()
             .outcome()
             .converged(),
         "the demo has to open solved for this to mean anything"
@@ -390,7 +392,8 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
     assert!(
         raised
             .document
-            .model(&raised.build, raised.session.editing())
+            .models(&raised.build, raised.session.editing())
+            .open()
             .outcome()
             .converged(),
         "a refused drag left the drawing unsolved"
@@ -920,7 +923,8 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     raised.frame();
     let free = raised
         .document
-        .model(&raised.build, raised.session.editing())
+        .models(&raised.build, raised.session.editing())
+        .open()
         .outcome()
         .degrees_of_freedom();
 
@@ -957,7 +961,8 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     assert_eq!(
         raised
             .document
-            .model(&raised.build, raised.session.editing())
+            .models(&raised.build, raised.session.editing())
+            .open()
             .outcome()
             .degrees_of_freedom(),
         free + 1,
@@ -966,7 +971,8 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     assert!(
         raised
             .document
-            .model(&raised.build, raised.session.editing())
+            .models(&raised.build, raised.session.editing())
+            .open()
             .outcome()
             .converged(),
         "the solve that puts the point on the edge did not converge"

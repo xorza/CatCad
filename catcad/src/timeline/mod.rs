@@ -89,13 +89,13 @@ impl Timeline {
         Sketching::new(at, sketch, plane)
     }
 
-    /// The one sketch the document holds.
+    /// The first sketch it holds.
     ///
-    /// Here while there is only one. A document that can hold several is what
-    /// stage 4 of `.notes/FEATURES.md` is, and this is what goes when the
-    /// session starts saying which is being edited — every caller of it is a
-    /// caller that will then be asking the session instead.
-    pub(crate) fn only_sketch(&self) -> FeatureId {
+    /// Where a session opens, and nothing beyond that: which sketch is open
+    /// after that is the session's — see
+    /// [`Session::editing`](crate::session::Session::editing) — so this is
+    /// asked once, when a document is raised, and never to mean "the sketch".
+    pub(crate) fn first_sketch(&self) -> FeatureId {
         self.sketches().next().expect("the document holds a sketch")
     }
 

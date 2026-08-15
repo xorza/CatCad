@@ -5,7 +5,6 @@ use glam::{DVec2, Vec3};
 use silverpoint::{CircleId, Constraint, Entity, Plane, PointId, SegmentId, Sketch, Snapshot};
 
 use crate::drawing::anchor::Anchor;
-use crate::part::Part;
 
 pub(crate) mod anchor;
 pub(crate) mod sketching;
@@ -44,89 +43,6 @@ impl<'a> Drawing<'a> {
     /// The plane it lies on.
     pub(crate) fn plane(self) -> Plane {
         self.plane
-    }
-
-    /// Every constraint `picked` admits, written into `into`.
-    ///
-    /// What the bar offers, and so the one statement of which selections mean
-    /// what. Order matters where the constraint is not symmetric, and the
-    /// selection keeps the order things were picked in for exactly this.
-    ///
-    /// A constraint carrying a number takes the one the drawing already has, so
-    /// asking for a distance *locks* what is there rather than demanding a value
-    /// the user has no way to type yet. That is also what a modeller does: the
-    /// dimension appears reading what it measured, and is retyped afterwards.
-    ///
-    /// Fills rather than returns, because the bar asks this every frame and the
-    /// record pass allocates nothing.
-    pub(crate) fn offers(self, picked: &[Part], into: &mut Vec<Constraint>) {
-        into.clear();
-        match *picked {
-            // Entities only. A face is what the curves *enclose* rather than
-            // something the sketch holds, so there is nothing to state a
-            // relation about — and a pair with one in it admits nothing at all,
-            // rather than admitting whatever the other half would on its own.
-            [one, two] => {
-                if let (Some(one), Some(two)) = (one.entity(), two.entity()) {
-                    self.between(one, two, into);
-                }
-            }
-            // The one relation a single pick admits: a radius takes the size
-            // the circle already is, so asking for one locks what is there
-            // rather than demanding a number nobody can type yet.
-            [
-                Part::Entity {
-                    entity: Entity::Circle(circle),
-                    ..
-                },
-            ] => into.push(Constraint::Radius {
-                circle,
-                radius: self.sketch.circle(circle).radius,
-            }),
-            _ => {}
-        }
-    }
-
-    /// What a pair of entities admits, in the order they were picked.
-    ///
-    /// Order matters only where the relation is not symmetric, and none of
-    /// these is: every pair below reads the same whichever way round it was
-    /// reached, which is why each mixed one is matched both ways.
-    fn between(self, one: Entity, two: Entity, into: &mut Vec<Constraint>) {
-        match (one, two) {
-            (Entity::Point(a), Entity::Point(b)) => into.extend([
-                Constraint::Coincident { a, b },
-                Constraint::Distance {
-                    a,
-                    b,
-                    distance: (self.sketch.point(a).position - self.sketch.point(b).position)
-                        .length(),
-                },
-                Constraint::Horizontal { a, b },
-                Constraint::Vertical { a, b },
-            ]),
-            (Entity::Segment(first), Entity::Segment(second)) => into.extend([
-                Constraint::Parallel { first, second },
-                Constraint::Perpendicular { first, second },
-                Constraint::EqualLength { first, second },
-            ]),
-            (Entity::Point(point), Entity::Segment(segment))
-            | (Entity::Segment(segment), Entity::Point(point)) => {
-                into.push(Constraint::PointOnSegment { point, segment });
-            }
-            (Entity::Point(point), Entity::Circle(circle))
-            | (Entity::Circle(circle), Entity::Point(point)) => {
-                into.push(Constraint::PointOnCircle { point, circle });
-            }
-            (Entity::Circle(first), Entity::Circle(second)) => {
-                into.push(Constraint::EqualRadius { first, second });
-            }
-            (Entity::Segment(segment), Entity::Circle(circle))
-            | (Entity::Circle(circle), Entity::Segment(segment)) => {
-                into.push(Constraint::Tangent { segment, circle });
-            }
-            _ => {}
-        }
     }
 
     /// Where a mark for `constraint` belongs in the world.

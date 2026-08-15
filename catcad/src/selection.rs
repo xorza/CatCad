@@ -94,7 +94,7 @@ impl Selection {
 mod tests {
     use super::*;
     use crate::build::Build;
-    use crate::model::Model;
+    use crate::model::Models;
     use crate::timeline::Timeline;
     use glam::DVec2;
     use silverpoint::Sketch;
@@ -113,9 +113,9 @@ mod tests {
         let segment = sketch.add_segment(start, end);
         let mut build = Build::default();
         let mut timeline = Timeline::of(sketch);
-        let at = timeline.only_sketch();
+        let at = timeline.first_sketch();
         timeline.edit(at).opened(&mut build);
-        let model = Model::new(timeline.drawing(at), &build, at);
+        let model = Models::new(&timeline, &build, at).open();
         let (a, b) = (model.part(start), model.part(end));
         let c = model.part(segment);
 

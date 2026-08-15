@@ -7,10 +7,9 @@ use palantir::{
     Sizing, Text, Ui,
 };
 
-use crate::drawing::Drawing;
 use crate::intent::{Change, Choice, Intents, Step};
+use crate::model::Model;
 use crate::paint::DECIMALS;
-use crate::part::Part;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
@@ -75,13 +74,11 @@ impl Hud {
     /// *this* selection can do.
     fn constraints(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
         let Shown {
-            drawing,
-            selection,
-            editing: sketch,
-            ..
+            model, selection, ..
         } = shown;
-        drawing.offers(selection.picked(), &mut self.offers);
-        let dimension = dimension_picked(drawing, selection);
+        let sketch = model.of();
+        model.offers(selection.picked(), &mut self.offers);
+        let dimension = dimension_picked(model, selection);
         if self.offers.is_empty() && dimension.is_none() {
             return;
         }
@@ -139,9 +136,10 @@ impl Hud {
         let Shown {
             status,
             projection,
-            editing: sketch,
+            model,
             ..
         } = shown;
+        let sketch = model.of();
         floating(Panel::vstack(), "readout", Align::TOP_LEFT).show(ui, |ui| {
             projection_toggle(ui, projection, intents);
             Text::new(status).auto_id().show(ui);
@@ -209,11 +207,18 @@ pub(crate) struct Shown<'a> {
     /// has to be lowered in the pass that minted it.
     pub(crate) status: InternedStr,
     pub(crate) projection: Projection,
-    pub(crate) drawing: Drawing<'a>,
+    /// The sketch open for editing, as the last solve left it.
+    ///
+    /// The model rather than the drawing, because a control here reads what is
+    /// *picked out* — and a part names the sketch it belongs to as well as the
+    /// thing within it. Only a model can tell the two apart, and one of another
+    /// sketch would otherwise resolve here as whatever sits at that slot.
+    ///
+    /// It is also what every control that asks for a change names, since the
+    /// sketch it is of is the one open — see
+    /// [`Session::editing`](crate::session::Session).
+    pub(crate) model: Model<'a>,
     pub(crate) selection: &'a Selection,
-    /// The sketch open for editing, which is what every control here that asks
-    /// for a change names — see [`Session::editing`](crate::session::Session).
-    pub(crate) editing: FeatureId,
 }
 
 /// Sketch units per pixel of scrub. A hundredth, so a drag reads a dimension
@@ -226,19 +231,17 @@ const DIMENSION_SPEED: f64 = 0.01;
 /// One rather than any, because the field edits a value and two values have no
 /// single answer. A selection holding a dimension *and* something else is
 /// someone part-way through picking a pair, so the field stays away.
-fn dimension_picked(drawing: Drawing<'_>, selection: &Selection) -> Option<(ConstraintId, f64)> {
-    let [
-        Part::Entity {
-            entity: Entity::Constraint(id),
-            ..
-        },
-    ] = *selection.picked()
-    else {
+fn dimension_picked(model: Model<'_>, selection: &Selection) -> Option<(ConstraintId, f64)> {
+    let [only] = *selection.picked() else {
         return None;
     };
-    drawing
+    let Some(Entity::Constraint(id)) = model.entity(only) else {
+        return None;
+    };
+    model
+        .drawing()
         .holds(id)
-        .then(|| drawing.sketch().constraint(id).value().map(|at| (id, at)))
+        .then(|| model.sketch().constraint(id).value().map(|at| (id, at)))
         .flatten()
 }
 
