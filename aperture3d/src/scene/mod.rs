@@ -4,7 +4,7 @@ use crate::aim::Aim;
 use crate::batch::Batch;
 use crate::bounds::Bounds;
 use crate::curve::Curve;
-use crate::hit::Hit;
+use crate::hit::{Hit, Precedence};
 use crate::object::Object;
 use crate::point::Point;
 use crate::primitive;
@@ -42,18 +42,31 @@ pub struct Scene {
     pub texts: Batch<Text>,
 }
 
-/// How much farther than a surface a hit has to be before the surface counts as
-/// hiding it, as a fraction of the surface's own distance.
+/// How much farther than something a hit has to be before it counts as being
+/// *behind* it rather than level with it, as a fraction of the nearer distance.
 ///
 /// Not zero, because a face and the strokes bounding it are the same surface:
 /// they are built from the same coordinates and their two distances differ only
 /// by the arithmetic that produced them. A boundary has to keep beating its own
-/// face, which is the whole reason a backdrop ranks last in the first place.
+/// face, which is the whole reason a backdrop ranks last in the first place. A
+/// datum and the sketch drawn on it are level in the same way, and for a
+/// stronger reason — they lie in one plane by construction.
 ///
-/// Not large, because the next thing behind a face is a whole plane away. The
+/// Not large, because the next thing behind either is a whole plane away. The
 /// demo's two sketches sit a fifth of the viewing distance apart — two hundred
 /// times this.
 const BEHIND: f32 = 1e-3;
+
+/// Whether something `front` away along the aim leaves `hit` visible — level
+/// with it as well as in front of it. See [`BEHIND`].
+///
+/// The one place the tolerance is spent, because it is asked twice about two
+/// different things: a surface hides what is behind it, and so does the
+/// frontmost frame. Written once so the two cannot come to disagree about what
+/// "behind" means.
+fn shows(front: f32, hit: &Hit) -> bool {
+    hit.distance <= front * (1.0 + BEHIND)
+}
 
 /// What the aim landed on that a drawing is drawn *on*, and how much of what is
 /// behind it that hides.
@@ -70,14 +83,6 @@ struct Ground {
     front: f32,
     /// The surface a pick answers with once nothing else is in reach.
     best: Option<Hit>,
-}
-
-impl Ground {
-    /// Whether `hit` is near enough the eye to be seen past this — level with
-    /// the ground as well as in front of it. See [`BEHIND`].
-    fn shows(&self, hit: &Hit) -> bool {
-        hit.distance <= self.front * (1.0 + BEHIND)
-    }
 }
 
 impl Scene {
@@ -133,10 +138,38 @@ impl Scene {
         // so the ground answers exactly when nothing else survived being behind
         // it.
         let ground = self.ground(&aim);
+        // The same question a second time, about frames rather than surfaces. A
+        // frame is furniture *around* a drawing and yields its click to the
+        // geometry it frames — which is geometry it is level with, being drawn
+        // around it in the same plane. Something a plane away behind it is not
+        // what it frames, and had been taking the click all the same:
+        // [`Hit::aim_order`] settles precedence before depth, and a frame ranks
+        // below every kind of geometry there is, so a datum lost to any edge of
+        // any sketch however far off that sketch lay.
+        //
+        // A filter rather than a rule inside the ordering, for the reason given
+        // above and unchanged by which of the two is asking.
+        let framed = self.frames(&aim);
         self.overlays(&aim)
-            .filter(|hit| ground.shows(hit))
+            .filter(|hit| shows(ground.front, hit) && shows(framed, hit))
             .min_by(Hit::aim_order)
             .or(ground.best)
+    }
+
+    /// How far off the nearest frame the aim crosses lies, or infinity where it
+    /// crosses none — which then hides nothing, at no cost to the arithmetic.
+    ///
+    /// A second walk of the overlays rather than a list kept from the first, for
+    /// the reason the ground is settled by name above: what a pick hands back is
+    /// one hit, and holding every hit in order to take one is the cost this is
+    /// shaped to avoid. The walk is linear and runs once a frame; if it ever
+    /// shows up, the cheaper form is to ask each primitive what it is for before
+    /// picking it rather than after, since frames are the rarest thing a scene
+    /// holds.
+    fn frames(&self, aim: &Aim) -> f32 {
+        self.overlays(aim)
+            .filter(|hit| hit.precedence == Precedence::Frame)
+            .fold(f32::INFINITY, |front, hit| front.min(hit.distance))
     }
 
     /// What the aim crosses of the surfaces a drawing stands on.

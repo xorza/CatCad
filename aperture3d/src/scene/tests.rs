@@ -1,6 +1,7 @@
 use super::*;
 use crate::camera::Camera;
 use crate::camera::Projection;
+use crate::curve::Curve;
 use crate::hit::{HitAt, Precedence};
 use crate::mesh::{Mesh, Vertex};
 use crate::styled::Styled;
@@ -51,9 +52,10 @@ fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
 fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) -> Vec<Hit> {
     let aim = Aim::new(through, cursor, viewport(), radius);
     let ground = scene.ground(&aim);
+    let framed = scene.frames(&aim);
     let mut hits: Vec<Hit> = scene
         .overlays(&aim)
-        .filter(|hit| ground.shows(hit))
+        .filter(|hit| shows(ground.front, hit) && shows(framed, hit))
         .collect();
     hits.extend(ground.best);
     hits.sort_by(Hit::aim_order);
@@ -712,3 +714,117 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
         "between two sheets alike, the nearer one answers"
     );
 }
+
+/// A frame hides what is behind it and yields to what is level with it.
+///
+/// The same rule as the surfaces above, one kind further out, and it exists for
+/// the same reason theirs does: [`Hit::aim_order`] settles what a thing is *for*
+/// before how far off it is, so a frame — which ranks below every kind of
+/// geometry there is — was losing to any edge of any sketch however far behind
+/// it that sketch lay. Aimed at a datum plane with some other sketch's edge
+/// lining up behind it, the edge took the click.
+///
+/// Both halves matter and they pull opposite ways, exactly as the surfaces do.
+/// A frame has to keep losing to the geometry it frames, because a datum's
+/// rectangle is drawn around a sketch in that sketch's own plane and the two are
+/// level by construction — that is what ranking it last buys, and it is the
+/// whole reason a datum is not merely ordinary geometry. What it must not lose
+/// to is a drawing a plane away.
+#[test]
+fn a_frame_keeps_the_click_against_what_is_behind_it_and_yields_to_what_is_level() {
+    /// A stroke across the middle of the view at `z`.
+    fn across(z: f32) -> Curve {
+        let mut curve = Curve::default();
+        curve.set_segment(Vec3::new(-2.0, 0.0, z), Vec3::new(2.0, 0.0, z));
+        curve
+    }
+
+    // A datum plane's outline a unit in front of the target, and some other
+    // sketch's edge four units behind it — a whole plane away, and lined up
+    // under the same pixel.
+    let mut scene = Scene::default();
+    scene.curves.push(
+        across(1.0)
+            .tagged(Tag::new(1))
+            .precedence(Precedence::Frame),
+    );
+    scene.curves.push(across(-3.0).tagged(Tag::new(2)));
+
+    let aim = || Aim::new(&head_on(), CENTRE, viewport(), 4.0);
+    assert_eq!(
+        scene.nearest(aim()).map(|hit| hit.tag),
+        Some(Tag::new(1)),
+        "an edge a plane behind the datum took the click meant for it"
+    );
+
+    // Level with it — the sketch the datum is drawn around — and the geometry
+    // wins, which is the half the ordering was already right about and the
+    // reason the datum is a frame at all.
+    scene.curves.clear();
+    scene.curves.push(
+        across(1.0)
+            .tagged(Tag::new(1))
+            .precedence(Precedence::Frame),
+    );
+    scene.curves.push(across(1.0).tagged(Tag::new(2)));
+    assert_eq!(
+        scene.nearest(aim()).map(|hit| hit.tag),
+        Some(Tag::new(2)),
+        "the datum took the click meant for the sketch drawn on it"
+    );
+
+    // And geometry in *front* of the frame keeps winning, which is neither half
+    // of the rule but is what says the filter reaches backwards only.
+    scene.curves.clear();
+    scene.curves.push(
+        across(-1.0)
+            .tagged(Tag::new(1))
+            .precedence(Precedence::Frame),
+    );
+    scene.curves.push(across(1.0).tagged(Tag::new(2)));
+    assert_eq!(
+        scene.nearest(aim()).map(|hit| hit.tag),
+        Some(Tag::new(2)),
+        "a frame behind an edge stopped the edge from answering"
+    );
+
+    // Between two datums the nearer answers, where before this the pair fell
+    // through to how near the cursor they were and then how near the eye — the
+    // same answer here, and not by the same route. Aimed off the shared line so
+    // the further one is fractionally nearer the cursor, which is what the
+    // ordering would have settled it by.
+    scene.curves.clear();
+    scene.curves.push(
+        across(1.0)
+            .tagged(Tag::new(1))
+            .precedence(Precedence::Frame),
+    );
+    scene.curves.push(
+        across(-3.0)
+            .tagged(Tag::new(2))
+            .precedence(Precedence::Frame),
+    );
+    assert_eq!(
+        scene.nearest(aim()).map(|hit| hit.tag),
+        Some(Tag::new(1)),
+        "the further datum answered"
+    );
+
+    // A sketch set aside is not a frame and keeps its old standing: the one
+    // being worked in wins from behind, because being somewhere else in the
+    // document is not a fact about depth. This is the case the wider rule —
+    // nearest overlay wins outright — would have got wrong.
+    scene.curves.clear();
+    scene.curves.push(
+        across(1.0)
+            .tagged(Tag::new(1))
+            .precedence(Precedence::Aside),
+    );
+    scene.curves.push(across(-3.0).tagged(Tag::new(2)));
+    assert_eq!(
+        scene.nearest(aim()).map(|hit| hit.tag),
+        Some(Tag::new(2)),
+        "a dormant sketch in front took the click meant for the one being edited"
+    );
+}
+
