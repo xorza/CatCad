@@ -8,8 +8,9 @@ use silverpoint::{Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::build::Build;
 use crate::demo;
+use crate::intent::{Change, Intents};
 use crate::model::Models;
-use crate::timeline::Timeline;
+use crate::timeline::{FeatureId, Timeline};
 use crate::tool::Tool;
 use crate::{CatCad, Status};
 
@@ -1078,5 +1079,64 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     assert!(
         !line.contains("clean up") && !line.contains("removed"),
         "a stale cleanup note outlived the edit after it: {line}"
+    );
+}
+
+/// The offset of the plane a sketch sits on is offered only where there is one
+/// to offer, and reads what the document currently says.
+///
+/// What the bar's plane field hangs on. The demo opens in a sketch lying on the
+/// ground, and the ground is where the world *is* rather than somewhere a plane
+/// was put — so there is nothing to scrub until you are working in a sketch
+/// that sits on a datum.
+///
+/// The re-seed is the second half: the number shown is taken from the document
+/// every frame rather than remembered, so a move — or an undo of one — shows up
+/// without the field having to notice.
+#[test]
+fn a_planes_offset_is_offered_only_where_there_is_one_to_move() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    fn models<'a>(app: &'a CatCad, at: FeatureId) -> Models<'a> {
+        app.document.models(&app.build, at)
+    }
+    let sketches: Vec<_> = models(&app, app.session.editing())
+        .iter()
+        .map(|model| model.of())
+        .collect();
+    let [ground, shelf] = sketches[..] else {
+        panic!("the demo draws two sketches, not {}", sketches.len());
+    };
+
+    assert_eq!(
+        app.session.editing(),
+        ground,
+        "the demo opens on the ground"
+    );
+    assert_eq!(
+        models(&app, ground).movable(),
+        None,
+        "the ground was offered as something to move"
+    );
+
+    let on_the_shelf = models(&app, shelf)
+        .movable()
+        .expect("the demo's second sketch sits on a datum");
+    assert_eq!(on_the_shelf.by, demo::SHELF);
+
+    // Moving it is what the field asks for, and the answer follows the
+    // document rather than whatever the field last showed.
+    let mut intents = Intents::default();
+    intents.push(Change::MovePlane {
+        plane: on_the_shelf.plane,
+        to: demo::SHELF + 1.5,
+    });
+    app.history
+        .apply(&mut app.document, &mut app.build, &intents);
+    assert_eq!(
+        models(&app, shelf).movable().expect("still a datum").by,
+        demo::SHELF + 1.5
     );
 }

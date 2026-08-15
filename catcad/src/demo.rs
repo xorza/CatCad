@@ -14,6 +14,12 @@ use crate::document::Document;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};
 
+/// How far the demo's second plane is held off the ground.
+///
+/// Enough to read as a separate plane at the angle the view opens at, and not
+/// so much that what is drawn on it leaves the frame.
+pub(crate) const SHELF: f64 = 2.2;
+
 /// The demo as a document: its sketch on the ground plane, and the solids
 /// that stand on it.
 ///
@@ -63,12 +69,6 @@ pub(crate) fn document(build: &mut Build) -> Document {
     });
     Document::new(build, timeline, solids)
 }
-
-/// How far the demo's second plane is held off the ground.
-///
-/// Enough to read as a separate plane at the angle the view opens at, and not
-/// so much that what is drawn on it leaves the frame.
-const SHELF: f64 = 2.2;
 
 /// A second drawing, on the shelf held clear of the ground the first lies on.
 ///

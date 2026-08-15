@@ -87,11 +87,6 @@ impl Timeline {
         *by = to;
     }
 
-    /// What the step at `at` holds.
-    pub(crate) fn feature(&self, at: FeatureId) -> &Feature {
-        self.step(at)
-    }
-
     /// The plane the sketch at `at` is drawn on, if it is one that can be
     /// moved.
     ///
@@ -99,7 +94,7 @@ impl Timeline {
     /// than somewhere a plane was put.
     pub(crate) fn movable(&self, at: FeatureId) -> Option<Movable> {
         let on = self.sketch_plane(at);
-        match self.step(on) {
+        match self.feature(on) {
             Feature::Plane(Datum::Offset { by, .. }) => Some(Movable { plane: on, by: *by }),
             Feature::Plane(Datum::Ground) => None,
             Feature::Sketch { .. } => not_a_plane(on),
@@ -116,7 +111,7 @@ impl Timeline {
 
     /// The sketch `at` names, and the plane it lies on.
     pub(crate) fn drawing(&self, at: FeatureId) -> Drawing<'_> {
-        let Feature::Sketch { on, sketch } = self.step(at) else {
+        let Feature::Sketch { on, sketch } = self.feature(at) else {
             not_a_sketch(at);
         };
         Drawing::new(sketch, self.plane(*on))
@@ -160,14 +155,14 @@ impl Timeline {
 
     /// Which plane the sketch at `at` is drawn on.
     fn sketch_plane(&self, at: FeatureId) -> FeatureId {
-        match self.step(at) {
+        match self.feature(at) {
             Feature::Sketch { on, .. } => *on,
             Feature::Plane(_) => not_a_sketch(at),
         }
     }
 
-    /// What `id` names.
-    fn step(&self, id: FeatureId) -> &Feature {
+    /// What the step at `id` holds.
+    pub(crate) fn feature(&self, id: FeatureId) -> &Feature {
         &self
             .steps
             .iter()
