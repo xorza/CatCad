@@ -12,17 +12,17 @@ use std::f64::consts::TAU;
 /// free to — the cutting knows it — and because what bounds a face is what a
 /// profile *is*: see [`Arrangement::bounds`](super::Arrangement::bounds).
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Edge {
-    pub(super) from: usize,
-    pub(super) to: usize,
-    pub(super) shape: Shape,
+pub(crate) struct Edge {
+    pub(crate) from: usize,
+    pub(crate) to: usize,
+    pub(crate) shape: Shape,
     /// The segment or circle this was cut from.
-    pub(super) of: Entity,
+    pub(crate) of: Entity,
 }
 
 /// How an edge gets from one corner to the other.
 #[derive(Debug, Clone, Copy)]
-pub(super) enum Shape {
+pub(crate) enum Shape {
     /// Straight across.
     Straight,
     /// Counterclockwise around `center`, starting at `start` radians and
@@ -43,16 +43,16 @@ pub(super) enum Shape {
 /// A face is bounded by half-edges rather than edges, because the same piece of
 /// curve bounds a face on either side of it and the two walk it opposite ways.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Half {
-    pub(super) edge: usize,
+pub(crate) struct Half {
+    pub(crate) edge: usize,
     /// Whether this walks the edge from its `from` to its `to`.
-    pub(super) forward: bool,
+    pub(crate) forward: bool,
 }
 
 impl Half {
     /// The same edge walked the other way, which bounds the face on its far
     /// side.
-    pub(super) fn turned(self) -> Self {
+    pub(crate) fn turned(self) -> Self {
         Self {
             edge: self.edge,
             forward: !self.forward,
@@ -61,14 +61,14 @@ impl Half {
 
     /// A position to key this half-edge by, so a walk can note where it has
     /// been without a map.
-    pub(super) fn slot(self) -> usize {
+    pub(crate) fn slot(self) -> usize {
         self.edge * 2 + usize::from(self.forward)
     }
 }
 
 impl Edge {
     /// Where this edge starts and ends, walked `forward` or not.
-    pub(super) fn ends(&self, forward: bool) -> [usize; 2] {
+    pub(crate) fn ends(&self, forward: bool) -> [usize; 2] {
         if forward {
             [self.from, self.to]
         } else {
@@ -83,7 +83,7 @@ impl Edge {
     /// arcs on the same circle leave a corner along the same chord and part
     /// company only in how they curve. Sorting by chords would put them in an
     /// order that depends on where their far ends happen to be.
-    pub(super) fn departure(&self, corners: &[DVec2], forward: bool) -> DVec2 {
+    pub(crate) fn departure(&self, corners: &[DVec2], forward: bool) -> DVec2 {
         match self.shape {
             Shape::Straight => {
                 let [from, to] = self.ends(forward);
@@ -106,7 +106,7 @@ impl Edge {
     /// What the shoelace over the corners misses. A straight edge is its own
     /// chord and adds nothing; an arc adds the circular segment it cuts off,
     /// which for a sweep of `θ` on radius `r` is `r²(θ − sin θ)` twice over.
-    pub(super) fn bulge(&self, forward: bool) -> f64 {
+    pub(crate) fn bulge(&self, forward: bool) -> f64 {
         match self.shape {
             Shape::Straight => 0.0,
             Shape::Arc { radius, sweep, .. } => {
@@ -120,7 +120,7 @@ impl Edge {
     ///
     /// `corners` is the arrangement's own list, because a straight edge is
     /// described entirely by the two it runs between.
-    pub(super) fn at(&self, corners: &[DVec2], forward: bool, t: f64) -> DVec2 {
+    pub(crate) fn at(&self, corners: &[DVec2], forward: bool, t: f64) -> DVec2 {
         let [from, to] = self.ends(forward);
         match self.shape {
             Shape::Straight => corners[from].lerp(corners[to], t),
@@ -141,23 +141,49 @@ impl Edge {
         }
     }
 
-    /// The corners of a polyline that follows this edge from its start, stopping
-    /// short of its end — so a loop's edges laid end to end name each corner
-    /// once.
+    /// Which way the region on the *left* of this walk faces at `t` along it —
+    /// the outward normal of the wall a sweep raises here.
     ///
-    /// `sagitta` is how far the polyline may sit from the true curve. A
-    /// straight edge is exact whatever it is, so it contributes only its start.
-    pub(super) fn walk(
-        &self,
-        corners: &[DVec2],
-        forward: bool,
-        sagitta: f64,
-        into: &mut Vec<DVec2>,
-    ) {
-        let [from, _] = self.ends(forward);
-        into.push(corners[from]);
+    /// One rule for both shapes, which is what keeps a wall off an arc agreeing
+    /// with the wall off the segment it meets: the normal is the tangent turned
+    /// a quarter circle clockwise, since a face is walked with what it encloses
+    /// on the left and so is left behind on the right.
+    ///
+    /// Per parameter rather than per edge, because an arc's does not hold still.
+    /// That is also what makes a swept cylinder read round rather than faceted:
+    /// two pieces of one arc are handed the same normal where they meet, and a
+    /// straight edge meeting an arc is handed two different ones and creases.
+    pub(crate) fn outward(&self, corners: &[DVec2], forward: bool, t: f64) -> DVec2 {
+        match self.shape {
+            Shape::Straight => {
+                let [from, to] = self.ends(forward);
+                let along = corners[to] - corners[from];
+                DVec2::new(along.y, -along.x).normalize()
+            }
+            Shape::Arc { start, sweep, .. } => {
+                let travelled = if forward {
+                    sweep * t
+                } else {
+                    sweep * (1.0 - t)
+                };
+                let angle = start + travelled;
+                let radial = DVec2::new(angle.cos(), angle.sin());
+                // Walked counterclockwise the inside is on the left, so out is
+                // away from the centre; walked back it is the other way.
+                if forward { radial } else { -radial }
+            }
+        }
+    }
+
+    /// How many straight pieces this edge is worth, flattened no further than
+    /// `sagitta` from the true curve.
+    ///
+    /// Shared by everything that walks an edge, so a polyline traced for a fill
+    /// and a wall swept off the same edge are cut at the same places — two rules
+    /// would leave a solid whose cap and sides did not meet.
+    pub(crate) fn steps(&self, sagitta: f64) -> usize {
         let Shape::Arc { radius, sweep, .. } = self.shape else {
-            return;
+            return 1;
         };
         // A chord subtending `φ` sits `r(1 − cos(φ/2))` from the arc at its
         // furthest, so the sagitta asks for chords no wider than this angle.
@@ -166,9 +192,43 @@ impl Edge {
         } else {
             2.0 * (1.0 - sagitta / radius).acos()
         };
-        let steps = (sweep / widest.max(f64::MIN_POSITIVE)).ceil().max(1.0) as usize;
-        for step in 1..steps {
-            into.push(self.at(corners, forward, step as f64 / steps as f64));
+        (sweep / widest.max(f64::MIN_POSITIVE)).ceil().max(1.0) as usize
+    }
+
+    /// Where the `step`th of `steps` cuts along this edge lands, walked
+    /// `forward` or not.
+    ///
+    /// The *stored* corner at either end rather than the curve evaluated there.
+    /// A corner is shared with whatever else meets at it, and two edges that
+    /// each recomputed it could land a rounding apart — which is a hairline
+    /// between a face and the wall swept off its own boundary.
+    pub(crate) fn cut(&self, corners: &[DVec2], forward: bool, step: usize, steps: usize) -> DVec2 {
+        let [from, to] = self.ends(forward);
+        if step == 0 {
+            corners[from]
+        } else if step == steps {
+            corners[to]
+        } else {
+            self.at(corners, forward, step as f64 / steps as f64)
+        }
+    }
+
+    /// The corners of a polyline that follows this edge from its start, stopping
+    /// short of its end — so a loop's edges laid end to end name each corner
+    /// once.
+    ///
+    /// `sagitta` is how far the polyline may sit from the true curve. A
+    /// straight edge is exact whatever it is, so it contributes only its start.
+    pub(crate) fn walk(
+        &self,
+        corners: &[DVec2],
+        forward: bool,
+        sagitta: f64,
+        into: &mut Vec<DVec2>,
+    ) {
+        let steps = self.steps(sagitta);
+        for step in 0..steps {
+            into.push(self.cut(corners, forward, step, steps));
         }
     }
 }

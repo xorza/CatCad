@@ -31,7 +31,7 @@ use std::f64::consts::TAU;
 
 pub(crate) mod bound;
 mod curves;
-mod edge;
+pub(crate) mod edge;
 pub(crate) mod face;
 pub(crate) mod filler;
 
@@ -117,7 +117,7 @@ impl Arrangement {
     /// about.
     pub fn bounds(&self, face: &Face, into: &mut Vec<Bound>) {
         into.clear();
-        into.extend(self.bounding(face));
+        into.extend(self.bounding(std::iter::once(face.outline())));
     }
 
     /// Which face `bounds` names, or `None` where this arrangement holds no
@@ -142,7 +142,7 @@ impl Arrangement {
         }
         self.faces().iter().position(|face| {
             let mut found = 0;
-            for bound in self.bounding(face) {
+            for bound in self.bounding(std::iter::once(face.outline())) {
                 if !bounds.contains(&bound) {
                     return false;
                 }
@@ -154,30 +154,51 @@ impl Arrangement {
         })
     }
 
-    /// Each curve bounding `face` once, with the side the face lies on.
+    /// Each curve bounding a region once, with the side it lies on, over
+    /// whichever of the region's loops `boundary` gives.
     ///
-    /// The one statement of what bounds a face, which both callers above read
-    /// through — so what a name is made of and what a name is matched against
-    /// cannot come to differ.
+    /// The one statement of what bounds a region, which every caller reads
+    /// through — so what a name is made of, what a name is matched against, and
+    /// what a solid raises a wall on cannot come to differ about the rules.
+    ///
+    /// *Which* loops is the caller's, and is a real choice rather than a
+    /// convenience: naming asks the outline alone and a solid asks the whole
+    /// edge, for the reason [`Face::boundary`] gives.
     ///
     /// Two rules, and the walk is what makes both of them necessary. A curve
     /// cut into several pieces is walked once per piece, and all of them bound
-    /// the face on the same side, so only the first is kept. And a *spur* — a
+    /// the region on the same side, so only the first is kept. And a *spur* — a
     /// curve dangling into the region from its boundary — is walked out and
     /// back, so it appears both ways round and bounds nothing at all; without
     /// the second rule, drawing a stray line touching a region would rename it.
-    fn bounding(&self, face: &Face) -> impl Iterator<Item = Bound> {
-        let outline = face.outline();
-        outline.iter().enumerate().filter_map(move |(at, &half)| {
+    pub(crate) fn bounding<'a>(
+        &'a self,
+        boundary: impl Iterator<Item = &'a [Half]> + Clone + 'a,
+    ) -> impl Iterator<Item = Bound> + 'a {
+        let along = move || boundary.clone().flatten().copied();
+        along().enumerate().filter_map(move |(at, half)| {
             let bound = self.bound(half);
-            let holds = |run: &[Half], want: Bound| run.iter().any(|&had| self.bound(had) == want);
-            let kept = !holds(&outline[..at], bound) && !holds(outline, bound.turned());
+            let kept = !along().take(at).any(|had| self.bound(had) == bound)
+                && !along().any(|had| self.bound(had) == bound.turned());
             kept.then_some(bound)
         })
     }
 
+    /// Every corner the drawing's curves were cut at.
+    ///
+    /// What an edge is described against — a straight one is nothing but the two
+    /// it runs between — so anything walking edges is handed both together.
+    pub(crate) fn corners(&self) -> &[DVec2] {
+        &self.corners
+    }
+
+    /// The piece of curve a half-edge walks.
+    pub(crate) fn edge(&self, half: Half) -> &Edge {
+        &self.edges[half.edge]
+    }
+
     /// The curve a half-edge is a piece of, and the side of it being walked.
-    fn bound(&self, half: Half) -> Bound {
+    pub(crate) fn bound(&self, half: Half) -> Bound {
         Bound {
             of: self.edges[half.edge].of,
             along: half.forward,

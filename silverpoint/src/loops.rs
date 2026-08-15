@@ -66,7 +66,7 @@ impl<T> Loops<T> {
     }
 
     /// Every loop, in the order they are currently held.
-    pub(crate) fn iter(&self) -> impl Iterator<Item = &[T]> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = &[T]> + Clone {
         self.runs.iter().map(|run| run.of(&self.items))
     }
 

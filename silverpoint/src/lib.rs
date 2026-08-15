@@ -34,11 +34,15 @@
 pub(crate) mod arena;
 pub(crate) mod loops;
 pub(crate) mod math;
+pub(crate) mod prism;
 pub(crate) mod sketch;
 
 pub use arena::Id;
 pub use math::plane::Plane;
 pub use math::triangulate::Fill;
+pub use prism::Prism;
+pub use prism::grown::Grown;
+pub use prism::skinner::{Patch, Skinner};
 pub use sketch::arrangement::Arrangement;
 pub use sketch::arrangement::bound::Bound;
 pub use sketch::arrangement::face::Face;

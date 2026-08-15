@@ -26,13 +26,28 @@ impl Face {
     }
 
     /// The loop around the outside of it.
-    pub(super) fn outline(&self) -> &[Half] {
+    pub(crate) fn outline(&self) -> &[Half] {
         &self.outline
     }
 
     /// The loop around each hole punched out of it.
-    pub(super) fn punched(&self) -> impl Iterator<Item = &[Half]> {
+    pub(crate) fn punched(&self) -> impl Iterator<Item = &[Half]> + Clone {
         self.holes.iter()
+    }
+
+    /// Every loop around it: the outline, then one per hole.
+    ///
+    /// The whole edge of the region, where [`Face::outline`] is only its outer
+    /// edge — and which of the two a caller wants is a real choice rather than a
+    /// convenience. What *names* a region is its outline, because a hole
+    /// appearing or vanishing changes what the region is like without changing
+    /// which region it is. What a region has *walls* on is this: a bore carried
+    /// off the plane is as much a face of the solid as its outside.
+    ///
+    /// [`Clone`], because the rules that read it have to walk it twice — see
+    /// [`Arrangement::bounding`](super::Arrangement).
+    pub(crate) fn boundary(&self) -> impl Iterator<Item = &[Half]> + Clone {
+        std::iter::once(self.outline()).chain(self.punched())
     }
 }
 

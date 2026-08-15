@@ -35,7 +35,7 @@ pub struct Bound {
 
 impl Bound {
     /// The far side of the same curve.
-    pub(super) fn turned(self) -> Self {
+    pub(crate) fn turned(self) -> Self {
         Self {
             along: !self.along,
             ..self
