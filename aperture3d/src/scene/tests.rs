@@ -56,7 +56,7 @@ fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) ->
     let framed = scene.frame_front(&aim);
     let mut hits: Vec<Hit> = scene
         .overlays(&aim)
-        .filter(|hit| shows(grounded, hit) && shows(framed, hit))
+        .filter(|hit| shows(grounded, hit.distance) && shows(framed, hit.distance))
         .collect();
     hits.sort_by(Hit::aim_order);
     // The ground last, and put there rather than sorted there: a surviving

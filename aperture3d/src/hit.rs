@@ -89,8 +89,8 @@ pub enum Precedence {
     /// Behind everything: furniture around a drawing rather than part of one.
     ///
     /// Behind every drawn thing, that is — not behind the surfaces they are
-    /// drawn on. Whether a hit is a backdrop is a separate question, and one
-    /// asked before this one.
+    /// drawn on. A surface is never ranked against a drawn thing at all, so
+    /// this says nothing about one: see [`Hit::aim_order`].
     Frame,
 }
 
