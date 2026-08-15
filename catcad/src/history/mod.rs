@@ -186,6 +186,22 @@ impl History {
 /// A whole [`Feature`] rather than a sketch, because not every edit is to one:
 /// moving a plane rewrites a number in a datum, and a record that could only
 /// hold sketches would have nowhere to put it.
+///
+/// A whole feature rather than what changed *inside* it, which was costed and
+/// declined. It would need two cases, because [`Snapshot`] rejects the
+/// parameter-vector form for structural edits — parameters are named by
+/// position, so one taken before a point was added names the wrong ones after.
+/// The saving is real, roughly sixfold on the demo, and it lands almost nowhere:
+/// of the changes that record anything exactly one is cleanly positional, and
+/// that one is [`Change::Drag`], which already coalesces a gesture's every frame
+/// into a single step. Two `Edit` shapes and a branch choosing between them, to
+/// compress the rarest entry there is.
+///
+/// If the memory ever does bite, two cheaper levers come first: lower [`DEPTH`],
+/// or drop `before` — for one feature the `after` states form a chain, so each
+/// `before` is the previous step's `after` for that same feature.
+///
+/// [`Snapshot`]: silverpoint::Snapshot
 #[derive(Debug)]
 struct Edit {
     /// The step this is about.
