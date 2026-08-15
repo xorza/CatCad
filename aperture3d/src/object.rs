@@ -69,13 +69,6 @@ impl Object {
         }
     }
 
-    /// Say what this is for, which is what decides a click that lands on two
-    /// things at once. See [`Precedence`].
-    pub fn precede(mut self, precedence: Precedence) -> Self {
-        self.precedence = precedence;
-        self
-    }
-
     /// Put the object's origin at a world position.
     ///
     /// Placing is all it does: a rotation or scale already on the transform
@@ -127,6 +120,10 @@ impl Styled for Object {
 
     fn tag_mut(&mut self) -> &mut Option<Tag> {
         &mut self.tag
+    }
+
+    fn precedence_mut(&mut self) -> &mut Precedence {
+        &mut self.precedence
     }
 }
 

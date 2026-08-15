@@ -155,13 +155,6 @@ impl Curve {
         self
     }
 
-    /// Say what this is for, which is what decides a click that lands on two
-    /// things at once. See [`Precedence`].
-    pub fn precede(mut self, precedence: Precedence) -> Self {
-        self.precedence = precedence;
-        self
-    }
-
     /// Set the stroke width in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;
@@ -189,6 +182,10 @@ impl Styled for Curve {
 
     fn tag_mut(&mut self) -> &mut Option<Tag> {
         &mut self.tag
+    }
+
+    fn precedence_mut(&mut self) -> &mut Precedence {
+        &mut self.precedence
     }
 }
 

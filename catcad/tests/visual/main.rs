@@ -15,8 +15,7 @@
 use std::sync::mpsc;
 
 use aperture::{
-    Camera, Curve, Highlight, Lit, Mesh, Object, Precedence, Projection, Ring, Scene, Styled, Text,
-    Viewport,
+    Camera, Curve, Highlight, Lit, Mesh, Object, Projection, Ring, Scene, Styled, Text, Viewport,
 };
 use glam::{Mat4, UVec2, Vec2, Vec3};
 use image::RgbaImage;
@@ -1007,12 +1006,10 @@ fn a_label_is_drawn_at_its_anchor_and_hidden_by_what_is_in_front_of_it() {
     // five and the anchor at zero rather than straddling either.
     let mut behind = alone.clone();
     behind.solids.push(Object {
-        mesh: Mesh::cube(1.0),
         transform: Mat4::from_translation(Vec3::new(0.0, 0.0, 2.0))
             * Mat4::from_scale(Vec3::new(8.0, 8.0, 0.2)),
         color: Vec3::new(0.3, 0.3, 0.35),
-        precedence: Precedence::default(),
-        tag: None,
+        ..Object::new(Mesh::cube(1.0))
     });
     let (hidden, _) = magenta(&paint(behind));
     assert_eq!(hidden, 0, "the plate did not hide the label");

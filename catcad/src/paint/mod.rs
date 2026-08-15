@@ -611,7 +611,7 @@ fn write_points(models: Models<'_>, names: &mut Names, points: &mut Batch<Point>
                 .size(size)
                 .z_offset(MARKER_LIFT)
                 .in_plane(plane.normal().as_vec3())
-                .precede(standing(model))
+                .precedence(standing(model))
                 .tagged(names.tag(model.part(id)));
         },
     );
@@ -651,7 +651,7 @@ fn write_rings(models: Models<'_>, names: &mut Names, band: Option<Ends>, rings:
                         plane.normal().as_vec3(),
                     )
                     .colored(ink(model, colour(model.outcome().circle(id))))
-                    .precede(standing(model))
+                    .precedence(standing(model))
                     .tagged(names.tag(model.part(id)))
                 }
                 // Through the cursor rather than out to it: the second click

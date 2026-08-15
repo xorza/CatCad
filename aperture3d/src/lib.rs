@@ -69,6 +69,12 @@
 //! [`Styled`] along with [`colored`](Styled::colored) — so the trait has to be
 //! in scope to reach either. What a tag names can then be drawn differently
 //! with [`Renderer::highlight_all`], which takes [`Lit`]s.
+//!
+//! Where the cursor is over several at once, the answer is settled first by
+//! [`Precedence`] — what a primitive is *for*, which only whoever drew it knows
+//! — and only then by what shape it is and how near it fell. Saying so is
+//! [`Styled::precedence`], the third of that trait's setters, and leaving it
+//! unsaid enters a primitive on shape alone.
 
 pub(crate) mod aim;
 pub(crate) mod batch;

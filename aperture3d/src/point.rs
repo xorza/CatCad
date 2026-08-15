@@ -79,13 +79,6 @@ impl Point {
         self
     }
 
-    /// Say what this is for, which is what decides a click that lands on two
-    /// things at once. See [`Precedence`].
-    pub fn precede(mut self, precedence: Precedence) -> Self {
-        self.precedence = precedence;
-        self
-    }
-
     /// Bias the marker this many steps of depth-buffer resolution toward the
     /// viewer. See [overlays](crate#overlays).
     pub fn z_offset(mut self, z_offset: i32) -> Self {
@@ -107,6 +100,10 @@ impl Styled for Point {
 
     fn tag_mut(&mut self) -> &mut Option<Tag> {
         &mut self.tag
+    }
+
+    fn precedence_mut(&mut self) -> &mut Precedence {
+        &mut self.precedence
     }
 }
 

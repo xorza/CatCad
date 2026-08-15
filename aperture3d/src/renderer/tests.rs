@@ -2,7 +2,6 @@ use super::*;
 use crate::camera::Projection;
 use crate::curve::Curve;
 use crate::highlight::Highlight;
-use crate::hit::Precedence;
 use crate::mesh::{Mesh, Vertex};
 use crate::object::Object;
 use crate::point::Point;
@@ -79,11 +78,9 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
     };
     let mut scene = Scene::default();
     scene.solids.push(Object {
-        mesh,
         transform: Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0)),
         color: Vec3::ZERO,
-        precedence: Precedence::default(),
-        tag: None,
+        ..Object::new(mesh)
     });
     let mut renderer = Renderer::new(scene);
     renderer.refresh(1.0);

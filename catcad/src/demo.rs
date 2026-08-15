@@ -5,7 +5,7 @@
 //! frame obvious. The visual suite raises this very thing, so it is as much the
 //! test fixture as it is the startup content.
 
-use aperture::{Mesh, Object, Precedence, Styled};
+use aperture::{Mesh, Object, Styled};
 use glam::{DVec2, Mat4, Vec3};
 use silverpoint::{Constraint, Sketch};
 
@@ -32,14 +32,12 @@ pub(crate) fn document(build: &mut Build) -> Document {
     // depth bias at all: the slab's top face *is* the sketch plane, so the
     // two are exactly coplanar and something has to decide which reads.
     solids.push(Object {
-        mesh: Mesh::cube(1.0),
         // A unit cube spans ±0.5, so dropping the slab by half its
         // thickness after scaling lands its top face on y = 0.
         transform: Mat4::from_translation(Vec3::new(4.0, -0.5, -2.5))
             * Mat4::from_scale(Vec3::new(12.0, 1.0, 9.0)),
         color: Vec3::new(0.30, 0.30, 0.34),
-        precedence: Precedence::default(),
-        tag: None,
+        ..Object::new(Mesh::cube(1.0))
     });
     for (size, at, color) in [
         (2.0, DVec2::new(2.0, 3.6), Vec3::new(0.55, 0.58, 0.62)),
