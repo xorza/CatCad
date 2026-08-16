@@ -2,6 +2,7 @@
 
 use silverpoint::{Arrangement, Bound};
 
+use crate::model::Models;
 use crate::timeline::FeatureId;
 
 /// The region of a sketch a feature is grown from, named so that it survives
@@ -87,5 +88,16 @@ impl Profile {
     /// the field, on why a profile carries one at all.
     pub(crate) fn face_in(&self, of: &Arrangement) -> Option<usize> {
         of.face_named_by(&self.bounds)
+    }
+
+    /// The same, against whichever of `models` this is a region of.
+    ///
+    /// What every caller holding a name and a *drawing* wants, rather than one
+    /// holding a name and the arrangement it belongs to: finding the sketch is
+    /// half the answer, and a caller doing it for itself is a caller that can
+    /// look the name up in the wrong one. [`Profile::face_in`] stays for the
+    /// build, which has the arrangement already and no drawing to ask.
+    pub(crate) fn face_of(&self, models: Models<'_>) -> Option<usize> {
+        self.face_in(models.at(self.sketch)?.arrangement())
     }
 }

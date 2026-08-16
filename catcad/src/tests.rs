@@ -1343,7 +1343,10 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
         .region(0);
     let mut intents = Intents::default();
     intents.push(Choice::Select(Some(frame_region)));
-    app.session.apply(&intents);
+    app.session.apply(
+        app.document.models(&app.build, app.session.editing()),
+        &intents,
+    );
     frame(&mut app, &mut harness);
 
     // The bar shows the button only while a region is picked, so where it lands
@@ -1441,7 +1444,10 @@ fn open_field(app: &mut CatCad, harness: &mut UiHarness, part: Part, from: f64) 
 
     let mut intents = Intents::default();
     intents.push(Choice::Ask(Some(Opening::Dimension { part, from })));
-    app.session.apply(&intents);
+    app.session.apply(
+        app.document.models(&app.build, app.session.editing()),
+        &intents,
+    );
 }
 
 /// **A field opens over the dimension's own mark, takes what is typed, and
@@ -1710,7 +1716,10 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     open_field(&mut app, &mut harness, dimension, was);
     let mut intents = Intents::default();
     intents.push(Choice::Select(Some(dimension)));
-    app.session.apply(&intents);
+    app.session.apply(
+        app.document.models(&app.build, app.session.editing()),
+        &intents,
+    );
     frame(&mut app, &mut harness);
     // Twice, so the field has taken the focus it asks for on the frame it first
     // appears — until it has, the keys below would be nobody's.
@@ -1821,7 +1830,10 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
         .region(0);
     let mut intents = Intents::default();
     intents.push(Choice::Select(Some(region)));
-    app.session.apply(&intents);
+    app.session.apply(
+        app.document.models(&app.build, app.session.editing()),
+        &intents,
+    );
     frame(&mut app, &mut harness);
     harness.click_at(EXTRUDE_BUTTON);
     frame(&mut app, &mut harness);
@@ -1889,4 +1901,81 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
         "letting go of the arrow changed what the form says"
     );
     assert_eq!(solids(&app), 1);
+}
+
+/// **A form outlives the arrangement it was opened against, and says so when
+/// the region it names has gone.**
+///
+/// The reason a form holds a [`Profile`](crate::profile::Profile) rather than a
+/// position. An intent carries a position because it lands the frame it was
+/// raised; a form does not — the viewport stays live underneath one, so an undo
+/// or an edge dragged across another rebuilds the arrangement while someone is
+/// still typing.
+///
+/// Taking an edge away is what tells the two apart. The region the form was
+/// opened on stops existing, but *a* region still sits at position 0 — the
+/// merged one — so a form holding a position would go on drawing a solid, and
+/// confirming would grow the wrong one. Holding a name, it reports nothing to
+/// draw, which is the honest answer.
+#[test]
+fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    let sketch = app.session.editing();
+    let region = app
+        .document
+        .models(&app.build, app.session.editing())
+        .open()
+        .region(0);
+    let mut intents = Intents::default();
+    intents.push(Choice::Select(Some(region)));
+    app.session.apply(
+        app.document.models(&app.build, app.session.editing()),
+        &intents,
+    );
+    frame(&mut app, &mut harness);
+    harness.click_at(EXTRUDE_BUTTON);
+    frame(&mut app, &mut harness);
+
+    let models = app.document.models(&app.build, sketch);
+    assert!(
+        app.session
+            .prompt()
+            .and_then(|open| open.growing(models))
+            .is_some(),
+        "the form found nothing to grow before anything was taken away"
+    );
+
+    // One edge of the frame taken away, which merges the region the form was
+    // opened on into what lay beyond it. Something still sits at position 0.
+    let edge = app
+        .document
+        .drawing_at(sketch)
+        .sketch()
+        .segments()
+        .map(|(id, _)| id)
+        .next()
+        .expect("the demo's frame is drawn with edges");
+    let mut edits = Intents::default();
+    edits.push(crate::intent::Change::Delete {
+        sketch,
+        entity: edge.into(),
+    });
+    app.history.apply(&mut app.document, &mut app.build, &edits);
+
+    let models = app.document.models(&app.build, sketch);
+    assert!(
+        !models.open().arrangement().faces().is_empty(),
+        "the sketch lost every region, so position 0 names nothing either way"
+    );
+    assert!(
+        app.session
+            .prompt()
+            .and_then(|open| open.growing(models))
+            .is_none(),
+        "the form went on growing a region at the position its own one used to \
+         hold, which is a different region"
+    );
 }

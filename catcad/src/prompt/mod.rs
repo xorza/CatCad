@@ -24,8 +24,10 @@ use silverpoint::Entity;
 use std::fmt::Write;
 
 use crate::intent::{Change, Choice, Intents, Step};
+use crate::model::Models;
 use crate::paint::{DECIMALS, Growing, mark_font, mark_lift};
 use crate::part::Part;
+use crate::profile::Profile;
 use crate::timeline::FeatureId;
 
 pub(crate) mod look;
@@ -36,7 +38,9 @@ pub(crate) mod look;
 /// and [`Change`] already take. It is what turns "the user pressed Enter" into
 /// something the document understands, and there is no way to know that without
 /// knowing which operation is in hand.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// Not [`Copy`], and that is [`Profile`]'s doing rather than an oversight — see
+/// [`Asking::Extrude`].
+#[derive(Debug, Clone, PartialEq)]
 pub(crate) enum Asking {
     /// A sketch dimension being restated.
     Dimension { part: Part },
@@ -49,7 +53,17 @@ pub(crate) enum Asking {
     /// drawn while it is still being decided, the document is not touched until
     /// confirm, and cancelling is dropping this rather than unpicking a step
     /// that was already taken.
-    Extrude { sketch: FeatureId, region: usize },
+    ///
+    /// **A [`Profile`] and not a position**, which is the whole reason this
+    /// enum is not [`Copy`]. A position names a face by where it fell in the
+    /// arrangement's walk and holds only while the drawing's topology does —
+    /// long enough for the intent that opens this, which lands the frame it is
+    /// raised, and nowhere near long enough for a form. The viewport stays live
+    /// under an open form, so an undo or an edge dragged across another rebuilds
+    /// the arrangement while someone is still typing; a position would then name
+    /// a different region and the solid would quietly become one, or the commit
+    /// would grow it.
+    Extrude { profile: Profile },
 }
 
 /// Where a form stands relative to what it is about.
@@ -207,8 +221,21 @@ impl Prompt {
     }
 
     /// What the form is about.
-    pub(crate) fn about(&self) -> Asking {
-        self.about
+    pub(crate) fn about(&self) -> &Asking {
+        &self.about
+    }
+
+    /// The sketch whose region this form is growing a solid off, where that is
+    /// what it is about.
+    ///
+    /// The sketch alone, because it is the half of a [`Profile`] that needs no
+    /// arrangement to resolve against — which is what lets the press that grabs
+    /// the depth arrow ask for the plane it travels on without a solve in hand.
+    pub(crate) fn carrying(&self) -> Option<FeatureId> {
+        match &self.about {
+            Asking::Dimension { .. } => None,
+            Asking::Extrude { profile } => Some(profile.sketch()),
+        }
     }
 
     /// The dimension being restated, where that is what this is about.
@@ -225,17 +252,21 @@ impl Prompt {
 
     /// The solid this form is deciding, as the drawing should show it now.
     ///
-    /// `None` for a form about anything else, and for one whose depth does not
-    /// read as a number yet — a half-typed "1." is not a depth, and a solid
-    /// that flickered away between the digits of one would be worse than a
-    /// solid that waits.
-    pub(crate) fn growing(&self) -> Option<Growing> {
-        let Asking::Extrude { sketch, region } = self.about else {
+    /// `None` for a form about anything else, for one whose depth does not read
+    /// as a number yet — a half-typed "1." is not a depth, and a solid that
+    /// flickered away between the digits of one would be worse than a solid
+    /// that waits — and for one whose region the drawing no longer holds.
+    ///
+    /// Resolved against `models` every time rather than remembered, which is
+    /// what the [`Profile`] is for: a position is only good for the arrangement
+    /// it was read from, and a form outlives several.
+    pub(crate) fn growing(&self, models: Models<'_>) -> Option<Growing> {
+        let Asking::Extrude { profile } = &self.about else {
             return None;
         };
         Some(Growing {
-            sketch,
-            region,
+            sketch: profile.sketch(),
+            region: profile.face_of(models)?,
             distance: self.value(0)?,
         })
     }
@@ -275,7 +306,13 @@ impl Prompt {
     /// Shows and does not act, like every other control the application draws:
     /// what a field says reaches the document as a [`Change`], and closing the
     /// form is a [`Choice::Ask`].
-    pub(crate) fn show(&mut self, ui: &mut Ui, stands: Stands, intents: &mut Intents) {
+    pub(crate) fn show(
+        &mut self,
+        ui: &mut Ui,
+        stands: Stands,
+        models: Models<'_>,
+        intents: &mut Intents,
+    ) {
         // Taken after the caller has established there is somewhere to stand,
         // so a form the projection never drew has not used up the one frame
         // that takes focus.
@@ -290,7 +327,7 @@ impl Prompt {
             // A draft that is not a number is not finished, so Enter on one is
             // not a refusal to report but a key that does nothing. The form
             // stays open, which is what says so.
-            Some(Done::Commit) => self.commit(intents),
+            Some(Done::Commit) => self.commit(models, intents),
             Some(Done::Cancel) => intents.push(Choice::Ask(None)),
             None => {}
         }
@@ -327,8 +364,8 @@ impl Prompt {
     }
 
     /// Ask the document for what the form says, and for the form to close.
-    fn commit(&self, intents: &mut Intents) {
-        match self.about {
+    fn commit(&self, models: Models<'_>, intents: &mut Intents) {
+        match &self.about {
             Asking::Dimension { part } => {
                 let Some(to) = self.value(0) else {
                     return;
@@ -348,8 +385,15 @@ impl Prompt {
                 // what closes the run of them.
                 intents.push(Step::Release);
             }
-            Asking::Extrude { sketch, region } => {
+            Asking::Extrude { profile } => {
                 let Some(distance) = self.value(0) else {
+                    return;
+                };
+                // Resolved here rather than carried, for the reason the form
+                // holds a name at all — and `None` is a region the drawing no
+                // longer has, which is nothing to grow and nothing to report.
+                let sketch = profile.sketch();
+                let Some(region) = profile.face_of(models) else {
                     return;
                 };
                 // The one step the whole operation costs. The solid has been on

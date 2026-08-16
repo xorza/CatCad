@@ -96,7 +96,15 @@ impl Session {
     /// Reads the whole inbox rather than being handed the part that concerns it,
     /// so the match is exhaustive over [`Intent`] and a fourth group could not be
     /// added without this saying what it makes of one.
-    pub(crate) fn apply(&mut self, intents: &Intents) {
+    ///
+    /// `models` is the drawing the *asking* was read against, and the reason it
+    /// is wanted here is one intent: opening a form over a region turns a
+    /// position into a durable name, and a position is only good for the
+    /// arrangement it came from. So this is called before the history writes —
+    /// afterwards the positions in the inbox would be being resolved against a
+    /// drawing they were never read from. See
+    /// [`Asking::Extrude`](crate::prompt::Asking).
+    pub(crate) fn apply(&mut self, models: Models<'_>, intents: &Intents) {
         for intent in intents.iter() {
             match intent {
                 Intent::Choice(Choice::Hold(tool)) => self.tool = tool,
@@ -132,8 +140,17 @@ impl Session {
                         // At no depth at all, which is where the ask starts:
                         // the solid is on screen from the moment the form
                         // opens, and a zero-depth prism is a well-formed one.
+                        // Where a position becomes a name. An intent carries
+                        // one because it lands the frame it was raised, and a
+                        // form outlives several arrangements — see
+                        // [`Asking::Extrude`] and [`Model::profile`].
                         Opening::Extrude { sketch, region } => {
-                            Prompt::on(Asking::Extrude { sketch, region }, &[("Depth", 0.0)])
+                            let Some(profile) =
+                                models.at(sketch).map(|model| model.profile(region))
+                            else {
+                                continue;
+                            };
+                            Prompt::on(Asking::Extrude { profile }, &[("Depth", 0.0)])
                         }
                     };
                     if self
@@ -246,14 +263,14 @@ mod tests {
 
         let mut intents = Intents::default();
         intents.push(Choice::Select(Some(second.part(other))));
-        session.apply(&intents);
+        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
         assert_eq!(session.editing(), there, "the pick did not open its sketch");
 
         // A click on empty space picks nothing out and says nothing about which
         // sketch, so the one that was open stays open.
         intents.clear();
         intents.push(Choice::Select(None));
-        session.apply(&intents);
+        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
         assert_eq!(session.editing(), there, "an empty click closed the sketch");
         assert_eq!(session.selection().count(), 0);
 
@@ -261,7 +278,7 @@ mod tests {
         // thing and so names a sketch.
         intents.clear();
         intents.push(Choice::Include(first.part(Entity::Point(one))));
-        session.apply(&intents);
+        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
         assert_eq!(session.editing(), here);
 
         // A datum plane is the other click that names no sketch: it is what
@@ -269,7 +286,7 @@ mod tests {
         // and it stays picked out, because the document still holds it.
         intents.clear();
         intents.push(Choice::Select(Some(Part::Plane(ground))));
-        session.apply(&intents);
+        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
         assert_eq!(session.editing(), here, "picking a plane closed the sketch");
         assert!(session.selection().contains(Part::Plane(ground)));
 

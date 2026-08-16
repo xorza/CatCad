@@ -2,6 +2,7 @@ use super::*;
 use glam::DVec2;
 use silverpoint::{Constraint, Sketch};
 
+use crate::profile::Profile;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};
 
@@ -95,12 +96,13 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
         Some(Done::Cancel)
     );
 
-    // Whichever step the fixture's sketch landed on — an extrude form names a
-    // region of a real sketch, and which one is never read below.
+    // A real name out of a real sketch, though which region it is is never read
+    // below: what this is about is only which of the two kinds of form it is.
     let Part::Entity { sketch, .. } = dimension() else {
         unreachable!("the fixture is a dimension of a sketch");
     };
-    let grown = Prompt::on(Asking::Extrude { sketch, region: 0 }, &[("Depth", 0.0)]);
+    let profile = Profile::new(sketch, Vec::new());
+    let grown = Prompt::on(Asking::Extrude { profile }, &[("Depth", 0.0)]);
     assert!(grown.answered(), "an extrude form carries its own answers");
     assert!(!grown.blurs());
     assert_eq!(

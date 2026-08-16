@@ -48,7 +48,7 @@ use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::{Change, Choice, Errand, Intent, Intents, Step};
 use crate::part::Part;
-use crate::prompt::{Asking, Prompt, Stands};
+use crate::prompt::{Asking, Stands};
 use crate::scene_view::SceneView;
 use crate::session::Session;
 use crate::tool::Tool;
@@ -269,7 +269,7 @@ impl CatCad {
     /// routes them to a button on the bar; there is no arbitration for this to
     /// do and no keyboard for it to drain.
     fn ask(&mut self, ui: &mut Ui) {
-        let Some(about) = self.session.prompt().map(Prompt::about) else {
+        let Some(prompt) = self.session.prompt() else {
             return;
         };
         let Some(viewport) = self.view.viewport() else {
@@ -278,10 +278,11 @@ impl CatCad {
         let camera = self.document.camera();
         let models = self.document.models(&self.build, self.session.editing());
         // Where each kind of form stands, worked out before the form is
-        // borrowed to be shown — the drawing is reached through the session and
-        // the form is part of it.
-        let stands = match about {
+        // borrowed *mutably* to be shown — the drawing is reached through the
+        // session and the form is part of it.
+        let stands = match prompt.about() {
             Asking::Dimension { part } => {
+                let part = *part;
                 // Where the mark would be drawn, which is where the field
                 // stands instead — see [`paint::redraw`], which leaves out the
                 // mark of whatever is being typed into.
@@ -297,9 +298,15 @@ impl CatCad {
                 let at = at.expect("a form is open over a dimension the drawing no longer holds");
                 camera.screen_of(at, viewport).map(Stands::Over)
             }
-            Asking::Extrude { sketch, region } => self
-                .view
-                .region_footprint(models, sketch, region, &camera, viewport)
+            // Resolved here rather than remembered, for the reason the form
+            // holds a name at all: the arrangement it was read from is not the
+            // one it is being drawn against.
+            Asking::Extrude { profile } => profile
+                .face_of(models)
+                .and_then(|region| {
+                    self.view
+                        .region_footprint(models, profile.sketch(), region, &camera, viewport)
+                })
                 .map(Stands::Beside),
         };
         // Nowhere to stand is a frame the form is not shown for, not a form
@@ -310,7 +317,7 @@ impl CatCad {
         let Some(prompt) = self.session.prompt_mut() else {
             unreachable!("the form was open a moment ago");
         };
-        prompt.show(ui, stands, &mut self.intents);
+        prompt.show(ui, stands, models, &mut self.intents);
     }
 
     /// Land everything the frame asked for, on whichever of the three things a
@@ -324,7 +331,14 @@ impl CatCad {
     /// entries, and means neither reader has to know what the other's intents
     /// mean.
     fn apply(&mut self) {
-        self.session.apply(&self.intents);
+        // The models the *asking* was read against, which is what minting a
+        // durable name out of a position needs — see
+        // [`Asking::Extrude`](crate::prompt::Asking). Taken before the history
+        // writes, for the same reason.
+        self.session.apply(
+            self.document.models(&self.build, self.session.editing()),
+            &self.intents,
+        );
         self.history
             .apply(&mut self.document, &mut self.build, &self.intents);
         // After the history, because an undo can take geometry the session was

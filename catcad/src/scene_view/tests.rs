@@ -77,7 +77,7 @@ impl Raised {
             view.poll(ui, document, session, intents);
             // The app's own apply, minus the bar it has no toolbar for: what
             // the session owns comes off the inbox before the history reads it.
-            session.apply(intents);
+            session.apply(document.models(build, session.editing()), intents);
             history.apply(document, build, intents);
             // Last, because an undo can take geometry the session was still
             // holding on to — see `CatCad::apply`.
@@ -121,7 +121,10 @@ impl Raised {
     fn hold(&mut self, tool: Tool) {
         let mut intents = Intents::default();
         intents.push(Choice::Hold(tool));
-        self.session.apply(&intents);
+        self.session.apply(
+            self.document.models(&self.build, self.session.editing()),
+            &intents,
+        );
     }
 
     /// One of the drawing's entities, as something that can be picked out.

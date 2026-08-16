@@ -18,7 +18,7 @@ use crate::drawing::anchor::Anchor;
 use crate::intent::{Change, Choice, Intent, Intents, Opening, Step};
 use crate::model::Models;
 use crate::paint::layout::Layout;
-use crate::paint::{self, Growing};
+use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::prompt::{self, Prompt};
@@ -364,7 +364,7 @@ impl SceneView {
                 &response,
                 document,
                 sketch,
-                session.prompt().and_then(Prompt::growing),
+                session.prompt().and_then(Prompt::carrying),
                 tool,
             );
         }
@@ -711,7 +711,7 @@ impl SceneView {
             &mut self.layout,
             self.preview,
             session.prompt().and_then(Prompt::marks),
-            session.prompt().and_then(Prompt::growing),
+            session.prompt().and_then(|open| open.growing(models)),
             renderer.scene_mut(),
         );
         // What the pointer is over is one thing, however many are picked out: a
@@ -876,7 +876,7 @@ impl SceneView {
         response: &ResponseState,
         document: &Document,
         editing: FeatureId,
-        growing: Option<Growing>,
+        growing: Option<FeatureId>,
         tool: Tool,
     ) -> Gesture {
         if tool != Tool::Pointer {
@@ -925,7 +925,7 @@ impl SceneView {
                     // along a different normal and nothing would look wrong.
                     // No form is the arrow that was never drawn.
                     Part::Growing => {
-                        Grabbed::Growing(Along::on(document.drawing_at(growing?.sketch).plane()))
+                        Grabbed::Growing(Along::on(document.drawing_at(growing?).plane()))
                     }
                     // Only the sketch being worked in can be taken hold of. A
                     // drag of geometry is an edit and an edit lands where you
