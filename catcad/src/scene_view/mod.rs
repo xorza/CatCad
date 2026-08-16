@@ -14,7 +14,7 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
-use crate::intent::{Change, Choice, Intents, Step};
+use crate::intent::{Change, Choice, Intents, Step, Typed};
 use crate::paint::layout::Layout;
 use crate::paint::{self};
 use crate::part::Part;
@@ -23,6 +23,7 @@ use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
 use crate::timeline::{FeatureId, Movable};
 use crate::tool::Tool;
+use crate::typing::Typing;
 
 mod aimed;
 
@@ -365,6 +366,29 @@ impl SceneView {
             // tool builds on and the entity a click picks out are this same
             // question, and asking the scene twice would be asking it twice.
             let under = self.named_under(&response, document);
+            // A second click on a dimension opens it for typing. Raised before
+            // the arms below rather than instead of them, because the click is
+            // still an ordinary click: it picks the dimension out, which is what
+            // makes the constraint bar agree with the field about what is being
+            // worked on. Palantir reports the second press of a double as a
+            // click of its own, so the first one already did the picking.
+            //
+            // A dimension and nothing else. Every other part has no number to
+            // type, and a double-click on one should mean whatever a
+            // double-click comes to mean next rather than nothing-in-particular
+            // now.
+            if response.left.double_clicked()
+                && let Some(typed) = under.and_then(|part| dimension(part, document, sketch))
+            {
+                intents.push(Choice::Type(Some(typed)));
+            } else {
+                // Any other click puts away whatever was open. Committing would
+                // be the other reading, and it is the wrong one: a click that
+                // landed somewhere else was about somewhere else, and a number
+                // half-typed should not be written to the document by a gesture
+                // that never mentioned it.
+                intents.push(Choice::Type(None));
+            }
             // A tool in hand takes every click, whatever it landed on: what was
             // clicked is what the new geometry is *held to*, so a click on the
             // drawing is worth more to a tool than one beside it. Nothing is
@@ -571,11 +595,22 @@ impl SceneView {
         //
         // Into the batches the renderer already holds, so a drag rewrites the
         // drawing every frame without asking the heap for anything.
+        let models = document.models(build, session.editing());
         paint::redraw(
-            document.models(build, session.editing()),
+            models,
             &mut self.layout,
             self.preview,
+            session.typing().map(Typing::part),
             renderer.scene_mut(),
+        );
+        // Beside the drawing rather than in it, and gated apart: a keystroke
+        // moves what the field says and nothing else in the picture. See
+        // [`paint::retype`].
+        paint::retype(
+            models,
+            session.typing(),
+            &mut self.layout,
+            &mut renderer.scene_mut().text_edits,
         );
 
         // What the pointer is over is one thing, however many are picked out: a
@@ -817,6 +852,27 @@ pub(crate) mod internals {
             }
         }
     }
+}
+
+/// `part` as a dimension to open for typing, or `None` where it is not one.
+///
+/// A dimension is a constraint that *measures* something — a length, a
+/// radius, an angle. The rest state a relation and carry no number, so there
+/// is nothing to type into one, and that is what the value being `Some`
+/// answers.
+///
+/// A free fn rather than a method, because nothing about it is the view's:
+/// it reads the document, and the view is only what happened to be holding
+/// the click.
+fn dimension(part: Part, document: &Document, sketch: FeatureId) -> Option<Typed> {
+    let Some(Entity::Constraint(id)) = part.entity() else {
+        return None;
+    };
+    // Off the sketch the part names rather than the one open, which are the
+    // same on the frame a click lands and need not stay so.
+    let at = part.sketch().unwrap_or(sketch);
+    let from = document.drawing_at(at).sketch().constraint(id).value()?;
+    Some(Typed { part, from })
 }
 
 #[cfg(test)]

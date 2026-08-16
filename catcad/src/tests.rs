@@ -4,12 +4,13 @@ use aperture::{Camera, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, InputDelta, Key, Modifiers, WindowToken};
-use silverpoint::{Drive, Freedom, Outcome, Plane, PointId, Removed, Solver};
+use silverpoint::{Drive, Entity, Freedom, Outcome, Plane, PointId, Removed, Solver};
 
 use crate::build::Build;
 use crate::demo;
-use crate::intent::{Choice, Intents};
+use crate::intent::{Choice, Intents, Typed};
 use crate::model::Models;
+use crate::part::Part;
 use crate::timeline::Timeline;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
@@ -1365,4 +1366,218 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
     ctrl_shift(&mut harness, Key::Char('Z'));
     frame(&mut app, &mut harness);
     assert_eq!(solids(&app), 2, "redo did not put the step back");
+}
+
+/// The first dimension the demo states, and what it says.
+fn a_dimension(app: &CatCad) -> (Part, f64) {
+    let sketch = app.session.editing();
+    let drawing = app.document.drawing_at(sketch);
+    drawing
+        .sketch()
+        .constraints()
+        .find_map(|(id, constraint)| {
+            let value = constraint.value()?;
+            Some((
+                Part::Entity {
+                    sketch,
+                    entity: id.into(),
+                },
+                value,
+            ))
+        })
+        .expect("the demo states at least one dimension")
+}
+
+/// Open a field the way a double-click does.
+///
+/// Through the intent rather than through the click, and the seam is
+/// deliberate: a mark is pickable only once a *painted* frame has measured how
+/// far it reaches — see [`Text::extent`](aperture::Text) — and the unit harness
+/// records without a GPU. So the click that raises this is asked of
+/// [`opening_a_dimension_is_the_only_double_click_that_means_anything`], which
+/// needs no measurement, and everything downstream of the intent is asked here
+/// through the code that really runs.
+fn open_field(app: &mut CatCad, part: Part, from: f64) {
+    let mut intents = Intents::default();
+    intents.push(Choice::Type(Some(Typed { part, from })));
+    app.session.apply(&intents);
+}
+
+/// **A field opens over the dimension's own mark, takes what is typed, and
+/// Enter restates the dimension — as one step to take back.**
+///
+/// Every stage is asked because each is a different way for the feature to be
+/// useless: a field drawn somewhere other than over the number, one that
+/// reaches the document before it is committed, one whose value never lands,
+/// and one that costs a keystroke's worth of undo apiece.
+#[test]
+fn typing_a_dimension_restates_it_as_one_step() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::with_text(SIZE);
+    frame(&mut app, &mut harness);
+
+    let (dimension, was) = a_dimension(&app);
+    let sketch = dimension.sketch().expect("a dimension is in a sketch");
+    let Some(Entity::Constraint(id)) = dimension.entity() else {
+        panic!("not a constraint");
+    };
+    let stated = |app: &CatCad| {
+        app.document
+            .drawing_at(sketch)
+            .sketch()
+            .constraint(id)
+            .value()
+            .expect("a dimension states a value")
+    };
+
+    // Where the mark is drawn, before the field replaces it.
+    let mark = {
+        let renderer = app.renderer().borrow();
+        let mark = renderer
+            .scene()
+            .texts
+            .iter()
+            .find(|mark| mark.tag.and_then(|tag| app.view.part(tag)) == Some(dimension))
+            .expect("the dimension is drawn as a mark");
+        (mark.position, mark.anchor, mark.font)
+    };
+
+    open_field(&mut app, dimension, was);
+    frame(&mut app, &mut harness);
+    let typing = app.session.typing().expect("the field never opened");
+    assert_eq!(typing.part(), dimension);
+    assert_eq!(typing.value(), Some(was), "opened on some other value");
+
+    {
+        let renderer = app.renderer().borrow();
+        let scene = renderer.scene();
+        // The mark is gone and the field stands exactly where it stood: same
+        // anchor point, same fraction of the box, same face. Anything else and
+        // the number would appear to jump as it became editable.
+        assert!(
+            !scene
+                .texts
+                .iter()
+                .any(|text| text.tag.and_then(|tag| app.view.part(tag)) == Some(dimension)),
+            "the mark was left under the field"
+        );
+        let [field] = &scene.text_edits[..] else {
+            panic!("one field and only one, not {}", scene.text_edits.len());
+        };
+        assert_eq!((field.position, field.anchor, field.font), mark);
+        // Picked out whole, so the first digit typed replaces the number.
+        assert_eq!(field.selected(), field.content());
+    }
+
+    harness.type_text("40");
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.session.typing().expect("still open").value(),
+        Some(40.0)
+    );
+    assert_eq!(
+        stated(&app),
+        was,
+        "typing reached the document before Enter"
+    );
+
+    harness.key(Key::Enter);
+    frame(&mut app, &mut harness);
+    assert!(app.session.typing().is_none(), "Enter left the field open");
+    assert!(
+        (stated(&app) - 40.0).abs() < 1e-6,
+        "landed on {}",
+        stated(&app)
+    );
+    // The field went with it, or the scene would go on drawing one.
+    assert!(app.renderer().borrow().scene().text_edits.is_empty());
+    // And the mark is back, saying the new number.
+    assert!(
+        app.renderer()
+            .borrow()
+            .scene()
+            .texts
+            .iter()
+            .any(|text| text.tag.and_then(|tag| app.view.part(tag)) == Some(dimension)),
+        "the mark never came back"
+    );
+
+    // One step to take back, not one per keystroke.
+    chord(
+        &mut harness,
+        Modifiers {
+            ctrl: true,
+            ..Modifiers::NONE
+        },
+        Key::Char('z'),
+    );
+    frame(&mut app, &mut harness);
+    assert!(
+        (stated(&app) - was).abs() < 1e-6,
+        "undo left {}",
+        stated(&app)
+    );
+}
+
+/// **A field open takes the bare keys, and Escape leaves the dimension alone.**
+///
+/// The bare keys are the half that bites. `Delete` is bound to "take out what is
+/// picked out", and the click that opens a field also picks the dimension out —
+/// so a Delete reaching the application would delete the very constraint being
+/// typed into. Escape is the same question the other way: it means "put the
+/// field away" while one is open and "put the tool down" when none is.
+#[test]
+fn a_field_takes_the_bare_keys_and_escape_puts_it_away() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::with_text(SIZE);
+    frame(&mut app, &mut harness);
+
+    let (dimension, was) = a_dimension(&app);
+    let sketch = dimension.sketch().expect("a dimension is in a sketch");
+    let relations = |app: &CatCad| {
+        app.document
+            .drawing_at(sketch)
+            .sketch()
+            .constraints()
+            .count()
+    };
+    let stated = relations(&app);
+
+    // Picked out as well as opened, which is what the double-click leaves and
+    // what makes Delete a real question here.
+    let mut intents = Intents::default();
+    intents.push(Choice::Select(Some(dimension)));
+    app.session.apply(&intents);
+    open_field(&mut app, dimension, was);
+    frame(&mut app, &mut harness);
+    assert!(app.session.selection().contains(dimension));
+
+    // Delete takes a character out of the field and no constraint out of the
+    // drawing, though the dimension it names is picked out.
+    harness.type_text("7");
+    frame(&mut app, &mut harness);
+    harness.key(Key::Delete);
+    frame(&mut app, &mut harness);
+    harness.key(Key::Backspace);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.session.typing().expect("still open").field().content(),
+        "",
+        "the keys reached the application instead of the field"
+    );
+    assert_eq!(relations(&app), stated, "Delete took a constraint out");
+    assert!(app.session.selection().contains(dimension));
+
+    // Escape closes the field and puts nothing else down.
+    harness.key(Key::Escape);
+    frame(&mut app, &mut harness);
+    assert!(app.session.typing().is_none(), "Escape left the field open");
+    assert_eq!(relations(&app), stated);
+    assert!(app.renderer().borrow().scene().text_edits.is_empty());
+    // The dimension is exactly as it was: a draft abandoned never happened.
+    let after = app.document.drawing_at(sketch).sketch();
+    let Some(Entity::Constraint(id)) = dimension.entity() else {
+        panic!("not a constraint");
+    };
+    assert_eq!(after.constraint(id).value(), Some(was));
 }

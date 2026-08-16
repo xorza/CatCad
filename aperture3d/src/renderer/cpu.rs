@@ -253,9 +253,7 @@ fn flatten_field(
     // Over the ink rather than under it, so the caret between two characters
     // reads as a mark on the line rather than as one of them having been
     // clipped.
-    if let Some(caret) = parts.caret {
-        into.push(filled(field, caret, field.color, solid));
-    }
+    into.push(filled(field, parts.caret, field.color, solid));
 }
 
 /// One of a field's solid rectangles as a record.

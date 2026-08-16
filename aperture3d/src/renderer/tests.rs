@@ -880,7 +880,7 @@ fn a_frame_uploads_every_kind() {
     // doubled by being a field, not by going unnamed.
     scene
         .text_edits
-        .push(TextEdit::new(Vec3::ZERO, "40", 16.0).typing().tagged(lit));
+        .push(TextEdit::new(Vec3::ZERO, "40", 16.0).tagged(lit));
 
     let mut pane = ScenePane {
         view: Rc::new(RefCell::new(Renderer::new(scene))),
@@ -970,6 +970,64 @@ fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
     );
 }
 
+/// A label and the field that replaces it ship glyphs at exactly the same
+/// offsets.
+///
+/// The whole reason [`TextEdit::anchor`] is a fraction of the text and not of
+/// the box it is drawn in. Double-clicking a dimension swaps the one for the
+/// other, and a number that jumped as it became editable would read as the
+/// click having moved it.
+///
+/// Compared as *records* rather than as the geometry behind them, because what
+/// must not move is the glyphs: every step between the anchor and the quad —
+/// the measurement, the anchor fraction, the origin handed to the shaper — is
+/// somewhere the two could come apart, and only the record says they did not.
+///
+/// The fixture's padding and floor are deliberately large, and its anchor is
+/// the awkward one a dimension mark actually uses: `(0.5, 1.6)`, to clear the
+/// line it labels. A rule that only held for a zero anchor and no padding would
+/// pass on nothing at all.
+#[test]
+fn a_field_ships_its_glyphs_where_the_label_shipped_them() {
+    let anchor = glam::Vec2::new(0.5, 1.6);
+    let at = Vec3::new(0.3, -0.2, 0.1);
+
+    let mut labelled = Scene::default();
+    labelled
+        .texts
+        .push(Text::new(at, "125.4", 16.0).anchored(anchor));
+    let mut typed = Scene::default();
+    let mut field = TextEdit::new(at, "125.4", 16.0).anchored(anchor);
+    field.padding = glam::Vec2::new(9.0, 5.0);
+    field.min_width = 400.0;
+    typed.text_edits.push(field);
+
+    let glyphs = |scene| {
+        let mut renderer = Renderer::new(scene);
+        renderer.shape_with(palantir::TextShaper::new());
+        renderer.refresh(1.0);
+        renderer.cpu.texts.records.ordinary.clone()
+    };
+    let label = glyphs(labelled);
+    let field = glyphs(typed);
+
+    // Surround, five glyphs, caret — so the run sits between the two solids.
+    assert_eq!(label.len(), 5, "{label:?}");
+    assert_eq!(field.len(), 1 + 5 + 1, "{field:?}");
+    for (nth, (label, field)) in label.iter().zip(&field[1..6]).enumerate() {
+        assert_eq!(label.offset, field.offset, "glyph {nth} moved");
+        assert_eq!(label.size, field.size, "glyph {nth} was drawn differently");
+        assert_eq!(label.uv_min, field.uv_min, "glyph {nth} is a different one");
+    }
+
+    // And the surround really is there and really is larger, or the loop above
+    // would be comparing a field that simply had none.
+    let surround = field[0];
+    assert!(surround.size[0] > 400.0, "{surround:?}");
+    assert!(surround.offset[0] < label[0].offset[0], "{surround:?}");
+    assert!(surround.offset[1] < label[0].offset[1], "{surround:?}");
+}
+
 /// A field flattens to its surround, the wash behind what is picked out, its
 /// glyphs and its caret — in that order, and behind whatever labels the scene
 /// also holds.
@@ -982,9 +1040,7 @@ fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
 fn a_field_flattens_under_its_own_ink_and_over_the_labels() {
     let mut scene = Scene::default();
     scene.texts.push(Text::new(Vec3::ZERO, "mm", 16.0));
-    scene
-        .text_edits
-        .push(TextEdit::new(Vec3::ZERO, "40", 16.0).typing());
+    scene.text_edits.push(TextEdit::new(Vec3::ZERO, "40", 16.0));
     let mut renderer = Renderer::new(scene);
     renderer.shape_with(palantir::TextShaper::new());
     renderer.refresh(1.0);

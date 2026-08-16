@@ -52,7 +52,7 @@ fn ten_px(content: &str) -> TextEdit {
         mark: content.len(),
         ..TextEdit::default()
     }
-    .measured(10.0)
+    .measured(10.0, 20.0)
     .tagged(Tag::new(7))
 }
 
@@ -244,68 +244,66 @@ fn re_seeding_keeps_the_caret_wherever_it_still_fits() {
     assert_eq!(&field.content()[..field.caret()], "1");
 }
 
-/// The box is the content's width or the floor under it, plus the padding
-/// either side — and the caret and the wash are placed along it.
+/// The surround hangs off the text rather than the other way about, and the
+/// caret and the wash are placed along the text.
 ///
 /// Hand-computed against the ten-pixel characters the fixture stands in with:
-/// "125" is 30 across, so the box is 30 + 4 + 4 = 38 by 20 + 3 + 3 = 26, the
-/// text starts 4 in, and the caret at boundary 2 sits 4 + 20 across.
+/// "125" measures 30 by 20, so the text sits at the anchor and the surround
+/// reaches 4 left and right of it and 3 above and below — 38 by 26, starting at
+/// (−4, −3).
+///
+/// The sign is the point. Padding reaching *outward* is what keeps the text
+/// where a label would have put it; padding measured inward from a box would
+/// put these glyphs 4 across and 3 down of that.
 #[test]
-fn the_box_takes_the_content_and_the_parts_are_placed_along_it() {
+fn the_surround_hangs_off_the_text_without_moving_it() {
     let mut field = ten_px("125");
-    assert_eq!(field.extent(), Vec2::new(38.0, 26.0));
+    assert_eq!(field.extent(), Vec2::new(30.0, 20.0), "the text alone");
+    assert_eq!(field.surround(), Vec2::new(38.0, 26.0), "and the padding");
 
-    // An unfocused field is a box with a line in it: no caret, and nothing
-    // washed however much is picked out.
-    field.select_all();
-    let showing = field.parts();
-    assert_eq!(showing.caret, None);
-    assert_eq!(showing.wash, None);
-    assert_eq!(showing.surround, Rect::new(0.0, 0.0, 38.0, 26.0));
-    assert_eq!(showing.text, Vec2::new(4.0, 3.0));
-
-    field.focused = true;
     field.seek(Seek::Byte(2), Selecting::Drop);
-    let typing = field.parts();
-    assert_eq!(typing.caret, Some(Rect::new(24.0, 3.0, CARET_WIDTH, 20.0)));
-    assert_eq!(typing.wash, None, "nothing is picked out");
+    let parts = field.parts();
+    assert_eq!(parts.text, Vec2::ZERO, "the text moved off the anchor");
+    assert_eq!(parts.surround, Rect::new(-4.0, -3.0, 38.0, 26.0));
+    assert_eq!(parts.caret, Rect::new(20.0, 0.0, CARET_WIDTH, 20.0));
+    assert_eq!(parts.wash, None, "nothing is picked out");
 
-    // Picking out "25" washes from boundary 1 to boundary 3 — 10 across to 30
-    // — behind text that still starts at 4.
+    // Picking out "25" washes from boundary 1 to boundary 3 — 10 across to 30 —
+    // behind text that has not moved.
     field.seek(Seek::Byte(1), Selecting::Drop);
     field.seek(Seek::Byte(3), Selecting::Extend);
     let picked = field.parts();
-    assert_eq!(picked.wash, Some(Rect::new(14.0, 3.0, 20.0, 20.0)));
-    assert_eq!(picked.caret, Some(Rect::new(34.0, 3.0, CARET_WIDTH, 20.0)));
+    assert_eq!(picked.wash, Some(Rect::new(10.0, 0.0, 20.0, 20.0)));
+    assert_eq!(picked.caret, Rect::new(30.0, 0.0, CARET_WIDTH, 20.0));
+    assert_eq!(picked.text, parts.text, "picking a run out moved the text");
 
-    // Emptied, the floor under the width is what is left — and the caret is
-    // still drawn, which is what makes an empty field a thing you can see.
+    // Emptied, the floor under the width is what is left, and it is taken up on
+    // the right — so the text origin and the caret stay exactly where the first
+    // character would have started.
     field.select_all();
     field.insert("");
-    let empty = field.measured(10.0);
-    assert_eq!(
-        empty.extent(),
-        Vec2::new(28.0, 26.0),
-        "the floor is 20 wide"
-    );
-    assert_eq!(
-        empty.parts().caret,
-        Some(Rect::new(4.0, 3.0, CARET_WIDTH, 20.0))
-    );
+    let empty = field.measured(10.0, 20.0);
+    assert_eq!(empty.extent(), Vec2::new(0.0, 20.0));
+    assert_eq!(empty.surround(), Vec2::new(28.0, 26.0), "the floor is 20");
+    assert_eq!(empty.parts().text, Vec2::ZERO);
+    assert_eq!(empty.parts().caret, Rect::new(0.0, 0.0, CARET_WIDTH, 20.0));
+    assert_eq!(empty.parts().surround, Rect::new(-4.0, -3.0, 28.0, 26.0));
 }
 
-/// The anchor fraction moves the whole box off the position, parts and all.
+/// The anchor fraction moves the text off the position, and the surround
+/// follows it.
 #[test]
 fn the_anchor_fraction_moves_the_box_off_the_position() {
     let field = ten_px("125").anchored(Vec2::splat(0.5));
-    // 38 by 26, so its own top-left is 19 left and 13 up of the anchor.
+    // The *text* is 30 by 20, so centring puts its top-left 15 left and 10 up
+    // of the anchor — and the surround is that, out by the padding.
     let parts = field.parts();
-    assert_eq!(parts.surround, Rect::new(-19.0, -13.0, 38.0, 26.0));
     assert_eq!(parts.text, Vec2::new(-15.0, -10.0));
+    assert_eq!(parts.surround, Rect::new(-19.0, -13.0, 38.0, 26.0));
     assert_eq!(field.position, Vec3::ZERO, "the anchor itself did not move");
 
-    // And the box a click has to land in moves with it: centred, the box spans
-    // x 31..69 where anchored at its corner it spans 50..88.
+    // And the box a click has to land in moves with it: centred, it spans
+    // x 31..69 where anchored at the text's corner it spans 46..84.
     let left = aim_at(Vec2::new(35.0, 50.0), 0.0);
     assert!(field.pick(&left).is_some());
     assert!(ten_px("125").pick(&left).is_none());
@@ -319,8 +317,8 @@ fn the_anchor_fraction_moves_the_box_off_the_position() {
 /// cases either side of one are what this pins.
 #[test]
 fn a_click_lands_in_the_box_and_answers_the_nearest_boundary() {
-    // Anchored at its top-left, so the box spans x 50..88, y 50..76, and the
-    // text starts at x 54.
+    // Anchored at the *text's* top-left, so the text starts at screen centre
+    // and the surround reaches back over the padding: x 46..84, y 47..73.
     let field = ten_px("125");
 
     let hit = field.pick(&aim_at(CENTRE, 0.0)).expect("its own corner");
@@ -331,21 +329,21 @@ fn a_click_lands_in_the_box_and_answers_the_nearest_boundary() {
 
     // Five past the right edge, level with the box: the gap to that edge, and
     // refused once the reach no longer covers it.
-    let beside = Vec2::new(93.0, 60.0);
+    let beside = Vec2::new(89.0, 60.0);
     assert_eq!(
         field.pick(&aim_at(beside, 10.0)).expect("in reach").screen,
         5.0
     );
     assert!(field.pick(&aim_at(beside, 4.0)).is_none());
 
-    // Along the text: x 54 is boundary 0, and each character is 10 wide.
+    // Along the text: x 50 is boundary 0, and each character is 10 wide.
     for (x, byte) in [
-        (40.0, 0), // left of the box entirely
-        (54.0, 0), // the text's own left edge
-        (58.0, 0), // inside the first character, nearer its start
-        (60.0, 1), // past its middle, so the boundary after it
-        (74.0, 2),
-        (84.0, 3),
+        (30.0, 0), // left of the box entirely
+        (50.0, 0), // the text's own left edge
+        (54.0, 0), // inside the first character, nearer its start
+        (56.0, 1), // past its middle, so the boundary after it
+        (70.0, 2),
+        (80.0, 3),
         (99.0, 3), // right of everything
     ] {
         let at = field.byte_at(&aim_at(Vec2::new(x, 60.0), 0.0));
@@ -417,15 +415,35 @@ fn laying_a_batch_out_fills_the_stops_without_marking_it() {
         assert!(pair[0].byte < pair[1].byte, "{stops:?}");
         assert!(pair[0].x < pair[1].x, "{stops:?}");
     }
-    // The last one is how far the content reaches, which is what the box is
-    // built out of — so a measured field is wider than its own floor.
-    assert!(fields[0].extent().x > fields[0].min_width, "{stops:?}");
+    // The last stop is exactly how far the text reaches, because the two come
+    // of measuring the same string — and a caret at the end of the line sitting
+    // anywhere but the end of the text is the failure that would hide here.
+    let text = fields[0].extent();
+    assert_eq!(stops.last().expect("a stop apiece").x, text.x);
+    assert!(text.x > 0.0 && text.y > 0.0, "{text:?}");
+    // The surround is that, out by the padding, and past its own floor.
+    let surround = fields[0].surround();
+    let padding = fields[0].padding;
+    assert_eq!(surround, text + padding * 2.0);
+    assert!(
+        text.x > fields[0].min_width,
+        "the floor bound a measured field"
+    );
 
-    // An empty field has the one boundary every field has, and falls back on
-    // its floor for a width.
+    // An empty field has the one boundary every field has, reaches nowhere, and
+    // falls back on the floor and the font for a surround to stand up in.
     assert_eq!(*fields[1].stops.borrow(), [Stop { byte: 0, x: 0.0 }]);
-    let empty = fields[1].extent();
-    assert_eq!(empty.x, fields[1].min_width + fields[1].padding.x * 2.0);
+    assert_eq!(
+        fields[1].extent(),
+        Vec2::new(0.0, fields[1].font.line_height_px)
+    );
+    assert_eq!(
+        fields[1].surround(),
+        Vec2::new(
+            fields[1].min_width + fields[1].padding.x * 2.0,
+            fields[1].font.line_height_px + fields[1].padding.y * 2.0,
+        )
+    );
 }
 
 /// A field laid out by a real shaper carets exactly where it was measured, and
@@ -437,20 +455,16 @@ fn laying_a_batch_out_fills_the_stops_without_marking_it() {
 #[test]
 fn a_click_at_the_caret_answers_the_boundary_it_is_at() {
     let mut fields = Batch::default();
-    fields.push(
-        TextEdit::new(Vec3::ZERO, "125.4", 16.0)
-            .typing()
-            .tagged(Tag::new(7)),
-    );
+    fields.push(TextEdit::new(Vec3::ZERO, "125.4", 16.0).tagged(Tag::new(7)));
     let shaper = TextShaper::new();
     measure_all(&fields, &mut shaper.glyphs());
 
     let field = &mut fields[0];
     for byte in [0, 1, 3, 5] {
         field.seek(Seek::Byte(byte), Selecting::Drop);
-        let caret = field.parts().caret.expect("focused");
-        // The caret is drawn from the anchor; the box hangs from screen centre,
-        // so where it lands on screen is that plus the corner.
+        let caret = field.parts().caret;
+        // The caret is drawn from the anchor, which the field hangs at screen
+        // centre, so where it lands on screen is that plus its own corner.
         let on_screen = CENTRE + caret.min + Vec2::new(CARET_WIDTH * 0.5, 1.0);
         let at = field.byte_at(&aim_at(on_screen, 0.0));
         assert_eq!(at, Some(byte), "caret at {byte} landed at {at:?}");

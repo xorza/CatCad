@@ -7,7 +7,7 @@ use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Vec2, Vec3};
 use palantir::{GlyphFont, Rect, TextGlyphs};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::ops::Range;
 
 /// How wide the caret is drawn, in logical pixels.
@@ -51,11 +51,26 @@ const MIN_WIDTH: f32 = 2.0;
 /// [`min_width`](Self::min_width), which is room for the *next* character and so
 /// belongs after the text rather than before it.
 ///
+/// **A field puts its glyphs exactly where a label would.** Its
+/// [`anchor`](Self::anchor) is a fraction of the *text*, the same quantity
+/// [`Text::anchor`](crate::Text::anchor) is, and the surround grows outward from
+/// there — so a label swapped for a field of the same content, font and anchor
+/// does not move by a pixel, and the box appears around the number rather than
+/// under a number that has just jumped. That is the whole reason the anchor is
+/// not a fraction of the box, which is the obvious way to write it and is wrong:
+/// the box's size depends on the padding and on
+/// [`min_width`](Self::min_width), so every one of those would shift the text.
+///
 /// **Reads no input**, like everything else in this crate: palantir owns the
 /// pointer and the keyboard, so an application maps a keystroke onto
 /// [`insert`](Self::insert), [`seek`](Self::seek) and the rest, and a click onto
 /// [`byte_at`](Self::byte_at). What lives here is where the caret is and what
 /// that makes the field look like — never how it got there.
+///
+/// **Always the field being typed in.** There is no unfocused state, so the
+/// caret is always drawn: a value merely being *shown* is a
+/// [`Text`](crate::Text), and one being typed into is this. An application
+/// swaps the one for the other, which by the rule above costs no movement.
 ///
 /// **Depth-tested like any other overlay**, which is worth knowing because a
 /// field is a thing to be used rather than read: it is hidden by a solid in
@@ -82,31 +97,33 @@ pub struct TextEdit {
     pub background: Vec3,
     /// Linear-RGB the run picked out is washed with, behind the ink.
     pub selection: Vec3,
-    /// Where in the field's own box [`TextEdit::position`] sits: `(0, 0)` its
+    /// Where in the **text's** own box [`TextEdit::position`] sits: `(0, 0)` its
     /// top-left corner, `(0.5, 0.5)` its middle, `(1, 1)` its bottom-right.
     ///
-    /// A fraction rather than a named alignment, for the reason
-    /// [`Text::anchor`](crate::Text::anchor) gives — the useful anchors are not
-    /// a short list, and every one of them is a pair of numbers either way.
+    /// Exactly [`Text::anchor`](crate::Text::anchor), measuring exactly the same
+    /// box — which is what makes a label and the field that replaces it land on
+    /// the same pixels. The surround is *not* in it: it hangs off the text by
+    /// [`padding`](Self::padding), outward, and moves nothing.
+    ///
+    /// A fraction rather than a named alignment, for the reason `Text::anchor`
+    /// gives — the useful anchors are not a short list, and every one of them is
+    /// a pair of numbers either way.
     pub anchor: Vec2,
-    /// Logical pixels of room between the surround and the text, across and
-    /// down.
+    /// Logical pixels the surround reaches past the text, across and down.
+    ///
+    /// Outward from the text rather than inward from a box, so that what it
+    /// changes is how much room the field takes and never where the text is.
     pub padding: Vec2,
-    /// Narrowest the text is given room for, in logical pixels, before the
-    /// padding is added.
+    /// Narrowest the surround gives the text room for, in logical pixels, before
+    /// the padding is added.
     ///
-    /// The floor under the box's width and nothing more: a field says more than
-    /// this and the box grows to fit it. What it buys is that a field does not
-    /// shrink to nothing as it is emptied, and that the box a click has to land
-    /// in stays the size it was while the number in it changes.
+    /// Taken up on the *right*, because the field is left-aligned and the slack
+    /// is room for the next character. A floor and nothing more: a field says
+    /// more than this and the surround grows to fit it.
+    ///
+    /// What it buys is that a field is still a thing you can see and aim at when
+    /// it has been emptied — which is exactly when it is waiting to be typed in.
     pub min_width: f32,
-    /// Whether this is the field being typed in, which is the whole of what the
-    /// caret and the selection are drawn on.
-    ///
-    /// An unfocused field is a box with a line of text in it — which is what a
-    /// dimension that is being *shown* rather than edited should look like, so
-    /// that clicking into one changes what it does and not what it is.
-    pub focused: bool,
     /// What this is for, which decides what a click meant for two things at
     /// once lands on. See [`Precedence`].
     pub precedence: Precedence,
@@ -140,18 +157,27 @@ pub struct TextEdit {
     /// moving and a range does not — and which end is moving is the whole of
     /// what shift-arrow means.
     mark: usize,
+    /// How far the text reaches on screen, in logical pixels — remembered from
+    /// the last time the field was laid out, and zero where nothing has laid it
+    /// out.
+    ///
+    /// The very quantity [`Text::extent`](crate::Text::extent) holds, taken from
+    /// the same call on the same shaper, because the two are compared: the
+    /// anchor is a fraction of *this*, so a label and a field measuring
+    /// differently would place their glyphs differently.
+    ///
+    /// A memo, for the reason `Text::extent` gives: what a string measures is
+    /// the shaper's answer, not the caller's, and recording it through `&mut`
+    /// would mark the batch, so every laid-out field would ask to be laid out
+    /// again on the next frame forever.
+    extent: Cell<Vec2>,
     /// Where a caret sits at every character boundary in the content, in
-    /// logical pixels from the text's own left edge — remembered from the last
-    /// time the field was laid out.
+    /// logical pixels from the text's own left edge — remembered alongside the
+    /// extent and on the same terms.
     ///
-    /// Private and a memo, for the reason [`Text::extent`](crate::Text::extent)
-    /// gives: what a string measures is the shaper's answer, not the caller's,
-    /// and recording it through `&mut` would mark the batch, so every laid-out
-    /// field would ask to be laid out again on the next frame forever.
-    ///
-    /// A [`RefCell`] rather than a [`Cell`](std::cell::Cell) only because the
-    /// answer is a list; the argument for writing it through a shared reference
-    /// is the same one, unchanged.
+    /// A [`RefCell`] rather than a [`Cell`] only because the answer is a list;
+    /// the argument for writing it through a shared reference is the extent's,
+    /// unchanged.
     ///
     /// This is also the whole of what hit-testing a click reads, which is what
     /// keeps [`byte_at`](Self::byte_at) free of the shaper: a pick happens
@@ -201,10 +227,14 @@ pub enum Selecting {
 /// Where a field's parts sit relative to its anchor, in logical pixels.
 ///
 /// Worked out by the field because every bit of it is the field's own
-/// arithmetic — where the box hangs off the anchor, where the text sits inside
-/// it, and how far along the text the caret and the selection fall. A renderer
-/// deciding any of that would be a second statement of what a field looks like,
-/// free to drift from this one.
+/// arithmetic — where the text hangs off the anchor, how far the surround
+/// reaches past it, and how far along the text the caret and the selection
+/// fall. A renderer deciding any of that would be a second statement of what a
+/// field looks like, free to drift from this one.
+///
+/// `text` is the one that is not the field's alone: it is what a
+/// [`Text`](crate::Text) of the same content and anchor would work out for
+/// itself, and the two have to agree — see [`TextEdit::anchor`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Parts {
     /// The surround, and the whole of what the field occupies.
@@ -213,8 +243,8 @@ pub(crate) struct Parts {
     pub(crate) text: Vec2,
     /// The run picked out, or `None` where nothing is.
     pub(crate) wash: Option<Rect>,
-    /// The caret, or `None` where the field is not being typed in.
-    pub(crate) caret: Option<Rect>,
+    /// The caret, which a field always has — see [`TextEdit`].
+    pub(crate) caret: Rect,
 }
 
 impl Default for TextEdit {
@@ -228,13 +258,13 @@ impl Default for TextEdit {
             anchor: Vec2::ZERO,
             padding: Vec2::ZERO,
             min_width: 0.0,
-            focused: false,
             precedence: Precedence::default(),
             tag: None,
             plane_normal: None,
             content: String::new(),
             caret: 0,
             mark: 0,
+            extent: Cell::new(Vec2::ZERO),
             stops: RefCell::new(Vec::new()),
         }
     }
@@ -272,20 +302,6 @@ impl TextEdit {
     /// Declare the plane the field lies on. See [`TextEdit::plane_normal`].
     pub fn in_plane(mut self, normal: Vec3) -> Self {
         self.plane_normal = Some(normal.normalize_or_zero());
-        self
-    }
-
-    /// Make this the field being typed in, so the caret and whatever is picked
-    /// out are drawn. See [`TextEdit::focused`].
-    ///
-    /// Named for the act rather than for the field it sets, like every other
-    /// builder here — `colored` sets `color` and `anchored` sets `anchor`. A
-    /// `focused(true)` beside a `focused` would be the one that read as the same
-    /// word twice. It takes no argument for the same reason those do not take a
-    /// `bool`: `false` is what a field already is, and saying so is
-    /// [`Default`].
-    pub fn typing(mut self) -> Self {
-        self.focused = true;
         self
     }
 
@@ -328,6 +344,20 @@ impl TextEdit {
         self.content.push_str(content);
         self.caret = self.boundary(self.caret);
         self.mark = self.boundary(self.mark);
+    }
+
+    /// Say what `other` says, with its caret and its selection, keeping this
+    /// field's own placement and look.
+    ///
+    /// For an application whose draft lives somewhere else — where the caret is
+    /// is the session's, and where the field is drawn is the drawing's, so the
+    /// copy in the scene is written from both. Cheaper than cloning and
+    /// deliberately so: it reuses the string this field already has, which is
+    /// what keeps a field redrawn on every keystroke off the heap.
+    pub fn mirror(&mut self, other: &TextEdit) {
+        self.set_content(&other.content);
+        self.caret = other.caret;
+        self.mark = other.mark;
     }
 
     /// Send the caret somewhere, taking the selection with it or dropping it.
@@ -395,18 +425,37 @@ impl TextEdit {
         self.take_out(over);
     }
 
-    /// How far the field reaches on screen, in logical pixels — the whole box,
-    /// surround and all.
+    /// How far the *text* reaches on screen, in logical pixels, or zero where
+    /// nothing has laid it out.
     ///
-    /// Answers before the field has ever been laid out, unlike a label's: the
-    /// only part of this the shaper decides is how far the content reaches, and
-    /// the floor under that is [`min_width`](Self::min_width). So an unmeasured
-    /// field is a box of its narrowest, which is a box you can already see and
-    /// click into.
+    /// [`Text::extent`](crate::Text::extent) exactly — the same measurement of
+    /// the same string, and the box [`anchor`](Self::anchor) is a fraction of.
+    /// What the whole field occupies is larger by the padding, and is
+    /// [`surround`](Self::surround).
+    ///
+    /// The height falls back to the font's line height once the field is empty,
+    /// which is the one place the two part company: a run that says nothing
+    /// measures nothing, and a label with nothing to say is simply not drawn
+    /// where a field still has a caret to stand up.
     pub fn extent(&self) -> Vec2 {
+        let measured = self.extent.get();
+        if measured.y > 0.0 {
+            measured
+        } else {
+            Vec2::new(measured.x, self.font.line_height_px)
+        }
+    }
+
+    /// How far the whole field reaches on screen, in logical pixels — the
+    /// surround, which is the text grown by the padding and floored at
+    /// [`min_width`](Self::min_width).
+    ///
+    /// This is what a click has to land in, and what the field covers.
+    pub fn surround(&self) -> Vec2 {
+        let text = self.extent();
         Vec2::new(
-            self.text_width().max(self.min_width) + self.padding.x * 2.0,
-            self.font.line_height_px + self.padding.y * 2.0,
+            text.x.max(self.min_width) + self.padding.x * 2.0,
+            text.y + self.padding.y * 2.0,
         )
     }
 
@@ -435,22 +484,32 @@ impl TextEdit {
     /// Where every part of the field sits relative to its anchor.
     pub(crate) fn parts(&self) -> Parts {
         let extent = self.extent();
-        // Where the box's top-left sits relative to the anchor, which is the
-        // whole of what the anchor fraction decides.
-        let origin = -self.anchor * extent;
-        let text = origin + self.padding;
-        let line = self.font.line_height_px;
+        // Where the text's top-left sits relative to the anchor — the one line
+        // that has to read the same as a label's, and does: it is the same
+        // fraction of the same measurement. See [`TextEdit::anchor`].
+        let text = -self.anchor * extent;
         let picked = self.selection();
         Parts {
-            surround: Rect::new(origin.x, origin.y, extent.x, extent.y),
+            // Outward from the text, so nothing here can move it. The floor
+            // under the width is taken up on the right alone, which is the side
+            // a left-aligned field grows toward.
+            surround: Rect::new(
+                text.x - self.padding.x,
+                text.y - self.padding.y,
+                extent.x.max(self.min_width) + self.padding.x * 2.0,
+                extent.y + self.padding.y * 2.0,
+            ),
             text,
-            wash: (self.focused && !picked.is_empty()).then(|| {
+            wash: (!picked.is_empty()).then(|| {
                 let (from, to) = (self.x_at(picked.start), self.x_at(picked.end));
-                Rect::new(text.x + from, text.y, to - from, line)
+                Rect::new(text.x + from, text.y, to - from, extent.y)
             }),
-            caret: self
-                .focused
-                .then(|| Rect::new(text.x + self.x_at(self.caret), text.y, CARET_WIDTH, line)),
+            caret: Rect::new(
+                text.x + self.x_at(self.caret),
+                text.y,
+                CARET_WIDTH,
+                extent.y,
+            ),
         }
     }
 
@@ -466,25 +525,25 @@ impl TextEdit {
             .then(|| aim.hit(tag, HitAt::Field, self.precedence, self.position, screen))
     }
 
-    /// The field's box on screen, in logical pixels from the top-left corner,
-    /// or `None` where there is none to have.
+    /// The field's surround on screen, in logical pixels from the view's
+    /// top-left corner, or `None` where there is none to have.
     ///
-    /// `None` is an anchor the projection does not draw, or a box with no area
-    /// — which is a field of no size, since the width has a floor and the
-    /// height is the type's.
+    /// `None` is an anchor the projection does not draw, or a surround with no
+    /// area — a field of no size, which is one in a font of none.
     fn box_on_screen(&self, aim: &Aim) -> Option<Rect> {
-        let extent = self.extent();
-        if extent.x <= 0.0 || extent.y <= 0.0 {
+        let surround = self.surround();
+        if surround.x <= 0.0 || surround.y <= 0.0 {
             return None;
         }
-        let top_left = aim.screen_of(self.position)? - self.anchor * extent;
-        Some(Rect::new(top_left.x, top_left.y, extent.x, extent.y))
-    }
-
-    /// How far the content reaches, in logical pixels, and zero where nothing
-    /// has laid it out.
-    fn text_width(&self) -> f32 {
-        self.stops.borrow().last().map_or(0.0, |stop| stop.x)
+        // Off the *text's* anchor and then out by the padding, so the box a
+        // click lands in is the box that was drawn — see [`TextEdit::parts`].
+        let text = aim.screen_of(self.position)? - self.anchor * self.extent();
+        Some(Rect::new(
+            text.x - self.padding.x,
+            text.y - self.padding.y,
+            surround.x,
+            surround.y,
+        ))
     }
 
     /// Where the boundary at `byte` sits, in logical pixels from the text's own
@@ -596,6 +655,13 @@ impl Styled for TextEdit {
 /// stand a hair off, and only in a face that kerns the digits.
 pub(crate) fn measure_all(fields: &[TextEdit], glyphs: &mut TextGlyphs<'_>) {
     for field in fields {
+        // The whole string first, and through the very call
+        // [`text::measure_all`](crate::text::measure_all) makes: this is the box
+        // the anchor is a fraction of, so a field measuring a hair differently
+        // from the label it replaced would place its glyphs a hair differently.
+        let whole = glyphs.measure(&field.content, field.font, 1.0);
+        field.extent.set(Vec2::new(whole.w, whole.h));
+
         let mut stops = field.stops.borrow_mut();
         stops.clear();
         stops.reserve_exact(field.content.chars().count() + 1);
@@ -618,8 +684,9 @@ pub(crate) fn measure_all(fields: &[TextEdit], glyphs: &mut TextGlyphs<'_>) {
 /// *pick* or a *caret* does about a box, which wants a box and no GPU.
 #[cfg(test)]
 impl TextEdit {
-    /// Lay the field out as though every character were `advance` wide.
-    pub(crate) fn measured(self, advance: f32) -> Self {
+    /// Lay the field out as though every character were `advance` wide on a
+    /// line `line` tall.
+    pub(crate) fn measured(self, advance: f32, line: f32) -> Self {
         let mut stops = vec![Stop { byte: 0, x: 0.0 }];
         for (nth, (at, ch)) in self.content.char_indices().enumerate() {
             stops.push(Stop {
@@ -627,6 +694,8 @@ impl TextEdit {
                 x: (nth + 1) as f32 * advance,
             });
         }
+        self.extent
+            .set(Vec2::new(stops.last().expect("the first stop").x, line));
         *self.stops.borrow_mut() = stops;
         self
     }

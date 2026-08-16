@@ -4,6 +4,7 @@ use silverpoint::{Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
 use crate::names::Names;
+use crate::part::Part;
 use crate::preview::Preview;
 use crate::timeline::FeatureId;
 
@@ -49,6 +50,21 @@ pub(crate) struct Layout {
     /// layout and an unsolved document would then agree, and the one frame that
     /// must never be skipped — the first — is exactly the one that would be.
     made: Option<Made>,
+    /// What the field over a dimension being retyped was last written from, and
+    /// `None` where none is drawn.
+    ///
+    /// A second stamp beside `made` rather than a fourth thing in it, because
+    /// the two answer to different sources. What the drawing looks like follows
+    /// from the document; what the field *says* follows from the session, and a
+    /// keystroke moves the second and not the first. One stamp for both would
+    /// re-cut every face in the drawing on every character typed.
+    ///
+    /// One `Option` and not two, unlike `made` above, because "nothing has been
+    /// written yet" and "what was written was no field" want the same answer:
+    /// the batch is empty either way, so there is nothing for the first frame to
+    /// do and skipping it is right. `made` cannot say that — an unwritten layout
+    /// and a drawn one are as different as a picture gets.
+    typed: Option<Retyped>,
 }
 
 impl Layout {
@@ -71,6 +87,36 @@ impl Layout {
     pub(crate) fn drawn(&mut self, made: Made) {
         self.made = Some(made);
     }
+
+    /// Whether the field over a dimension being retyped has been overtaken.
+    ///
+    /// The same shape as [`Layout::stale`] and for the same reason, over its own
+    /// stamp — see [`Layout::typed`].
+    pub(crate) fn retyped(&self, typed: Option<Retyped>) -> bool {
+        self.typed != typed
+    }
+
+    /// Note what the field was just written from.
+    pub(crate) fn retyped_as(&mut self, typed: Option<Retyped>) {
+        self.typed = typed;
+    }
+}
+
+/// What one writing of the field over a dimension is made from.
+///
+/// Three things, and each can move without the others: a different dimension is
+/// opened, the draft in the open one is typed into, or the drawing is solved
+/// again — which moves no character of the field and moves the *mark* it is
+/// drawn on, so a field that watched only the first two would be left standing
+/// where the dimension used to be.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Retyped {
+    pub(crate) part: Part,
+    /// How many edits the draft has had. See
+    /// [`Typing::revision`](crate::typing::Typing).
+    pub(crate) revision: u64,
+    /// Which solve the drawing is at, because that is what moves the mark.
+    pub(crate) at: Revision,
 }
 
 /// Everything a picture is made from that is not the geometry itself.
@@ -86,6 +132,15 @@ pub(crate) struct Made {
     pub(crate) revision: Revision,
     pub(crate) editing: FeatureId,
     pub(crate) band: Option<Preview>,
+    /// The dimension being retyped, whose mark is left out because the field
+    /// standing in for it is drawn there instead — see
+    /// [`paint::retype`](crate::paint::retype).
+    ///
+    /// Here and not in [`Retyped`] beside it, though both are about the same
+    /// dimension, because *which* mark to leave out is a fact about the picture
+    /// of the drawing: opening or closing a field adds or removes one, and that
+    /// is a redraw. What the field says is not, and lives over there.
+    pub(crate) typed: Option<Part>,
 }
 
 /// The room turning a drawing's faces into sheets takes.

@@ -133,6 +133,7 @@ impl Raised {
             self.document.models(&self.build, self.session.editing()),
             &mut Layout::default(),
             None,
+            None,
             &mut scene,
         );
         scene.points.iter().map(|point| point.position).collect()
@@ -1769,4 +1770,63 @@ fn a_drag_keeps_naming_what_it_holds_rather_than_what_it_passes_over() {
         after.is_some() && after != Some(held),
         "after the drag the pointer reported {after:?} rather than what it now sits on"
     );
+}
+
+/// **A double-click means something over a dimension and nothing over anything
+/// else.**
+///
+/// What decides whether the gesture opens a field at all — the half of it that
+/// can be asked without a painted frame. A relation states no number —
+/// perpendicular, parallel, equal — so there is nothing to type into one, and
+/// neither is there for a point or an edge.
+///
+/// The other half, that a click on a mark reaches the mark, needs the mark
+/// measured, and only a paint measures one — see
+/// [`Text::extent`](aperture::Text).
+#[test]
+fn opening_a_dimension_is_the_only_double_click_that_means_anything() {
+    let raised = Raised::new();
+    let sketch = raised.session.editing();
+    let drawing = raised.document.drawing_at(sketch);
+
+    let mut dimensions = 0;
+    let mut relations = 0;
+    for (id, constraint) in drawing.sketch().constraints() {
+        let part = Part::Entity {
+            sketch,
+            entity: id.into(),
+        };
+        let opened = dimension(part, &raised.document, sketch);
+        match constraint.value() {
+            Some(states) => {
+                dimensions += 1;
+                let typed = opened.expect("a dimension has a number to type into");
+                assert_eq!(typed.part, part);
+                assert_eq!(
+                    typed.from, states,
+                    "the field would open on the wrong value"
+                );
+            }
+            None => {
+                relations += 1;
+                assert!(opened.is_none(), "a relation offered a number to type");
+            }
+        }
+    }
+    assert!(
+        dimensions > 0 && relations > 0,
+        "the demo states only one kind, so this asked half a question"
+    );
+
+    // And nothing that is not a constraint at all.
+    let (point, _) = drawing
+        .sketch()
+        .points()
+        .next()
+        .expect("the demo draws points");
+    let marker = Part::Entity {
+        sketch,
+        entity: point.into(),
+    };
+    assert!(dimension(marker, &raised.document, sketch).is_none());
 }

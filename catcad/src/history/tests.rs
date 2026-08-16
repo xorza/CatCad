@@ -26,6 +26,7 @@ fn markers(document: &Document, build: &Build) -> Vec<Vec3> {
         document.models(build, document.opening()),
         &mut Layout::default(),
         None,
+        None,
         &mut scene,
     );
     scene.points.iter().map(|point| point.position).collect()

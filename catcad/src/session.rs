@@ -6,6 +6,7 @@ use crate::part::Part;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
+use crate::typing::Typing;
 
 /// What is in hand, and what is picked out.
 ///
@@ -38,6 +39,12 @@ pub(crate) struct Session {
     /// do, this becomes an `Option` and the compiler will point at every place
     /// that then has to answer for it.
     editing: FeatureId,
+    /// The dimension being retyped, where one is.
+    ///
+    /// Session state on the same terms as the rest: a draft is not in the
+    /// document until it is committed, an undo should not reopen a field, and
+    /// opening one is not a step to take back. See [`Typing`].
+    typing: Option<Typing>,
 }
 
 impl Session {
@@ -48,6 +55,7 @@ impl Session {
             tool: Tool::default(),
             selection: Selection::default(),
             editing,
+            typing: None,
         }
     }
 
@@ -64,6 +72,21 @@ impl Session {
     /// What the next command would act on.
     pub(crate) fn selection(&self) -> &Selection {
         &self.selection
+    }
+
+    /// The dimension being retyped, where one is.
+    pub(crate) fn typing(&self) -> Option<&Typing> {
+        self.typing.as_ref()
+    }
+
+    /// The same, to type into.
+    ///
+    /// The one thing here written outside [`Session::apply`], and the reason is
+    /// on [`Typing`]: a keystroke says how far to go rather than where to end
+    /// up, so it cannot be an intent under the rule the inbox is built on. What
+    /// *opens* and *closes* a field still goes through the inbox.
+    pub(crate) fn typing_mut(&mut self) -> Option<&mut Typing> {
+        self.typing.as_mut()
     }
 
     /// Land everything a frame asked of the session.
@@ -90,6 +113,22 @@ impl Session {
                     self.editing = what.sketch().unwrap_or(self.editing);
                     self.selection.include(what);
                 }
+                // Seeded from what the dimension says now, and picked out
+                // whole — see [`Typing::on`]. A second open of the one already
+                // open would start the draft over, which is why the guard is
+                // here rather than left to whoever raises this: a double-click
+                // on a field already open should place a caret, not undo the
+                // typing.
+                Intent::Choice(Choice::Type(Some(typed))) => {
+                    if self
+                        .typing
+                        .as_ref()
+                        .is_none_or(|open| open.part() != typed.part)
+                    {
+                        self.typing = Some(Typing::on(typed.part, typed.from));
+                    }
+                }
+                Intent::Choice(Choice::Type(None)) => self.typing = None,
                 // The history's, and the document's through it. Landed by
                 // `CatCad::apply` right after this, in the order the pointer
                 // made them.
@@ -117,6 +156,17 @@ impl Session {
     /// back is the point, not the intention to draw.
     pub(crate) fn prune(&mut self, models: Models<'_>) {
         self.selection.retain(|part| models.holds(part));
+        // A dimension an undo took back is one there is nothing left to retype,
+        // and a field left open over it would commit onto a handle naming
+        // nothing. The draft goes with it: what was typed was about *that*
+        // dimension.
+        if self
+            .typing
+            .as_ref()
+            .is_some_and(|open| !models.holds(open.part()))
+        {
+            self.typing = None;
+        }
         // The tool draws in the open sketch and nowhere else, so what it is
         // half-way through hangs off that one — asking the rest would be asking
         // after a point they never held.

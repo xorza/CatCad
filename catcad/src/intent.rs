@@ -352,6 +352,20 @@ pub(crate) enum Choice {
     /// names the whole, and is safe to land twice for a different reason: a
     /// part already picked out is not picked out again.
     Include(Part),
+    /// Open this dimension for typing, or close whatever is open by naming
+    /// `None`.
+    ///
+    /// Names what should be open rather than "the thing under the cursor", so a
+    /// replayed pass opens the same dimension rather than reading a hover that
+    /// has since moved on — and closing twice closes nothing twice.
+    ///
+    /// Carries the value to seed the draft with, because a
+    /// [`Session`](crate::session::Session) is handed the inbox and not the
+    /// drawing: whoever raised this had the dimension in hand and can read what
+    /// it says, where the session would have to be given the whole document to
+    /// ask. What is typed *into* the draft afterwards does not come through
+    /// here at all — see [`Typing`](crate::typing::Typing).
+    Type(Option<Typed>),
     /// Take up this tool, or put down whatever is in hand by naming
     /// [`Tool::Pointer`].
     ///
@@ -360,6 +374,19 @@ pub(crate) enum Choice {
     /// works out what that leaves and names it, rather than asking for a flip a
     /// replayed pass would perform twice. See the note on naming above.
     Hold(Tool),
+}
+
+/// A dimension to open for typing, and what its field starts out saying.
+///
+/// Its own type rather than two fields on the variant, because it is also what
+/// a caller works out in one place — the double-click that opens a field has to
+/// establish both, and answering with a pair would leave which was which to the
+/// call site.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Typed {
+    pub(crate) part: Part,
+    /// What the dimension measures now, which is what the field is seeded with.
+    pub(crate) from: f64,
 }
 
 /// What the application answers: putting the document away, and fetching one

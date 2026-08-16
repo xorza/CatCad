@@ -26,6 +26,7 @@ mod selection;
 mod session;
 mod timeline;
 mod tool;
+mod typing;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
@@ -35,7 +36,9 @@ pub use bench::alloc_bench;
 use std::fmt;
 use std::path::PathBuf;
 
-use palantir::{App, Configure, HostHandle, Key, Panel, Shortcut, Sizing, Ui, WindowToken};
+use palantir::{
+    App, Configure, HostHandle, Key, KeyboardWake, Panel, Shortcut, Sizing, Ui, WindowToken,
+};
 use silverpoint::{Entity, Removed};
 
 use crate::build::Build;
@@ -48,6 +51,7 @@ use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::session::Session;
 use crate::tool::Tool;
+use crate::typing::Done;
 
 /// Take back the last step, and put it back.
 ///
@@ -59,10 +63,10 @@ const REDO: Shortcut = Shortcut::ctrl_shift('Z');
 
 /// Take what is picked out out of the drawing.
 ///
-/// A bare key rather than a chord, which is what every modeller binds it to —
-/// and safe to bind bare because nothing here takes typed text yet. That changes
-/// the moment a dimension can be retyped, and this is the binding that will have
-/// to answer for it.
+/// A bare key rather than a chord, which is what every modeller binds it to.
+/// Safe to bind bare because the one thing here that takes typed text answers
+/// for it: a field open over a dimension consumes the keyboard whole, so this is
+/// not read at all while one is — see [`CatCad::typing`].
 const DELETE: Shortcut = Shortcut::key(Key::Delete);
 
 /// Put the document away, and fetch one back.
@@ -191,25 +195,37 @@ impl CatCad {
         if ui.key_pressed(OPEN) {
             self.intents.push(Errand::Open);
         }
-        // Escape puts down whatever is in hand wherever the pointer happens to
-        // be. The view answers for the right button over the drawing, which is
-        // the same cancel by the gesture a modeller reaches for first, and the
-        // bar for a second press of a tool's own button — three ways to ask for
-        // the same thing, and none of them does it.
-        if ui.escape_pressed() {
-            self.intents.push(Choice::Hold(Tool::Pointer));
-        }
-        // Everything picked out, each named rather than "the selection": an
-        // intent says where it wants to end up, and a replayed pass reading the
-        // selection again would find it already gone. Landing twice is harmless
-        // — the second removal finds nothing to remove.
-        if ui.key_pressed(DELETE) {
-            // Entities only. Deleting a face would mean deleting whatever
-            // draws it, which is a different command and not this one — so a
-            // face picked out alongside an edge lets the edge go and stays.
-            for part in self.session.selection().picked() {
-                if let (Some(sketch), Some(entity)) = (part.sketch(), part.entity()) {
-                    self.intents.push(Change::Delete { sketch, entity });
+        // A field open over a dimension takes the keyboard whole, and the two
+        // bindings below are exactly why it has to: both are bare keys, and a
+        // Delete that took geometry out while you were deleting a digit would
+        // be the worst kind of surprise. Escape is the same question the other
+        // way about — it means "put the field away" while one is open and "put
+        // the tool down" when none is.
+        //
+        // The chords above are left reachable on purpose. Save, open and undo
+        // are the application's whatever is being typed into, and a field is
+        // not a modal.
+        if !self.typing(ui) {
+            // Escape puts down whatever is in hand wherever the pointer happens
+            // to be. The view answers for the right button over the drawing,
+            // which is the same cancel by the gesture a modeller reaches for
+            // first, and the bar for a second press of a tool's own button —
+            // three ways to ask for the same thing, and none of them does it.
+            if ui.escape_pressed() {
+                self.intents.push(Choice::Hold(Tool::Pointer));
+            }
+            // Everything picked out, each named rather than "the selection": an
+            // intent says where it wants to end up, and a replayed pass reading
+            // the selection again would find it already gone. Landing twice is
+            // harmless — the second removal finds nothing to remove.
+            if ui.key_pressed(DELETE) {
+                // Entities only. Deleting a face would mean deleting whatever
+                // draws it, which is a different command and not this one — so a
+                // face picked out alongside an edge lets the edge go and stays.
+                for part in self.session.selection().picked() {
+                    if let (Some(sketch), Some(entity)) = (part.sketch(), part.entity()) {
+                        self.intents.push(Change::Delete { sketch, entity });
+                    }
                 }
             }
         }
@@ -232,6 +248,69 @@ impl CatCad {
             },
             &mut self.intents,
         );
+    }
+
+    /// Put this frame's keystrokes into the field open over a dimension, and
+    /// say whether there was one.
+    ///
+    /// The answer is what the caller gates its bare-key bindings on: a field
+    /// open takes the keyboard whole, so Delete deletes a digit rather than the
+    /// selection and Escape puts the field away rather than the tool down.
+    ///
+    /// **The one place session state is written while the frame is still
+    /// reading**, and the reason is on [`Typing`](crate::typing::Typing): a
+    /// keystroke says how far to go where every intent says where to end up, so
+    /// it cannot be one. What the keystroke *comes to* — a value on the
+    /// dimension, a field put away — does go through the inbox, so the document
+    /// is still written in one place at one time.
+    fn typing(&mut self, ui: &mut Ui) -> bool {
+        let Some(typing) = self.session.typing_mut() else {
+            return false;
+        };
+        // Asked for every frame, like every other watch: this is what wakes a
+        // frame on a keystroke that no chord matches, which is most of them
+        // while a field is open.
+        ui.watch_keyboard(KeyboardWake::TEXT | KeyboardWake::KEY);
+        let mut done = None;
+        for event in ui.keyboard_events() {
+            // Stops at the first answer rather than reading the frame out:
+            // Enter and Escape both end the field, so a key after one has no
+            // field left to land in — and stopping is also what makes the value
+            // read below the value the field held when Enter arrived.
+            if let Some(answer) = typing.take(event) {
+                done = Some(answer);
+                break;
+            }
+        }
+        let (part, value) = (typing.part(), typing.value());
+        match done {
+            // A draft that is not a number is not finished, so Enter on one is
+            // not a refusal to report but a key that does nothing — see
+            // [`Typing::value`](crate::typing::Typing::value). The field stays
+            // open, which is what says so.
+            Some(Done::Commit) => {
+                if let Some(to) = value {
+                    let (Some(sketch), Some(Entity::Constraint(constraint))) =
+                        (part.sketch(), part.entity())
+                    else {
+                        unreachable!("a field is only ever opened over a dimension");
+                    };
+                    self.intents.push(Change::Resize {
+                        sketch,
+                        constraint,
+                        to,
+                    });
+                    // One gesture, one step to take back — the same signal a
+                    // scrub's release gives, because `Resize` coalesces and this
+                    // is what closes the run of them.
+                    self.intents.push(Step::Release);
+                    self.intents.push(Choice::Type(None));
+                }
+            }
+            Some(Done::Cancel) => self.intents.push(Choice::Type(None)),
+            None => {}
+        }
+        true
     }
 
     /// Land everything the frame asked for, on whichever of the three things a

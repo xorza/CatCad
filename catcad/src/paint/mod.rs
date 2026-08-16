@@ -7,18 +7,21 @@
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
 
-use aperture::{Batch, Curve, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
+use aperture::{
+    Batch, Curve, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, TextEdit, Vertex,
+};
 use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Freedom, Plane, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Constraint, Entity, Freedom, Plane, Segment, SegmentId};
 use std::fmt::Write;
 
 use crate::model::{Model, Models};
 use crate::names::Names;
-use crate::paint::layout::{Layout, Made, Sheets};
+use crate::paint::layout::{Layout, Made, Retyped, Sheets};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::timeline::FeatureId;
+use crate::typing::Typing;
 
 pub(crate) mod layout;
 
@@ -218,8 +221,9 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 /// all.
 pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
-    // No band. Nothing can be half-drawn in a document nobody has looked at yet.
-    redraw(models, layout, None, &mut scene);
+    // No band and nothing being retyped. Nothing can be half-drawn or half-typed
+    // in a document nobody has looked at yet.
+    redraw(models, layout, None, None, &mut scene);
     scene
 }
 
@@ -305,6 +309,7 @@ pub(crate) fn redraw(
     models: Models<'_>,
     layout: &mut Layout,
     band: Option<Preview>,
+    typed: Option<Part>,
     into: &mut Scene,
 ) {
     // The check is here rather than at the call, so that what a layout claims
@@ -315,6 +320,7 @@ pub(crate) fn redraw(
         revision: models.revision(),
         editing: models.editing(),
         band,
+        typed,
     };
     if !layout.stale(made) {
         return;
@@ -329,7 +335,7 @@ pub(crate) fn redraw(
     );
     write_rings(models, names, band.and_then(Preview::ring), &mut into.rings);
     write_points(models, names, &mut into.points);
-    write_marks(models, names, &mut into.texts);
+    write_marks(models, typed, names, &mut into.texts);
     write_faces(models, names, sheets, &mut into.faces);
     write_solids(models, names, sheets, &mut into.solids);
     layout.drawn(made);
@@ -457,14 +463,26 @@ struct Span {
 /// Tagged like everything else, so a mark is picked and deleted the way the
 /// geometry it is about is — which is the whole of how an over-constrained
 /// sketch gets un-stuck.
-fn write_marks(models: Models<'_>, names: &mut Names, marks: &mut Batch<Text>) {
+fn write_marks(
+    models: Models<'_>,
+    typed: Option<Part>,
+    names: &mut Names,
+    marks: &mut Batch<Text>,
+) {
     marks.refill(
-        models.iter().flat_map(|model| {
-            model
-                .sketch()
-                .constraints()
-                .map(move |stated| (model, stated))
-        }),
+        models
+            .iter()
+            .flat_map(|model| {
+                model
+                    .sketch()
+                    .constraints()
+                    .map(move |stated| (model, stated))
+            })
+            // The one being retyped is drawn as a field instead — see
+            // [`retype`] — and a mark left under it would be a second copy of
+            // the number, half a pixel off and showing through wherever the
+            // field's surround did not quite cover it.
+            .filter(move |(model, (id, _))| Some(model.part(*id)) != typed),
         |mark, (model, (id, constraint))| {
             let outcome = model.outcome();
             // Rewritten in place rather than assigned, so a drawing whose marks are
@@ -487,7 +505,7 @@ fn write_marks(models: Models<'_>, names: &mut Names, marks: &mut Batch<Text>) {
             mark.font = mark_font();
             // Above the middle of what it names, so the mark clears the geometry it
             // is about rather than sitting on top of it.
-            mark.anchor = Vec2::new(0.5, 1.6);
+            mark.anchor = MARK_ANCHOR;
             mark.color = ink(
                 model,
                 if outcome.is_redundant(id) {
@@ -501,6 +519,112 @@ fn write_marks(models: Models<'_>, names: &mut Names, marks: &mut Batch<Text>) {
             mark.tag = Some(names.tag(model.part(id)));
         },
     );
+}
+
+/// Where the dimension's own position sits in the box of its number: centred
+/// across, and better than a box-height above, so the mark clears the geometry
+/// it is about rather than sitting on top of it.
+///
+/// Read by the field as well as by the mark, and that is the whole reason it is
+/// a constant: the field is drawn *instead of* the mark and must land on the
+/// same pixels, so the two anchoring differently is the one mistake that would
+/// make a double-click look like it had nudged the number.
+const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
+
+/// Room the field's surround leaves around the number, as a fraction of the
+/// type size, and how much of a number it always has room for.
+///
+/// Enough to read as a box holding the text rather than as a box the text is
+/// falling out of, and enough that emptying the field leaves something to see
+/// and to click back into. Here rather than taken from
+/// [`TextEdit`](aperture::TextEdit)'s own defaults, because those are sized for
+/// a field standing on its own and a dimension's mark is small type sitting
+/// close to the geometry it names.
+const FIELD_PADDING: Vec2 = Vec2::new(0.35, 0.15);
+const FIELD_MIN_WIDTH: f32 = 2.5;
+
+/// What a field being typed into is drawn against, and the caret with it.
+///
+/// Dark enough to read light ink over whatever the drawing puts behind it —
+/// the field is opaque exactly so a number being retyped is legible over the
+/// solid it dimensions.
+const FIELD_BACKGROUND: Vec3 = Vec3::new(0.06, 0.06, 0.09);
+const FIELD_INK: Vec3 = Vec3::new(0.94, 0.94, 0.98);
+const FIELD_SELECTION: Vec3 = Vec3::new(0.10, 0.28, 0.55);
+
+/// Draw the field over the dimension being retyped, or take away whatever was
+/// drawn once nothing is.
+///
+/// Beside [`redraw`] rather than inside it, and gated on its own stamp, because
+/// the two answer to different things. What the drawing looks like follows from
+/// the document; what the *field* says follows from the session, and a
+/// keystroke moves the second without moving the first. Folded into `redraw`,
+/// typing a digit would re-cut every face in the drawing to change five glyphs.
+///
+/// It still has to watch the revision, because where the field is drawn is the
+/// drawing's answer: the mark it stands on moves whenever the sketch is solved.
+/// So the stamp is both — which dimension and how far its draft has got, and
+/// which solve the drawing is at.
+///
+/// Placed off the mark rather than off anything of its own. Position, font and
+/// anchor all come from the drawing, so the field lands exactly where the mark
+/// it replaces was drawn — see [`TextEdit::anchor`](aperture::TextEdit), which
+/// measures the same box a label's does for this reason.
+pub(crate) fn retype(
+    models: Models<'_>,
+    typing: Option<&Typing>,
+    layout: &mut Layout,
+    into: &mut Batch<TextEdit>,
+) {
+    let typed = typing.map(|typing| Retyped {
+        part: typing.part(),
+        revision: typing.revision(),
+        at: models.revision(),
+    });
+    if !layout.retyped(typed) {
+        return;
+    }
+    // An empty refill is how the field is taken away, and it has to happen
+    // through the batch rather than by returning early: a batch left holding
+    // last frame's field goes on drawing it after the typing has finished.
+    into.refill(typing, |field, typing| {
+        let part = typing.part();
+        // Never missing: a field is only ever opened over a dimension, and
+        // `Session::prune` closes one whose dimension an undo took away — which
+        // it does before a frame settles, so by the time this runs the drawing
+        // still holds what is being typed into.
+        let (model, id) = models
+            .iter()
+            .find_map(|model| match model.entity(part) {
+                Some(Entity::Constraint(id)) => Some((model, id)),
+                _ => None,
+            })
+            .expect("a field is open over a dimension the drawing no longer holds");
+        // Everything about where and how, off the drawing — so the field is the
+        // mark, in the same place, at the same size, in the same face.
+        let font = mark_font();
+        field.position = model.drawing().mark_at(model.sketch().constraint(id));
+        field.font = font;
+        field.anchor = MARK_ANCHOR;
+        field.plane_normal = Some(model.plane().normal().as_vec3());
+        field.padding = FIELD_PADDING * font.size_px;
+        field.min_width = FIELD_MIN_WIDTH * font.size_px;
+        field.color = FIELD_INK;
+        field.background = FIELD_BACKGROUND;
+        field.selection = FIELD_SELECTION;
+        field.precedence = standing(model);
+        // Untagged, and deliberately: what a click inside the field means is
+        // where to put the caret, which is a question about the *field* and
+        // not about the drawing — see
+        // [`TextEdit::byte_at`](aperture::TextEdit::byte_at). A tag would enter
+        // it in the drawing's own pick, where it would take clicks meant for
+        // the geometry it is drawn over.
+        field.tag = None;
+        // Last, because it is the only part of this that is not the drawing's:
+        // what the field says and where its caret is are the draft's.
+        field.mirror(typing.field());
+    });
+    layout.retyped_as(typed);
 }
 
 /// Decimal places a dimension is read out to.
