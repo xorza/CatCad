@@ -505,12 +505,14 @@ fn only_the_open_sketch_shows_its_constraints() {
     let mut stated = || {
         let mut sketch = Sketch::default();
         let a = sketch.add_point(DVec2::ZERO);
-        let b = sketch.add_point(DVec2::new(2.0, 0.0));
+        // Across the axes, so what the mark is set along cannot come out right
+        // by having been left at the sketch's own +x — see below.
+        let b = sketch.add_point(DVec2::new(4.0, 3.0));
         sketch.add_segment(a, b);
         sketch.add_constraint(silverpoint::Constraint::Distance {
             a,
             b,
-            distance: 2.0,
+            distance: 5.0,
         });
         timeline.add(Feature::Sketch { on: ground, sketch })
     };
@@ -577,12 +579,18 @@ fn only_the_open_sketch_shows_its_constraints() {
     // and its normal are different axes.
     let plane = document.models(&build, there).open().plane();
     let normal = plane.normal().as_vec3();
-    // The fixture's one dimension spans (0,0) to (2,0), so it runs along the
-    // sketch's +x — which on this plane is world +x.
-    let along = plane.x.as_vec3();
+    // The fixture's one dimension spans (0,0) to (4,3), so it runs three-fifths
+    // and four-fifths across the sketch's own axes — and not along either of
+    // them, which is what says the drawing read the span rather than reaching
+    // for the plane it is on.
+    let along = (plane.x * 0.8 + plane.y * 0.6).as_vec3();
     assert!(!scene.texts.is_empty(), "there were no marks to ask about");
     for mark in scene.texts.iter() {
-        assert_eq!(mark.facing.right(), Some(along), "not set along its span");
+        let set = mark.facing.right().expect("a mark is laid in its plane");
+        assert!(
+            set.abs_diff_eq(along, 1e-6),
+            "set along {set:?} rather than its span, {along:?}"
+        );
         assert_eq!(mark.facing.normal(), Some(normal), "not on its own plane");
         assert_ne!(
             mark.facing.right(),

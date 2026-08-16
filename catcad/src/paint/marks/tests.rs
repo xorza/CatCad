@@ -438,7 +438,7 @@ fn a_mark_is_set_along_the_geometry_it_is_about() {
     )
     .map(|it| it.expect("drawn against each").along);
     near(first, DVec2::new(0.8, 0.6));
-    near(second, DVec2::new(0.6, -0.8));
+    near(second, DVec2::new(-0.6, 0.8));
 
     // And a relation about a point alone has no span to take, so it runs the way
     // the sketch itself does.
@@ -491,4 +491,34 @@ fn a_span_drawn_back_to_front_is_set_the_same_way_round() {
     // span comes out in fifths, and the upright one points up.
     near(span(high, low), DVec2::new(0.8, 0.6));
     near(span(over, low), DVec2::Y);
+}
+
+/// An axis-aligned span is settled well clear of the cut.
+///
+/// **Where a drawing actually lives.** A solved sketch leaves residue in the
+/// coordinate a span is supposed to have none of, so an upright dimension is
+/// upright only to within a rounding — and a cut lying along the axes would let
+/// that residue pick its direction, flickering it across as a drag wobbled the
+/// sign. With the direction goes the lift square to it, so the mark would hop
+/// from one side of the line it measures to the other.
+///
+/// Asked of a pair differing only in the sign of a residue far below anything a
+/// hand or a solve puts there, which is the case that would have parted.
+#[test]
+fn an_upright_span_is_not_settled_by_the_residue_in_its_own_width() {
+    const RESIDUE: f64 = 1e-15;
+    let upright = [
+        canonical(DVec2::new(RESIDUE, -4.0)),
+        canonical(DVec2::new(-RESIDUE, -4.0)),
+    ];
+    near(upright[0], upright[1]);
+    near(upright[0], DVec2::Y);
+
+    // And the same across, where the residue is in y.
+    let across = [
+        canonical(DVec2::new(-4.0, RESIDUE)),
+        canonical(DVec2::new(-4.0, -RESIDUE)),
+    ];
+    near(across[0], across[1]);
+    near(across[0], DVec2::X);
 }

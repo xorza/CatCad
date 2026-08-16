@@ -276,19 +276,35 @@ fn along(span: [DVec2; 2]) -> DVec2 {
 /// would carry their dimensions on opposite sides of themselves — the lift being
 /// square to the run, and the run having turned over.
 ///
-/// Settled by taking whichever of the two points into the half-plane of positive
-/// x, and up where it is neither. In *sketch* space, because settling it against
-/// the projection would put every mark back on the camera's schedule — and
-/// because which way a segment was drawn is a fact about the drawing, so the
-/// answer should be too.
+/// Settled by taking whichever of the two points to the near side of [`CUT`]. In
+/// *sketch* space, because settling it against the projection would put every
+/// mark back on the camera's schedule — and because which way a segment was
+/// drawn is a fact about the drawing, so the answer should be too.
 fn canonical(run: DVec2) -> DVec2 {
     let bearing = bearing(run);
-    if bearing.x < 0.0 || (bearing.x == 0.0 && bearing.y < 0.0) {
+    let side = bearing.dot(CUT);
+    // Lying along the cut itself, one more rule rather than a coin toss.
+    if side < 0.0 || (side == 0.0 && bearing.x < 0.0) {
         -bearing
     } else {
         bearing
     }
 }
+
+/// The line a direction is settled either side of.
+///
+/// **Diagonal, and that is the whole of the choice.** Some cut there has to be —
+/// a direction and its reverse describe one line, and no rule picks between them
+/// continuously all the way round. What a cut costs is that geometry lying *on*
+/// it has its side decided by whatever residue the solver left in the other
+/// coordinate, and flickers across as a drag moves it: the direction reverses,
+/// and with it the lift square to it, so the mark hops to the other side of the
+/// line it measures.
+///
+/// So the cut goes where a drawing is least likely to be. Drawings are full of
+/// horizontal and vertical spans and an axis-aligned cut would sit under all of
+/// them; this one leaves only a span at exactly −45° on the fence.
+const CUT: DVec2 = DVec2::new(1.0, 1.0);
 
 /// Where a point of the sketch is.
 fn at_point(sketch: &Sketch, id: PointId) -> DVec2 {
