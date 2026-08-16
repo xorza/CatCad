@@ -166,12 +166,13 @@ impl Text {
         // so the world size of a pixel is the step between the two.
         let here = aim.view_proj * self.position.extend(1.0);
         let step = aim.world_per_pixel(self.position);
-        let across = screen_tangent(axes.right * step, here, aim.view_proj, aim.viewport);
+        let across = screen_tangent(axes.advance * step, here, aim.view_proj, aim.viewport);
         let down = screen_tangent(axes.down * step, here, aim.view_proj, aim.viewport);
         // How much screen the box covers against how much it would cover face
-        // on, which for a plane merely tilted is the cosine of the tilt. Below
-        // the floor it is edge-on and there is nothing on screen to have been
-        // clicked — and nothing to invert either.
+        // on, which for a plane merely tilted is the cosine of the tilt. Under
+        // the floor there is nothing to have been clicked in — see [`EDGE_ON`],
+        // which is a floor on what can be seen rather than on what can be
+        // divided by.
         let area = across.perp_dot(down);
         if area.abs() <= EDGE_ON {
             return None;
@@ -379,21 +380,21 @@ impl Turn {
         let across = self.normal.cross(self.right);
         let along = screen_tangent(self.right, here, view_proj, viewport);
         let sideways = screen_tangent(across, here, view_proj, viewport);
-        let mut axes = Axes {
-            right: self.right,
-            down: if along.perp_dot(sideways) >= 0.0 {
-                across
-            } else {
-                -across
-            },
+        // Of the plane's two ways to run down, the one that winds the way the
+        // screen does.
+        let down = if along.perp_dot(sideways) >= 0.0 {
+            across
+        } else {
+            -across
         };
-        if along.x < 0.0 {
-            axes = Axes {
-                right: -axes.right,
-                down: -axes.down,
-            };
+        // And the half turn, which is a sign on both rather than a second frame
+        // — which is what makes it a rotation and so leaves the choice above
+        // where it was.
+        let upright = if along.x < 0.0 { -1.0 } else { 1.0 };
+        Axes {
+            advance: self.right * upright,
+            down: down * upright,
         }
-        axes
     }
 }
 
@@ -404,9 +405,14 @@ impl Turn {
 /// plane. Where a run *sits* on those axes is the anchor's and how far it
 /// reaches along them is the shaping's; this is only which way they point, which
 /// is the half the projection has a say in. See [`Turn::axes`].
+///
+/// The advance is [`Turn::right`] *as settled* and so is sometimes its negation
+/// — named apart for that reason, since the two are a half turn out from each
+/// other exactly when it matters and a box built on the wrong one hangs off the
+/// wrong side of its anchor.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Axes {
-    pub right: Vec3,
+    pub advance: Vec3,
     pub down: Vec3,
 }
 

@@ -283,16 +283,17 @@ fn a_raked_run_foreshortens_and_is_still_reached_in_screen_pixels() {
     // Tilted about +x by sixty degrees: the normal leans out of the screen and
     // the plane's other direction leans with it.
     let (sin, cos) = 60f32.to_radians().sin_cos();
-    let laid = turned(Turn::new(Vec3::X, Vec3::new(0.0, sin, cos)));
+    let raked = Turn::new(Vec3::X, Vec3::new(0.0, sin, cos));
+    let laid = turned(raked);
 
     // The advance is untouched — it lies in the screen — and the down leans
     // away, which is what halves the box.
-    let axes = Turn::new(Vec3::X, Vec3::new(0.0, sin, cos)).axes(
+    let axes = raked.axes(
         Vec3::ZERO,
         head_on().view_proj(1.0),
         Viewport::new(UVec2::new(100, 100)),
     );
-    assert_eq!(axes.right, Vec3::X);
+    assert_eq!(axes.advance, Vec3::X);
     assert!(
         (axes.down - Vec3::new(0.0, -cos, sin)).length() < 1e-5,
         "{:?} is not the plane's own down",
@@ -341,7 +342,7 @@ fn a_turn_the_screen_runs_up_is_picked_along_its_own_axes() {
         head_on().view_proj(1.0),
         Viewport::new(UVec2::new(100, 100)),
     );
-    assert_eq!(axes.right, Vec3::Y);
+    assert_eq!(axes.advance, Vec3::Y);
     assert_eq!(axes.down, Vec3::X);
 
     // Well inside the turned box, and well outside the box it would have had
@@ -409,7 +410,7 @@ fn a_run_past_the_upright_comes_round_rather_than_reading_upside_down() {
     let viewport = Viewport::new(UVec2::new(100, 100));
     let advance = |lean: f32| {
         let turn = Turn::new(Vec3::new(lean, 1.0, 0.0), Vec3::Z);
-        turn.axes(Vec3::ZERO, projection, viewport).right
+        turn.axes(Vec3::ZERO, projection, viewport).advance
     };
 
     // A hundredth off vertical is about half a degree, and the two land either
