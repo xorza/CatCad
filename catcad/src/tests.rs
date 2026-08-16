@@ -1388,16 +1388,30 @@ fn a_dimension(app: &CatCad) -> (Part, f64) {
         .expect("the demo states at least one dimension")
 }
 
-/// Open a field the way a double-click does.
+/// Open a field the way a double-click does: a press on the view, and then the
+/// intent that press would have raised.
 ///
-/// Through the intent rather than through the click, and the seam is
-/// deliberate: a mark is pickable only once a *painted* frame has measured how
-/// far it reaches — see [`Text::extent`](aperture::Text) — and the unit harness
-/// records without a GPU. So the click that raises this is asked of
+/// **The press is not a formality.** It is what focuses the viewport, and the
+/// viewport's focus is half of the claim its input scope makes — a field opened
+/// without it would sit there taking no keys, which is precisely the state the
+/// application closes on. So a helper that pushed the intent alone would be
+/// testing a situation the app does not have.
+///
+/// The intent rather than a double-click on the mark itself, and *that* seam is
+/// the harness's: a mark is pickable only once a painted frame has measured how
+/// far it reaches — see [`Text::extent`](aperture::Text) — and this harness
+/// records without a GPU. What the double-click decides is asked of
 /// [`opening_a_dimension_is_the_only_double_click_that_means_anything`], which
-/// needs no measurement, and everything downstream of the intent is asked here
-/// through the code that really runs.
-fn open_field(app: &mut CatCad, part: Part, from: f64) {
+/// needs no measurement.
+fn open_field(app: &mut CatCad, harness: &mut UiHarness, part: Part, from: f64) {
+    // Somewhere on the view with nothing to grab, so the press picks nothing out
+    // and starts no gesture — it is here to be a press on the viewport.
+    let empty = cursor_on(app, empty_spot(app));
+    harness.press_at(empty);
+    frame(app, harness);
+    harness.release();
+    frame(app, harness);
+
     let mut intents = Intents::default();
     intents.push(Choice::Type(Some(Typed { part, from })));
     app.session.apply(&intents);
@@ -1442,7 +1456,7 @@ fn typing_a_dimension_restates_it_as_one_step() {
         (mark.position, mark.anchor, mark.font)
     };
 
-    open_field(&mut app, dimension, was);
+    open_field(&mut app, &mut harness, dimension, was);
     frame(&mut app, &mut harness);
     let typing = app.session.typing().expect("the field never opened");
     assert_eq!(typing.part(), dimension);
@@ -1543,12 +1557,17 @@ fn a_field_takes_the_bare_keys_and_escape_puts_it_away() {
     };
     let stated = relations(&app);
 
-    // Picked out as well as opened, which is what the double-click leaves and
+    // Picked out as well as opened, which is what the double-click leaves — the
+    // press that opens a field is the press that picks the dimension out — and
     // what makes Delete a real question here.
+    //
+    // In that order, because the press inside [`open_field`] lands on empty
+    // space and so picks nothing out; selecting first would be selecting
+    // something the press then dropped.
+    open_field(&mut app, &mut harness, dimension, was);
     let mut intents = Intents::default();
     intents.push(Choice::Select(Some(dimension)));
     app.session.apply(&intents);
-    open_field(&mut app, dimension, was);
     frame(&mut app, &mut harness);
     assert!(app.session.selection().contains(dimension));
 
@@ -1567,6 +1586,54 @@ fn a_field_takes_the_bare_keys_and_escape_puts_it_away() {
     );
     assert_eq!(relations(&app), stated, "Delete took a constraint out");
     assert!(app.session.selection().contains(dimension));
+
+    // An undo is an *edit* chord, so it goes to the field and not to the
+    // document — where it would take back whatever step preceded the typing,
+    // which is not something anyone mid-edit asked for. The field has no undo
+    // of its own yet, so what it does with one is nothing; what matters is
+    // where it did not go.
+    let ctrl = Modifiers {
+        ctrl: true,
+        ..Modifiers::NONE
+    };
+    let edits = app.document.edits();
+    chord(&mut harness, ctrl, Key::Char('z'));
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.document.edits(),
+        edits,
+        "Ctrl+Z reached the document while a field was open"
+    );
+    assert!(app.session.typing().is_some(), "Ctrl+Z closed the field");
+
+    // An accelerator is nobody's but the application's, and goes on working
+    // while a field is open — which is the whole reason a field takes its keys
+    // by *class* rather than taking the keyboard whole.
+    //
+    // Given somewhere to put the document first, because Save on one that has
+    // never been anywhere asks a dialog, and a dialog cannot be raised off the
+    // main thread. That is not a workaround for this test so much as the only
+    // way to ask the question: what is being checked is that the chord *lands*,
+    // and a document with a path is one where landing writes a file.
+    let path = std::env::temp_dir().join(format!("catcad-typing-{}.cat", std::process::id()));
+    let _ = std::fs::remove_file(&path);
+    app.write(path.clone());
+    assert!(path.exists(), "the document was never written");
+    let written = std::fs::metadata(&path).expect("just written").len();
+    std::fs::remove_file(&path).expect("written, so removable");
+
+    chord(&mut harness, ctrl, Key::Char('s'));
+    frame(&mut app, &mut harness);
+    assert!(
+        path.exists(),
+        "Ctrl+S was swallowed by the open field instead of saving"
+    );
+    assert_eq!(
+        std::fs::metadata(&path).expect("saved again").len(),
+        written
+    );
+    assert!(app.session.typing().is_some(), "saving closed the field");
+    let _ = std::fs::remove_file(&path);
 
     // Escape closes the field and puts nothing else down.
     harness.key(Key::Escape);

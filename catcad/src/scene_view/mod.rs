@@ -6,7 +6,8 @@ use std::rc::Rc;
 use aperture::{Extent, Highlight, Lit, Motion, Renderer};
 use glam::{Vec2, Vec3};
 use palantir::{
-    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
+    ButtonPhase, Configure, Drag, GpuPaint, GpuView, KeyFilter, PointerWake, Response, Sense,
+    Sizing, Ui,
 };
 use silverpoint::{Entity, Grown};
 
@@ -288,6 +289,34 @@ impl SceneView {
         let response = GpuView::new(paint)
             .auto_id()
             .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL | Sense::PINCH)
+            // What owns the keyboard while a dimension is being typed into.
+            // The view rather than a node of the field's own, because the field
+            // is drawn *in* here and has no widget to be: a press on the
+            // viewport is what opens one, and a press on a focusable node is
+            // what takes focus.
+            //
+            // The filter is the whole of the arbitration. `TEXT_FIELD` takes
+            // the characters, the edit keys, the caret moves and Escape, and
+            // leaves `Accel` to the root — so `Delete` deletes a digit and
+            // `Ctrl+Z` does nothing to the drawing while a field is open, and
+            // `Ctrl+S` still saves. An empty filter is how "not a scope" is
+            // stated, which is what the view is the rest of the time.
+            //
+            // **A scope only arbitrates for the widget focus sits inside**, so
+            // being focusable is half of the claim and nothing here is the other
+            // half — palantir focuses a focusable node when a press lands on it,
+            // and every press that opens a field is a press on this view. It
+            // also never loses focus, because it fills the surface and is the
+            // only focusable thing catcad draws: a press on the overlay
+            // hit-tests through a Button to this. The first focusable control up
+            // there — an editable `DragValue` in the constraint bar — is what
+            // makes that untrue, and what it will want is for a field to close
+            // when focus leaves it.
+            .focusable(true)
+            .input_scope(match session.typing() {
+                Some(_) => KeyFilter::TEXT_FIELD,
+                None => KeyFilter::empty(),
+            })
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui);
 

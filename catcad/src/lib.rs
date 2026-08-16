@@ -37,7 +37,8 @@ use std::fmt;
 use std::path::PathBuf;
 
 use palantir::{
-    App, Configure, HostHandle, Key, KeyboardWake, Panel, Shortcut, Sizing, Ui, WindowToken,
+    App, Configure, HostHandle, Key, KeyFilter, KeyboardWake, Panel, Shortcut, Sizing, Ui,
+    WindowToken,
 };
 use silverpoint::{Entity, Removed};
 
@@ -64,9 +65,12 @@ const REDO: Shortcut = Shortcut::ctrl_shift('Z');
 /// Take what is picked out out of the drawing.
 ///
 /// A bare key rather than a chord, which is what every modeller binds it to.
-/// Safe to bind bare because the one thing here that takes typed text answers
-/// for it: a field open over a dimension consumes the keyboard whole, so this is
-/// not read at all while one is — see [`CatCad::typing`].
+///
+/// Safe to bind bare, and nothing here is what makes it safe. `Delete` is of
+/// the *edit* class, so a field open over a dimension is granted it by the
+/// input scope the viewport declares and this poll answers `false` on its own —
+/// there is no gate to remember. Every binding above is an accelerator, which
+/// no field takes, so all of them go on working while one is open.
 const DELETE: Shortcut = Shortcut::key(Key::Delete);
 
 /// Put the document away, and fetch one back.
@@ -205,27 +209,26 @@ impl CatCad {
         // The chords above are left reachable on purpose. Save, open and undo
         // are the application's whatever is being typed into, and a field is
         // not a modal.
-        if !self.typing(ui) {
-            // Escape puts down whatever is in hand wherever the pointer happens
-            // to be. The view answers for the right button over the drawing,
-            // which is the same cancel by the gesture a modeller reaches for
-            // first, and the bar for a second press of a tool's own button —
-            // three ways to ask for the same thing, and none of them does it.
-            if ui.escape_pressed() {
-                self.intents.push(Choice::Hold(Tool::Pointer));
-            }
-            // Everything picked out, each named rather than "the selection": an
-            // intent says where it wants to end up, and a replayed pass reading
-            // the selection again would find it already gone. Landing twice is
-            // harmless — the second removal finds nothing to remove.
-            if ui.key_pressed(DELETE) {
-                // Entities only. Deleting a face would mean deleting whatever
-                // draws it, which is a different command and not this one — so a
-                // face picked out alongside an edge lets the edge go and stays.
-                for part in self.session.selection().picked() {
-                    if let (Some(sketch), Some(entity)) = (part.sketch(), part.entity()) {
-                        self.intents.push(Change::Delete { sketch, entity });
-                    }
+        self.typing(ui);
+        // Escape puts down whatever is in hand wherever the pointer happens to
+        // be. The view answers for the right button over the drawing, which is
+        // the same cancel by the gesture a modeller reaches for first, and the
+        // bar for a second press of a tool's own button — three ways to ask for
+        // the same thing, and none of them does it.
+        if ui.escape_pressed() {
+            self.intents.push(Choice::Hold(Tool::Pointer));
+        }
+        // Everything picked out, each named rather than "the selection": an
+        // intent says where it wants to end up, and a replayed pass reading the
+        // selection again would find it already gone. Landing twice is harmless
+        // — the second removal finds nothing to remove.
+        if ui.key_pressed(DELETE) {
+            // Entities only. Deleting a face would mean deleting whatever
+            // draws it, which is a different command and not this one — so a
+            // face picked out alongside an edge lets the edge go and stays.
+            for part in self.session.selection().picked() {
+                if let (Some(sketch), Some(entity)) = (part.sketch(), part.entity()) {
+                    self.intents.push(Change::Delete { sketch, entity });
                 }
             }
         }
@@ -250,12 +253,19 @@ impl CatCad {
         );
     }
 
-    /// Put this frame's keystrokes into the field open over a dimension, and
-    /// say whether there was one.
+    /// Put this frame's keystrokes into the field open over a dimension.
     ///
-    /// The answer is what the caller gates its bare-key bindings on: a field
-    /// open takes the keyboard whole, so Delete deletes a digit rather than the
-    /// selection and Escape puts the field away rather than the tool down.
+    /// **Gates nothing.** What the bindings around it do while a field is open
+    /// is palantir's to decide, not this call's: the viewport declares an input
+    /// scope taking the classes a field edits with, so `Delete` and `Ctrl+Z` are
+    /// granted to it and the polls above simply answer `false` — while `Ctrl+S`,
+    /// being an accelerator, walks out to the application root and still saves.
+    /// See the scope declared in [`SceneView::ask`](crate::scene_view::SceneView).
+    ///
+    /// That leaves this reading the *raw* stream, which is layer-gated and never
+    /// filtered by class — the scope holder is the one thing that drains
+    /// wholesale — so what a keystroke means is still
+    /// [`Typing::take`](crate::typing::Typing::take)'s to say.
     ///
     /// **The one place session state is written while the frame is still
     /// reading**, and the reason is on [`Typing`](crate::typing::Typing): a
@@ -263,9 +273,9 @@ impl CatCad {
     /// it cannot be one. What the keystroke *comes to* — a value on the
     /// dimension, a field put away — does go through the inbox, so the document
     /// is still written in one place at one time.
-    fn typing(&mut self, ui: &mut Ui) -> bool {
+    fn typing(&mut self, ui: &mut Ui) {
         let Some(typing) = self.session.typing_mut() else {
-            return false;
+            return;
         };
         // Asked for every frame, like every other watch: this is what wakes a
         // frame on a keystroke that no chord matches, which is most of them
@@ -310,7 +320,6 @@ impl CatCad {
             Some(Done::Cancel) => self.intents.push(Choice::Type(None)),
             None => {}
         }
-        true
     }
 
     /// Land everything the frame asked for, on whichever of the three things a
@@ -587,6 +596,18 @@ impl App for CatCad {
         self.intents.clear();
         Panel::zstack()
             .auto_id()
+            // The application root, as far as the keyboard is concerned, and
+            // that is what this declaration is for rather than any key it
+            // claims for itself. A chord is granted to the innermost *scope*
+            // whose filter takes its class, and a read is answered for by the
+            // scope it was taken inside — so without a root there is nothing
+            // outside the viewport's own scope for an accelerator to resolve
+            // to, and `Ctrl+S` would be answered by whatever is being typed
+            // into. `KeyFilter::ALL` because everything the application binds
+            // is the application's until something nested says otherwise; the
+            // viewport says so while a field is open, and the class split is
+            // what keeps that from taking the accelerators with it.
+            .input_scope(KeyFilter::ALL)
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
                 // Ask, apply, settle — the whole of a frame, and the order the
