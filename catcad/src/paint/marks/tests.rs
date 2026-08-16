@@ -7,10 +7,17 @@ fn on_ground(sketch: &Sketch) -> Drawing<'_> {
     Drawing::new(sketch, Plane::GROUND)
 }
 
-/// The anchor as the sketch sees it, which is what every rule below is
-/// written in.
-fn anchored(sketch: &Sketch, constraint: Constraint) -> DVec2 {
-    anchor(sketch, constraint)
+/// The one anchor of a relation drawn once, which every rule below but the
+/// Beside family is.
+fn sole(sketch: &Sketch, constraint: Constraint) -> DVec2 {
+    let [first, second] = anchors(sketch, constraint);
+    assert_eq!(second, None, "{constraint:?} is drawn more than once");
+    first.expect("every constraint is drawn at least once")
+}
+
+/// Both anchors of a relation drawn against each of its referents.
+fn both(sketch: &Sketch, constraint: Constraint) -> [DVec2; 2] {
+    anchors(sketch, constraint).map(|at| at.expect("a relation drawn twice has two anchors"))
 }
 
 fn near(got: DVec2, want: DVec2) {
@@ -22,11 +29,12 @@ fn near(got: DVec2, want: DVec2) {
 
 /// A relation that is *located* stands where its geometry meets.
 ///
-/// The family the old rule got worst, and the arithmetic is hand-computed
-/// so that a rule which merely averaged something would fail rather than
-/// come out plausible. The two segments here cross at (4, 0) — a corner
-/// nine units from one midpoint and four from the other — so a mark at any
-/// average of middles lands somewhere the reader has no reason to look.
+/// Hand-computed, and laid out so that averaging something would come out
+/// *wrong* rather than merely arbitrary: the two segments cross at (4, 0), a
+/// corner nine units from one of the midpoints and four from the other. Any
+/// mark taken from the middles of what a relation names lands somewhere the
+/// reader has no reason to look, which is a failure that reads as a placement
+/// nobody got round to rather than as a bug.
 #[test]
 fn a_relation_that_is_located_stands_where_its_geometry_meets() {
     let mut sketch = Sketch::default();
@@ -39,7 +47,7 @@ fn a_relation_that_is_located_stands_where_its_geometry_meets() {
     let flat = sketch.add_segment(corner, along);
     let upright = sketch.add_segment(below, above);
     near(
-        anchored(
+        sole(
             &sketch,
             Constraint::Perpendicular {
                 first: flat,
@@ -52,7 +60,7 @@ fn a_relation_that_is_located_stands_where_its_geometry_meets() {
     // A coincidence is its point, and one on a segment is that point too —
     // neither is an average of anything.
     near(
-        anchored(
+        sole(
             &sketch,
             Constraint::Coincident {
                 a: corner,
@@ -62,7 +70,7 @@ fn a_relation_that_is_located_stands_where_its_geometry_meets() {
         DVec2::new(4.0, 0.0),
     );
     near(
-        anchored(
+        sole(
             &sketch,
             Constraint::PointOnSegment {
                 point: above,
@@ -78,7 +86,7 @@ fn a_relation_that_is_located_stands_where_its_geometry_meets() {
     let hub = sketch.add_point(DVec2::new(7.0, 5.0));
     let ring = sketch.add_circle(hub, 5.0);
     near(
-        anchored(
+        sole(
             &sketch,
             Constraint::Tangent {
                 segment: flat,
@@ -89,15 +97,16 @@ fn a_relation_that_is_located_stands_where_its_geometry_meets() {
     );
 }
 
-/// A relation between things that need not touch stands beside one of them,
-/// and a dimension stands on the span it measures.
+/// A relation between things that need not touch is drawn against each of
+/// them, and a dimension once on the span it measures.
 ///
 /// Two families in one fixture because they are told apart by exactly one
-/// thing — whether the mark belongs to a referent or to the pair — and a
-/// rule that confused them would put a `∥` between two edges and a length
-/// on top of one.
+/// thing — whether the mark belongs to a referent or to the pair — and a rule
+/// that confused them would put one `∥` between two edges and two lengths on
+/// one span. The edges here are ten apart, so a mark on either is nowhere near
+/// a mark that split the difference.
 #[test]
-fn a_relation_between_separate_things_stands_beside_one_and_a_dimension_on_its_span() {
+fn a_relation_between_separate_things_is_drawn_against_each_and_a_dimension_once() {
     let mut sketch = Sketch::default();
     // From (0, 0) to (6, 0): middle (3, 0).
     let start = sketch.add_point(DVec2::ZERO);
@@ -108,19 +117,23 @@ fn a_relation_between_separate_things_stands_beside_one_and_a_dimension_on_its_s
     let across = sketch.add_point(DVec2::new(6.0, 10.0));
     let second = sketch.add_segment(over, across);
 
-    // Beside the first edge — on it — rather than at (3, 5), which is the
-    // middle of the two middles and is on neither.
+    // One on each edge's own middle. Neither is at (3, 5), which is the middle
+    // of the two middles and is on neither edge — one mark there is the
+    // question this family exists to stop asking.
     for relation in [
         Constraint::Parallel { first, second },
         Constraint::EqualLength { first, second },
     ] {
-        near(anchored(&sketch, relation), DVec2::new(3.0, 0.0));
+        let [here, there] = both(&sketch, relation);
+        near(here, DVec2::new(3.0, 0.0));
+        near(there, DVec2::new(3.0, 10.0));
     }
 
-    // A dimension is the one family the old rule already had right, and it
-    // stays right: the middle of what it spans.
+    // A dimension stays put where it is: once, on the middle of what it spans.
+    // A number belongs to the span it measures, so there is nothing to draw it
+    // against twice.
     near(
-        anchored(
+        sole(
             &sketch,
             Constraint::Distance {
                 a: start,
@@ -131,17 +144,17 @@ fn a_relation_between_separate_things_stands_beside_one_and_a_dimension_on_its_s
         DVec2::new(3.0, 5.0),
     );
     near(
-        anchored(&sketch, Constraint::Horizontal { a: start, b: end }),
+        sole(&sketch, Constraint::Horizontal { a: start, b: end }),
         DVec2::new(3.0, 0.0),
     );
 
-    // A radius reads on the rim. At the centre it would read as belonging
-    // to whatever else runs through the middle of the circle — which for a
-    // circle drawn on a corner is every mark that corner carries.
+    // A radius reads on the rim. At the centre it would read as belonging to
+    // whatever else runs through the middle of the circle — which for a circle
+    // drawn on a corner is every mark that corner carries.
     let hub = sketch.add_point(DVec2::new(2.0, 2.0));
     let ring = sketch.add_circle(hub, 3.0);
     near(
-        anchored(
+        sole(
             &sketch,
             Constraint::Radius {
                 circle: ring,
@@ -151,31 +164,21 @@ fn a_relation_between_separate_things_stands_beside_one_and_a_dimension_on_its_s
         DVec2::new(5.0, 2.0),
     );
 
-    // And two circles matched against each other face one another, so the
-    // pair sits in the gap between them: the left circle's mark is on its
-    // right rim and the right circle's on its left.
+    // Two circles matched against each other face one another, so the pair sits
+    // in the gap between them: the left circle's mark is on its right rim and
+    // the right circle's on its left. Different radii, so a rule that took one
+    // circle's size for both would come out wrong on one of them.
     let far = sketch.add_point(DVec2::new(12.0, 2.0));
     let other = sketch.add_circle(far, 1.0);
-    near(
-        anchored(
-            &sketch,
-            Constraint::EqualRadius {
-                first: ring,
-                second: other,
-            },
-        ),
-        DVec2::new(5.0, 2.0),
+    let [near_rim, far_rim] = both(
+        &sketch,
+        Constraint::EqualRadius {
+            first: ring,
+            second: other,
+        },
     );
-    near(
-        anchored(
-            &sketch,
-            Constraint::EqualRadius {
-                first: other,
-                second: ring,
-            },
-        ),
-        DVec2::new(11.0, 2.0),
-    );
+    near(near_rim, DVec2::new(5.0, 2.0));
+    near(far_rim, DVec2::new(11.0, 2.0));
 }
 
 /// A crossing past the end of both segments is brought back onto the nearer
@@ -203,7 +206,7 @@ fn a_crossing_past_both_segments_is_brought_back_onto_the_nearer_one() {
         first: flat,
         second: upright,
     };
-    near(anchored(&sketch, square), DVec2::ZERO);
+    near(sole(&sketch, square), DVec2::ZERO);
 
     // Now the other way about, with the same pair named in the same order.
     // The upright is lifted to y = 5..6, putting it five from the crossing,
@@ -213,7 +216,7 @@ fn a_crossing_past_both_segments_is_brought_back_onto_the_nearer_one() {
     sketch.set_point(c, DVec2::new(0.0, 5.0));
     sketch.set_point(d, DVec2::new(0.0, 6.0));
     sketch.set_point(a, DVec2::new(2.0, 0.0));
-    near(anchored(&sketch, square), DVec2::new(2.0, 0.0));
+    near(sole(&sketch, square), DVec2::new(2.0, 0.0));
 }
 
 /// Degenerate geometry falls back rather than answering a NaN.
@@ -235,7 +238,7 @@ fn degenerate_geometry_falls_back_rather_than_answering_a_nan() {
     let other = sketch.add_segment(c, d);
     // Between the two middles, (2, 0) and (2, 8).
     near(
-        anchored(
+        sole(
             &sketch,
             Constraint::Perpendicular {
                 first: one,
@@ -253,7 +256,7 @@ fn degenerate_geometry_falls_back_rather_than_answering_a_nan() {
     let hub = sketch.add_point(DVec2::new(1.0, 2.0));
     let ring = sketch.add_circle(hub, 3.0);
     near(
-        anchored(
+        sole(
             &sketch,
             Constraint::Tangent {
                 segment: nothing,
@@ -263,19 +266,20 @@ fn degenerate_geometry_falls_back_rather_than_answering_a_nan() {
         DVec2::new(1.0, 2.0),
     );
 
-    // Concentric circles give no bearing from one centre to the other, so
-    // the mark takes +x — the same bearing a lone radius takes.
+    // Concentric circles give no bearing from one centre to the other, so both
+    // marks take +x — the same bearing a lone radius takes. Each still on its
+    // own rim, so the two do not land on one another even in the case where
+    // there is nothing to tell their directions apart.
     let twin = sketch.add_circle(hub, 5.0);
-    near(
-        anchored(
-            &sketch,
-            Constraint::EqualRadius {
-                first: ring,
-                second: twin,
-            },
-        ),
-        DVec2::new(4.0, 2.0),
+    let [inner, outer] = both(
+        &sketch,
+        Constraint::EqualRadius {
+            first: ring,
+            second: twin,
+        },
     );
+    near(inner, DVec2::new(4.0, 2.0));
+    near(outer, DVec2::new(6.0, 2.0));
 }
 
 /// The world answer is the sketch answer put on the drawing's plane.
@@ -295,7 +299,7 @@ fn the_world_anchor_is_the_sketch_anchor_on_the_drawings_plane() {
         b,
         distance: 0.0,
     };
-    let sketched = anchored(&sketch, constraint);
+    let sketched = sole(&sketch, constraint);
     assert_eq!(sketched, DVec2::new(5.0, 2.0));
     assert_eq!(
         at(ground, constraint),

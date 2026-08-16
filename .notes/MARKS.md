@@ -1,52 +1,21 @@
 # Marks
 
 Where a constraint's symbol goes, and what happens when two want the same
-place. A proposal: rules first, then the redesign they need, then the order to
-build it in.
+place. Rules first, then the shape they are built in, then what is left.
 
-## What is there now
+## Where it stands
 
-One mark per constraint, and one rule for all twelve:
+Built: the rules below, and every relation drawn where R2 says. `Parallel`,
+`EqualLength` and `EqualRadius` are drawn against each of their referents, both
+marks naming one part. What is left is the stacking — R4 and R5 — and the form
+following it.
 
-```rust
-// Drawing::mark_at
-let mut sum = DVec2::ZERO;
-for entity in constraint.referents() { sum += self.middle_of(entity); count += 1.0; }
-self.plane.point(sum / count)
-```
-
-The centroid of the middles of everything the constraint names. `write_marks`
-then anchors a `Text` there with `MARK_ANCHOR = (0.5, 1.6)` — centred across,
-1.6 line-heights up the screen, so the symbol clears the geometry.
-
-Nothing else. No variant has a rule of its own, and nothing looks at what any
-other mark is doing.
-
-## What that gets wrong
-
-| Constraint | Lands | Should be |
-| --- | --- | --- |
-| `Coincident` | on the point — the two are one after a solve | right, by accident |
-| `Distance` | midpoint of the span | right |
-| `Horizontal` / `Vertical` | midpoint of the two points | right |
-| `Perpendicular` | midway between two segment middles — in space, touching neither | the corner they make |
-| `Parallel` | midway between two segment middles | one mark **beside each** segment |
-| `EqualLength` | midway between two segment middles | one mark **beside each** segment |
-| `EqualRadius` | midway between two centres | one mark **beside each** circle |
-| `PointOnSegment` | midway between the point and the segment's middle | on the point |
-| `PointOnCircle` | midway between the point and the centre | on the point |
-| `Tangent` | midway between the segment's middle and the centre | the touch point |
-| `Radius` | the centre | on the circumference |
-
-And the case that has nothing to do with any single variant: **two constraints
-on the same geometry land on the same pixel.** A corner with a `Coincident` and
-a `Perpendicular` draws one symbol over the other; a segment with a
-`Horizontal` and an `EqualLength` does the same. Neither is readable and
-neither is clickable — the pick answers with whichever the walk reached first.
-
-The centroid rule is not a placement rule that has aged badly. It is the
-absence of one: a single expression that is correct for the two-point
-dimensions it was written for and arbitrary everywhere else.
+What this replaced was not a placement system that had aged badly but the
+absence of one: `Drawing::mark_at` took the centroid of the middles of
+everything a constraint named, which is right for the two-point dimensions it
+was written for and arbitrary for the other nine. A `⊥` landed midway between
+two segment middles, touching neither; a tangency landed nowhere near the touch
+point; a radius sat on the centre.
 
 ## Three facts any solution has to fit
 
@@ -68,13 +37,13 @@ the drawing moves and not sixty times a second through an orbit.
 
 The price is that *who collides with whom* has to be decided without the camera
 too. Two marks at the same sketch coordinate always collide; two at different
-coordinates collide at some zooms and not others. So this proposal answers the
-first and leaves the second alone — see [Left](#left).
+coordinates collide at some zooms and not others. So the first is answered and
+the second left alone — see [Left](#left).
 
 **A dimension's field has to land on the mark's pixels.** `Prompt` draws a
 `TextEdit` *instead of* the mark being retyped (`Stands::Over`), and reads
-`Drawing::mark_at` through `CatCad::record` to find where. If placement grows a
-grouping pass, a lone `mark_at` can no longer answer — where a mark sits now
+`marks::at` through `CatCad::record` to find where. Once placement grows a
+grouping pass, a lone anchor can no longer answer — where a mark sits now
 depends on what else is anchored with it. Either the pass runs twice, in two
 places, free to drift; or it runs once and is *stored*. It is stored. The
 session has already been bitten twice this month by a value read from two
@@ -121,8 +90,7 @@ unsolved sketch reaches all of them, and an unsolved sketch is a picture that
 still has to draw:
 
 - `Perpendicular` on lines that are momentarily parallel: no crossing. Fall
-  back to the midpoint of the two segment midpoints, which is where it is
-  drawn today.
+  back to the midpoint of the two segment midpoints.
 - `Tangent` where the segment is degenerate (both ends at one point): no line
   to drop a foot onto. Fall back to the circle's centre.
 - `EqualRadius` on concentric circles: no bearing from one centre to the other.
@@ -172,50 +140,49 @@ exactly how a datum's four strokes report one plane.
 
 ## The redesign
 
-`Drawing::mark_at` goes. It is a one-line rule with no room for twelve, and it
-sits in `drawing`, which is about what the sketch *is* rather than what it looks
-like.
+`Drawing::mark_at` is gone. It was a one-line rule with no room for twelve, and
+it sat in `drawing`, which is about what the sketch *is* rather than what it
+looks like.
 
-**`catcad/src/paint/marks/`**, a sibling of `gizmos/`:
+**`catcad/src/paint/marks/`**, a sibling of `gizmos/`, holds the rules:
 
+```rust
+/// Every mark `constraint` is drawn as, in the world. One or two.
+pub(crate) fn all(drawing: Drawing<'_>, constraint: Constraint) -> impl Iterator<Item = Vec3>;
+
+/// Where the first of them is — what a caller standing something *over* a mark
+/// needs, and only a dimension is ever stood over.
+pub(crate) fn at(drawing: Drawing<'_>, constraint: Constraint) -> Vec3;
+
+/// The anchors in sketch coordinates, which is where the rules are. A fixed
+/// pair rather than a `Vec`, because no constraint names more than two things.
+fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<DVec2>; 2];
 ```
-paint/
-  marks/
-    mod.rs      the rules: Anchor, Family, and the walk that yields Placed
-    tests.rs
-```
 
-Three types, and the shape of them is the proposal:
+`anchors` is the twelve-arm match and the only place a new [`Constraint`]
+variant has to be taught anything. Beside it are the geometry helpers it needs:
+where two infinite lines cross, the point of a span nearest something, and the
+clamp that brings a crossing back onto a span. They stay in catcad rather than
+going into silverpoint — they exist to decide where a *symbol* goes, which is
+an appearance decision, and silverpoint's own versions are shaped for the
+arrangement: bounded to both spans where placement wants the infinite lines.
+
+**What stacking still needs.** Two things this shape does not yet have, and
+both belong to stage 3:
 
 ```rust
 /// One mark to draw: what it is about, where it goes, and which lane of its
 /// stack it rises in.
-struct Placed {
-    part: Part,
-    at: DVec2,     // sketch coordinates, before the screen lift
-    lane: u8,
-}
-
-/// Where one mark of one constraint is anchored, before anything knows what
-/// else is anchored there.
-enum Anchor { Meeting(DVec2), Beside(DVec2), Dimension(DVec2) }
+struct Placed { part: Part, at: DVec2, lane: u8 }
 ```
 
-`Placed` is what everything downstream reads. Producing it is two passes over
-the open sketch's constraints:
-
-1. **Anchor.** For each constraint, one or two `Anchor`s from the table in R2.
-   This is where the twelve-arm match lives, and it is the only place a new
-   constraint variant has to be taught anything.
-2. **Stack.** Sort the anchors by coordinate, walk the sorted run assigning
-   lanes to neighbours within `SAME_PLACE`, and write `Placed` in the sketch's
-   own order.
-
-Held flat, per the house rule: one `Vec<Placed>` and no map of small groups.
-A sketch has tens of constraints and the sort is over a `DVec2` key.
+A second pass produces it: sort the anchors by coordinate, walk the sorted run
+assigning lanes to neighbours within `SAME_PLACE`, and write `Placed` in the
+sketch's own order. Held flat, per the house rule — one `Vec<Placed>` and no map
+of small groups.
 
 **Stored in `Layout`**, beside `names` and `sheets`, for the reason in the third
-fact above. `Layout` gains:
+fact above:
 
 ```rust
 pub(crate) fn placed(&self, part: Part) -> Option<Placed>;
@@ -223,39 +190,9 @@ pub(crate) fn placed(&self, part: Part) -> Option<Placed>;
 
 `redraw` fills it in the same call that writes the marks; `CatCad::record` asks
 it where a dimension's field should stand. One computation, two readers, no way
-for them to disagree — which is the same shape `growing` was just collapsed to.
-
-**`write_marks` becomes a walk of `Placed`** rather than of constraints:
-position from `at` through the plane, anchor from `MARK_ANCHOR` plus `lane`,
-and everything else — the string, the colour, the redundancy check, the tag —
-unchanged.
-
-**Two geometry helpers**, private to `marks/`: where two infinite lines cross,
-and the foot of a perpendicular from a point onto a segment, both answering
-`Option` for the degenerate case and both clamped by their caller. They stay in
-catcad rather than going into silverpoint: they exist to decide where a *symbol*
-goes, which is an appearance decision, and silverpoint has no other caller for
-them. If one ever turns up they move, and the move is three lines.
+for them to disagree — which is the same shape `growing` was collapsed to.
 
 ## Implementation plan
-
-**Stage 1 — the anchors, no stacking.** Add `marks/`, move the placement rule
-out of `Drawing::mark_at` and into the R2 table, keep one mark per constraint
-throughout. Every variant lands where R2 says. `mark_at` is deleted and its two
-callers — `write_marks` and `CatCad::record` — take the new path. Nothing
-stacks yet, so a corner still draws two symbols on one pixel; the picture is
-strictly better than it is now and no worse anywhere.
-
-*Tests:* one per family, hand-computed — a right angle whose segments cross
-away from both midpoints, a tangency whose touch point is nowhere near either
-middle, a radius on the circumference. Plus the three degeneracies, each
-asserting the fallback rather than that it did not crash.
-
-**Stage 2 — Beside yields two marks.** `Parallel`, `EqualLength` and
-`EqualRadius` start producing a mark per referent. This is where `Placed`
-stops being one-per-constraint, so it is also where the counts in the existing
-paint tests move and where R6 gets its test: two tags, one `Part`, and lighting
-the part lights both.
 
 **Stage 3 — stacking.** The second pass, `SAME_PLACE`, and the `lane` field
 reaching `MARK_ANCHOR`. The test that matters is the one the whole proposal is

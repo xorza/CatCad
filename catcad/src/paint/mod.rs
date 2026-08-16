@@ -468,12 +468,16 @@ pub(crate) fn region_corners(
     into.extend(fill.corners.iter().map(|&at| plane.point(at).as_vec3()));
 }
 
-/// A mark per constraint, saying what relation holds and where.
+/// A mark for every relation the drawing states, saying what holds and where.
 ///
 /// Set in type rather than drawn as geometry, which is what makes the whole set
 /// one rule: every relation gets a symbol, the symbol is legible at any zoom
 /// because it is sized in pixels, and adding a tenth constraint is a line in
 /// [`symbol`] rather than a shape to construct.
+///
+/// One mark *or two* — see [`marks::all`], which decides both how many and
+/// where. Where there are two they carry the same name, so a click on either
+/// takes the constraint.
 ///
 /// Tagged like everything else, so a mark is picked and deleted the way the
 /// geometry it is about is — which is the whole of how an over-constrained
@@ -505,8 +509,14 @@ fn write_marks(
             // [`Prompt::show`](crate::prompt::Prompt) — and a mark left under
             // one would be a second copy of the number showing through wherever
             // the field did not quite cover it.
-            .filter(move |(model, (id, _))| Some(model.part(*id)) != typed),
-        |mark, (model, (id, constraint))| {
+            .filter(move |(model, (id, _))| Some(model.part(*id)) != typed)
+            // Where a relation is drawn twice, both marks come off one walk of
+            // the constraints — so the two are written together and cannot come
+            // to disagree about what the relation says.
+            .flat_map(|(model, (id, constraint))| {
+                marks::all(model.drawing(), constraint).map(move |at| (model, id, constraint, at))
+            }),
+        |mark, (model, id, constraint, at)| {
             let outcome = model.outcome();
             // Rewritten in place rather than assigned, so a drawing whose marks are
             // laid out every frame keeps the string it already has — which is what
@@ -524,7 +534,7 @@ fn write_marks(
                 }
                 None => mark.content.push_str(symbol(constraint)),
             }
-            mark.position = marks::at(model.drawing(), constraint);
+            mark.position = at;
             mark.font = mark_font();
             // Above the middle of what it names, so the mark clears the geometry it
             // is about rather than sitting on top of it.

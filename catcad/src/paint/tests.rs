@@ -631,3 +631,60 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     );
     assert_eq!(drawn(&scene, &layout, there), [FREE]);
 }
+
+/// A relation drawn twice is named once.
+///
+/// What makes two marks one thing to point at, and it needs nothing new: a tag
+/// is a position in a list and nothing assumes the list holds each part once,
+/// so both `∥` report the constraint. A click on either takes it and lighting
+/// it lights both. Two tags reporting two *parts* would be one relation the
+/// drawing claimed was two — and deleting through one of them would leave the
+/// other on screen naming something gone.
+#[test]
+fn a_relation_drawn_twice_is_named_once() {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(6.0, 0.0));
+    let c = sketch.add_point(DVec2::new(0.0, 4.0));
+    let d = sketch.add_point(DVec2::new(6.0, 4.0));
+    let first = sketch.add_segment(a, b);
+    let second = sketch.add_segment(c, d);
+    sketch.add_constraint(silverpoint::Constraint::Parallel { first, second });
+    // A dimension beside it, so that what is counted below is one family
+    // rather than every mark the drawing puts up.
+    sketch.add_constraint(silverpoint::Constraint::Distance {
+        a,
+        b,
+        distance: 6.0,
+    });
+
+    let one = drawn(sketch);
+    let mut names = Names::default();
+    let mut marks = Batch::default();
+    write_marks(one.models(), None, &mut names, &mut marks);
+    assert_eq!(marks.len(), 3, "a ∥ against each edge, and the one length");
+
+    // Found by the symbol rather than by position, and through [`symbol`]
+    // rather than by writing the glyph out again — the table is what decides
+    // which mark is which, so a test that restated it could agree with itself
+    // while disagreeing with the drawing.
+    let parallel: Vec<_> = marks
+        .iter()
+        .filter(|mark| mark.content == symbol(silverpoint::Constraint::Parallel { first, second }))
+        .map(|mark| mark.tag.expect("a mark with no name cannot be clicked"))
+        .collect();
+    assert_eq!(parallel.len(), 2);
+    assert_ne!(parallel[0], parallel[1], "the two marks share one tag");
+    assert_eq!(
+        names.get(parallel[0]),
+        names.get(parallel[1]),
+        "the two marks of one relation report different parts"
+    );
+    assert!(matches!(
+        names.get(parallel[0]),
+        Some(Part::Entity {
+            entity: Entity::Constraint(_),
+            ..
+        })
+    ));
+}
