@@ -30,6 +30,9 @@ pub struct Aim {
     pub(crate) view_proj: Mat4,
     /// Through the cursor, for ordering hits by how near the eye they are.
     pub(crate) ray: Ray,
+    /// The one this was aimed through, kept for the questions the matrix alone
+    /// cannot answer — see [`Aim::world_per_pixel`].
+    camera: Camera,
 }
 
 impl Aim {
@@ -45,7 +48,18 @@ impl Aim {
             viewport,
             ray: through.ray_from(cursor, viewport, view_proj),
             view_proj,
+            camera: *through,
         }
+    }
+
+    /// How many world units one logical pixel covers at `at`.
+    ///
+    /// What a primitive sized against the *screen* but built in the *world*
+    /// has to undo to be picked — a run of text laid in a plane is the one, and
+    /// it asks here rather than of a camera of its own so that what a pick
+    /// measures is what the same number drew.
+    pub(crate) fn world_per_pixel(&self, at: Vec3) -> f32 {
+        self.camera.world_per_pixel(at, self.viewport)
     }
 
     /// The ray the cursor casts into the world.
@@ -110,13 +124,8 @@ impl Aim {
     }
 }
 
-/// How far `at` fell outside `rect`, and zero anywhere within it.
-///
-/// Per axis, how far past an edge the point sits — negative between them, which
-/// the floor at zero discards. The length of what survives is the distance to
-/// the nearest corner when the point is diagonally out, and to the nearest edge
-/// when it is out on one axis alone, both of which fall out of the same two
-/// lines.
+/// From `at` to the nearest point of `rect` — the zero vector anywhere within
+/// it.
 ///
 /// Here rather than on [`Rect`], which is palantir's and answers
 /// [`contains`](Rect::contains) but not this: a pick needs how far *outside* as
@@ -125,13 +134,22 @@ impl Aim {
 /// unlike reasons — a label's box is what it *is*, a rim's is only what it
 /// cannot reach past — and the measurement between them is one.
 ///
-/// A point rather than the aim's own cursor, because the box is not always on
-/// screen: a run of text turned into a plane is a rectangle in its *own* frame,
-/// and what is brought into that frame to be measured is the cursor. See
+/// A point rather than the aim's own cursor, and a *displacement* rather than
+/// its length, because the box is not always on screen: a run of text laid in a
+/// plane is a rectangle in its own frame, so what is brought into that frame is
+/// the cursor and what has to come back out of it is the overshoot. See
 /// [`Text::pick`](crate::Text).
+pub(crate) fn into_box(at: Vec2, rect: Rect) -> Vec2 {
+    at.clamp(rect.min, rect.max()) - at
+}
+
+/// How far `at` fell outside `rect`, and zero anywhere within it.
+///
+/// The length of the displacement above, which for a point diagonally out is
+/// the distance to the nearest corner and for one out on a single axis is the
+/// distance to that edge.
 pub(crate) fn reach_to_box(at: Vec2, rect: Rect) -> f32 {
-    let past = (rect.min - at).max(at - rect.max());
-    past.max(Vec2::ZERO).length()
+    into_box(at, rect).length()
 }
 
 /// How far into the view volume a clip position sits, along each of the two

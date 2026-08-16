@@ -134,30 +134,53 @@ impl Text {
     /// that has never been laid out, or one that says nothing.
     ///
     /// Measured against the run's **own axes** rather than the screen's, and
-    /// that is what lets a run turned into a plane be tested by the same
-    /// rectangle as one square to the viewer: turning is a rotation, a rotation
-    /// is its own inverse transposed, so bringing the cursor onto those axes
-    /// costs two dot products and leaves the box alone. A box built the other
-    /// way round would be a rotated rectangle on screen and would want a
-    /// polygon test — a second idea of what a run's box is, for no gain.
+    /// that is what lets a run laid in a plane be tested by the same rectangle
+    /// as one square to the viewer. Its box is that rectangle projected, which
+    /// is a parallelogram; taking the projection's own linearization at the
+    /// anchor turns it back into the rectangle for the price of a two-by-two
+    /// inverse, where a polygon test would be a second idea of what a run's box
+    /// is.
+    ///
+    /// Exact under parallel rays, and under perspective wrong only by however
+    /// much the projection curves across a box a few dozen pixels wide — far
+    /// inside the pixel a reach is compared in.
+    ///
+    /// **The overshoot comes back out to the screen before it is measured.** A
+    /// laid run's own pixels are foreshortened, so a cursor two pixels under a
+    /// raked box is further than two in the box's frame — and what the answer is
+    /// compared against is a radius in *screen* pixels.
     fn reach_from(&self, aim: &Aim) -> Option<f32> {
         let extent = self.extent.get();
         if extent.x <= 0.0 || extent.y <= 0.0 {
             return None;
         }
         let from_anchor = aim.cursor - aim.screen_of(self.position)?;
-        let cursor = match self.facing {
-            Facing::Screen { .. } => from_anchor,
-            Facing::Turned(turn) => {
-                let axes = turn.axes(self.position, aim.view_proj, aim.viewport);
-                Vec2::new(from_anchor.dot(axes.advance), from_anchor.dot(axes.down))
-            }
-        };
         let origin = self.origin();
-        Some(aim::reach_to_box(
-            cursor,
-            Rect::new(origin.x, origin.y, extent.x, extent.y),
-        ))
+        let box_of = Rect::new(origin.x, origin.y, extent.x, extent.y);
+        let Facing::Turned(turn) = self.facing else {
+            return Some(aim::reach_to_box(from_anchor, box_of));
+        };
+        let axes = turn.axes(self.position, aim.view_proj, aim.viewport);
+        // What one logical pixel of the run reaches on screen along each of its
+        // own axes: the run is sized against the screen and built in the world,
+        // so the world size of a pixel is the step between the two.
+        let here = aim.view_proj * self.position.extend(1.0);
+        let step = aim.world_per_pixel(self.position);
+        let across = screen_tangent(axes.right * step, here, aim.view_proj, aim.viewport);
+        let down = screen_tangent(axes.down * step, here, aim.view_proj, aim.viewport);
+        // How much screen the box covers against how much it would cover face
+        // on, which for a plane merely tilted is the cosine of the tilt. Below
+        // the floor it is edge-on and there is nothing on screen to have been
+        // clicked — and nothing to invert either.
+        let area = across.perp_dot(down);
+        if area.abs() <= EDGE_ON {
+            return None;
+        }
+        let local = Vec2::new(from_anchor.perp_dot(down), across.perp_dot(from_anchor)) / area;
+        // Back out through the same pair, so what is measured is a screen
+        // distance however the box is foreshortened.
+        let past = aim::into_box(local, box_of);
+        Some((across * past.x + down * past.y).length())
     }
 
     /// Whether the cursor landed on this run.
@@ -311,102 +334,114 @@ impl Turn {
         Self { right, normal }
     }
 
-    /// The screen axes the run is set along where it is anchored at `at`.
+    /// The plane directions the run is laid along where it is anchored at `at`,
+    /// with both signs settled.
     ///
-    /// **The whole of how a turned run is placed, and the one statement of
-    /// it.** Three readers agree by reading this: the box hangs along these, a
-    /// pick brings the cursor into them, and an application standing something
-    /// of its own over the run measures from them. The vertex shader is a fourth
-    /// and cannot call it, so it builds the same rule — the same arrangement
+    /// **The whole of how a laid run is placed, and the one statement of it.**
+    /// Three readers agree by reading this: the box is built along these, a pick
+    /// brings the cursor onto them, and an application standing something of its
+    /// own over the run measures from them. The vertex shader is a fourth and
+    /// cannot call it, so it builds the same two rules — the same arrangement
     /// [`MIN_RUN_PX`](crate::Viewport) is under, where one number is stated in
     /// Rust and handed to the shader.
     ///
     /// `at` is expected to be somewhere the projection draws. Behind the eye
-    /// there is no screen direction to answer with and what comes back means
-    /// nothing — ask
+    /// there is no screen direction to settle a sign against and what comes back
+    /// means nothing — ask
     /// [`Camera::screen_of`](crate::Camera::screen_of) first, which every caller
     /// here is doing anyway to find where the run's anchor landed.
     ///
-    /// **Along the plane's own advance, the way up that reads.** Where the
-    /// plane's `right` goes on screen, taken with whichever sign points into the
-    /// right half of the screen: at ninety degrees nothing happens and a degree
-    /// further the whole frame comes round, so a sketch worked at any angle
-    /// keeps its numbers the right way up rather than half of them upside down.
+    /// Two rules, and in the plane both of them are real — where a run set in
+    /// *screen* space could derive its down as the advance's perpendicular and
+    /// so could never mirror at all, the down here is a world direction and
+    /// which of the two it is decides whether the glyphs come out backwards.
     ///
-    /// **Down is the perpendicular**, not the plane's own down projected. That
-    /// is what makes the box a rotated rectangle rather than a sheared one — the
-    /// run holds the size it would have had square to the viewer — and it is
-    /// also, on its own, the whole of why a run seen from *behind* its plane
-    /// reads rather than mirroring. A frame built on the perpendicular has the
-    /// screen's own handedness at every angle, so there is no arrangement in
-    /// which the glyphs come out backwards, and a side test would be a second
-    /// rule with nothing left for it to decide. What is lost with the projected
-    /// down is the foreshortening, which constant size had already ruled out.
+    /// **Un-mirrored**: of the plane's two ways to run down, take the one whose
+    /// projection winds the way the screen does. That is what turns a run seen
+    /// from behind its plane the right way round, and it is read off the
+    /// projected pair rather than from where the eye is, so no camera position
+    /// is wanted.
     ///
-    /// **Screen-horizontal** where the advance is pointing at the eye and has
-    /// no direction on screen to be set along. The same frame an unturned run
-    /// gets, and the right limit: a run advancing at the eye is a column of
-    /// glyphs on edge, and no angle makes it legible.
+    /// **Upright**: where the advance would point into the left half of the
+    /// screen, turn the whole pair a half turn *in the plane*. At ninety degrees
+    /// nothing happens and a degree further it comes round, so a sketch worked at
+    /// any angle keeps its numbers the right way up rather than half of them
+    /// upside down. A proper rotation, which is why it can follow the mirror
+    /// without undoing it.
+    ///
+    /// Neither needs a guard for the degenerate case, which is the plane seen
+    /// edge-on: the tests are a winding and a sign, both of which a collapsed
+    /// projection answers deterministically, and a run whose plane covers no
+    /// screen is one nobody can read or click either way. What refuses it is the
+    /// area its box comes to — see [`Text::pick`].
     pub fn axes(self, at: Vec3, view_proj: Mat4, viewport: Viewport) -> Axes {
         let here = view_proj * at.extend(1.0);
-        let along = screen_direction(self.right, here, view_proj, viewport);
-        // The plane's other direction, and read only as the scale the advance is
-        // measured against. Square to the advance, so the two cannot both be
-        // pointing at the eye — which is what makes it a yardstick rather than
-        // another thing to have collapsed.
-        let across = screen_direction(self.normal.cross(self.right), here, view_proj, viewport);
-        let advance = if along.length_squared() <= across.length_squared() * COLLAPSED {
-            Vec2::X
-        } else {
-            let advance = along.normalize();
-            if advance.x < 0.0 { -advance } else { advance }
+        let across = self.normal.cross(self.right);
+        let along = screen_tangent(self.right, here, view_proj, viewport);
+        let sideways = screen_tangent(across, here, view_proj, viewport);
+        let mut axes = Axes {
+            right: self.right,
+            down: if along.perp_dot(sideways) >= 0.0 {
+                across
+            } else {
+                -across
+            },
         };
-        Axes {
-            advance,
-            down: advance.perp(),
+        if along.x < 0.0 {
+            axes = Axes {
+                right: -axes.right,
+                down: -axes.down,
+            };
         }
+        axes
     }
 }
 
-/// The screen axes a run is set along: which way it advances, and which way its
-/// own box runs down.
+/// The plane directions a run is laid along: the way it advances, and the way
+/// its own box runs down.
 ///
-/// Both, rather than the advance for a caller to turn: the down is one of two
-/// perpendiculars and only one of them keeps the pair the way round that says
-/// the run is not mirrored, so a caller that took the other would measure a box
-/// the glyphs are not in. See [`Turn::axes`].
+/// World directions, both unit and square to each other, both in the run's
+/// plane. Where a run *sits* on those axes is the anchor's and how far it
+/// reaches along them is the shaping's; this is only which way they point, which
+/// is the half the projection has a say in. See [`Turn::axes`].
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Axes {
-    /// Unit, in pixels, along the run.
-    pub advance: Vec2,
-    /// Unit, in pixels, down the run's own box and square to the advance.
-    pub down: Vec2,
+    pub right: Vec3,
+    pub down: Vec3,
 }
+
+/// How little of its face-on area a laid run's box may cover before there is
+/// nothing on screen to have been clicked in.
+///
+/// Its box covers one screen pixel per logical pixel when the plane faces the
+/// viewer and less as the plane turns away — for a plain tilt, exactly the
+/// cosine of it. So this is a fraction rather than an area: a thousandth is
+/// within a twentieth of a degree of edge-on, where the whole run has collapsed
+/// to a line and no cursor is on it.
+///
+/// A policy rather than an arithmetic guard, though it serves as one. The
+/// arithmetic degrades gracefully: as the box thins, what comes back goes on
+/// being the distance to it, and only exactly edge-on is there a zero to divide
+/// by. What it would mean is a mark covering a hundredth of a pixel answering
+/// clicks along its whole length, which is a mark you cannot see and can grab.
+///
+/// A pick's floor and not the drawing's. Type laid in a plane goes on
+/// foreshortening all the way to nothing, which is what being in the plane means
+/// and what the drawing should show.
+const EDGE_ON: f32 = 1e-3;
 
 /// How far the run's advance may collapse against the plane's other direction
 /// before there is no direction left to set it along, as a ratio of their
 /// squared screen lengths.
 ///
-/// A ratio rather than a length in pixels, because both are projections of a
-/// unit world direction and carry whatever scale the projection is at: what is
-/// being asked is whether the advance has turned to face the eye, which is a
-/// question about the two of them and not about how large the run is drawn.
-///
-/// A thousandth in length, which is an advance within about a twentieth of a
-/// degree of the eye. Both collapsing at once would need two independent
-/// directions pointing at one eye, which is the anchor being *at* the eye —
-/// where nothing is drawn, and where this answers first and hands back the
-/// fallback.
-///
-/// Reachable because the vertex shader asks the same question and must answer
-/// it the same way — it is handed this at pipeline creation, the arrangement
-/// [`MIN_RUN_PX`](crate::viewport::MIN_RUN_PX) is already under. A run that fell
-/// back on one side and not the other would be drawn along one direction and
-/// clicked along another.
+/// The vertex shader's, and no longer this side's: settling a sign needs no
+/// guard — see [`Turn::axes`] — where the shader still has one place it divides.
+/// Stated here because it is handed over at pipeline creation, the arrangement
+/// [`MIN_RUN_PX`](crate::viewport::MIN_RUN_PX) is already under.
 pub(crate) const COLLAPSED: f32 = 1e-6;
 
-/// Which way `world` runs on screen where a point of clip position `here` is
-/// drawn, in pixels with y running down — up to a positive scale.
+/// How far a step along `world` carries on screen where a point of clip
+/// position `here` is drawn: pixels per world unit, with y running down.
 ///
 /// The tangent of the projection itself, by the quotient rule on
 /// `ndc = clip.xy / clip.w`, rather than a step taken along the direction and
@@ -414,16 +449,16 @@ pub(crate) const COLLAPSED: f32 = 1e-6;
 /// and every reader of the rule would then have to be handed the same one; this
 /// has no size to agree about.
 ///
-/// The scale left out is `clip.w²` from the quotient rule and the half that
-/// turns an NDC span into a pixel one, both of them positive — so the direction
-/// is exact and only the length is not, and length is read here only against
-/// another answer from the same call.
-fn screen_direction(world: Vec3, here: Vec4, view_proj: Mat4, viewport: Viewport) -> Vec2 {
+/// A rate rather than only a bearing, because both are wanted and from one
+/// call: settling the signs of a run's axes reads the bearing, and picking one
+/// needs the two rates its box is built on to invert them.
+fn screen_tangent(world: Vec3, here: Vec4, view_proj: Mat4, viewport: Viewport) -> Vec2 {
     let there = view_proj * world.extend(0.0);
-    let ndc = there.xy() * here.w - here.xy() * there.w;
+    let ndc = (there.xy() * here.w - here.xy() * there.w) / (here.w * here.w);
     // NDC counts y up from the middle and the framebuffer counts it down from
-    // the top, which for a difference is the flip and nothing else.
-    ndc * Vec2::new(1.0, -1.0) * viewport.extent()
+    // the top, which for a difference is the flip and nothing else; and it spans
+    // two units across the whole target, which is the half.
+    ndc * Vec2::new(1.0, -1.0) * viewport.extent() * 0.5
 }
 
 impl Styled for Text {
