@@ -9,7 +9,7 @@ use palantir::{
 use silverpoint::Entity;
 
 use crate::intent::{Change, Choice, Intents, Step};
-use crate::paint::{DECIMALS, MARK_ANCHOR, mark_font};
+use crate::paint::{DECIMALS, mark_font, mark_lift};
 use crate::part::Part;
 
 /// How wide the field is drawn, in logical pixels.
@@ -222,7 +222,7 @@ impl Typing {
         // After the projection, so a dimension that was never drawn has not
         // used up the one frame that takes focus.
         let opening = !std::mem::replace(&mut self.shown, true);
-        let origin = self.mark_origin(screen);
+        let origin = self.placed_over(screen);
         // Borrowed apart before the closure, which would otherwise take the
         // whole of `self` and hand the field a buffer and a theme off the same
         // borrow.
@@ -301,7 +301,11 @@ impl Typing {
     /// the dimension, so both land half a run to the left of the same point
     /// whatever the run measures. Only the caret's room breaks the symmetry,
     /// being reserved on one side.
-    fn mark_origin(&self, screen: Vec2) -> Vec2 {
+    fn placed_over(&self, screen: Vec2) -> Vec2 {
+        // Off `normal`, and safe to be: palantir pins the ring's width across
+        // every state so that focus changes its colour without moving the inner
+        // rect — which is the same shift this call exists to avoid, one state
+        // further along.
         let ring = self
             .look
             .looks
@@ -309,11 +313,13 @@ impl Typing {
             .background
             .as_ref()
             .map_or(0.0, |bg| bg.stroke.width);
-        let inset = Vec2::new(self.look.padding.horiz(), self.look.padding.vert()) * 0.5
-            + Vec2::splat(ring);
+        // The vertical inset alone. The horizontal one cancels, for the reason
+        // above: it moves the field's corner and the text inside it by the same
+        // amount and in the same direction.
+        let inset = self.look.padding.vert() * 0.5 + ring;
         Vec2::new(
             screen.x - WIDTH * 0.5 + self.look.caret_width * 0.5,
-            screen.y - MARK_ANCHOR.y * mark_font().line_height_px - inset.y,
+            screen.y - mark_lift() - inset,
         )
     }
 

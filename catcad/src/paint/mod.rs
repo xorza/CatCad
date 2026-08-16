@@ -526,7 +526,19 @@ fn write_marks(
 /// a constant: the field is drawn *instead of* the mark and must land on the
 /// same pixels, so the two anchoring differently is the one mistake that would
 /// make a double-click look like it had nudged the number.
-pub(crate) const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
+const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
+
+/// How far above the point it names a dimension's number is drawn, in logical
+/// pixels.
+///
+/// [`MARK_ANCHOR`] as a length rather than a fraction, which is what anything
+/// placing something *else* over the number needs — the field that stands in
+/// for it while it is retyped, and the tests that aim at one. Named here so
+/// that a caller working out where the number is cannot come to disagree with
+/// the call that draws it.
+pub(crate) fn mark_lift() -> f32 {
+    MARK_ANCHOR.y * mark_font().line_height_px
+}
 
 /// Decimal places a dimension is read out to.
 ///
