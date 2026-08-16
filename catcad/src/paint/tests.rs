@@ -305,9 +305,9 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
     assert_eq!(picture.curves.len(), 10);
     assert_eq!(picture.rings.len(), 2);
     assert_eq!(picture.points.len(), 12);
-    // One gizmo for the shelf plane, whatever it is made of — the ground gets
-    // none, being where the world is rather than a plane anybody put there.
-    assert_eq!(picture.gizmos.len(), 1);
+    // And no controls, which are not the document's: they are built against a
+    // camera there is none of here, and `gizmos::write` is what writes them.
+    assert!(picture.gizmos.is_empty());
 }
 
 /// Every symbol a mark is drawn as has a glyph in the faces the shaper falls
@@ -630,107 +630,4 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
         "the picture did not follow the open sketch"
     );
     assert_eq!(drawn(&scene, &layout, there), [FREE]);
-}
-
-/// A plane that can be moved is drawn as a gizmo at its origin, and one that
-/// cannot is not drawn at all.
-///
-/// The gizmo is what makes a datum a thing to aim at, and every piece of it
-/// reports the plane: an axis is not a part of the drawing in its own right
-/// yet, so a cursor over any of them is over the datum.
-///
-/// The ground draws nothing. It is what everything else is measured *from*
-/// rather than something anybody put anywhere, and axes standing for it would
-/// be axes standing for the world.
-///
-/// What this pins beyond the count is that the gizmo is *not* fitted to the
-/// sketch: it starts at the plane's own origin and reaches a fixed distance,
-/// so nothing about where the drawing happens to lie can move it. A gizmo
-/// sized from the drawing would pass every count below and fail the last two.
-#[test]
-fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
-    let mut build = Build::default();
-    let document = demo::document(&mut build);
-    let mut layout = Layout::default();
-    let mut scene = Scene::default();
-    redraw(
-        document.models(&build, document.opening()),
-        &mut layout,
-        None,
-        None,
-        None,
-        &mut scene,
-    );
-
-    let named: Vec<_> = scene
-        .gizmos
-        .iter()
-        .filter(|gizmo| {
-            matches!(
-                gizmo.tag.and_then(|tag| layout.names().get(tag)),
-                Some(Part::Plane(_))
-            )
-        })
-        .collect();
-    assert_eq!(
-        named.len(),
-        1,
-        "the demo holds one movable plane, so one gizmo naming it"
-    );
-    let Some(Part::Plane(at)) = named[0].tag.and_then(|tag| layout.names().get(tag)) else {
-        unreachable!("the arrows were found by their tags naming a plane");
-    };
-
-    // The plane the arrows named, not whichever the first sketch happens to be
-    // drawn on: the demo sketches on the ground as well, and measuring against
-    // that one would be asking whether the arrows lie in a plane they were
-    // never on.
-    let models = document.models(&build, document.opening());
-    let (_, plane) = models
-        .planes()
-        .find(|(id, _)| *id == at)
-        .expect("the arrows name a plane the document holds");
-    let origin = plane.point(DVec2::ZERO).as_vec3();
-    let normal = plane.normal().as_vec3();
-    let gizmo = named[0];
-    // Every corner lies in the plane, which is the whole of what makes it flat
-    // *in* the datum rather than a shape hung in front of it.
-    for corner in &gizmo.mesh.vertices {
-        let off = (corner.position - origin).dot(normal);
-        assert!(off.abs() < 1e-5, "a corner stands {off} off its own plane");
-    }
-    // Anchored on the origin and reaching a fixed distance from it, both
-    // measured from the plane rather than from anything drawn on it.
-    let far = gizmo
-        .mesh
-        .vertices
-        .iter()
-        .map(|corner| corner.position.distance(origin))
-        .fold(0.0f32, f32::max);
-    assert!(
-        (far - shape::ARROW_REACH as f32).abs() < 1e-4,
-        "the gizmo reached {far}, where it spans a fixed {}",
-        shape::ARROW_REACH,
-    );
-
-    // Three colours in one mesh, which is what it has to be one mesh *for*: the
-    // pieces are coplanar and go through one pass at one depth bias, so three
-    // objects would be three surfaces settling their own seams by depth.
-    let inks: Vec<_> = gizmo
-        .mesh
-        .vertices
-        .iter()
-        .map(|corner| corner.color)
-        .collect();
-    for ink in [AXIS_X, AXIS_Y, AXIS_CORNER] {
-        assert!(
-            inks.contains(&ink),
-            "no corner of the gizmo carries {ink:?}"
-        );
-    }
-    assert_eq!(
-        gizmo.color,
-        Vec3::ONE,
-        "the object tints its own corners, so they are not the colours they say"
-    );
 }

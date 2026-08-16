@@ -19,6 +19,13 @@ use crate::part::Part;
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Names {
     parts: Vec<Part>,
+    /// How many of them the *drawing* named.
+    ///
+    /// The controls are named after it and rewritten far more often — they hold
+    /// their size on screen, so the camera moving invalidates them where it
+    /// leaves the drawing alone. Without a mark to come back to, every such
+    /// rewrite would append another set and the list would grow without bound.
+    drawn: usize,
 }
 
 impl Names {
@@ -49,6 +56,17 @@ impl Names {
             .map(|(index, part)| (Tag::new(index as u64), *part))
     }
 
+    /// Remember how far the drawing got, so the controls named after it can be
+    /// rewritten without the list growing.
+    pub(crate) fn drew(&mut self) {
+        self.drawn = self.parts.len();
+    }
+
+    /// Forget everything named after the drawing was.
+    pub(crate) fn truncate_to_drawn(&mut self) {
+        self.parts.truncate(self.drawn);
+    }
+
     /// Forget every name, keeping the room they took.
     ///
     /// A drawing is renamed wholesale whenever it is rewritten, which during a
@@ -56,5 +74,6 @@ impl Names {
     /// tags come out the same because the order they are pushed in does.
     pub(crate) fn clear(&mut self) {
         self.parts.clear();
+        self.drawn = 0;
     }
 }

@@ -93,7 +93,6 @@ Rough edges:
 - The form has no chrome behind it, so a label floats over the model.
 - The depth arrow stands at the widest fill triangle's middle: inside the region
   by construction, which is what makes it grabbable, but not centred in it.
-- The solid arrow reads pale against a light solid. Its shading is baked into
-  the corners against `aperture::KEY_LIGHT` — the gizmo pass is unlit and must
-  stay so, or an axis would say which axis it is differently on every plane — so
-  the contrast is `lit`'s floor to choose, not the renderer's.
+- The depth arrow is an outline turned to face the camera, so it reads as a
+  handle from anywhere — but it is a *stroke*, and the inside of it is not it.
+  Aiming at the middle of the head aims at the gap between two strokes.

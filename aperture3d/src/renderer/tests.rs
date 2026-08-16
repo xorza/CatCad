@@ -1,5 +1,4 @@
 use super::*;
-use crate::batch::Batch;
 use crate::camera::Projection;
 use crate::curve::Curve;
 use crate::highlight::Highlight;
@@ -72,7 +71,6 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
             Vertex {
                 position: Vec3::ZERO,
                 normal: diagonal,
-                color: Vec3::ONE,
             };
             3
         ],
@@ -125,64 +123,46 @@ fn facing_quad() -> Mesh {
             .map(|(x, y)| Vertex {
                 position: Vec3::new(x, y, 0.0),
                 normal: Vec3::Z,
-                color: Vec3::ONE,
             })
             .to_vec(),
         indices: vec![0, 1, 2, 0, 2, 3],
     }
 }
 
-/// A lifted highlight keeps each corner's own colour and an inked one replaces
-/// every one of them.
+/// A lift brightens what an object is drawn in, and an ink replaces it.
 ///
 /// The distinction a control depends on. A datum's axes say *which axis they
-/// are* by their colour, so the hover cannot spend it — where for a sketch
-/// entity spending it is the entire point, since what a selection means is that
+/// are* by their colour, so a hover cannot spend it — where for a sketch entity
+/// spending it is the entire point, since what a selection means is that
 /// everything in it reads alike.
 ///
-/// Asked of a mesh whose corners are *two* colours, which is what makes it a
-/// test of the order the two are combined in. Against a mesh of one colour —
-/// every corner [`Vec3::ONE`], as [`Mesh::cube`] builds one — folding the
-/// corner in before the highlight and folding it in after give the same answer,
-/// and an `Ink` that came out as many colours as the mesh has would pass.
-///
-/// Asked of the flattened vertices rather than of [`Tint::over`], for the same
-/// reason: the question is whether the mesh path combines them in that order,
-/// and a flatten that did it the other way would pass any test of the tint by
-/// itself.
+/// Asked of the flattened vertices rather than of [`Tint::over`], which is what
+/// makes it a test of anything: the question is whether the mesh path reaches
+/// for the tint at all, and a flatten that wrote the object's colour straight
+/// through would pass every test of the tint by itself.
 #[test]
-fn a_lifted_highlight_keeps_each_corner_and_an_inked_one_replaces_every_one() {
+fn a_lifted_highlight_brightens_what_an_object_is_drawn_in_and_an_inked_one_replaces_it() {
     const OWN: Vec3 = Vec3::new(0.4, 0.1, 0.2);
-    /// Halves the red channel of whichever corner carries it, so the two
-    /// corners read apart and the arithmetic stays exact in binary.
-    const DIMMER: Vec3 = Vec3::new(0.5, 1.0, 1.0);
-    /// Ink with *no* channel at zero, which is what makes the last assertion
-    /// mean anything: [`DIMMER`] scales red, so an ink whose red were zero
-    /// would come out the same whichever order the two were combined in —
-    /// `0.0 * 0.5` is still zero. That is the shape of a test that cannot fail.
+    /// Ink sharing no channel with [`OWN`] and with none at zero, so a flatten
+    /// that multiplied the two where it should replace cannot come out right by
+    /// accident.
     const INK: Vec3 = Vec3::new(1.0, 0.8, 0.2);
 
-    let mut quad = facing_quad();
-    quad.vertices[1].color = DIMMER;
     let mut scene = Scene::default();
     scene
-        .gizmos
-        .push(Object::new(quad).colored(OWN).tagged(Tag::new(1)));
+        .solids
+        .push(Object::new(facing_quad()).colored(OWN).tagged(Tag::new(1)));
     let mut renderer = Renderer::new(scene);
 
     // Unlit first, so what the lift is measured against is what the flatten
-    // actually wrote rather than what the object was built with. The object's
-    // colour through each corner's own: one corner plain, the next halved.
+    // actually wrote rather than what the object was built with.
     renderer.refresh(1.0);
-    let flat = |renderer: &Renderer| {
-        let written = &renderer.cpu.gizmos.vertices;
-        [written[0].color, written[1].color]
-    };
-    assert_eq!(flat(&renderer), [[0.4, 0.1, 0.2], [0.2, 0.1, 0.2]]);
+    let flat = |renderer: &Renderer| renderer.cpu.solids.vertices[0].color;
+    assert_eq!(flat(&renderer), OWN.to_array());
 
-    // Twice as bright, channel for channel and corner for corner — so the hue
-    // is untouched, only the brightness moved, and the two corners are still
-    // told apart.
+    // Twice as bright, channel for channel, so the hue is untouched and only
+    // the brightness moved. Doubling is exact in binary, so this is an equality
+    // rather than a tolerance.
     renderer.highlight_only(Lit {
         tag: Tag::new(1),
         look: Highlight::lifted(2.0),
@@ -190,17 +170,10 @@ fn a_lifted_highlight_keeps_each_corner_and_an_inked_one_replaces_every_one() {
     renderer.refresh(1.0);
     assert_eq!(
         flat(&renderer),
-        [[0.8, 0.2, 0.4], [0.4, 0.2, 0.4]],
-        "a lift recoloured the corners instead of brightening each"
+        [0.8, 0.2, 0.4],
+        "a lift recoloured the object instead of brightening it"
     );
 
-    // And the other arm overrides outright — *every* corner, to the one colour.
-    //
-    // The only assertion here that can see the order at all. A lift is a scalar
-    // multiply and commutes with the corner's own, so it reads the same either
-    // way round however the numbers are chosen; an ink does not, and combined
-    // after the corners rather than before it comes back multiplied by each of
-    // them.
     renderer.highlight_only(Lit {
         tag: Tag::new(1),
         look: Highlight::new(INK),
@@ -208,8 +181,8 @@ fn a_lifted_highlight_keeps_each_corner_and_an_inked_one_replaces_every_one() {
     renderer.refresh(1.0);
     assert_eq!(
         flat(&renderer),
-        [INK.to_array(); 2],
-        "an ink left the mesh as many colours as it had corners"
+        INK.to_array(),
+        "an ink was blended with what it should have replaced"
     );
 }
 
@@ -889,86 +862,6 @@ fn drawn_ink(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Ink {
     ink
 }
 
-/// **A gizmo is drawn in the colour it was handed, where the same geometry as a
-/// solid is not.**
-///
-/// Unlit is the whole of what the gizmo pass is *for*, and the failure it
-/// guards against is the tempting one: pointing the pass at `mesh_fs`, which
-/// already draws world triangles and is right there. It would look plausible —
-/// shapes in roughly the right colours — and it would be wrong in a way no
-/// count of pixels can see, because `mesh_fs` multiplies by the key light and
-/// the ambient. That factor is not even grey: on a z-facing plane it is
-/// (0.589, 0.594, 0.624), so a red arrow comes back blue-shifted, and it
-/// changes with every plane a control is laid on.
-///
-/// So the frame is asked for a *colour* rather than an amount. The same object
-/// is drawn twice, moving only which batch it is in — which is the one thing
-/// that decides how an [`Object`] is drawn, and here the only difference there
-/// is.
-#[test]
-fn a_gizmo_is_drawn_in_the_colour_it_was_handed_where_a_solid_is_shaded() {
-    /// Linear-RGB as the sRGB target encodes it, to a byte. The standard
-    /// transfer function — the frame is asked what it holds, so the test has to
-    /// know what the write did to get there.
-    fn srgb8(linear: f32) -> i32 {
-        let encoded = if linear <= 0.003_130_8 {
-            12.92 * linear
-        } else {
-            1.055 * linear.powf(1.0 / 2.4) - 0.055
-        };
-        (encoded * 255.0).round() as i32
-    }
-
-    /// Deliberately far from grey, so a multiply that treated the channels
-    /// alike and one that did not cannot both pass.
-    const COLOR: Vec3 = Vec3::new(0.8, 0.2, 0.2);
-
-    let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let target = frame_target(&gpu.device);
-    let mut pane = ScenePane {
-        view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
-    };
-
-    // One pane throughout: the host initialises the view it is first given, and
-    // a second `Renderer` handed to the same host has never been through that.
-    let mut painted = |into: fn(&mut Scene) -> &mut Batch<Object>| {
-        {
-            let mut view = pane.view.borrow_mut();
-            let scene = view.scene_mut();
-            scene.solids.clear();
-            scene.gizmos.clear();
-            into(scene).push(Object::new(facing_quad()).colored(COLOR));
-        }
-        host.frame_offscreen(&target, 1.0, &mut pane);
-        middle_pixel(&gpu, &target)
-    };
-
-    // Exactly what was asked for. A byte either way for the rounding, and no
-    // more: this is a fully covered interior pixel, so the resolve has nothing
-    // to average and the encode is the only arithmetic between the colour and
-    // the frame.
-    let drawn = painted(|scene| &mut scene.gizmos);
-    let asked = [srgb8(COLOR.x), srgb8(COLOR.y), srgb8(COLOR.z)];
-    for (channel, (&got, want)) in drawn.iter().zip(asked).enumerate() {
-        assert!(
-            (got - want).abs() <= 1,
-            "channel {channel} of a gizmo came back {got}, having been handed \
-             {want} — something shaded it",
-        );
-    }
-
-    // And the same geometry in the batch above it does not, which is what says
-    // the assertion over it was worth making.
-    let shaded = painted(|scene| &mut scene.solids);
-    assert!(
-        shaded != drawn,
-        "a solid and a gizmo of one colour reached the frame identically at \
-         {drawn:?}, so the gizmo pass is shading like a mesh or the mesh pass \
-         has stopped shading",
-    );
-}
-
 /// One kind put into an otherwise empty scene, and what to call it when the
 /// frame comes back with nothing in it.
 #[derive(Debug)]
@@ -1035,7 +928,11 @@ fn every_kind_reaches_the_frame() {
         },
         Staged {
             batch: "gizmos",
-            stage: |scene| scene.gizmos.push(Object::new(Mesh::cube(2.0))),
+            stage: |scene| {
+                scene
+                    .gizmos
+                    .push(Curve::segment(Vec3::NEG_Y, Vec3::Y).width(8.0))
+            },
         },
         Staged {
             batch: "texts",
@@ -1277,6 +1174,17 @@ fn a_gizmo_sorts_against_a_face_by_which_is_nearer_rather_than_by_pass_order() {
     let mut pane = ScenePane {
         view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
     };
+    {
+        // Straight down the axis, so a point on it lands dead centre whatever
+        // its depth — which is what lets one pixel answer for both sheets. The
+        // stock camera is pitched, and there a nearer point projects clear of a
+        // further one rather than onto it, so the stroke misses the pixel the
+        // face is read at and the test reads a face that won nothing.
+        let mut view = pane.view.borrow_mut();
+        let camera = view.camera_mut();
+        camera.yaw = 0.0;
+        camera.pitch = 0.0;
+    }
 
     // One pane throughout: the host initialises the view it is first given, and
     // a second `Renderer` handed to the same host has never been through that.
@@ -1287,9 +1195,12 @@ fn a_gizmo_sorts_against_a_face_by_which_is_nearer_rather_than_by_pass_order() {
             scene.gizmos.clear();
             scene.faces.clear();
             scene.gizmos.push(
-                Object::new(facing_quad())
-                    .colored(AXIS)
-                    .at(Vec3::Z * gizmo_at),
+                Curve::segment(
+                    Vec3::new(-1.0, 0.0, gizmo_at),
+                    Vec3::new(1.0, 0.0, gizmo_at),
+                )
+                .width(40.0)
+                .colored(AXIS),
             );
             scene.faces.push(
                 Object::new(facing_quad())
@@ -1327,37 +1238,5 @@ fn a_gizmo_sorts_against_a_face_by_which_is_nearer_rather_than_by_pass_order() {
         over[0] > under[0],
         "a control in front of a region ({over:?}) came back no more its own \
          colour than one behind it ({under:?})"
-    );
-}
-
-/// **The shader is lit from where the crate says it is.**
-///
-/// [`KEY_LIGHT`] is the one compile-time number written in both languages. Every
-/// other — the ring's step count, the minimum run, the mesh alpha — crosses as a
-/// pipeline constant with the Rust side stating it, precisely so that nothing
-/// has to be kept in step by hand; a vector cannot, because WGSL's `override`
-/// takes scalars only.
-///
-/// So the shader is read and the two are compared. Left to drift, a caller
-/// baking its own shading against `KEY_LIGHT` would light its handles from a
-/// different direction than the model they stand on — which looks like nothing
-/// at all until you notice the model is lit from the other side.
-#[test]
-fn the_shader_is_lit_from_where_the_crate_says() {
-    let source = include_str!("shader/mesh.wgsl");
-    let stated = source
-        .lines()
-        .find_map(|line| line.strip_prefix("const KEY_DIR: vec3<f32> = vec3<f32>("))
-        .expect("the shader states where its key light is")
-        .trim_end_matches(");");
-    let read: Vec<f32> = stated
-        .split(',')
-        .map(|part| part.trim().parse().expect("a number"))
-        .collect();
-    assert_eq!(
-        read,
-        crate::KEY_LIGHT.to_array(),
-        "the shader is lit from {read:?} and the crate says {:?}",
-        crate::KEY_LIGHT,
     );
 }

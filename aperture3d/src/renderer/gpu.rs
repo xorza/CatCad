@@ -268,7 +268,7 @@ impl Passes {
 pub(super) struct Gpu {
     pub(super) solids: Pass,
     pub(super) faces: Pass,
-    pub(super) gizmos: Pass,
+    pub(super) gizmos: Passes,
     pub(super) curves: Passes,
     pub(super) rings: Passes,
     pub(super) points: Passes,
@@ -324,7 +324,6 @@ impl Gpu {
             include_str!("shader/curve.wgsl"),
             include_str!("shader/ring.wgsl"),
             include_str!("shader/point.wgsl"),
-            include_str!("shader/gizmo.wgsl"),
             include_str!("shader/text.wgsl"),
         ]
         .concat();
@@ -445,26 +444,16 @@ impl Gpu {
             opacity: FACE_OPACITY,
             depth_write: false,
         });
-        // A third set of rules over the same triangles, and the reason the
-        // vertex is shared rather than the pass: a control is cut in the world
-        // like a face and drawn unlit like nothing else here. Two-sided, because
-        // a flat shape has no outside to be culled from and one that vanished as
-        // the view crossed its plane would be a handle that came and went.
-        //
-        // Opaque and writing depth, like every other opaque pass here. What
-        // that buys is that a control sorts against everything else by being
-        // somewhere, rather than by which pass ran first — see [`GIZMO_BIAS`],
-        // where the alternative is written down and why it fails.
-        let gizmos = pipelines.build::<GpuVertex>(PassSpec {
-            name: "gizmo",
-            indices: None,
-            cull: None,
-            alpha_to_coverage: false,
-            blend: None,
-            depth_bias: GIZMO_BIAS,
-            opacity: 1.0,
-            depth_write: true,
-        });
+        // Strokes like the drawing's own, on a rung of their own: a control is
+        // furniture the drawing is done *on*, so a stroke or a marker of that
+        // drawing reads over it and the region it encloses reads under.
+        let gizmos = Passes::build::<CurveInstance>(
+            &pipelines,
+            PassSpec {
+                depth_bias: GIZMO_BIAS,
+                ..PassSpec::overlay("curve", &QUAD_INDICES)
+            },
+        );
         let curves = Passes::build::<CurveInstance>(
             &pipelines,
             PassSpec {

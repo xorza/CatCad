@@ -1,0 +1,289 @@
+use super::*;
+use crate::build::Build;
+use crate::demo;
+use crate::paint::redraw;
+use aperture::Scene;
+
+/// A plane that can be moved is drawn as a gizmo at its origin, and one that
+/// cannot is not drawn at all.
+///
+/// The gizmo is what makes a datum a thing to aim at, and every piece of it
+/// reports the plane: an axis is not a part of the drawing in its own right
+/// yet, so a cursor over any of them is over the datum.
+///
+/// The ground draws nothing. It is what everything else is measured *from*
+/// rather than something anybody put anywhere, and axes standing for it would
+/// be axes standing for the world.
+///
+/// What this pins beyond the count is that the gizmo is *not* fitted to the
+/// sketch: it starts at the plane's own origin and reaches a fixed distance,
+/// so nothing about where the drawing happens to lie can move it. A gizmo
+/// sized from the drawing would pass every count below and fail the last two.
+#[test]
+fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let mut layout = Layout::default();
+    let mut scene = Scene::default();
+    redraw(
+        document.models(&build, document.opening()),
+        &mut layout,
+        None,
+        None,
+        None,
+        &mut scene,
+    );
+    write(
+        document.models(&build, document.opening()),
+        &mut layout,
+        None,
+        &document.camera(),
+        aperture::Viewport::new(glam::UVec2::new(800, 600)),
+        &mut scene.gizmos,
+    );
+
+    let named: Vec<_> = scene
+        .gizmos
+        .iter()
+        .filter(|gizmo| {
+            matches!(
+                gizmo.tag.and_then(|tag| layout.names().get(tag)),
+                Some(Part::Plane(_))
+            )
+        })
+        .collect();
+    // Four strokes for the demo's one movable plane — two arrows, the hub they
+    // cross at and the corner square — and all four naming that plane, which is
+    // what makes the whole of it one thing to point at.
+    assert_eq!(named.len(), 4);
+    let Some(Part::Plane(at)) = named[0].tag.and_then(|tag| layout.names().get(tag)) else {
+        unreachable!("the arrows were found by their tags naming a plane");
+    };
+
+    // The plane the arrows named, not whichever the first sketch happens to be
+    // drawn on: the demo sketches on the ground as well, and measuring against
+    // that one would be asking whether the arrows lie in a plane they were
+    // never on.
+    let models = document.models(&build, document.opening());
+    let (_, plane) = models
+        .planes()
+        .find(|(id, _)| *id == at)
+        .expect("the arrows name a plane the document holds");
+    let origin = plane.point(DVec2::ZERO).as_vec3();
+    let normal = plane.normal().as_vec3();
+    for piece in &named {
+        assert!(piece.closed, "a control is drawn as an open run of strokes");
+        // Every corner lies in the plane, which is the whole of what makes it
+        // flat *in* the datum rather than a shape hung in front of it.
+        for &corner in &piece.points {
+            let off = (corner - origin).dot(normal);
+            assert!(off.abs() < 1e-5, "a corner stands {off} off its own plane");
+        }
+    }
+
+    // **Measured in pixels, not in the drawing.** Pulling the camera back makes
+    // the gizmo bigger in the world by exactly as much as the projection then
+    // shrinks it, so what reaches the screen is the same size — which is the
+    // whole of what a control is: one that shrank with the zoom would stop
+    // being grabbable exactly when you had zoomed out to find it.
+    //
+    // Asked on screen rather than in the world, because on screen is where the
+    // claim is. The world span does *not* simply double with the distance: a
+    // pixel covers world in proportion to depth along the view, and the shelf's
+    // origin does not sit at the orbit target, so doubling the distance moves
+    // it from `d + off` to `2d + off`.
+    let viewport = aperture::Viewport::new(glam::UVec2::new(800, 600));
+    let spans = |camera: &aperture::Camera| {
+        let mut scene = Scene::default();
+        let mut layout = Layout::default();
+        let models = document.models(&build, document.opening());
+        redraw(models, &mut layout, None, None, None, &mut scene);
+        write(
+            models,
+            &mut layout,
+            None,
+            camera,
+            viewport,
+            &mut scene.gizmos,
+        );
+        let middle = camera
+            .screen_of(origin, viewport)
+            .expect("the datum the gizmo stands on is behind the camera");
+        scene.gizmos[0]
+            .points
+            .iter()
+            .map(|&at| {
+                camera
+                    .screen_of(at, viewport)
+                    .expect("a corner of the gizmo is behind the camera")
+                    .distance(middle)
+            })
+            .fold(0.0f32, f32::max)
+    };
+    let near = document.camera();
+    let far = aperture::Camera {
+        distance: near.distance * 2.0,
+        ..near
+    };
+    let (near, far) = (spans(&near), spans(&far));
+    // To a pixel, against a span of about fifty. The shape is built in the
+    // world from a scale taken at one point on it, and every corner is then
+    // divided by its *own* depth — so a gizmo lying in a tilted plane comes out
+    // a shade off what a screen-space layout would have drawn, by more of a
+    // shade the nearer the camera is. That is the residue this allows for, and
+    // a control that scaled with the zoom at all would miss by tens.
+    assert!(
+        (far - near).abs() < 1.0,
+        "twice as far away the gizmo spans {far}px against {near}px, where it \
+         should hold its size on screen"
+    );
+}
+
+/// The arrow carrying a solid's depth turns its flat side to the camera.
+///
+/// It is an outline, so it has a side to turn, and laid out in a plane of the
+/// sketch's own it would fold to a line the moment the camera came round to
+/// look along that plane — a handle you cannot see being a handle you cannot
+/// take hold of. The axis arrows of a datum do not do this and must not: lying
+/// in the plane is what they say about it.
+///
+/// Both halves are the test. That the width is square to the view from one
+/// angle could be the angle; that it is square from two and *different* at the
+/// two is the camera being read rather than ignored.
+#[test]
+fn the_depth_arrow_turns_its_face_to_the_camera() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let growing = Growing {
+        sketch: document.opening(),
+        region: 0,
+        distance: 0.5,
+    };
+    let viewport = aperture::Viewport::new(glam::UVec2::new(800, 600));
+    let widths = [0.0f32, 1.1].map(|yaw| {
+        let camera = aperture::Camera {
+            yaw,
+            ..document.camera()
+        };
+        let mut scene = Scene::default();
+        let mut layout = Layout::default();
+        let models = document.models(&build, document.opening());
+        write(
+            models,
+            &mut layout,
+            Some(growing),
+            &camera,
+            viewport,
+            &mut scene.gizmos,
+        );
+        let arrow = scene
+            .gizmos
+            .iter()
+            .find(|gizmo| {
+                matches!(
+                    gizmo.tag.and_then(|tag| layout.names().get(tag)),
+                    Some(Part::Growing)
+                )
+            })
+            .expect("a solid being grown has no arrow to carry it");
+        // The arrow is what the gesture is *for* while a form is open, so it
+        // takes the click over the geometry it stands over — where a datum is
+        // furniture the drawing is done on and yields to everything drawn on
+        // it. Ranking the arrow as a frame costs twice: it would lose the click
+        // it exists for, and it would go on to hide whatever is behind it from
+        // a pick, frames being what `Scene::frame_front` walks.
+        assert_eq!(arrow.precedence, Precedence::Shaped);
+        assert!(
+            scene
+                .gizmos
+                .iter()
+                .filter(|piece| matches!(
+                    piece.tag.and_then(|tag| layout.names().get(tag)),
+                    Some(Part::Plane(_))
+                ))
+                .all(|piece| piece.precedence == Precedence::Frame),
+            "a datum stopped standing as furniture the drawing is done on"
+        );
+        // The two corners the head is widest between. Across the arrow rather
+        // than along it, because the tip and the tail sit on its axis whichever
+        // way the shape is turned, and the width is the whole of what an
+        // edge-on outline loses.
+        let across = arrow.points[2] - arrow.points[4];
+        let out = across.dot(camera.facing());
+        assert!(
+            out.abs() < 1e-4,
+            "the head reaches {out} out of the screen's own plane, so it reads \
+             narrower than it is"
+        );
+        across
+    });
+    assert!(
+        widths[0].angle_between(widths[1]) > 0.5,
+        "the arrow lay the same way from both sides, so it is not turning at all"
+    );
+}
+
+/// Moving the camera renames the controls rather than naming more of them.
+///
+/// The whole of what lets them be written on their own schedule, and a failure
+/// nothing else would notice: a tag is a position in a list, so a second set
+/// appended rather than written over leaves every tag still resolving and every
+/// other assertion here still passing — while the list grows by a gizmo's worth
+/// on every frame of an orbit. See
+/// [`Names::truncate_to_drawn`](crate::names::Names::truncate_to_drawn).
+///
+/// Turned between the writes rather than written twice from one place, because
+/// what is being claimed is about a camera that *moved*: two passes from the
+/// same place could come out equal for having been skipped.
+#[test]
+fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let mut layout = Layout::default();
+    let mut scene = Scene::default();
+    let models = document.models(&build, document.opening());
+    redraw(models, &mut layout, None, None, None, &mut scene);
+    let drawing = layout.names().iter().count();
+
+    let viewport = aperture::Viewport::new(glam::UVec2::new(800, 600));
+    let counted: Vec<_> = (0..4)
+        .map(|step| {
+            let camera = aperture::Camera {
+                yaw: step as f32 * 0.3,
+                ..document.camera()
+            };
+            write(
+                models,
+                &mut layout,
+                None,
+                &camera,
+                viewport,
+                &mut scene.gizmos,
+            );
+            layout.names().iter().count()
+        })
+        .collect();
+    assert_eq!(
+        counted, [counted[0]; 4],
+        "the name list grew as the camera turned"
+    );
+    // And the controls did name something, so holding the count is a claim
+    // about a list that was appended to rather than about an empty one.
+    assert!(
+        counted[0] > drawing,
+        "{} names before the controls and {} after",
+        drawing,
+        counted[0]
+    );
+
+    // Every tag a control carries still reports the datum it was drawn for,
+    // which is the half truncating has to keep true: a list written back over
+    // could as easily have left the tags pointing into the drawing.
+    for gizmo in scene.gizmos.iter() {
+        let tag = gizmo.tag.expect("a control with no name cannot be grabbed");
+        assert!(
+            matches!(layout.names().get(tag), Some(Part::Plane(_))),
+            "{tag:?} stopped naming the datum it belongs to"
+        );
+    }
+}

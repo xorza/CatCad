@@ -12,7 +12,7 @@ use crate::camera::Camera;
 use crate::highlight::{Highlights, Lit};
 use crate::scene::Scene;
 use crate::viewport::Viewport;
-use glam::{UVec2, Vec3};
+use glam::UVec2;
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
 pub(crate) mod atlas;
@@ -30,25 +30,6 @@ pub(crate) mod uniforms;
 use crate::renderer::cpu::{Cpu, Laying, Order};
 use crate::renderer::gpu::{Attachments, Gpu};
 use crate::renderer::uniforms::{Uniforms, Window};
-
-/// Where the one key light comes from, as a world direction.
-///
-/// Published because a caller can need it: shading is the renderer's for
-/// anything it lights, but the gizmo pass is deliberately unlit — an axis says
-/// which axis it is by its colour, and a light would have it say so differently
-/// on every plane — so a caller drawing a control with *volume* bakes its own
-/// shading into the vertex colours and has to bake it against this light or its
-/// handles are lit by a different sun from the model they stand on.
-///
-/// Fixed in the world rather than the view, so the shading stays put as the
-/// camera orbits instead of swimming with it.
-///
-/// Stated here and read by `mesh.wgsl`, which cannot be handed a vector —
-/// WGSL's `override` takes scalars only, so this is the one compile-time number
-/// that is written in both languages rather than crossing as a pipeline
-/// constant. `the_shader_is_lit_from_where_the_crate_says` is what keeps them
-/// from drifting.
-pub const KEY_LIGHT: Vec3 = Vec3::new(0.4, 0.8, 0.45);
 
 /// A scene, where it is looked at from, and the two mirrors of it that get
 /// drawn.
@@ -212,10 +193,8 @@ impl Renderer {
             relight,
             Gpu::faces_order(camera.eye()),
         );
-        // Opaque, so the depth test settles what covers what and there is
-        // nothing for an order to buy.
         cpu.gizmos
-            .refresh(&mut scene.gizmos, highlights, relight, Order::Given);
+            .refill_from(&mut scene.gizmos, highlights, relight);
         cpu.curves
             .refill_from(&mut scene.curves, highlights, relight);
         cpu.rings.refill_from(&mut scene.rings, highlights, relight);
@@ -301,8 +280,7 @@ impl GpuPaint for Renderer {
         gpu.solids
             .upload_mesh(ctx.device, ctx.queue, &mut cpu.solids);
         gpu.faces.upload_mesh(ctx.device, ctx.queue, &mut cpu.faces);
-        gpu.gizmos
-            .upload_mesh(ctx.device, ctx.queue, &mut cpu.gizmos);
+        gpu.gizmos.upload(ctx.device, ctx.queue, &mut cpu.gizmos);
         gpu.curves.upload(ctx.device, ctx.queue, &mut cpu.curves);
         gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings);
         gpu.points.upload(ctx.device, ctx.queue, &mut cpu.points);
@@ -335,13 +313,6 @@ impl GpuPaint for Renderer {
         // kinds write depth and can go in any order among themselves, because
         // there the depth test is the whole answer.
         gpu.solids.draw(&mut pass);
-        // With the opaque geometry, and before the faces for the reason
-        // everything opaque is: a face is blended, so whatever should show
-        // through one has to be in the target already — and whatever should
-        // *not* has to be in the depth buffer already, which is the half a
-        // control depends on. Where it lands among the other opaque kinds is
-        // the depth ladder's business and not this sequence's.
-        gpu.gizmos.draw(&mut pass);
         // Every ordinary pass before any highlight, rather than each kind's two
         // together: a highlight has to read over anything it doubles whatever
         // kind that is, and not merely over its own kind.
@@ -349,7 +320,7 @@ impl GpuPaint for Renderer {
         // Named once and walked twice, so the two halves cannot disagree. A
         // kind listed in one and forgotten in the other is invisible — it
         // flattens, it uploads, and it is simply never drawn.
-        let opaque = [&gpu.curves, &gpu.rings, &gpu.points];
+        let opaque = [&gpu.gizmos, &gpu.curves, &gpu.rings, &gpu.points];
         for kind in opaque {
             kind.ordinary.draw(&mut pass);
         }

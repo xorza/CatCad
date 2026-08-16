@@ -745,14 +745,33 @@ impl SceneView {
         // Into the batches the renderer already holds, so a drag rewrites the
         // drawing every frame without asking the heap for anything.
         let models = document.models(build, session.editing());
+        // Read once for the solid and the handle both, which are two halves of
+        // one picture: they are written on different schedules, and asked twice
+        // they could disagree about what is growing.
+        let growing = session.prompt().and_then(|open| open.growing(models));
         paint::redraw(
             models,
             &mut self.layout,
             self.preview,
             session.prompt().and_then(Prompt::marks),
-            session.prompt().and_then(|open| open.growing(models)),
+            growing,
             renderer.scene_mut(),
         );
+        // Every frame, where the drawing above is written only when the drawing
+        // moves. A control holds its size on screen, so it is built against the
+        // camera and the camera moving is what invalidates it — and gating the
+        // two together would mean re-cutting every face and solid on every
+        // frame of an orbit. See [`paint::gizmos::write`].
+        if let Some(viewport) = self.viewport() {
+            paint::gizmos::write(
+                models,
+                &mut self.layout,
+                growing,
+                &document.camera(),
+                viewport,
+                &mut renderer.scene_mut().gizmos,
+            );
+        }
         // What the pointer is over is one thing, however many are picked out: a
         // marker sits on the end of every edge that meets it, and lighting all
         // of them would answer a question nobody asked.

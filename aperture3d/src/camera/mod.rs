@@ -119,6 +119,16 @@ impl Camera {
         self.target + offset * self.distance
     }
 
+    /// The unit direction the camera looks along.
+    ///
+    /// What a caller turning flat geometry to face the viewer needs: anything
+    /// square to this lies in the screen's own plane, so a shape laid out on
+    /// two such directions reads at full size from wherever the camera is
+    /// rather than collapsing to a line as it comes round.
+    pub fn facing(&self) -> Vec3 {
+        (self.target - self.eye()).normalize_or_zero()
+    }
+
     /// Where the near plane currently sits, in world units. Perspective only:
     /// the orthographic slab is centred on the eye and clips nothing in front
     /// of it.
@@ -135,6 +145,41 @@ impl Camera {
     /// the extent the orthographic view is built on. See [`Camera::fov_y`].
     fn half_extent(&self) -> f32 {
         self.distance * (self.fov_y * 0.5).tan()
+    }
+
+    /// How many world units one logical pixel covers at `at`.
+    ///
+    /// What a caller sizing geometry *in pixels* needs. Overlays get this for
+    /// free — a stroke's width and a marker's diameter are measured after the
+    /// projection divide, in the shader — but a caller that wants a whole
+    /// *shape* to hold its size has to build it in the world, and this is the
+    /// number that says how big to build it.
+    ///
+    /// Depends on where, and only under perspective: there a pixel covers more
+    /// world the further off it is, so a shape sized against the orbit target
+    /// would come out wrong anywhere else. Measured **along the view** rather
+    /// than from the eye, because that is what a projection measures against —
+    /// a point off to one side is no further away for being off to one side.
+    ///
+    /// Geometry built with this is geometry the camera moving invalidates, and
+    /// a caller taking it on is taking that on: [`Renderer::camera_mut`] stays
+    /// cheap because nothing in a scene depends on the camera, and a batch that
+    /// does has to be rewritten when it moves.
+    ///
+    /// [`Renderer::camera_mut`]: crate::Renderer::camera_mut
+    pub fn world_per_pixel(&self, at: Vec3, viewport: Viewport) -> f32 {
+        let half = match self.projection {
+            // The slab is the same width all the way through, so where the
+            // point is says nothing.
+            Projection::Orthographic => self.half_extent(),
+            Projection::Perspective => {
+                // Never behind the near plane: a point there is not drawn, and
+                // a scale taken from its depth would be negative or enormous.
+                let depth = (at - self.eye()).dot(self.facing()).max(self.z_near());
+                depth * (self.fov_y * 0.5).tan()
+            }
+        };
+        2.0 * half / viewport.extent().y
     }
 
     /// Combined view-projection for a viewport of the given width/height

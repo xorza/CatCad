@@ -39,10 +39,9 @@ use palantir::{PlacedGlyph, TextGlyphs};
 pub(super) struct Cpu {
     pub(super) solids: Triangles,
     pub(super) faces: Triangles,
-    /// The flat controls, which are a triangle list like the two above and not
-    /// an overlay: their shape is cut in the world rather than built in the
-    /// shader, so what ships is vertices.
-    pub(super) gizmos: Triangles,
+    /// The controls, which are strokes like the drawing's own — their own
+    /// buffer because they are their own pass, on their own rung.
+    pub(super) gizmos: Records<CurveInstance>,
     pub(super) curves: Records<CurveInstance>,
     pub(super) rings: Records<RingInstance>,
     pub(super) points: Records<PointInstance>,
@@ -594,21 +593,14 @@ impl Triangles {
                 normal: (normal_matrix * vertex.normal)
                     .normalize_or_zero()
                     .to_array(),
-                // The corner's own colour is folded in *before* the highlight,
-                // not after, and the order is the whole of what makes a
-                // [`Tint`](crate::Tint) mean what it says. What a corner is
-                // drawn in is the object's colour through its own — that colour
-                // times one, for a mesh that has nothing to say per corner — and
-                // that is what the highlight then replaces or lifts.
-                //
-                // The other way round, an `Ink` would be multiplied by each
-                // corner afterwards and come out as many colours as the mesh
-                // has, which is exactly what a highlight that *replaces* is for
-                // getting rid of.
-                color: {
-                    let own = object.color * vertex.color;
-                    look.map_or(own, |look| look.tint.over(own)).to_array()
-                },
+                // One colour for the whole object, resolved here rather than
+                // in the shader: what a corner is drawn in is the object's
+                // colour, and a highlight is what replaces or lifts it. It
+                // rides per vertex because that is where the buffer has room
+                // for it, not because a corner has anything of its own to say.
+                color: look
+                    .map_or(object.color, |look| look.tint.over(object.color))
+                    .to_array(),
             });
             self.extend(vertices, &object.mesh.indices);
         }

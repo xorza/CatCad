@@ -1866,14 +1866,14 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
                 gizmo.tag.and_then(|tag| app.view.part(tag)) == Some(crate::part::Part::Growing)
             })
             .expect("the growing solid has no arrow to carry it");
-        // The head rather than the whole arrow: the demo's region is a
-        // rectangle with the hub cut out of it, so its middle — where the
-        // arrow stands — is inside the cylinder already grown there, and the
-        // shaft is buried in it. The head clears the top.
-        let head = &arrow.mesh.vertices[4..];
-        head.iter()
-            .fold(Vec3::ZERO, |sum, corner| sum + corner.position)
-            / head.len() as f32
+        // The tip rather than anywhere else on the arrow. A control is a
+        // stroked outline, so the inside of it is not it — aiming at the middle
+        // of the head aims at a gap between two strokes. And the tip
+        // particularly: the demo's region is a rectangle with the hub cut out
+        // of it, so the arrow stands over the cylinder already grown there and
+        // everything below the head is buried in it. In outline order the tip
+        // is corner 3.
+        arrow.points[3]
     };
     // Carried a unit along the plane's own normal, which is the line the arrow
     // runs on — aimed in the world rather than in pixels, so what the drag

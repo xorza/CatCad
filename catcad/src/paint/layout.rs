@@ -4,7 +4,7 @@ use silverpoint::{Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
 use crate::names::Names;
-use crate::paint::Growing;
+use crate::paint::growing::Growing;
 use crate::part::Part;
 use crate::preview::Preview;
 use crate::timeline::FeatureId;
@@ -113,6 +113,10 @@ pub(crate) struct Made {
     /// A depth typed a digit at a time is a different picture each time, and
     /// nothing else here would say so: the document is untouched while a form
     /// is open, so its revision does not move.
+    ///
+    /// The *solid* only. The arrow that carries it is a control and holds its
+    /// size on screen, so it is written against the camera on its own schedule
+    /// — see [`write`](crate::paint::gizmos::write).
     pub(crate) growing: Option<Growing>,
 }
 

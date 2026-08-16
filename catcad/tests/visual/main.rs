@@ -1534,7 +1534,6 @@ fn a_translucent_face_blends_with_the_one_behind_it_either_way_round() {
         let at = |x: f32, y: f32| Vertex {
             position: Vec3::new(x, y, z),
             normal: Vec3::Z,
-            color: Vec3::ONE,
         };
         Object {
             color,

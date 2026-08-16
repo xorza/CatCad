@@ -1,28 +1,26 @@
 //! The shapes a drawing cuts for itself, in coordinates of their own.
 //!
-//! Two kinds, and what tells them apart is whether they have volume. A **flat**
-//! shape is a polygon in 2D: a caller maps its corners through
-//! [`Plane::point`](silverpoint::Plane::point) and gets geometry lying in that
-//! plane, foreshortening as it turns and vanishing edge-on, because it genuinely
-//! lies there. A [`Solid`] is corners in a 3D frame, each carrying the way its
-//! face looks, and a caller maps them through a frame of three axes.
+//! Every shape is a closed outline in 2D, wound in the order it is stroked, and
+//! **measured in logical pixels**. A caller scales it by
+//! [`Camera::world_per_pixel`](aperture::Camera) and maps it through a frame,
+//! and what comes out is a stroke that holds its size on screen however far the
+//! camera pulls back.
 //!
-//! Nothing here knows where anything sits. Cut on the CPU rather than shaped by
-//! the renderer, which is what lets a control be ordinary world geometry: it
-//! costs a shader that does nothing but transform, and it costs nothing at all
-//! when the camera moves, since a shape measured in its own frame has no
-//! opinion about where the camera is.
+//! Pixels rather than sketch units, and that is what a *control* is: how big one
+//! is says nothing about the model, and one that shrank with the zoom would stop
+//! being grabbable exactly when you had zoomed out to find it. The cost is that
+//! geometry built from these is geometry the camera moving invalidates — which
+//! is why it is written on its own schedule and not with the drawing.
 
-use glam::{DVec2, DVec3};
+use glam::DVec2;
 
-/// How far a datum's axis arrows reach from its origin, in sketch units.
+/// How far a datum's axis arrows reach from its origin, in logical pixels.
 ///
 /// A fixed length rather than one fitted to what is drawn. A gizmo says where a
 /// plane's origin is and which way its axes run, and neither is a fact about
 /// what happens to have been sketched there — one that grew with the drawing
-/// would move every time a point did, and would have its geometry cut again on
-/// every solve for the privilege.
-pub(super) const ARROW_REACH: f64 = 1.2;
+/// would move every time a point did.
+const ARROW_REACH: f64 = 56.0;
 
 /// How much of the reach the head takes, and how wide shaft and head are, as
 /// fractions of it.
@@ -44,10 +42,6 @@ const HEAD_HALF: f64 = 0.22;
 /// overlapped would settle their overlap in the last bits of a depth each
 /// computed from its own vertices.
 const CORNER_SIDE: f64 = 0.26;
-
-/// The two triangles a square's four corners make, shared by [`hub`] and
-/// [`corner`] — both are squares, and a square is a square.
-pub(super) const SQUARE_TRIANGLES: [[u32; 3]; 2] = [[0, 1, 2], [0, 2, 3]];
 
 /// The four corners of the block the two axes cross at.
 ///
@@ -74,7 +68,7 @@ pub(super) fn corner() -> [DVec2; 4] {
 }
 
 /// The four corners of the square running from `low` to `high` on both axes,
-/// wound the way [`SQUARE_TRIANGLES`] reads them.
+/// wound the way it is stroked.
 ///
 /// Both squares a gizmo is made of go through here, which is the point: the two
 /// differ in where they sit and in nothing else, and written out twice they
@@ -88,14 +82,12 @@ fn square(low: f64, high: f64) -> [DVec2; 4] {
     ]
 }
 
-/// The triangles [`arrow`]'s corners make: the shaft's quad, then the head.
+/// The seven corners of an arrow along `along`, **in outline order**: up one
+/// side of the shaft, out around the head, and back down the other.
 ///
-/// Wound either way without consequence — the pass that draws these is
-/// two-sided, a flat shape having no outside to be culled from.
-pub(super) const ARROW_TRIANGLES: [[u32; 3]; 3] = [[0, 1, 2], [0, 2, 3], [4, 5, 6]];
-
-/// The seven corners of an arrow along `along`: four for the shaft, then three
-/// for the head.
+/// Wound as it is stroked rather than grouped by piece, because what a stroke
+/// wants is the way round the shape goes — a list ordered shaft-then-head would
+/// draw the outline as a zigzag.
 ///
 /// It starts at the [`hub`]'s edge rather than at the origin, so that the two
 /// arrows of a gizmo meet the hub instead of each other. Running both back to
@@ -114,124 +106,12 @@ pub(super) fn arrow(along: DVec2) -> [DVec2; 7] {
     [
         corner(SHAFT_HALF, -SHAFT_HALF),
         corner(base, -SHAFT_HALF),
+        corner(base, -HEAD_HALF),
+        corner(1.0, 0.0),
+        corner(base, HEAD_HALF),
         corner(base, SHAFT_HALF),
         corner(SHAFT_HALF, SHAFT_HALF),
-        corner(base, -HEAD_HALF),
-        corner(base, HEAD_HALF),
-        corner(1.0, 0.0),
     ]
-}
-
-/// One corner of a solid shape, in the shape's own frame: `x` runs along the
-/// axis it points down, `y` and `z` across it.
-///
-/// Carries the way its face looks as well as where it is, because a caller
-/// cannot work that out from the position — a solid arrow is *faceted*, so two
-/// corners in the same place on two faces look different ways, and which face a
-/// corner belongs to is the thing that decides how bright it reads.
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Corner {
-    pub(super) at: DVec3,
-    pub(super) facing: DVec3,
-}
-
-/// A shape with volume, as corners and the triangles over them.
-#[derive(Debug, Default)]
-pub(super) struct Solid {
-    pub(super) corners: Vec<Corner>,
-    pub(super) triangles: Vec<[u32; 3]>,
-}
-
-impl Solid {
-    /// Add a face, which is however many corners wound in order.
-    ///
-    /// Fanned from the first, which is right for anything convex and every
-    /// face here is: a quad, a triangle, or a cap's ring.
-    fn face(&mut self, at: &[DVec3], facing: DVec3) {
-        let base = self.corners.len() as u32;
-        self.corners
-            .extend(at.iter().map(|&at| Corner { at, facing }));
-        self.triangles
-            .extend((1..at.len() as u32 - 1).map(|step| [base, base + step, base + step + 1]));
-    }
-}
-
-/// How many facets a solid arrow is turned out of.
-///
-/// Eight reads as round at the size a gizmo is drawn and costs forty-odd
-/// triangles. It is faceted rather than smoothed on purpose: a smooth normal
-/// would make the arrow read as a lit *object* among the drawing's geometry,
-/// where what it is is a control.
-const FACETS: usize = 8;
-
-/// The solid arrow, pointing down `+x` of its own frame and reaching
-/// [`ARROW_REACH`].
-///
-/// Built once and handed out, because none of it depends on where the arrow
-/// stands: the shape is constants, and only the frame it is mapped through
-/// moves. A drag rewrites the gizmo every frame and this costs it nothing.
-pub(super) fn solid_arrow() -> &'static Solid {
-    static SHAPE: std::sync::OnceLock<Solid> = std::sync::OnceLock::new();
-    SHAPE.get_or_init(|| {
-        let shaft = SHAFT_HALF * ARROW_REACH;
-        let head = HEAD_HALF * ARROW_REACH;
-        let base = (1.0 - HEAD) * ARROW_REACH;
-        let around = |step: usize, radius: f64, along: f64| {
-            let angle = step as f64 / FACETS as f64 * std::f64::consts::TAU;
-            DVec3::new(along, angle.cos() * radius, angle.sin() * radius)
-        };
-        let mut solid = Solid::default();
-        for step in 0..FACETS {
-            let (near, far) = (step, step + 1);
-            // The shaft's side, and the head's, each facing out of the axis
-            // rather than out of one of its two edges — a facet's own middle is
-            // what it looks along.
-            let out = |radius: f64| {
-                let (a, b) = (around(near, radius, 0.0), around(far, radius, 0.0));
-                DVec3::new(0.0, a.y + b.y, a.z + b.z).normalize_or_zero()
-            };
-            solid.face(
-                &[
-                    around(near, shaft, 0.0),
-                    around(near, shaft, base),
-                    around(far, shaft, base),
-                    around(far, shaft, 0.0),
-                ],
-                out(shaft),
-            );
-            // The head, leaning in towards the tip: its facet looks part way
-            // between straight out and straight along.
-            // How far the head leans in towards the tip, which is how much of
-            // its facet looks along the axis rather than out of it.
-            let lean = head / (ARROW_REACH - base);
-            let side = out(head);
-            solid.face(
-                &[
-                    around(near, head, base),
-                    DVec3::new(ARROW_REACH, 0.0, 0.0),
-                    around(far, head, base),
-                ],
-                (side + DVec3::X * lean).normalize_or_zero(),
-            );
-            // The ring the head overhangs the shaft by, seen from below.
-            solid.face(
-                &[
-                    around(near, shaft, base),
-                    around(near, head, base),
-                    around(far, head, base),
-                    around(far, shaft, base),
-                ],
-                DVec3::NEG_X,
-            );
-        }
-        // The two ends. The tail is a cap; the head has none, being a point.
-        let tail: Vec<DVec3> = (0..FACETS)
-            .rev()
-            .map(|step| around(step, shaft, 0.0))
-            .collect();
-        solid.face(&tail, DVec3::NEG_X);
-        solid
-    })
 }
 
 #[cfg(test)]
@@ -259,19 +139,20 @@ mod tests {
         };
         let reach = ARROW_REACH;
         let arrow = arrow(DVec2::X);
-        at(arrow[6], DVec2::new(reach, 0.0));
+        at(arrow[3], DVec2::new(reach, 0.0));
         // Tail on the hub's edge rather than on the origin: both arrows run
         // back to the same place, so one that reached the origin would overlap
         // the other in the block they share.
         at(arrow[0], DVec2::new(0.09 * reach, -0.09 * reach));
-        at(arrow[3], DVec2::new(0.09 * reach, 0.09 * reach));
+        at(arrow[6], DVec2::new(0.09 * reach, 0.09 * reach));
         // Head base: shaft corners and head corners share it, so the two pieces
         // meet rather than overlapping or leaving a gap.
         at(arrow[1], DVec2::new(0.7 * reach, -0.09 * reach));
-        at(arrow[4], DVec2::new(0.7 * reach, -0.22 * reach));
-        at(arrow[5], DVec2::new(0.7 * reach, 0.22 * reach));
+        at(arrow[5], DVec2::new(0.7 * reach, 0.09 * reach));
+        at(arrow[2], DVec2::new(0.7 * reach, -0.22 * reach));
+        at(arrow[4], DVec2::new(0.7 * reach, 0.22 * reach));
         assert!(
-            arrow[5].y > arrow[2].y,
+            arrow[2].y.abs() > arrow[1].y.abs(),
             "a head no wider than its shaft is a bar, not an arrow"
         );
     }
@@ -340,13 +221,17 @@ mod tests {
                 |(low, high), &at| (low.min(at), high.max(at)),
             )
         };
+        // Split where the outline turns from the shaft onto the head, which in
+        // outline order is corners 1..5.
         let (across, up) = (arrow(DVec2::X), arrow(DVec2::Y));
+        let shaft = |of: &[DVec2; 7]| box_of(&[of[0], of[1], of[5], of[6]]);
+        let head = |of: &[DVec2; 7]| box_of(&of[2..5]);
         let pieces = [
             ("hub", box_of(&hub())),
-            ("x shaft", box_of(&across[..4])),
-            ("x head", box_of(&across[4..])),
-            ("y shaft", box_of(&up[..4])),
-            ("y head", box_of(&up[4..])),
+            ("x shaft", shaft(&across)),
+            ("x head", head(&across)),
+            ("y shaft", shaft(&up)),
+            ("y head", head(&up)),
             ("corner", box_of(&corner())),
         ];
         for (i, (name, (low, high))) in pieces.iter().enumerate() {
@@ -361,75 +246,6 @@ mod tests {
                 );
             }
         }
-    }
-
-    /// **The solid arrow is a closed shell, and every number of it is a
-    /// number.**
-    ///
-    /// A shape with volume is drawn through a two-sided pass, so a face left out
-    /// would let the eye through into the shape's own inside — and the pass is
-    /// unlit, so what came back would be flat colour rather than anything that
-    /// read as a mistake.
-    ///
-    /// Checked by counting how many faces each edge belongs to: every edge of a
-    /// closed shell is shared by exactly two. The disc from the axis out to the
-    /// shaft, where the head sits on it, is *not* missing and does not need to
-    /// be — the ring carries the surface from the shaft's rim out to the head's
-    /// and the cone takes it to the tip, so the inside is enclosed without it.
-    #[test]
-    fn the_solid_arrow_is_a_closed_shell() {
-        let solid = solid_arrow();
-        assert!(!solid.triangles.is_empty());
-        for corner in &solid.corners {
-            assert!(corner.at.is_finite(), "a corner at {:?}", corner.at);
-            assert!(
-                (corner.facing.length() - 1.0).abs() < 1e-9,
-                "a face looking {:?}, which is no direction",
-                corner.facing
-            );
-        }
-
-        // Reaches exactly as far as it says, and no further.
-        let along = solid
-            .corners
-            .iter()
-            .map(|corner| corner.at.x)
-            .fold(f64::MIN, f64::max);
-        assert!(
-            (along - ARROW_REACH).abs() < 1e-9,
-            "the arrow reaches {along}, where it says {ARROW_REACH}"
-        );
-
-        // Edges counted by where their two ends *are*, not by which corner
-        // index they used: the shape is faceted, so a shared edge is two
-        // corners in one place rather than one corner in two faces.
-        /// A corner as something two faces can agree about — rounded, because
-        /// the two sides of a shared edge reach it by different arithmetic.
-        type At = (i64, i64, i64);
-        let key = |at: DVec3| -> At {
-            let round = |value: f64| (value * 1e6).round() as i64;
-            (round(at.x), round(at.y), round(at.z))
-        };
-        let mut shared: std::collections::HashMap<(At, At), usize> =
-            std::collections::HashMap::new();
-        for &[a, b, c] in &solid.triangles {
-            let at = |corner: u32| key(solid.corners[corner as usize].at);
-            for (from, to) in [(a, b), (b, c), (c, a)] {
-                let (from, to) = (at(from), at(to));
-                let edge = if from < to { (from, to) } else { (to, from) };
-                *shared.entry(edge).or_default() += 1;
-            }
-        }
-        let open: Vec<_> = shared
-            .iter()
-            .filter(|(_, faces)| **faces != 2)
-            .map(|(edge, faces)| (*edge, *faces))
-            .collect();
-        assert!(
-            open.is_empty(),
-            "{} edges of the shell are not shared by exactly two faces: {open:?}",
-            open.len()
-        );
     }
 
     /// The +y arrow is the +x arrow turned a quarter, corner for corner.

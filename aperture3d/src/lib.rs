@@ -122,7 +122,7 @@ pub use motion::Motion;
 pub use object::Object;
 pub use point::Point;
 pub use ray::Ray;
-pub use renderer::{KEY_LIGHT, Renderer};
+pub use renderer::Renderer;
 pub use ring::Ring;
 pub use scene::Scene;
 pub use styled::Styled;

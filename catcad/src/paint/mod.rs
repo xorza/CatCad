@@ -6,22 +6,29 @@
 //! the solids — held apart from the model it is applied to so that neither has
 //! to be read to change the other. It is also where the model's `f64` becomes
 //! the renderer's `f32`, and the only place it does.
+//!
+//! The drawing only. What a drawing puts on screen to be *used* rather than
+//! read — a datum's axes, the arrow carrying a solid's depth — is
+//! [`gizmos`], held apart because it is written on the camera's schedule
+//! rather than the document's.
 
 use aperture::{Batch, Curve, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
-use glam::{DVec2, DVec3, Mat4, Vec2, Vec3};
+use glam::{Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Freedom, Prism, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
 use std::fmt::Write;
 
 use crate::model::{Model, Models};
 use crate::names::Names;
+use crate::paint::growing::Growing;
 use crate::paint::layout::{Layout, Made, Sheets};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::timeline::FeatureId;
 
+pub(crate) mod gizmos;
+pub(crate) mod growing;
 pub(crate) mod layout;
-mod shape;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -69,33 +76,6 @@ const DETERMINED: Vec3 = Vec3::new(0.35, 0.55, 0.80);
 const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
 const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
 const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
-
-/// What a datum's two axis arrows are drawn in.
-///
-/// The convention every modeller shares — x red, y green — which is worth
-/// having because it is the one thing about a gizmo a user already knows.
-///
-/// It collides, and knowingly: [`PINNED`] is a red and [`FREE`] is close to it,
-/// so a red arrow and a pinned point are two things saying different things in
-/// one hue. What keeps them apart for now is that they are never the same
-/// *shape* — an axis is a great flat arrow and a pinned point is a small disc —
-/// and both of these are muted well below the drawing's own, so they read as
-/// chrome rather than as state. A palette is where this gets settled properly.
-const AXIS_X: Vec3 = Vec3::new(0.62, 0.20, 0.18);
-const AXIS_Y: Vec3 = Vec3::new(0.24, 0.52, 0.24);
-
-/// What the arrow carrying a solid's depth is drawn in.
-///
-/// The same warm grey the solid itself is, because it is *that solid's* handle
-/// and nothing else in the drawing — a hue off the freedom ladder would say it
-/// had a state, and the axis colours would say it was an axis.
-const DEPTH_ARROW: Vec3 = Vec3::new(0.78, 0.76, 0.70);
-
-/// What the square joining the two is drawn in.
-///
-/// Neither hue, because it belongs to neither axis — it is the corner they make
-/// rather than a third direction, and giving it one of theirs would say it was.
-const AXIS_CORNER: Vec3 = Vec3::new(0.50, 0.52, 0.55);
 
 /// What a sketch that is not the one open is drawn in.
 ///
@@ -230,6 +210,10 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 /// they are written once here and never by [`redraw`]: what the drawing says
 /// changes sixty times a second, and what stands around it does not change at
 /// all.
+///
+/// The controls are not here either, and for the opposite reason: they are
+/// built against a camera rather than against the document. See
+/// [`gizmos::write()`].
 pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
     // No band and nothing being retyped. Nothing can be half-drawn or half-typed
@@ -288,7 +272,6 @@ fn write_solids(
                 .map(|(&corner, &normal)| Vertex {
                     position: corner.as_vec3(),
                     normal: normal.as_vec3(),
-                    color: Vec3::ONE,
                 }),
             &patch.triangles,
         );
@@ -302,232 +285,6 @@ fn write_solids(
         // control rather than the solid.
         object.tag = at.map(|of| names.tag(Part::Solid { of, face }));
     });
-}
-
-/// A solid being decided: a region, and how deep it currently reads.
-///
-/// What a form asking for a depth hands the drawing, so the solid is on screen
-/// from the moment it is asked for. A [`Prism`](silverpoint::Prism) is a
-/// reading rather than a thing the document holds — an arrangement, a region, a
-/// plane and a distance — so all of this is drawable without a step existing,
-/// and cancelling the form leaves the timeline never having heard of it.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Growing {
-    pub(crate) sketch: FeatureId,
-    pub(crate) region: usize,
-    pub(crate) distance: f64,
-}
-
-impl Growing {
-    /// Where the arrow that carries this stands, or `None` where the sketch no
-    /// longer holds the region it names.
-    ///
-    /// At the middle of the far cap, so it sits on the face it is carrying and
-    /// travels with it as the depth is typed — a handle that stayed at the base
-    /// would stop being on the thing it moves the moment it moved anything.
-    ///
-    /// **Inside the region rather than at the average of its corners**, which
-    /// for a region with a hole in it is a point in the hole: the demo's frame
-    /// is a rectangle with the hub cut out, and its corners average to the
-    /// middle of the cut. The widest triangle the fill was cut into is inside
-    /// the region by construction, and being the widest is what keeps the
-    /// answer off a sliver at an edge.
-    fn carried(self, models: Models<'_>, sheets: &mut Sheets) -> Option<Carried> {
-        let model = models.at(self.sketch)?;
-        let plane = model.plane();
-        let arrangement = model.arrangement();
-        let face = arrangement.faces().get(self.region)?;
-        let Sheets { filler, fill, .. } = sheets;
-        filler.fill(arrangement, face, FACE_SAGITTA, fill);
-        let widest = fill.triangles.iter().max_by(|&&a, &&b| {
-            let area = |[x, y, z]: [u32; 3]| {
-                let corner = |at: u32| fill.corners[at as usize];
-                (corner(y) - corner(x))
-                    .perp_dot(corner(z) - corner(x))
-                    .abs()
-            };
-            area(a).total_cmp(&area(b))
-        })?;
-        let middle: DVec2 = widest
-            .iter()
-            .map(|&at| fill.corners[at as usize])
-            .sum::<DVec2>()
-            / 3.0;
-        let normal = plane.normal().as_vec3();
-        Some(Carried::new(
-            plane.point(middle).as_vec3() + normal * self.distance as f32,
-            normal,
-            plane.x.as_vec3(),
-        ))
-    }
-
-    /// What it currently reads as, or `None` where the sketch no longer holds
-    /// the region it names.
-    fn prism(self, models: Models<'_>) -> Option<Prism<'_>> {
-        let model = models.at(self.sketch)?;
-        let arrangement = model.arrangement();
-        (self.region < arrangement.faces().len())
-            .then(|| Prism::new(arrangement, self.region, model.plane(), self.distance))
-    }
-}
-
-/// Two arrows per datum, from its origin along each of its axes.
-///
-/// Cut here rather than shaped by a renderer, which is what lets a control be
-/// ordinary world geometry: an arrow lying in its plane is a polygon in that
-/// plane's coordinates, and mapping seven of them through
-/// [`Plane::point`](silverpoint::Plane::point) is the whole of the work. It
-/// foreshortens as the plane turns and vanishes edge-on because it genuinely
-/// lies there, rather than because a shader was told to pretend.
-///
-/// Named as the plane itself, both of them: two tags reporting one
-/// [`Part`] is what [`Names`] is already built to allow — a tag is a position
-/// in a list and nothing assumes the list holds each part once — so grabbing
-/// either axis grabs the datum, and lighting the datum lights both.
-///
-/// The whole of how a datum is drawn, since the outline around what was
-/// sketched on it is gone: a plane's origin and the way its axes run are facts
-/// about the plane, where a box around the drawing was a fact about the
-/// drawing, restated in furniture.
-///
-/// Standing as a frame, like the outline around it: what a datum is *for* has
-/// not changed by being drawn differently, and it still yields a click to the
-/// geometry drawn on it.
-fn write_gizmos(
-    models: Models<'_>,
-    names: &mut Names,
-    sheets: &mut Sheets,
-    growing: Option<Growing>,
-    gizmos: &mut Batch<Object>,
-) {
-    // The depth arrow first, so a datum's own gizmo keeps the tag it had
-    // whether or not a form is open — a tag is a position in a list, and one
-    // that moved when a form opened would move what a hover named.
-    let carried = growing.and_then(|growing| growing.carried(models, sheets));
-    gizmos.refill(models.planes(), |object, (at, plane)| {
-        let normal = plane.normal().as_vec3();
-        let mesh = &mut object.mesh;
-        // Written over what is there rather than through [`remesh`], which
-        // takes one shape: this is four, and each has to be rebased onto the
-        // corners already written. Cleared rather than replaced all the same,
-        // so a plane that moves costs no allocation.
-        mesh.vertices.clear();
-        mesh.indices.clear();
-        let mut piece = |corners: &[DVec2], triangles: &[[u32; 3]], ink: Vec3| {
-            let base = mesh.vertices.len() as u32;
-            mesh.vertices.extend(corners.iter().map(|&at| Vertex {
-                position: plane.point(at).as_vec3(),
-                normal,
-                color: ink,
-            }));
-            mesh.indices
-                .extend(triangles.iter().flatten().map(|corner| base + corner));
-        };
-        piece(&shape::hub(), &shape::SQUARE_TRIANGLES, AXIS_CORNER);
-        piece(&shape::arrow(DVec2::X), &shape::ARROW_TRIANGLES, AXIS_X);
-        piece(&shape::arrow(DVec2::Y), &shape::ARROW_TRIANGLES, AXIS_Y);
-        piece(&shape::corner(), &shape::SQUARE_TRIANGLES, AXIS_CORNER);
-
-        object.transform = Mat4::IDENTITY;
-        // White, so each corner's own colour is what lands — see
-        // [`Vertex::color`](aperture::Vertex). What the object's colour is still
-        // for is a highlight: a `Tint::Ink` replaces it and flattens the gizmo
-        // to one colour, where a `Tint::Lift` multiplies and leaves the axes
-        // telling themselves apart.
-        object.color = Vec3::ONE;
-        object.precedence = Precedence::Frame;
-        object.tag = Some(names.tag(Part::Plane(at)));
-    });
-    // Appended rather than chained into the refill above, because it is one
-    // object against a walk of planes and the two have nothing to write in
-    // common. A form is opened rarely, so the allocation this costs the first
-    // time is not one a frame pays.
-    if let Some(carried) = carried {
-        let mut arrow = Object::new(Mesh::default());
-        let solid = shape::solid_arrow();
-        remesh(
-            &mut arrow.mesh,
-            solid.corners.iter().map(|&corner| carried.at(corner)),
-            &solid.triangles,
-        );
-        // The colour is the object's and the shading is the corners' — see
-        // [`Carried::at`], which puts the light into them.
-        arrow.color = DEPTH_ARROW;
-        // Shaped rather than a frame, unlike a datum's axes: this is what the
-        // gesture is *for* while the form is open, so it takes the click over
-        // the geometry it stands on.
-        arrow.precedence = Precedence::Shaped;
-        arrow.tag = Some(names.tag(Part::Growing));
-        gizmos.push(arrow);
-    }
-}
-
-/// Where a depth arrow stands and which way it points, as the frame its shape is
-/// cut in.
-///
-/// A [`shape::Solid`] is cut in a frame of its own — see [`shape`] — and this is
-/// what turns that into world corners: `x` runs along the plane's normal, which
-/// is the direction the depth grows in, and `y` and `z` across it. So the arrow
-/// stands *out* of the plane rather than lying in it, which is what a handle
-/// carrying something off a face has to do.
-#[derive(Debug, Clone, Copy)]
-struct Carried {
-    tail: Vec3,
-    along: Vec3,
-    across: Vec3,
-    /// The third axis, so a shape with volume has a frame to be turned in
-    /// rather than a plane to lie in.
-    up: Vec3,
-}
-
-impl Carried {
-    fn new(tail: Vec3, along: Vec3, across: Vec3) -> Self {
-        Self {
-            tail,
-            along,
-            across,
-            up: along.cross(across).normalize_or_zero(),
-        }
-    }
-
-    /// A corner of the shape, put in the world and shaded.
-    ///
-    /// **Shaded here rather than by the pass**, which draws gizmos unlit — and
-    /// has to, because an axis says which axis it is by its colour and one the
-    /// key light touched would say it differently on every plane. A shape with
-    /// volume needs shading all the same or it reads as a silhouette, so it is
-    /// worked out per face on the way in and carried in the corner's own
-    /// colour. That costs nothing per frame: the geometry is only cut again
-    /// when the thing it is a handle for moves.
-    fn at(self, corner: shape::Corner) -> Vertex {
-        let put = |at: DVec3| {
-            self.along * at.x as f32 + self.across * at.y as f32 + self.up * at.z as f32
-        };
-        let facing = put(corner.facing).normalize_or_zero();
-        Vertex {
-            position: self.tail + put(corner.at),
-            normal: facing,
-            color: Vec3::splat(lit(facing)),
-        }
-    }
-}
-
-/// How bright a face of a solid gizmo reads, from the way it looks.
-///
-/// A key light and an ambient floor, and nothing else — no ambient tint and no
-/// second light, because what this is shading is a handle rather than material.
-///
-/// The renderer's own light rather than one of this crate's choosing, and that
-/// is the whole reason [`aperture::KEY_LIGHT`] is published: the gizmo pass is
-/// deliberately unlit, so a control with volume bakes its own shading, and a
-/// handle lit from somewhere other than the solid it stands on looks *plausible*
-/// while being wrong.
-///
-/// Never reaching zero: a face turned right away from the light is still a face
-/// of the thing you are trying to grab, and a black one reads as a hole.
-fn lit(facing: Vec3) -> f32 {
-    const FLOOR: f32 = 0.55;
-    FLOOR + (1.0 - FLOOR) * facing.dot(aperture::KEY_LIGHT.normalize()).max(0.0)
 }
 
 /// Draw the whole of `model`, and `band` over it, into the room `layout` keeps
@@ -594,7 +351,8 @@ pub(crate) fn redraw(
     write_marks(models, typed, names, &mut into.texts);
     write_faces(models, names, sheets, &mut into.faces);
     write_solids(models, names, sheets, growing, &mut into.solids);
-    write_gizmos(models, names, sheets, growing, &mut into.gizmos);
+    // Where the controls start naming from — see [`gizmos::write()`].
+    names.drew();
     layout.drawn(made);
 }
 
@@ -607,7 +365,7 @@ pub(crate) fn redraw(
 /// The two of them, not every mesh here: a gizmo is four shapes in one mesh,
 /// each rebased onto the corners before it, and rewriting it goes through
 /// nothing this could offer without being handed a list of shapes instead of
-/// one — see [`write_gizmos`].
+/// one — see [`gizmos::write()`].
 ///
 /// Written over what is already there rather than assigned, which is what keeps
 /// a drag off the heap: every face of a drawing and every face of every solid is
@@ -667,7 +425,6 @@ fn write_faces(
                 fill.corners.iter().map(|&corner| Vertex {
                     position: plane.point(corner).as_vec3(),
                     normal,
-                    color: Vec3::ONE,
                 }),
                 &fill.triangles,
             );

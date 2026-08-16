@@ -45,7 +45,7 @@ impl Raised {
             document.camera_mut().frame(extent);
         }
         view.settle(&document, &build, &session);
-        Self {
+        let mut raised = Self {
             document,
             history: History::default(),
             build,
@@ -53,7 +53,14 @@ impl Raised {
             view,
             harness: UiHarness::new(SIZE),
             session,
-        }
+        };
+        // One frame nobody clicks in, because a view has no viewport until it
+        // has been laid out once and the controls are built against one. The
+        // application's first frame is a frame nobody has had time to click in
+        // either; a test's is the one it clicks in, so it is handed a view a
+        // frame old.
+        raised.frame();
+        raised
     }
 
     /// One frame, in the order the application records one: the pointer is
@@ -1862,15 +1869,16 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
     let (on_shaft, drawn) = {
         let renderer = raised.view.renderer().borrow();
         let gizmos = &renderer.scene().gizmos;
-        let corners = &gizmos[0].mesh.vertices[..4];
-        let middle = corners
-            .iter()
-            .fold(Vec3::ZERO, |sum, corner| sum + corner.position)
-            / corners.len() as f32;
+        let corners = &gizmos[0].points;
+        let middle = corners.iter().fold(Vec3::ZERO, |sum, &at| sum + at) / corners.len() as f32;
         let tags: Vec<_> = gizmos.iter().filter_map(|gizmo| gizmo.tag).collect();
         (middle, tags)
     };
-    assert_eq!(drawn.len(), 1, "the demo's one datum is drawn as one gizmo");
+    assert_eq!(
+        drawn.len(),
+        4,
+        "the demo's one datum is two arrows, a hub and a corner"
+    );
 
     raised.harness.move_to(raised.cursor_on(on_shaft));
     raised.frame();

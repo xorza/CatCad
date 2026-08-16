@@ -40,30 +40,22 @@ pub struct Scene {
     pub rings: Batch<Ring>,
     pub points: Batch<Point>,
     pub texts: Batch<Text>,
-    /// The flat controls: a datum's axes, an arrowhead on a leader — the things
-    /// a drawing puts on screen to be *used* rather than measured.
+    /// The controls: a datum's axes, an arrowhead on a leader — the things a
+    /// drawing puts on screen to be *used* rather than measured.
     ///
-    /// The third way an [`Object`] is drawn, and the furthest from the first.
-    /// Unlit, because a control says what it is by its colour and one the key
-    /// light shaded would say it differently on every plane; two-sided, like a
-    /// face and for the same reason; opaque, unlike one; and standing between
-    /// the two on the depth ladder, so that on one datum the region it encloses
-    /// reads under the control and every stroke and marker of the drawing reads
-    /// over it. A gizmo is furniture the drawing is done *on*.
+    /// Strokes like the drawing's own, and its own batch for two reasons. It
+    /// stands on its own rung of the depth ladder, between the regions and the
+    /// strokes, because a control is furniture the drawing is done *on*. And it
+    /// is written on its own schedule: a control holds its size **on screen**,
+    /// so its geometry is built against the camera and has to be rewritten when
+    /// the camera moves — see
+    /// [`Camera::world_per_pixel`](crate::Camera::world_per_pixel) — where the
+    /// drawing is rewritten only when the *drawing* moves.
     ///
-    /// It is ordinary opaque geometry for all that, and writes depth like any:
-    /// what is genuinely in front of a control hides it, control included. The
-    /// rung decides the coplanar case and nothing else.
-    ///
-    /// Cut in the world rather than built in the shader, which is what makes it
-    /// an object and not an overlay. So its size is a world size and its
-    /// vertices are only ever rewritten when the thing it is a control *for*
-    /// moves — never when the camera does.
-    ///
-    /// It also picks as the opposite of what it is made of: a solid and a face
-    /// are backdrops that yield to everything drawn on them, where a gizmo
-    /// outranks every other kind there is. See [`Object::pick`].
-    pub gizmos: Batch<Object>,
+    /// It also picks as the opposite of what it is made of: a stroke of the
+    /// drawing is ranked by shape like anything else, where a control outranks
+    /// every kind there is. See [`Curve::pick`].
+    pub gizmos: Batch<Curve>,
 }
 
 /// How much farther than something a hit has to be before it counts as being
@@ -217,7 +209,7 @@ impl Scene {
             .gizmos
             .iter()
             .filter(|gizmo| framed(&gizmo.precedence))
-            .filter_map(|gizmo| gizmo.pick(aim, HitAt::Gizmo));
+            .filter_map(|gizmo| Self::grabbed(gizmo, aim));
         let curves = self
             .curves
             .iter()
@@ -297,6 +289,21 @@ impl Scene {
             .min_by(Hit::aim_order)
     }
 
+    /// A stroke of the *gizmo* batch, which counts as a control however it is
+    /// shaped.
+    ///
+    /// The rewrite is the whole of it, and it belongs here rather than in
+    /// [`Curve::pick`]: which batch a stroke is in decides what it *is*, exactly
+    /// as it does for an [`Object`], and nothing on the stroke says so. A
+    /// control is the one thing in a scene put there to be taken hold of, so it
+    /// outranks every kind of drawn thing — where the same stroke among the
+    /// drawing's own would be ranked as the edge it looks like.
+    fn grabbed(gizmo: &Curve, aim: &Aim) -> Option<Hit> {
+        let mut hit = gizmo.pick(aim)?;
+        hit.at = HitAt::Gizmo;
+        Some(hit)
+    }
+
     /// Every overlay the aim reaches — the markers, labels, strokes and rims a
     /// drawing is made of — in no particular order.
     ///
@@ -310,7 +317,7 @@ impl Scene {
             .chain(
                 self.gizmos
                     .iter()
-                    .filter_map(move |gizmo| gizmo.pick(aim, HitAt::Gizmo)),
+                    .filter_map(move |gizmo| Self::grabbed(gizmo, aim)),
             )
             .chain(self.curves.iter().filter_map(move |curve| curve.pick(aim)))
             .chain(self.rings.iter().filter_map(move |ring| ring.pick(aim)))

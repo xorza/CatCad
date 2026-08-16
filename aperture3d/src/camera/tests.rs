@@ -507,3 +507,49 @@ fn dolly_scales_distance_down_to_the_floor() {
     camera.dolly(0.0);
     assert_eq!(camera.distance, MIN_DISTANCE);
 }
+
+/// **A pixel covers more world the further off it is, and the same everywhere
+/// under parallel rays.**
+///
+/// What sizing a shape in pixels rests on. The perspective half is the one
+/// worth pinning: a caller that took the scale at the orbit target and used it
+/// everywhere would build handles that came out right only where it happened to
+/// be looking, and wrong by the ratio of the depths anywhere else.
+#[test]
+fn a_pixel_covers_more_world_the_further_off_it_is() {
+    let viewport = Viewport::new(UVec2::new(800, 400));
+    let camera = Camera {
+        target: Vec3::ZERO,
+        distance: 10.0,
+        yaw: 0.0,
+        pitch: 0.0,
+        fov_y: std::f32::consts::FRAC_PI_2,
+        ..Camera::default()
+    };
+    // Looking down −Z from +Z, so the target is ten away and a point at −10 is
+    // twenty. A 90° fov puts the half-height at the depth, so a pixel covers
+    // `2 * depth / 400` — 0.05 at the target and 0.1 twice as far.
+    let at_target = camera.world_per_pixel(Vec3::ZERO, viewport);
+    assert!((at_target - 0.05).abs() < 1e-6, "{at_target}");
+    let further = camera.world_per_pixel(Vec3::new(0.0, 0.0, -10.0), viewport);
+    assert!((further - 0.1).abs() < 1e-6, "{further}");
+
+    // Off to one side is not further off: a projection measures along the view,
+    // and a point beside the axis is on the same view plane as one on it.
+    let beside = camera.world_per_pixel(Vec3::new(50.0, 0.0, 0.0), viewport);
+    assert!(
+        (beside - at_target).abs() < 1e-6,
+        "a point beside the axis measured {beside} against {at_target}"
+    );
+
+    // Parallel rays have no such thing: the slab is one width all the way
+    // through, so a shape sized in pixels is the same shape wherever it stands.
+    let flat = Camera {
+        projection: Projection::Orthographic,
+        ..camera
+    };
+    assert_eq!(
+        flat.world_per_pixel(Vec3::ZERO, viewport),
+        flat.world_per_pixel(Vec3::new(0.0, 0.0, -10.0), viewport),
+    );
+}
