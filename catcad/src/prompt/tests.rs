@@ -41,7 +41,7 @@ fn dimension() -> Part {
 #[test]
 fn a_form_opens_on_the_value_the_dimension_states() {
     let part = dimension();
-    let prompt = Prompt::on(Asking::Dimension { part }, &[("", 125.4)]);
+    let prompt = Prompt::on(Asking::Dimension { part }, &[("", Some(125.4))]);
     assert_eq!(prompt.marks(), Some(part));
     assert_eq!(
         prompt.fields[0].draft, "125.40",
@@ -59,7 +59,7 @@ fn a_form_opens_on_the_value_the_dimension_states() {
 /// an error.
 #[test]
 fn a_draft_that_is_not_a_number_has_no_value() {
-    let mut prompt = Prompt::on(Asking::Dimension { part: dimension() }, &[("", 12.0)]);
+    let mut prompt = Prompt::on(Asking::Dimension { part: dimension() }, &[("", Some(12.0))]);
     for (draft, value) in [
         ("40", Some(40.0)),
         ("  40.5 ", Some(40.5)),
@@ -85,7 +85,7 @@ fn a_draft_that_is_not_a_number_has_no_value() {
 /// you are done with it.
 #[test]
 fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
-    let typed = Prompt::on(Asking::Dimension { part: dimension() }, &[("", 1.0)]);
+    let typed = Prompt::on(Asking::Dimension { part: dimension() }, &[("", Some(1.0))]);
     assert!(typed.blurs(), "a dimension form has no other way out");
     assert!(!typed.answered());
     assert_eq!(
@@ -102,7 +102,7 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
         unreachable!("the fixture is a dimension of a sketch");
     };
     let profile = Profile::new(sketch, Vec::new());
-    let grown = Prompt::on(Asking::Extrude { profile }, &[("Depth", 0.0)]);
+    let grown = Prompt::on(Asking::Extrude { profile }, &[("Depth", Some(0.0))]);
     assert!(grown.answered(), "an extrude form carries its own answers");
     assert!(!grown.blurs());
     assert_eq!(

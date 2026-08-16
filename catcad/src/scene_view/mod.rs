@@ -550,6 +550,11 @@ impl SceneView {
         // What the second click would commit, following the cursor. Kept on the
         // view rather than raised as an intent, because it is not in the
         // document and never will be — see [`Preview`].
+        // What the keyboard has taken over, where it has. A radius typed stops
+        // the band following the pointer — the number and the picture are two
+        // views of one value, and a band that went on tracking would be showing
+        // a different one from the form beside it.
+        let typed = session.prompt().and_then(|open| open.typed(0));
         self.preview = tool
             .started()
             .zip(aimed::landing(
@@ -558,15 +563,36 @@ impl SceneView {
                 document.drawing_at(sketch).motion(),
             ))
             .map(|(started, at)| {
-                let ends = Ends {
-                    from: document.drawing_at(sketch).at(started),
-                    to: at,
-                };
+                let drawing = document.drawing_at(sketch);
+                let from = drawing.at(started);
+                let ends = Ends { from, to: at };
                 match tool {
-                    Tool::Circle { .. } => Preview::Circle(ends),
+                    Tool::Circle { .. } => {
+                        let ends = match typed {
+                            // Along the plane's own x, which is where a typed
+                            // radius puts the rim when it commits — so the band
+                            // and what it becomes are the same circle.
+                            Some(radius) => Ends {
+                                from,
+                                to: from + drawing.plane().x.as_vec3() * radius as f32,
+                            },
+                            None => ends,
+                        };
+                        Preview::Circle(ends)
+                    }
                     _ => Preview::Line(ends),
                 }
             });
+        // And the other way about while nobody has typed: what the band is
+        // showing is what the field offers, so the number follows the pointer.
+        if typed.is_none()
+            && let Some(band) = self.preview.and_then(Preview::ring)
+        {
+            intents.push(Choice::Suggest {
+                nth: 0,
+                to: f64::from(band.from.distance(band.to)),
+            });
+        }
 
         self.viewport = response
             .layout_rect

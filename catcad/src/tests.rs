@@ -2139,3 +2139,70 @@ fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
         drawn.radius
     );
 }
+
+/// **The pointer offers a radius until somebody types one, and then it stops.**
+///
+/// Two views of one number, and the rule for which of them is speaking. The
+/// pointer *suggests* — the field shows what the band is measuring, and the
+/// draft stays empty so the first keystroke lands in a field with nothing to
+/// fight. From that keystroke the keyboard has it: the band snaps to what was
+/// typed and stops following the cursor.
+///
+/// Which is driving needs no flag to say so. **The draft being non-empty is the
+/// keyboard having it**, so backspacing the last character hands the pointer
+/// back — which is what anyone would expect and what a flag would have had to
+/// be told to do.
+#[test]
+fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    let plane = app.document.drawing_at(app.session.editing()).plane();
+    let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
+    let at_middle = cursor_on(&mut app, middle);
+    harness.click_at(CIRCLE_BUTTON);
+    frame(&mut app, &mut harness);
+    harness.click_at(at_middle);
+    frame(&mut app, &mut harness);
+
+    // Two units out, so what the band measures is known by hand.
+    let out = cursor_on(&mut app, plane.point(DVec2::new(-1.0, 2.5)).as_vec3());
+    harness.move_to(out);
+    frame(&mut app, &mut harness);
+    let banded = |app: &CatCad| app.view.band_rim().map(|to| middle.distance(to));
+    assert!(
+        (banded(&app).expect("the band follows the pointer") - 2.0).abs() < 1e-3,
+        "the band measured {:?} rather than the two units it was carried",
+        banded(&app)
+    );
+    let open = app.session.prompt().expect("the form is open");
+    assert_eq!(
+        open.typed(0),
+        None,
+        "nobody has typed, so nobody is driving"
+    );
+    assert!(
+        (open.says(0).expect("the pointer offers one") - 2.0).abs() < 1e-3,
+        "the field is not showing what the band is measuring"
+    );
+
+    // Typed, and the band lets go of the pointer: it holds the typed radius
+    // even as the cursor carries on somewhere else entirely.
+    harness.type_text("5");
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.session.prompt().and_then(|open| open.typed(0)),
+        Some(5.0)
+    );
+    harness.move_to(cursor_on(
+        &mut app,
+        plane.point(DVec2::new(3.0, 2.5)).as_vec3(),
+    ));
+    frame(&mut app, &mut harness);
+    assert!(
+        (banded(&app).expect("the band is still drawn") - 5.0).abs() < 1e-3,
+        "the band went back to following the cursor at {:?}",
+        banded(&app)
+    );
+}

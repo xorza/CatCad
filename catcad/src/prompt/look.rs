@@ -29,7 +29,12 @@ pub(crate) const CANCEL: &str = "\u{2717}";
 /// width — a tick is broader than a cross — so hugging gives a pair that is
 /// visibly mismatched. What these are is a pair of equal choices, and the shape
 /// should say so before the colour does.
-pub(crate) const ANSWER_SIDE: f32 = 26.0;
+///
+/// Close to the height of the field above them, so the form reads as one
+/// control rather than as a box with a pair of larger things under it. Small
+/// enough to be chrome: these stand *on* a drawing, and a button there competes
+/// with the geometry it is about.
+pub(crate) const ANSWER_SIDE: f32 = 19.0;
 
 /// Green for the one that goes through and red for the one that does not.
 ///

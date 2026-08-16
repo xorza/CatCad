@@ -17,8 +17,8 @@
 use aperture::{Camera, Viewport};
 use glam::{Vec2, Vec3};
 use palantir::{
-    Align, Button, ButtonTheme, ClickOutside, Configure, Panel, Popup, Rect, Sizing, Text,
-    TextEdit, TextEditTheme, TextRun, TextWrap, Ui, WidgetId,
+    Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Sizing, Text,
+    TextEdit, TextEditTheme, TextRun, TextWrap, Ui, VAlign, WidgetId,
 };
 use silverpoint::{CircleId, Constraint, Entity};
 use std::fmt::Write;
@@ -148,10 +148,25 @@ struct Field {
     /// word the drawing never had.
     label: &'static str,
     /// The buffer [`TextEdit`] borrows, so the widget writes it and this reads
-    /// it. Seeded when the form opens and never re-seeded: a draft is what the
-    /// *user* has made of the value, and geometry that moved under it says
-    /// nothing about what they meant to type.
+    /// it. Never re-seeded from the drawing: a draft is what the *user* has
+    /// made of the value, and geometry that moved under it says nothing about
+    /// what they meant to type.
     draft: String,
+    /// What the field shows while the draft is empty — the value the *pointer*
+    /// is describing, which is a suggestion rather than an answer.
+    ///
+    /// The placeholder rather than the draft, and that is the whole trick. A
+    /// pointer writing the draft of a focused field destroys the selection that
+    /// makes the first keystroke *replace* rather than insert, so typing `3`
+    /// into a field the pointer had carried to `1.47` would give `1.473`.
+    /// Written here, the draft stays empty until somebody types, and the first
+    /// keystroke lands in an empty field with nothing to fight.
+    ///
+    /// It also means the two states need no flag between them: **the keyboard
+    /// is driving exactly when the draft is not empty.** Backspacing the last
+    /// character hands the pointer back, which is the behaviour anyone would
+    /// expect and costs nothing to have.
+    suggested: String,
 }
 
 /// A form open against the drawing: what it is about, and what has been typed.
@@ -233,14 +248,20 @@ enum Done {
 
 impl Prompt {
     /// Open a form for `about`, seeded with `values`.
-    pub(crate) fn on(about: Asking, values: &[(&'static str, f64)]) -> Self {
+    ///
+    /// A field seeded `None` opens **empty**, which is a field the pointer is
+    /// driving — see [`Field::suggested`]. What restates something already
+    /// drawn opens on the value it currently has; what is still being made has
+    /// no value yet, only whatever the pointer is describing.
+    pub(crate) fn on(about: Asking, values: &[(&'static str, Option<f64>)]) -> Self {
         Self {
             about,
             fields: values
                 .iter()
                 .map(|&(label, value)| Field {
                     label,
-                    draft: format!("{value:.*}", DECIMALS),
+                    draft: value.map_or_else(String::new, |value| format!("{value:.*}", DECIMALS)),
+                    suggested: String::new(),
                 })
                 .collect(),
             shown: false,
@@ -354,6 +375,41 @@ impl Prompt {
         let _ = write!(field.draft, "{to:.*}", DECIMALS);
     }
 
+    /// Show `to` in the `nth` field while nobody has typed into it.
+    ///
+    /// What a pointer merely *moving* says. Incidental, where
+    /// [`Prompt::write`] is deliberate: a hover offers a value and a drag sets
+    /// one, and only the second may overwrite what has been typed.
+    pub(crate) fn suggest(&mut self, nth: usize, to: f64) {
+        let Some(field) = self.fields.get_mut(nth) else {
+            return;
+        };
+        field.suggested.clear();
+        let _ = write!(field.suggested, "{to:.*}", DECIMALS);
+    }
+
+    /// What the `nth` field says, where somebody has typed it.
+    ///
+    /// `None` while the draft is empty, which is the pointer still driving —
+    /// see [`Field::suggested`]. What asks is whatever the number *moves*: a
+    /// band that went on following the cursor after a radius was typed would be
+    /// showing one number while the form showed another.
+    pub(crate) fn typed(&self, nth: usize) -> Option<f64> {
+        let field = self.fields.get(nth)?;
+        (!field.draft.trim().is_empty()).then(|| self.value(nth))?
+    }
+
+    /// What the `nth` field currently means, whoever put it there.
+    ///
+    /// [`Prompt::typed`] where somebody has typed, and the pointer's own
+    /// suggestion where nobody has. What *commits* asks this rather than the
+    /// draft: a form showing a number and refusing to accept it because the
+    /// number came from the pointer would be a form arguing with what it says.
+    pub(crate) fn says(&self, nth: usize) -> Option<f64> {
+        self.typed(nth)
+            .or_else(|| self.fields.get(nth)?.suggested.trim().parse().ok())
+    }
+
     /// Show the form, and put what it asked for in `intents`.
     ///
     /// Shows and does not act, like every other control the application draws:
@@ -420,7 +476,7 @@ impl Prompt {
     fn commit(&self, models: Models<'_>, intents: &mut Intents) {
         match &self.about {
             Asking::Dimension { part } => {
-                let Some(to) = self.value(0) else {
+                let Some(to) = self.says(0) else {
                     return;
                 };
                 let (Some(sketch), Some(Entity::Constraint(constraint))) =
@@ -443,7 +499,7 @@ impl Prompt {
             // — bare plane, holding to nothing, which is what a number typed
             // rather than a place clicked has to mean.
             Asking::Circle { sketch, center } => {
-                let Some(radius) = self.value(0).filter(|radius| *radius > 0.0) else {
+                let Some(radius) = self.says(0).filter(|radius| *radius > 0.0) else {
                     return;
                 };
                 let Some(drawing) = models.at(*sketch).map(Model::drawing) else {
@@ -462,7 +518,7 @@ impl Prompt {
                 intents.push(Choice::Hold(Tool::Circle { center: None }));
             }
             Asking::Radius { sketch, circle } => {
-                let Some(radius) = self.value(0) else {
+                let Some(radius) = self.says(0) else {
                     return;
                 };
                 // A relation rather than a restatement: the circle has no
@@ -477,7 +533,7 @@ impl Prompt {
                 });
             }
             Asking::Extrude { profile } => {
-                let Some(distance) = self.value(0) else {
+                let Some(distance) = self.says(0) else {
                     return;
                 };
                 // Resolved here rather than carried, for the reason the form
@@ -616,6 +672,7 @@ impl Prompt {
             anchor.size.h + STANDS_CLEAR * 2.0,
         );
         let answerable = self.answered();
+        let blurs = self.blurs();
         let Self {
             fields,
             look,
@@ -629,7 +686,13 @@ impl Prompt {
             .id_salt("prompt.beside")
             .click_outside(ClickOutside::PassThrough)
             .show(ui, |ui, _| {
-                if opening {
+                // **Every frame, not only the first.** A form standing against a
+                // gesture moves with what it is measuring, so there is no
+                // clicking back into one that has lost focus — it is not where
+                // it was by the time the press lands. A form that is dismissed
+                // by *clicking away* is the opposite case and must not be held,
+                // which is the same question [`Prompt::blurs`] answers.
+                if opening || !blurs {
                     ui.request_focus(Some(Self::field_id(0)));
                 }
                 // A column, so the answers sit under what they answer rather
@@ -640,12 +703,20 @@ impl Prompt {
                     Panel::hstack().id_salt("row").gap(GAP).show(ui, |ui| {
                         for (nth, field) in fields.iter_mut().enumerate() {
                             if !field.label.is_empty() {
-                                Text::new(field.label).id_salt(field.label).show(ui);
+                                // Against the middle of the box beside it, not
+                                // the top of the row: a field is taller than
+                                // the word naming it, so a label left to its
+                                // own devices sits on the field's top edge.
+                                Text::new(field.label)
+                                    .id_salt(field.label)
+                                    .align(Align::v(VAlign::Center))
+                                    .show(ui);
                             }
                             let shown = TextEdit::new(&mut field.draft)
                                 .id(Self::field_id(nth))
                                 .style(look)
                                 .select_all_on_focus()
+                                .placeholder(field.suggested.clone())
                                 .text_align(Align::CENTER)
                                 .size((Sizing::HUG, Sizing::HUG))
                                 .show(ui);
@@ -656,27 +727,34 @@ impl Prompt {
                     // blurs shut has no use for them, and two buttons that were
                     // not the way out would be two buttons lying about it.
                     if answerable {
-                        Panel::hstack().id_salt("answers").gap(GAP).show(ui, |ui| {
-                            for (glyph, theme, answer) in [
-                                (look::CONFIRM, &*goes, Done::Commit),
-                                (look::CANCEL, &*stops, Done::Cancel),
-                            ] {
-                                let pressed = Button::new()
-                                    .id_salt(glyph)
-                                    .label(glyph)
-                                    .style(theme)
-                                    .size((
-                                        Sizing::fixed(look::ANSWER_SIDE),
-                                        Sizing::fixed(look::ANSWER_SIDE),
-                                    ))
-                                    .show(ui)
-                                    .left
-                                    .clicked();
-                                if pressed {
-                                    answered = Some(answer);
+                        // Under the far end of the row rather than its start,
+                        // so the answers line up with the number they are about
+                        // instead of with the word naming it.
+                        Panel::hstack()
+                            .id_salt("answers")
+                            .gap(GAP)
+                            .align(Align::h(HAlign::Right))
+                            .show(ui, |ui| {
+                                for (glyph, theme, answer) in [
+                                    (look::CONFIRM, &*goes, Done::Commit),
+                                    (look::CANCEL, &*stops, Done::Cancel),
+                                ] {
+                                    let pressed = Button::new()
+                                        .id_salt(glyph)
+                                        .label(glyph)
+                                        .style(theme)
+                                        .size((
+                                            Sizing::fixed(look::ANSWER_SIDE),
+                                            Sizing::fixed(look::ANSWER_SIDE),
+                                        ))
+                                        .show(ui)
+                                        .left
+                                        .clicked();
+                                    if pressed {
+                                        answered = Some(answer);
+                                    }
                                 }
-                            }
-                        });
+                            });
                     }
                 });
             });

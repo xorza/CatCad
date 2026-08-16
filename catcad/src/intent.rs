@@ -377,6 +377,12 @@ pub(crate) enum Choice {
     /// change: a drag sends one of these a frame and a replayed pass restates
     /// the same number.
     Set { nth: usize, to: f64 },
+    /// Show `to` in the open form's `nth` field while nobody has typed into it.
+    ///
+    /// What a pointer merely *moving* says, where [`Choice::Set`] is what a
+    /// drag says. The difference is deliberateness, and it decides whether the
+    /// value may overwrite one somebody typed: a hover may not, a drag may.
+    Suggest { nth: usize, to: f64 },
     /// Take up this tool, or put down whatever is in hand by naming
     /// [`Tool::Pointer`].
     ///

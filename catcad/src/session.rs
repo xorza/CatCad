@@ -145,19 +145,21 @@ impl Session {
                     // next one there is.
                     let opened = match opening {
                         Opening::Dimension { part, from } => {
-                            Prompt::on(Asking::Dimension { part }, &[("", from)])
+                            Prompt::on(Asking::Dimension { part }, &[("", Some(from))])
                         }
-                        // At no size at all, which is where a circle starts:
-                        // the centre is placed and the radius is the thing
-                        // being asked for.
+                        // Empty, which is the pointer driving: a circle has no
+                        // radius until the band has been carried somewhere or
+                        // one has been typed, and the field shows whichever.
                         Opening::Circle { sketch, center } => {
-                            Prompt::on(Asking::Circle { sketch, center }, &[("Radius", 0.0)])
+                            Prompt::on(Asking::Circle { sketch, center }, &[("Radius", None)])
                         }
                         Opening::Radius {
                             sketch,
                             circle,
                             from,
-                        } => Prompt::on(Asking::Radius { sketch, circle }, &[("Radius", from)]),
+                        } => {
+                            Prompt::on(Asking::Radius { sketch, circle }, &[("Radius", Some(from))])
+                        }
                         // At no depth at all, which is where the ask starts:
                         // the solid is on screen from the moment the form
                         // opens, and a zero-depth prism is a well-formed one.
@@ -171,7 +173,7 @@ impl Session {
                             else {
                                 continue;
                             };
-                            Prompt::on(Asking::Extrude { profile }, &[("Depth", 0.0)])
+                            Prompt::on(Asking::Extrude { profile }, &[("Depth", Some(0.0))])
                         }
                     };
                     if self
@@ -188,6 +190,11 @@ impl Session {
                 Intent::Choice(Choice::Set { nth, to }) => {
                     if let Some(open) = self.prompt.as_mut() {
                         open.write(nth, to);
+                    }
+                }
+                Intent::Choice(Choice::Suggest { nth, to }) => {
+                    if let Some(open) = self.prompt.as_mut() {
+                        open.suggest(nth, to);
                     }
                 }
                 // The history's, and the document's through it. Landed by
