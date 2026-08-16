@@ -189,11 +189,9 @@ fn flatten(
         laying,
         Inked {
             anchor: text.position,
-            // Where the run's top-left sits relative to its anchor, which is
-            // the whole of what the anchor fraction decides.
-            origin: -text.anchor * text.extent(),
+            origin: text.origin(),
             color: text.color,
-            plane: text.plane_normal,
+            plane: text.facing.normal(),
         },
         into,
     );

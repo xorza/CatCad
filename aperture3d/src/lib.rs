@@ -63,7 +63,9 @@
 //! would be restating a layering it does not control. What is left to the
 //! primitive is `plane_normal`, which gives its screen-widened corners the
 //! surface's own depth rather than the anchor's — a shape question rather than a
-//! layering one, and documented where it is declared.
+//! layering one, and documented where it is declared. A run of text names its
+//! surface through [`Facing`] instead, because it can also be *turned* into one,
+//! and a normal alone cannot say which way round.
 //!
 //! # Picking
 //!
@@ -127,5 +129,5 @@ pub use ring::Ring;
 pub use scene::Scene;
 pub use styled::Styled;
 pub use tag::Tag;
-pub use text::Text;
+pub use text::{Axes, Facing, Text, Turn};
 pub use viewport::Viewport;

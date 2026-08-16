@@ -82,22 +82,11 @@ impl Aim {
 
     /// How far the cursor fell outside `rect`, and zero anywhere within it.
     ///
-    /// Per axis, how far past an edge the cursor sits — negative between them,
-    /// which the floor at zero discards. The length of what survives is the
-    /// distance to the nearest corner when the cursor is diagonally out, and to
-    /// the nearest edge when it is out on one axis alone, both of which fall out
-    /// of the same two lines.
-    ///
-    /// Here rather than on [`Rect`], which is palantir's and answers
-    /// [`contains`](Rect::contains) but not this: a pick needs how far
-    /// *outside* as well, because a cursor a pixel off a small label should
-    /// still find it. And on the aim rather than beside either caller, because
-    /// the two ask it for opposite reasons — a label's box is what it *is*, a
-    /// rim's is only what it cannot reach past — and the measurement between
-    /// them is one.
+    /// The measurement below, from the cursor — what a primitive whose box is
+    /// on screen asks, which is every one of them but a run of text turned into
+    /// a plane.
     pub(crate) fn reach_to_box(&self, rect: Rect) -> f32 {
-        let past = (rect.min - self.cursor).max(self.cursor - rect.max());
-        past.max(Vec2::ZERO).length()
+        reach_to_box(self.cursor, rect)
     }
 
     /// A hit on `world`, measured from the eye along the cursor's own ray so
@@ -119,6 +108,30 @@ impl Aim {
             distance: (world - self.ray.origin).dot(self.ray.direction),
         }
     }
+}
+
+/// How far `at` fell outside `rect`, and zero anywhere within it.
+///
+/// Per axis, how far past an edge the point sits — negative between them, which
+/// the floor at zero discards. The length of what survives is the distance to
+/// the nearest corner when the point is diagonally out, and to the nearest edge
+/// when it is out on one axis alone, both of which fall out of the same two
+/// lines.
+///
+/// Here rather than on [`Rect`], which is palantir's and answers
+/// [`contains`](Rect::contains) but not this: a pick needs how far *outside* as
+/// well, because a cursor a pixel off a small label should still find it. And
+/// beside the aim rather than beside any one caller, because they ask it for
+/// unlike reasons — a label's box is what it *is*, a rim's is only what it
+/// cannot reach past — and the measurement between them is one.
+///
+/// A point rather than the aim's own cursor, because the box is not always on
+/// screen: a run of text turned into a plane is a rectangle in its *own* frame,
+/// and what is brought into that frame to be measured is the cursor. See
+/// [`Text::pick`](crate::Text).
+pub(crate) fn reach_to_box(at: Vec2, rect: Rect) -> f32 {
+    let past = (rect.min - at).max(at - rect.max());
+    past.max(Vec2::ZERO).length()
 }
 
 /// How far into the view volume a clip position sits, along each of the two

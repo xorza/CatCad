@@ -12,7 +12,9 @@
 //! [`gizmos`], held apart because it is written on the camera's schedule
 //! rather than the document's.
 
-use aperture::{Batch, Curve, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
+use aperture::{
+    Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex,
+};
 use glam::{Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
@@ -561,7 +563,9 @@ fn write_marks(
                 },
             );
             mark.precedence = standing(model);
-            mark.plane_normal = Some(model.plane().normal().as_vec3());
+            mark.facing = Facing::Screen {
+                on: Some(model.plane().normal().as_vec3()),
+            };
             mark.tag = Some(names.tag(model.part(id)));
         },
     );

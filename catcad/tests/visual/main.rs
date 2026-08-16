@@ -15,8 +15,8 @@
 use std::sync::mpsc;
 
 use aperture::{
-    Camera, Curve, Highlight, Lit, Mesh, Object, Projection, Ring, Scene, Styled, Text, Vertex,
-    Viewport,
+    Camera, Curve, Facing, Highlight, Lit, Mesh, Object, Projection, Ring, Scene, Styled, Text,
+    Vertex, Viewport,
 };
 use glam::{Mat4, UVec2, Vec2, Vec3};
 use image::RgbaImage;
@@ -1204,7 +1204,7 @@ fn type_lying_in_a_plane_survives_its_own_horizon() {
                 scene.points.clear();
                 for text in scene.texts.iter_mut() {
                     if !in_plane {
-                        text.plane_normal = None;
+                        text.facing = Facing::default();
                     }
                 }
                 if !drawn {
@@ -1402,7 +1402,7 @@ fn marks(pitch: f32, distance: f32, marks: Marks, solids: bool) -> Frame {
             Marks::InPlane => {}
             Marks::Flat => {
                 for text in scene.texts.iter_mut() {
-                    text.plane_normal = None;
+                    text.facing = Facing::default();
                 }
             }
             Marks::Gone => scene.texts.clear(),
