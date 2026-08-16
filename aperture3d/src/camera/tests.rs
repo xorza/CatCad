@@ -552,4 +552,60 @@ fn a_pixel_covers_more_world_the_further_off_it_is() {
         flat.world_per_pixel(Vec3::ZERO, viewport),
         flat.world_per_pixel(Vec3::new(0.0, 0.0, -10.0), viewport),
     );
+
+    // The scale splits where it is taken from what it is: a 90° fov puts the
+    // half-height at the depth, so the per-depth half is `2 / 400` and the
+    // depth supplies the rest. Parallel rays keep the whole of it here,
+    // `2 * 10 / 400`, and multiply by the flat one below.
+    assert!((camera.world_per_clip_w(viewport) - 2.0 / 400.0).abs() < 1e-9);
+    assert!((flat.world_per_clip_w(viewport) - 20.0 / 400.0).abs() < 1e-9);
+}
+
+/// **The depth the scale is taken at is the `w` the projection writes.**
+///
+/// What [`Camera::world_per_clip_w`] is worth nothing without, because the
+/// other half of that multiplication is not taken here at all: a vertex shader
+/// reads it off its own clip position, and the two are one number only if this
+/// holds. Under parallel rays the projection writes a flat 1 and the whole
+/// scale is in the factor; under perspective it writes the view depth.
+///
+/// Asked of the matrix rather than of the formula that built it, which is the
+/// only way to ask it: what a shader will multiply by is whatever
+/// [`Camera::view_proj`] put in `w`, and a `view_depth` derived from the same
+/// angles it was derived from would agree with itself and say nothing.
+#[test]
+fn the_depth_a_scale_is_taken_at_is_the_clip_w_the_projection_writes() {
+    let viewport = Viewport::new(UVec2::new(800, 400));
+    for projection in [Projection::Perspective, Projection::Orthographic] {
+        let camera = Camera {
+            projection,
+            target: Vec3::new(1.0, -2.0, 0.5),
+            distance: 7.0,
+            yaw: 0.9,
+            pitch: -0.3,
+            ..Camera::default()
+        };
+        let view_proj = camera.view_proj(viewport.aspect());
+        // Well in front of the near plane, and spread over depth and off the
+        // view axis both — a `w` that only tracked distance from the eye would
+        // pass at the target and nowhere else.
+        for at in [
+            camera.target,
+            camera.target + camera.facing() * 3.0,
+            camera.target - camera.facing() * 3.0,
+            camera.target + Vec3::new(4.0, 1.0, -2.0),
+        ] {
+            let wrote = (view_proj * at.extend(1.0)).w;
+            let took = camera.view_depth(at);
+            assert!(
+                (took - wrote).abs() < 1e-4,
+                "{projection:?} at {at:?}: the scale is taken at {took} and the \
+                 projection wrote {wrote}"
+            );
+            // Which is what makes the two halves one number.
+            let whole = camera.world_per_pixel(at, viewport);
+            let split = wrote * camera.world_per_clip_w(viewport);
+            assert!((whole - split).abs() < 1e-6, "{whole} against {split}");
+        }
+    }
 }

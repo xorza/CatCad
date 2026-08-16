@@ -157,29 +157,65 @@ impl Camera {
     ///
     /// Depends on where, and only under perspective: there a pixel covers more
     /// world the further off it is, so a shape sized against the orbit target
-    /// would come out wrong anywhere else. Measured **along the view** rather
-    /// than from the eye, because that is what a projection measures against —
-    /// a point off to one side is no further away for being off to one side.
+    /// would come out wrong anywhere else.
     ///
     /// Geometry built with this is geometry the camera moving invalidates, and
     /// a caller taking it on is taking that on: [`Renderer::camera_mut`] stays
     /// cheap because nothing in a scene depends on the camera, and a batch that
     /// does has to be rewritten when it moves.
     ///
+    /// Split in two inside the crate, so that a vertex shader can supply the
+    /// depth half out of the `w` it already carries and hold something to the
+    /// screen without the camera reaching the scene at all. From outside, this
+    /// is the whole number.
+    ///
     /// [`Renderer::camera_mut`]: crate::Renderer::camera_mut
     pub fn world_per_pixel(&self, at: Vec3, viewport: Viewport) -> f32 {
+        self.view_depth(at) * self.world_per_clip_w(viewport)
+    }
+
+    /// The same scale, less the depth it is taken at: world units per logical
+    /// pixel, per unit of clip `w`.
+    ///
+    /// What lets a *shader* size something against the screen. Every vertex
+    /// already carries the `w` its own projection wrote — see
+    /// [`Camera::view_depth`] — so handing this over is handing over the whole
+    /// of what the camera knows and the vertex does not, and the multiplication
+    /// finishes where the vertex is.
+    ///
+    /// Factored out of [`Camera::world_per_pixel`] rather than stated beside
+    /// it, and that is the point of it existing: a renderer that worked the
+    /// same number out again from `fov_y` and the viewport would agree with
+    /// this one until the day one of the two was changed, and what it sizes is
+    /// type that has to land where picking says it is.
+    pub(crate) fn world_per_clip_w(&self, viewport: Viewport) -> f32 {
         let half = match self.projection {
-            // The slab is the same width all the way through, so where the
-            // point is says nothing.
+            // The slab is the same width all the way through, so the whole of
+            // the scale is here and the `w` it is multiplied by is a flat one.
             Projection::Orthographic => self.half_extent(),
-            Projection::Perspective => {
-                // Never behind the near plane: a point there is not drawn, and
-                // a scale taken from its depth would be negative or enormous.
-                let depth = (at - self.eye()).dot(self.facing()).max(self.z_near());
-                depth * (self.fov_y * 0.5).tan()
-            }
+            // Per unit of depth, which is exactly what `w` then supplies.
+            Projection::Perspective => (self.fov_y * 0.5).tan(),
         };
         2.0 * half / viewport.extent().y
+    }
+
+    /// The `w` this camera's projection writes for a point at `at`.
+    ///
+    /// The view depth under perspective, measured *along the view* rather than
+    /// from the eye — because that is what a projection measures against, so a
+    /// point off to one side is no further away for being off to one side. A
+    /// flat 1 under parallel rays, which have no depth to divide by.
+    ///
+    /// Floored at the near plane, which decides nothing about what is drawn:
+    /// anything nearer is clipped. All the floor buys is that a scale taken
+    /// from it is a positive number rather than a negative or an enormous one.
+    /// A shader has no such worry and needs no such floor, since a vertex that
+    /// would have wanted it is one the hardware has already thrown away.
+    fn view_depth(&self, at: Vec3) -> f32 {
+        match self.projection {
+            Projection::Orthographic => 1.0,
+            Projection::Perspective => (at - self.eye()).dot(self.facing()).max(self.z_near()),
+        }
     }
 
     /// Combined view-projection for a viewport of the given width/height
@@ -363,8 +399,11 @@ impl Camera {
         // because yaw turns about the world up axis and nothing else does.
         let right = Vec3::new(cos_yaw, 0.0, -sin_yaw);
         let up = Vec3::new(-sin_yaw * sin_pitch, cos_pitch, -cos_yaw * sin_pitch);
-        let world_per_pixel = 2.0 * self.half_extent() / viewport.extent().y;
-        (right * screen.x - up * screen.y) * world_per_pixel
+        // The scale at the target, asked for rather than worked out: "at the
+        // orbit target" is what the paragraph above promises, and a second
+        // spelling of it here would be free to stop meaning that.
+        let step = self.world_per_pixel(self.target, viewport);
+        (right * screen.x - up * screen.y) * step
     }
 
     /// Look at `extent` from the current angles, far enough back that all of

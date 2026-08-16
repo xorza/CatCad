@@ -563,6 +563,40 @@ fn only_the_open_sketch_shows_its_constraints() {
         [there],
         "the marks did not follow the open sketch"
     );
+
+    // And every one of them is lettered on the drawing rather than pinned over
+    // it: set along the sketch plane's own +x, on the plane the strokes of the
+    // same sketch declare. Read off the drawing rather than written out, so what
+    // is being asked is that the mark took *its* plane and not that the ground
+    // happens to be where it is.
+    //
+    // Which is also the limit of what this can say. Every plane the timeline can
+    // hold today is the ground or an offset parallel to it — see
+    // [`Datum`] — so a basis hard-coded to the ground would pass. What it does
+    // catch is the pair handed over the wrong way round, since the ground's +x
+    // and its normal are different axes.
+    let plane = document.models(&build, there).open().plane();
+    let along = plane.x.as_vec3();
+    let facing = Facing::Turned(Turn::new(along, plane.normal().as_vec3()));
+    assert!(!scene.texts.is_empty(), "there were no marks to ask about");
+    for mark in scene.texts.iter() {
+        assert_eq!(mark.facing, facing);
+        assert_eq!(mark.facing.right(), Some(along));
+        assert_ne!(
+            mark.facing.right(),
+            mark.facing.normal(),
+            "the run is set along its plane's normal rather than in the plane"
+        );
+    }
+    // The same surface the strokes of that sketch took their depth off, which is
+    // the cross-check: two writers reading one drawing's plane.
+    assert!(
+        scene
+            .curves
+            .iter()
+            .any(|curve| curve.plane_normal == facing.normal()),
+        "the marks and the strokes disagree about the plane they are on"
+    );
 }
 
 #[test]

@@ -13,7 +13,7 @@
 //! rather than the document's.
 
 use aperture::{
-    Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex,
+    Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Turn, Vertex,
 };
 use glam::{Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
@@ -483,6 +483,12 @@ pub(crate) fn region_corners(
 /// because it is sized in pixels, and adding a tenth constraint is a line in
 /// [`symbol`] rather than a shape to construct.
 ///
+/// **Turned into the sketch's plane**, so a mark reads as lettering on the
+/// drawing rather than as a note pinned over it. Only the *direction* it runs
+/// in: it is still sized in pixels, so the zoom cannot reach it and neither can
+/// the angle the plane is seen at — see [`Facing`]. Which way up it comes out is
+/// the renderer's, and always the way that reads.
+///
 /// One mark *or two*, and stacked where several want one place — see
 /// [`marks::stacked`], which decides all of how many, where, and how high.
 /// Where there are two they carry the same name, so a click on either takes
@@ -544,12 +550,17 @@ fn write_marks(
                 }
                 None => mark.content.push_str(symbol(constraint)),
             }
-            mark.position = model.plane().point(placed.at).as_vec3();
+            let plane = model.plane();
+            mark.position = plane.point(placed.at).as_vec3();
             mark.font = mark_font();
             // Above the middle of what it names, so the mark clears the geometry
             // it is about rather than sitting on top of it — and a line higher
             // again for every mark already standing there, which is the whole of
             // how a corner carrying three relations reads as three.
+            //
+            // Above *in the drawing's own frame*, now that the run is turned into
+            // it: the lift and the stack are fractions of the run's own box, so
+            // they follow it round without being told anything.
             mark.anchor = Vec2::new(
                 MARK_ANCHOR.x,
                 MARK_ANCHOR.y + f32::from(placed.lane) * STACK_STEP,
@@ -563,9 +574,13 @@ fn write_marks(
                 },
             );
             mark.precedence = standing(model);
-            mark.facing = Facing::Screen {
-                on: Some(model.plane().normal().as_vec3()),
-            };
+            // Lettered on the drawing rather than pinned over it: the run is set
+            // along the sketch's own +x as the projection draws it, so a mark
+            // turns with the plane it belongs to instead of staying square to
+            // the screen while everything under it swings. Along +x rather than
+            // along what each relation is about, which is a refinement the basis
+            // being per-run leaves open — see [`marks::anchors`].
+            mark.facing = Facing::Turned(Turn::new(plane.x.as_vec3(), plane.normal().as_vec3()));
             mark.tag = Some(names.tag(model.part(id)));
         },
     );
@@ -597,7 +612,8 @@ const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
 const STACK_STEP: f32 = 1.0;
 
 /// How far above the point it names a mark in `lane` is drawn, in logical
-/// pixels.
+/// pixels — above along the *run's own* up, which since the run is turned into
+/// the sketch's plane is no longer the screen's.
 ///
 /// [`MARK_ANCHOR`] and [`STACK_STEP`] as a length rather than as fractions,
 /// which is what anything placing something *else* over the mark needs — the
