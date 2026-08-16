@@ -5,6 +5,7 @@ use silverpoint::{Fill, Filler, Patch, Skinner};
 use crate::build::Revision;
 use crate::names::Names;
 use crate::paint::growing::Growing;
+use crate::paint::marks::Placed;
 use crate::part::Part;
 use crate::preview::Preview;
 use crate::timeline::FeatureId;
@@ -39,6 +40,14 @@ pub(crate) struct Layout {
     /// write but the call that made the claim true.
     pub(super) names: Names,
     pub(super) sheets: Sheets,
+    /// Where every mark of the open sketch stands, and which lane of its stack
+    /// it rises in.
+    ///
+    /// Kept rather than worked out inside the walk that draws, because a lane
+    /// is a fact about every *other* mark — so a caller standing a field over
+    /// one has to read the same answer the drawing used rather than recompute
+    /// the pass and be free to differ.
+    pub(super) placed: Vec<Placed>,
     /// What this was drawn from, or `None` where it describes nothing because
     /// nothing has been drawn into it yet.
     ///

@@ -1,19 +1,29 @@
-//! Where a constraint's mark goes.
+//! Where a drawing's marks go.
 //!
-//! One anchor per constraint, in the sketch's own coordinates. What a relation
-//! *means* is located somewhere — a right angle at the corner, a tangency at
-//! the touch, a radius on the rim — and putting the symbol there is the whole
-//! of what makes a drawing readable at a glance rather than decoded.
+//! Two passes, and they answer different questions. **Anchoring** asks where
+//! one relation belongs: what a relation *means* is located somewhere — a right
+//! angle at the corner, a tangency at the touch, a radius on the rim — and
+//! putting the symbol there is the whole of what makes a drawing readable at a
+//! glance rather than decoded. A relation whose meaning belongs to each
+//! referent separately is anchored against each, so it gets two.
 //!
-//! **Sketch geometry, no pixels.** Clearing the stroke a mark stands on is
-//! [`MARK_ANCHOR`](super::MARK_ANCHOR)'s, and it does it on screen so that a
-//! symbol clears its geometry by the same gap at every zoom. Keeping the two
-//! apart is what lets everything here be plane arithmetic.
+//! **Stacking** asks what to do when several want one place, and cannot be
+//! answered a relation at a time: which lane a mark rises in is a fact about
+//! every *other* mark of the drawing. So the two passes are one call, and
+//! [`stacked`] is it.
+//!
+//! **Sketch geometry, no pixels.** A lane is a count, not a distance; turning
+//! it into a gap on screen is [`STACK_STEP`](super::STACK_STEP)'s, and clearing
+//! the stroke a mark stands on is [`MARK_ANCHOR`](super::MARK_ANCHOR)'s. Both
+//! do it in units of the run's own box, so the same gap holds at every zoom —
+//! and keeping them out of here is what lets everything below be plane
+//! arithmetic.
 
 use glam::{DVec2, Vec3};
-use silverpoint::{Constraint, PointId, SegmentId, Sketch};
+use silverpoint::{Constraint, ConstraintId, PointId, SegmentId, Sketch};
 
 use crate::drawing::Drawing;
+use crate::model::Model;
 
 /// How square two lines have to be before they are taken to cross, as the sine
 /// of the angle between them.
@@ -24,33 +34,92 @@ use crate::drawing::Drawing;
 /// about how big the sketch is rather than about its angles.
 const NEARLY_PARALLEL: f64 = 1e-9;
 
-/// Every mark `constraint` is drawn as, in the world.
+/// One mark of one relation: which relation, where it stands, and which lane of
+/// its stack it rises in.
 ///
-/// One or two. A relation whose meaning belongs to each referent separately is
-/// drawn against each of them — `∥` on one edge alone is a question and `∥` on
-/// both is a statement — where one that is *located* is drawn once, at the
-/// place it is located.
-///
-/// Positions and nothing else. What the pair of them is *called* is
-/// [`write_marks`](super::write_marks)'s, which gives both the one name.
-pub(crate) fn all(drawing: Drawing<'_>, constraint: Constraint) -> impl Iterator<Item = Vec3> {
-    let plane = drawing.plane();
-    anchors(drawing.sketch(), constraint)
-        .into_iter()
-        .flatten()
-        .map(move |at| plane.point(at).as_vec3())
+/// The sketch coordinate rather than the world one, because that is what the
+/// rules are in and what deciding "the same place" needs: a world position is
+/// `f32` and two anchors the solver made one would stop agreeing in it.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Placed {
+    pub(super) of: ConstraintId,
+    pub(super) at: DVec2,
+    pub(super) lane: u8,
 }
 
-/// Where the first of them is.
+/// Where every mark of `model` stands, appended to `into`.
 ///
-/// What a caller standing something *over* a mark needs, and only a dimension
-/// is ever stood over — a form asks for a number — so first and only are the
-/// same place here. See [`Prompt`](crate::prompt::Prompt).
-pub(crate) fn at(drawing: Drawing<'_>, constraint: Constraint) -> Vec3 {
-    all(drawing, constraint)
-        .next()
-        .expect("every constraint is drawn as at least one mark")
+/// Both passes: the anchor per relation, then the lane per anchor. They are one
+/// call because the second cannot be done a relation at a time — where a mark
+/// goes in its stack is a fact about every *other* mark of the drawing.
+pub(super) fn stacked(model: Model<'_>, into: &mut Vec<Placed>) {
+    let sketch = model.sketch();
+    let from = into.len();
+    into.extend(sketch.constraints().flat_map(|(of, constraint)| {
+        anchors(sketch, constraint)
+            .into_iter()
+            .flatten()
+            .map(move |at| Placed { of, at, lane: 0 })
+    }));
+    lanes(&mut into[from..]);
 }
+
+/// Where the mark for `constraint` stands, unstacked.
+///
+/// What a caller standing something *over* a mark needs. Only a dimension is
+/// ever stood over — a form asks for a number — so the first anchor is the only
+/// one. See [`Prompt`](crate::prompt::Prompt).
+pub(crate) fn at(drawing: Drawing<'_>, constraint: Constraint) -> Vec3 {
+    let [first, _] = anchors(drawing.sketch(), constraint);
+    let at = first.expect("every constraint is drawn as at least one mark");
+    drawing.plane().point(at).as_vec3()
+}
+
+/// Give each mark the lane it rises in: how many marks already stand where it
+/// does.
+///
+/// **In the order the sketch holds them**, which is what keeps a stack still.
+/// Nothing about a mark says where in its stack it belongs, so the answer has
+/// to come from somewhere stable — and a constraint's position among its
+/// sketch's own is moved only by an edit that was going to redraw everything
+/// anyway.
+///
+/// Quadratic and allocation-free, which is the right way round here: this runs
+/// inside [`redraw`](super::redraw) and so on every frame of a drag, where a
+/// scratch buffer would reach the heap sixty times a second to sort a few dozen
+/// entries. A sketch would need something like a thousand relations before the
+/// sort won, and none exists.
+fn lanes(marks: &mut [Placed]) {
+    for at in 0..marks.len() {
+        let mine = marks[at].at;
+        let below = marks[..at]
+            .iter()
+            .filter(|other| same_place(other.at, mine))
+            .count();
+        // A quarter of a thousand relations on one point is not a sketch
+        // anybody draws, and the cost of saying so is nothing in release —
+        // where the cost of not saying it is the 257th mark quietly landing
+        // back on top of the first.
+        debug_assert!(below < 256, "{below} marks stand at {mine:?}");
+        marks[at].lane = below as u8;
+    }
+}
+
+/// Whether two anchors are the same place.
+///
+/// The case this is for is the solver having made two points one, so the corner
+/// carries a coincidence and a right angle and perhaps a length. It is
+/// deliberately *not* "these look close at this zoom" — that is a screen
+/// question, and answering it would put every mark on the camera's schedule.
+fn same_place(one: DVec2, other: DVec2) -> bool {
+    one.abs_diff_eq(other, SAME_PLACE)
+}
+
+/// How near two anchors have to be to count as one place, in sketch units.
+///
+/// Four decades above the drift a converged solve leaves and far below anything
+/// a hand places, which is the whole of what it has to be.
+const SAME_PLACE: f64 = 1e-6;
 
 /// The anchors in sketch coordinates, which is where the rules are.
 ///

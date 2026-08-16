@@ -306,3 +306,52 @@ fn the_world_anchor_is_the_sketch_anchor_on_the_drawings_plane() {
         ground.plane().point(sketched).as_vec3()
     );
 }
+
+/// Marks wanting one place rise in a column, in the order they are held.
+///
+/// Two failures in one claim. Marks that share a place and are given the same
+/// lane are drawn on top of each other, which is the defect the whole pass
+/// exists for; marks that do *not* share a place and are given different lanes
+/// float off the geometry they belong to. So the fixture has three at one
+/// place, one a hair away and inside the tolerance, and one plainly elsewhere.
+///
+/// Fed by hand rather than through a sketch, because what this is about is the
+/// pass itself: which anchor a relation gets is [`anchors`]'s and is asked
+/// above.
+#[test]
+fn marks_wanting_one_place_rise_in_a_column_in_the_order_they_are_held() {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(1.0, 0.0));
+    // One real id, because `lanes` reads nothing but the coordinates — what it
+    // is *about* is the caller's, and reusing one keeps that plain.
+    let of = sketch.add_constraint(Constraint::Horizontal { a, b });
+
+    // A hair inside the tolerance, which is the case this is for: a solve
+    // leaves two points it made one agreeing to about this much, and a mark on
+    // each has to know they are one place.
+    let corner = DVec2::new(4.0, -2.0);
+    let drifted = corner + DVec2::splat(SAME_PLACE * 0.4);
+    let mut marks =
+        [corner, DVec2::new(9.0, 9.0), drifted, corner].map(|at| Placed { of, at, lane: 0 });
+    lanes(&mut marks);
+
+    // The three at the corner rise 0, 1, 2 in the order they were held, and the
+    // one elsewhere is a stack of its own — a first lane, not a fourth.
+    assert_eq!(marks.map(|placed| placed.lane), [0, 0, 1, 2]);
+}
+
+/// A place a whole sketch unit away is a different place.
+///
+/// The other side of the tolerance, and worth its own claim because the two
+/// pull opposite ways: too tight and two marks the solver made one are drawn
+/// on top of each other, too loose and marks belonging to different corners are
+/// stacked into a column that points at neither.
+#[test]
+fn marks_a_whole_unit_apart_are_not_one_place() {
+    assert!(same_place(DVec2::ZERO, DVec2::splat(SAME_PLACE * 0.5)));
+    assert!(!same_place(DVec2::ZERO, DVec2::new(SAME_PLACE * 2.0, 0.0)));
+    // Nothing anybody draws by hand lands this close, and everything a solve
+    // converges to lands closer.
+    assert!(!same_place(DVec2::ZERO, DVec2::new(0.001, 0.0)));
+}

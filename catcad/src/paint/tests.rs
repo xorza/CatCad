@@ -661,7 +661,8 @@ fn a_relation_drawn_twice_is_named_once() {
     let one = drawn(sketch);
     let mut names = Names::default();
     let mut marks = Batch::default();
-    write_marks(one.models(), None, &mut names, &mut marks);
+    let mut placed = Vec::new();
+    write_marks(one.models(), None, &mut names, &mut placed, &mut marks);
     assert_eq!(marks.len(), 3, "a ∥ against each edge, and the one length");
 
     // Found by the symbol rather than by position, and through [`symbol`]
@@ -687,4 +688,76 @@ fn a_relation_drawn_twice_is_named_once() {
             ..
         })
     ));
+}
+
+/// A corner carrying two relations draws them one above the other, and a field
+/// opening over one does not move the other.
+///
+/// The whole of what stacking is for, and both halves fail silently. Marks at
+/// one place and one lane are drawn on top of each other — the drawing says one
+/// thing where it states two, and the pick answers whichever the walk reached
+/// first. And lanes worked out from what is *shown* rather than from what is
+/// laid out would close ranks the moment a field opened, so double-clicking a
+/// number would appear to nudge the marks around it.
+#[test]
+fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they_are() {
+    let mut sketch = Sketch::default();
+    // Two segments out of one corner at (4, 0), square to each other: one along
+    // +x and one along +y, welded rather than sharing an endpoint so that there
+    // is a coincidence to draw as well as a right angle.
+    let corner = sketch.add_point(DVec2::new(4.0, 0.0));
+    let along = sketch.add_point(DVec2::new(12.0, 0.0));
+    let welded = sketch.add_point(DVec2::new(4.0, 0.0));
+    let up = sketch.add_point(DVec2::new(4.0, 8.0));
+    let flat = sketch.add_segment(corner, along);
+    let upright = sketch.add_segment(welded, up);
+    // In this order, so the coincidence takes the lane below the right angle.
+    let welding = sketch.add_constraint(silverpoint::Constraint::Coincident {
+        a: corner,
+        b: welded,
+    });
+    sketch.add_constraint(silverpoint::Constraint::Perpendicular {
+        first: flat,
+        second: upright,
+    });
+
+    let one = drawn(sketch);
+    let mut names = Names::default();
+    let mut placed = Vec::new();
+    let mut marks = Batch::default();
+    let laid = |names: &mut Names, placed: &mut Vec<_>, marks: &mut Batch<Text>, typed| {
+        write_marks(one.models(), typed, names, placed, marks);
+        marks
+            .iter()
+            .map(|mark| (mark.content.clone(), mark.position, mark.anchor))
+            .collect::<Vec<_>>()
+    };
+    let column = laid(&mut names, &mut placed, &mut marks, None);
+    assert_eq!(column.len(), 2, "a coincidence and a right angle");
+
+    // Both at the corner in the world, and told apart only by how far up their
+    // own box the anchor sits: the same place, a line-height apart on screen.
+    assert_eq!(column[0].1, column[1].1, "the two do not share the corner");
+    assert_eq!(column[0].2, MARK_ANCHOR, "the first mark was lifted");
+    assert_eq!(
+        column[1].2,
+        Vec2::new(MARK_ANCHOR.x, MARK_ANCHOR.y + STACK_STEP),
+        "the second mark did not clear the first"
+    );
+
+    // Now with the lower of the two taken out, as a field standing over it
+    // takes it out. What the filter drops is a `Part`, whichever family it
+    // belongs to — the claim is about the lane above it, which must not fall
+    // into the gap.
+    let left = laid(
+        &mut names,
+        &mut placed,
+        &mut marks,
+        Some(one.models().open().part(welding)),
+    );
+    assert_eq!(left.len(), 1);
+    assert_eq!(
+        left[0], column[1],
+        "the mark above the one being typed into moved when the field opened"
+    );
 }

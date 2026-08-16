@@ -5,10 +5,12 @@ place. Rules first, then the shape they are built in, then what is left.
 
 ## Where it stands
 
-Built: the rules below, and every relation drawn where R2 says. `Parallel`,
-`EqualLength` and `EqualRadius` are drawn against each of their referents, both
-marks naming one part. What is left is the stacking — R4 and R5 — and the form
-following it.
+Built: the rules below, all of them. Every relation is drawn where R2 says;
+`Parallel`, `EqualLength` and `EqualRadius` are drawn against each of their
+referents, both marks naming one part; and marks wanting one place rise in a
+column rather than landing on each other. What is left is the form following
+the column — a field opening over a stacked dimension still stands where the
+mark would be unstacked.
 
 What this replaced was not a placement system that had aged badly but the
 absence of one: `Drawing::mark_at` took the centroid of the middles of
@@ -167,42 +169,31 @@ going into silverpoint — they exist to decide where a *symbol* goes, which is
 an appearance decision, and silverpoint's own versions are shaped for the
 arrangement: bounded to both spans where placement wants the infinite lines.
 
-**What stacking still needs.** Two things this shape does not yet have, and
-both belong to stage 3:
+**The stacking pass** is `stacked`, which runs both halves in one call because
+the second cannot be done a relation at a time — where a mark goes in its stack
+is a fact about every *other* mark of the drawing:
 
 ```rust
-/// One mark to draw: what it is about, where it goes, and which lane of its
-/// stack it rises in.
-struct Placed { part: Part, at: DVec2, lane: u8 }
+/// One mark of one relation: which relation, where it stands, and which lane
+/// of its stack it rises in.
+pub(crate) struct Placed { of: ConstraintId, at: DVec2, lane: u8 }
+
+pub(crate) fn stacked(model: Model<'_>, into: &mut Vec<Placed>);
 ```
 
-A second pass produces it: sort the anchors by coordinate, walk the sorted run
-assigning lanes to neighbours within `SAME_PLACE`, and write `Placed` in the
-sketch's own order. Held flat, per the house rule — one `Vec<Placed>` and no map
-of small groups.
+`lanes` is quadratic and allocation-free, which is the right way round: it runs
+inside `redraw` and so on every frame of a drag, where a scratch buffer to sort
+in would reach the heap sixty times a second for a few dozen entries. A sketch
+would need something like a thousand relations before the sort won.
 
 **Stored in `Layout`**, beside `names` and `sheets`, for the reason in the third
-fact above:
-
-```rust
-pub(crate) fn placed(&self, part: Part) -> Option<Placed>;
-```
-
-`redraw` fills it in the same call that writes the marks; `CatCad::record` asks
-it where a dimension's field should stand. One computation, two readers, no way
-for them to disagree — which is the same shape `growing` was collapsed to.
+fact above. `redraw` fills it in the same call that writes the marks. What is
+left is the reader: an accessor, and `CatCad::record` asking it where a
+dimension's field should stand instead of recomputing an unstacked anchor. One
+computation, two readers, no way for them to disagree — the same shape `growing`
+was collapsed to.
 
 ## Implementation plan
-
-**Stage 3 — stacking.** The second pass, `SAME_PLACE`, and the `lane` field
-reaching `MARK_ANCHOR`. The test that matters is the one the whole proposal is
-for: a corner carrying a `Coincident` and a `Perpendicular` puts two marks at
-two distinct screen offsets from one sketch point, and the offsets differ by
-exactly `STACK_STEP` line-heights.
-
-*Also here:* the suppressed-lane rule. Open a field over a dimension in a stack
-of three and assert the other two do not move — sabotaged by assigning lanes
-after the filter, that test fails and nothing else does.
 
 **Stage 4 — the form follows.** `Layout::placed`, and `CatCad::record` reading
 it instead of recomputing. Test: a dimension in a stack has its field land on

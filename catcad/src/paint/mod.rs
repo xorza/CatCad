@@ -22,6 +22,7 @@ use crate::model::{Model, Models};
 use crate::names::Names;
 use crate::paint::growing::Growing;
 use crate::paint::layout::{Layout, Made, Sheets};
+use crate::paint::marks::Placed;
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::timeline::FeatureId;
@@ -339,7 +340,12 @@ pub(crate) fn redraw(
     if !layout.stale(made) {
         return;
     }
-    let Layout { names, sheets, .. } = &mut *layout;
+    let Layout {
+        names,
+        sheets,
+        placed,
+        ..
+    } = &mut *layout;
     names.clear();
     write_curves(
         models,
@@ -349,7 +355,7 @@ pub(crate) fn redraw(
     );
     write_rings(models, names, band.and_then(Preview::ring), &mut into.rings);
     write_points(models, names, &mut into.points);
-    write_marks(models, typed, names, &mut into.texts);
+    write_marks(models, typed, names, placed, &mut into.texts);
     write_faces(models, names, sheets, &mut into.faces);
     write_solids(models, names, sheets, growing, &mut into.solids);
     // Where the controls start naming from — see [`gizmos::write()`].
@@ -475,9 +481,10 @@ pub(crate) fn region_corners(
 /// because it is sized in pixels, and adding a tenth constraint is a line in
 /// [`symbol`] rather than a shape to construct.
 ///
-/// One mark *or two* — see [`marks::all`], which decides both how many and
-/// where. Where there are two they carry the same name, so a click on either
-/// takes the constraint.
+/// One mark *or two*, and stacked where several want one place — see
+/// [`marks::stacked`], which decides all of how many, where, and how high.
+/// Where there are two they carry the same name, so a click on either takes
+/// the constraint.
 ///
 /// Tagged like everything else, so a mark is picked and deleted the way the
 /// geometry it is about is — which is the whole of how an over-constrained
@@ -486,38 +493,39 @@ fn write_marks(
     models: Models<'_>,
     typed: Option<Part>,
     names: &mut Names,
+    placed: &mut Vec<Placed>,
     marks: &mut Batch<Text>,
 ) {
+    // **The open sketch alone.** A constraint is a statement *about* a drawing,
+    // and one you are not in is not a drawing you can argue with: its marks can
+    // neither be selected into a relation nor typed into, so all they do is
+    // crowd the sketch you are working in — and a dimension is the densest
+    // thing the drawing puts on screen. The geometry of a dormant sketch still
+    // shows, dimmed, because where it *is* is something you build against.
+    let live = models.iter().find(|model| model.live());
+    // Laid out whole, before anything is left out. What lane a mark rises in
+    // depends on how many share its place, so a stack that was worked out from
+    // what is *shown* would close ranks the moment a field opened over one of
+    // them — and closing ranks under a double-click reads as the click having
+    // nudged the drawing.
+    placed.clear();
+    if let Some(model) = live {
+        marks::stacked(model, placed);
+    }
     marks.refill(
-        models
-            .iter()
-            // **The open sketch alone.** A constraint is a statement *about* a
-            // drawing, and one you are not in is not a drawing you can argue
-            // with: its marks can neither be selected into a relation nor typed
-            // into, so all they do is crowd the sketch you are working in — and
-            // a dimension is the densest thing the drawing puts on screen. The
-            // geometry of a dormant sketch still shows, dimmed, because where it
-            // *is* is something you build against.
-            .filter(|model| model.live())
-            .flat_map(|model| {
-                model
-                    .sketch()
-                    .constraints()
-                    .map(move |stated| (model, stated))
-            })
-            // The one being retyped has a field standing over it — see
-            // [`Prompt::show`](crate::prompt::Prompt) — and a mark left under
-            // one would be a second copy of the number showing through wherever
-            // the field did not quite cover it.
-            .filter(move |(model, (id, _))| Some(model.part(*id)) != typed)
-            // Where a relation is drawn twice, both marks come off one walk of
-            // the constraints — so the two are written together and cannot come
-            // to disagree about what the relation says.
-            .flat_map(|(model, (id, constraint))| {
-                marks::all(model.drawing(), constraint).map(move |at| (model, id, constraint, at))
-            }),
-        |mark, (model, id, constraint, at)| {
-            let outcome = model.outcome();
+        live.into_iter().flat_map(|model| {
+            placed
+                .iter()
+                // The one being retyped has a field standing over it — see
+                // [`Prompt::show`](crate::prompt::Prompt) — and a mark left
+                // under one would be a second copy of the number showing
+                // through wherever the field did not quite cover it.
+                .filter(move |placed| Some(model.part(placed.of)) != typed)
+                .map(move |placed| (model, placed))
+        }),
+        |mark, (model, placed)| {
+            let (id, outcome) = (placed.of, model.outcome());
+            let constraint = model.sketch().constraint(id);
             // Rewritten in place rather than assigned, so a drawing whose marks are
             // laid out every frame keeps the string it already has — which is what
             // keeps a scrubbed dimension off the heap sixty times a second.
@@ -534,11 +542,16 @@ fn write_marks(
                 }
                 None => mark.content.push_str(symbol(constraint)),
             }
-            mark.position = at;
+            mark.position = model.plane().point(placed.at).as_vec3();
             mark.font = mark_font();
-            // Above the middle of what it names, so the mark clears the geometry it
-            // is about rather than sitting on top of it.
-            mark.anchor = MARK_ANCHOR;
+            // Above the middle of what it names, so the mark clears the geometry
+            // it is about rather than sitting on top of it — and a line higher
+            // again for every mark already standing there, which is the whole of
+            // how a corner carrying three relations reads as three.
+            mark.anchor = Vec2::new(
+                MARK_ANCHOR.x,
+                MARK_ANCHOR.y + f32::from(placed.lane) * STACK_STEP,
+            );
             mark.color = ink(
                 model,
                 if outcome.is_redundant(id) {
@@ -563,6 +576,21 @@ fn write_marks(
 /// same pixels, so the two anchoring differently is the one mistake that would
 /// make a double-click look like it had nudged the number.
 const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
+
+/// How far a mark rises above the one below it in its stack, in line-heights.
+///
+/// One, which is the tightest spacing two runs cannot overlap in: an anchor is
+/// a fraction of the run's *own* box, so a whole one is exactly the height of
+/// the type. And a fraction of the box rather than a number of pixels, which is
+/// what keeps a stack the same shape at every zoom without the camera being
+/// consulted.
+///
+/// A column rather than a row, and that is an engineering fact rather than a
+/// preference: how *wide* a run comes out depends on the faces the shaper falls
+/// back through, which only the renderer knows — see
+/// [`Text::extent`](aperture::Text) — so nothing laying marks out could say
+/// where the second one in a row would start.
+const STACK_STEP: f32 = 1.0;
 
 /// How far above the point it names a dimension's number is drawn, in logical
 /// pixels.
