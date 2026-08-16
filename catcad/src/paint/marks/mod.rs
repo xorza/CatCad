@@ -34,8 +34,18 @@ use crate::model::Model;
 /// about how big the sketch is rather than about its angles.
 const NEARLY_PARALLEL: f64 = 1e-9;
 
-/// One mark of one relation: which relation, where it stands, and which lane of
-/// its stack it rises in.
+/// Where one mark stands and which way it runs, before the stack has had a say.
+///
+/// What [`anchors`] answers per relation, and the half of a [`Placed`] that is
+/// about the *geometry* rather than about the drawing's other marks.
+#[derive(Debug, Clone, Copy)]
+struct Standing {
+    at: DVec2,
+    along: DVec2,
+}
+
+/// One mark of one relation: which relation, where it stands, which way it runs,
+/// and which lane of its stack it rises in.
 ///
 /// The sketch coordinate rather than the world one, because that is what the
 /// rules are in and what deciding "the same place" needs: a world position is
@@ -44,6 +54,13 @@ const NEARLY_PARALLEL: f64 = 1e-9;
 pub(crate) struct Placed {
     pub(crate) of: ConstraintId,
     pub(crate) at: DVec2,
+    /// Which way the mark is set, as a unit direction in the sketch.
+    ///
+    /// The span a dimension measures, where it measures one — which is what a
+    /// draughtsman does and what makes a number read as belonging to the line
+    /// under it rather than to the drawing at large. A relation with no span to
+    /// speak of runs along the sketch's own +x.
+    pub(crate) along: DVec2,
     pub(crate) lane: u8,
 }
 
@@ -71,7 +88,12 @@ pub(super) fn stacked(model: Model<'_>, into: &mut Vec<Placed>) {
         anchors(sketch, constraint)
             .into_iter()
             .flatten()
-            .map(move |at| Placed { of, at, lane: 0 })
+            .map(move |Standing { at, along }| Placed {
+                of,
+                at,
+                along,
+                lane: 0,
+            })
     }));
     lanes(&mut into[from..]);
 }
@@ -144,61 +166,123 @@ const SAME_PLACE: f64 = 1e-6;
 /// unsolved sketch still has to draw.
 ///
 /// The one place a new [`Constraint`] variant has to be taught anything.
-fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<DVec2>; 2] {
-    let one = |at| [Some(at), None];
+fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
+    let one = |at, along| [Some(Standing { at, along }), None];
+    // What a relation with no span of its own is set along. The sketch's own +x,
+    // which for a symbol is as good as any direction and is the one a reader
+    // already expects type to run in.
+    let across = DVec2::X;
     match constraint {
         // Meeting. A coincidence *is* its point — the two are one wherever the
-        // solve has converged, and the first of them is that place.
-        Constraint::Coincident { a, .. } => one(at_point(sketch, a)),
-        Constraint::PointOnSegment { point, .. } | Constraint::PointOnCircle { point, .. } => {
-            one(at_point(sketch, point))
-        }
+        // solve has converged, and the first of them is that place. Two points
+        // made one have no direction between them, so the mark takes the
+        // sketch's.
+        Constraint::Coincident { a, .. } => one(at_point(sketch, a), across),
+        // On the thing it is on, which is what the symbol is about.
+        Constraint::PointOnSegment { point, segment } => one(
+            at_point(sketch, point),
+            canonical(run_of(span(sketch, segment))),
+        ),
+        Constraint::PointOnCircle { point, .. } => one(at_point(sketch, point), across),
         Constraint::Perpendicular { first, second } => {
             let (this, that) = (span(sketch, first), span(sketch, second));
-            one(crossing(this, that).map_or_else(
+            let at = crossing(this, that).map_or_else(
                 // Momentarily parallel, which an unsolved sketch reaches: there
                 // is no corner to stand in, so stand between the two.
                 || (middle(this) + middle(that)) * 0.5,
                 |cross| nearer_span(cross, this, that),
-            ))
+            );
+            // Along neither of them: the mark is about the corner the two make,
+            // and picking one edge to run along would say it belonged to that
+            // one.
+            one(at, across)
         }
         Constraint::Tangent { segment, circle } => {
             let line = span(sketch, segment);
             let centre = at_point(sketch, sketch.circle(circle).center);
             // A segment with no length has no line to drop a foot onto.
-            one(nearest_on(centre, line).unwrap_or(centre))
+            one(
+                nearest_on(centre, line).unwrap_or(centre),
+                canonical(run_of(line)),
+            )
         }
 
-        // Beside, one per referent. On each edge's own middle, which is where a
-        // draughtsman puts it and where the screen lift then clears the stroke.
+        // Beside, one per referent. On each edge's own middle and along it,
+        // which is where a draughtsman puts it and where the lift then clears
+        // the stroke.
         Constraint::Parallel { first, second } | Constraint::EqualLength { first, second } => {
-            [first, second].map(|edge| Some(middle(span(sketch, edge))))
+            [first, second].map(|edge| {
+                let line = span(sketch, edge);
+                Some(Standing {
+                    at: middle(line),
+                    along: canonical(run_of(line)),
+                })
+            })
         }
         // On each rim, facing the circle it is matched against, so the pair
-        // sits in the gap between the two and reads as one statement.
+        // sits in the gap between the two and reads as one statement — and set
+        // along that same facing, so it runs out of the rim rather than across
+        // it.
         Constraint::EqualRadius { first, second } => {
             [(first, second), (second, first)].map(|(it, other)| {
                 let ring = sketch.circle(it);
                 let centre = at_point(sketch, ring.center);
-                let toward = at_point(sketch, sketch.circle(other).center) - centre;
-                Some(centre + bearing(toward) * ring.radius)
+                let toward = bearing(at_point(sketch, sketch.circle(other).center) - centre);
+                Some(Standing {
+                    at: centre + toward * ring.radius,
+                    along: canonical(toward),
+                })
             })
         }
 
         // Dimension. The axis relations are here rather than among the meetings
         // because what they constrain is the *line* through a pair of points
         // rather than either point.
+        //
+        // Along the span they measure, which is the whole of what a drawing does
+        // with a number: it belongs to that line and reads as belonging to it.
         Constraint::Distance { a, b, .. }
         | Constraint::Horizontal { a, b }
-        | Constraint::Vertical { a, b } => one((at_point(sketch, a) + at_point(sketch, b)) * 0.5),
+        | Constraint::Vertical { a, b } => {
+            let (a, b) = (at_point(sketch, a), at_point(sketch, b));
+            one((a + b) * 0.5, canonical(b - a))
+        }
         Constraint::Radius { circle, .. } => {
             let it = sketch.circle(circle);
             // On the rim rather than at the centre, where a bare number reads
             // as belonging to whatever else is drawn through the middle. A
             // fixed bearing rather than a fitted one, so that a circle being
-            // dragged does not send its own number round it.
-            one(at_point(sketch, it.center) + DVec2::X * it.radius)
+            // dragged does not send its own number round it — and set along that
+            // same bearing, which is the radius it is measuring.
+            one(at_point(sketch, it.center) + DVec2::X * it.radius, across)
         }
+    }
+}
+
+/// The direction a span runs, before it is settled.
+fn run_of(span: [DVec2; 2]) -> DVec2 {
+    span[1] - span[0]
+}
+
+/// `run` pointed the one way both ends of a span can agree on.
+///
+/// **A span is a pair and nothing says which of them is first.** Left as it
+/// comes, the direction a mark is set along would follow whichever end the
+/// sketch happened to name, so two identical segments drawn in opposite orders
+/// would carry their dimensions on opposite sides of themselves — the lift being
+/// square to the run, and the run having turned over.
+///
+/// Settled by taking whichever of the two points into the half-plane of positive
+/// x, and up where it is neither. In *sketch* space, because settling it against
+/// the projection would put every mark back on the camera's schedule — and
+/// because which way a segment was drawn is a fact about the drawing, so the
+/// answer should be too.
+fn canonical(run: DVec2) -> DVec2 {
+    let bearing = bearing(run);
+    if bearing.x < 0.0 || (bearing.x == 0.0 && bearing.y < 0.0) {
+        -bearing
+    } else {
+        bearing
     }
 }
 

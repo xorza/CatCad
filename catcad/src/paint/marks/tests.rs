@@ -7,17 +7,23 @@ fn on_ground(sketch: &Sketch) -> Drawing<'_> {
     Drawing::new(sketch, Plane::GROUND)
 }
 
-/// The one anchor of a relation drawn once, which every rule below but the
-/// Beside family is.
+/// Where a relation drawn once stands, which every rule below but the Beside
+/// family is.
 fn sole(sketch: &Sketch, constraint: Constraint) -> DVec2 {
+    only(sketch, constraint).at
+}
+
+/// The whole of what one such relation was given — where it stands and which
+/// way it runs.
+fn only(sketch: &Sketch, constraint: Constraint) -> Standing {
     let [first, second] = anchors(sketch, constraint);
-    assert_eq!(second, None, "{constraint:?} is drawn more than once");
+    assert!(second.is_none(), "{constraint:?} is drawn more than once");
     first.expect("every constraint is drawn at least once")
 }
 
 /// Both anchors of a relation drawn against each of its referents.
 fn both(sketch: &Sketch, constraint: Constraint) -> [DVec2; 2] {
-    anchors(sketch, constraint).map(|at| at.expect("a relation drawn twice has two anchors"))
+    anchors(sketch, constraint).map(|it| it.expect("a relation drawn twice has two anchors").at)
 }
 
 fn near(got: DVec2, want: DVec2) {
@@ -300,6 +306,7 @@ fn the_world_anchor_is_the_sketch_anchor_on_the_drawings_plane() {
     });
     let ground = on_ground(&sketch);
     let placed = Placed {
+        along: DVec2::X,
         of,
         at: sole(&sketch, sketch.constraint(of)),
         lane: 0,
@@ -336,8 +343,12 @@ fn marks_wanting_one_place_rise_in_a_column_in_the_order_they_are_held() {
     // each has to know they are one place.
     let corner = DVec2::new(4.0, -2.0);
     let drifted = corner + DVec2::splat(SAME_PLACE * 0.4);
-    let mut marks =
-        [corner, DVec2::new(9.0, 9.0), drifted, corner].map(|at| Placed { of, at, lane: 0 });
+    let mut marks = [corner, DVec2::new(9.0, 9.0), drifted, corner].map(|at| Placed {
+        of,
+        at,
+        along: DVec2::X,
+        lane: 0,
+    });
     lanes(&mut marks);
 
     // The three at the corner rise 0, 1, 2 in the order they were held, and the
@@ -358,4 +369,126 @@ fn marks_a_whole_unit_apart_are_not_one_place() {
     // Nothing anybody draws by hand lands this close, and everything a solve
     // converges to lands closer.
     assert!(!same_place(DVec2::ZERO, DVec2::new(0.001, 0.0)));
+}
+
+/// A dimension is set along the span it measures, and a symbol along the edge it
+/// is about.
+///
+/// **What makes a number read as belonging to the line under it** rather than to
+/// the drawing at large, which is what a draughtsman's sheet does. Hand-computed
+/// off spans laid at angles no axis would give by accident: a 3-4-5 triangle, so
+/// the directions come out in fifths and a mark set along the wrong one of the
+/// two edges is unmistakable.
+#[test]
+fn a_mark_is_set_along_the_geometry_it_is_about() {
+    let mut sketch = Sketch::default();
+    let origin = sketch.add_point(DVec2::ZERO);
+    let along = sketch.add_point(DVec2::new(4.0, 3.0));
+    let across = sketch.add_point(DVec2::new(-3.0, 4.0));
+    let rising = sketch.add_segment(origin, along);
+    let falling = sketch.add_segment(origin, across);
+
+    // A dimension takes the span between its own two points.
+    near(
+        only(
+            &sketch,
+            Constraint::Distance {
+                a: origin,
+                b: along,
+                distance: 5.0,
+            },
+        )
+        .along,
+        DVec2::new(0.8, 0.6),
+    );
+    // And the axis relations with it, which measure a line through a pair just
+    // as much.
+    near(
+        only(
+            &sketch,
+            Constraint::Horizontal {
+                a: origin,
+                b: along,
+            },
+        )
+        .along,
+        DVec2::new(0.8, 0.6),
+    );
+
+    // A symbol about one edge runs along that edge — the other one, here, so a
+    // mark that took whichever came first would read as the wrong claim.
+    near(
+        only(
+            &sketch,
+            Constraint::PointOnSegment {
+                point: across,
+                segment: rising,
+            },
+        )
+        .along,
+        DVec2::new(0.8, 0.6),
+    );
+    // Two marks, each along its own edge.
+    let [first, second] = anchors(
+        &sketch,
+        Constraint::Parallel {
+            first: rising,
+            second: falling,
+        },
+    )
+    .map(|it| it.expect("drawn against each").along);
+    near(first, DVec2::new(0.8, 0.6));
+    near(second, DVec2::new(0.6, -0.8));
+
+    // And a relation about a point alone has no span to take, so it runs the way
+    // the sketch itself does.
+    near(
+        only(
+            &sketch,
+            Constraint::Coincident {
+                a: origin,
+                b: across,
+            },
+        )
+        .along,
+        DVec2::X,
+    );
+}
+
+/// A span drawn back to front is set the same way round.
+///
+/// **The one thing that would otherwise follow the order a sketch happened to
+/// name its points in.** A mark stands clear of its span square to the way it
+/// runs, so a direction that turned over with the naming would put the dimension
+/// of one segment above it and its mirror image's below — two drawings that are
+/// the same drawing, read differently.
+///
+/// Settled in the sketch rather than against the projection, so this is asked of
+/// the rule and not of a camera.
+#[test]
+fn a_span_drawn_back_to_front_is_set_the_same_way_round() {
+    let mut sketch = Sketch::default();
+    let low = sketch.add_point(DVec2::ZERO);
+    let high = sketch.add_point(DVec2::new(4.0, 3.0));
+    // Straight up, which is the case the tie-break decides: neither point is to
+    // the right of the other.
+    let over = sketch.add_point(DVec2::new(0.0, 5.0));
+
+    let span = |a, b| {
+        only(
+            &sketch,
+            Constraint::Distance {
+                a,
+                b,
+                distance: 1.0,
+            },
+        )
+        .along
+    };
+    near(span(low, high), span(high, low));
+    near(span(low, over), span(over, low));
+    // And it is a direction rather than merely a consistent one: the leaning
+    // span comes out in fifths, and the upright one points up.
+    near(span(high, low), DVec2::new(0.8, 0.6));
+    near(span(over, low), DVec2::Y);
 }

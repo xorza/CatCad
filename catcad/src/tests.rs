@@ -10,7 +10,6 @@ use crate::build::Build;
 use crate::demo;
 use crate::intent::{Choice, Intents, Opening};
 use crate::model::Models;
-use crate::paint::mark_font;
 use crate::part::Part;
 use crate::prompt::{Asking, Prompt};
 use crate::timeline::Timeline;
@@ -862,8 +861,6 @@ fn empty_spot(app: &CatCad) -> Vec3 {
 struct DrawnMark {
     anchor: Vec3,
     turn: Turn,
-    /// How far the middle of the box sits above the anchor, in logical pixels.
-    rise: f32,
 }
 
 impl DrawnMark {
@@ -873,11 +870,10 @@ impl DrawnMark {
     /// awkwardness: the box is a fixed number of *pixels* clear of the geometry,
     /// so how far clear it is in the world shrinks as the view closes in.
     fn centre(self, camera: &Camera, viewport: Viewport) -> Vec3 {
-        let axes = self
-            .turn
-            .axes(self.anchor, camera.view_proj(viewport.aspect()), viewport);
-        let step = camera.world_per_pixel(self.anchor, viewport);
-        self.anchor - axes.down * (self.rise * step)
+        // Centred on its own box — asserted where the run is read — so the
+        // middle of that box is wherever the lift carried the run to, and the
+        // projection has no say in it beyond how big a pixel is.
+        self.anchor + self.turn.lift_world() * camera.world_per_pixel(self.anchor, viewport)
     }
 }
 
@@ -893,25 +889,17 @@ fn drawn_mark(app: &CatCad, part: Part) -> DrawnMark {
     let Facing::Turned(turn) = text.facing else {
         panic!("a mark is laid in its sketch plane");
     };
-    // Across, the run centres on its anchor, so the middle of its box is the
-    // anchor and there is no sideways term to carry. Asserted rather than
-    // assumed, since everything below is the vertical half.
+    // Centred on its own box, which is what leaves the lift as the whole of
+    // where that box stands. Asserted rather than assumed, since the arithmetic
+    // in `centre` is only right for a run that is.
     assert_eq!(
-        text.anchor.x, 0.5,
-        "the mark is not centred on its own point"
+        text.anchor,
+        Vec2::splat(0.5),
+        "the mark is not centred on its own box"
     );
     DrawnMark {
         anchor: text.position,
         turn,
-        // The fraction the run hangs by, which is where the lane it rose in
-        // lives, less the half box that reaches its middle.
-        //
-        // In *line heights* off the font rather than off the extent the shaper
-        // measured, because this harness never paints and so never fills one —
-        // see [`Text::extent`](aperture::Text). It is the one number shared with
-        // the call being checked; the plane, the direction and the lane all come
-        // off the drawn run.
-        rise: (text.anchor.y - 0.5) * mark_font().line_height_px,
     }
 }
 

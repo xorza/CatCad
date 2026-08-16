@@ -576,18 +576,27 @@ fn only_the_open_sketch_shows_its_constraints() {
     // catch is the pair handed over the wrong way round, since the ground's +x
     // and its normal are different axes.
     let plane = document.models(&build, there).open().plane();
+    let normal = plane.normal().as_vec3();
+    // The fixture's one dimension spans (0,0) to (2,0), so it runs along the
+    // sketch's +x — which on this plane is world +x.
     let along = plane.x.as_vec3();
-    let facing = Facing::Turned(Turn::new(along, plane.normal().as_vec3()));
     assert!(!scene.texts.is_empty(), "there were no marks to ask about");
     for mark in scene.texts.iter() {
-        assert_eq!(mark.facing, facing);
-        assert_eq!(mark.facing.right(), Some(along));
+        assert_eq!(mark.facing.right(), Some(along), "not set along its span");
+        assert_eq!(mark.facing.normal(), Some(normal), "not on its own plane");
         assert_ne!(
             mark.facing.right(),
             mark.facing.normal(),
             "the run is set along its plane's normal rather than in the plane"
         );
+        // Standing clear of the geometry rather than on it, and clear *in the
+        // plane* — the one thing about a mark the projection cannot move.
+        assert!(
+            mark.facing.lift_world().length() > 0.0,
+            "the mark sits on the line it measures"
+        );
     }
+    let facing = Facing::Turned(Turn::new(along, normal));
     // The same surface the strokes of that sketch took their depth off, which is
     // the cross-check: two writers reading one drawing's plane.
     assert!(
@@ -759,24 +768,37 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
     let mut names = Names::default();
     let mut placed = Vec::new();
     let mut marks = Batch::default();
+    // How far a mark stands clear of what it names, which is where the lane it
+    // rose in now lives: the anchor is centred on every mark alike, so a stack
+    // is told apart by the lift and by nothing else.
+    let clearance = |mark: &Text| {
+        assert_eq!(mark.anchor, Vec2::splat(0.5), "a mark is not centred");
+        match mark.facing {
+            Facing::Turned(turn) => turn.lift,
+            other => panic!("a mark is laid in its plane, not {other:?}"),
+        }
+    };
     let laid = |names: &mut Names, placed: &mut Vec<_>, marks: &mut Batch<Text>, typed| {
         write_marks(one.models(), typed, names, placed, marks);
         marks
             .iter()
-            .map(|mark| (mark.content.clone(), mark.position, mark.anchor))
+            .map(|mark| (mark.content.clone(), mark.position, clearance(mark)))
             .collect::<Vec<_>>()
     };
     let column = laid(&mut names, &mut placed, &mut marks, None);
     assert_eq!(column.len(), 2, "a coincidence and a right angle");
 
-    // Both at the corner in the world, and told apart only by how far up their
-    // own box the anchor sits: the same place, a line-height apart on screen.
+    // Both at the corner in the world, and told apart only by how far each
+    // stands clear of it: the same place, a line-height apart on screen.
     assert_eq!(column[0].1, column[1].1, "the two do not share the corner");
-    assert_eq!(column[0].2, MARK_ANCHOR, "the first mark was lifted");
     assert_eq!(
-        column[1].2,
-        Vec2::new(MARK_ANCHOR.x, MARK_ANCHOR.y + STACK_STEP),
-        "the second mark did not clear the first"
+        column[0].2.x, 0.0,
+        "a mark is carried sideways off its point"
+    );
+    let stepped = column[1].2.y - column[0].2.y;
+    assert!(
+        (stepped - STACK_STEP * mark_font().line_height_px).abs() < 1e-3,
+        "the second mark cleared the first by {stepped} rather than by a line"
     );
 
     // Now with the lower of the two taken out, as a field standing over it

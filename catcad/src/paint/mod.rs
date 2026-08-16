@@ -555,15 +555,13 @@ fn write_marks(
             let plane = model.plane();
             mark.position = plane.point(placed.at).as_vec3();
             mark.font = mark_font();
-            // Above the middle of what it names, so the mark clears the geometry
-            // it is about rather than sitting on top of it — and a line higher
-            // again for every mark already standing there, which is the whole of
-            // how a corner carrying three relations reads as three.
-            //
-            // Above *in the drawing's own frame*, now that the run is laid in
-            // it: the lift and the stack are fractions of the run's own box, so
-            // they follow it round without being told anything.
-            mark.anchor = mark_anchor(placed.lane);
+            // **Centred on its own box**, with the clearance carried by the
+            // lift below instead. An anchor fraction rides in the run's own
+            // frame, and both rules that settle that frame — the mirror and the
+            // half turn — would carry it along, swinging the box to the other
+            // side of the very line it stands clear of. A centred box is mapped
+            // onto itself by either, so it only ever changes direction.
+            mark.anchor = Vec2::splat(0.5);
             mark.color = ink(
                 model,
                 if outcome.is_redundant(id) {
@@ -573,28 +571,34 @@ fn write_marks(
                 },
             );
             mark.precedence = standing(model);
-            // Lettered on the drawing rather than pinned over it: the run is set
-            // along the sketch's own +x as the projection draws it, so a mark
-            // turns with the plane it belongs to instead of staying square to
-            // the screen while everything under it swings. Along +x rather than
-            // along what each relation is about, which is a refinement the basis
-            // being per-run leaves open — see [`marks::anchors`].
-            mark.facing = Facing::Turned(Turn::new(plane.x.as_vec3(), plane.normal().as_vec3()));
+            // Lettered on the drawing rather than pinned over it: set along the
+            // geometry it is about — the span a dimension measures, the edge a
+            // symbol names — so a number reads as belonging to the line under it
+            // and turns with the plane it belongs to. Which direction that is,
+            // is [`marks::anchors`]'s; what is here is putting it on the plane.
+            //
+            // Clear of that geometry by the lift, which is stated in the plane's
+            // own axes and so is the one thing about a mark the projection
+            // cannot move.
+            mark.facing = Facing::Turned(mark_turn(model.drawing(), *placed));
             mark.tag = Some(names.tag(model.part(id)));
         },
     );
 }
 
-/// Where the dimension's own position sits in the box of its number: centred
-/// across, and better than a box-height above, so the mark clears the geometry
-/// it is about rather than sitting on top of it.
+/// How far a mark's own middle stands clear of the geometry it names, in
+/// line-heights.
 ///
-/// Reached only through [`mark_anchor`], which is what folds the stack in — and
+/// Better than a box-height, so the mark clears the stroke it is about rather
+/// than sitting on it. Across, a mark is centred on what it names and there is
+/// nothing to state.
+///
+/// Reached only through [`mark_rise`], which is what folds the stack in — and
 /// that is the whole reason it is a constant rather than a number written where
 /// the run is given it. A field is drawn *instead of* a mark and must land on
-/// the same pixels, so where a mark's box hangs has to be one answer: it places
+/// the same pixels, so where a mark's box stands has to be one answer: it lifts
 /// the run, and [`mark_centre`] measures from it on the field's behalf.
-const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
+const MARK_CLEAR: f32 = 1.1;
 
 /// How far a mark rises above the one below it in its stack, in line-heights.
 ///
@@ -611,25 +615,19 @@ const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
 /// where the second one in a row would start.
 const STACK_STEP: f32 = 1.0;
 
-/// Where a mark in `lane` hangs its box off the point it names, as a fraction
-/// of that box.
+/// How far a mark in `lane` stands clear of the geometry it names, in logical
+/// pixels along the plane's own down.
 ///
-/// [`MARK_ANCHOR`] with the stack folded in, which is the one form both readers
-/// want: the run is given it outright, and what stands in the run's place
-/// measures from it. Two spellings of it would be a field a lane off its own
-/// number, which is a thing you can only see by opening one.
-fn mark_anchor(lane: u8) -> Vec2 {
-    Vec2::new(MARK_ANCHOR.x, MARK_ANCHOR.y + f32::from(lane) * STACK_STEP)
-}
-
-/// How far the *middle* of a mark's box sits above the point it names, in
-/// logical pixels along the run's own up.
+/// [`MARK_CLEAR`] and [`STACK_STEP`] as a length rather than as fractions of a
+/// box, which is what a lift is stated in — and the one form both readers want:
+/// the run is given it outright, and what stands in the run's place measures
+/// from it. Two spellings would be a field a lane off its own number, which is a
+/// thing you can only see by opening one.
 ///
-/// [`mark_anchor`] as a length rather than a fraction, and then half a line back
-/// down — which is where the run's own width cancels, and so the one point about
-/// a mark that can be worked out without measuring any text.
+/// The lane is asked for rather than assumed, because a mark sharing its place
+/// with others does not sit where a lone one would.
 fn mark_rise(lane: u8) -> f32 {
-    (mark_anchor(lane).y - 0.5) * mark_font().line_height_px
+    (MARK_CLEAR + f32::from(lane) * STACK_STEP) * mark_font().line_height_px
 }
 
 /// Where the middle of a mark's box sits in the world.
@@ -658,11 +656,20 @@ pub(crate) fn mark_centre(
     viewport: Viewport,
 ) -> Vec3 {
     let anchor = placed.world(drawing);
+    anchor + mark_turn(drawing, placed).lift_world() * camera.world_per_pixel(anchor, viewport)
+}
+
+/// How the mark for `placed` is laid in the drawing's plane.
+///
+/// One statement, read twice: the run is given it, and whatever stands in the
+/// run's place measures from it. The two coming to different answers is a field
+/// that misses its own number, and on a plane seen at an angle it would miss it
+/// in a different direction every frame.
+fn mark_turn(drawing: Drawing<'_>, placed: Placed) -> Turn {
     let plane = drawing.plane();
-    let turn = Turn::new(plane.x.as_vec3(), plane.normal().as_vec3());
-    let axes = turn.axes(anchor, camera.view_proj(viewport.aspect()), viewport);
-    // Up the box, which is against its own down.
-    anchor - axes.down * (mark_rise(placed.lane) * camera.world_per_pixel(anchor, viewport))
+    let along = plane.x * placed.along.x + plane.y * placed.along.y;
+    Turn::new(along.as_vec3(), plane.normal().as_vec3())
+        .lifted(Vec2::new(0.0, mark_rise(placed.lane)))
 }
 
 /// Decimal places a dimension is read out to.
