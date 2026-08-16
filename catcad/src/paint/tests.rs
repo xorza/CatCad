@@ -477,6 +477,84 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
 /// because saying it moves nothing, a layout watching only the revision would
 /// go on drawing the sketch you just left as the live one. The second redraw
 /// below goes through the *same* layout for exactly that reason.
+/// **A dormant sketch shows no marks at all**, where its geometry still shows,
+/// dimmed.
+///
+/// A constraint is a statement *about* a drawing, and one you are not in is not
+/// a drawing you can argue with: its marks can be neither selected into a
+/// relation nor typed into, so all they would do is crowd the sketch you are
+/// working in — and a dimension is the densest thing the drawing puts on
+/// screen. Where a dormant sketch *is* stays visible, because that is something
+/// you build against.
+///
+/// Its own fixture rather than an extension of the test below, which needs
+/// geometry with its freedom intact to have a colour worth checking where this
+/// needs geometry a constraint has taken hold of.
+#[test]
+fn only_the_open_sketch_shows_its_constraints() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let mut stated = || {
+        let mut sketch = Sketch::default();
+        let a = sketch.add_point(DVec2::ZERO);
+        let b = sketch.add_point(DVec2::new(2.0, 0.0));
+        sketch.add_segment(a, b);
+        sketch.add_constraint(silverpoint::Constraint::Distance {
+            a,
+            b,
+            distance: 2.0,
+        });
+        timeline.add(Feature::Sketch { on: ground, sketch })
+    };
+    let here = stated();
+    let there = stated();
+
+    let mut build = Build::default();
+    let document = Document::new(&mut build, timeline);
+    let mut layout = Layout::default();
+    let mut scene = Scene::default();
+
+    // Which sketch each mark on screen belongs to, found through the names.
+    let marked = |scene: &Scene, layout: &Layout| {
+        scene
+            .texts
+            .iter()
+            .filter_map(|mark| mark.tag.and_then(|tag| layout.names().get(tag)))
+            .filter_map(|part| part.sketch())
+            .collect::<Vec<_>>()
+    };
+
+    redraw(
+        document.models(&build, here),
+        &mut layout,
+        None,
+        None,
+        &mut scene,
+    );
+    assert_eq!(
+        marked(&scene, &layout),
+        [here],
+        "a sketch nobody is in put its constraints on screen"
+    );
+    // Both sketches are still *drawn* — it is the marks alone that go.
+    assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
+
+    // The same layout, so the only thing that has changed is which sketch is
+    // open — and the marks have to follow it.
+    redraw(
+        document.models(&build, there),
+        &mut layout,
+        None,
+        None,
+        &mut scene,
+    );
+    assert_eq!(
+        marked(&scene, &layout),
+        [there],
+        "the marks did not follow the open sketch"
+    );
+}
+
 #[test]
 fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     let mut timeline = Timeline::default();

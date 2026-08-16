@@ -469,6 +469,14 @@ fn write_marks(
     marks.refill(
         models
             .iter()
+            // **The open sketch alone.** A constraint is a statement *about* a
+            // drawing, and one you are not in is not a drawing you can argue
+            // with: its marks can neither be selected into a relation nor typed
+            // into, so all they do is crowd the sketch you are working in — and
+            // a dimension is the densest thing the drawing puts on screen. The
+            // geometry of a dormant sketch still shows, dimmed, because where it
+            // *is* is something you build against.
+            .filter(|model| model.live())
             .flat_map(|model| {
                 model
                     .sketch()
