@@ -10,3 +10,6 @@
   of padding on the status is enough, and fails nine of the toolbar tests; a
   document saved to a long path reaches the same width on its own.
 
+- `catcad`'s `a_document_written_out_comes_back_the_way_it_was_left` fails: the
+  tool comes back `Pointer` where the test expects `Point`.
+

@@ -9,8 +9,9 @@ use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, Instance, PointInstance, RingInstance,
 };
 use crate::text::{self, Text};
-use glam::{Mat3, Vec3};
-use palantir::{PlacedGlyph, TextGlyphs};
+use crate::text_edit::{self, TextEdit};
+use glam::{Mat3, Vec2, Vec3};
+use palantir::{PlacedGlyph, Rect, TextGlyphs};
 
 /// The whole scene in the shape the GPU takes it.
 ///
@@ -50,14 +51,21 @@ pub(super) struct Cpu {
     pub(super) atlas: GlyphAtlas,
 }
 
-/// What the scene's text flattens to: a [`Records`] like every other kind's, and
-/// the two things filling it needs that a `Records` alone cannot ask for.
+/// What the scene's text flattens to — its labels and its fields alike — plus
+/// the two things filling it needs that a [`Records`] alone cannot ask for.
 ///
 /// Every other overlay answers `records()` from `&self`, so its `Records` needs
 /// nothing but the batch — see [`Records::refill_from`]. A run needs the shaper to
 /// know how many glyphs it is worth and the atlas to know where each one is
 /// read from, and neither is something a `Text` holds. So what the four kinds
 /// share is the buffers and not the way any of them is filled.
+///
+/// **Two batches into one buffer**, because a field is drawn out of the same
+/// record a glyph is and there is nothing for a second pass of them to do
+/// differently. What that buys is the ordering: the pass blends in the order it
+/// is handed records and writes no depth, so appending the fields after the
+/// labels is the whole of why a field reads over a label it covers. Two passes
+/// would have to say the same thing with a rung on the depth ladder.
 #[derive(Debug, Default)]
 pub(super) struct TextRecords {
     pub(super) records: Records<GlyphInstance>,
@@ -82,30 +90,34 @@ impl TextRecords {
         self.records.ordinary.is_empty() && self.records.lit.is_empty()
     }
 
-    /// Bring both buffers up to date with `texts`.
+    /// Bring both buffers up to date with `texts` and `fields`.
     ///
-    /// Four things can move them, where the other overlays have two. The batch
-    /// having been written and the highlights having changed are the usual
-    /// pair; beyond those, the sheet may have been started again — every slot
-    /// on the old one has gone — and the raster scale may have moved, which
-    /// changes what every glyph is rasterized as.
+    /// Four things can move them, where the other overlays have two. Either
+    /// batch having been written and the highlights having changed are the
+    /// usual pair; beyond those, the sheet may have been started again — every
+    /// slot on the old one has gone — and the raster scale may have moved,
+    /// which changes what every glyph is rasterized as.
+    ///
+    /// Written out rather than going through [`Records::refill`], which is
+    /// shaped for one batch: the ordinary buffer takes two, in an order that is
+    /// the whole of how the two kinds stack.
     pub(super) fn refresh(
         &mut self,
         texts: &mut Batch<Text>,
-        atlas: &mut GlyphAtlas,
-        glyphs: &mut TextGlyphs<'_>,
-        scale: f32,
+        fields: &mut Batch<TextEdit>,
+        laying: &mut Laying<'_, '_>,
         highlights: &Highlights,
         relight: bool,
     ) {
         // The sheet is restarted before anything is laid out on it, so nothing
-        // this frame names a slot that is about to be thrown away. All three
-        // are taken whether or not they are acted on: each clears a mark, and a
-        // mark left behind is one that fires again next frame.
-        let restarted = atlas.restart_if_full();
-        let rescaled = self.scale != scale;
-        let moved = texts.take_dirty();
-        self.scale = scale;
+        // this frame names a slot that is about to be thrown away. All four are
+        // taken whether or not they are acted on: each clears a mark, and a mark
+        // left behind is one that fires again next frame — which is why the two
+        // batches are read with `|` rather than `||`.
+        let restarted = laying.atlas.restart_if_full();
+        let rescaled = self.scale != laying.scale;
+        let moved = texts.take_dirty() | fields.take_dirty();
+        self.scale = laying.scale;
         // The name is the point: it is asked twice, and a second spelling of it
         // is a second chance to leave one of the three out.
         let relaid = moved || restarted || rescaled;
@@ -116,18 +128,63 @@ impl TextRecords {
         if relaid {
             // Measured before anything is laid out, because where a run's glyphs
             // sit depends on where its box hangs, and that is what the extent
-            // says. Only when the runs are being laid out again — a frame that
-            // merely relit one reads the extent it measured last time.
-            text::measure_all(texts, glyphs);
+            // says — and a field's caret cannot be placed before its stops are
+            // known. Only when they are being laid out again: a frame that
+            // merely relit a label reads what it measured last time.
+            text::measure_all(texts, laying.glyphs);
+            text_edit::measure_all(fields, laying.glyphs);
+            // No count to reserve, unlike every other kind: how many glyphs a
+            // run comes to is the shaper's answer, and asking would be laying
+            // it out twice.
+            let ordinary = records.ordinary_to_fill();
+            for text in texts.iter() {
+                flatten(text, laying, placed, ordinary);
+            }
+            // After the labels, so a field reads over one it covers — see this
+            // type's own doc for why that is an ordering rather than a bias.
+            for field in fields.iter() {
+                flatten_field(field, laying, placed, ordinary);
+            }
         }
-        // No count to reserve: how many glyphs a run comes to is the shaper's
-        // answer, and asking would be laying it out twice. Only what is lit is
-        // laid out a second time, so a pointer crossing a drawing full of labels
-        // reshapes the one it stopped on.
-        records.refill(texts, highlights, relaid, relight, None, |text, into| {
-            flatten(text, atlas, glyphs, scale, placed, into)
-        });
+        // Labels alone. A field is never drawn again in a highlight's look: its
+        // surround is opaque and covers the whole box, so the copy would hide
+        // the field rather than pick it out — see [`TextEdit::tag`]. What a
+        // field looks like in each of its states is the caller's to write on the
+        // field itself.
+        if relaid || relight {
+            let lit = records.lit_to_fill();
+            for text in texts.iter() {
+                let Some(look) = highlights.look_of(text.tag()) else {
+                    continue;
+                };
+                // Only what is lit is laid out a second time, so a pointer
+                // crossing a drawing full of labels reshapes the one it stopped
+                // on.
+                let from = lit.len();
+                flatten(text, laying, placed, lit);
+                for record in &mut lit[from..] {
+                    *record = record.highlighted(look);
+                }
+            }
+        }
     }
+}
+
+/// What laying a line of text out needs, other than the line: the sheet its
+/// glyphs are read from, the shaper that places them, and how many device
+/// pixels a logical one is worth.
+///
+/// A bundle because the three travel together the whole way down — a refresh
+/// takes them, hands them to [`flatten`] and [`flatten_field`], and both hand
+/// them to [`place`]. Threading three arguments through four signatures is
+/// three chances to transpose a pair that would still compile, and the scale is
+/// a bare `f32` that either of the other two could be measured against.
+#[derive(Debug)]
+pub(super) struct Laying<'a, 'g> {
+    pub(super) atlas: &'a mut GlyphAtlas,
+    pub(super) glyphs: &'a mut TextGlyphs<'g>,
+    /// The raster scale: device pixels to the logical one.
+    pub(super) scale: f32,
 }
 
 /// Append one run's glyphs to `into`, each placed and given a piece of the sheet
@@ -136,28 +193,116 @@ impl TextRecords {
 /// `placed` is the caller's scratch, refilled here. Appends rather than
 /// answering with a list, so a run's glyphs land straight in the buffer they are
 /// uploaded from — the alternative is a `Vec` per run per frame.
+fn flatten(
+    text: &Text,
+    laying: &mut Laying<'_, '_>,
+    placed: &mut Vec<PlacedGlyph>,
+    into: &mut Vec<GlyphInstance>,
+) {
+    laying
+        .glyphs
+        .line(&text.content, text.font, laying.scale, placed);
+    place(
+        placed,
+        laying,
+        Inked {
+            anchor: text.position,
+            // Where the run's top-left sits relative to its anchor, which is
+            // the whole of what the anchor fraction decides.
+            origin: -text.anchor * text.extent(),
+            color: text.color,
+            plane: text.plane_normal,
+        },
+        into,
+    );
+}
+
+/// Append one field's quads to `into`: its surround, the wash behind whatever
+/// is picked out, its glyphs, and the caret.
+///
+/// **In that order, and the order is the whole of the layering.** The text pass
+/// blends what it is handed in the order it is handed it and writes no depth,
+/// so a rectangle appended earlier is a rectangle drawn under. Reordering these
+/// four lines paints the surround over the text.
+fn flatten_field(
+    field: &TextEdit,
+    laying: &mut Laying<'_, '_>,
+    placed: &mut Vec<PlacedGlyph>,
+    into: &mut Vec<GlyphInstance>,
+) {
+    let parts = field.parts();
+    let solid = laying.atlas.solid();
+    into.push(filled(field, parts.surround, field.background, solid));
+    if let Some(wash) = parts.wash {
+        into.push(filled(field, wash, field.selection, solid));
+    }
+    laying
+        .glyphs
+        .line(field.content(), field.font, laying.scale, placed);
+    place(
+        placed,
+        laying,
+        Inked {
+            anchor: field.position,
+            origin: parts.text,
+            color: field.color,
+            plane: field.plane_normal,
+        },
+        into,
+    );
+    // Over the ink rather than under it, so the caret between two characters
+    // reads as a mark on the line rather than as one of them having been
+    // clipped.
+    if let Some(caret) = parts.caret {
+        into.push(filled(field, caret, field.color, solid));
+    }
+}
+
+/// One of a field's solid rectangles as a record.
+fn filled(field: &TextEdit, rect: Rect, color: Vec3, solid: Vec2) -> GlyphInstance {
+    GlyphInstance::new(
+        field.position,
+        GlyphQuad::filled(rect, solid),
+        color,
+        field.plane_normal,
+    )
+}
+
+/// Where one line's glyphs hang and how they are drawn — what every glyph of a
+/// run or of a field carries alike.
+///
+/// A bundle rather than four arguments, because [`place`] is handed the same
+/// four in the same order from two call sites, and both of the [`Vec3`]s and
+/// both of the positions would transpose without complaint.
+#[derive(Debug, Clone, Copy)]
+struct Inked {
+    /// Where the line hangs from, in the world.
+    anchor: Vec3,
+    /// Where the line's top-left sits relative to that, in logical pixels.
+    origin: Vec2,
+    color: Vec3,
+    plane: Option<Vec3>,
+}
+
+/// Append a record for every glyph in `placed` that the sheet has room for.
 ///
 /// A glyph the sheet has no room for is skipped rather than drawn wrong. The
 /// sheet notices it was asked, and the next frame starts over with twice the
 /// room — see [`GlyphAtlas::restart_if_full`].
-fn flatten(
-    text: &Text,
-    atlas: &mut GlyphAtlas,
-    glyphs: &mut TextGlyphs<'_>,
-    scale: f32,
-    placed: &mut Vec<PlacedGlyph>,
+fn place(
+    placed: &[PlacedGlyph],
+    laying: &mut Laying<'_, '_>,
+    inked: Inked,
     into: &mut Vec<GlyphInstance>,
 ) {
-    glyphs.line(&text.content, text.font, scale, placed);
-    // Where the run's top-left sits relative to its anchor, which is the whole
-    // of what the anchor fraction decides.
-    let origin = -text.anchor * text.extent();
-    let side = atlas.side();
-    for glyph in placed.iter() {
-        if let Some(slot) = atlas.slot(glyph.raster_key, glyphs) {
-            into.push(GlyphInstance::of(
-                GlyphQuad::of(*glyph, slot, origin, scale, side),
-                text,
+    let side = laying.atlas.side();
+    for glyph in placed {
+        if let Some(slot) = laying.atlas.slot(glyph.raster_key, laying.glyphs) {
+            into.push(GlyphInstance::new(
+                inked.anchor,
+                GlyphQuad::of(*glyph, slot, inked.origin, laying.scale, side),
+                inked.color,
+                inked.plane,
             ));
         }
     }
@@ -238,45 +383,38 @@ impl<R> Records<R> {
         std::mem::take(&mut self.lit_dirty).then(|| &self.lit[..])
     }
 
-    /// Refill both buffers from `items`, `append` putting one item's records
-    /// into whichever is being filled.
+    /// Bring both buffers up to date with `batch`, for a kind that can flatten
+    /// itself.
     ///
-    /// The whole of what the four kinds do alike: fill the ordinary buffer when
-    /// the batch moved, fill the highlight buffer when it moved *or* what is lit
-    /// changed, and give the second one the look the first does not carry. Only
-    /// how an item becomes records differs, and that is what `append` is.
+    /// Takes the batch's mark as it goes, which is the whole of how this knows
+    /// the scene changed, and leaves its own for whoever uploads. `relight` is
+    /// the caller's own flag alongside it: what is lit can change without the
+    /// scene changing at all, which is what a pointer moving across a drawing
+    /// does. The scene changing forces both, since an edit can add or remove
+    /// whatever a tag named.
     ///
-    /// A closure rather than a method on [`Flatten`], because what appending
-    /// needs is not the same for all four: a stroke, a rim and a marker answer
-    /// from `&self`, and a run needs the shaper, the sheet and a scratch buffer.
-    /// Carrying those through the trait would put two lifetimes on an associated
-    /// type — `&mut TextGlyphs<'_>` is invariant, so one will not do — where a
-    /// closure simply captures them at the one call site that has them.
-    ///
-    /// `reserve` is the record count when it is known before the walk, which it
-    /// is for everything but text: a run's glyph count is the shaper's answer.
-    ///
-    /// The highlight buffer is filled by appending and then going back over what
-    /// was appended, rather than by mapping on the way in, because that is the
-    /// only form text can use — `append` hands back no iterator to map.
-    pub(super) fn refill<P: Primitive>(
+    /// Every kind but text, which needs the shaper and the sheet to know what it
+    /// comes to and so fills its buffers itself — see [`TextRecords::refresh`].
+    /// The two shared a closure-taking `refill` while text could be made to fit
+    /// through one; what ended that is text now flattening from *two* batches in
+    /// an order of its own, which is not a shape a single-batch seam can hold.
+    pub(super) fn refill_from<O: Flatten<Record = R>>(
         &mut self,
-        items: &[P],
+        batch: &mut Batch<O>,
         highlights: &Highlights,
-        moved: bool,
         relight: bool,
-        reserve: Option<usize>,
-        mut append: impl FnMut(&P, &mut Vec<R>),
     ) where
         R: Instance,
     {
+        let moved = batch.take_dirty();
+        let items: &[O] = batch;
         if moved {
             let ordinary = self.ordinary_to_fill();
-            if let Some(exact) = reserve {
-                ordinary.reserve_exact(exact);
-            }
+            // Counted here rather than up front, so a still frame does not walk
+            // the batch to reserve room it is not about to fill.
+            ordinary.reserve_exact(items.iter().map(O::record_count).sum());
             for item in items {
-                append(item, ordinary);
+                ordinary.extend(item.records());
             }
         }
         if moved || relight {
@@ -289,43 +427,9 @@ impl<R> Records<R> {
                 let Some(look) = highlights.look_of(item.tag()) else {
                     continue;
                 };
-                let from = lit.len();
-                append(item, lit);
-                for record in &mut lit[from..] {
-                    *record = record.highlighted(look);
-                }
+                lit.extend(item.records().map(|record| record.highlighted(look)));
             }
         }
-    }
-
-    /// Bring both buffers up to date with `batch`, for a kind that can flatten
-    /// itself.
-    ///
-    /// Takes the batch's mark as it goes, which is the whole of how this knows
-    /// the scene changed, and leaves its own for whoever uploads. `relight` is
-    /// the caller's own flag alongside it: what is lit can change without the
-    /// scene changing at all, which is what a pointer moving across a drawing
-    /// does. The scene changing forces both, since an edit can add or remove
-    /// whatever a tag named.
-    pub(super) fn refill_from<O: Flatten<Record = R>>(
-        &mut self,
-        batch: &mut Batch<O>,
-        highlights: &Highlights,
-        relight: bool,
-    ) where
-        R: Instance,
-    {
-        let moved = batch.take_dirty();
-        let items: &[O] = batch;
-        let exact = items.iter().map(O::record_count).sum();
-        self.refill(
-            items,
-            highlights,
-            moved,
-            relight,
-            Some(exact),
-            |item, into| into.extend(item.records()),
-        );
     }
 }
 

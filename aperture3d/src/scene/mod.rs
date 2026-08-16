@@ -10,10 +10,11 @@ use crate::point::Point;
 use crate::primitive;
 use crate::ring::Ring;
 use crate::text::Text;
+use crate::text_edit::TextEdit;
 
 /// The whole of the drawable world: shaded solids, the flat sheets a drawing
-/// encloses, stroked curves, rims, markers and labels. Flat for now —
-/// hierarchy, if it earns its place, goes here.
+/// encloses, stroked curves, rims, markers, labels, and the fields a value is
+/// typed into. Flat for now — hierarchy, if it earns its place, goes here.
 ///
 /// Every field is public and writable, because each [`Batch`] reports its own
 /// edits: a caller handed the whole scene and writing to one of them costs
@@ -40,6 +41,16 @@ pub struct Scene {
     pub rings: Batch<Ring>,
     pub points: Batch<Point>,
     pub texts: Batch<Text>,
+    /// The fields being typed into — a dimension being restated, an extrude's
+    /// depth.
+    ///
+    /// Apart from `texts` though the two are drawn through one pass, because
+    /// they are two different things to a *caller*: a label is written by
+    /// whatever is drawing the model, and a field is the one thing in the scene
+    /// that an application is holding open. Rebuilding every label on a
+    /// keystroke, or every field on a drag, is what one batch for both would
+    /// cost.
+    pub text_edits: Batch<TextEdit>,
 }
 
 /// How much farther than something a hit has to be before it counts as being
@@ -79,9 +90,9 @@ impl Scene {
         // Each kind knows how far it reaches, so there is nothing to decide
         // here but which batches to ask. An object's extent is its transformed
         // vertices; an overlay's is its anchors alone, because a stroke's
-        // width, a marker's glyph and a label's box are screen-space
-        // quantities, and the distance that would satisfy one of those is the
-        // distance being solved for.
+        // width, a marker's glyph and the box a label or a field is drawn in
+        // are screen-space quantities, and the distance that would satisfy one
+        // of those is the distance being solved for.
         let mut extent: Option<Extent> = None;
         primitive::extent(&self.solids, &mut extent);
         primitive::extent(&self.faces, &mut extent);
@@ -89,6 +100,7 @@ impl Scene {
         primitive::extent(&self.rings, &mut extent);
         primitive::extent(&self.points, &mut extent);
         primitive::extent(&self.texts, &mut extent);
+        primitive::extent(&self.text_edits, &mut extent);
         extent
     }
 
@@ -175,7 +187,7 @@ impl Scene {
     /// and then bisecting, and a walk that picked every rim in the drawing to
     /// find out none of them was a frame would double the cost of every pick to
     /// learn nothing. Standing is a field on the primitive and reading it is
-    /// free, so the four kinds are filtered where they lie rather than after.
+    /// free, so the five kinds are filtered where they lie rather than after.
     fn frame_front(&self, aim: &Aim) -> f32 {
         let framed = |precedence: &Precedence| *precedence == Precedence::Frame;
         let points = self
@@ -188,6 +200,11 @@ impl Scene {
             .iter()
             .filter(|text| framed(&text.precedence))
             .filter_map(|text| text.pick(aim));
+        let fields = self
+            .text_edits
+            .iter()
+            .filter(|field| framed(&field.precedence))
+            .filter_map(|field| field.pick(aim));
         let curves = self
             .curves
             .iter()
@@ -200,6 +217,7 @@ impl Scene {
             .filter_map(|ring| ring.pick(aim));
         points
             .chain(texts)
+            .chain(fields)
             .chain(curves)
             .chain(rings)
             .fold(f32::INFINITY, |front, hit| front.min(hit.distance))
@@ -273,6 +291,11 @@ impl Scene {
         self.points
             .iter()
             .filter_map(move |point| point.pick(aim))
+            .chain(
+                self.text_edits
+                    .iter()
+                    .filter_map(move |field| field.pick(aim)),
+            )
             .chain(self.texts.iter().filter_map(move |text| text.pick(aim)))
             .chain(self.curves.iter().filter_map(move |curve| curve.pick(aim)))
             .chain(self.rings.iter().filter_map(move |ring| ring.pick(aim)))

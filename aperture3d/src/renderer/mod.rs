@@ -27,7 +27,7 @@ pub(crate) mod retained;
 pub(crate) mod target;
 pub(crate) mod uniforms;
 
-use crate::renderer::cpu::{Cpu, Order};
+use crate::renderer::cpu::{Cpu, Laying, Order};
 use crate::renderer::gpu::{Attachments, Gpu};
 use crate::renderer::uniforms::Uniforms;
 
@@ -165,8 +165,10 @@ impl Renderer {
     ///
     /// Text is the one thing written back into the scene rather than mirrored
     /// out of it. How far a run reaches is the shaper's answer and picking needs
-    /// it, so it is remembered on the run — through a memo rather than the batch,
-    /// which is what keeps recording it from reading as an edit. See
+    /// it, so it is remembered on the run — and a field remembers where every
+    /// caret position along it falls, which is what a click that places the
+    /// caret reads. Both go through a memo rather than the batch, which is what
+    /// keeps recording them from reading as an edit. See
     /// [`Text::extent`](crate::Text::extent).
     fn refresh(&mut self, raster_scale: f32) {
         let Self {
@@ -206,14 +208,19 @@ impl Renderer {
         // being drawn for the rest of the run. Records outliving what they were
         // flattened from is the one failure a retained renderer has to answer
         // for, and emptying is the only way to reach it.
-        if scene.texts.is_empty() && cpu.texts.is_empty() {
+        if scene.texts.is_empty() && scene.text_edits.is_empty() && cpu.texts.is_empty() {
             // Taken on the way out, because a mark is a claim that someone
             // wrote to the batch and this is the one path that answers that
             // claim by doing nothing. Left standing it would outlive the edit
             // it stands for — a batch refilled to empty while no text is drawn
             // would still be reporting that write on whatever later frame first
             // had a run to lay out.
+            //
+            // Both, and not whichever was non-empty: they share the buffer this
+            // is deciding about, so a mark left on either is one that fires
+            // again next frame.
             scene.texts.take_dirty();
+            scene.text_edits.take_dirty();
             return;
         }
         let shaper = shaper
@@ -223,11 +230,15 @@ impl Renderer {
         // halves of laying a run out and both go through it — a second would be
         // a second borrow of the same shaper, which panics.
         let mut glyphs = shaper.glyphs();
+        let mut laying = Laying {
+            atlas: &mut cpu.atlas,
+            glyphs: &mut glyphs,
+            scale: raster_scale,
+        };
         cpu.texts.refresh(
             &mut scene.texts,
-            &mut cpu.atlas,
-            &mut glyphs,
-            raster_scale,
+            &mut scene.text_edits,
+            &mut laying,
             highlights,
             relight,
         );

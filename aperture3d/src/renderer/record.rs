@@ -5,7 +5,6 @@ use crate::highlight::Highlight;
 use crate::point::Point;
 use crate::renderer::atlas::GlyphQuad;
 use crate::ring::Ring;
-use crate::text::Text;
 use glam::Vec3;
 
 /// What every overlay record ends with, whatever shape carries it.
@@ -192,9 +191,17 @@ impl Instance for PointInstance {
     }
 }
 
-/// One glyph, shipped once. Its quad spans 0..1 either way — unlike a marker's,
-/// which is symmetric about its anchor — because a glyph hangs off the run's
-/// origin by a bearing rather than being centred on anything.
+/// One screen-space rectangle hung off a world anchor, shipped once. Its quad
+/// spans 0..1 either way — unlike a marker's, which is symmetric about its
+/// anchor — because a glyph hangs off the run's origin by a bearing rather than
+/// being centred on anything.
+///
+/// A glyph is what it is usually made of, and what it is named for. A
+/// [`TextEdit`](crate::TextEdit) ships its surround, the wash behind whatever is
+/// picked out, and its caret as three more of these — the same rectangle, hung
+/// off the same anchor, reading a corner of the sheet that is always full
+/// instead of one a glyph was rasterized into. See
+/// [`GlyphAtlas::solid`](crate::renderer::atlas::GlyphAtlas::solid).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GlyphInstance {
@@ -223,15 +230,21 @@ pub(crate) struct GlyphInstance {
 }
 
 impl GlyphInstance {
-    pub(super) fn of(quad: GlyphQuad, text: &Text) -> Self {
+    /// One quad hung off `anchor` — a glyph of a run, or one of the solid
+    /// rectangles a [`TextEdit`](crate::TextEdit) is drawn from.
+    ///
+    /// Built from the pieces rather than from whichever primitive produced
+    /// them, because two kinds produce them: a label's glyphs all carry its own
+    /// colour, and a field's parts carry three between them.
+    pub(super) fn new(anchor: Vec3, quad: GlyphQuad, color: Vec3, plane: Option<Vec3>) -> Self {
         Self {
-            anchor: text.position.to_array(),
+            anchor: anchor.to_array(),
             offset: quad.offset.to_array(),
             size: quad.size.to_array(),
             uv_min: quad.uv_min.to_array(),
             uv_size: quad.uv_size.to_array(),
-            look: Look::of(text.color, 0.0),
-            plane: plane_of(text.plane_normal),
+            look: Look::of(color, 0.0),
+            plane: plane_of(plane),
         }
     }
 }

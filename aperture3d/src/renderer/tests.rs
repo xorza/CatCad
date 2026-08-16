@@ -13,6 +13,7 @@ use crate::ring::Ring;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::Text;
+use crate::text_edit::TextEdit;
 use glam::{Mat4, Vec3};
 use palantir::OffscreenHost;
 use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
@@ -757,7 +758,7 @@ struct Staged {
 /// So this asks the frame.
 ///
 /// One kind at a time, against a baseline of none, because a scene holding all
-/// five draws something whichever four of them are broken.
+/// six draws something whichever five of them are broken.
 #[test]
 fn every_kind_reaches_the_frame() {
     let gpu = headless_test_gpu();
@@ -808,6 +809,19 @@ fn every_kind_reaches_the_frame() {
             batch: "texts",
             stage: |scene| scene.texts.push(Text::new(Vec3::ZERO, "125.4", 48.0)),
         },
+        // Nothing to say and out of focus, so neither its glyphs nor its caret
+        // can be what reaches the frame — what is asked of this one is whether a
+        // *solid* quad draws at all, which reads the corner of the sheet that no
+        // other kind does. Its surround is lightened off the black a field comes
+        // with, since what is counted is pixels above the background.
+        Staged {
+            batch: "text_edits",
+            stage: |scene| {
+                let mut empty = TextEdit::new(Vec3::ZERO, "", 48.0);
+                empty.background = Vec3::ONE;
+                scene.text_edits.push(empty);
+            },
+        },
     ];
     for Staged { batch, stage } in kinds {
         {
@@ -818,6 +832,7 @@ fn every_kind_reaches_the_frame() {
             scene.rings.clear();
             scene.points.clear();
             scene.texts.clear();
+            scene.text_edits.clear();
             stage(scene);
         }
         host.frame_offscreen(&target, 1.0, &mut pane);
@@ -860,13 +875,19 @@ fn a_frame_uploads_every_kind() {
     scene
         .texts
         .push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(lit));
+    // Tagged with the rest, which is what makes the highlight below a real
+    // question rather than one nothing named: a field is exempt from being
+    // doubled by being a field, not by going unnamed.
+    scene
+        .text_edits
+        .push(TextEdit::new(Vec3::ZERO, "40", 16.0).typing().tagged(lit));
 
     let mut pane = ScenePane {
         view: Rc::new(RefCell::new(Renderer::new(scene))),
     };
     host.frame_offscreen(&target, 1.0, &mut pane);
 
-    let glyphs = {
+    {
         let view = pane.view.borrow();
         let built = view.gpu.as_ref().expect("init runs before paint");
 
@@ -878,9 +899,15 @@ fn a_frame_uploads_every_kind() {
         assert_eq!(built.curves.ordinary.instances, 1);
         assert_eq!(built.rings.ordinary.instances, 1);
         assert_eq!(built.points.ordinary.instances, 1);
-        // Five characters, and every one of them has ink.
-        let glyphs = built.texts.ordinary.instances;
-        assert_eq!(glyphs, 5, "one instance per glyph of \"125.4\"");
+        // One pass for the labels and the fields both. Five characters of
+        // "125.4", every one of them with ink; then the field's surround, its
+        // two characters, and its caret — nothing washed, since nothing in it
+        // is picked out.
+        assert_eq!(
+            built.texts.ordinary.instances,
+            5 + 1 + 2 + 1,
+            "\"125.4\", then the field's parts"
+        );
 
         // Nothing was lit, so every highlight pass is still empty — and an
         // empty pass draws nothing rather than drawing what it last held.
@@ -892,8 +919,7 @@ fn a_frame_uploads_every_kind() {
         ] {
             assert_eq!(pass.instances, 0, "something was lit that nothing named");
         }
-        glyphs
-    };
+    }
 
     // Lit between the frames, which is the only edit — so the second frame
     // rebuilds the highlights and re-uploads nothing else.
@@ -908,9 +934,13 @@ fn a_frame_uploads_every_kind() {
     assert_eq!(built.curves.lit.instances, 1);
     assert_eq!(built.rings.lit.instances, 1);
     assert_eq!(built.points.lit.instances, 1);
+    // The label alone, though the field carries the very same tag: a field is
+    // opaque over the whole of its box, so a copy of it in one colour would
+    // hide it rather than pick it out — see [`TextEdit::tag`]. Five here and
+    // nine above is the whole of that rule.
     assert_eq!(
-        built.texts.lit.instances, glyphs,
-        "a lit run is the same run, shaped again"
+        built.texts.lit.instances, 5,
+        "a lit run is the same run shaped again, and a field is not doubled"
     );
     // The ordinary passes are untouched by a highlight: it doubles what is
     // drawn rather than replacing it.
@@ -918,6 +948,8 @@ fn a_frame_uploads_every_kind() {
     assert_eq!(built.solids.instances, 1);
 }
 
+/// Both text batches, because they share the buffer the early return is about:
+/// a mark left on either is one that fires again on the next frame.
 #[test]
 fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
     let mut renderer = Renderer::new(Scene::default());
@@ -926,10 +958,75 @@ fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
     // Written to and left empty, which is what a caller refilling a batch from
     // an arena that turned out to hold nothing does.
     renderer.scene_mut().texts.mark();
+    renderer.scene_mut().text_edits.mark();
     renderer.refresh(1.0);
     assert!(
         !renderer.scene_mut().texts.take_dirty(),
         "the mark outlived the refresh that had nothing to do with it"
+    );
+    assert!(
+        !renderer.scene_mut().text_edits.take_dirty(),
+        "the field batch's mark outlived the same refresh"
+    );
+}
+
+/// A field flattens to its surround, the wash behind what is picked out, its
+/// glyphs and its caret — in that order, and behind whatever labels the scene
+/// also holds.
+///
+/// The order is the whole of the layering. One pass, blended, writing no depth:
+/// what is appended later is what reads over, so a surround appended after its
+/// own glyphs would paint them out and nothing but the picture would say so.
+/// Which is why this counts records at each end rather than trusting the pass.
+#[test]
+fn a_field_flattens_under_its_own_ink_and_over_the_labels() {
+    let mut scene = Scene::default();
+    scene.texts.push(Text::new(Vec3::ZERO, "mm", 16.0));
+    scene
+        .text_edits
+        .push(TextEdit::new(Vec3::ZERO, "40", 16.0).typing());
+    let mut renderer = Renderer::new(scene);
+    renderer.shape_with(palantir::TextShaper::new());
+    renderer.refresh(1.0);
+
+    // The label's two glyphs first, then the field: surround, two glyphs,
+    // caret. Nothing is picked out, so there is no wash between the first two.
+    let records = renderer.cpu.texts.records.ordinary.clone();
+    assert_eq!(records.len(), 2 + 1 + 2 + 1, "{records:?}");
+    let solid = renderer.cpu.atlas.solid().to_array();
+    let is_solid = |at: usize| records[at].uv_size == [0.0, 0.0] && records[at].uv_min == solid;
+    assert!(!is_solid(0) && !is_solid(1), "the label drew a solid quad");
+    assert!(is_solid(2), "the surround is not the field's first record");
+    assert!(!is_solid(3) && !is_solid(4), "the glyphs went missing");
+    assert!(is_solid(5), "the caret is not the field's last record");
+
+    // The surround covers the glyphs it is drawn behind, which is what says the
+    // order above is a layering and not just a sequence.
+    let surround = records[2];
+    for glyph in &records[3..5] {
+        assert!(glyph.offset[0] >= surround.offset[0], "{glyph:?}");
+        assert!(
+            glyph.offset[0] + glyph.size[0] <= surround.offset[0] + surround.size[0],
+            "{glyph:?} reaches past {surround:?}"
+        );
+    }
+
+    // Picking the whole line out adds the wash, and adds it between the
+    // surround and the ink so that the text still reads over it.
+    renderer.scene_mut().text_edits[0].select_all();
+    renderer.refresh(1.0);
+    let picked = renderer.cpu.texts.records.ordinary.clone();
+    assert_eq!(picked.len(), 2 + 1 + 1 + 2 + 1, "{picked:?}");
+    let wash = picked[3];
+    assert_eq!(wash.uv_size, [0.0, 0.0], "the wash is not a solid quad");
+    assert!(
+        wash.size[0] > 0.0,
+        "an empty wash for a whole line: {wash:?}"
+    );
+    assert_eq!(
+        [picked[4], picked[5]],
+        [records[3], records[4]],
+        "the glyphs moved when the selection did"
     );
 }
 
