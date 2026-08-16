@@ -10,6 +10,7 @@ use crate::build::Build;
 use crate::demo;
 use crate::intent::{Choice, Intents, Typed};
 use crate::model::Models;
+use crate::paint::{MARK_ANCHOR, mark_font};
 use crate::part::Part;
 use crate::timeline::Timeline;
 use crate::tool::Tool;
@@ -1554,7 +1555,12 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
         .document
         .drawing_at(sketch)
         .mark_at(app.document.drawing_at(sketch).sketch().constraint(id));
-    let cursor = cursor_on(&mut app, at);
+    // The *number*, not the point the dimension hangs it from: `MARK_ANCHOR`
+    // lifts the mark clear of the line it measures, and the field stands over
+    // the mark rather than over the line. Half a line back down from the
+    // anchor's fraction is the middle of the run either of them draws.
+    let cursor = cursor_on(&mut app, at)
+        - Vec2::new(0.0, (MARK_ANCHOR.y - 0.5) * mark_font().line_height_px);
 
     let camera = *app.camera_mut();
     let picked = app.session.selection().picked().to_vec();

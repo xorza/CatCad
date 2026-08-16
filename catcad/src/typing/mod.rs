@@ -9,7 +9,7 @@ use palantir::{
 use silverpoint::Entity;
 
 use crate::intent::{Change, Choice, Intents, Step};
-use crate::paint::{DECIMALS, mark_font};
+use crate::paint::{DECIMALS, MARK_ANCHOR, mark_font};
 use crate::part::Part;
 
 /// How wide the field is drawn, in logical pixels.
@@ -107,6 +107,12 @@ fn field_look() -> TextEditTheme {
         font_size_px: font.size_px,
         family: font.family,
         weight: font.weight,
+        // The mark's leading, not the stock one. A field is the same string in
+        // the same face as the mark it stands over, so a different line box
+        // would set the glyphs at a different height inside it — the number
+        // would drop as it became editable — and would make the box taller than
+        // the line it holds for no reason anyone could see.
+        line_height_mult: font.line_height_px / font.size_px,
         ..TextStyle::default()
     };
     let mut theme = TextEditTheme::from_palette(&Palette::DEFAULT);
@@ -216,7 +222,7 @@ impl Typing {
         // After the projection, so a dimension that was never drawn has not
         // used up the one frame that takes focus.
         let opening = !std::mem::replace(&mut self.shown, true);
-        let line = mark_font().line_height_px;
+        let origin = self.mark_origin(screen);
         // Borrowed apart before the closure, which would otherwise take the
         // whole of `self` and hand the field a buffer and a theme off the same
         // borrow.
@@ -244,10 +250,7 @@ impl Typing {
                     .select_all_on_focus()
                     .text_align(Align::CENTER)
                     .size((Sizing::fixed(WIDTH), Sizing::HUG))
-                    // Centred across on where the mark hangs and lifted by the
-                    // same fraction of a line the mark is lifted by, so the
-                    // field stands where the number stood.
-                    .position(Vec2::new(screen.x - WIDTH * 0.5, screen.y - line * 1.6))
+                    .position(origin)
                     .show(ui);
                 // **Cancel is tested first**, which is what a commit-on-blur
                 // caller owes itself: Escape blurs as well as cancelling, so
@@ -277,6 +280,41 @@ impl Typing {
             Some(Done::Cancel) => intents.push(Choice::Type(None)),
             None => {}
         }
+    }
+
+    /// Where to put the field's own corner so that its glyphs land exactly
+    /// where the mark's did.
+    ///
+    /// **What keeps a number from jumping as it becomes editable.** The mark
+    /// hangs its text off the dimension by [`MARK_ANCHOR`]; the field hangs its
+    /// text off its own corner by everything it puts in between — the ring it
+    /// is drawn with, the padding inside that, and the caret's room at the
+    /// trailing edge. So the corner is the mark's text origin with all of that
+    /// backed off.
+    ///
+    /// Read off the theme this type authored rather than written out again, so
+    /// a box restyled in [`field_look`] moves the field with it instead of
+    /// leaving this behind.
+    ///
+    /// The text's own width cancels: the field centres its text in the same
+    /// inner rect the corner is measured from, and the mark centres its text on
+    /// the dimension, so both land half a run to the left of the same point
+    /// whatever the run measures. Only the caret's room breaks the symmetry,
+    /// being reserved on one side.
+    fn mark_origin(&self, screen: Vec2) -> Vec2 {
+        let ring = self
+            .look
+            .looks
+            .normal
+            .background
+            .as_ref()
+            .map_or(0.0, |bg| bg.stroke.width);
+        let inset = Vec2::new(self.look.padding.horiz(), self.look.padding.vert()) * 0.5
+            + Vec2::splat(ring);
+        Vec2::new(
+            screen.x - WIDTH * 0.5 + self.look.caret_width * 0.5,
+            screen.y - MARK_ANCHOR.y * mark_font().line_height_px - inset.y,
+        )
     }
 
     /// Ask for the dimension to be restated at `to`, and for the field to close.

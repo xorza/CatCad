@@ -526,7 +526,7 @@ fn write_marks(
 /// a constant: the field is drawn *instead of* the mark and must land on the
 /// same pixels, so the two anchoring differently is the one mistake that would
 /// make a double-click look like it had nudged the number.
-const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
+pub(crate) const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
 
 /// Decimal places a dimension is read out to.
 ///
