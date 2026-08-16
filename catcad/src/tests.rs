@@ -1,6 +1,6 @@
 //! What the app decides, from the sketch it opens with to the frames it records.
 
-use aperture::{Camera, Viewport};
+use aperture::{Camera, Facing, Turn, Viewport};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, InputDelta, Key, Modifiers, WindowToken};
@@ -10,7 +10,7 @@ use crate::build::Build;
 use crate::demo;
 use crate::intent::{Choice, Intents, Opening};
 use crate::model::Models;
-use crate::paint::{mark_font, mark_lift};
+use crate::paint::mark_font;
 use crate::part::Part;
 use crate::prompt::{Asking, Prompt};
 use crate::timeline::Timeline;
@@ -843,6 +843,78 @@ fn empty_spot(app: &CatCad) -> Vec3 {
 /// camera the last frame was drawn with.
 ///
 /// `&mut CatCad` for the camera alone, which caches the matrix it is asked for.
+/// The run the drawing put a mark in, as the facts that say where its box
+/// lands — none of them the camera's.
+///
+/// **The answer a field is weighed against, and it has to come from somewhere
+/// else.** What places the field is `paint::mark_centre`; a test that asked the
+/// same function would only be saying one call site agrees with another, and
+/// would go on passing however wrong both were. These come off the run itself —
+/// where it was anchored, the plane it was laid in, the fraction of its own box
+/// the anchor is, and the extent the shaper measured — none of which
+/// `mark_centre` reads.
+///
+/// Held apart from the camera because the two are read at different moments: a
+/// field standing over a mark takes it out of the drawing, so this is read
+/// before one opens, and where its box then *lands* is asked of whatever camera
+/// is current by then.
+#[derive(Debug, Clone, Copy)]
+struct DrawnMark {
+    anchor: Vec3,
+    turn: Turn,
+    /// How far the middle of the box sits above the anchor, in logical pixels.
+    rise: f32,
+}
+
+impl DrawnMark {
+    /// Where the middle of the box sits in the world, seen through `camera`.
+    ///
+    /// Camera-dependent, and that is the constant-size property rather than an
+    /// awkwardness: the box is a fixed number of *pixels* clear of the geometry,
+    /// so how far clear it is in the world shrinks as the view closes in.
+    fn centre(self, camera: &Camera, viewport: Viewport) -> Vec3 {
+        let axes = self
+            .turn
+            .axes(self.anchor, camera.view_proj(viewport.aspect()), viewport);
+        let step = camera.world_per_pixel(self.anchor, viewport);
+        self.anchor - axes.down * (self.rise * step)
+    }
+}
+
+/// The mark the drawing put on screen for `part`.
+fn drawn_mark(app: &CatCad, part: Part) -> DrawnMark {
+    let renderer = app.renderer().borrow();
+    let text = renderer
+        .scene()
+        .texts
+        .iter()
+        .find(|text| text.tag.and_then(|tag| app.view.part(tag)) == Some(part))
+        .expect("the mark was drawn");
+    let Facing::Turned(turn) = text.facing else {
+        panic!("a mark is laid in its sketch plane");
+    };
+    // Across, the run centres on its anchor, so the middle of its box is the
+    // anchor and there is no sideways term to carry. Asserted rather than
+    // assumed, since everything below is the vertical half.
+    assert_eq!(
+        text.anchor.x, 0.5,
+        "the mark is not centred on its own point"
+    );
+    DrawnMark {
+        anchor: text.position,
+        turn,
+        // The fraction the run hangs by, which is where the lane it rose in
+        // lives, less the half box that reaches its middle.
+        //
+        // In *line heights* off the font rather than off the extent the shaper
+        // measured, because this harness never paints and so never fills one —
+        // see [`Text::extent`](aperture::Text). It is the one number shared with
+        // the call being checked; the plane, the direction and the lane all come
+        // off the drawn run.
+        rise: (text.anchor.y - 0.5) * mark_font().line_height_px,
+    }
+}
+
 fn cursor_on(app: &mut CatCad, world: Vec3) -> Vec2 {
     app.camera_mut()
         .screen_of(world, Viewport::new(SIZE))
@@ -1578,30 +1650,18 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     frame(&mut app, &mut harness);
 
     let (dimension, was) = a_dimension(&app);
+    // Taken before the field opens, since a field standing over a mark takes it
+    // out of the drawing. Aiming at the *number* rather than at the point the
+    // dimension hangs it from: the mark's box floats clear of the line it
+    // measures, and the field stands over the box.
+    let mark = drawn_mark(&app, dimension);
+    let camera = *app.camera_mut();
+    let middle = mark.centre(&camera, Viewport::new(SIZE));
     open_field(&mut app, &mut harness, dimension, was);
     frame(&mut app, &mut harness);
     frame(&mut app, &mut harness);
 
-    // Where the field stands: over the mark it replaced, which is the same
-    // projection it places itself by.
-    let sketch = dimension.sketch().expect("a dimension is in a sketch");
-    let Some(Entity::Constraint(id)) = dimension.entity() else {
-        panic!("not a constraint");
-    };
-    // Off the layout, which is where the drawing put it — a mark sharing its
-    // place with others does not sit where a lone one would, so aiming at an
-    // anchor worked out here would miss by however many lanes it rose.
-    let placed = app.view.placed(id).expect("the dimension was drawn");
-    let at = placed.world(app.document.drawing_at(sketch));
-    // The *number*, not the point the dimension hangs it from: `MARK_ANCHOR`
-    // lifts the mark clear of the line it measures, and the field stands over
-    // the mark rather than over the line. Half a line back down from the
-    // anchor's fraction is the middle of the run either of them draws.
-    let cursor = cursor_on(&mut app, at)
-        - Vec2::new(
-            0.0,
-            mark_lift(placed.lane) - mark_font().line_height_px * 0.5,
-        );
+    let cursor = cursor_on(&mut app, middle);
 
     let camera = *app.camera_mut();
     let picked = app.session.selection().picked().to_vec();
@@ -1661,6 +1721,10 @@ fn the_open_field_is_placed_against_this_frames_camera() {
     frame(&mut app, &mut harness);
 
     let (dimension, was) = a_dimension(&app);
+    // Read before the field takes the mark out of the drawing. The *anchor*
+    // is what the wheel below leaves alone; where the box hangs off it is a
+    // number of pixels, so that much of it moves with the zoom.
+    let mark = drawn_mark(&app, dimension);
     open_field(&mut app, &mut harness, dimension, was);
     frame(&mut app, &mut harness);
     frame(&mut app, &mut harness);
@@ -1670,19 +1734,10 @@ fn the_open_field_is_placed_against_this_frames_camera() {
     harness.scroll_lines(Vec2::new(0.0, -3.0));
     frame(&mut app, &mut harness);
 
-    let sketch = dimension.sketch().expect("a dimension is in a sketch");
-    let Some(Entity::Constraint(id)) = dimension.entity() else {
-        panic!("not a constraint");
-    };
-    let placed = app.view.placed(id).expect("the dimension was drawn");
-    let at = placed.world(app.document.drawing_at(sketch));
-    // Where the number now sits: the mark's own anchor, brought back down to
-    // the middle of the run it hangs above.
-    let middle = cursor_on(&mut app, at)
-        - Vec2::new(
-            0.0,
-            mark_lift(placed.lane) - mark_font().line_height_px * 0.5,
-        );
+    // Where the number now lands, through the camera the wheel just moved.
+    let camera = *app.camera_mut();
+    let at = mark.centre(&camera, Viewport::new(SIZE));
+    let middle = cursor_on(&mut app, at);
     let rect = harness
         .layout_rect(crate::prompt::Prompt::nth_field_id(0))
         .expect("the field was arranged on the frame that scrolled");

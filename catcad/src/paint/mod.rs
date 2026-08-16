@@ -13,13 +13,15 @@
 //! rather than the document's.
 
 use aperture::{
-    Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Turn, Vertex,
+    Batch, Camera, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Turn,
+    Vertex, Viewport,
 };
 use glam::{Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
 use std::fmt::Write;
 
+use crate::drawing::Drawing;
 use crate::model::{Model, Models};
 use crate::names::Names;
 use crate::paint::growing::Growing;
@@ -558,13 +560,10 @@ fn write_marks(
             // again for every mark already standing there, which is the whole of
             // how a corner carrying three relations reads as three.
             //
-            // Above *in the drawing's own frame*, now that the run is turned into
+            // Above *in the drawing's own frame*, now that the run is laid in
             // it: the lift and the stack are fractions of the run's own box, so
             // they follow it round without being told anything.
-            mark.anchor = Vec2::new(
-                MARK_ANCHOR.x,
-                MARK_ANCHOR.y + f32::from(placed.lane) * STACK_STEP,
-            );
+            mark.anchor = mark_anchor(placed.lane);
             mark.color = ink(
                 model,
                 if outcome.is_redundant(id) {
@@ -590,10 +589,11 @@ fn write_marks(
 /// across, and better than a box-height above, so the mark clears the geometry
 /// it is about rather than sitting on top of it.
 ///
-/// Read by the field as well as by the mark, and that is the whole reason it is
-/// a constant: the field is drawn *instead of* the mark and must land on the
-/// same pixels, so the two anchoring differently is the one mistake that would
-/// make a double-click look like it had nudged the number.
+/// Reached only through [`mark_anchor`], which is what folds the stack in — and
+/// that is the whole reason it is a constant rather than a number written where
+/// the run is given it. A field is drawn *instead of* a mark and must land on
+/// the same pixels, so where a mark's box hangs has to be one answer: it places
+/// the run, and [`mark_centre`] measures from it on the field's behalf.
 const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
 
 /// How far a mark rises above the one below it in its stack, in line-heights.
@@ -611,21 +611,58 @@ const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
 /// where the second one in a row would start.
 const STACK_STEP: f32 = 1.0;
 
-/// How far above the point it names a mark in `lane` is drawn, in logical
-/// pixels — above along the *run's own* up, which since the run is turned into
-/// the sketch's plane is no longer the screen's.
+/// Where a mark in `lane` hangs its box off the point it names, as a fraction
+/// of that box.
 ///
-/// [`MARK_ANCHOR`] and [`STACK_STEP`] as a length rather than as fractions,
-/// which is what anything placing something *else* over the mark needs — the
-/// field that stands in for a dimension while it is retyped, and the tests
-/// that aim at one. Named here so that a caller working out where a number is
-/// cannot come to disagree with the call that draws it.
+/// [`MARK_ANCHOR`] with the stack folded in, which is the one form both readers
+/// want: the run is given it outright, and what stands in the run's place
+/// measures from it. Two spellings of it would be a field a lane off its own
+/// number, which is a thing you can only see by opening one.
+fn mark_anchor(lane: u8) -> Vec2 {
+    Vec2::new(MARK_ANCHOR.x, MARK_ANCHOR.y + f32::from(lane) * STACK_STEP)
+}
+
+/// How far the *middle* of a mark's box sits above the point it names, in
+/// logical pixels along the run's own up.
 ///
-/// The lane is asked for rather than assumed, because a mark sharing its place
-/// with others does not sit where a lone one would: a field placed against
-/// lane 0 over a dimension in lane 2 lands two lines below its own number.
-pub(crate) fn mark_lift(lane: u8) -> f32 {
-    (MARK_ANCHOR.y + f32::from(lane) * STACK_STEP) * mark_font().line_height_px
+/// [`mark_anchor`] as a length rather than a fraction, and then half a line back
+/// down — which is where the run's own width cancels, and so the one point about
+/// a mark that can be worked out without measuring any text.
+fn mark_rise(lane: u8) -> f32 {
+    (mark_anchor(lane).y - 0.5) * mark_font().line_height_px
+}
+
+/// Where the middle of a mark's box sits in the world.
+///
+/// **What a form standing *in place of* a mark is placed against** — see
+/// [`Stands::Over`](crate::prompt::Stands). The middle rather than the anchor,
+/// because the anchor is the geometry the mark is about and the box floats clear
+/// of it; and the middle rather than a corner, because that is where the run's
+/// own width cancels: a field centring its own text here lands on the mark's
+/// pixels whatever the number measures.
+///
+/// Read through the same [`Turn::axes`] the mark was drawn along, so the rise
+/// clears the geometry up the *run's* own frame rather than up the screen —
+/// which on a plane seen at any angle are two different directions, and on the
+/// plane the camera happens to face are one.
+///
+/// The camera comes into it twice and only here: for the frame, and for what a
+/// logical pixel is worth in the world at the mark. Neither reaches
+/// [`redraw`] — a mark is laid out against the document and sized against the
+/// screen by the *shader* — so this is on the asking half's schedule, which is
+/// where the form that reads it already is.
+pub(crate) fn mark_centre(
+    placed: Placed,
+    drawing: Drawing<'_>,
+    camera: &Camera,
+    viewport: Viewport,
+) -> Vec3 {
+    let anchor = placed.world(drawing);
+    let plane = drawing.plane();
+    let turn = Turn::new(plane.x.as_vec3(), plane.normal().as_vec3());
+    let axes = turn.axes(anchor, camera.view_proj(viewport.aspect()), viewport);
+    // Up the box, which is against its own down.
+    anchor - axes.down * (mark_rise(placed.lane) * camera.world_per_pixel(anchor, viewport))
 }
 
 /// Decimal places a dimension is read out to.

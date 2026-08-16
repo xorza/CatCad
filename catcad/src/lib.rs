@@ -308,12 +308,14 @@ impl CatCad {
                 self.view
                     .placed(id)
                     .and_then(|placed| {
-                        Some((camera.screen_of(placed.world(drawing), viewport)?, placed))
+                        // The middle of the mark's own box rather than the point
+                        // it hangs off, and worked out by the drawing: the box
+                        // rises up the *run's* frame, which is the sketch
+                        // plane's — see [`paint::mark_centre`].
+                        let middle = paint::mark_centre(placed, drawing, &camera, viewport);
+                        camera.screen_of(middle, viewport)
                     })
-                    .map(|(at, placed)| Stands::Over {
-                        at,
-                        lane: placed.lane,
-                    })
+                    .map(Stands::Over)
             }
             // Beside the centre already placed, which is all there is of the
             // circle until a radius says otherwise.
