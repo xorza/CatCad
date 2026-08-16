@@ -13,17 +13,9 @@
 //! Every crate here answers the same question the same way — warm up, count
 //! what a window of steady-state runs allocates, hold it against a budget —
 //! and differs only in what it runs and what the budget is. [`AllocBench`] is
-//! the part that does not differ, so a bench target is its own steps plus
-//! three lines:
-//!
-//! ```no_run
-//! # fn workload() {}
-//! # fn other_workload() {}
-//! let mut bench = common::AllocBench::start("mycrate", "frame");
-//! bench.step("record", 0.0, || workload());
-//! bench.step("record + hover", 2.0, || other_workload());
-//! bench.finish();
-//! ```
+//! the part that does not differ, so a bench target is its own steps plus three
+//! lines — see its own docs for them, which is where an example calling it can
+//! be compiled rather than only read.
 //!
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.

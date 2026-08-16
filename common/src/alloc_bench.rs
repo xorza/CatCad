@@ -52,6 +52,20 @@ impl Step {
 /// The profiler is live for the whole of its life, so every step is measured
 /// under the same one — snapshots either side of a step's window are what
 /// separate them.
+///
+/// ```no_run
+/// # fn workload() {}
+/// # fn other_workload() {}
+/// let mut bench = common::AllocBench::start("mycrate", "frame");
+/// bench.step("record", 0.0, || workload());
+/// bench.step("record + hover", 2.0, || other_workload());
+/// bench.finish();
+/// ```
+///
+/// The example is here rather than in the crate's own docs because it calls
+/// this, and this exists only under `bench` — where it sat at crate level it
+/// was compiled against the default features and could not find the very type
+/// it demonstrates.
 pub struct AllocBench {
     /// Names the crate in the remediation hint, so a failure says which
     /// `cargo bench` to re-run.
