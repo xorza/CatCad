@@ -29,7 +29,7 @@ pub(crate) mod uniforms;
 
 use crate::renderer::cpu::{Cpu, Laying, Order};
 use crate::renderer::gpu::{Attachments, Gpu};
-use crate::renderer::uniforms::Uniforms;
+use crate::renderer::uniforms::{Uniforms, Window};
 
 /// A scene, where it is looked at from, and the two mirrors of it that get
 /// drawn.
@@ -259,8 +259,22 @@ impl GpuPaint for Renderer {
     }
 
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {
+        // The target's size, and the view it is a part of. The two differ only
+        // where something clips the view — palantir allocates for what is on
+        // screen — and the scene is framed for the *view*, so that what is drawn
+        // agrees with what a pick at the same cursor answers. See [`Window`].
+        //
+        // Both floored, and the floor is hygiene at a crate boundary rather
+        // than a case that arises: the target always has a pixel in it and is
+        // never larger than the view it is part of. Neither is this crate's to
+        // guarantee, and a zero here would divide by it.
         let size = ctx.size_px.max(UVec2::ONE);
-        let uniforms = Uniforms::of(&self.camera, Viewport::new(size), ctx.raster_scale);
+        let full = ctx.full_px.max(size);
+        let window = Window {
+            min: ctx.offset_px.as_vec2(),
+            size: size.as_vec2(),
+        };
+        let uniforms = Uniforms::of(&self.camera, Viewport::new(full), window, ctx.raster_scale);
         // Refilled before the GPU is borrowed, since both want `self`. Each kind
         // answers for itself, so a hover over a marker no longer rebuilds the
         // highlights of the strokes and rims it passed over.
