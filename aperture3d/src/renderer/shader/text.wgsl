@@ -24,6 +24,12 @@ struct TextVsOut {
 // magnitude as well and so carries the `clip.w²` this drops. Only the signs are
 // read here, and those a positive scale leaves alone — including the viewport
 // being the window rather than the whole view, and the matrix skewed onto it.
+//
+// Which makes the `u.viewport` here carried for that likeness rather than for
+// need: scaling both axes by a positive number changes neither the winding nor
+// which half of the screen the advance points into. The y flip beside it is not
+// spare — negating one axis reverses the winding, which is the whole of the
+// first rule.
 fn screen_tangent(world: vec3<f32>, here: vec4<f32>) -> vec2<f32> {
     let there = u.view_proj * vec4<f32>(world, 0.0);
     let ndc = there.xy * here.w - here.xy * there.w;

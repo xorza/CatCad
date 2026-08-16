@@ -961,21 +961,24 @@ fn every_kind_reaches_the_frame() {
     }
 }
 
-/// A run turned into a plane is drawn along that plane's own direction, at the
-/// size it would have had square to the viewer.
+/// A run laid in the plane the camera faces is the screen run, turned.
 ///
 /// **What says the shader and [`Turn::axes`] read one rule.** The Rust side is
 /// pinned against hand-computed boxes in `text::tests`, and that pins picking;
-/// a vertex shader that built the frame differently would flatten, upload and
+/// a vertex shader that built the axes differently would flatten, upload and
 /// draw exactly as it should, and only the picture would disagree — so the
 /// picture is what this asks.
 ///
-/// Squared to the view, so world +x runs across the screen and +y up it and
-/// every box below is arithmetic rather than a measurement. Small enough type
-/// that a quarter turn about the anchor still lands inside the frame, since ink
-/// clipped at an edge is a box that agrees with nothing.
+/// Face-on throughout, which is what makes every box below arithmetic: with
+/// nothing foreshortened, laying a run in a plane can only turn it, and the
+/// three claims are that it turns by exactly as much as the plane does. What a
+/// *raked* plane does to it is the test after this one.
+///
+/// Squared to the view, so world +x runs across the screen and +y up it. Small
+/// enough type that a quarter turn about the anchor still lands inside the
+/// frame, since ink clipped at an edge is a box that agrees with nothing.
 #[test]
-fn a_turned_run_is_drawn_along_its_plane() {
+fn a_run_laid_in_the_plane_it_faces_is_the_screen_run_turned() {
     let gpu = headless_test_gpu();
     let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
     let target = frame_target(&gpu.device);
@@ -1001,10 +1004,14 @@ fn a_turned_run_is_drawn_along_its_plane() {
     let flat = ink_of(Facing::Screen { on: None });
     assert!(flat.count > 0, "nothing was drawn to compare against");
 
-    // The plane the camera looks straight at. Set along its +x the run comes out
-    // exactly as an unturned one; along −x the readable-side rule brings it back
-    // to the same place rather than hanging it off the other side of the anchor,
-    // which is where the projection alone would have put it.
+    // **The constant-size claim outright.** A laid run is built in the world out
+    // of a size in pixels, and the depth is the whole of what the shader
+    // multiplies by — it takes `at.w * world_per_clip_w` — so one that dropped
+    // the `w` would size the run by the orbit distance and land nowhere near.
+    // Set along the plane's +x that round trip is the identity; along −x the
+    // readable-side rule brings it back to the same place rather than hanging it
+    // off the other side of the anchor, which is where the projection alone
+    // would have put it.
     for right in [Vec3::X, Vec3::NEG_X] {
         let same = ink_of(Facing::Turned(Turn::new(right, Vec3::Z)));
         let (min, max) = (same.min.as_ivec2(), same.max.as_ivec2());
@@ -1040,27 +1047,18 @@ fn a_turned_run_is_drawn_along_its_plane() {
     }
 }
 
-/// A run laid in a plane holds the size it would have had square to the viewer,
-/// and foreshortens with the plane.
+/// A run laid in a raked plane foreshortens with it.
 ///
-/// The two halves of what laying a run in a plane means, and neither is visible
-/// from the buffers: the corners are world positions now, so what says they were
-/// built at the right size and in the right place is the picture.
+/// The half only a plane turned away from the viewer can show, where the test
+/// above holds everything face-on. Sixty degrees about the run's own advance
+/// leaves the advance in the screen and tilts the box's down out of it, so the
+/// box keeps its width and halves its height about the anchor.
 ///
-/// **Face-on, under perspective, against a run that never left the screen.** The
-/// depth is the whole of what the shader multiplies by — it takes
-/// `at.w * world_per_clip_w` for the world size of a pixel — so a shader that
-/// dropped the `w` would size the run by the orbit distance and land nowhere
-/// near. That the two boxes come out one is the constant-size claim outright.
-///
-/// **Raked, under parallel rays, against itself square.** Sixty degrees about
-/// the run's own advance leaves the advance in the screen and tilts the box's
-/// down out of it, so the box keeps its width and halves its height about the
-/// anchor. Parallel rather than perspective for the exactness: with no
+/// **Parallel rays rather than perspective**, for the exactness: with no
 /// foreshortening of its own to add, the cosine is the whole of the answer and
 /// the numbers below are hand-computed rather than fitted.
 #[test]
-fn a_run_laid_in_a_plane_holds_its_size_and_foreshortens_with_it() {
+fn a_run_laid_in_a_raked_plane_foreshortens_with_it() {
     let gpu = headless_test_gpu();
     let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
     let target = frame_target(&gpu.device);
@@ -1069,46 +1067,28 @@ fn a_run_laid_in_a_plane_holds_its_size_and_foreshortens_with_it() {
     };
     // Squared to the view, so world +x runs across the screen and +y up it, and
     // the world origin lands on the middle pixel.
-    let square_on = Camera {
+    *pane.view.borrow_mut().camera_mut() = Camera {
+        projection: Projection::Orthographic,
         yaw: 0.0,
         pitch: 0.0,
         ..Camera::default()
     };
-    let mut ink_of = |camera: Camera, facing: Facing| {
+    let mut ink_of = |turn| {
         {
             let mut view = pane.view.borrow_mut();
-            *view.camera_mut() = camera;
             let texts = &mut view.scene_mut().texts;
             texts.clear();
-            texts.push(Text::new(Vec3::ZERO, "1234", 24.0).facing(facing));
+            texts.push(Text::new(Vec3::ZERO, "1234", 24.0).facing(Facing::Turned(turn)));
         }
         host.frame_offscreen(&target, 1.0, &mut pane);
         drawn_ink(&gpu, &target)
     };
 
-    let faced = Facing::Turned(Turn::new(Vec3::X, Vec3::Z));
-    let flat = ink_of(square_on, Facing::Screen { on: None });
-    assert!(flat.count > 0, "nothing was drawn to compare against");
-    let laid = ink_of(square_on, faced);
-    let (was_min, was_max) = (flat.min.as_ivec2(), flat.max.as_ivec2());
-    let (min, max) = (laid.min.as_ivec2(), laid.max.as_ivec2());
-    assert!(
-        (min - was_min).abs().max_element() <= 1 && (max - was_max).abs().max_element() <= 1,
-        "laid in the plane it faces, the run covers {min:?}..{max:?} where square \
-         to the viewer it covers {was_min:?}..{was_max:?}"
-    );
-
     // The plane raked about +x, which is the run's own advance.
     let (sin, cos) = 60f32.to_radians().sin_cos();
-    let parallel = Camera {
-        projection: Projection::Orthographic,
-        ..square_on
-    };
-    let square = ink_of(parallel, faced);
-    let raked = ink_of(
-        parallel,
-        Facing::Turned(Turn::new(Vec3::X, Vec3::new(0.0, sin, cos))),
-    );
+    let square = ink_of(Turn::new(Vec3::X, Vec3::Z));
+    assert!(square.count > 0, "nothing was drawn to compare against");
+    let raked = ink_of(Turn::new(Vec3::X, Vec3::new(0.0, sin, cos)));
 
     // Measured from the anchor, which the projection puts on the middle pixel.
     let anchor = IVec2::new(FRAME.x as i32, FRAME.y as i32) / 2;

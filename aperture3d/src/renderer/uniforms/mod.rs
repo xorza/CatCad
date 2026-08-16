@@ -80,6 +80,28 @@ pub(super) struct Uniforms {
     _pad: [f32; 3],
 }
 
+/// Fails the build when the trailing scalars stop filling out the sixteen bytes
+/// WGSL rounds [`Uniforms`] up to.
+///
+/// The guard the vertex records are already under, for the same reason — see
+/// [`Record::LAYOUT_SPANS_STRUCT`](super::record::Record). What it catches is a
+/// scalar added without the padding beside it being taken back: the buffer is
+/// created at this struct's own size, so Rust would ship fewer bytes than the
+/// shader declares and wgpu would refuse the binding with a complaint about
+/// lengths, a long way from the field that caused it.
+///
+/// A modulus rather than the ninety-six it happens to be, so that four more
+/// scalars satisfy it by filling the next sixteen rather than by having this
+/// number rewritten.
+///
+/// **A bare `const` item, and anonymous.** An associated const is evaluated
+/// where something reaches it, and a `let () = Self::…` in a method of this very
+/// struct turned out not to reach — the record trait's own guard gets there only
+/// because a generic parameter forces it at every impl. This form depends on
+/// nothing to fire, and having no name is what keeps it from reading as a
+/// constant somebody forgot to use.
+const _: () = assert!(size_of::<Uniforms>().is_multiple_of(16));
+
 impl Uniforms {
     /// What a frame of `camera` over the whole of `viewport` is drawn through,
     /// rendered into the part of it `window` names.
