@@ -1,3 +1,3 @@
 [submodule "palantir"]
 	path = palantir
-	url = https://github.com/xorza/palantir
+	url = git@github.com:xorza/palantir.git
