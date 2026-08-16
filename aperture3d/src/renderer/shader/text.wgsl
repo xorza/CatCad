@@ -16,6 +16,53 @@ struct TextVsOut {
     @location(1) @interpolate(linear) uv: vec2<f32>,
 };
 
+// Which way a world direction runs on screen where a point of clip position
+// `here` is drawn, in pixels with y running down — up to a positive scale.
+//
+// The tangent of the projection itself, by the quotient rule on
+// `ndc = clip.xy / clip.w`, with the `clip.w²` it leaves out and the half in
+// `px_from_ndc_delta` both positive and both dropped. `text::screen_direction`
+// is the same three lines in Rust, and has to stay so: picking sets a run's box
+// along whatever this answers.
+//
+// `u.viewport` is the window rather than the whole view where the two differ,
+// and the matrix is skewed onto the same window — a scale in NDC, which the
+// multiply here undoes exactly. So this and the Rust side agree even then.
+fn screen_direction(world: vec3<f32>, here: vec4<f32>) -> vec2<f32> {
+    let there = u.view_proj * vec4<f32>(world, 0.0);
+    let ndc = there.xy * here.w - here.xy * there.w;
+    return vec2<f32>(ndc.x, -ndc.y) * u.viewport;
+}
+
+// The screen axes a run turned into a plane is set along: its advance, and its
+// own box's down. Both unit, in pixels with y running down.
+//
+// `Turn::axes` in Rust, and the one rule the two must agree on. Its reasoning
+// lives there; what is here is the arithmetic. The down comes back beside the
+// advance rather than being taken at the call site for the reason `Axes` exists
+// on that side: only one of the two perpendiculars leaves the run un-mirrored,
+// and a caller free to pick would sooner or later pick the other.
+struct RunAxes {
+    advance: vec2<f32>,
+    down: vec2<f32>,
+};
+
+fn run_axes(right: vec3<f32>, plane: vec3<f32>, here: vec4<f32>) -> RunAxes {
+    let along = screen_direction(right, here);
+    let across = screen_direction(cross(plane, right), here);
+    // The advance pointing at the eye, where there is no direction on screen to
+    // be set along and screen-horizontal is the limit.
+    var advance = vec2<f32>(1.0, 0.0);
+    if (dot(along, along) > dot(across, across) * COLLAPSED) {
+        let unit = normalize(along);
+        advance = select(unit, -unit, unit.x < 0.0);
+    }
+    var out: RunAxes;
+    out.advance = advance;
+    out.down = vec2<f32>(-advance.y, advance.x);
+    return out;
+}
+
 // One instance per glyph: a rectangle in screen space, offset from the run's
 // anchor by where the shaper put it. Unlike a marker's quad this is not
 // symmetric about anything — a glyph hangs off the run's origin by its bearing
@@ -33,6 +80,9 @@ fn text_vs(
     // A glyph's size came from its shaping, so the look's spread is unused.
     @location(6) half_extent: f32,
     @location(7) plane: vec3<f32>,
+    // Zero where the run is square to the viewer, which is the whole of what
+    // tells the two apart.
+    @location(8) right: vec3<f32>,
 ) -> TextVsOut {
     let corner = vec2<f32>(
         select(0.0, 1.0, (index & 1u) != 0u),
@@ -40,13 +90,23 @@ fn text_vs(
     );
     let at = u.view_proj * vec4<f32>(anchor, 1.0);
     let px = (offset + corner * size) * u.raster_scale;
+    // Where the corner lands on screen, in pixels from the anchor with y still
+    // running down. Square to the viewer that is the shaper's own offset; turned
+    // into a plane it is the same offset set along the run's own axes — a
+    // rotation, so the run holds the size it would have had either way and the
+    // type is never sheared.
+    var screen_px = px;
+    if (dot(right, right) > 0.5) {
+        let axes = run_axes(right, plane, at);
+        screen_px = axes.advance * px.x + axes.down * px.y;
+    }
     // The y is negated here and nowhere else: `ndc_from_px_delta` leaves the
     // flip out because every other shape widened in this crate is symmetric in
     // ±, so mirroring one only swaps which corner is which. A glyph is not —
     // it hangs down and to the right of its origin — so the difference between
     // a framebuffer counting down and NDC counting up is real, and has to be
     // taken here.
-    let offset_ndc = ndc_from_px_delta(vec2<f32>(px.x, -px.y));
+    let offset_ndc = ndc_from_px_delta(vec2<f32>(screen_px.x, -screen_px.y));
 
     // A label is wide enough for the surface under it to rise through, so it
     // follows the plane's depth exactly as a stroke or a marker does. Without a

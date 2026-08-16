@@ -5,6 +5,7 @@ use crate::highlight::Highlight;
 use crate::point::Point;
 use crate::renderer::atlas::GlyphQuad;
 use crate::ring::Ring;
+use crate::text::Facing;
 use glam::Vec3;
 
 /// What every overlay record ends with, whatever shape carries it.
@@ -77,15 +78,22 @@ pub(crate) trait Instance: Record {
     }
 }
 
-/// The plane a primitive named, in the form the shaders read.
+/// A world direction a primitive named, in the form the shaders read.
 ///
-/// A unit normal, or all-zero for one that named none — which is what
-/// `plane_depth_shift` tests with `dot(plane, plane) <= 0.5` before deciding
-/// whether it can read depth off the surface rather than off the primitive's
-/// own anchor. All-zero rather than a fourth float saying so, because a normal
-/// is already unit length and zero is the one value it can never take.
-fn plane_of(normal: Option<Vec3>) -> [f32; 3] {
-    normal.unwrap_or(Vec3::ZERO).to_array()
+/// The direction, or all-zero where it named none. All-zero rather than a
+/// fourth float saying so, because every direction shipped this way is unit
+/// length and zero is the one value none of them can take — so the shaders read
+/// it back by asking `dot(v, v) > 0.5`, which is what
+/// `plane_depth_shift` does before deciding whether it can take depth off a
+/// surface rather than off the primitive's own anchor, and what `text_vs` does
+/// before setting a run along a plane rather than across the screen.
+///
+/// Two things go through it and they are not both planes: a stroke, a marker
+/// and a run all name the surface they lie on, and a run also names the
+/// direction it advances along. One encoder because it is one encoding — two
+/// would be two chances to disagree with the one test the shaders share.
+fn direction_of(world: Option<Vec3>) -> [f32; 3] {
+    world.unwrap_or(Vec3::ZERO).to_array()
 }
 
 #[repr(C)]
@@ -108,7 +116,7 @@ pub(crate) struct CurveInstance {
     pub(super) start: [f32; 3],
     pub(super) end: [f32; 3],
     pub(super) look: Look,
-    /// The plane the curve lies in, as [`plane_of`] encodes it.
+    /// The plane the curve lies in, as [`direction_of`] encodes it.
     pub(super) plane: [f32; 3],
 }
 
@@ -130,7 +138,7 @@ impl CurveInstance {
     /// The instances one stroke ships, one per segment.
     pub(crate) fn of(curve: &Curve) -> impl Iterator<Item = Self> + '_ {
         let look = Look::of(curve.color, curve.width);
-        let plane = plane_of(curve.plane_normal);
+        let plane = direction_of(curve.plane_normal);
         curve.segments().map(move |(a, b)| Self {
             start: a.to_array(),
             end: b.to_array(),
@@ -171,7 +179,7 @@ impl Instance for RingInstance {
 pub(crate) struct PointInstance {
     pub(super) position: [f32; 3],
     pub(super) look: Look,
-    /// The plane the marker sits on, as [`plane_of`] encodes it.
+    /// The plane the marker sits on, as [`direction_of`] encodes it.
     pub(super) plane: [f32; 3],
 }
 
@@ -180,7 +188,7 @@ impl PointInstance {
         Self {
             position: point.position.to_array(),
             look: Look::of(point.color, point.size),
-            plane: plane_of(point.plane_normal),
+            plane: direction_of(point.plane_normal),
         }
     }
 }
@@ -219,16 +227,27 @@ pub(crate) struct GlyphInstance {
     /// — larger type is a different shaping, not a larger quad over the same
     /// pixels.
     pub(super) look: Look,
-    /// The plane the run lies on, as [`plane_of`] encodes it.
+    /// The plane the run lies on, as [`direction_of`] encodes it.
     pub(super) plane: [f32; 3],
+    /// The world direction the run advances along, and zero where it advances
+    /// across the screen instead — which is what tells the shader which of the
+    /// two it is laying out. See [`Facing`].
+    ///
+    /// Only a direction, where the scene names a whole [`Turn`](crate::Turn):
+    /// the plane above is the other half of one, and shipping the normal twice
+    /// would be twelve bytes a glyph to say something already said.
+    pub(super) right: [f32; 3],
 }
 
 impl GlyphInstance {
     /// One quad hung off `anchor` — a glyph of a run.
     ///
     /// Built from the pieces rather than from the run, so that where a glyph
-    /// hangs and what colour it is reach here already decided.
-    pub(super) fn new(anchor: Vec3, quad: GlyphQuad, color: Vec3, plane: Option<Vec3>) -> Self {
+    /// hangs and what colour it is reach here already decided. The facing is
+    /// the exception and arrives whole, because its two halves are read
+    /// together and a normal handed over where a direction was wanted would
+    /// still compile.
+    pub(super) fn new(anchor: Vec3, quad: GlyphQuad, color: Vec3, facing: Facing) -> Self {
         Self {
             anchor: anchor.to_array(),
             offset: quad.offset.to_array(),
@@ -236,7 +255,8 @@ impl GlyphInstance {
             uv_min: quad.uv_min.to_array(),
             uv_size: quad.uv_size.to_array(),
             look: Look::of(color, 0.0),
-            plane: plane_of(plane),
+            plane: direction_of(facing.normal()),
+            right: direction_of(facing.right()),
         }
     }
 }
@@ -315,7 +335,7 @@ impl Record for GlyphInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x2,
-        5 => Float32x3, 6 => Float32, 7 => Float32x3
+        5 => Float32x3, 6 => Float32, 7 => Float32x3, 8 => Float32x3
     ];
 }
 

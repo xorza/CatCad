@@ -257,6 +257,20 @@ impl Facing {
             Self::Turned(turn) => Some(turn.normal),
         }
     }
+
+    /// The direction the run advances along, where it is turned into a plane,
+    /// and `None` where it runs across the screen.
+    ///
+    /// Beside [`Facing::normal`] and answered on the same terms, because the
+    /// two are the pair a [`Turn`] is made of: whatever is unpacking one is
+    /// unpacking both, and it should not have to know which state it is looking
+    /// at to do either.
+    pub fn right(self) -> Option<Vec3> {
+        match self {
+            Self::Screen { .. } => None,
+            Self::Turned(turn) => Some(turn.right),
+        }
+    }
 }
 
 /// The plane a run is turned into, and which way round in it the run is set.
@@ -383,7 +397,13 @@ pub struct Axes {
 /// directions pointing at one eye, which is the anchor being *at* the eye —
 /// where nothing is drawn, and where this answers first and hands back the
 /// fallback.
-const COLLAPSED: f32 = 1e-6;
+///
+/// Reachable because the vertex shader asks the same question and must answer
+/// it the same way — it is handed this at pipeline creation, the arrangement
+/// [`MIN_RUN_PX`](crate::viewport::MIN_RUN_PX) is already under. A run that fell
+/// back on one side and not the other would be drawn along one direction and
+/// clicked along another.
+pub(crate) const COLLAPSED: f32 = 1e-6;
 
 /// Which way `world` runs on screen where a point of clip position `here` is
 /// drawn, in pixels with y running down — up to a positive scale.

@@ -8,7 +8,7 @@ use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
 use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, Instance, PointInstance, RingInstance,
 };
-use crate::text::{self, Text};
+use crate::text::{self, Facing, Text};
 use glam::{Mat3, Vec2, Vec3};
 use palantir::{PlacedGlyph, TextGlyphs};
 
@@ -157,10 +157,10 @@ impl TextRecords {
 /// pixels a logical one is worth.
 ///
 /// A bundle because the three travel together the whole way down — a refresh
-/// takes them, hands them to [`flatten`] and [`flatten_field`], and both hand
-/// them to [`place`]. Threading three arguments through four signatures is
-/// three chances to transpose a pair that would still compile, and the scale is
-/// a bare `f32` that either of the other two could be measured against.
+/// takes them, hands them to [`flatten`], and it hands them to [`place`].
+/// Threading three arguments through three signatures is three chances to
+/// transpose a pair that would still compile, and the scale is a bare `f32`
+/// that either of the other two could be measured against.
 #[derive(Debug)]
 pub(super) struct Laying<'a, 'g> {
     pub(super) atlas: &'a mut GlyphAtlas,
@@ -191,26 +191,28 @@ fn flatten(
             anchor: text.position,
             origin: text.origin(),
             color: text.color,
-            plane: text.facing.normal(),
+            facing: text.facing,
         },
         into,
     );
 }
 
 /// Where one line's glyphs hang and how they are drawn — what every glyph of a
-/// run or of a field carries alike.
+/// run carries alike.
 ///
-/// A bundle rather than four arguments, because [`place`] is handed the same
-/// four in the same order from two call sites, and both of the [`Vec3`]s and
-/// both of the positions would transpose without complaint.
+/// A bundle rather than four arguments, because two pairs of them would
+/// transpose without complaint: the anchor and the colour are both [`Vec3`], and
+/// the anchor and the origin are both positions the line hangs from.
 #[derive(Debug, Clone, Copy)]
 struct Inked {
     /// Where the line hangs from, in the world.
     anchor: Vec3,
-    /// Where the line's top-left sits relative to that, in logical pixels.
+    /// Where the line's top-left sits relative to that, in logical pixels along
+    /// the run's own axes.
     origin: Vec2,
     color: Vec3,
-    plane: Option<Vec3>,
+    /// Which way those axes run, and what surface the line's depth follows.
+    facing: Facing,
 }
 
 /// Append a record for every glyph in `placed` that the sheet has room for.
@@ -231,7 +233,7 @@ fn place(
                 inked.anchor,
                 GlyphQuad::of(*glyph, slot, inked.origin, laying.scale, side),
                 inked.color,
-                inked.plane,
+                inked.facing,
             ));
         }
     }

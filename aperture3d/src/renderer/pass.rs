@@ -5,6 +5,7 @@ use crate::renderer::cpu::Triangles;
 use crate::renderer::record::Record;
 use crate::renderer::retained::Retained;
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
+use crate::text;
 use crate::viewport;
 
 /// What every pipeline built from the shared module is told.
@@ -25,12 +26,13 @@ use crate::viewport;
 /// moves cannot be baked into a pipeline, and one that never changes should not
 /// be re-uploaded sixty times a second.
 ///
-/// The first two are the same for every pass and the last is the pass's own,
+/// All but the last are the same for every pass and the last is the pass's own,
 /// which is what makes this a function rather than the constant it was.
-fn overrides(spec: &PassSpec) -> [(&'static str, f64); 3] {
+fn overrides(spec: &PassSpec) -> [(&'static str, f64); 4] {
     [
         ("RING_STEPS", band::RING_STEPS as f64),
         ("MIN_RUN_PX", viewport::MIN_RUN_PX as f64),
+        ("COLLAPSED", text::COLLAPSED as f64),
         ("MESH_ALPHA", f64::from(spec.opacity)),
     ]
 }

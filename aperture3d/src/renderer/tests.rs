@@ -12,8 +12,8 @@ use crate::renderer::uniforms::Uniforms;
 use crate::ring::Ring;
 use crate::styled::Styled;
 use crate::tag::Tag;
-use crate::text::Text;
-use glam::{Mat4, Vec3};
+use crate::text::{Facing, Text, Turn};
+use glam::{IVec2, Mat4, Vec3};
 use palantir::OffscreenHost;
 use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
 use std::cell::RefCell;
@@ -957,6 +957,85 @@ fn every_kind_reaches_the_frame() {
             drawn > 0,
             "nothing of the {batch} batch reached the frame — it flattened, it \
              uploaded, and no pass drew it"
+        );
+    }
+}
+
+/// A run turned into a plane is drawn along that plane's own direction, at the
+/// size it would have had square to the viewer.
+///
+/// **What says the shader and [`Turn::axes`] read one rule.** The Rust side is
+/// pinned against hand-computed boxes in `text::tests`, and that pins picking;
+/// a vertex shader that built the frame differently would flatten, upload and
+/// draw exactly as it should, and only the picture would disagree — so the
+/// picture is what this asks.
+///
+/// Squared to the view, so world +x runs across the screen and +y up it and
+/// every box below is arithmetic rather than a measurement. Small enough type
+/// that a quarter turn about the anchor still lands inside the frame, since ink
+/// clipped at an edge is a box that agrees with nothing.
+#[test]
+fn a_turned_run_is_drawn_along_its_plane() {
+    let gpu = headless_test_gpu();
+    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+    let target = frame_target(&gpu.device);
+    let mut pane = ScenePane {
+        view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
+    };
+    *pane.view.borrow_mut().camera_mut() = Camera {
+        yaw: 0.0,
+        pitch: 0.0,
+        ..Camera::default()
+    };
+    let mut ink_of = |facing| {
+        {
+            let mut view = pane.view.borrow_mut();
+            let texts = &mut view.scene_mut().texts;
+            texts.clear();
+            texts.push(Text::new(Vec3::ZERO, "1234", 24.0).facing(facing));
+        }
+        host.frame_offscreen(&target, 1.0, &mut pane);
+        drawn_ink(&gpu, &target)
+    };
+
+    let flat = ink_of(Facing::Screen { on: None });
+    assert!(flat.count > 0, "nothing was drawn to compare against");
+
+    // The plane the camera looks straight at. Set along its +x the run comes out
+    // exactly as an unturned one; along −x the readable-side rule brings it back
+    // to the same place rather than hanging it off the other side of the anchor,
+    // which is where the projection alone would have put it.
+    for right in [Vec3::X, Vec3::NEG_X] {
+        let same = ink_of(Facing::Turned(Turn::new(right, Vec3::Z)));
+        let (min, max) = (same.min.as_ivec2(), same.max.as_ivec2());
+        let (was_min, was_max) = (flat.min.as_ivec2(), flat.max.as_ivec2());
+        assert!(
+            (min - was_min).abs().max_element() <= 1 && (max - was_max).abs().max_element() <= 1,
+            "{right:?} drew the run at {min:?}..{max:?}, and unturned it is at \
+             {was_min:?}..{was_max:?}"
+        );
+    }
+
+    // Along +y the run advances *up* the screen. The world origin is the orbit
+    // target, so its anchor is the middle pixel exactly, and a quarter turn
+    // about it sends every corner (x, y) to (y, −x) — which is the box's top
+    // edge becoming its left one, and its width becoming its height. Four
+    // relations rather than the two the sizes come to, because a box of the
+    // right shape in the wrong place would pass those.
+    let up = ink_of(Facing::Turned(Turn::new(Vec3::Y, Vec3::Z)));
+    let anchor = IVec2::new(FRAME.x as i32, FRAME.y as i32) / 2;
+    let (was_min, was_max) = (flat.min.as_ivec2() - anchor, flat.max.as_ivec2() - anchor);
+    let (min, max) = (up.min.as_ivec2() - anchor, up.max.as_ivec2() - anchor);
+    for (got, want, edge) in [
+        (min.x, was_min.y, "left"),
+        (max.x, was_max.y, "right"),
+        (min.y, -was_max.x, "top"),
+        (max.y, -was_min.x, "bottom"),
+    ] {
+        assert!(
+            (got - want).abs() <= 2,
+            "the turned run's {edge} edge is at {got} where a quarter turn of \
+             {was_min:?}..{was_max:?} puts it at {want}"
         );
     }
 }
