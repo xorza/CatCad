@@ -154,18 +154,32 @@ impl Text {
         if extent.x <= 0.0 || extent.y <= 0.0 {
             return None;
         }
-        let from_anchor = aim.cursor - aim.screen_of(self.position)?;
         let origin = self.origin();
         let box_of = Rect::new(origin.x, origin.y, extent.x, extent.y);
         let Facing::Turned(turn) = self.facing else {
+            let from_anchor = aim.cursor - aim.screen_of(self.position)?;
             return Some(aim::reach_to_box(from_anchor, box_of));
         };
-        let axes = turn.axes(self.position, aim.view_proj, aim.viewport);
-        // What one logical pixel of the run reaches on screen along each of its
-        // own axes: the run is sized against the screen and built in the world,
-        // so the world size of a pixel is the step between the two.
-        let here = aim.view_proj * self.position.extend(1.0);
+        // What one logical pixel of the run reaches on screen: it is sized
+        // against the screen and built in the world, so this is the step between
+        // the two.
         let step = aim.world_per_pixel(self.position);
+        // A lift is not a fourth thing to place the box by — it moves the point
+        // the box hangs off, and everything after it is what it always was. It
+        // holds still through the mirror and the half turn alike by being
+        // resolved in the plane's own axes rather than the run's — see
+        // [`Turn::lift_world`].
+        //
+        // Bailing here rather than later is what earns the axes below: they are
+        // meaningless for a point the projection does not draw.
+        let from_anchor = aim.cursor - aim.screen_of(self.position + turn.lift_world() * step)?;
+        // Settled at the run's *unlifted* anchor, both of them, because that is
+        // where the vertex shader settles them: it has the anchor's own clip
+        // position and nothing else. A lifted point is a few pixels off and
+        // would be marginally the better linearization, and disagreeing with
+        // what was drawn would cost more than it bought.
+        let axes = turn.axes(self.position, aim.view_proj, aim.viewport);
+        let here = aim.view_proj * self.position.extend(1.0);
         let across = screen_tangent(axes.advance * step, here, aim.view_proj, aim.viewport);
         let down = screen_tangent(axes.down * step, here, aim.view_proj, aim.viewport);
         // How much screen the box covers against how much it would cover face
@@ -297,42 +311,93 @@ impl Facing {
     }
 }
 
-/// The plane a run is turned into, and which way round in it the run is set.
+/// How a run is laid in a plane: which surface, which way round on it, and how
+/// far off the point it names.
 ///
-/// Both, because a normal alone says which surface and not which way round on
-/// it: the same plane carries lettering at any angle, and which one it is at is
-/// the caller's — a sketch sets its marks along its own +x, and a dimension
-/// could later be set along the span it measures instead.
+/// A direction and a normal rather than the plane's two axes. Naming a second
+/// axis would read as though which way the *box* runs were the caller's too, and
+/// it is not: it is derived, deliberately, so that a run cannot come out
+/// mirrored or sheared. See [`Turn::axes`].
 ///
-/// One direction and a normal, rather than the plane's two axes. Naming a
-/// second axis would read as though which way the *box* runs were the caller's
-/// too, and it is not: it is derived, deliberately, so that a run cannot come
-/// out mirrored or sheared. See [`Turn::axes`].
+/// A direction and not just the plane, because a normal alone says which surface
+/// and not which way round on it: the same plane carries lettering at any angle,
+/// and which one it is at is the caller's — a sketch may set its marks along its
+/// own +x, or a dimension along the span it measures.
 ///
-/// Both are expected to be unit length, and `right` to lie in the plane.
+/// `right` and `normal` are expected to be unit length, and `right` to lie in
+/// the plane.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Turn {
     /// World direction the run advances along, which is the whole of what
-    /// decides the angle it is set at — the plane's own +x, for a sketch.
+    /// decides the angle it is set at.
     pub right: Vec3,
     /// The plane's unit normal: what the run's depth follows, and what says
     /// which surface `right` is a direction *of*.
     ///
     /// Its sign is nobody's business. Depth reads a plane as a surface to take
     /// a gradient over rather than as a side to be on, and which side the eye
-    /// is on decides nothing here — see [`Turn::frame`].
+    /// is on decides nothing here — see [`Turn::axes`].
     pub normal: Vec3,
+    /// How far the run's box floats off the point it names, in logical pixels
+    /// across and down the plane's axes **as authored** — along `right`, and
+    /// along `normal × right`.
+    ///
+    /// **Nothing the projection decides reaches it, and that is the whole of
+    /// what it is for.** An offset written into [`Text::anchor`] rides in the
+    /// run's *own* frame, and both rules that settle that frame move it: the
+    /// mirror that keeps a run readable from behind its plane, and the half turn
+    /// that keeps it the right way up. Either swings the box off whatever it was
+    /// standing clear of. Stated here it is fixed in the plane, so a run that
+    /// comes round to stay readable only changes direction.
+    ///
+    /// Resolved in the world rather than against [`Turn::axes`] — see
+    /// [`Turn::carried`] — because those carry *two* camera-dependent signs, the
+    /// mirror and the half turn, and a lift that went through them would pick up
+    /// both.
+    ///
+    /// Which leaves one thing for the caller: a box hung off a *centred* anchor
+    /// is mapped onto itself by that half turn, so its place holds outright. One
+    /// hung off any other fraction is reflected through the lifted point, which
+    /// is a real answer but rarely the wanted one — see [`Text::anchor`].
+    ///
+    /// In pixels rather than world units, like everything else about a laid
+    /// run's size: how far a mark stands off the line it measures is a thing you
+    /// read at a glance, not a thing the model has an opinion about.
+    pub lift: Vec2,
 }
 
 impl Turn {
-    /// A run set along `right`, on the plane `normal` names — each normalized.
+    /// A run set along `right`, on the plane `normal` names — each normalized —
+    /// and sitting on the point it names.
     pub fn new(right: Vec3, normal: Vec3) -> Self {
         let (right, normal) = (right.normalize_or_zero(), normal.normalize_or_zero());
         debug_assert!(
             right.dot(normal).abs() < 1e-3,
             "{right:?} does not lie in the plane {normal:?} names"
         );
-        Self { right, normal }
+        Self {
+            right,
+            normal,
+            lift: Vec2::ZERO,
+        }
+    }
+
+    /// Float the run's box this far off that point. See [`Turn::lift`].
+    pub fn lifted(mut self, lift: Vec2) -> Self {
+        self.lift = lift;
+        self
+    }
+
+    /// [`Turn::lift`] as a world displacement, per logical pixel of it.
+    ///
+    /// The plane's axes as authored, so this owes the projection nothing: a run
+    /// hangs off the point it names by exactly this however the camera comes
+    /// round, which is what leaves a lifted run still while it turns.
+    ///
+    /// Down is `normal × right` rather than a second axis the caller states,
+    /// for the reason [`Turn`] has no second axis at all.
+    pub fn lift_world(self) -> Vec3 {
+        self.right * self.lift.x + self.normal.cross(self.right) * self.lift.y
     }
 
     /// The plane directions the run is laid along where it is anchored at `at`,

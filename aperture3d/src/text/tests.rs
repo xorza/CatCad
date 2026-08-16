@@ -20,8 +20,8 @@ fn head_on() -> Camera {
     }
 }
 
-/// The same camera from the other side of the plane below, which is the one
-/// thing about the projection the mirror rule reads.
+/// The same camera from the other side of the plane below, which is what both
+/// rules that settle a run's frame read: the mirror, and the half turn.
 fn from_behind() -> Camera {
     Camera {
         yaw: std::f32::consts::PI,
@@ -52,6 +52,7 @@ fn turned(turn: Turn) -> Text {
 const ACROSS: Turn = Turn {
     right: Vec3::X,
     normal: Vec3::Z,
+    lift: Vec2::ZERO,
 };
 
 /// A label anchored at the world origin, so its box hangs off screen centre.
@@ -424,6 +425,110 @@ fn a_run_past_the_upright_comes_round_rather_than_reading_upside_down() {
     assert!(
         before.y > 0.99 && after.y < -0.99,
         "{before:?} did not come round to {after:?}"
+    );
+}
+
+/// A lift floats the run's box off the point it names, in the plane.
+///
+/// Hand-computed off the fixture, which is what makes it arithmetic: at a depth
+/// of five with a ninety-degree fov across a hundred pixels, one logical pixel
+/// is a tenth of a world unit, and the plane below faces the camera — so twelve
+/// pixels along it is twelve pixels on screen.
+///
+/// **Which way those twelve go is the plane's business, not the screen's.** The
+/// authored down is `normal × right`, here `z × x`, which is `+y` — and this
+/// camera has `+y` running *up* the screen. So a lift down the plane carries the
+/// run down the plane, which is down the screen from here and would be up it
+/// from the other side. That is the whole point of stating it in the plane: it
+/// is a fixed place in the world rather than a side of the screen.
+#[test]
+fn a_lift_floats_the_box_off_the_point_the_run_names() {
+    // Anchored at its top-left, so unlifted the 40×12 box covers x 50..90 and
+    // y 50..62. Carried a box-height down the plane it covers y 62..74 instead.
+    let sitting = turned(ACROSS);
+    let lifted = turned(ACROSS.lifted(Vec2::new(0.0, -12.0)));
+
+    // A cursor in the lifted box and clear of where the box would have sat, and
+    // one the other way about. Neither reaches the other, which is what says the
+    // box moved rather than grew.
+    let carried = Vec2::new(70.0, 68.0);
+    let sat = Vec2::new(70.0, 56.0);
+    assert_eq!(
+        lifted
+            .pick(&aim_at(carried, 0.0))
+            .expect("in the lift")
+            .screen,
+        0.0
+    );
+    assert!(sitting.pick(&aim_at(carried, 0.0)).is_none());
+    assert_eq!(
+        sitting.pick(&aim_at(sat, 0.0)).expect("sitting").screen,
+        0.0
+    );
+    assert!(lifted.pick(&aim_at(sat, 0.0)).is_none());
+}
+
+/// **A centred box holds its place when the run comes round; an off-centre one
+/// does not, and the lift holds either way.**
+///
+/// The whole of what [`Turn::lift`] is for. Seen from the far side of its plane
+/// a run is re-set so it still reads, which negates its advance — and where the
+/// box hangs off the anchor goes with it. Hung off the box's own middle there is
+/// nothing to go, so the place holds outright; hung off a corner it swings
+/// across. The lift is untouched by any of it, being stated in the plane rather
+/// than in the run's own frame.
+///
+/// Asked of where the box's middle lands in the *world*, against two cameras
+/// either side of the plane — the same run, so anything that moves between them
+/// moved because of the re-setting and nothing else.
+#[test]
+fn a_centred_box_holds_its_place_when_the_run_comes_round() {
+    let viewport = Viewport::new(UVec2::new(100, 100));
+    let turn = ACROSS.lifted(Vec2::new(0.0, -12.0));
+    // Where the middle of a run's box sits in the world, given how its anchor
+    // hangs it: the lift carries the point it hangs from, and the anchor then
+    // holds the box off *that*.
+    let middle = |camera: &Camera, anchor: Vec2| {
+        let axes = turn.axes(Vec3::ZERO, camera.view_proj(1.0), viewport);
+        let step = camera.world_per_pixel(Vec3::ZERO, viewport);
+        let to_middle = (Vec2::splat(0.5) - anchor) * Vec2::new(40.0, 12.0);
+        (turn.lift_world() + axes.advance * to_middle.x + axes.down * to_middle.y) * step
+    };
+
+    // The premise: from the far side the run is set the other way along the
+    // plane, and its box still runs down the same way — which is a mirror of the
+    // world frame rather than a turn of it, and is what keeps the lettering
+    // reading from both sides.
+    let (front, back) = (head_on(), from_behind());
+    let facing = turn.axes(Vec3::ZERO, front.view_proj(1.0), viewport);
+    let behind = turn.axes(Vec3::ZERO, back.view_proj(1.0), viewport);
+    assert_eq!(facing.advance, -behind.advance, "the run was not re-set");
+    assert_eq!(facing.down, behind.down, "its box ran down a different way");
+
+    let centred = Vec2::splat(0.5);
+    let (there, again) = (middle(&front, centred), middle(&back, centred));
+    assert!(
+        (there - again).length() < 1e-5,
+        "a centred box moved from {there:?} to {again:?} across the half turn"
+    );
+    // And it is where the lift put it, not merely somewhere consistent: twelve
+    // pixels along the authored down is 1.2 world units along `z × x`, negated.
+    let carried = Vec3::new(0.0, -1.2, 0.0);
+    assert!(
+        (there - carried).length() < 1e-5,
+        "{there:?} is not the lift the run was given"
+    );
+
+    // Off-centre, the box swings across — which is the case a caller centres to
+    // avoid. Anchored at its top-left, the middle of a 40×12 box sits twenty
+    // pixels along the advance and six down, so two world units and 0.6: the
+    // advance reverses between the two and the down does not, and the lift of
+    // 1.2 sits under both.
+    let (was, now) = (middle(&front, Vec2::ZERO), middle(&back, Vec2::ZERO));
+    assert!((was - Vec3::new(2.0, -1.8, 0.0)).length() < 1e-5, "{was:?}");
+    assert!(
+        (now - Vec3::new(-2.0, -1.8, 0.0)).length() < 1e-5,
+        "{now:?}"
     );
 }
 
