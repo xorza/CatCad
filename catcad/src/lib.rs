@@ -37,8 +37,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 use palantir::{
-    App, Configure, HostHandle, Key, KeyFilter, KeyboardWake, Panel, Shortcut, Sizing, Ui,
-    WindowToken,
+    App, Configure, HostHandle, Key, KeyFilter, Panel, Shortcut, Sizing, Ui, WindowToken,
 };
 use silverpoint::{Entity, Removed};
 
@@ -199,16 +198,15 @@ impl CatCad {
         if ui.key_pressed(OPEN) {
             self.intents.push(Errand::Open);
         }
-        // A field open over a dimension takes the keyboard whole, and the two
-        // bindings below are exactly why it has to: both are bare keys, and a
-        // Delete that took geometry out while you were deleting a digit would
-        // be the worst kind of surprise. Escape is the same question the other
-        // way about — it means "put the field away" while one is open and "put
-        // the tool down" when none is.
+        // Whatever is being typed into a dimension, and nothing about where the
+        // keys went: every poll around this one answers for itself, because a
+        // field open takes keys by *class* rather than taking the keyboard.
         //
-        // The chords above are left reachable on purpose. Save, open and undo
-        // are the application's whatever is being typed into, and a field is
-        // not a modal.
+        // Which is why the order here says nothing either. `Delete` and the two
+        // undo chords are edits and go to the field; `Escape` is its own class
+        // and goes there too, meaning "put the field away" while one is open and
+        // "put the tool down" when none is. Save and open are accelerators, which
+        // no field takes, so they work throughout — a field is not a modal.
         self.typing(ui);
         // Escape puts down whatever is in hand wherever the pointer happens to
         // be. The view answers for the right button over the drawing, which is
@@ -277,10 +275,12 @@ impl CatCad {
         let Some(typing) = self.session.typing_mut() else {
             return;
         };
-        // Asked for every frame, like every other watch: this is what wakes a
-        // frame on a keystroke that no chord matches, which is most of them
-        // while a field is open.
-        ui.watch_keyboard(KeyboardWake::TEXT | KeyboardWake::KEY);
+        // No wake to ask for, though this reads keys no chord matches. Palantir
+        // wakes a frame for any key while something is *focused*, and the field
+        // is only ever open on a view that holds focus — which is the same
+        // invariant its input scope rests on, since a scope arbitrates only for
+        // the widget focus sits inside. A `KeyboardWake` here would be a second
+        // way to say what that one already guarantees.
         let mut done = None;
         for event in ui.keyboard_events() {
             // Stops at the first answer rather than reading the frame out:

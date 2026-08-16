@@ -1541,7 +1541,7 @@ fn typing_a_dimension_restates_it_as_one_step() {
 /// typed into. Escape is the same question the other way: it means "put the
 /// field away" while one is open and "put the tool down" when none is.
 #[test]
-fn a_field_takes_the_bare_keys_and_escape_puts_it_away() {
+fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     let mut app = CatCad::build();
     let mut harness = UiHarness::with_text(SIZE);
     frame(&mut app, &mut harness);
