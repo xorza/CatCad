@@ -82,6 +82,10 @@ fn text_vs(
     // Zero where the run is square to the viewer, which is the whole of what
     // tells the two apart.
     @location(8) right: vec3<f32>,
+    // How far the run's box floats off the point it names, per logical pixel of
+    // it — already resolved against the plane's authored axes, so there is no
+    // second reading of them here. See `Turn::lift_world`.
+    @location(9) lift: vec3<f32>,
 ) -> TextVsOut {
     let corner = vec2<f32>(
         select(0.0, 1.0, (index & 1u) != 0u),
@@ -105,8 +109,13 @@ fn text_vs(
         // with a down that projects downward.
         let axes = run_axes(right, plane, at);
         let step = at.w * u.world_per_clip_w;
+        // The lift moves the point the box hangs off and nothing else — and it
+        // is in the plane's own axes rather than the run's, so the mirror and
+        // the half turn above leave it where it is. A run that comes round to
+        // stay readable only changes direction.
+        let hangs = anchor + lift * step;
         let corner_world =
-            anchor + axes.advance * (px.x * step) + axes.down * (px.y * step);
+            hangs + axes.advance * (px.x * step) + axes.down * (px.y * step);
         out.clip = u.view_proj * vec4<f32>(corner_world, 1.0);
     } else {
         // **Square to the viewer.** A rectangle in screen space, hung off the

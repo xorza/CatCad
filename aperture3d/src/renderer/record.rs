@@ -237,6 +237,20 @@ pub(crate) struct GlyphInstance {
     /// the plane above is the other half of one, and shipping the normal twice
     /// would be twelve bytes a glyph to say something already said.
     pub(super) right: [f32; 3],
+    /// How far the run's box floats off the point it names, as a world
+    /// displacement per logical pixel of it — see
+    /// [`Turn::lift_world`](crate::Turn::lift_world).
+    ///
+    /// Shipped *resolved* rather than as the pair of pixel offsets the scene
+    /// states, though that would be a third fewer bytes. What it costs to
+    /// resolve is a cross product and a couple of multiplies; what it buys is
+    /// that the plane's authored down is worked out in one language instead of
+    /// two, and a run drawn off one side while it is clicked off the other is
+    /// exactly the disagreement that would follow.
+    ///
+    /// Not encoded like the two above: zero is a lift of nothing rather than an
+    /// absence, and the shader adds it either way.
+    pub(super) lift: [f32; 3],
 }
 
 impl GlyphInstance {
@@ -257,6 +271,7 @@ impl GlyphInstance {
             look: Look::of(color, 0.0),
             plane: direction_of(facing.normal()),
             right: direction_of(facing.right()),
+            lift: facing.lift_world().to_array(),
         }
     }
 }
@@ -335,7 +350,7 @@ impl Record for GlyphInstance {
     const STEP_MODE: wgpu::VertexStepMode = wgpu::VertexStepMode::Instance;
     const ATTRIBUTES: &'static [wgpu::VertexAttribute] = &wgpu::vertex_attr_array![
         0 => Float32x3, 1 => Float32x2, 2 => Float32x2, 3 => Float32x2, 4 => Float32x2,
-        5 => Float32x3, 6 => Float32, 7 => Float32x3, 8 => Float32x3
+        5 => Float32x3, 6 => Float32, 7 => Float32x3, 8 => Float32x3, 9 => Float32x3
     ];
 }
 

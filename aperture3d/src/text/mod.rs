@@ -309,6 +309,20 @@ impl Facing {
             Self::Turned(turn) => Some(turn.right),
         }
     }
+
+    /// How far the run's box floats off the point it names, as a world
+    /// displacement per logical pixel of it. See [`Turn::lift_world`].
+    ///
+    /// A bare vector rather than an `Option` like the two above, because there
+    /// is no such thing as *no* lift to tell apart from a lift of nothing: a run
+    /// square to the viewer sits on its point, and so does a laid one that was
+    /// given none.
+    pub fn lift_world(self) -> Vec3 {
+        match self {
+            Self::Screen { .. } => Vec3::ZERO,
+            Self::Turned(turn) => turn.lift_world(),
+        }
+    }
 }
 
 /// How a run is laid in a plane: which surface, which way round on it, and how

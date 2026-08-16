@@ -13,7 +13,7 @@ use crate::ring::Ring;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::{Facing, Text, Turn};
-use glam::{IVec2, Mat4, Vec3};
+use glam::{IVec2, Mat4, Vec2, Vec3};
 use palantir::OffscreenHost;
 use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
 use std::cell::RefCell;
@@ -961,6 +961,66 @@ fn every_kind_reaches_the_frame() {
     }
 }
 
+/// A headless view with one run of type in it, and what that run inks.
+///
+/// The three tests below differ only in the camera they look through and the
+/// run they put in front of it; the device, the host, the target and the pane
+/// were the same fourteen lines in each. A run rather than a facing, because
+/// between them they vary the facing, the turn and the anchor, and the whole
+/// `Text` is the one thing that covers all three.
+///
+/// Squared to the view by every caller so far, which is what makes their boxes
+/// arithmetic: world +x then runs across the screen and +y up it, and the world
+/// origin lands on the middle pixel.
+#[derive(Debug)]
+struct Lettering<'a> {
+    gpu: &'a HeadlessTestGpuLease,
+    host: OffscreenHost,
+    target: wgpu::Texture,
+    pane: ScenePane,
+}
+
+impl<'a> Lettering<'a> {
+    fn new(gpu: &'a HeadlessTestGpuLease, camera: Camera) -> Self {
+        let pane = ScenePane {
+            view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
+        };
+        *pane.view.borrow_mut().camera_mut() = camera;
+        Self {
+            host: OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build(),
+            target: frame_target(&gpu.device),
+            pane,
+            gpu,
+        }
+    }
+
+    /// What `text` inks, as the only thing in the scene.
+    fn ink(&mut self, text: Text) -> Ink {
+        {
+            let mut view = self.pane.view.borrow_mut();
+            let texts = &mut view.scene_mut().texts;
+            texts.clear();
+            texts.push(text);
+        }
+        self.host.frame_offscreen(&self.target, 1.0, &mut self.pane);
+        drawn_ink(self.gpu, &self.target)
+    }
+}
+
+/// Squared to the view, which every laid-run test below looks through.
+fn square_on() -> Camera {
+    Camera {
+        yaw: 0.0,
+        pitch: 0.0,
+        ..Camera::default()
+    }
+}
+
+/// The run those tests lay in a plane, before it is told which.
+fn run() -> Text {
+    Text::new(Vec3::ZERO, "1234", 24.0)
+}
+
 /// A run laid in the plane the camera faces is the screen run, turned.
 ///
 /// **What says the shader and [`Turn::axes`] read one rule.** The Rust side is
@@ -980,26 +1040,8 @@ fn every_kind_reaches_the_frame() {
 #[test]
 fn a_run_laid_in_the_plane_it_faces_is_the_screen_run_turned() {
     let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let target = frame_target(&gpu.device);
-    let mut pane = ScenePane {
-        view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
-    };
-    *pane.view.borrow_mut().camera_mut() = Camera {
-        yaw: 0.0,
-        pitch: 0.0,
-        ..Camera::default()
-    };
-    let mut ink_of = |facing| {
-        {
-            let mut view = pane.view.borrow_mut();
-            let texts = &mut view.scene_mut().texts;
-            texts.clear();
-            texts.push(Text::new(Vec3::ZERO, "1234", 24.0).facing(facing));
-        }
-        host.frame_offscreen(&target, 1.0, &mut pane);
-        drawn_ink(&gpu, &target)
-    };
+    let mut view = Lettering::new(&gpu, square_on());
+    let mut ink_of = |facing| view.ink(run().facing(facing));
 
     let flat = ink_of(Facing::Screen { on: None });
     assert!(flat.count > 0, "nothing was drawn to compare against");
@@ -1060,29 +1102,14 @@ fn a_run_laid_in_the_plane_it_faces_is_the_screen_run_turned() {
 #[test]
 fn a_run_laid_in_a_raked_plane_foreshortens_with_it() {
     let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let target = frame_target(&gpu.device);
-    let mut pane = ScenePane {
-        view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
-    };
-    // Squared to the view, so world +x runs across the screen and +y up it, and
-    // the world origin lands on the middle pixel.
-    *pane.view.borrow_mut().camera_mut() = Camera {
-        projection: Projection::Orthographic,
-        yaw: 0.0,
-        pitch: 0.0,
-        ..Camera::default()
-    };
-    let mut ink_of = |turn| {
-        {
-            let mut view = pane.view.borrow_mut();
-            let texts = &mut view.scene_mut().texts;
-            texts.clear();
-            texts.push(Text::new(Vec3::ZERO, "1234", 24.0).facing(Facing::Turned(turn)));
-        }
-        host.frame_offscreen(&target, 1.0, &mut pane);
-        drawn_ink(&gpu, &target)
-    };
+    let mut view = Lettering::new(
+        &gpu,
+        Camera {
+            projection: Projection::Orthographic,
+            ..square_on()
+        },
+    );
+    let mut ink_of = |turn| view.ink(run().facing(Facing::Turned(turn)));
 
     // The plane raked about +x, which is the run's own advance.
     let (sin, cos) = 60f32.to_radians().sin_cos();
@@ -1111,6 +1138,63 @@ fn a_run_laid_in_a_raked_plane_foreshortens_with_it() {
              cosine puts it at {want:.2}, square being {was}"
         );
     }
+}
+
+/// A lift carries the run off the point it names, and a run that comes round to
+/// stay readable only changes direction.
+///
+/// **The second half is what the lift is for, and it is the one a picture can
+/// settle.** Two turns half a degree either side of straight up: the one whose
+/// advance leans right is set as it stands, and the one leaning left is turned
+/// over so it does not read upside down. Their planes are the same and their
+/// authored axes all but identical, so a lift stated against *those* leaves the
+/// box where it was — while one stated against the run's own frame would swing
+/// it clean across to the other side of the point it names.
+///
+/// Squared to the view, so world +x runs across the screen and +y up it, and the
+/// world origin lands on the middle pixel. Centred on its anchor, because that
+/// is the arrangement catcad's marks use and the one the invariance is stated
+/// for.
+#[test]
+fn a_lifted_run_only_changes_direction_when_it_comes_round() {
+    let gpu = headless_test_gpu();
+    let mut view = Lettering::new(&gpu, square_on());
+    let mut ink_of = |turn| {
+        view.ink(
+            run()
+                .anchored(Vec2::splat(0.5))
+                .facing(Facing::Turned(turn)),
+        )
+    };
+
+    // Set near enough straight up the screen that the two lean the same way,
+    // and either side of the boundary the half turn fires on.
+    let upward = |lean: f32| Turn::new(Vec3::new(lean, 1.0, 0.0), Vec3::Z);
+    let lift = Vec2::new(0.0, -12.0);
+    let sitting = ink_of(upward(0.01));
+    assert!(sitting.count > 0, "nothing was drawn to compare against");
+    let (one, other) = (
+        ink_of(upward(0.01).lifted(lift)),
+        ink_of(upward(-0.01).lifted(lift)),
+    );
+
+    // The lift carried it, and by the twelve pixels it asked for: the plane's
+    // authored down is `z × right`, which for a run set near +y is near −x, so
+    // twelve pixels along it is twelve pixels of screen to the right.
+    let (was, now) = (sitting.min.as_ivec2(), one.min.as_ivec2());
+    assert!(
+        (now.x - was.x - 12).abs() <= 1 && (now.y - was.y).abs() <= 1,
+        "a lift of {lift:?} moved the run from {was:?} to {now:?}"
+    );
+
+    // And coming round left it there. A run whose lift rode in its own frame
+    // would be twenty-four pixels away, on the other side of the point.
+    let (min, max) = (other.min.as_ivec2(), other.max.as_ivec2());
+    let (was_min, was_max) = (one.min.as_ivec2(), one.max.as_ivec2());
+    assert!(
+        (min - was_min).abs().max_element() <= 2 && (max - was_max).abs().max_element() <= 2,
+        "coming round moved the run from {was_min:?}..{was_max:?} to {min:?}..{max:?}"
+    );
 }
 
 /// One of every kind, through a real device, twice.
