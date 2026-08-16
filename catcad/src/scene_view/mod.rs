@@ -9,7 +9,7 @@ use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Rect, ResponseState, Sense,
     Sizing, Ui, WidgetId,
 };
-use silverpoint::{Entity, Grown};
+use silverpoint::{ConstraintId, Entity, Grown};
 
 use crate::build::Build;
 use crate::document::Document;
@@ -18,6 +18,7 @@ use crate::drawing::anchor::Anchor;
 use crate::intent::{Change, Choice, Intent, Intents, Opening, Step};
 use crate::model::Models;
 use crate::paint::layout::Layout;
+use crate::paint::marks::Placed;
 use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
@@ -300,6 +301,15 @@ impl SceneView {
     /// is answered in. See [`SceneView::viewport`].
     pub(crate) fn viewport(&self) -> Option<Viewport> {
         self.viewport
+    }
+
+    /// Where the drawing put the mark for the relation `of` names.
+    ///
+    /// Forwarded rather than the layout being handed out, because a layout is
+    /// written by exactly one call and everything else reads one answer out of
+    /// it — see [`Layout`].
+    pub(crate) fn placed(&self, of: ConstraintId) -> Option<Placed> {
+        self.layout.placed(of)
     }
 
     /// What the pointer is working on, if anything.

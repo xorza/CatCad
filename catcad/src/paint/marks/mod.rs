@@ -41,10 +41,22 @@ const NEARLY_PARALLEL: f64 = 1e-9;
 /// rules are in and what deciding "the same place" needs: a world position is
 /// `f32` and two anchors the solver made one would stop agreeing in it.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Placed {
-    pub(super) of: ConstraintId,
-    pub(super) at: DVec2,
-    pub(super) lane: u8,
+pub(crate) struct Placed {
+    pub(crate) of: ConstraintId,
+    pub(crate) at: DVec2,
+    pub(crate) lane: u8,
+}
+
+impl Placed {
+    /// Where the mark is anchored in the world.
+    ///
+    /// The sketch coordinate put on the plane it was measured in, which is all
+    /// this is — but it is the one step between what the rules answer and what
+    /// a projection can be asked about, and two callers doing it by hand would
+    /// be two chances to reach for the wrong drawing's plane.
+    pub(crate) fn world(self, drawing: Drawing<'_>) -> Vec3 {
+        drawing.plane().point(self.at).as_vec3()
+    }
 }
 
 /// Where every mark of `model` stands, appended to `into`.
@@ -62,17 +74,6 @@ pub(super) fn stacked(model: Model<'_>, into: &mut Vec<Placed>) {
             .map(move |at| Placed { of, at, lane: 0 })
     }));
     lanes(&mut into[from..]);
-}
-
-/// Where the mark for `constraint` stands, unstacked.
-///
-/// What a caller standing something *over* a mark needs. Only a dimension is
-/// ever stood over — a form asks for a number — so the first anchor is the only
-/// one. See [`Prompt`](crate::prompt::Prompt).
-pub(crate) fn at(drawing: Drawing<'_>, constraint: Constraint) -> Vec3 {
-    let [first, _] = anchors(drawing.sketch(), constraint);
-    let at = first.expect("every constraint is drawn as at least one mark");
-    drawing.plane().point(at).as_vec3()
 }
 
 /// Give each mark the lane it rises in: how many marks already stand where it

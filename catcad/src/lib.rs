@@ -47,7 +47,6 @@ use crate::filing::Filing;
 use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::{Change, Choice, Errand, Intent, Intents, Step};
-use crate::paint::marks;
 use crate::part::Part;
 use crate::prompt::{Asking, Stands};
 use crate::scene_view::SceneView;
@@ -284,20 +283,37 @@ impl CatCad {
         let stands = match prompt.about() {
             Asking::Dimension { part } => {
                 let part = *part;
-                // Where the mark would be drawn, which is where the field
+                // Where the mark *would* be drawn, which is where the field
                 // stands instead — see [`paint::redraw`], which leaves out the
-                // mark of whatever is being typed into.
-                let at = models.iter().find_map(|model| match model.entity(part) {
-                    Some(Entity::Constraint(id)) => {
-                        Some(marks::at(model.drawing(), model.sketch().constraint(id)))
-                    }
+                // mark of whatever is being typed into. Read off the layout
+                // rather than worked out again, so the field lands on the lane
+                // the drawing gave the mark and not on the one an unstacked
+                // anchor would have.
+                let found = models.iter().find_map(|model| match model.entity(part) {
+                    Some(Entity::Constraint(id)) => Some((model.drawing(), id)),
                     _ => None,
                 });
                 // Never missing, on the same terms `Session::prune` guarantees:
                 // a form open over a dimension an undo took away is closed
                 // before the frame that would draw it.
-                let at = at.expect("a form is open over a dimension the drawing no longer holds");
-                camera.screen_of(at, viewport).map(Stands::Over)
+                let (drawing, id) =
+                    found.expect("a form is open over a dimension the drawing no longer holds");
+                // Unplaced is a different thing from gone, and only the second
+                // is a broken promise. A drawing places the marks of the sketch
+                // it is *in*, so a form outliving a click that opened another
+                // sketch has a dimension the layout knows nothing about — and
+                // that is a frame the form is not shown for rather than one it
+                // is closed by, exactly as a form swung off screen is. See
+                // [`prompt::footprint`].
+                self.view
+                    .placed(id)
+                    .and_then(|placed| {
+                        Some((camera.screen_of(placed.world(drawing), viewport)?, placed))
+                    })
+                    .map(|(at, placed)| Stands::Over {
+                        at,
+                        lane: placed.lane,
+                    })
             }
             // Beside the centre already placed, which is all there is of the
             // circle until a radius says otherwise.

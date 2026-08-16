@@ -282,29 +282,33 @@ fn degenerate_geometry_falls_back_rather_than_answering_a_nan() {
     near(outer, DVec2::new(6.0, 2.0));
 }
 
-/// The world answer is the sketch answer put on the drawing's plane.
+/// The world anchor is the sketch anchor put on the drawing's plane.
 ///
-/// The one thing [`at`] does beyond [`anchor`], and worth a claim of its
-/// own because it is where a plane's axes could be applied the wrong way
-/// round — which would put every mark in the sketch somewhere plausible and
-/// wrong.
+/// The one step between what the rules answer and what a projection can be
+/// asked about, and worth a claim of its own because it is where a plane's axes
+/// could be applied the wrong way round — which would put every mark in the
+/// sketch somewhere plausible and wrong.
 #[test]
 fn the_world_anchor_is_the_sketch_anchor_on_the_drawings_plane() {
     let mut sketch = Sketch::default();
     let a = sketch.add_point(DVec2::new(2.0, 0.0));
     let b = sketch.add_point(DVec2::new(8.0, 4.0));
-    let ground = on_ground(&sketch);
-    let constraint = Constraint::Distance {
+    let of = sketch.add_constraint(Constraint::Distance {
         a,
         b,
         distance: 0.0,
+    });
+    let ground = on_ground(&sketch);
+    let placed = Placed {
+        of,
+        at: sole(&sketch, sketch.constraint(of)),
+        lane: 0,
     };
-    let sketched = sole(&sketch, constraint);
-    assert_eq!(sketched, DVec2::new(5.0, 2.0));
-    assert_eq!(
-        at(ground, constraint),
-        ground.plane().point(sketched).as_vec3()
-    );
+    assert_eq!(placed.at, DVec2::new(5.0, 2.0));
+    // The ground plane maps sketch (x, y) to world (x, 0, −y), so a mark at
+    // (5, 2) stands five along and two back — not two *up*, which is what
+    // taking the plane's axes in the wrong order would give.
+    assert_eq!(placed.world(ground), Vec3::new(5.0, 0.0, -2.0));
 }
 
 /// Marks wanting one place rise in a column, in the order they are held.

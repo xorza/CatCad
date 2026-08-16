@@ -10,7 +10,6 @@ use crate::build::Build;
 use crate::demo;
 use crate::intent::{Choice, Intents, Opening};
 use crate::model::Models;
-use crate::paint::marks;
 use crate::paint::{mark_font, mark_lift};
 use crate::part::Part;
 use crate::prompt::{Asking, Prompt};
@@ -1589,14 +1588,20 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     let Some(Entity::Constraint(id)) = dimension.entity() else {
         panic!("not a constraint");
     };
-    let drawing = app.document.drawing_at(sketch);
-    let at = marks::at(drawing, drawing.sketch().constraint(id));
+    // Off the layout, which is where the drawing put it — a mark sharing its
+    // place with others does not sit where a lone one would, so aiming at an
+    // anchor worked out here would miss by however many lanes it rose.
+    let placed = app.view.placed(id).expect("the dimension was drawn");
+    let at = placed.world(app.document.drawing_at(sketch));
     // The *number*, not the point the dimension hangs it from: `MARK_ANCHOR`
     // lifts the mark clear of the line it measures, and the field stands over
     // the mark rather than over the line. Half a line back down from the
     // anchor's fraction is the middle of the run either of them draws.
-    let cursor =
-        cursor_on(&mut app, at) - Vec2::new(0.0, mark_lift() - mark_font().line_height_px * 0.5);
+    let cursor = cursor_on(&mut app, at)
+        - Vec2::new(
+            0.0,
+            mark_lift(placed.lane) - mark_font().line_height_px * 0.5,
+        );
 
     let camera = *app.camera_mut();
     let picked = app.session.selection().picked().to_vec();
@@ -1669,12 +1674,15 @@ fn the_open_field_is_placed_against_this_frames_camera() {
     let Some(Entity::Constraint(id)) = dimension.entity() else {
         panic!("not a constraint");
     };
-    let drawing = app.document.drawing_at(sketch);
-    let at = marks::at(drawing, drawing.sketch().constraint(id));
+    let placed = app.view.placed(id).expect("the dimension was drawn");
+    let at = placed.world(app.document.drawing_at(sketch));
     // Where the number now sits: the mark's own anchor, brought back down to
     // the middle of the run it hangs above.
-    let middle =
-        cursor_on(&mut app, at) - Vec2::new(0.0, mark_lift() - mark_font().line_height_px * 0.5);
+    let middle = cursor_on(&mut app, at)
+        - Vec2::new(
+            0.0,
+            mark_lift(placed.lane) - mark_font().line_height_px * 0.5,
+        );
     let rect = harness
         .layout_rect(crate::prompt::Prompt::nth_field_id(0))
         .expect("the field was arranged on the frame that scrolled");

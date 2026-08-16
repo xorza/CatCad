@@ -5,12 +5,12 @@ place. Rules first, then the shape they are built in, then what is left.
 
 ## Where it stands
 
-Built: the rules below, all of them. Every relation is drawn where R2 says;
-`Parallel`, `EqualLength` and `EqualRadius` are drawn against each of their
-referents, both marks naming one part; and marks wanting one place rise in a
-column rather than landing on each other. What is left is the form following
-the column — a field opening over a stacked dimension still stands where the
-mark would be unstacked.
+Built, all of it. Every relation is drawn where R2 says; `Parallel`,
+`EqualLength` and `EqualRadius` are drawn against each of their referents, both
+marks naming one part; marks wanting one place rise in a column rather than
+landing on each other; and a field opening over a dimension stands on the lane
+the drawing gave it. What is left is in [Left](#left), and none of it is this
+problem — it is the larger one behind it.
 
 What this replaced was not a placement system that had aged badly but the
 absence of one: `Drawing::mark_at` took the centroid of the middles of
@@ -187,19 +187,16 @@ in would reach the heap sixty times a second for a few dozen entries. A sketch
 would need something like a thousand relations before the sort won.
 
 **Stored in `Layout`**, beside `names` and `sheets`, for the reason in the third
-fact above. `redraw` fills it in the same call that writes the marks. What is
-left is the reader: an accessor, and `CatCad::record` asking it where a
-dimension's field should stand instead of recomputing an unstacked anchor. One
-computation, two readers, no way for them to disagree — the same shape `growing`
-was collapsed to.
+fact above. `redraw` fills it in the same call that writes the marks, and
+`Layout::placed` is what reads one back out — through `SceneView::placed`, since
+a layout is the view's. `CatCad::ask` asks it where a dimension's field should
+stand rather than working an anchor out again. One computation, two readers, no
+way for them to disagree — the same shape `growing` was collapsed to.
 
-## Implementation plan
-
-**Stage 4 — the form follows.** `Layout::placed`, and `CatCad::record` reading
-it instead of recomputing. Test: a dimension in a stack has its field land on
-the mark's pixels, not on the un-stacked anchor's. This stage is small but it
-is the one that closes the loop — until it lands, double-clicking a stacked
-dimension opens a field a line-height below its own number.
+It answers for the mark being retyped as well, whose mark the drawing leaves
+*out*. That falls out of R5: the lanes are laid before anything is left out, so
+what is stored is where the mark *would* be — which is exactly what a caller
+standing something in its place is asking.
 
 ## Left
 

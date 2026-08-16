@@ -592,16 +592,20 @@ const MARK_ANCHOR: Vec2 = Vec2::new(0.5, 1.6);
 /// where the second one in a row would start.
 const STACK_STEP: f32 = 1.0;
 
-/// How far above the point it names a dimension's number is drawn, in logical
+/// How far above the point it names a mark in `lane` is drawn, in logical
 /// pixels.
 ///
-/// [`MARK_ANCHOR`] as a length rather than a fraction, which is what anything
-/// placing something *else* over the number needs — the field that stands in
-/// for it while it is retyped, and the tests that aim at one. Named here so
-/// that a caller working out where the number is cannot come to disagree with
-/// the call that draws it.
-pub(crate) fn mark_lift() -> f32 {
-    MARK_ANCHOR.y * mark_font().line_height_px
+/// [`MARK_ANCHOR`] and [`STACK_STEP`] as a length rather than as fractions,
+/// which is what anything placing something *else* over the mark needs — the
+/// field that stands in for a dimension while it is retyped, and the tests
+/// that aim at one. Named here so that a caller working out where a number is
+/// cannot come to disagree with the call that draws it.
+///
+/// The lane is asked for rather than assumed, because a mark sharing its place
+/// with others does not sit where a lone one would: a field placed against
+/// lane 0 over a dimension in lane 2 lands two lines below its own number.
+pub(crate) fn mark_lift(lane: u8) -> f32 {
+    (MARK_ANCHOR.y + f32::from(lane) * STACK_STEP) * mark_font().line_height_px
 }
 
 /// Decimal places a dimension is read out to.

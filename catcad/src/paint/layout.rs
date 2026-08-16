@@ -1,6 +1,6 @@
 //! The picture the view last wrote, and the room it was written in.
 
-use silverpoint::{Fill, Filler, Patch, Skinner};
+use silverpoint::{ConstraintId, Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
 use crate::names::Names;
@@ -77,6 +77,23 @@ impl Layout {
     /// What each tag stands for.
     pub(crate) fn names(&self) -> &Names {
         &self.names
+    }
+
+    /// Where the drawing put the mark for the relation `of` names, or `None`
+    /// where it drew none — a dormant sketch's relations get no marks at all.
+    ///
+    /// Read rather than recomputed, and that is the point: which lane a mark
+    /// rises in is a fact about every *other* mark, so a caller working it out
+    /// again would be running the whole pass a second time and would be free to
+    /// come to a different answer. A field standing over a mark that had come
+    /// to a different answer would sit a line off its own number.
+    ///
+    /// Answers for the mark being retyped as well, whose mark the drawing
+    /// leaves *out* — the lanes are laid before anything is left out, so what
+    /// is stored is where the mark would be. Which is exactly what a caller
+    /// standing something in its place is asking.
+    pub(crate) fn placed(&self, of: ConstraintId) -> Option<Placed> {
+        self.placed.iter().copied().find(|placed| placed.of == of)
     }
 
     /// Whether what this describes has been overtaken.

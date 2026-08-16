@@ -97,8 +97,13 @@ pub(crate) enum Asking {
 /// approximated by one.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Stands {
-    /// Exactly where the drawing would have put what the form replaces.
-    Over(Vec2),
+    /// Exactly where the drawing would have put what the form replaces: where
+    /// the mark is anchored, and which lane of its stack it rises in.
+    ///
+    /// The lane travels with the point because the mark's own box is what the
+    /// field has to cover, and how far above the anchor that box sits is the
+    /// one thing the point does not say. See [`mark_lift`].
+    Over { at: Vec2, lane: u8 },
     /// Clear of a footprint, so what the form is about stays visible under it.
     Beside(Rect),
 }
@@ -479,7 +484,7 @@ impl Prompt {
         // that takes focus.
         let opening = !std::mem::replace(&mut self.shown, true);
         let done = match stands {
-            Stands::Over(screen) => self.over(ui, screen, opening),
+            Stands::Over { at, lane } => self.over(ui, at, lane, opening),
             Stands::Beside(anchor) => self.beside(ui, anchor, opening),
         };
         // Outside the bodies, because a value is read off a draft the widget
@@ -664,13 +669,13 @@ impl Prompt {
     /// press it does not contain falls through to the viewport beneath — which
     /// is what makes clicking away from the field a click on the drawing as
     /// well as a blur.
-    fn over(&mut self, ui: &mut Ui, screen: Vec2, opening: bool) -> Option<Done> {
+    fn over(&mut self, ui: &mut Ui, screen: Vec2, lane: u8, opening: bool) -> Option<Done> {
         // Measured before the field is shown, because where its corner goes
         // depends on how wide its number comes out. The same shaper the widget
         // itself will use, asked the same question, so the two cannot answer
         // differently.
         let width = ui.probe_text(self.run(0)).size().w;
-        let origin = self.placed_over(screen, width);
+        let origin = self.placed_over(screen, lane, width);
         let Self { fields, look, .. } = self;
         let id = Self::field_id(0);
         let said = Panel::canvas()
@@ -840,7 +845,7 @@ impl Prompt {
     /// the dimension, so both land half a run to the left of the same point
     /// whatever the run measures. Only the caret's room breaks the symmetry,
     /// being reserved on one side.
-    fn placed_over(&self, screen: Vec2, width: f32) -> Vec2 {
+    fn placed_over(&self, screen: Vec2, lane: u8, width: f32) -> Vec2 {
         // Off `normal`, and safe to be: palantir pins the ring's width across
         // every state so that focus changes its colour without moving the inner
         // rect — which is the same shift this call exists to avoid, one state
@@ -856,7 +861,7 @@ impl Prompt {
             + Vec2::splat(ring);
         Vec2::new(
             screen.x - width * 0.5 - inset.x - self.look.caret_width * 0.5,
-            screen.y - mark_lift() - inset.y,
+            screen.y - mark_lift(lane) - inset.y,
         )
     }
 }
