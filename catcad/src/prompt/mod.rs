@@ -341,7 +341,7 @@ impl Prompt {
         Some(Growing {
             sketch: profile.sketch(),
             region: profile.face_of(models)?,
-            distance: self.value(0)?,
+            distance: self.says(0)?,
         })
     }
 
@@ -396,7 +396,10 @@ impl Prompt {
     /// showing one number while the form showed another.
     pub(crate) fn typed(&self, nth: usize) -> Option<f64> {
         let field = self.fields.get(nth)?;
-        (!field.draft.trim().is_empty()).then(|| self.value(nth))?
+        if field.draft.trim().is_empty() {
+            return None;
+        }
+        self.value(nth)
     }
 
     /// What the `nth` field currently means, whoever put it there.
@@ -716,6 +719,11 @@ impl Prompt {
                                 .id(Self::field_id(nth))
                                 .style(look)
                                 .select_all_on_focus()
+                                // Cloned because [`TextEdit::placeholder`]
+                                // takes a `Cow<'static, str>` and this string
+                                // is the form's, not the program's — a borrow
+                                // cannot satisfy that lifetime. One short
+                                // string a frame, and the only way in.
                                 .placeholder(field.suggested.clone())
                                 .text_align(Align::CENTER)
                                 .size((Sizing::HUG, Sizing::HUG))

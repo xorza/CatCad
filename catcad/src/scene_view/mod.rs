@@ -554,7 +554,8 @@ impl SceneView {
         // the band following the pointer — the number and the picture are two
         // views of one value, and a band that went on tracking would be showing
         // a different one from the form beside it.
-        let typed = session.prompt().and_then(|open| open.typed(0));
+        let asking = session.prompt();
+        let typed = asking.and_then(|open| open.typed(0));
         self.preview = tool
             .started()
             .zip(aimed::landing(
@@ -585,7 +586,8 @@ impl SceneView {
             });
         // And the other way about while nobody has typed: what the band is
         // showing is what the field offers, so the number follows the pointer.
-        if typed.is_none()
+        if asking.is_some()
+            && typed.is_none()
             && let Some(band) = self.preview.and_then(Preview::ring)
         {
             intents.push(Choice::Suggest {
