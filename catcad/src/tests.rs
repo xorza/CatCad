@@ -1794,3 +1794,99 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     };
     assert_eq!(after.constraint(id).value(), Some(was));
 }
+
+/// **The arrow standing off a growing solid carries its depth, and what it
+/// carries is the form's draft rather than the document.**
+///
+/// The half that would be easy to get wrong in a way nothing looked wrong for:
+/// a drag that raised a `Change::Carry` would be naming a step that does not
+/// exist, and one that wrote the draft without the field showing it would leave
+/// two numbers for Enter to choose between.
+#[test]
+fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    let solids = |app: &CatCad| {
+        app.document
+            .models(&app.build, app.session.editing())
+            .solids()
+            .count()
+    };
+    let region = app
+        .document
+        .models(&app.build, app.session.editing())
+        .open()
+        .region(0);
+    let mut intents = Intents::default();
+    intents.push(Choice::Select(Some(region)));
+    app.session.apply(&intents);
+    frame(&mut app, &mut harness);
+    harness.click_at(EXTRUDE_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.session.prompt().and_then(|open| open.value(0)),
+        Some(0.0)
+    );
+
+    // The arrow is the one gizmo naming a depth — found rather than guessed,
+    // because where it lands is the region's own middle and the camera's.
+    let at = {
+        let renderer = app.view.renderer().borrow();
+        let arrow = renderer
+            .scene()
+            .gizmos
+            .iter()
+            .find(|gizmo| {
+                gizmo.tag.and_then(|tag| app.view.part(tag)) == Some(crate::part::Part::Growing)
+            })
+            .expect("the growing solid has no arrow to carry it");
+        // The head rather than the whole arrow: the demo's region is a
+        // rectangle with the hub cut out of it, so its middle — where the
+        // arrow stands — is inside the cylinder already grown there, and the
+        // shaft is buried in it. The head clears the top.
+        let head = &arrow.mesh.vertices[4..];
+        head.iter()
+            .fold(Vec3::ZERO, |sum, corner| sum + corner.position)
+            / head.len() as f32
+    };
+    // Carried a unit along the plane's own normal, which is the line the arrow
+    // runs on — aimed in the world rather than in pixels, so what the drag
+    // should come to is known by hand.
+    let plane = app.document.drawing_at(app.session.editing()).plane();
+    let start = cursor_on(&mut app, at);
+    harness.press_at(start);
+    frame(&mut app, &mut harness);
+    let end = cursor_on(&mut app, at + plane.normal().as_vec3());
+    harness.drag_to(end);
+    frame(&mut app, &mut harness);
+
+    let deepened = app
+        .session
+        .prompt()
+        .and_then(|open| open.value(0))
+        .expect("the form stopped reading as a number");
+    assert!(
+        deepened > 0.1,
+        "dragging the arrow left the depth at {deepened}"
+    );
+    assert_eq!(
+        solids(&app),
+        1,
+        "the drag reached the document, which has no step to carry yet"
+    );
+
+    // And the form is still open after the drag, holding what the drag said.
+    // A press in the drawing takes focus off the field — it has to, the arrow
+    // being in the drawing — so what closes the form afterwards is its own
+    // buttons rather than Enter.
+    harness.release();
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.session.prompt().and_then(|open| open.value(0)),
+        Some(deepened),
+        "letting go of the arrow changed what the form says"
+    );
+    assert_eq!(solids(&app), 1);
+}

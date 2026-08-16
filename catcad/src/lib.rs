@@ -519,6 +519,7 @@ fn noun(part: Part) -> &'static str {
         // and "the far end of the extrude" is a sentence about the timeline
         // rather than about the thing being pointed at.
         Part::Solid { .. } => "face",
+        Part::Growing => "depth",
     }
 }
 

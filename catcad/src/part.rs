@@ -56,6 +56,14 @@ pub(crate) enum Part {
     /// anything drawn — which is why the sketch below is an answer some parts
     /// do not have.
     Plane(FeatureId),
+    /// The depth of a solid still being decided, which is drawn from an open
+    /// form rather than from anything the document holds.
+    ///
+    /// Names no step, because there is none: the arrow that carries it is a
+    /// control over a reading — see [`Asking::Extrude`](crate::prompt::Asking) —
+    /// and what a drag on it writes is the form's own draft. It goes here all
+    /// the same, because a tag names a `Part` and the arrow has to be grabbable.
+    Growing,
 }
 
 impl Part {
@@ -68,7 +76,7 @@ impl Part {
     pub(crate) fn sketch(self) -> Option<FeatureId> {
         match self {
             Part::Entity { sketch, .. } | Part::Region { sketch, .. } => Some(sketch),
-            Part::Plane(_) | Part::Solid { .. } => None,
+            Part::Plane(_) | Part::Solid { .. } | Part::Growing => None,
         }
     }
 
@@ -80,7 +88,7 @@ impl Part {
     pub(crate) fn entity(self) -> Option<Entity> {
         match self {
             Part::Entity { entity, .. } => Some(entity),
-            Part::Region { .. } | Part::Plane(_) | Part::Solid { .. } => None,
+            Part::Region { .. } | Part::Plane(_) | Part::Solid { .. } | Part::Growing => None,
         }
     }
 }

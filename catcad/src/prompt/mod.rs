@@ -21,6 +21,7 @@ use palantir::{
     TextEdit, TextEditTheme, TextRun, TextWrap, Ui, WidgetId,
 };
 use silverpoint::Entity;
+use std::fmt::Write;
 
 use crate::intent::{Change, Choice, Intents, Step};
 use crate::paint::{DECIMALS, Growing, mark_font, mark_lift};
@@ -253,6 +254,20 @@ impl Prompt {
     /// evaluated, and every caller already treats `None` as "not yet".
     pub(crate) fn value(&self, nth: usize) -> Option<f64> {
         self.fields.get(nth)?.draft.trim().parse().ok()
+    }
+
+    /// Put `to` in the `nth` field, as the drawing's own handle for it moved.
+    ///
+    /// Written over the draft rather than beside it, so what the field shows and
+    /// what the gesture said are one number: a drag and the keyboard are two
+    /// ways of saying the same thing, and a form that kept them apart would have
+    /// to decide which one Enter meant.
+    pub(crate) fn write(&mut self, nth: usize, to: f64) {
+        let Some(field) = self.fields.get_mut(nth) else {
+            return;
+        };
+        field.draft.clear();
+        let _ = write!(field.draft, "{to:.*}", DECIMALS);
     }
 
     /// Show the form, and put what it asked for in `intents`.

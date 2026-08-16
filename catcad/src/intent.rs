@@ -366,6 +366,17 @@ pub(crate) enum Choice {
     /// is typed *into* a draft afterwards does not come through here at all —
     /// see [`Prompt`](crate::prompt::Prompt).
     Ask(Option<Opening>),
+    /// Put `to` in the open form's `nth` field.
+    ///
+    /// What a handle in the drawing writes. A drag on the arrow carrying a
+    /// solid's depth is not an edit — the solid is a form's own reading and the
+    /// document has not heard of it — so what the gesture moves is the draft,
+    /// and the form still decides what that comes to.
+    ///
+    /// Names the value it wants rather than a step along the way, like every
+    /// change: a drag sends one of these a frame and a replayed pass restates
+    /// the same number.
+    Set { nth: usize, to: f64 },
     /// Take up this tool, or put down whatever is in hand by naming
     /// [`Tool::Pointer`].
     ///

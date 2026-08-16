@@ -15,16 +15,16 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
-use crate::intent::{Change, Choice, Intents, Opening, Step};
+use crate::intent::{Change, Choice, Intent, Intents, Opening, Step};
 use crate::model::Models;
 use crate::paint::layout::Layout;
-use crate::paint::{self};
+use crate::paint::{self, Growing};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::prompt::{self, Prompt};
 use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
-use crate::timeline::{FeatureId, Movable};
+use crate::timeline::{Along, FeatureId, Movable};
 use crate::tool::Tool;
 
 mod aimed;
@@ -160,6 +160,14 @@ enum Grabbed {
     /// of them — it is what they are drawn *on* — so moving one is not an edit
     /// that has to land where you are.
     Datum(Movable),
+    /// The depth of a solid still being decided, which travels along the same
+    /// normal as the arm below and writes a form's draft rather than the
+    /// document — see [`Part::Growing`].
+    ///
+    /// An [`Along`] and no handle, because there is no step to name: what this
+    /// carries is a reading the form holds, and the form is what turns it into
+    /// a change when it is committed.
+    Growing(Along),
     /// The far end of a solid, which travels along the normal of the plane its
     /// region was drawn on.
     ///
@@ -352,7 +360,13 @@ impl SceneView {
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
         if matches!(response.left.phase, ButtonPhase::Down { .. }) {
-            self.gesture = self.grab(&response, document, sketch, tool);
+            self.gesture = self.grab(
+                &response,
+                document,
+                sketch,
+                session.prompt().and_then(Prompt::growing),
+                tool,
+            );
         }
         match (self.gesture, response.left.drag) {
             (Gesture::Orbit { travel: was }, Drag::Started { delta } | Drag::Active { delta }) => {
@@ -388,16 +402,27 @@ impl SceneView {
                     // *is*: either has one number, and asking it to be somewhere
                     // would be asking a question with two answers it does not
                     // have.
+                    //
+                    // An `Intent` rather than a `Change`, because one of the
+                    // four is not an edit: a depth still being decided lives in
+                    // a form, so what the drag writes is a draft.
                     intents.push(match held.grabbed {
-                        Grabbed::Sketch(grip) => Change::Drag { sketch, grip, to },
+                        Grabbed::Sketch(grip) => Intent::from(Change::Drag { sketch, grip, to }),
                         Grabbed::Datum(movable) => Change::MovePlane {
                             plane: movable.at,
-                            to: movable.offset_at(to),
-                        },
+                            to: movable.along.offset_at(to),
+                        }
+                        .into(),
                         Grabbed::Cap(movable) => Change::Carry {
                             extrude: movable.at,
-                            to: movable.offset_at(to),
-                        },
+                            to: movable.along.offset_at(to),
+                        }
+                        .into(),
+                        Grabbed::Growing(along) => Choice::Set {
+                            nth: 0,
+                            to: along.offset_at(to),
+                        }
+                        .into(),
                     });
                 }
             }
@@ -851,6 +876,7 @@ impl SceneView {
         response: &ResponseState,
         document: &Document,
         editing: FeatureId,
+        growing: Option<Growing>,
         tool: Tool,
     ) -> Gesture {
         if tool != Tool::Pointer {
@@ -887,6 +913,20 @@ impl SceneView {
                         of,
                         face: Grown::Far,
                     } => Grabbed::Cap(document.stretching(of)),
+                    // The arrow standing off a region whose depth is being
+                    // decided. It travels along that region's own plane, which
+                    // is the same line the far end of a built solid runs on —
+                    // the difference is only that there is no step yet to name.
+                    //
+                    // The plane the *form* named rather than the open sketch's.
+                    // The two agree whenever the form was opened the ordinary
+                    // way, since picking a region opens the sketch it came
+                    // from — and where they came apart the drag would travel
+                    // along a different normal and nothing would look wrong.
+                    // No form is the arrow that was never drawn.
+                    Part::Growing => {
+                        Grabbed::Growing(Along::on(document.drawing_at(growing?.sketch).plane()))
+                    }
                     // Only the sketch being worked in can be taken hold of. A
                     // drag of geometry is an edit and an edit lands where you
                     // are — and the handles would not even tell the two apart:
@@ -903,7 +943,10 @@ impl SceneView {
                 };
                 let motion = match grabbed {
                     Grabbed::Sketch(_) => drawing.motion(),
-                    Grabbed::Datum(movable) | Grabbed::Cap(movable) => movable.travel(hit.world),
+                    Grabbed::Datum(movable) | Grabbed::Cap(movable) => {
+                        movable.along.travel(hit.world)
+                    }
+                    Grabbed::Growing(along) => along.travel(hit.world),
                 };
                 // Where the press landed on the motion, against where what was
                 // grabbed actually is: a grab is not a teleport.

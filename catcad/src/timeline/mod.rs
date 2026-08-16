@@ -115,7 +115,7 @@ impl Timeline {
         match feature {
             Feature::Extrude { profile, .. } => Movable {
                 at,
-                from: self.plane_of(profile.sketch()),
+                along: Along::on(self.plane_of(profile.sketch())),
             },
             Feature::Plane(_) | Feature::Sketch { .. } => wrong_kind(at, "an extrude", feature),
         }
@@ -191,7 +191,7 @@ impl Timeline {
         match feature {
             Feature::Plane(Datum::Offset { from, .. }) => Some(Movable {
                 at,
-                from: self.plane(*from),
+                along: Along::on(self.plane(*from)),
             }),
             Feature::Plane(Datum::Ground) => None,
             Feature::Sketch { .. } | Feature::Extrude { .. } => wrong_kind(at, "a plane", feature),
@@ -336,12 +336,33 @@ fn wrong_kind(at: FeatureId, wanted: &str, found: &Feature) -> ! {
 pub(crate) struct Movable {
     /// The step the number belongs to.
     pub(crate) at: FeatureId,
-    /// The plane it is measured off. Private because it is not a fact about the
-    /// step so much as the frame its two answers below are given in.
+    /// The line it runs along, and the base it is measured off.
+    pub(crate) along: Along,
+}
+
+/// The line a number travels along, and the base it is measured off.
+///
+/// Apart from [`Movable`] because it is the half that has nothing to do with
+/// the timeline: a plane, and two answers given in its frame. What a *step* is
+/// being moved is the other half, and there is a number here that belongs to no
+/// step at all — the depth of a solid still being decided, which is drawn from a
+/// form rather than from anything the document holds. That one has a line and no
+/// handle to name.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Along {
+    /// The plane it is measured off. Private because it is not a fact about
+    /// what is moving so much as the frame its two answers are given in.
     from: Plane,
 }
 
-impl Movable {
+impl Along {
+    /// Measured off `from`, along its normal.
+    pub(crate) fn on(from: Plane) -> Self {
+        Self { from }
+    }
+}
+
+impl Along {
     /// The line it travels along — its base's normal — taken through `grabbed`.
     ///
     /// Which of the parallel lines is not a free choice, and this is the whole
@@ -359,7 +380,7 @@ impl Movable {
     /// Through the grab, the two depths are the same one and the corner stays
     /// under the cursor. Nothing else moves with it: where along the line the
     /// origin sits never mattered — see [`Motion::Line`] — and
-    /// [`Movable::offset_at`] still measures from the base, so what the drag
+    /// [`Along::offset_at`] still measures from the base, so what the drag
     /// hands back is the same distance it always was.
     pub(crate) fn travel(self, grabbed: Vec3) -> Motion {
         Motion::Line {
@@ -375,7 +396,7 @@ impl Movable {
     /// the line already, and a grab taken a few pixels off centre carries an
     /// offset that has to be projected the same way before it means a distance.
     ///
-    /// [`travel`]: Movable::travel
+    /// [`travel`]: Along::travel
     pub(crate) fn offset_at(self, world: Vec3) -> f64 {
         (world.as_dvec3() - self.from.origin).dot(self.from.normal())
     }

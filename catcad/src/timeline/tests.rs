@@ -86,7 +86,7 @@ fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
     let movable = timeline.movable(shelf).expect("a datum can be moved");
     let grabbed = Vec3::new(7.0, 2.0, -3.0);
     assert_eq!(
-        movable.travel(grabbed),
+        movable.along.travel(grabbed),
         Motion::Line {
             origin: grabbed,
             along: Vec3::Y,
@@ -95,8 +95,8 @@ fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
     // Where the shelf already is reads back as the offset it already has, and
     // everything across the line falls out: a point five up and well off to
     // the side is still five.
-    assert_eq!(movable.offset_at(Vec3::new(7.0, 2.0, -3.0)), 2.0);
-    assert_eq!(movable.offset_at(Vec3::new(-1.0, 5.5, 8.0)), 5.5);
+    assert_eq!(movable.along.offset_at(Vec3::new(7.0, 2.0, -3.0)), 2.0);
+    assert_eq!(movable.along.offset_at(Vec3::new(-1.0, 5.5, 8.0)), 5.5);
 
     // A datum measured off another measures from *that* one. The loft stands
     // 1.5 above the shelf, which is 3.5 above the world — and its own offset is
@@ -107,7 +107,7 @@ fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
     }));
     let movable = timeline.movable(loft).expect("a datum can be moved");
     assert_eq!(
-        movable.travel(grabbed),
+        movable.along.travel(grabbed),
         Motion::Line {
             origin: grabbed,
             along: Vec3::Y,
@@ -116,9 +116,9 @@ fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
     // Which line it travels on says nothing about where the measuring starts:
     // the loft is measured off the shelf, so a point at the world's 3.5 reads
     // back as the 1.5 the timeline holds.
-    assert_eq!(movable.offset_at(Vec3::new(4.0, 3.5, 1.0)), 1.5);
+    assert_eq!(movable.along.offset_at(Vec3::new(4.0, 3.5, 1.0)), 1.5);
     assert_eq!(timeline.plane(loft).origin.y, 3.5);
-    assert_eq!(movable.offset_at(Vec3::new(0.0, 3.5, 0.0)), 1.5);
+    assert_eq!(movable.along.offset_at(Vec3::new(0.0, 3.5, 0.0)), 1.5);
 }
 
 /// Asking a sketch how far it is offset is a caller that has mistaken one kind

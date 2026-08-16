@@ -241,10 +241,12 @@ impl<'a> Model<'a> {
             Part::Region { sketch, at } => {
                 sketch == self.of && at < self.arrangement().faces().len()
             }
-            // Neither is a sketch's to answer for — one is what a sketch is
-            // drawn on and the other is a step of its own. See [`Models::holds`],
-            // which puts the question to whatever can.
-            Part::Plane(_) | Part::Solid { .. } => false,
+            // None of the three is a sketch's to answer for: one is what a
+            // sketch is drawn on, one is a step of its own, and the last is not
+            // in the document at all — it is a form's own reading, and what
+            // keeps it from outliving the form is the form closing. See
+            // [`Models::holds`], which puts the question to whatever can.
+            Part::Plane(_) | Part::Solid { .. } | Part::Growing => false,
         }
     }
 }

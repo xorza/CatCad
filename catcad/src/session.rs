@@ -145,6 +145,13 @@ impl Session {
                     }
                 }
                 Intent::Choice(Choice::Ask(None)) => self.prompt = None,
+                // Landing on no form is landing on nothing: a drag that
+                // outlived the form it was writing into has nothing to say.
+                Intent::Choice(Choice::Set { nth, to }) => {
+                    if let Some(open) = self.prompt.as_mut() {
+                        open.write(nth, to);
+                    }
+                }
                 // The history's, and the document's through it. Landed by
                 // `CatCad::apply` right after this, in the order the pointer
                 // made them.

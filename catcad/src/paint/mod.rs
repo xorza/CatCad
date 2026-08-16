@@ -84,6 +84,13 @@ const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
 const AXIS_X: Vec3 = Vec3::new(0.62, 0.20, 0.18);
 const AXIS_Y: Vec3 = Vec3::new(0.24, 0.52, 0.24);
 
+/// What the arrow carrying a solid's depth is drawn in.
+///
+/// The same warm grey the solid itself is, because it is *that solid's* handle
+/// and nothing else in the drawing — a hue off the freedom ladder would say it
+/// had a state, and the axis colours would say it was an axis.
+const DEPTH_ARROW: Vec3 = Vec3::new(0.78, 0.76, 0.70);
+
 /// What the square joining the two is drawn in.
 ///
 /// Neither hue, because it belongs to neither axis — it is the corner they make
@@ -312,6 +319,48 @@ pub(crate) struct Growing {
 }
 
 impl Growing {
+    /// Where the arrow that carries this stands, or `None` where the sketch no
+    /// longer holds the region it names.
+    ///
+    /// At the middle of the far cap, so it sits on the face it is carrying and
+    /// travels with it as the depth is typed — a handle that stayed at the base
+    /// would stop being on the thing it moves the moment it moved anything.
+    ///
+    /// **Inside the region rather than at the average of its corners**, which
+    /// for a region with a hole in it is a point in the hole: the demo's frame
+    /// is a rectangle with the hub cut out, and its corners average to the
+    /// middle of the cut. The widest triangle the fill was cut into is inside
+    /// the region by construction, and being the widest is what keeps the
+    /// answer off a sliver at an edge.
+    fn carried(self, models: Models<'_>, sheets: &mut Sheets) -> Option<Carried> {
+        let model = models.at(self.sketch)?;
+        let plane = model.plane();
+        let arrangement = model.arrangement();
+        let face = arrangement.faces().get(self.region)?;
+        let Sheets { filler, fill, .. } = sheets;
+        filler.fill(arrangement, face, FACE_SAGITTA, fill);
+        let widest = fill.triangles.iter().max_by(|&&a, &&b| {
+            let area = |[x, y, z]: [u32; 3]| {
+                let corner = |at: u32| fill.corners[at as usize];
+                (corner(y) - corner(x))
+                    .perp_dot(corner(z) - corner(x))
+                    .abs()
+            };
+            area(a).total_cmp(&area(b))
+        })?;
+        let middle: DVec2 = widest
+            .iter()
+            .map(|&at| fill.corners[at as usize])
+            .sum::<DVec2>()
+            / 3.0;
+        let normal = plane.normal().as_vec3();
+        Some(Carried::new(
+            plane.point(middle).as_vec3() + normal * self.distance as f32,
+            normal,
+            plane.x.as_vec3(),
+        ))
+    }
+
     /// What it currently reads as, or `None` where the sketch no longer holds
     /// the region it names.
     fn prism(self, models: Models<'_>) -> Option<Prism<'_>> {
@@ -344,7 +393,17 @@ impl Growing {
 /// Standing as a frame, like the outline around it: what a datum is *for* has
 /// not changed by being drawn differently, and it still yields a click to the
 /// geometry drawn on it.
-fn write_gizmos(models: Models<'_>, names: &mut Names, gizmos: &mut Batch<Object>) {
+fn write_gizmos(
+    models: Models<'_>,
+    names: &mut Names,
+    sheets: &mut Sheets,
+    growing: Option<Growing>,
+    gizmos: &mut Batch<Object>,
+) {
+    // The depth arrow first, so a datum's own gizmo keeps the tag it had
+    // whether or not a form is open — a tag is a position in a list, and one
+    // that moved when a form opened would move what a hover named.
+    let carried = growing.and_then(|growing| growing.carried(models, sheets));
     gizmos.refill(models.planes(), |object, (at, plane)| {
         let normal = plane.normal().as_vec3();
         let mesh = &mut object.mesh;
@@ -379,6 +438,66 @@ fn write_gizmos(models: Models<'_>, names: &mut Names, gizmos: &mut Batch<Object
         object.precedence = Precedence::Frame;
         object.tag = Some(names.tag(Part::Plane(at)));
     });
+    // Appended rather than chained into the refill above, because it is one
+    // object against a walk of planes and the two have nothing to write in
+    // common. A form is opened rarely, so the allocation this costs the first
+    // time is not one a frame pays.
+    if let Some(carried) = carried {
+        let mut arrow = Object::new(Mesh::default());
+        remesh(
+            &mut arrow.mesh,
+            shape::arrow(DVec2::X)
+                .into_iter()
+                .map(|corner| carried.at(corner)),
+            &shape::ARROW_TRIANGLES,
+        );
+        arrow.color = DEPTH_ARROW;
+        // Shaped rather than a frame, unlike a datum's axes: this is what the
+        // gesture is *for* while the form is open, so it takes the click over
+        // the geometry it stands on.
+        arrow.precedence = Precedence::Shaped;
+        arrow.tag = Some(names.tag(Part::Growing));
+        gizmos.push(arrow);
+    }
+}
+
+/// Where a depth arrow stands and which way it points, as a frame to map a flat
+/// shape through.
+///
+/// A shape is cut in two dimensions — see [`shape`] — and this is what turns
+/// those into world corners: `x` runs along the solid's own normal, which is
+/// the direction the depth grows in, and `y` across it in the sketch plane. So
+/// the arrow is a flat one standing *out* of the plane rather than lying in it,
+/// which is what a shape carrying something off a face has to be.
+#[derive(Debug, Clone, Copy)]
+struct Carried {
+    tail: Vec3,
+    along: Vec3,
+    across: Vec3,
+    /// Across the shape's own plane, which a two-sided unlit pass never reads
+    /// — carried so the vertices are whole ones, and worked out once because
+    /// a flat shape has one however many corners it has.
+    facing: Vec3,
+}
+
+impl Carried {
+    fn new(tail: Vec3, along: Vec3, across: Vec3) -> Self {
+        Self {
+            tail,
+            along,
+            across,
+            facing: along.cross(across).normalize_or_zero(),
+        }
+    }
+
+    /// The world position of a corner of the flat shape.
+    fn at(self, corner: DVec2) -> Vertex {
+        Vertex {
+            position: self.tail + self.along * corner.x as f32 + self.across * corner.y as f32,
+            normal: self.facing,
+            color: Vec3::ONE,
+        }
+    }
 }
 
 /// Draw the whole of `model`, and `band` over it, into the room `layout` keeps
@@ -445,7 +564,7 @@ pub(crate) fn redraw(
     write_marks(models, typed, names, &mut into.texts);
     write_faces(models, names, sheets, &mut into.faces);
     write_solids(models, names, sheets, growing, &mut into.solids);
-    write_gizmos(models, names, &mut into.gizmos);
+    write_gizmos(models, names, sheets, growing, &mut into.gizmos);
     layout.drawn(made);
 }
 
