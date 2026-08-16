@@ -14,8 +14,8 @@
 //!
 //! **Sketch geometry, no pixels.** A lane is a count, not a distance; turning
 //! it into a gap on screen is [`STACK_STEP`](super::STACK_STEP)'s, and clearing
-//! the stroke a mark stands on is [`MARK_ANCHOR`](super::MARK_ANCHOR)'s. Both
-//! do it in units of the run's own box, so the same gap holds at every zoom —
+//! the stroke a mark stands on is [`MARK_CLEAR`](super::MARK_CLEAR)'s. Both do it
+//! in line-heights of the run's own type, so the same gap holds at every zoom —
 //! and keeping them out of here is what lets everything below be plane
 //! arithmetic.
 
@@ -179,10 +179,9 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
         // sketch's.
         Constraint::Coincident { a, .. } => one(at_point(sketch, a), across),
         // On the thing it is on, which is what the symbol is about.
-        Constraint::PointOnSegment { point, segment } => one(
-            at_point(sketch, point),
-            canonical(run_of(span(sketch, segment))),
-        ),
+        Constraint::PointOnSegment { point, segment } => {
+            one(at_point(sketch, point), along(span(sketch, segment)))
+        }
         Constraint::PointOnCircle { point, .. } => one(at_point(sketch, point), across),
         Constraint::Perpendicular { first, second } => {
             let (this, that) = (span(sketch, first), span(sketch, second));
@@ -201,10 +200,7 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
             let line = span(sketch, segment);
             let centre = at_point(sketch, sketch.circle(circle).center);
             // A segment with no length has no line to drop a foot onto.
-            one(
-                nearest_on(centre, line).unwrap_or(centre),
-                canonical(run_of(line)),
-            )
+            one(nearest_on(centre, line).unwrap_or(centre), along(line))
         }
 
         // Beside, one per referent. On each edge's own middle and along it,
@@ -215,7 +211,7 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
                 let line = span(sketch, edge);
                 Some(Standing {
                     at: middle(line),
-                    along: canonical(run_of(line)),
+                    along: along(line),
                 })
             })
         }
@@ -227,9 +223,9 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
             [(first, second), (second, first)].map(|(it, other)| {
                 let ring = sketch.circle(it);
                 let centre = at_point(sketch, ring.center);
-                let toward = bearing(at_point(sketch, sketch.circle(other).center) - centre);
+                let toward = at_point(sketch, sketch.circle(other).center) - centre;
                 Some(Standing {
-                    at: centre + toward * ring.radius,
+                    at: centre + bearing(toward) * ring.radius,
                     along: canonical(toward),
                 })
             })
@@ -245,23 +241,31 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
         | Constraint::Horizontal { a, b }
         | Constraint::Vertical { a, b } => {
             let (a, b) = (at_point(sketch, a), at_point(sketch, b));
-            one((a + b) * 0.5, canonical(b - a))
+            one((a + b) * 0.5, along([a, b]))
         }
         Constraint::Radius { circle, .. } => {
             let it = sketch.circle(circle);
+            // One direction, read twice: it is both where on the rim the number
+            // sits and the radius that number is measuring. Two spellings would
+            // let a bearing moved for the sake of the first quietly stop being
+            // the second.
+            let radial = DVec2::X;
             // On the rim rather than at the centre, where a bare number reads
             // as belonging to whatever else is drawn through the middle. A
             // fixed bearing rather than a fitted one, so that a circle being
-            // dragged does not send its own number round it — and set along that
-            // same bearing, which is the radius it is measuring.
-            one(at_point(sketch, it.center) + DVec2::X * it.radius, across)
+            // dragged does not send its own number round it.
+            one(at_point(sketch, it.center) + radial * it.radius, radial)
         }
     }
 }
 
-/// The direction a span runs, before it is settled.
-fn run_of(span: [DVec2; 2]) -> DVec2 {
-    span[1] - span[0]
+/// The direction a mark on `span` is set along: the way it runs, settled.
+///
+/// The pair of them, because every span here wants both together and neither on
+/// its own — see [`canonical`] for what settling is and why it happens in the
+/// sketch.
+fn along(span: [DVec2; 2]) -> DVec2 {
+    canonical(span[1] - span[0])
 }
 
 /// `run` pointed the one way both ends of a span can agree on.

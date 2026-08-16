@@ -845,13 +845,16 @@ fn empty_spot(app: &CatCad) -> Vec3 {
 /// The run the drawing put a mark in, as the facts that say where its box
 /// lands — none of them the camera's.
 ///
-/// **The answer a field is weighed against, and it has to come from somewhere
-/// else.** What places the field is `paint::mark_centre`; a test that asked the
-/// same function would only be saying one call site agrees with another, and
-/// would go on passing however wrong both were. These come off the run itself —
-/// where it was anchored, the plane it was laid in, the fraction of its own box
-/// the anchor is, and the extent the shaper measured — none of which
-/// `mark_centre` reads.
+/// **The answer a field is weighed against, and it comes off what was drawn.**
+/// Where the run was anchored and how it was laid, read back out of the scene —
+/// so what this catches is the mark and the field parting company, which on a
+/// plane seen at an angle would put the box off its number in a different
+/// direction every frame.
+///
+/// It does not catch the two agreeing on something wrong, and cannot: they read
+/// one statement of how a mark is laid, which is the point of there being one.
+/// What holds *that* honest is [`paint`](crate::paint)'s own tests, where the
+/// direction and the clearance are hand-computed.
 ///
 /// Held apart from the camera because the two are read at different moments: a
 /// field standing over a mark takes it out of the drawing, so this is read
