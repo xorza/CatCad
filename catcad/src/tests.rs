@@ -836,9 +836,9 @@ fn empty_spot(app: &CatCad) -> Vec3 {
 ///
 /// `&mut CatCad` for the camera alone, which caches the matrix it is asked for.
 fn cursor_on(app: &mut CatCad, world: Vec3) -> Vec2 {
-    let viewport = Viewport::new(SIZE);
-    let clip = app.camera_mut().view_proj(viewport.aspect()) * world.extend(1.0);
-    viewport.pixel_from_clip(clip)
+    app.camera_mut()
+        .screen_of(world, Viewport::new(SIZE))
+        .expect("aimed at something the projection draws")
 }
 
 /// Where every marker the app is drawing sits, in the order it draws them.

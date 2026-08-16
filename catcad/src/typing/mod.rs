@@ -101,7 +101,7 @@ fn field_id() -> WidgetId {
 /// The size and weight come from the same call for the same reason. Nothing
 /// else is touched: the box, the caret and the wash are palantir's, and a field
 /// in the drawing has no cause to look unlike a field anywhere else.
-fn look() -> TextEditTheme {
+fn field_look() -> TextEditTheme {
     let font = mark_font();
     let text = TextStyle {
         font_size_px: font.size_px,
@@ -118,8 +118,8 @@ fn look() -> TextEditTheme {
         active,
         disabled,
     } = &mut theme.looks;
-    for look in [normal, hovered, active, disabled] {
-        look.text = Some(text.clone());
+    for state in [normal, hovered, active, disabled] {
+        state.text = Some(text.clone());
     }
     theme
 }
@@ -130,7 +130,12 @@ fn look() -> TextEditTheme {
 /// Private, and a measure of how little of a field is this crate's: the widget
 /// reports `submitted`, `cancelled` and `lost_focus`, and turning those three
 /// into an answer about a *dimension* is the whole of what is left to do.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// A verdict handed *out* of the closure rather than intents raised inside it,
+/// because what a commit needs — the draft, read back after the widget has
+/// written it — is only reachable through [`Typing::value`], and the field is
+/// shown with the draft borrowed away from the rest of the type.
+#[derive(Debug)]
 enum Done {
     /// Put what the field says on the dimension.
     Commit,
@@ -152,7 +157,7 @@ impl Typing {
             part,
             draft: format!("{value:.*}", DECIMALS),
             shown: false,
-            look: look(),
+            look: field_look(),
         }
     }
 
@@ -216,6 +221,7 @@ impl Typing {
         // whole of `self` and hand the field a buffer and a theme off the same
         // borrow.
         let Self { draft, look, .. } = self;
+        let id = field_id();
         // A `Canvas` filling the view, so the field's position is measured from
         // the same corner the projection answers in. It senses nothing, so every
         // press it does not contain falls through to the viewport beneath —
@@ -230,10 +236,10 @@ impl Typing {
                 // [`field_id`]. Only on the frame it opens: after that focus is
                 // palantir's, and losing it is how clicking away cancels.
                 if opening {
-                    ui.request_focus(Some(field_id()));
+                    ui.request_focus(Some(id));
                 }
                 let field = TextEdit::new(draft)
-                    .id(field_id())
+                    .id(id)
                     .style(look)
                     .select_all_on_focus()
                     .text_align(Align::CENTER)
@@ -246,8 +252,8 @@ impl Typing {
                 // **Cancel is tested first**, which is what a commit-on-blur
                 // caller owes itself: Escape blurs as well as cancelling, so
                 // asking about focus first could not tell a cancel from a click
-                // away — and here the two mean the same thing, which is why
-                // they share an arm.
+                // away — and here the two mean the same thing, which is why they
+                // share an arm.
                 if field.cancelled || field.lost_focus {
                     Some(Done::Cancel)
                 } else if field.submitted {

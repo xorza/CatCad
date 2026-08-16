@@ -146,7 +146,7 @@ fn wrist(app: &CatCad) -> Vec3 {
 
 /// The cursor that aims at `world`, through the camera the app is looking with.
 fn cursor_on(app: &mut CatCad, world: Vec3) -> Vec2 {
-    let viewport = Viewport::new(SURFACE);
-    let clip = app.camera_mut().view_proj(viewport.aspect()) * world.extend(1.0);
-    viewport.pixel_from_clip(clip)
+    app.camera_mut()
+        .screen_of(world, Viewport::new(SURFACE))
+        .expect("the bench aims at what it draws")
 }

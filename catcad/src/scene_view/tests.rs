@@ -255,9 +255,9 @@ impl Raised {
 
     /// Where a world position lands on screen — the cursor that aims at it.
     fn cursor_on(&self, world: Vec3) -> Vec2 {
-        let viewport = Viewport::new(SIZE);
-        let clip = self.camera().view_proj(viewport.aspect()) * world.extend(1.0);
-        viewport.pixel_from_clip(clip)
+        self.camera()
+            .screen_of(world, Viewport::new(SIZE))
+            .expect("aimed at something the projection draws")
     }
 
     /// The far end of the demo's arm, which is the freest thing it draws.
