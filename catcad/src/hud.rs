@@ -4,7 +4,7 @@
 use aperture::Projection;
 use palantir::{
     Align, Background, Button, ButtonTheme, Configure, DragValue, InternedStr, Palette, Panel,
-    Sizing, Text, Ui,
+    Sizing, Text, TextWrap, Ui,
 };
 
 use crate::intent::{Change, Choice, Errand, Intents, Step};
@@ -58,12 +58,25 @@ impl Hud {
     /// `status` arrives already in the pass's text arena, so nothing here copies
     /// it — and it has to be lowered in the pass that minted it, which is the
     /// same pass that is calling.
+    /// **Everything is pinned to the left edge**, and that is a rule rather
+    /// than a taste. A panel centred over the view is centred in whatever the
+    /// view's own container came out as, and the container is floored by the
+    /// widest thing standing on it — so the readout growing a long enough line
+    /// widens the container past the window and carries every centred thing
+    /// sideways with it. A left-aligned panel sits at the edge whatever the
+    /// container measures.
+    ///
+    /// What that cost was worth catching: a document saved to a long path made
+    /// the status line wide enough to slide the tool bar out from under the
+    /// pointer, so a click on Point armed nothing.
     pub(crate) fn show(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
-        self.readout(ui, shown, intents);
+        // The tools and the readout in one column rather than two panels at one
+        // corner: left-aligned, they would otherwise be drawn over each other.
+        floating(Panel::vstack(), "chrome", Align::TOP_LEFT).show(ui, |ui| {
+            self.tools(ui, shown.tool, intents);
+            self.readout(ui, shown, intents);
+        });
         self.constraints(ui, shown, intents);
-        // Last, so the bar is the topmost thing in the zstack and takes its own
-        // presses rather than the readout or the view beneath it.
-        self.tools(ui, shown.tool, intents);
     }
 
     /// What can be asked of what is picked out, along the bottom.
@@ -93,7 +106,7 @@ impl Hud {
         if let Some((_, value)) = dimension {
             self.draft = value;
         }
-        floating(Panel::hstack(), "constraints", Align::BOTTOM).show(ui, |ui| {
+        floating(Panel::hstack(), "constraints", Align::BOTTOM_LEFT).show(ui, |ui| {
             if let Some((id, _)) = dimension {
                 let edited = DragValue::new(&mut self.draft)
                     .auto_id()
@@ -161,9 +174,24 @@ impl Hud {
             ..
         } = shown;
         let sketch = models.open().of();
-        floating(Panel::vstack(), "readout", Align::TOP_LEFT).show(ui, |ui| {
+        stacked(Panel::vstack(), "readout").show(ui, |ui| {
             projection_toggle(ui, projection, intents);
-            Text::new(status).auto_id().show(ui);
+            // Cut off rather than allowed to run on, and this is load-bearing
+            // rather than tidy. A run of text reports its whole natural width as
+            // the *least* it will accept, a panel is at least as wide as what
+            // stands on it, and the view is a `FILL` beside this — so a status
+            // line long enough would widen the panel over the view, floor the
+            // whole overlay past the window, and stretch the viewport with it.
+            // A stretched viewport is a different projection, so the drawing
+            // would be picked where it is not drawn.
+            //
+            // What made that reachable is a document saved to a long path: the
+            // line says where it was written, and a temporary directory is
+            // sixty characters before the name.
+            Text::new(status)
+                .auto_id()
+                .text_wrap(TextWrap::Ellipsis)
+                .show(ui);
             tidy_button(ui, sketch, intents);
             filing_buttons(ui, intents);
         });
@@ -171,7 +199,9 @@ impl Hud {
 
     /// The tools, in a bar across the top.
     fn tools(&self, ui: &mut Ui, tool: Tool, intents: &mut Intents) {
-        floating(Panel::hstack(), "tools", Align::TOP).show(ui, |ui| {
+        // A row inside the column rather than a panel floating on the view, so
+        // it takes the column's padding rather than adding its own.
+        stacked(Panel::hstack(), "tools").show(ui, |ui| {
             self.tool(ui, tool, Tool::Point, "Point", intents);
             self.tool(ui, tool, Tool::Line { from: None }, "Line", intents);
             self.tool(ui, tool, Tool::Circle { center: None }, "Circle", intents);
@@ -203,6 +233,12 @@ impl Hud {
 /// `auto_id` reads the line it is written on, so one called here would hand
 /// every panel built from this recipe the same id.
 fn floating(panel: Panel, salt: &str, align: Align) -> Panel {
+    stacked(panel, salt).align(align).padding(PADDING)
+}
+
+/// A group standing inside one of those, which is the same panel without a
+/// corner to pin itself to or padding of its own — the one it is in has both.
+fn stacked(panel: Panel, salt: &str) -> Panel {
     panel
         .id_salt(salt)
         // A panel's own background would put a slab of theme colour over the
@@ -210,8 +246,6 @@ fn floating(panel: Panel, salt: &str, align: Align) -> Panel {
         // its own edges.
         .background(Background::NONE)
         .size((Sizing::HUG, Sizing::HUG))
-        .align(align)
-        .padding(PADDING)
         .gap(GAP)
 }
 

@@ -34,29 +34,31 @@ fn wrist(app: &CatCad) -> Vec3 {
 /// The surface every test that records frames raises the app at.
 const SIZE: UVec2 = UVec2::new(800, 600);
 
-/// The middle of each button on the toolbar, measured by sweeping the bar and
-/// reading back which tool a click at each pixel armed.
+/// The middle of each button on the tool row, which is the top of the column
+/// down the left edge — measured by sweeping and reading back which widget a
+/// click at each pixel would land on.
 ///
 /// Hand-written numbers, and safe ones: every press below is followed by an
 /// assertion about what ended up in hand, so a layout that moved a button fails
 /// there rather than quietly testing the gap between two.
-const POINT_BUTTON: Vec2 = Vec2::new(325.0, 26.0);
-const LINE_BUTTON: Vec2 = Vec2::new(395.0, 26.0);
-const CIRCLE_BUTTON: Vec2 = Vec2::new(470.0, 26.0);
+///
+/// Pinned to the left rather than centred, which is what makes them numbers at
+/// all: a centred bar moves with the width of the widest thing on the view —
+/// see [`Hud::show`](crate::hud::Hud).
+const POINT_BUTTON: Vec2 = Vec2::new(45.0, 26.0);
+const LINE_BUTTON: Vec2 = Vec2::new(112.0, 26.0);
+const CIRCLE_BUTTON: Vec2 = Vec2::new(187.0, 26.0);
 
-/// The clean-up command, which sits under the readout in the top-left corner
-/// rather than on the toolbar — it asks something of the whole drawing, not of
-/// what is picked out.
-const TIDY_BUTTON: Vec2 = Vec2::new(58.0, 99.0);
+/// The clean-up command, further down the same column: it asks something of the
+/// whole drawing rather than of what is picked out, so it is not a tool.
+const TIDY_BUTTON: Vec2 = Vec2::new(58.0, 140.0);
 
 /// The Extrude command, on the bar along the bottom that shows what can be asked
 /// of what is picked out.
 ///
-/// The middle of the bar, because with one region picked the Extrude button is
-/// the only thing on it and the bar hugs what it holds — measured by sweeping
-/// and reading back which clicks grew a solid, which put it between x 370 and
-/// 430.
-const EXTRUDE_BUTTON: Vec2 = Vec2::new(400.0, 570.0);
+/// With one region picked it is the only thing on that bar, and the bar hugs
+/// what it holds against the left edge.
+const EXTRUDE_BUTTON: Vec2 = Vec2::new(55.0, 570.0);
 
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
