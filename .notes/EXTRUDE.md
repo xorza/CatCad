@@ -12,7 +12,11 @@ What an extrude still cannot do:
   asks to remove. The other half of roadmap §5, along with reordering and the
   cascade from deleting a plane.
 - **Have its depth typed.** It is set by the button's default and then dragged.
-  Roadmap §1, which is about dimensions generally.
+  The field itself is built and a sketch dimension opens one on a double-click —
+  roadmap §1 — but nothing raises `Choice::Type` over a solid. What is missing is
+  a mark to double-click: a depth is drawn nowhere, so there is no label to
+  replace. Draw one on the far end and the rest is the path a dimension already
+  takes, with `Change::Carry` in place of `Change::Resize`.
 - **Carry a sketch.** `Grown` names a solid's faces durably so that
   `Datum::OnFace` can be built on one, and `Datum` still holds only `Ground` and
   `Offset`. This is what the naming was *for*, and the next thing the design is

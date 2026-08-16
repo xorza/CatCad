@@ -5,9 +5,26 @@ rather than rework.
 
 ## 1. Typing a dimension
 
-- The constraint bar scrubs a value and offers no way to state one exactly.
-- `DragValue` already has click-to-type and it is off by default; turning it on
-  is most of the work.
+Built, and not where this expected. It went into the *drawing* rather than into
+the constraint bar: double-clicking a dimension's mark replaces it with an
+`aperture::TextEdit` anchored on the same point, Enter restates the dimension
+through the `Resize` the scrub already used, Escape puts the draft away. The
+bar's `DragValue` still only scrubs, and no longer has to do more.
+
+What the field cannot do yet:
+
+- **Be clicked into.** `TextEdit::byte_at` answers where in the line a cursor
+  fell and nothing calls it: a click anywhere but on the field closes it. Wants
+  the view to notice a press landing inside the open field before it treats it
+  as a press on the drawing.
+- **Cut, copy or paste.** `Typing::take` lets every command chord through to the
+  application, which is what keeps Ctrl+S saving while a field is open — the
+  three that should be the field's have to be named before they can be taken.
+- **Hold a formula.** `Typing::value` is a `parse`, and every caller already
+  reads `None` as "not finished" rather than as an error, so an evaluator drops
+  in there without moving anything around it.
+- **Open over an extrude's depth.** Nothing but a sketch dimension raises
+  `Choice::Type`. See EXTRUDE.md.
 
 ## 5. Editing the timeline itself
 
