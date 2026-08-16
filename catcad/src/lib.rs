@@ -175,7 +175,7 @@ impl CatCad {
 
     /// Take everything this frame's input asked for, before anything is drawn.
     ///
-    /// **Reads and records nothing.** The keyboard is polled where its chords
+    /// **Records nothing.** The keyboard is polled where its chords
     /// belong — at the root, which is the scope that owns them — and the pointer
     /// over the drawing is polled by the view's own id rather than taken off a
     /// widget that has not been recorded yet. What that costs is a stable id;
@@ -322,6 +322,10 @@ impl CatCad {
         // replaces the three things above, so anything landing after it would
         // be landing on a document that was never asked.
         self.run();
+        // Emptied by the call that landed it, so no phase has to remember to.
+        // A frame applies twice — see [`CatCad::record`] — and an inbox carried
+        // into the second would land the first's asking again.
+        self.intents.clear();
     }
 
     /// Run everything the frame asked of the application itself.
@@ -593,18 +597,17 @@ impl App for CatCad {
                 // ahead of it. So the widgets draw between them and their asking
                 // lands in the second.
                 //
-                // The inbox is emptied before each, not once a frame. A frame
-                // that settles records twice and palantir drains the input
-                // queues between the two, so the second pass is a fresh reading
-                // of what is still latched and has to start from an empty inbox.
-                // That the pair is harmless is the inbox's own rule: an intent
-                // names where it wants to end up, so a drag re-asked lands in
-                // the same place and an orbit measures against a total the first
-                // pass already took.
-                self.intents.clear();
+                // The inbox is emptied by whichever apply lands it — see
+                // [`CatCad::apply`] — so a phase always starts from an empty
+                // one. That matters because a frame that settles records twice
+                // and palantir drains the input queues between the two, making
+                // the second pass a fresh reading of what is still latched. That
+                // the pair is harmless is the inbox's own rule: an intent names
+                // where it wants to end up, so a drag re-asked lands in the same
+                // place and an orbit measures against a total the first pass
+                // already took.
                 self.poll(ui);
                 self.apply();
-                self.intents.clear();
                 self.draw(ui);
                 self.apply();
                 self.view.settle(&self.document, &self.build, &self.session);
