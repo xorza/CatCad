@@ -11,6 +11,10 @@ struct Uniforms {
     // World distance per unit of clip w to step when probing the plane a curve
     // lies on. The projection sets it — see `Uniforms::probe_reach`.
     probe_reach: f32,
+    // World units per physical pixel, per unit of clip w — what a vertex
+    // standing in the world multiplies its own w by to hold a size on screen.
+    // Only the text pass reads it. See `Camera::world_per_clip_w`.
+    world_per_clip_w: f32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -29,16 +33,6 @@ const SQRT_2: f32 = 1.41421356237;
 // widen a segment one way and project a cursor onto it the other. There is one
 // of them — `curve::MIN_RUN_PX` — and this is not it.
 override MIN_RUN_PX: f32;
-
-// How far a turned run's advance may collapse against the plane's other
-// direction before there is no direction left to set it along, as a ratio of
-// their squared screen lengths.
-//
-// Read by the text pass alone, and here for the reason above rather than beside
-// it: `text::COLLAPSED` is where it is stated, because picking asks the very
-// same question of the very same two directions, and a run that fell back on
-// one side and not the other would be drawn one way and clicked another.
-override COLLAPSED: f32;
 
 // Clip `w` floor for the perspective divide.
 //

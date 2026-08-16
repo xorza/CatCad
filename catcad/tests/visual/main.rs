@@ -1159,8 +1159,16 @@ fn the_type_lands_inside_the_box_a_click_is_tested_against() {
     );
 }
 
-/// Type lying in a plane keeps its ink when the plane's own horizon runs
-/// through it.
+/// Type reading its depth off a plane keeps its ink when that plane's own
+/// horizon runs through it.
+///
+/// **About `plane_depth_shift`, not about how marks are drawn.** A run *laid in*
+/// a plane has corners that are world positions on it, so there is no
+/// extrapolation to run past a horizon and nothing here to go wrong — see
+/// [`Facing`]. What still takes this path is every stroke and marker the drawing
+/// puts on a surface, and a run asking for the plane's depth while staying
+/// square to the viewer, which is what is set up below. The hazard is the
+/// technique's, so the test follows the technique.
 ///
 /// Seen near enough to edge-on, a sketch plane's vanishing line crosses the
 /// middle of the type standing on it. Depth over a plane is an exact affine
@@ -1182,10 +1190,10 @@ fn the_type_lands_inside_the_box_a_click_is_tested_against() {
 /// depth-written, and with nothing to occlude it every fragment survives — so
 /// naming a plane has to cost nothing.
 #[test]
-fn type_lying_in_a_plane_survives_its_own_horizon() {
-    /// The demo's constraint marks alone, at `pitch`, either lying in their
-    /// sketch plane or carrying no plane at all.
-    fn ink(pitch: f32, in_plane: bool) -> u32 {
+fn type_reading_its_depth_off_a_plane_survives_that_planes_horizon() {
+    /// The demo's constraint marks alone, at `pitch`, either taking their depth
+    /// off the sketch plane or carrying no plane at all.
+    fn ink(pitch: f32, on_plane: bool) -> u32 {
         let painted = |drawn: bool| {
             let app = CatCad::build();
             {
@@ -1203,9 +1211,13 @@ fn type_lying_in_a_plane_survives_its_own_horizon() {
                 scene.rings.clear();
                 scene.points.clear();
                 for text in scene.texts.iter_mut() {
-                    if !in_plane {
-                        text.facing = Facing::default();
-                    }
+                    text.facing = if on_plane {
+                        Facing::Screen {
+                            on: text.facing.normal(),
+                        }
+                    } else {
+                        Facing::default()
+                    };
                 }
                 if !drawn {
                     scene.texts.clear();
@@ -1323,8 +1335,14 @@ fn a_rim_seen_edge_on_thins_rather_than_fanning_out() {
     );
 }
 
-/// Type lying in a plane is not swallowed by what stands on that plane beyond
-/// it.
+/// Type reading its depth off a plane is not swallowed by what stands on that
+/// plane beyond it.
+///
+/// The technique's other half, on the same terms as the horizon above: what is
+/// measured is `plane_depth_shift`, which strokes and markers still go through
+/// and laid runs no longer do. A run laid *in* the plane has honest depth at
+/// every corner and so is occluded corner by corner, which is a different
+/// bargain and not this one.
 ///
 /// The other half of what naming a plane must not cost, and the one that only
 /// became visible once the horizon above stopped eating the type outright. A
@@ -1348,10 +1366,10 @@ fn a_rim_seen_edge_on_thins_rather_than_fanning_out() {
 const SUNK_DISTANCE: f32 = 9.0;
 
 #[test]
-fn type_lying_in_a_plane_is_hidden_only_by_what_hides_its_anchor() {
+fn type_reading_its_depth_off_a_plane_is_hidden_only_by_what_hides_its_anchor() {
     for pitch in [0.08f32, 0.15, 0.4] {
         let bare = marks(pitch, SUNK_DISTANCE, Marks::Gone, true);
-        let planed = differing(&marks(pitch, SUNK_DISTANCE, Marks::InPlane, true), &bare);
+        let planed = differing(&marks(pitch, SUNK_DISTANCE, Marks::OnPlane, true), &bare);
         let flat = differing(&marks(pitch, SUNK_DISTANCE, Marks::Flat, true), &bare);
         assert!(
             // Half of what the shallowest of these leaves, which is the
@@ -1372,10 +1390,18 @@ fn type_lying_in_a_plane_is_hidden_only_by_what_hides_its_anchor() {
 /// Which of the demo's constraint marks to paint, and how.
 #[derive(Clone, Copy, Debug)]
 enum Marks {
-    /// Lying in the sketch plane, which is how the app draws them.
-    InPlane,
-    /// The same run carrying no plane, which is what the one above is weighed
-    /// against.
+    /// Square to the viewer, taking its depth off the sketch plane — the
+    /// technique `plane_depth_shift` exists for, and the one the two tests
+    /// above are about.
+    ///
+    /// Not how the app draws its marks any more: those are *laid in* the plane,
+    /// with corners that are world positions on it and so a depth that needs no
+    /// extrapolating. This is set here rather than read off the scene because
+    /// what is being measured is the other path, which strokes and markers still
+    /// take.
+    OnPlane,
+    /// The same run carrying no plane at all, which is what the one above is
+    /// weighed against.
     Flat,
     /// None at all, so a frame can be differenced against the type it lacks.
     Gone,
@@ -1399,7 +1425,13 @@ fn marks(pitch: f32, distance: f32, marks: Marks, solids: bool) -> Frame {
             scene.solids.clear();
         }
         match marks {
-            Marks::InPlane => {}
+            Marks::OnPlane => {
+                for text in scene.texts.iter_mut() {
+                    text.facing = Facing::Screen {
+                        on: text.facing.normal(),
+                    };
+                }
+            }
             Marks::Flat => {
                 for text in scene.texts.iter_mut() {
                     text.facing = Facing::default();

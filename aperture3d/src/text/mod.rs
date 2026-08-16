@@ -436,16 +436,6 @@ pub struct Axes {
 /// and what the drawing should show.
 const EDGE_ON: f32 = 1e-3;
 
-/// How far the run's advance may collapse against the plane's other direction
-/// before there is no direction left to set it along, as a ratio of their
-/// squared screen lengths.
-///
-/// The vertex shader's, and no longer this side's: settling a sign needs no
-/// guard — see [`Turn::axes`] — where the shader still has one place it divides.
-/// Stated here because it is handed over at pipeline creation, the arrangement
-/// [`MIN_RUN_PX`](crate::viewport::MIN_RUN_PX) is already under.
-pub(crate) const COLLAPSED: f32 = 1e-6;
-
 /// How far a step along `world` carries on screen where a point of clip
 /// position `here` is drawn: pixels per world unit, with y running down.
 ///

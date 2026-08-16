@@ -49,9 +49,9 @@ impl Window {
     }
 }
 
-/// What both pipelines read. Laid out to match the WGSL `Uniforms`: four
-/// floats trailing the matrix, which is exactly the 80 bytes the layout rounds
-/// to.
+/// What both pipelines read. Laid out to match the WGSL `Uniforms`, which puts
+/// the struct on a sixteen-byte boundary: the matrix is sixty-four of them and
+/// the trailing scalars are padded out to a second ninety-six.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 pub(super) struct Uniforms {
@@ -63,6 +63,21 @@ pub(super) struct Uniforms {
     raster_scale: f32,
     /// See [`Uniforms::probe_reach`].
     probe_reach: f32,
+    /// World units per *physical* pixel, per unit of clip `w` — what a vertex
+    /// sizing itself against the screen while standing in the world multiplies
+    /// its own `w` by. See
+    /// [`Camera::world_per_clip_w`](crate::Camera::world_per_clip_w).
+    ///
+    /// Physical rather than logical because the pixels a shader lays a glyph
+    /// out in are the target's: a run's offsets arrive in logical pixels and are
+    /// scaled by `raster_scale` before this is applied, so the two have to be
+    /// counting the same pixel. Picking works the other way round and in logical
+    /// pixels throughout, and the two agree because both factors move together.
+    world_per_clip_w: f32,
+    /// Nothing, and it has to be here: WGSL rounds a uniform struct up to its
+    /// own sixteen-byte alignment, so the five trailing scalars are read out of
+    /// ninety-six bytes whether or not Rust ships that many.
+    _pad: [f32; 3],
 }
 
 impl Uniforms {
@@ -94,6 +109,12 @@ impl Uniforms {
             viewport: window.size.to_array(),
             raster_scale,
             probe_reach: Self::probe_reach(camera),
+            // Off the *whole* view rather than the window, which is where the
+            // projection frames its field of view — a window is a crop at the
+            // same pixel density, so what one of its pixels is worth in the
+            // world is what one of the view's is.
+            world_per_clip_w: camera.world_per_clip_w(viewport),
+            _pad: [0.0; 3],
         }
     }
 
