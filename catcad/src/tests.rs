@@ -1602,6 +1602,55 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     );
 }
 
+/// **The field is placed against the camera this frame moved, not the last.**
+///
+/// It stands over a dimension by projecting one, and the projection reads the
+/// document's camera — so a field drawn before this frame's dolly had landed
+/// trailed the number it stands over by however far the wheel turned. Which is
+/// the whole reason a frame polls its input and applies it *before* it draws
+/// anything: see `CatCad::record`.
+///
+/// A wheel notch rather than a drag, because it moves the camera without
+/// touching focus — a press on the drawing would close the field before the
+/// question could be asked.
+#[test]
+fn the_open_field_is_placed_against_this_frames_camera() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::with_text(SIZE);
+    frame(&mut app, &mut harness);
+
+    let (dimension, was) = a_dimension(&app);
+    open_field(&mut app, &mut harness, dimension, was);
+    frame(&mut app, &mut harness);
+    frame(&mut app, &mut harness);
+
+    // Enough notches that a frame's worth of lag is unmistakable rather than a
+    // rounding difference.
+    harness.scroll_lines(Vec2::new(0.0, -3.0));
+    frame(&mut app, &mut harness);
+
+    let sketch = dimension.sketch().expect("a dimension is in a sketch");
+    let Some(Entity::Constraint(id)) = dimension.entity() else {
+        panic!("not a constraint");
+    };
+    let at = app
+        .document
+        .drawing_at(sketch)
+        .mark_at(app.document.drawing_at(sketch).sketch().constraint(id));
+    // Where the number now sits: the mark's own anchor, brought back down to
+    // the middle of the run it hangs above.
+    let middle =
+        cursor_on(&mut app, at) - Vec2::new(0.0, mark_lift() - mark_font().line_height_px * 0.5);
+    let rect = harness
+        .layout_rect(crate::typing::field_id())
+        .expect("the field was arranged on the frame that scrolled");
+    let centre = rect.min + Vec2::new(rect.size.w, rect.size.h) * 0.5;
+    assert!(
+        (centre - middle).abs().max_element() < 2.0,
+        "the field came out at {centre:?} for a number now at {middle:?}",
+    );
+}
+
 /// **A field open takes the bare keys, and Escape leaves the dimension alone.**
 ///
 /// The bare keys are the half that bites. `Delete` is bound to "take out what is

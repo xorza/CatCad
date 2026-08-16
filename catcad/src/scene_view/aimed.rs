@@ -3,7 +3,7 @@
 
 use aperture::{Aim, Camera, Motion, Viewport};
 use glam::{UVec2, Vec2, Vec3};
-use palantir::Response;
+use palantir::ResponseState;
 
 use crate::document::Document;
 use crate::scene_view::HOVER_REACH;
@@ -34,7 +34,7 @@ impl Aimed {
     /// offset from this widget's corner wherever the pointer is, including
     /// well off the widget. A caller that cares asks `response.hovered`, and
     /// one mid-drag deliberately does not.
-    pub(super) fn of(response: &Response<'_>) -> Option<Self> {
+    pub(super) fn of(response: &ResponseState) -> Option<Self> {
         let (cursor, rect) = response.pointer_local.zip(response.layout_rect)?;
         Some(Self {
             cursor,
@@ -82,7 +82,7 @@ impl Aimed {
 /// `Response`: every one of them would otherwise open by making an `Aimed` and
 /// threading the `Option` on by hand.
 pub(super) fn landing(
-    response: &Response<'_>,
+    response: &ResponseState,
     document: &Document,
     motion: Motion,
 ) -> Option<Vec3> {

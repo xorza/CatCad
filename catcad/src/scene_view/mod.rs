@@ -6,7 +6,8 @@ use std::rc::Rc;
 use aperture::{Extent, Highlight, Lit, Motion, Renderer, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
-    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
+    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, ResponseState, Sense, Sizing, Ui,
+    WidgetId,
 };
 use silverpoint::{Entity, Grown};
 
@@ -26,6 +27,15 @@ use crate::tool::Tool;
 use crate::typing::Typing;
 
 mod aimed;
+
+/// What the viewport is recorded under.
+///
+/// Named rather than derived from the call site, because the pointer is read a
+/// phase *before* the view is drawn — see [`SceneView::poll`] — and a caller can
+/// only learn an `auto_id` from the response the drawing hands back.
+fn view_id() -> WidgetId {
+    WidgetId::from_hash("catcad.viewport")
+}
 
 /// Radians of orbit per logical pixel of drag.
 const ORBIT_RATE: f32 = 0.008;
@@ -277,7 +287,7 @@ impl SceneView {
     /// answers its caller with a [`Response`] and leaves the deciding to it;
     /// this reads the response itself and posts what it found, which is the
     /// asking half of a frame and not a widget at all.
-    pub(crate) fn ask(
+    pub(crate) fn poll(
         &mut self,
         ui: &mut Ui,
         document: &Document,
@@ -293,25 +303,18 @@ impl SceneView {
         // way in and then sits stale until an unrelated event forces a frame.
         ui.watch_pointer(PointerWake::MOVE);
 
-        // Read before the view is shown, because the `Response` that comes back
-        // borrows `ui` for as long as it lives. `peek_modifiers` rather than
-        // `modifiers`: what shift is doing here only matters on the frame a
-        // click lands, and that frame was woken by the click.
+        // `peek_modifiers` rather than `modifiers`: what shift is doing here
+        // only matters on the frame a click lands, and that frame was woken by
+        // the click.
         let adding = ui.peek_modifiers().shift;
 
-        let paint: Rc<RefCell<dyn GpuPaint>> = self.renderer.clone();
-        let response = GpuView::new(paint)
-            .auto_id()
-            .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL | Sense::PINCH)
-            // Focusable so that a press on the drawing takes focus *off*
-            // whatever had it — which is how clicking away from the field open
-            // over a dimension closes it. The view claims no key class of its
-            // own: every chord catcad binds is the application's, and the field
-            // is a widget with its own scope rather than something drawn in
-            // here for this to arbitrate for.
-            .focusable(true)
-            .size((Sizing::FILL, Sizing::FILL))
-            .show(ui);
+        // Polled rather than taken off the drawing, because the drawing has not
+        // happened: this runs before anything records, so that what it asks for
+        // has landed by the time the view — and the overlay over it — is drawn.
+        // The answer is the same either way. Interaction is routed against a
+        // snapshot taken when the pass opened, so a response is current
+        // anywhere inside one, whether or not its widget has recorded yet.
+        let response = ui.response_for(view_id());
 
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
@@ -508,6 +511,28 @@ impl SceneView {
         self.navigate(&response, document, intents);
     }
 
+    /// Record the viewport.
+    ///
+    /// Draws and reads nothing: what the pointer over it asked for was taken in
+    /// [`SceneView::poll`] a phase earlier and has already landed, so this paints
+    /// the drawing as this frame's edits left it rather than as it stood before
+    /// them.
+    pub(crate) fn draw(&self, ui: &mut Ui) {
+        let paint: Rc<RefCell<dyn GpuPaint>> = self.renderer.clone();
+        GpuView::new(paint)
+            .id(view_id())
+            .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL | Sense::PINCH)
+            // Focusable so that a press on the drawing takes focus *off*
+            // whatever had it — which is how clicking away from the field open
+            // over a dimension closes it. The view claims no key class of its
+            // own: every chord catcad binds is the application's, and the field
+            // is a widget with its own scope rather than something drawn in
+            // here for this to arbitrate for.
+            .focusable(true)
+            .size((Sizing::FILL, Sizing::FILL))
+            .show(ui);
+    }
+
     /// What moves the camera without touching the drawing: the wheel's notches
     /// and a pinch zoom, two fingers travelling, and the middle button sliding
     /// the picture about.
@@ -523,7 +548,7 @@ impl SceneView {
     /// undone by the other. Both come out as their own intent instead of one
     /// combined factor: a frame carrying both asked for both, and a product
     /// would say the same thing while hiding which gesture said it.
-    fn navigate(&mut self, response: &Response<'_>, document: &Document, intents: &mut Intents) {
+    fn navigate(&mut self, response: &ResponseState, document: &Document, intents: &mut Intents) {
         // The middle button slides the picture under the pointer. Taken from
         // the cumulative travel rather than a per-frame delta, because that is
         // what a drag reports — see [`SceneView::panned`].
@@ -694,7 +719,7 @@ impl SceneView {
     /// What a click asks, where [`SceneView::grab`] asks the fuller question —
     /// a press needs where on the primitive it landed and where that is in the
     /// world, and a click needs only what the thing is.
-    fn named_under(&self, response: &Response<'_>, document: &Document) -> Option<Part> {
+    fn named_under(&self, response: &ResponseState, document: &Document) -> Option<Part> {
         let aimed = Aimed::of(response).filter(|_| response.hovered)?;
         let renderer = self.renderer.borrow();
         let aim = aimed.aim(&document.camera());
@@ -723,7 +748,7 @@ impl SceneView {
     /// question about the same pixel.
     fn anchor(
         &self,
-        response: &Response<'_>,
+        response: &ResponseState,
         document: &Document,
         editing: FeatureId,
         under: Option<Part>,
@@ -752,7 +777,7 @@ impl SceneView {
     /// lose its only way to look around.
     fn grab(
         &self,
-        response: &Response<'_>,
+        response: &ResponseState,
         document: &Document,
         editing: FeatureId,
         tool: Tool,

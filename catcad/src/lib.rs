@@ -173,13 +173,15 @@ impl CatCad {
         }
     }
 
-    /// Show everything this frame draws, and collect what it asks for.
+    /// Take everything this frame's input asked for, before anything is drawn.
     ///
-    /// Reads the document and writes only the inbox and the draft being typed.
-    /// Four sources of intent — the keyboard, the view, the field open over a
-    /// dimension, and the overlay's own controls — and none of them is allowed
-    /// to act on what it asks.
-    fn ask(&mut self, ui: &mut Ui) {
+    /// **Reads and records nothing.** The keyboard is polled where its chords
+    /// belong — at the root, which is the scope that owns them — and the pointer
+    /// over the drawing is polled by the view's own id rather than taken off a
+    /// widget that has not been recorded yet. What that costs is a stable id;
+    /// what it buys is that everything drawn below is drawn from a document this
+    /// frame's gestures have already reached.
+    fn poll(&mut self, ui: &mut Ui) {
         // Polled unconditionally rather than short-circuited: reading a chord
         // is also what subscribes it for the wake that delivers the next one,
         // so one left unread on the frame another fired would stop waking a
@@ -222,25 +224,26 @@ impl CatCad {
             }
         }
         self.view
-            .ask(ui, &self.document, &self.session, &mut self.intents);
-        // **After the view and before the overlay**, because recording order is
-        // stacking order: the field has to be drawn over the drawing it stands
-        // on, and under the bar so a control there wins a press the two could
-        // both claim. It is a palantir widget like every other, so the polls
-        // above answer for themselves — a focused field declares the key classes
-        // it edits with, and `Ctrl+S`, an accelerator no field takes, goes on
-        // saving mid-edit.
-        //
-        // After the view for a second reason as well: the view is what says how
-        // big it came out, and a field placed by projecting into it wants this
-        // frame's answer rather than the last one's.
+            .poll(ui, &self.document, &self.session, &mut self.intents);
+    }
+
+    /// Draw the frame, from a document this frame's input has already moved.
+    ///
+    /// **In stacking order**, which is recording order: the drawing, then the
+    /// field standing over a dimension in it, then the overlay — so a control on
+    /// the bar wins a press the field could also claim.
+    ///
+    /// The widgets here raise intents of their own, and those are the ones the
+    /// pointer could not be polled for: what a field made of a keystroke is
+    /// known only once it has run. They land in the second apply, so a commit
+    /// still reaches the document on the frame it was typed.
+    fn draw(&mut self, ui: &mut Ui) {
+        self.view.draw(ui);
         self.retype(ui);
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
         let status = ui.fmt(format_args!("{}", self.status()));
-        // Over the view, so what floats on it is what takes its own presses
-        // rather than the view beneath.
         self.hud.show(
             ui,
             Shown {
@@ -559,15 +562,6 @@ impl fmt::Display for Status<'_> {
 
 impl App for CatCad {
     fn record(&mut self, _win: WindowToken, ui: &mut Ui) {
-        // Emptied once a *pass*, not once a frame. A frame that settles records
-        // twice, and palantir drains the input queues between the two — so the
-        // second pass is a fresh reading of what is still latched, and it has to
-        // start from an empty inbox rather than adding to the first's. Each pass
-        // asks, applies and settles whole, which is what makes the pair
-        // harmless: a drag names where it wants to be rather than how far to
-        // travel, and an orbit measures against the total the last pass already
-        // took, so re-asking on the second pass turns nothing.
-        self.intents.clear();
         Panel::zstack()
             .auto_id()
             // The application root, as far as the keyboard is concerned, and
@@ -584,10 +578,34 @@ impl App for CatCad {
             .input_scope(KeyFilter::ALL)
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui, |ui| {
-                // Ask, apply, settle — the whole of a frame, and the order the
-                // rest of the crate is built around: nothing writes the document
-                // until everything has finished reading it.
-                self.ask(ui);
+                // **Read, apply, draw, apply, settle.** The order the rest of
+                // the crate is built around, with the reading pulled clear of
+                // the drawing: nothing writes the document until everything has
+                // finished reading it, *and* nothing is drawn from a document
+                // this frame's input has not reached yet. A field placed against
+                // a camera the frame's own orbit had not turned trailed it by a
+                // frame; so, more quietly, did every reading on the overlay.
+                //
+                // Two applies rather than one because the two kinds of asking
+                // cannot share a phase. What the *pointer* asked can be polled
+                // before anything records; what a *widget* made of a keystroke
+                // is known only once it has run, and there is no polling that
+                // ahead of it. So the widgets draw between them and their asking
+                // lands in the second.
+                //
+                // The inbox is emptied before each, not once a frame. A frame
+                // that settles records twice and palantir drains the input
+                // queues between the two, so the second pass is a fresh reading
+                // of what is still latched and has to start from an empty inbox.
+                // That the pair is harmless is the inbox's own rule: an intent
+                // names where it wants to end up, so a drag re-asked lands in
+                // the same place and an orbit measures against a total the first
+                // pass already took.
+                self.intents.clear();
+                self.poll(ui);
+                self.apply();
+                self.intents.clear();
+                self.draw(ui);
                 self.apply();
                 self.view.settle(&self.document, &self.build, &self.session);
             });

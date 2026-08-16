@@ -73,7 +73,7 @@ pub(crate) struct Typing {
 /// A verbatim id and not a scoped one, which is honest about what it is: a
 /// session has one dimension open for typing at a time, so the field is a
 /// singleton and a stable name is what it deserves.
-fn field_id() -> WidgetId {
+pub(crate) fn field_id() -> WidgetId {
     WidgetId::from_hash("catcad.typing.field")
 }
 

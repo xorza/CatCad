@@ -56,8 +56,9 @@ impl Raised {
         }
     }
 
-    /// One frame, in the order the application records one: the view asks, the
-    /// document is told, and what that left is laid out and aimed at.
+    /// One frame, in the order the application records one: the pointer is
+    /// polled, the document is told, the view is drawn from what that left, and
+    /// what it left is laid out and aimed at.
     ///
     /// All of it inside the record closure, because that closure is the unit
     /// palantir replays — see [`Raised::ask`].
@@ -73,7 +74,7 @@ impl Raised {
         } = self;
         harness.frame(|ui| {
             intents.clear();
-            view.ask(ui, document, session, intents);
+            view.poll(ui, document, session, intents);
             // The app's own apply, minus the bar it has no toolbar for: what
             // the session owns comes off the inbox before the history reads it.
             session.apply(intents);
@@ -81,12 +82,15 @@ impl Raised {
             // Last, because an undo can take geometry the session was still
             // holding on to — see `CatCad::apply`.
             session.prune(document.models(build, session.editing()));
+            // Drawn after, exactly as the application draws it: the view paints
+            // the drawing this frame's gestures have already reached.
+            view.draw(ui);
             view.settle(document, build, session);
         });
     }
 
-    /// The asking half of a frame on its own, applying nothing — which is how a
-    /// test gets to look at a gesture before it has landed anywhere.
+    /// The polling half of a frame on its own, applying nothing — which is how
+    /// a test gets to look at a gesture before it has landed anywhere.
     ///
     /// The clear is inside the closure, exactly as the application's is. A
     /// frame that settles records twice, and an inbox emptied once a frame
@@ -102,7 +106,10 @@ impl Raised {
         } = self;
         harness.frame(|ui| {
             intents.clear();
-            view.ask(ui, document, session, intents);
+            view.poll(ui, document, session, intents);
+            // Still drawn, or the next frame's poll would answer off a tree
+            // this one never recorded.
+            view.draw(ui);
         });
     }
 
