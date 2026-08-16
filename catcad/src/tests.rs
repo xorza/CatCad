@@ -1393,11 +1393,10 @@ fn a_dimension(app: &CatCad) -> (Part, f64) {
 /// Open a field the way a double-click does: a press on the view, and then the
 /// intent that press would have raised.
 ///
-/// **The press is not a formality.** It is what focuses the viewport, and the
-/// viewport's focus is half of the claim its input scope makes — a field opened
-/// without it would sit there taking no keys, which is precisely the state the
-/// application closes on. So a helper that pushed the intent alone would be
-/// testing a situation the app does not have.
+/// The press is what the gesture really begins with, and it is kept because it
+/// is also what a *previous* focus would be taken away by — the field asks for
+/// focus itself once it is drawn, and a helper that skipped the press would be
+/// testing an application nobody had clicked in.
 ///
 /// The intent rather than a double-click on the mark itself, and *that* seam is
 /// the harness's: a mark is pickable only once a painted frame has measured how
@@ -1446,45 +1445,30 @@ fn typing_a_dimension_restates_it_as_one_step() {
             .expect("a dimension states a value")
     };
 
-    // Where the mark is drawn, before the field replaces it.
-    let mark = {
-        let renderer = app.renderer().borrow();
-        let mark = renderer
-            .scene()
-            .texts
-            .iter()
-            .find(|mark| mark.tag.and_then(|tag| app.view.part(tag)) == Some(dimension))
-            .expect("the dimension is drawn as a mark");
-        (mark.position, mark.anchor, mark.font)
-    };
-
     open_field(&mut app, &mut harness, dimension, was);
     frame(&mut app, &mut harness);
     let typing = app.session.typing().expect("the field never opened");
     assert_eq!(typing.part(), dimension);
     assert_eq!(typing.value(), Some(was), "opened on some other value");
 
-    {
-        let renderer = app.renderer().borrow();
-        let scene = renderer.scene();
-        // The mark is gone and the field stands exactly where it stood: same
-        // anchor point, same fraction of the box, same face. Anything else and
-        // the number would appear to jump as it became editable.
-        assert!(
-            !scene
-                .texts
-                .iter()
-                .any(|text| text.tag.and_then(|tag| app.view.part(tag)) == Some(dimension)),
-            "the mark was left under the field"
-        );
-        let [field] = &scene.text_edits[..] else {
-            panic!("one field and only one, not {}", scene.text_edits.len());
-        };
-        assert_eq!((field.position, field.anchor, field.font), mark);
-        // Picked out whole, so the first digit typed replaces the number.
-        assert_eq!(field.selected(), field.content());
-    }
+    // The mark is gone from the drawing, because the field stands over it — a
+    // number drawn twice, once editable and once not, is the mistake this
+    // leaves no room for.
+    assert!(
+        !app.renderer()
+            .borrow()
+            .scene()
+            .texts
+            .iter()
+            .any(|text| text.tag.and_then(|tag| app.view.part(tag)) == Some(dimension)),
+        "the mark was left under the field"
+    );
 
+    // A second frame, because the field asks for focus on the one it first
+    // appears and palantir lands a focus request on the next — so this is the
+    // frame it is typed into, and the frame `select_all_on_focus` picks the
+    // value out whole on.
+    frame(&mut app, &mut harness);
     harness.type_text("40");
     frame(&mut app, &mut harness);
     assert_eq!(
@@ -1505,8 +1489,6 @@ fn typing_a_dimension_restates_it_as_one_step() {
         "landed on {}",
         stated(&app)
     );
-    // The field went with it, or the scene would go on drawing one.
-    assert!(app.renderer().borrow().scene().text_edits.is_empty());
     // And the mark is back, saying the new number.
     assert!(
         app.renderer()
@@ -1532,6 +1514,85 @@ fn typing_a_dimension_restates_it_as_one_step() {
         (stated(&app) - was).abs() < 1e-6,
         "undo left {}",
         stated(&app)
+    );
+}
+
+/// **A press inside the open field is the field's own, and reaches neither the
+/// drawing nor the camera.**
+///
+/// The whole of a reported bug, and now a structural claim rather than an
+/// arbitrated one: the field is a palantir node recorded over the viewport, so
+/// palantir's own hit-test hands it the press and the view never hears one.
+/// While the field was drawn *into the scene* it was invisible to that hit-test,
+/// and every gesture over it went to the drawing — a press turned the view, and
+/// the click that ended it put the field away and picked out whatever the box
+/// happened to be covering.
+///
+/// **Recording order is stacking order**, which is the half that can regress
+/// silently: the field showed at the right place and painted nothing at all
+/// while it was recorded before the viewport rather than after. A press landing
+/// on the drawing through it is the same mistake with a visible consequence, so
+/// this is what watches for both.
+#[test]
+fn a_press_inside_the_open_field_never_reaches_the_drawing() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::with_text(SIZE);
+    frame(&mut app, &mut harness);
+
+    let (dimension, was) = a_dimension(&app);
+    open_field(&mut app, &mut harness, dimension, was);
+    frame(&mut app, &mut harness);
+    frame(&mut app, &mut harness);
+
+    // Where the field stands: over the mark it replaced, which is the same
+    // projection it places itself by.
+    let sketch = dimension.sketch().expect("a dimension is in a sketch");
+    let Some(Entity::Constraint(id)) = dimension.entity() else {
+        panic!("not a constraint");
+    };
+    let at = app
+        .document
+        .drawing_at(sketch)
+        .mark_at(app.document.drawing_at(sketch).sketch().constraint(id));
+    let cursor = cursor_on(&mut app, at);
+
+    let camera = *app.camera_mut();
+    let picked = app.session.selection().picked().to_vec();
+
+    // A press and a drag well past palantir's latch — which reached the view as
+    // an orbit before the field was a widget.
+    harness.press_at(cursor);
+    frame(&mut app, &mut harness);
+    harness.drag_to(cursor + Vec2::new(30.0, 0.0));
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        *app.camera_mut(),
+        camera,
+        "a drag inside the field turned the view"
+    );
+    harness.release();
+    frame(&mut app, &mut harness);
+
+    assert!(
+        app.session.typing().is_some(),
+        "the gesture closed the field"
+    );
+    assert_eq!(
+        app.session.selection().picked(),
+        picked,
+        "the gesture picked out what the field was covering"
+    );
+
+    // And a click beside it still puts it away, or there would be no way out of
+    // one — the same blur, reaching the drawing because nothing is over it
+    // there.
+    let spot = empty_spot(&app);
+    let elsewhere = cursor_on(&mut app, spot);
+    harness.click_at(elsewhere);
+    frame(&mut app, &mut harness);
+    assert!(
+        app.session.typing().is_none(),
+        "a click beside the field left it open"
     );
 }
 
@@ -1571,6 +1632,9 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     intents.push(Choice::Select(Some(dimension)));
     app.session.apply(&intents);
     frame(&mut app, &mut harness);
+    // Twice, so the field has taken the focus it asks for on the frame it first
+    // appears — until it has, the keys below would be nobody's.
+    frame(&mut app, &mut harness);
     assert!(app.session.selection().contains(dimension));
 
     // Delete takes a character out of the field and no constraint out of the
@@ -1582,8 +1646,8 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     harness.key(Key::Backspace);
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.session.typing().expect("still open").field().content(),
-        "",
+        app.session.typing().expect("still open").value(),
+        None,
         "the keys reached the application instead of the field"
     );
     assert_eq!(relations(&app), stated, "Delete took a constraint out");
@@ -1591,9 +1655,8 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
 
     // An undo is an *edit* chord, so it goes to the field and not to the
     // document — where it would take back whatever step preceded the typing,
-    // which is not something anyone mid-edit asked for. The field has no undo
-    // of its own yet, so what it does with one is nothing; what matters is
-    // where it did not go.
+    // which is not something anyone mid-edit asked for. What the field does
+    // with one is its own business; what matters is where it did not go.
     let ctrl = Modifiers {
         ctrl: true,
         ..Modifiers::NONE
@@ -1609,8 +1672,10 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     assert!(app.session.typing().is_some(), "Ctrl+Z closed the field");
 
     // An accelerator is nobody's but the application's, and goes on working
-    // while a field is open — which is the whole reason a field takes its keys
-    // by *class* rather than taking the keyboard whole.
+    // while a field is open — which is the whole reason a focused field
+    // declares the key *classes* it edits with rather than taking the keyboard
+    // whole. Nothing in this crate arranges that: it is what palantir's own
+    // field does by being focused.
     //
     // Given somewhere to put the document first, because Save on one that has
     // never been anywhere asks a dialog, and a dialog cannot be raised off the
@@ -1642,7 +1707,6 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     frame(&mut app, &mut harness);
     assert!(app.session.typing().is_none(), "Escape left the field open");
     assert_eq!(relations(&app), stated);
-    assert!(app.renderer().borrow().scene().text_edits.is_empty());
     // The dimension is exactly as it was: a draft abandoned never happened.
     let after = app.document.drawing_at(sketch).sketch();
     let Some(Entity::Constraint(id)) = dimension.entity() else {

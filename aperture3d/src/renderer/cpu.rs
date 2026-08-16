@@ -9,9 +9,8 @@ use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, Instance, PointInstance, RingInstance,
 };
 use crate::text::{self, Text};
-use crate::text_edit::{self, TextEdit};
 use glam::{Mat3, Vec2, Vec3};
-use palantir::{PlacedGlyph, Rect, TextGlyphs};
+use palantir::{PlacedGlyph, TextGlyphs};
 
 /// The whole scene in the shape the GPU takes it.
 ///
@@ -60,12 +59,6 @@ pub(super) struct Cpu {
 /// read from, and neither is something a `Text` holds. So what the four kinds
 /// share is the buffers and not the way any of them is filled.
 ///
-/// **Two batches into one buffer**, because a field is drawn out of the same
-/// record a glyph is and there is nothing for a second pass of them to do
-/// differently. What that buys is the ordering: the pass blends in the order it
-/// is handed records and writes no depth, so appending the fields after the
-/// labels is the whole of why a field reads over a label it covers. Two passes
-/// would have to say the same thing with a rung on the depth ladder.
 #[derive(Debug, Default)]
 pub(super) struct TextRecords {
     pub(super) records: Records<GlyphInstance>,
@@ -90,33 +83,31 @@ impl TextRecords {
         self.records.ordinary.is_empty() && self.records.lit.is_empty()
     }
 
-    /// Bring both buffers up to date with `texts` and `fields`.
+    /// Bring both buffers up to date with `texts`.
     ///
-    /// Four things can move them, where the other overlays have two. Either
-    /// batch having been written and the highlights having changed are the
-    /// usual pair; beyond those, the sheet may have been started again — every
-    /// slot on the old one has gone — and the raster scale may have moved,
-    /// which changes what every glyph is rasterized as.
+    /// Four things can move them, where the other overlays have two. The batch
+    /// having been written and the highlights having changed are the usual
+    /// pair; beyond those, the sheet may have been started again — every slot
+    /// on the old one has gone — and the raster scale may have moved, which
+    /// changes what every glyph is rasterized as.
     ///
-    /// Written out rather than going through [`Records::refill`], which is
-    /// shaped for one batch: the ordinary buffer takes two, in an order that is
-    /// the whole of how the two kinds stack.
+    /// Written out rather than going through [`Records::refill`], which has no
+    /// second buffer to fill: a run is laid out once for the ordinary pass and
+    /// again, and only if it is lit, for the highlight.
     pub(super) fn refresh(
         &mut self,
         texts: &mut Batch<Text>,
-        fields: &mut Batch<TextEdit>,
         laying: &mut Laying<'_, '_>,
         highlights: &Highlights,
         relight: bool,
     ) {
         // The sheet is restarted before anything is laid out on it, so nothing
-        // this frame names a slot that is about to be thrown away. All four are
+        // this frame names a slot that is about to be thrown away. All three are
         // taken whether or not they are acted on: each clears a mark, and a mark
-        // left behind is one that fires again next frame — which is why the two
-        // batches are read with `|` rather than `||`.
+        // left behind is one that fires again next frame.
         let restarted = laying.atlas.restart_if_full();
         let rescaled = self.scale != laying.scale;
-        let moved = texts.take_dirty() | fields.take_dirty();
+        let moved = texts.take_dirty();
         self.scale = laying.scale;
         // The name is the point: it is asked twice, and a second spelling of it
         // is a second chance to leave one of the three out.
@@ -128,11 +119,9 @@ impl TextRecords {
         if relaid {
             // Measured before anything is laid out, because where a run's glyphs
             // sit depends on where its box hangs, and that is what the extent
-            // says — and a field's caret cannot be placed before its stops are
-            // known. Only when they are being laid out again: a frame that
-            // merely relit a label reads what it measured last time.
+            // says. Only when they are being laid out again: a frame that merely
+            // relit a label reads what it measured last time.
             text::measure_all(texts, laying.glyphs);
-            text_edit::measure_all(fields, laying.glyphs);
             // No count to reserve, unlike every other kind: how many glyphs a
             // run comes to is the shaper's answer, and asking would be laying
             // it out twice.
@@ -140,17 +129,7 @@ impl TextRecords {
             for text in texts.iter() {
                 flatten(text, laying, placed, ordinary);
             }
-            // After the labels, so a field reads over one it covers — see this
-            // type's own doc for why that is an ordering rather than a bias.
-            for field in fields.iter() {
-                flatten_field(field, laying, placed, ordinary);
-            }
         }
-        // Labels alone. A field is never drawn again in a highlight's look: its
-        // surround is opaque and covers the whole box, so the copy would hide
-        // the field rather than pick it out — see [`TextEdit::tag`]. What a
-        // field looks like in each of its states is the caller's to write on the
-        // field itself.
         if relaid || relight {
             let lit = records.lit_to_fill();
             for text in texts.iter() {
@@ -215,55 +194,6 @@ fn flatten(
         },
         into,
     );
-}
-
-/// Append one field's quads to `into`: its surround, the wash behind whatever
-/// is picked out, its glyphs, and the caret.
-///
-/// **In that order, and the order is the whole of the layering.** The text pass
-/// blends what it is handed in the order it is handed it and writes no depth,
-/// so a rectangle appended earlier is a rectangle drawn under. Reordering these
-/// four lines paints the surround over the text.
-fn flatten_field(
-    field: &TextEdit,
-    laying: &mut Laying<'_, '_>,
-    placed: &mut Vec<PlacedGlyph>,
-    into: &mut Vec<GlyphInstance>,
-) {
-    let parts = field.parts();
-    let solid = laying.atlas.solid();
-    into.push(filled(field, parts.surround, field.background, solid));
-    if let Some(wash) = parts.wash {
-        into.push(filled(field, wash, field.selection, solid));
-    }
-    laying
-        .glyphs
-        .line(field.content(), field.font, laying.scale, placed);
-    place(
-        placed,
-        laying,
-        Inked {
-            anchor: field.position,
-            origin: parts.text,
-            color: field.color,
-            plane: field.plane_normal,
-        },
-        into,
-    );
-    // Over the ink rather than under it, so the caret between two characters
-    // reads as a mark on the line rather than as one of them having been
-    // clipped.
-    into.push(filled(field, parts.caret, field.color, solid));
-}
-
-/// One of a field's solid rectangles as a record.
-fn filled(field: &TextEdit, rect: Rect, color: Vec3, solid: Vec2) -> GlyphInstance {
-    GlyphInstance::new(
-        field.position,
-        GlyphQuad::filled(rect, solid),
-        color,
-        field.plane_normal,
-    )
 }
 
 /// Where one line's glyphs hang and how they are drawn — what every glyph of a

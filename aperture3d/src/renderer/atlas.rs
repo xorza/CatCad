@@ -11,14 +11,9 @@
 //! dozen digits and symbols at one or two sizes, so there is nothing here to
 //! evict — when the sheet fills, it is thrown away and started again at twice
 //! the side.
-//!
-//! One corner of the sheet is not a glyph at all: a small block held at full
-//! coverage, so that a plain rectangle can be drawn as a quad reading it. That
-//! is what a [`TextEdit`](crate::TextEdit) is made of besides its glyphs — see
-//! [`GlyphAtlas::solid`].
 
 use glam::Vec2;
-use palantir::{GlyphImageKind, GlyphRasterKey, PlacedGlyph, Rect, TextGlyphs};
+use palantir::{GlyphImageKind, GlyphRasterKey, PlacedGlyph, TextGlyphs};
 use std::collections::HashMap;
 
 /// Side of a fresh sheet, in pixels. A 256² sheet is 64 KB and holds a hundred
@@ -34,13 +29,6 @@ const MAX_SIDE: u32 = 4096;
 /// Blank pixels left between packed glyphs, so that a quad sampling one cannot
 /// reach into the next.
 const GUTTER: u32 = 1;
-
-/// Side of the fully-covered block kept at the sheet's corner, in pixels.
-///
-/// Two rather than one so that a sample taken where its four texels meet reads
-/// full coverage whatever weights the filter gives its neighbourhood — see
-/// [`GlyphAtlas::solid`].
-const SOLID_SIDE: u32 = 2;
 
 /// Where one glyph's coverage sits on the sheet, and where the sheet's copy sits
 /// relative to the pen that drew it.
@@ -86,7 +74,7 @@ pub(super) struct GlyphAtlas {
 
 impl Default for GlyphAtlas {
     fn default() -> Self {
-        let mut atlas = Self {
+        Self {
             pixels: vec![0; (INITIAL_SIDE * INITIAL_SIDE) as usize],
             side: INITIAL_SIDE,
             slots: HashMap::new(),
@@ -95,29 +83,13 @@ impl Default for GlyphAtlas {
             pen_x: 0,
             dirty: false,
             full: false,
-        };
-        atlas.reserve_solid();
-        atlas
+        }
     }
 }
 
 impl GlyphAtlas {
     pub(super) fn side(&self) -> u32 {
         self.side
-    }
-
-    /// Where to read the sheet for full coverage, as a fraction of it.
-    ///
-    /// The point the reserved block's four texels meet, so a sample there lands
-    /// squarely on ink however the filter weighs what surrounds it. That is what
-    /// lets a field's surround, the wash behind a selection and the caret be
-    /// drawn through the very pipeline its glyphs are: each is a quad hung off
-    /// the same world anchor, differing only in reading a texel that is always
-    /// full instead of one a glyph was rasterized into. A pass of their own
-    /// would be a second pipeline, a second rung on the depth ladder, and an
-    /// ordering between the two to get right — for a rectangle.
-    pub(super) fn solid(&self) -> Vec2 {
-        Vec2::splat(SOLID_SIDE as f32 * 0.5 / self.side as f32)
     }
 
     pub(super) fn pixels(&self) -> &[u8] {
@@ -148,29 +120,10 @@ impl GlyphAtlas {
         self.shelf_height = 0;
         self.pen_x = 0;
         self.full = false;
-        // The block goes back before anything else is packed, so that a field
-        // laid out on the new sheet reads ink rather than the blank the resize
-        // left. It marks the sheet as it writes, which is the `dirty` this
-        // restart owes the GPU.
-        self.reserve_solid();
-        true
-    }
-
-    /// Fill the block every solid quad reads, and step the pen past it.
-    ///
-    /// At the sheet's corner rather than packed like a glyph, because it is not
-    /// one: it has no [`GlyphRasterKey`] to be looked up by, and a sheet is
-    /// started over often enough that wherever the packer happened to put it
-    /// would have to be remembered anyway. The corner is somewhere it can
-    /// always be, on a sheet of any size.
-    fn reserve_solid(&mut self) {
-        for row in 0..SOLID_SIDE {
-            let at = (row * self.side) as usize;
-            self.pixels[at..at + SOLID_SIDE as usize].fill(u8::MAX);
-        }
-        self.pen_x = SOLID_SIDE + GUTTER;
-        self.shelf_height = SOLID_SIDE + GUTTER;
+        // Marked as the resize wrote it, which is the `dirty` this restart owes
+        // the GPU.
         self.dirty = true;
+        true
     }
 
     /// Where `glyph` sits on the sheet, rasterizing and packing it if this is
@@ -291,22 +244,6 @@ impl GlyphQuad {
             uv_size: Vec2::new(slot.width as f32, slot.height as f32) / side,
         }
     }
-
-    /// A rectangle of one colour, `rect` already being in logical pixels from
-    /// the anchor it hangs off.
-    ///
-    /// `solid` is [`GlyphAtlas::solid`], and the size of nothing beside it is
-    /// the whole trick: every corner reads the same point on the sheet, so the
-    /// quad comes out at full coverage throughout rather than at whatever a
-    /// stretched texel would give.
-    pub(super) fn filled(rect: Rect, solid: Vec2) -> Self {
-        Self {
-            offset: rect.min,
-            size: Vec2::new(rect.size.w, rect.size.h),
-            uv_min: solid,
-            uv_size: Vec2::ZERO,
-        }
-    }
 }
 
 #[cfg(test)]
@@ -324,10 +261,7 @@ mod tests {
         let shaper = TextShaper::new();
         let mut glyphs = shaper.glyphs();
         let mut atlas = GlyphAtlas::default();
-        // The solid block is written before anything is packed, so the mark it
-        // left is taken first — what the assertions below are about is what
-        // *packing* wrote.
-        assert!(atlas.take_dirty(), "a fresh sheet owes the GPU its block");
+        assert!(!atlas.take_dirty(), "a fresh sheet owes the GPU nothing");
 
         let mut placed = Vec::new();
         glyphs.line("ab", GlyphFont::new(16.0), 1.0, &mut placed);
@@ -356,7 +290,7 @@ mod tests {
         let shaper = TextShaper::new();
         let mut glyphs = shaper.glyphs();
         let mut atlas = GlyphAtlas::default();
-        assert!(atlas.take_dirty(), "a fresh sheet owes the GPU its block");
+        assert!(!atlas.take_dirty(), "a fresh sheet owes the GPU nothing");
 
         let mut placed = Vec::new();
         glyphs.line(" ", GlyphFont::new(16.0), 1.0, &mut placed);
@@ -378,7 +312,7 @@ mod tests {
         let mut glyphs = shaper.glyphs();
         let mut atlas = GlyphAtlas::default();
         let side = atlas.side();
-        assert!(atlas.take_dirty(), "a fresh sheet owes the GPU its block");
+        assert!(!atlas.take_dirty(), "a fresh sheet owes the GPU nothing");
 
         // Nothing has overflowed, so there is nothing to restart.
         assert!(!atlas.restart_if_full());
@@ -406,60 +340,6 @@ mod tests {
         // on the sheet that now has room.
         assert!(!atlas.restart_if_full());
     }
-
-    /// The corner block is full coverage, is where [`GlyphAtlas::solid`] points,
-    /// and is put back when the sheet is started again.
-    ///
-    /// All three halves are the same failure if any of them is missing: a field
-    /// drawn from a blank texel is a field that is not drawn at all, and nothing
-    /// but the picture would say so. The restart is the one that would rot
-    /// quietly — a sheet only fills after a session's worth of glyphs.
-    #[test]
-    fn the_solid_block_is_full_coverage_and_survives_a_restart() {
-        let shaper = TextShaper::new();
-        let mut glyphs = shaper.glyphs();
-        let mut atlas = GlyphAtlas::default();
-
-        // Where `solid` points, in pixels: the block is 2 across at the corner,
-        // so the fraction is half of it over the side.
-        let at = atlas.solid();
-        assert_eq!(at, Vec2::splat(1.0 / atlas.side() as f32));
-        // Every texel a sample there could reach, which is the whole block.
-        let full = |atlas: &GlyphAtlas| {
-            (0..SOLID_SIDE).all(|row| {
-                let base = (row * atlas.side()) as usize;
-                atlas.pixels()[base..base + SOLID_SIDE as usize]
-                    .iter()
-                    .all(|&coverage| coverage == u8::MAX)
-            })
-        };
-        assert!(full(&atlas), "the corner block is not ink");
-
-        // A glyph is packed clear of it rather than over it.
-        let mut placed = Vec::new();
-        glyphs.line("a", GlyphFont::new(16.0), 1.0, &mut placed);
-        let slot = atlas.slot(placed[0].raster_key, &mut glyphs).expect("ink");
-        assert!(slot.x >= SOLID_SIDE + GUTTER, "{slot:?} sits on the block");
-        assert!(full(&atlas), "packing a glyph wrote over the block");
-
-        // And it is put back on the sheet the restart hands over — at the same
-        // place in pixels, so a *fraction* of a larger sheet rather than the
-        // same fraction.
-        for size in [64.0, 128.0, 256.0, 512.0] {
-            glyphs.line("W", GlyphFont::new(size), 1.0, &mut placed);
-            if atlas.slot(placed[0].raster_key, &mut glyphs).is_none() {
-                break;
-            }
-        }
-        assert!(atlas.restart_if_full(), "nothing overflowed the sheet");
-        assert!(
-            full(&atlas),
-            "the restarted sheet came back without a block"
-        );
-        assert_eq!(atlas.solid(), Vec2::splat(1.0 / atlas.side() as f32));
-        assert!(atlas.solid().x < at.x, "the sheet did not grow");
-    }
-
     /// A glyph's quad is placed where the pen and the bearing put it, and reads
     /// the sheet where the slot says.
     ///

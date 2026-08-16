@@ -1,7 +1,7 @@
 //! A small retained 3D scene renderer for [`palantir`] viewports.
 //!
-//! Build a [`Scene`] out of [`Object`]s, [`Curve`]s, [`Ring`]s, [`Point`]s,
-//! [`Text`] and [`TextEdit`]s, hand it to a [`Renderer`], and give the renderer
+//! Build a [`Scene`] out of [`Object`]s, [`Curve`]s, [`Ring`]s, [`Point`]s
+//! and [`Text`], hand it to a [`Renderer`], and give the renderer
 //! to a `GpuView` each frame:
 //!
 //! ```no_run
@@ -30,20 +30,22 @@
 //!
 //! Input is deliberately absent: palantir owns the pointer, so orbit and zoom
 //! are the host's job — drive [`Camera::orbit`] and [`Camera::dolly`] from the
-//! `GpuView`'s `Response`, and [`Camera::frame`] from [`Scene::extent`]. A
-//! [`TextEdit`] is the same bargain and not an exception to it: it holds where
-//! the caret is and offers the edits that move one, and an application is what
-//! turns a keystroke into a call.
+//! `GpuView`'s `Response`, and [`Camera::frame`] from [`Scene::extent`]. This
+//! crate answers questions about the scene and takes no events, which is also
+//! why nothing in it is *edited* through the pointer: something a user works in
+//! rather than looks at wants palantir's own routing — focus, scopes, who takes
+//! a press — and belongs in a widget over the viewport, placed with
+//! [`Camera::screen_of`].
 //!
 //! # Overlays
 //!
 //! An [`Object`] in [`Scene::solids`] is modelled geometry: shaded, back-face
-//! culled, and measured in world units. A [`Curve`], a [`Ring`], a [`Point`], a
-//! [`Text`] and a [`TextEdit`] are overlays — unlit, unculled, and sized in
-//! *logical pixels*, so a stroke holds its width, a marker its diameter, and a
-//! label or a field its type size however far the camera pulls back. That fixed
-//! size is what tells drawn geometry from modelled geometry: it is a claim about
-//! legibility, not about the model.
+//! culled, and measured in world units. A [`Curve`], a [`Ring`], a [`Point`] and
+//! a [`Text`] are overlays — unlit, unculled, and sized in *logical pixels*, so
+//! a stroke holds its width, a marker its diameter and a label its type size
+//! however far the camera pulls back. That fixed size is what tells drawn
+//! geometry from modelled geometry: it is a claim about legibility, not about
+//! the model.
 //!
 //! An `Object` in [`Scene::faces`] is neither, and is the same type drawn by
 //! different rules: a flat sheet lying *in* a drawing rather than standing in
@@ -101,7 +103,6 @@ pub(crate) mod scene;
 pub(crate) mod styled;
 pub(crate) mod tag;
 pub(crate) mod text;
-pub(crate) mod text_edit;
 pub(crate) mod viewport;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
@@ -127,5 +128,4 @@ pub use scene::Scene;
 pub use styled::Styled;
 pub use tag::Tag;
 pub use text::Text;
-pub use text_edit::{Seek, Selecting, TextEdit};
 pub use viewport::Viewport;

@@ -1,5 +1,6 @@
 //! Pixels, and how they meet normalized device coordinates.
 
+use crate::aim::Inside;
 use glam::{UVec2, Vec2, Vec4, Vec4Swizzles};
 
 /// Screen length below which a projected stretch lands on a single pixel and
@@ -117,6 +118,17 @@ impl Viewport {
     pub fn pixel_from_clip(&self, clip: Vec4) -> Vec2 {
         debug_assert!(clip.w > 0.0, "{clip:?} is not in front of the near plane");
         self.pixel_from_ndc(clip.xy() / clip.w)
+    }
+
+    /// The same, for a clip position that may not have survived clipping —
+    /// `None` where it did not, and so is not drawn.
+    ///
+    /// What [`pixel_from_clip`](Self::pixel_from_clip) makes the caller justify,
+    /// asked and answered here: the two planes a position can fall outside are
+    /// the ones the hardware clips against, so what this admits is exactly what
+    /// was drawn.
+    pub fn pixel_of(&self, clip: Vec4) -> Option<Vec2> {
+        Inside::of(clip).drawn().then(|| self.pixel_from_clip(clip))
     }
 }
 

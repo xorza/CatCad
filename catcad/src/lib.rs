@@ -51,7 +51,7 @@ use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::session::Session;
 use crate::tool::Tool;
-use crate::typing::Done;
+use crate::typing::Typing;
 
 /// Take back the last step, and put it back.
 ///
@@ -66,10 +66,10 @@ const REDO: Shortcut = Shortcut::ctrl_shift('Z');
 /// A bare key rather than a chord, which is what every modeller binds it to.
 ///
 /// Safe to bind bare, and nothing here is what makes it safe. `Delete` is of
-/// the *edit* class, so a field open over a dimension is granted it by the
-/// input scope the viewport declares and this poll answers `false` on its own —
-/// there is no gate to remember. Every binding above is an accelerator, which
-/// no field takes, so all of them go on working while one is open.
+/// the *edit* class, so a focused field claims it and this poll answers `false`
+/// on its own — there is no gate to remember. Every binding above is an
+/// accelerator, which no field takes, so all of them go on working while one is
+/// open.
 const DELETE: Shortcut = Shortcut::key(Key::Delete);
 
 /// Put the document away, and fetch one back.
@@ -175,9 +175,10 @@ impl CatCad {
 
     /// Show everything this frame draws, and collect what it asks for.
     ///
-    /// Reads the document and writes only the inbox and the tool in hand. Three
-    /// sources of intent — the keyboard, the view, and the overlay's own
-    /// controls — and none of them is allowed to act on what it asks.
+    /// Reads the document and writes only the inbox and the draft being typed.
+    /// Four sources of intent — the keyboard, the view, the field open over a
+    /// dimension, and the overlay's own controls — and none of them is allowed
+    /// to act on what it asks.
     fn ask(&mut self, ui: &mut Ui) {
         // Polled unconditionally rather than short-circuited: reading a chord
         // is also what subscribes it for the wake that delivers the next one,
@@ -198,16 +199,6 @@ impl CatCad {
         if ui.key_pressed(OPEN) {
             self.intents.push(Errand::Open);
         }
-        // Whatever is being typed into a dimension, and nothing about where the
-        // keys went: every poll around this one answers for itself, because a
-        // field open takes keys by *class* rather than taking the keyboard.
-        //
-        // Which is why the order here says nothing either. `Delete` and the two
-        // undo chords are edits and go to the field; `Escape` is its own class
-        // and goes there too, meaning "put the field away" while one is open and
-        // "put the tool down" when none is. Save and open are accelerators, which
-        // no field takes, so they work throughout — a field is not a modal.
-        self.typing(ui);
         // Escape puts down whatever is in hand wherever the pointer happens to
         // be. The view answers for the right button over the drawing, which is
         // the same cancel by the gesture a modeller reaches for first, and the
@@ -232,6 +223,18 @@ impl CatCad {
         }
         self.view
             .ask(ui, &self.document, &self.session, &mut self.intents);
+        // **After the view and before the overlay**, because recording order is
+        // stacking order: the field has to be drawn over the drawing it stands
+        // on, and under the bar so a control there wins a press the two could
+        // both claim. It is a palantir widget like every other, so the polls
+        // above answer for themselves — a focused field declares the key classes
+        // it edits with, and `Ctrl+S`, an accelerator no field takes, goes on
+        // saving mid-edit.
+        //
+        // After the view for a second reason as well: the view is what says how
+        // big it came out, and a field placed by projecting into it wants this
+        // frame's answer rather than the last one's.
+        self.retype(ui);
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
@@ -251,75 +254,46 @@ impl CatCad {
         );
     }
 
-    /// Put this frame's keystrokes into the field open over a dimension.
+    /// Show the field open over a dimension, where one is open.
     ///
-    /// **Gates nothing.** What the bindings around it do while a field is open
-    /// is palantir's to decide, not this call's: the viewport declares an input
-    /// scope taking the classes a field edits with, so `Delete` and `Ctrl+Z` are
-    /// granted to it and the polls above simply answer `false` — while `Ctrl+S`,
-    /// being an accelerator, walks out to the application root and still saves.
-    /// See the scope declared in [`SceneView::ask`](crate::scene_view::SceneView).
+    /// Placed by the *view*, because where a dimension lands on screen is a
+    /// question about the camera and the viewport and the view owns both — and
+    /// answered against the drawing this frame's edits have not yet reached,
+    /// like everything else in the asking half.
     ///
-    /// That leaves this reading the *raw* stream, which is layer-gated and never
-    /// filtered by class — the scope holder is the one thing that drains
-    /// wholesale — so what a keystroke means is still
-    /// [`Typing::take`](crate::typing::Typing::take)'s to say.
-    ///
-    /// **The one place session state is written while the frame is still
-    /// reading**, and the reason is on [`Typing`](crate::typing::Typing): a
-    /// keystroke says how far to go where every intent says where to end up, so
-    /// it cannot be one. What the keystroke *comes to* — a value on the
-    /// dimension, a field put away — does go through the inbox, so the document
-    /// is still written in one place at one time.
-    fn typing(&mut self, ui: &mut Ui) {
-        let Some(typing) = self.session.typing_mut() else {
+    /// Nothing is gated on the field being open. It is a focusable widget, so
+    /// palantir routes presses and keystrokes to it the way it routes them to a
+    /// button on the bar; there is no arbitration for this to do and no
+    /// keyboard for it to drain.
+    fn retype(&mut self, ui: &mut Ui) {
+        let Some(part) = self.session.typing().map(Typing::part) else {
             return;
         };
-        // No wake to ask for, though this reads keys no chord matches. Palantir
-        // wakes a frame for any key while something is *focused*, and the field
-        // is only ever open on a view that holds focus — which is the same
-        // invariant its input scope rests on, since a scope arbitrates only for
-        // the widget focus sits inside. A `KeyboardWake` here would be a second
-        // way to say what that one already guarantees.
-        let mut done = None;
-        for event in ui.keyboard_events() {
-            // Stops at the first answer rather than reading the frame out:
-            // Enter and Escape both end the field, so a key after one has no
-            // field left to land in — and stopping is also what makes the value
-            // read below the value the field held when Enter arrived.
-            if let Some(answer) = typing.take(event) {
-                done = Some(answer);
-                break;
+        let Some(viewport) = self.view.viewport() else {
+            return;
+        };
+        // Where the mark would be drawn, which is where the field stands
+        // instead — see [`paint::redraw`](crate::paint::redraw), which leaves
+        // out the mark of whatever is being typed into.
+        //
+        // Read before the field is borrowed to be shown, because the drawing is
+        // reached through the session and the field is part of it.
+        let models = self.document.models(&self.build, self.session.editing());
+        let at = models.iter().find_map(|model| match model.entity(part) {
+            Some(Entity::Constraint(id)) => {
+                Some(model.drawing().mark_at(model.sketch().constraint(id)))
             }
-        }
-        let (part, value) = (typing.part(), typing.value());
-        match done {
-            // A draft that is not a number is not finished, so Enter on one is
-            // not a refusal to report but a key that does nothing — see
-            // [`Typing::value`](crate::typing::Typing::value). The field stays
-            // open, which is what says so.
-            Some(Done::Commit) => {
-                if let Some(to) = value {
-                    let (Some(sketch), Some(Entity::Constraint(constraint))) =
-                        (part.sketch(), part.entity())
-                    else {
-                        unreachable!("a field is only ever opened over a dimension");
-                    };
-                    self.intents.push(Change::Resize {
-                        sketch,
-                        constraint,
-                        to,
-                    });
-                    // One gesture, one step to take back — the same signal a
-                    // scrub's release gives, because `Resize` coalesces and this
-                    // is what closes the run of them.
-                    self.intents.push(Step::Release);
-                    self.intents.push(Choice::Type(None));
-                }
-            }
-            Some(Done::Cancel) => self.intents.push(Choice::Type(None)),
-            None => {}
-        }
+            _ => None,
+        });
+        // Never missing, on the same terms `Session::prune` guarantees: a field
+        // open over a dimension an undo took away is closed before the frame
+        // that would draw it.
+        let at = at.expect("a field is open over a dimension the drawing no longer holds");
+        let camera = self.document.camera();
+        let Some(typing) = self.session.typing_mut() else {
+            unreachable!("the field was open a moment ago");
+        };
+        typing.show(ui, at, &camera, viewport, &mut self.intents);
     }
 
     /// Land everything the frame asked for, on whichever of the three things a

@@ -196,12 +196,6 @@ impl Instance for PointInstance {
 /// anchor — because a glyph hangs off the run's origin by a bearing rather than
 /// being centred on anything.
 ///
-/// A glyph is what it is usually made of, and what it is named for. A
-/// [`TextEdit`](crate::TextEdit) ships its surround, the wash behind whatever is
-/// picked out, and its caret as three more of these — the same rectangle, hung
-/// off the same anchor, reading a corner of the sheet that is always full
-/// instead of one a glyph was rasterized into. See
-/// [`GlyphAtlas::solid`](crate::renderer::atlas::GlyphAtlas::solid).
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GlyphInstance {
@@ -230,12 +224,10 @@ pub(crate) struct GlyphInstance {
 }
 
 impl GlyphInstance {
-    /// One quad hung off `anchor` — a glyph of a run, or one of the solid
-    /// rectangles a [`TextEdit`](crate::TextEdit) is drawn from.
+    /// One quad hung off `anchor` — a glyph of a run.
     ///
-    /// Built from the pieces rather than from whichever primitive produced
-    /// them, because two kinds produce them: a label's glyphs all carry its own
-    /// colour, and a field's parts carry three between them.
+    /// Built from the pieces rather than from the run, so that where a glyph
+    /// hangs and what colour it is reach here already decided.
     pub(super) fn new(anchor: Vec3, quad: GlyphQuad, color: Vec3, plane: Option<Vec3>) -> Self {
         Self {
             anchor: anchor.to_array(),

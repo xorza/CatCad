@@ -208,19 +208,14 @@ impl Renderer {
         // being drawn for the rest of the run. Records outliving what they were
         // flattened from is the one failure a retained renderer has to answer
         // for, and emptying is the only way to reach it.
-        if scene.texts.is_empty() && scene.text_edits.is_empty() && cpu.texts.is_empty() {
+        if scene.texts.is_empty() && cpu.texts.is_empty() {
             // Taken on the way out, because a mark is a claim that someone
             // wrote to the batch and this is the one path that answers that
             // claim by doing nothing. Left standing it would outlive the edit
             // it stands for — a batch refilled to empty while no text is drawn
             // would still be reporting that write on whatever later frame first
             // had a run to lay out.
-            //
-            // Both, and not whichever was non-empty: they share the buffer this
-            // is deciding about, so a mark left on either is one that fires
-            // again next frame.
             scene.texts.take_dirty();
-            scene.text_edits.take_dirty();
             return;
         }
         let shaper = shaper
@@ -235,13 +230,8 @@ impl Renderer {
             glyphs: &mut glyphs,
             scale: raster_scale,
         };
-        cpu.texts.refresh(
-            &mut scene.texts,
-            &mut scene.text_edits,
-            &mut laying,
-            highlights,
-            relight,
-        );
+        cpu.texts
+            .refresh(&mut scene.texts, &mut laying, highlights, relight);
     }
 }
 

@@ -13,7 +13,6 @@ use crate::ring::Ring;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::Text;
-use crate::text_edit::TextEdit;
 use glam::{Mat4, Vec3};
 use palantir::OffscreenHost;
 use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
@@ -809,19 +808,6 @@ fn every_kind_reaches_the_frame() {
             batch: "texts",
             stage: |scene| scene.texts.push(Text::new(Vec3::ZERO, "125.4", 48.0)),
         },
-        // Nothing to say and out of focus, so neither its glyphs nor its caret
-        // can be what reaches the frame — what is asked of this one is whether a
-        // *solid* quad draws at all, which reads the corner of the sheet that no
-        // other kind does. Its surround is lightened off the black a field comes
-        // with, since what is counted is pixels above the background.
-        Staged {
-            batch: "text_edits",
-            stage: |scene| {
-                let mut empty = TextEdit::new(Vec3::ZERO, "", 48.0);
-                empty.background = Vec3::ONE;
-                scene.text_edits.push(empty);
-            },
-        },
     ];
     for Staged { batch, stage } in kinds {
         {
@@ -832,7 +818,6 @@ fn every_kind_reaches_the_frame() {
             scene.rings.clear();
             scene.points.clear();
             scene.texts.clear();
-            scene.text_edits.clear();
             stage(scene);
         }
         host.frame_offscreen(&target, 1.0, &mut pane);
@@ -875,12 +860,6 @@ fn a_frame_uploads_every_kind() {
     scene
         .texts
         .push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(lit));
-    // Tagged with the rest, which is what makes the highlight below a real
-    // question rather than one nothing named: a field is exempt from being
-    // doubled by being a field, not by going unnamed.
-    scene
-        .text_edits
-        .push(TextEdit::new(Vec3::ZERO, "40", 16.0).tagged(lit));
 
     let mut pane = ScenePane {
         view: Rc::new(RefCell::new(Renderer::new(scene))),
@@ -899,15 +878,8 @@ fn a_frame_uploads_every_kind() {
         assert_eq!(built.curves.ordinary.instances, 1);
         assert_eq!(built.rings.ordinary.instances, 1);
         assert_eq!(built.points.ordinary.instances, 1);
-        // One pass for the labels and the fields both. Five characters of
-        // "125.4", every one of them with ink; then the field's surround, its
-        // two characters, and its caret — nothing washed, since nothing in it
-        // is picked out.
-        assert_eq!(
-            built.texts.ordinary.instances,
-            5 + 1 + 2 + 1,
-            "\"125.4\", then the field's parts"
-        );
+        // Five characters of "125.4", every one of them with ink.
+        assert_eq!(built.texts.ordinary.instances, 5);
 
         // Nothing was lit, so every highlight pass is still empty — and an
         // empty pass draws nothing rather than drawing what it last held.
@@ -934,13 +906,9 @@ fn a_frame_uploads_every_kind() {
     assert_eq!(built.curves.lit.instances, 1);
     assert_eq!(built.rings.lit.instances, 1);
     assert_eq!(built.points.lit.instances, 1);
-    // The label alone, though the field carries the very same tag: a field is
-    // opaque over the whole of its box, so a copy of it in one colour would
-    // hide it rather than pick it out — see [`TextEdit::tag`]. Five here and
-    // nine above is the whole of that rule.
     assert_eq!(
         built.texts.lit.instances, 5,
-        "a lit run is the same run shaped again, and a field is not doubled"
+        "a lit run is the same run shaped again"
     );
     // The ordinary passes are untouched by a highlight: it doubles what is
     // drawn rather than replacing it.
@@ -948,8 +916,8 @@ fn a_frame_uploads_every_kind() {
     assert_eq!(built.solids.instances, 1);
 }
 
-/// Both text batches, because they share the buffer the early return is about:
-/// a mark left on either is one that fires again on the next frame.
+/// A mark left behind is one that fires again on the next frame, which is what
+/// an early return owes the batch it returned over.
 #[test]
 fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
     let mut renderer = Renderer::new(Scene::default());
@@ -958,131 +926,10 @@ fn a_refresh_takes_the_text_mark_even_when_there_is_nothing_to_lay_out() {
     // Written to and left empty, which is what a caller refilling a batch from
     // an arena that turned out to hold nothing does.
     renderer.scene_mut().texts.mark();
-    renderer.scene_mut().text_edits.mark();
     renderer.refresh(1.0);
     assert!(
         !renderer.scene_mut().texts.take_dirty(),
         "the mark outlived the refresh that had nothing to do with it"
-    );
-    assert!(
-        !renderer.scene_mut().text_edits.take_dirty(),
-        "the field batch's mark outlived the same refresh"
-    );
-}
-
-/// A label and the field that replaces it ship glyphs at exactly the same
-/// offsets.
-///
-/// The whole reason [`TextEdit::anchor`] is a fraction of the text and not of
-/// the box it is drawn in. Double-clicking a dimension swaps the one for the
-/// other, and a number that jumped as it became editable would read as the
-/// click having moved it.
-///
-/// Compared as *records* rather than as the geometry behind them, because what
-/// must not move is the glyphs: every step between the anchor and the quad —
-/// the measurement, the anchor fraction, the origin handed to the shaper — is
-/// somewhere the two could come apart, and only the record says they did not.
-///
-/// The fixture's padding and floor are deliberately large, and its anchor is
-/// the awkward one a dimension mark actually uses: `(0.5, 1.6)`, to clear the
-/// line it labels. A rule that only held for a zero anchor and no padding would
-/// pass on nothing at all.
-#[test]
-fn a_field_ships_its_glyphs_where_the_label_shipped_them() {
-    let anchor = glam::Vec2::new(0.5, 1.6);
-    let at = Vec3::new(0.3, -0.2, 0.1);
-
-    let mut labelled = Scene::default();
-    labelled
-        .texts
-        .push(Text::new(at, "125.4", 16.0).anchored(anchor));
-    let mut typed = Scene::default();
-    let mut field = TextEdit::new(at, "125.4", 16.0).anchored(anchor);
-    field.padding = glam::Vec2::new(9.0, 5.0);
-    field.min_width = 400.0;
-    typed.text_edits.push(field);
-
-    let glyphs = |scene| {
-        let mut renderer = Renderer::new(scene);
-        renderer.shape_with(palantir::TextShaper::new());
-        renderer.refresh(1.0);
-        renderer.cpu.texts.records.ordinary.clone()
-    };
-    let label = glyphs(labelled);
-    let field = glyphs(typed);
-
-    // Surround, five glyphs, caret — so the run sits between the two solids.
-    assert_eq!(label.len(), 5, "{label:?}");
-    assert_eq!(field.len(), 1 + 5 + 1, "{field:?}");
-    for (nth, (label, field)) in label.iter().zip(&field[1..6]).enumerate() {
-        assert_eq!(label.offset, field.offset, "glyph {nth} moved");
-        assert_eq!(label.size, field.size, "glyph {nth} was drawn differently");
-        assert_eq!(label.uv_min, field.uv_min, "glyph {nth} is a different one");
-    }
-
-    // And the surround really is there and really is larger, or the loop above
-    // would be comparing a field that simply had none.
-    let surround = field[0];
-    assert!(surround.size[0] > 400.0, "{surround:?}");
-    assert!(surround.offset[0] < label[0].offset[0], "{surround:?}");
-    assert!(surround.offset[1] < label[0].offset[1], "{surround:?}");
-}
-
-/// A field flattens to its surround, the wash behind what is picked out, its
-/// glyphs and its caret — in that order, and behind whatever labels the scene
-/// also holds.
-///
-/// The order is the whole of the layering. One pass, blended, writing no depth:
-/// what is appended later is what reads over, so a surround appended after its
-/// own glyphs would paint them out and nothing but the picture would say so.
-/// Which is why this counts records at each end rather than trusting the pass.
-#[test]
-fn a_field_flattens_under_its_own_ink_and_over_the_labels() {
-    let mut scene = Scene::default();
-    scene.texts.push(Text::new(Vec3::ZERO, "mm", 16.0));
-    scene.text_edits.push(TextEdit::new(Vec3::ZERO, "40", 16.0));
-    let mut renderer = Renderer::new(scene);
-    renderer.shape_with(palantir::TextShaper::new());
-    renderer.refresh(1.0);
-
-    // The label's two glyphs first, then the field: surround, two glyphs,
-    // caret. Nothing is picked out, so there is no wash between the first two.
-    let records = renderer.cpu.texts.records.ordinary.clone();
-    assert_eq!(records.len(), 2 + 1 + 2 + 1, "{records:?}");
-    let solid = renderer.cpu.atlas.solid().to_array();
-    let is_solid = |at: usize| records[at].uv_size == [0.0, 0.0] && records[at].uv_min == solid;
-    assert!(!is_solid(0) && !is_solid(1), "the label drew a solid quad");
-    assert!(is_solid(2), "the surround is not the field's first record");
-    assert!(!is_solid(3) && !is_solid(4), "the glyphs went missing");
-    assert!(is_solid(5), "the caret is not the field's last record");
-
-    // The surround covers the glyphs it is drawn behind, which is what says the
-    // order above is a layering and not just a sequence.
-    let surround = records[2];
-    for glyph in &records[3..5] {
-        assert!(glyph.offset[0] >= surround.offset[0], "{glyph:?}");
-        assert!(
-            glyph.offset[0] + glyph.size[0] <= surround.offset[0] + surround.size[0],
-            "{glyph:?} reaches past {surround:?}"
-        );
-    }
-
-    // Picking the whole line out adds the wash, and adds it between the
-    // surround and the ink so that the text still reads over it.
-    renderer.scene_mut().text_edits[0].select_all();
-    renderer.refresh(1.0);
-    let picked = renderer.cpu.texts.records.ordinary.clone();
-    assert_eq!(picked.len(), 2 + 1 + 1 + 2 + 1, "{picked:?}");
-    let wash = picked[3];
-    assert_eq!(wash.uv_size, [0.0, 0.0], "the wash is not a solid quad");
-    assert!(
-        wash.size[0] > 0.0,
-        "an empty wash for a whole line: {wash:?}"
-    );
-    assert_eq!(
-        [picked[4], picked[5]],
-        [records[3], records[4]],
-        "the glyphs moved when the selection did"
     );
 }
 

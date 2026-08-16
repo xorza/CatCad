@@ -10,11 +10,10 @@ use crate::point::Point;
 use crate::primitive;
 use crate::ring::Ring;
 use crate::text::Text;
-use crate::text_edit::TextEdit;
 
 /// The whole of the drawable world: shaded solids, the flat sheets a drawing
-/// encloses, stroked curves, rims, markers, labels, and the fields a value is
-/// typed into. Flat for now — hierarchy, if it earns its place, goes here.
+/// encloses, stroked curves, rims, markers and labels. Flat for now —
+/// hierarchy, if it earns its place, goes here.
 ///
 /// Every field is public and writable, because each [`Batch`] reports its own
 /// edits: a caller handed the whole scene and writing to one of them costs
@@ -41,16 +40,6 @@ pub struct Scene {
     pub rings: Batch<Ring>,
     pub points: Batch<Point>,
     pub texts: Batch<Text>,
-    /// The fields being typed into — a dimension being restated, an extrude's
-    /// depth.
-    ///
-    /// Apart from `texts` though the two are drawn through one pass, because
-    /// they are two different things to a *caller*: a label is written by
-    /// whatever is drawing the model, and a field is the one thing in the scene
-    /// that an application is holding open. Rebuilding every label on a
-    /// keystroke, or every field on a drag, is what one batch for both would
-    /// cost.
-    pub text_edits: Batch<TextEdit>,
 }
 
 /// How much farther than something a hit has to be before it counts as being
@@ -100,7 +89,6 @@ impl Scene {
         primitive::extent(&self.rings, &mut extent);
         primitive::extent(&self.points, &mut extent);
         primitive::extent(&self.texts, &mut extent);
-        primitive::extent(&self.text_edits, &mut extent);
         extent
     }
 
@@ -200,11 +188,6 @@ impl Scene {
             .iter()
             .filter(|text| framed(&text.precedence))
             .filter_map(|text| text.pick(aim));
-        let fields = self
-            .text_edits
-            .iter()
-            .filter(|field| framed(&field.precedence))
-            .filter_map(|field| field.pick(aim));
         let curves = self
             .curves
             .iter()
@@ -217,7 +200,6 @@ impl Scene {
             .filter_map(|ring| ring.pick(aim));
         points
             .chain(texts)
-            .chain(fields)
             .chain(curves)
             .chain(rings)
             .fold(f32::INFINITY, |front, hit| front.min(hit.distance))
@@ -291,11 +273,6 @@ impl Scene {
         self.points
             .iter()
             .filter_map(move |point| point.pick(aim))
-            .chain(
-                self.text_edits
-                    .iter()
-                    .filter_map(move |field| field.pick(aim)),
-            )
             .chain(self.texts.iter().filter_map(move |text| text.pick(aim)))
             .chain(self.curves.iter().filter_map(move |curve| curve.pick(aim)))
             .chain(self.rings.iter().filter_map(move |ring| ring.pick(aim)))

@@ -79,12 +79,14 @@ impl Session {
         self.typing.as_ref()
     }
 
-    /// The same, to type into.
+    /// The same, to show and be typed into.
     ///
     /// The one thing here written outside [`Session::apply`], and the reason is
-    /// on [`Typing`]: a keystroke says how far to go rather than where to end
-    /// up, so it cannot be an intent under the rule the inbox is built on. What
-    /// *opens* and *closes* a field still goes through the inbox.
+    /// that the writer is a *widget*: what a keystroke does to a line is
+    /// palantir's, decided where the field is shown, which is the asking half of
+    /// a frame. What the draft then comes to — a value on the dimension, a field
+    /// put away — goes through the inbox like everything else, so the document is
+    /// still written in one place at one time.
     pub(crate) fn typing_mut(&mut self) -> Option<&mut Typing> {
         self.typing.as_mut()
     }

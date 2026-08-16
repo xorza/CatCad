@@ -199,6 +199,23 @@ impl Camera {
         self.ray_from(cursor, viewport, self.view_proj(viewport.aspect()))
     }
 
+    /// Where `world` lands on the viewport, in logical pixels down from its
+    /// top-left corner, or `None` where the projection does not draw it.
+    ///
+    /// The way back from [`ray_through`](Self::ray_through), and what an
+    /// application asks to put something of its *own* over a place in the
+    /// scene — a label in another layer, a field to type into, a menu about
+    /// what is drawn there. Read out of the same matrix the vertex shaders are
+    /// handed, for the reason the ray gives: a projection derived independently
+    /// agrees with the picture only until someone changes it.
+    ///
+    /// One position at a time, and no shortcut for many. A caller placing a
+    /// handful of things per frame pays a view-projection apiece, which is a
+    /// matrix multiply against the arithmetic of drawing them.
+    pub fn screen_of(&self, world: Vec3, viewport: Viewport) -> Option<Vec2> {
+        viewport.pixel_of(self.view_proj(viewport.aspect()) * world.extend(1.0))
+    }
+
     /// The same ray, read out of a view-projection the caller already built.
     ///
     /// For [`Aim`](crate::Aim), which needs the matrix itself as well and would

@@ -5,26 +5,34 @@ rather than rework.
 
 ## 1. Typing a dimension
 
-Built, and not where this expected. It went into the *drawing* rather than into
-the constraint bar: double-clicking a dimension's mark replaces it with an
-`aperture::TextEdit` anchored on the same point, Enter restates the dimension
-through the `Resize` the scrub already used, Escape puts the draft away. The
-bar's `DragValue` still only scrubs, and no longer has to do more.
+Built, and where this expected after all: double-clicking a dimension's mark
+opens a palantir `TextEdit` positioned over it, Enter restates the dimension
+through the `Resize` the scrub already used, Escape and clicking away put the
+draft away. The bar's `DragValue` still only scrubs.
 
-What the field cannot do yet:
+It went into `aperture` first — a `TextEdit` primitive drawn into the scene —
+and came back out. A primitive can answer questions about itself and can never
+*take* an event, because it is not in the tree palantir routes presses through;
+so every gesture over one had to be arbitrated by hand in `catcad`, and each new
+behaviour was another hop through that broker. What is left of the feature here
+is `Typing`: a `Part`, a `String`, and where to put the box.
 
-- **Be clicked into.** `TextEdit::byte_at` answers where in the line a cursor
-  fell and nothing calls it: a click anywhere but on the field closes it. Wants
-  the view to notice a press landing inside the open field before it treats it
-  as a press on the drawing.
-- **Cut, copy or paste.** `Typing::take` lets every command chord through to the
-  application, which is what keeps Ctrl+S saving while a field is open — the
-  three that should be the field's have to be named before they can be taken.
+`catcad::typing` holds what is genuinely this application's — which dimension is
+open, and that the draft is a number — and nothing else. Editing, selection,
+cut/copy/paste, undo inside the field, IME and the caret are the widget's.
+
+What is left to want:
+
 - **Hold a formula.** `Typing::value` is a `parse`, and every caller already
   reads `None` as "not finished" rather than as an error, so an evaluator drops
   in there without moving anything around it.
 - **Open over an extrude's depth.** Nothing but a sketch dimension raises
   `Choice::Type`. See EXTRUDE.md.
+- **Follow the camera without a frame's lag.** The field is placed during the
+  asking half of a frame, against the camera this frame's orbit has not reached
+  — visible only while the view turns with a field open, which needs a gesture
+  that does not blur it (a wheel zoom, a middle-drag pan). Recording the overlay
+  after the intents land would close it.
 
 ## 5. Editing the timeline itself
 

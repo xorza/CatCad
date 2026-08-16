@@ -11,15 +11,8 @@ use std::cmp::Ordering;
 /// whole run. A stroke does have an interior: which of its segments, and how
 /// far along.
 ///
-/// A field has one too, and it is deliberately not reported here: where in the
-/// line a click fell is a question about characters rather than about geometry,
-/// and answering it wants the field's own measurements. So a pick says only
-/// which field, and [`TextEdit::byte_at`](crate::TextEdit::byte_at) is asked
-/// for the rest.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HitAt {
-    /// A field being typed in, anywhere within its box.
-    Field,
     Point,
     /// A run of text, anywhere within the box it is drawn in.
     Text,
@@ -52,25 +45,18 @@ impl HitAt {
     /// placed, and the edge it labels usually runs right under it — a dimension
     /// sits on its own dimension line — so an edge crossing a label must not
     /// take the click meant for the label.
-    ///
-    /// A field beats all of them, largest target though it is. It is the one
-    /// thing in a scene that is being *worked in* rather than looked at: it was
-    /// put there to be typed into, it is drawn opaque over whatever it covers,
-    /// and a click inside its box can have been meant for nothing else — a
-    /// marker it happens to cover is a marker you cannot see.
     pub(crate) fn rank(&self) -> u8 {
         match self {
-            Self::Field => 0,
-            Self::Point => 1,
-            Self::Text => 2,
+            Self::Point => 0,
+            Self::Text => 1,
             // An edge is an edge however it curves, so a stroke and a rim rank
             // together and the cursor's distance decides between them.
-            Self::Segment { .. } | Self::Ring { .. } => 3,
+            Self::Segment { .. } | Self::Ring { .. } => 2,
             // Last, and never actually reached: a surface is ranked against
             // other surfaces and nothing else — see [`Hit::aim_order`] — so
             // every comparison this arm could enter is one the arms above have
             // already tied. It is here to keep the ladder total.
-            Self::Surface => 4,
+            Self::Surface => 3,
         }
     }
 }

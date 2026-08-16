@@ -58,11 +58,13 @@ impl Aim {
     }
 
     /// Where `world` lands on screen, or `None` if it is not drawn at all.
+    ///
+    /// Through the matrix the aim already holds, where
+    /// [`Camera::screen_of`](crate::Camera::screen_of) builds one: this is asked
+    /// of every primitive in a pick, and rebuilding a view-projection apiece is
+    /// the cost that shape exists to avoid.
     pub(crate) fn screen_of(&self, world: Vec3) -> Option<Vec2> {
-        let clip = self.view_proj * world.extend(1.0);
-        Inside::of(clip)
-            .drawn()
-            .then(|| self.viewport.pixel_from_clip(clip))
+        self.viewport.pixel_of(self.view_proj * world.extend(1.0))
     }
 
     /// How far `world` fell from the cursor on screen, or `None` if it is not

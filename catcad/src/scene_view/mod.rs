@@ -3,11 +3,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Extent, Highlight, Lit, Motion, Renderer};
-use glam::{Vec2, Vec3};
+use aperture::{Extent, Highlight, Lit, Motion, Renderer, Viewport};
+use glam::{UVec2, Vec2, Vec3};
 use palantir::{
-    ButtonPhase, Configure, Drag, GpuPaint, GpuView, KeyFilter, PointerWake, Response, Sense,
-    Sizing, Ui,
+    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Response, Sense, Sizing, Ui,
 };
 use silverpoint::{Entity, Grown};
 
@@ -189,6 +188,14 @@ pub(crate) struct SceneView {
     /// rebuilt every settle. Kept for its room rather than its contents, so a
     /// frame that lights the same set as the last asks the heap for nothing.
     lit: Vec<Lit>,
+    /// How big the view was when it was last shown, or `None` before it has
+    /// arranged.
+    ///
+    /// Kept because the *application* needs it: what floats over the drawing —
+    /// the field open over a dimension — is placed by projecting a world point,
+    /// and a projection is answered in the viewport it was made for. The view is
+    /// the only thing that knows how big it came out.
+    viewport: Option<Viewport>,
     /// Where the pointer was aiming when the view was last shown, or `None` if
     /// it was not over the view at all.
     ///
@@ -222,6 +229,7 @@ impl SceneView {
             hovered: None,
             preview: None,
             lit: Vec::new(),
+            viewport: None,
             aimed: None,
         }
     }
@@ -235,6 +243,12 @@ impl SceneView {
     /// scene the same thing.
     pub(crate) fn extent(&self) -> Option<Extent> {
         self.renderer.borrow().scene().extent()
+    }
+
+    /// How big the view was when it was last shown — what a projection over it
+    /// is answered in. See [`SceneView::viewport`].
+    pub(crate) fn viewport(&self) -> Option<Viewport> {
+        self.viewport
     }
 
     /// What the pointer is working on, if anything.
@@ -289,34 +303,13 @@ impl SceneView {
         let response = GpuView::new(paint)
             .auto_id()
             .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL | Sense::PINCH)
-            // What owns the keyboard while a dimension is being typed into.
-            // The view rather than a node of the field's own, because the field
-            // is drawn *in* here and has no widget to be: a press on the
-            // viewport is what opens one, and a press on a focusable node is
-            // what takes focus.
-            //
-            // The filter is the whole of the arbitration. `TEXT_FIELD` takes
-            // the characters, the edit keys, the caret moves and Escape, and
-            // leaves `Accel` to the root — so `Delete` deletes a digit and
-            // `Ctrl+Z` does nothing to the drawing while a field is open, and
-            // `Ctrl+S` still saves. An empty filter is how "not a scope" is
-            // stated, which is what the view is the rest of the time.
-            //
-            // **A scope only arbitrates for the widget focus sits inside**, so
-            // being focusable is half of the claim and nothing here is the other
-            // half — palantir focuses a focusable node when a press lands on it,
-            // and every press that opens a field is a press on this view. It
-            // also never loses focus, because it fills the surface and is the
-            // only focusable thing catcad draws: a press on the overlay
-            // hit-tests through a Button to this. The first focusable control up
-            // there — an editable `DragValue` in the constraint bar — is what
-            // makes that untrue, and what it will want is for a field to close
-            // when focus leaves it.
+            // Focusable so that a press on the drawing takes focus *off*
+            // whatever had it — which is how clicking away from the field open
+            // over a dimension closes it. The view claims no key class of its
+            // own: every chord catcad binds is the application's, and the field
+            // is a widget with its own scope rather than something drawn in
+            // here for this to arbitrate for.
             .focusable(true)
-            .input_scope(match session.typing() {
-                Some(_) => KeyFilter::TEXT_FIELD,
-                None => KeyFilter::empty(),
-            })
             .size((Sizing::FILL, Sizing::FILL))
             .show(ui);
 
@@ -503,8 +496,13 @@ impl SceneView {
                 }
             });
 
+        self.viewport = response
+            .layout_rect
+            .map(|rect| Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32)));
+
         // Asking whether the pointer is actually over the view is what stops
-        // the overlay's own controls from lighting what is behind them.
+        // the overlay's own controls — and the field open over a dimension —
+        // from lighting what is behind them.
         self.aimed = Aimed::of(&response).filter(|_| response.hovered);
 
         self.navigate(&response, document, intents);
@@ -632,16 +630,6 @@ impl SceneView {
             session.typing().map(Typing::part),
             renderer.scene_mut(),
         );
-        // Beside the drawing rather than in it, and gated apart: a keystroke
-        // moves what the field says and nothing else in the picture. See
-        // [`paint::retype`].
-        paint::retype(
-            models,
-            session.typing(),
-            &mut self.layout,
-            &mut renderer.scene_mut().text_edits,
-        );
-
         // What the pointer is over is one thing, however many are picked out: a
         // marker sits on the end of every edge that meets it, and lighting all
         // of them would answer a question nobody asked.
