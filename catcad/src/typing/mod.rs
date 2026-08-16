@@ -3,27 +3,14 @@
 use aperture::{Camera, Viewport};
 use glam::{Vec2, Vec3};
 use palantir::{
-    Align, Configure, Palette, Panel, Sizing, StatefulLook, TextEdit, TextEditTheme, TextStyle, Ui,
-    WidgetId,
+    Align, Configure, Palette, Panel, Sizing, StatefulLook, TextEdit, TextEditTheme, TextRun,
+    TextStyle, TextWrap, Ui, WidgetId,
 };
 use silverpoint::Entity;
 
 use crate::intent::{Change, Choice, Intents, Step};
 use crate::paint::{DECIMALS, mark_font, mark_lift};
 use crate::part::Part;
-
-/// How wide the field is drawn, in logical pixels.
-///
-/// Fixed rather than hugging what has been typed, for two reasons that both
-/// come of where it sits. It hangs off a point in the drawing, so a box that
-/// grew as digits arrived would crawl sideways under the caret; and it is placed
-/// by its own corner, which cannot be worked out before layout unless its size
-/// is known here. A value longer than this scrolls inside it, which is
-/// [`TextEdit`]'s own answer for exactly this shape of field.
-///
-/// Room for about eight digits at the mark's type size — a length, a radius, an
-/// angle. Long enough that a value is read whole rather than scrolled to.
-const WIDTH: f32 = 88.0;
 
 /// A dimension being retyped: which one, and what has been typed so far.
 ///
@@ -222,7 +209,13 @@ impl Typing {
         // After the projection, so a dimension that was never drawn has not
         // used up the one frame that takes focus.
         let opening = !std::mem::replace(&mut self.shown, true);
-        let origin = self.placed_over(screen);
+        // Measured before the field is shown, because where its corner goes
+        // depends on how wide its number comes out — see [`Typing::placed_over`].
+        // The same shaper the widget itself will use, asked the same question,
+        // so the two cannot answer differently.
+        let run = self.run();
+        let width = ui.probe_text(run).size().w;
+        let origin = self.placed_over(screen, width);
         // Borrowed apart before the closure, which would otherwise take the
         // whole of `self` and hand the field a buffer and a theme off the same
         // borrow.
@@ -249,7 +242,7 @@ impl Typing {
                     .style(look)
                     .select_all_on_focus()
                     .text_align(Align::CENTER)
-                    .size((Sizing::fixed(WIDTH), Sizing::HUG))
+                    .size((Sizing::HUG, Sizing::HUG))
                     .position(origin)
                     .show(ui);
                 // **Cancel is tested first**, which is what a commit-on-blur
@@ -301,7 +294,7 @@ impl Typing {
     /// the dimension, so both land half a run to the left of the same point
     /// whatever the run measures. Only the caret's room breaks the symmetry,
     /// being reserved on one side.
-    fn placed_over(&self, screen: Vec2) -> Vec2 {
+    fn placed_over(&self, screen: Vec2, width: f32) -> Vec2 {
         // Off `normal`, and safe to be: palantir pins the ring's width across
         // every state so that focus changes its colour without moving the inner
         // rect — which is the same shift this call exists to avoid, one state
@@ -313,14 +306,35 @@ impl Typing {
             .background
             .as_ref()
             .map_or(0.0, |bg| bg.stroke.width);
-        // The vertical inset alone. The horizontal one cancels, for the reason
-        // above: it moves the field's corner and the text inside it by the same
-        // amount and in the same direction.
-        let inset = self.look.padding.vert() * 0.5 + ring;
+        let inset = Vec2::new(self.look.padding.horiz(), self.look.padding.vert()) * 0.5
+            + Vec2::splat(ring);
+        // The mark centres its number on the dimension, so the field's own text
+        // has to start half a run to the left of the same point — and the box
+        // starts a further inset out, plus the half-caret the field keeps its
+        // hugged text clear of the trailing edge by.
         Vec2::new(
-            screen.x - WIDTH * 0.5 + self.look.caret_width * 0.5,
-            screen.y - mark_lift() - inset,
+            screen.x - width * 0.5 - inset.x - self.look.caret_width * 0.5,
+            screen.y - mark_lift() - inset.y,
         )
+    }
+
+    /// The number as the field will shape it.
+    ///
+    /// Built off the same theme the field is styled with, so what this measures
+    /// is what that draws. Unbounded and single-line: a dimension is one run
+    /// that the box is sized to rather than the other way about.
+    fn run(&self) -> TextRun<'_> {
+        let font = mark_font();
+        TextRun {
+            text: &self.draft,
+            font_size_px: font.size_px,
+            line_height_px: font.line_height_px,
+            wrap: TextWrap::Scroll,
+            align: Align::CENTER,
+            family: font.family,
+            weight: font.weight,
+            max_width_px: None,
+        }
     }
 
     /// Ask for the dimension to be restated at `to`, and for the field to close.
