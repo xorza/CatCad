@@ -407,10 +407,14 @@ pub(crate) fn redraw(
 
 /// Write `corners` and the `triangles` over them into `mesh`.
 ///
-/// The one place a mesh is rewritten, which both writers below go through:
-/// what a region's fill and a solid's patch have in common is exactly this, and
+/// What a region's fill and a solid's patch have in common is exactly this, and
 /// what they differ in is where the corners come from and what colour goes on
 /// afterwards.
+///
+/// The two of them, not every mesh here: a gizmo is four shapes in one mesh,
+/// each rebased onto the corners before it, and rewriting it goes through
+/// nothing this could offer without being handed a list of shapes instead of
+/// one — see [`write_gizmos`].
 ///
 /// Written over what is already there rather than assigned, which is what keeps
 /// a drag off the heap: every face of a drawing and every face of every solid is

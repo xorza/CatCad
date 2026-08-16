@@ -132,54 +132,85 @@ fn facing_quad() -> Mesh {
     }
 }
 
-/// A lifted highlight keeps the primitive's own colour and an inked one
-/// replaces it.
+/// A lifted highlight keeps each corner's own colour and an inked one replaces
+/// every one of them.
 ///
 /// The distinction a control depends on. A datum's axes say *which axis they
 /// are* by their colour, so the hover cannot spend it — where for a sketch
 /// entity spending it is the entire point, since what a selection means is that
 /// everything in it reads alike.
 ///
-/// Asked of the flattened vertices rather than of [`Tint::over`], because the
-/// question is whether the mesh path *asks*: a flatten that went on taking a
-/// replacement colour would pass any test of the tint by itself.
+/// Asked of a mesh whose corners are *two* colours, which is what makes it a
+/// test of the order the two are combined in. Against a mesh of one colour —
+/// every corner [`Vec3::ONE`], as [`Mesh::cube`] builds one — folding the
+/// corner in before the highlight and folding it in after give the same answer,
+/// and an `Ink` that came out as many colours as the mesh has would pass.
+///
+/// Asked of the flattened vertices rather than of [`Tint::over`], for the same
+/// reason: the question is whether the mesh path combines them in that order,
+/// and a flatten that did it the other way would pass any test of the tint by
+/// itself.
 #[test]
-fn a_lifted_highlight_keeps_the_colour_it_was_over_and_an_inked_one_replaces_it() {
+fn a_lifted_highlight_keeps_each_corner_and_an_inked_one_replaces_every_one() {
     const OWN: Vec3 = Vec3::new(0.4, 0.1, 0.2);
+    /// Halves the red channel of whichever corner carries it, so the two
+    /// corners read apart and the arithmetic stays exact in binary.
+    const DIMMER: Vec3 = Vec3::new(0.5, 1.0, 1.0);
+    /// Ink with *no* channel at zero, which is what makes the last assertion
+    /// mean anything: [`DIMMER`] scales red, so an ink whose red were zero
+    /// would come out the same whichever order the two were combined in —
+    /// `0.0 * 0.5` is still zero. That is the shape of a test that cannot fail.
+    const INK: Vec3 = Vec3::new(1.0, 0.8, 0.2);
+
+    let mut quad = facing_quad();
+    quad.vertices[1].color = DIMMER;
     let mut scene = Scene::default();
-    scene.gizmos.push(
-        Object::new(Mesh::cube(2.0))
-            .colored(OWN)
-            .tagged(Tag::new(1)),
-    );
+    scene
+        .gizmos
+        .push(Object::new(quad).colored(OWN).tagged(Tag::new(1)));
     let mut renderer = Renderer::new(scene);
 
     // Unlit first, so what the lift is measured against is what the flatten
-    // actually wrote rather than what the object was built with.
+    // actually wrote rather than what the object was built with. The object's
+    // colour through each corner's own: one corner plain, the next halved.
     renderer.refresh(1.0);
-    assert_eq!(renderer.cpu.gizmos.vertices[0].color, OWN.to_array());
+    let flat = |renderer: &Renderer| {
+        let written = &renderer.cpu.gizmos.vertices;
+        [written[0].color, written[1].color]
+    };
+    assert_eq!(flat(&renderer), [[0.4, 0.1, 0.2], [0.2, 0.1, 0.2]]);
 
-    // Twice as bright, channel for channel — so the hue is untouched and only
-    // the brightness moved, which is the whole of the claim.
+    // Twice as bright, channel for channel and corner for corner — so the hue
+    // is untouched, only the brightness moved, and the two corners are still
+    // told apart.
     renderer.highlight_only(Lit {
         tag: Tag::new(1),
         look: Highlight::lifted(2.0),
     });
     renderer.refresh(1.0);
     assert_eq!(
-        renderer.cpu.gizmos.vertices[0].color,
-        [0.8, 0.2, 0.4],
-        "a lift recoloured the primitive instead of brightening it"
+        flat(&renderer),
+        [[0.8, 0.2, 0.4], [0.4, 0.2, 0.4]],
+        "a lift recoloured the corners instead of brightening each"
     );
 
-    // And the other arm still overrides outright, which is what every other
-    // kind of highlight in the drawing relies on.
+    // And the other arm overrides outright — *every* corner, to the one colour.
+    //
+    // The only assertion here that can see the order at all. A lift is a scalar
+    // multiply and commutes with the corner's own, so it reads the same either
+    // way round however the numbers are chosen; an ink does not, and combined
+    // after the corners rather than before it comes back multiplied by each of
+    // them.
     renderer.highlight_only(Lit {
         tag: Tag::new(1),
-        look: Highlight::new(Vec3::Y),
+        look: Highlight::new(INK),
     });
     renderer.refresh(1.0);
-    assert_eq!(renderer.cpu.gizmos.vertices[0].color, Vec3::Y.to_array());
+    assert_eq!(
+        flat(&renderer),
+        [INK.to_array(); 2],
+        "an ink left the mesh as many colours as it had corners"
+    );
 }
 
 /// A refresh takes each batch's mark, so a frame that changed nothing owes the

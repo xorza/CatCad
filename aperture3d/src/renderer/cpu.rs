@@ -586,7 +586,6 @@ impl Triangles {
             // Remembered rather than recomputed, because the next relight has to
             // know whether this one left a colour behind to undo.
             highlighted |= look.is_some();
-            let color = look.map_or(object.color, |look| look.tint.over(object.color));
             let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
                 position: object
                     .transform
@@ -595,12 +594,21 @@ impl Triangles {
                 normal: (normal_matrix * vertex.normal)
                     .normalize_or_zero()
                     .to_array(),
-                // The object's colour through the corner's own, which for a
-                // mesh of one colour is that colour times one. A highlight has
-                // already been folded into `color`, so a `Tint::Ink` still
-                // flattens the whole mesh to one and a `Tint::Lift` still
-                // brightens whatever each corner was.
-                color: (color * vertex.color).to_array(),
+                // The corner's own colour is folded in *before* the highlight,
+                // not after, and the order is the whole of what makes a
+                // [`Tint`](crate::Tint) mean what it says. What a corner is
+                // drawn in is the object's colour through its own — that colour
+                // times one, for a mesh that has nothing to say per corner — and
+                // that is what the highlight then replaces or lifts.
+                //
+                // The other way round, an `Ink` would be multiplied by each
+                // corner afterwards and come out as many colours as the mesh
+                // has, which is exactly what a highlight that *replaces* is for
+                // getting rid of.
+                color: {
+                    let own = object.color * vertex.color;
+                    look.map_or(own, |look| look.tint.over(own)).to_array()
+                },
             });
             self.extend(vertices, &object.mesh.indices);
         }

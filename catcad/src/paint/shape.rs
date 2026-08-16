@@ -59,12 +59,7 @@ pub(super) const SQUARE_TRIANGLES: [[u32; 3]; 2] = [[0, 1, 2], [0, 2, 3]];
 /// is what fixes it.
 pub(super) fn hub() -> [DVec2; 4] {
     let half = SHAFT_HALF * ARROW_REACH;
-    [
-        DVec2::new(-half, -half),
-        DVec2::new(half, -half),
-        DVec2::new(half, half),
-        DVec2::new(-half, half),
-    ]
+    square(-half, half)
 }
 
 /// The four corners of the square sitting in the quadrant the two axes shut in.
@@ -74,12 +69,21 @@ pub(super) fn hub() -> [DVec2; 4] {
 /// rather than from anything a caller chooses.
 pub(super) fn corner() -> [DVec2; 4] {
     let near = SHAFT_HALF * ARROW_REACH;
-    let far = (SHAFT_HALF + CORNER_SIDE) * ARROW_REACH;
+    square(near, near + CORNER_SIDE * ARROW_REACH)
+}
+
+/// The four corners of the square running from `low` to `high` on both axes,
+/// wound the way [`SQUARE_TRIANGLES`] reads them.
+///
+/// Both squares a gizmo is made of go through here, which is the point: the two
+/// differ in where they sit and in nothing else, and written out twice they
+/// would be two chances to wind one of them the other way about.
+fn square(low: f64, high: f64) -> [DVec2; 4] {
     [
-        DVec2::new(near, near),
-        DVec2::new(far, near),
-        DVec2::new(far, far),
-        DVec2::new(near, far),
+        DVec2::new(low, low),
+        DVec2::new(high, low),
+        DVec2::new(high, high),
+        DVec2::new(low, high),
     ]
 }
 
