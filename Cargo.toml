@@ -40,10 +40,11 @@ dhat = "0.3"
 missing_debug_implementations = "deny"
 unreachable_pub = "deny"
 
-# Profiles only take effect at the workspace root, so palantir's own tuning is
-# restated here — its renderer and shaper are unusable at opt-level 0.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.bench]
-debug = true
+debug = "line-tables-only"
 opt-level = 3
 strip = "none"
 split-debuginfo = "off"
@@ -51,7 +52,7 @@ lto = "fat"
 codegen-units = 1
 
 [profile.release]
-debug = true
+debug = "line-tables-only"
 opt-level = 3
 strip = "none"
 split-debuginfo = "off"
