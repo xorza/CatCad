@@ -791,6 +791,12 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
         "the first click of a circle reached the document"
     );
 
+    // Out to the rim before clicking there, which is what drawing a circle
+    // *is*: the band follows the pointer, and the form asking for a radius
+    // stands clear of the band rather than of the centre — so where it goes is
+    // only settled once there is a circle for it to keep off.
+    harness.move_to(at_rim);
+    frame(&mut app, &mut harness);
     harness.click_at(at_rim);
     frame(&mut app, &mut harness);
     let sketch = app.document.drawing_at(app.session.editing()).sketch();
@@ -1977,5 +1983,159 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
             .is_none(),
         "the form went on growing a region at the position its own one used to \
          hold, which is a different region"
+    );
+}
+
+/// **A circle's radius is asked for rather than taken.**
+///
+/// The bar's other offers state something the drawing can work out for itself;
+/// a radius is a *number*, and until there was somewhere to type one the offer
+/// could only lock whatever size the circle happened to be — which `Model::offers`
+/// says outright.
+///
+/// The second kind of form to stand `Beside` something, and the one that proves
+/// the shape generalised: a different `Asking`, a different `Change` on commit,
+/// and a handle rather than a `Profile` for what it is about.
+#[test]
+fn asking_for_a_radius_states_it_rather_than_locking_what_is_there() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    let sketch = app.session.editing();
+    // One the drawing does not already hold to a size — the offer is for a
+    // circle that has none, and the demo draws one of each.
+    let drawing = app.document.drawing_at(sketch);
+    let held_to = |circle| {
+        drawing.sketch().constraints().any(|(_, held)| {
+            matches!(held, silverpoint::Constraint::Radius { circle: at, .. } if at == circle)
+        })
+    };
+    let (circle, was) = drawing
+        .sketch()
+        .circles()
+        .find(|&(id, _)| !held_to(id))
+        .map(|(id, held)| (id, held.radius))
+        .expect("the demo draws a circle with no radius stated");
+    let mut intents = Intents::default();
+    intents.push(Choice::Select(Some(Part::Entity {
+        sketch,
+        entity: circle.into(),
+    })));
+    app.session.apply(
+        app.document.models(&app.build, app.session.editing()),
+        &intents,
+    );
+    frame(&mut app, &mut harness);
+
+    let radii = |app: &CatCad| {
+        app.document
+            .drawing_at(sketch)
+            .sketch()
+            .constraints()
+            .filter(|(_, held)| matches!(held, silverpoint::Constraint::Radius { .. }))
+            .count()
+    };
+    let before = radii(&app);
+
+    // The Radius offer is the only thing a single circle admits, so it is the
+    // leftmost button on the bottom bar — the same place Extrude sits when a
+    // region is what is picked out.
+    harness.click_at(EXTRUDE_BUTTON);
+    frame(&mut app, &mut harness);
+    assert_eq!(
+        app.session.prompt().and_then(|open| open.value(0)),
+        Some(was),
+        "the form opened on some size other than the one the circle is"
+    );
+    assert_eq!(
+        radii(&app),
+        before,
+        "pressing Radius stated one before it was typed"
+    );
+
+    // Typed to something the circle is not, and settled. What lands is a
+    // relation holding it there, which is what the offer could never say.
+    harness.type_text("3");
+    frame(&mut app, &mut harness);
+    harness.key(Key::Enter);
+    frame(&mut app, &mut harness);
+    assert!(app.session.prompt().is_none(), "Enter left the form open");
+    assert_eq!(radii(&app), before + 1, "committing stated no radius");
+    let now = app
+        .document
+        .drawing_at(sketch)
+        .sketch()
+        .circle(circle)
+        .radius;
+    assert!(
+        (now.abs() - 3.0).abs() < 1e-6,
+        "the circle settled at {now} rather than the 3 that was typed"
+    );
+}
+
+/// **A circle's radius can be typed instead of clicked, and the form asking for
+/// it stands from the moment there is a centre.**
+///
+/// The one form that stands where there is nothing yet to name. Every other
+/// restates something already drawn; this one *makes* the circle, which is the
+/// only way a tool can offer a form at all — what a change makes has no handle
+/// until the change lands, and the session applies before the history does.
+#[test]
+fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+    let rings = |app: &CatCad| {
+        app.document
+            .drawing_at(app.session.editing())
+            .sketch()
+            .circles()
+            .count()
+    };
+    let before = rings(&app);
+
+    let plane = app.document.drawing_at(app.session.editing()).plane();
+    let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
+    let at_middle = cursor_on(&mut app, middle);
+
+    harness.click_at(CIRCLE_BUTTON);
+    frame(&mut app, &mut harness);
+    harness.click_at(at_middle);
+    frame(&mut app, &mut harness);
+    assert!(
+        matches!(
+            app.session.prompt().map(Prompt::about),
+            Some(Asking::Circle { .. })
+        ),
+        "putting the centre down opened no form"
+    );
+    assert_eq!(before, rings(&app), "the centre click reached the document");
+
+    // Typed rather than clicked, and settled. The tool goes back to its first
+    // click, which is where a second one would have left it.
+    harness.type_text("2");
+    frame(&mut app, &mut harness);
+    harness.key(Key::Enter);
+    frame(&mut app, &mut harness);
+    assert!(app.session.prompt().is_none(), "Enter left the form open");
+    assert_eq!(rings(&app), before + 1, "the typed radius drew no circle");
+    assert_eq!(
+        app.session.tool(),
+        Tool::Circle { center: None },
+        "the tool did not go back to its first click"
+    );
+
+    // At the size that was typed, measured off the centre it was struck from.
+    let drawing = app.document.drawing_at(app.session.editing());
+    let (_, drawn) = drawing
+        .sketch()
+        .circles()
+        .last()
+        .expect("the circle that was just drawn");
+    assert!(
+        (drawn.radius.abs() - 2.0).abs() < 1e-6,
+        "the circle came out at {} rather than the 2 that was typed",
+        drawn.radius
     );
 }

@@ -7,7 +7,7 @@ use palantir::{
     Sizing, Text, TextWrap, Ui,
 };
 
-use crate::intent::{Change, Choice, Errand, Intents, Opening, Step};
+use crate::intent::{Change, Choice, Errand, Intent, Intents, Opening, Step};
 use crate::model::{Model, Models};
 use crate::paint::DECIMALS;
 use crate::part::Part;
@@ -155,7 +155,22 @@ impl Hud {
                     .left
                     .clicked();
                 if pressed {
-                    intents.push(Change::Constrain { sketch, constraint });
+                    // A radius *asks* where every other relation states. The
+                    // rest say something the drawing can work out for itself —
+                    // that two edges are parallel, that a point sits on one —
+                    // and a radius is a number, which until now could only be
+                    // the size the circle happened to be. See
+                    // [`Opening::Radius`].
+                    intents.push(match constraint {
+                        Constraint::Radius { circle, radius } => {
+                            Intent::from(Choice::Ask(Some(Opening::Radius {
+                                sketch,
+                                circle,
+                                from: radius,
+                            })))
+                        }
+                        constraint => Change::Constrain { sketch, constraint }.into(),
+                    });
                 }
             }
         });

@@ -107,7 +107,17 @@ impl Session {
     pub(crate) fn apply(&mut self, models: Models<'_>, intents: &Intents) {
         for intent in intents.iter() {
             match intent {
-                Intent::Choice(Choice::Hold(tool)) => self.tool = tool,
+                // A tool put down or taken up abandons whatever the last one
+                // was half-way through, and a form asking about that half is
+                // part of it — see [`Tool`]. Closed here rather than by
+                // whoever raises the `Hold`, so the three ways to put a tool
+                // down cannot come to disagree.
+                Intent::Choice(Choice::Hold(tool)) => {
+                    if !self.tool.is(tool) {
+                        self.prompt = None;
+                    }
+                    self.tool = tool;
+                }
                 // Picking something out opens the sketch it came from. The
                 // one gesture that says which sketch you mean is the one that
                 // says which *thing* you mean, so there is no second one to
@@ -137,6 +147,17 @@ impl Session {
                         Opening::Dimension { part, from } => {
                             Prompt::on(Asking::Dimension { part }, &[("", from)])
                         }
+                        // At no size at all, which is where a circle starts:
+                        // the centre is placed and the radius is the thing
+                        // being asked for.
+                        Opening::Circle { sketch, center } => {
+                            Prompt::on(Asking::Circle { sketch, center }, &[("Radius", 0.0)])
+                        }
+                        Opening::Radius {
+                            sketch,
+                            circle,
+                            from,
+                        } => Prompt::on(Asking::Radius { sketch, circle }, &[("Radius", from)]),
                         // At no depth at all, which is where the ask starts:
                         // the solid is on screen from the moment the form
                         // opens, and a zero-depth prism is a well-formed one.
@@ -204,7 +225,7 @@ impl Session {
         if self
             .prompt
             .as_ref()
-            .and_then(Prompt::marks)
+            .and_then(Prompt::holds)
             .is_some_and(|part| !models.holds(part))
         {
             self.prompt = None;

@@ -20,15 +20,17 @@ use palantir::{
     Align, Button, ButtonTheme, ClickOutside, Configure, Panel, Popup, Rect, Sizing, Text,
     TextEdit, TextEditTheme, TextRun, TextWrap, Ui, WidgetId,
 };
-use silverpoint::Entity;
+use silverpoint::{CircleId, Constraint, Entity};
 use std::fmt::Write;
 
+use crate::drawing::anchor::Anchor;
 use crate::intent::{Change, Choice, Intents, Step};
-use crate::model::Models;
+use crate::model::{Model, Models};
 use crate::paint::{DECIMALS, Growing, mark_font, mark_lift};
 use crate::part::Part;
 use crate::profile::Profile;
 use crate::timeline::FeatureId;
+use crate::tool::Tool;
 
 pub(crate) mod look;
 
@@ -44,6 +46,20 @@ pub(crate) mod look;
 pub(crate) enum Asking {
     /// A sketch dimension being restated.
     Dimension { part: Part },
+    /// A circle being drawn about a centre already placed.
+    ///
+    /// The one form that stands where there is nothing yet to name — see
+    /// [`Opening::Circle`](crate::intent::Opening). Committing it *makes* the
+    /// circle, where every other arm here restates something already drawn, and
+    /// cancelling puts the tool back to its first click.
+    Circle { sketch: FeatureId, center: Anchor },
+    /// A circle being held to a radius it does not yet have.
+    ///
+    /// A [`CircleId`] and not a [`Profile`], unlike the arm below, and the
+    /// difference is what each of them names: a circle is one of the sketch's
+    /// own handles, which survives its geometry moving and being cut into
+    /// pieces, where a region is a face of an arrangement and survives nothing.
+    Radius { sketch: FeatureId, circle: CircleId },
     /// A solid being grown off a region, *before* it reaches the timeline.
     ///
     /// Held here rather than created at zero and carried, because a
@@ -109,6 +125,13 @@ pub(crate) fn footprint(
     }
     drawn.then(|| Rect::new(low.x, low.y, high.x - low.x, high.y - low.y))
 }
+
+/// How far a form standing beside something keeps off it, in logical pixels.
+///
+/// Enough that the box does not read as part of the drawing, and enough that
+/// the outline it is about — a circle's rim while it is being drawn — is not
+/// underneath it.
+const STANDS_CLEAR: f32 = 14.0;
 
 /// One value being typed, and what to call it where two are asked for at once.
 #[derive(Debug)]
@@ -233,8 +256,31 @@ impl Prompt {
     /// the depth arrow ask for the plane it travels on without a solve in hand.
     pub(crate) fn carrying(&self) -> Option<FeatureId> {
         match &self.about {
-            Asking::Dimension { .. } => None,
+            Asking::Dimension { .. } | Asking::Radius { .. } | Asking::Circle { .. } => None,
             Asking::Extrude { profile } => Some(profile.sketch()),
+        }
+    }
+
+    /// The part of the drawing this form is about, where it is about one the
+    /// document holds.
+    ///
+    /// What a session prunes on: a form open over geometry an undo took away
+    /// would commit onto a handle naming nothing. Apart from [`Prompt::marks`],
+    /// which answers a different question — a dimension's form *stands where its
+    /// mark would be* and the drawing leaves it out, and a radius form stands
+    /// beside a circle whose mark does not exist yet.
+    pub(crate) fn holds(&self) -> Option<Part> {
+        match &self.about {
+            Asking::Dimension { part } => Some(*part),
+            Asking::Radius { sketch, circle } => Some(Part::Entity {
+                sketch: *sketch,
+                entity: (*circle).into(),
+            }),
+            // Named by a `Profile` rather than a `Part`, so what says it is
+            // still there is the name failing to resolve — see
+            // [`Prompt::growing`]. A circle being drawn names nothing the
+            // document holds at all, which is the point of it.
+            Asking::Extrude { .. } | Asking::Circle { .. } => None,
         }
     }
 
@@ -244,9 +290,9 @@ impl Prompt {
     /// where the mark would be, and both at once would be one on top of the
     /// other.
     pub(crate) fn marks(&self) -> Option<Part> {
-        match self.about {
-            Asking::Dimension { part } => Some(part),
-            Asking::Extrude { .. } => None,
+        match &self.about {
+            Asking::Dimension { part } => Some(*part),
+            Asking::Radius { .. } | Asking::Extrude { .. } | Asking::Circle { .. } => None,
         }
     }
 
@@ -342,7 +388,7 @@ impl Prompt {
     fn blurs(&self) -> bool {
         match self.about {
             Asking::Dimension { .. } => true,
-            Asking::Extrude { .. } => false,
+            Asking::Radius { .. } | Asking::Extrude { .. } | Asking::Circle { .. } => false,
         }
     }
 
@@ -384,6 +430,44 @@ impl Prompt {
                 // scrub's release gives, because `Resize` coalesces and this is
                 // what closes the run of them.
                 intents.push(Step::Release);
+            }
+            // The one commit that *makes* geometry. A radius rather than a rim
+            // to put it at, so the rim is one the plane's own x-axis puts there
+            // — bare plane, holding to nothing, which is what a number typed
+            // rather than a place clicked has to mean.
+            Asking::Circle { sketch, center } => {
+                let Some(radius) = self.value(0).filter(|radius| *radius > 0.0) else {
+                    return;
+                };
+                let Some(drawing) = models.at(*sketch).map(Model::drawing) else {
+                    return;
+                };
+                let middle = drawing.at(*center);
+                let rim = Anchor::At(middle + drawing.plane().x.as_vec3() * radius as f32);
+                intents.push(Change::AddCircle {
+                    sketch: *sketch,
+                    center: *center,
+                    rim,
+                });
+                // Back to its first click, which is where the tool would be
+                // after a second one. A form is the other way of giving the
+                // same answer, so it leaves the tool in the same place.
+                intents.push(Choice::Hold(Tool::Circle { center: None }));
+            }
+            Asking::Radius { sketch, circle } => {
+                let Some(radius) = self.value(0) else {
+                    return;
+                };
+                // A relation rather than a restatement: the circle has no
+                // radius to restate until this puts one on it, which is the
+                // whole of what the offer was short of.
+                intents.push(Change::Constrain {
+                    sketch: *sketch,
+                    constraint: Constraint::Radius {
+                        circle: *circle,
+                        radius,
+                    },
+                });
             }
             Asking::Extrude { profile } => {
                 let Some(distance) = self.value(0) else {
@@ -513,6 +597,17 @@ impl Prompt {
     /// value is *also* dragged by an arrow in the drawing would mean a form you
     /// could never drag against.
     fn beside(&mut self, ui: &mut Ui, anchor: Rect, opening: bool) -> Option<Done> {
+        // Stood clear of what it is about rather than against it. [`Popup`]
+        // places a body flush with its anchor, and flush with the outline of
+        // the thing being measured is on top of it — so the anchor is grown by
+        // the gap the form should keep, which is also the gap the fitting then
+        // preserves when it flips the form to the other side.
+        let anchor = Rect::new(
+            anchor.min.x - STANDS_CLEAR,
+            anchor.min.y - STANDS_CLEAR,
+            anchor.size.w + STANDS_CLEAR * 2.0,
+            anchor.size.h + STANDS_CLEAR * 2.0,
+        );
         let answerable = self.answered();
         let Self {
             fields,
@@ -530,39 +625,47 @@ impl Prompt {
                 if opening {
                     ui.request_focus(Some(Self::field_id(0)));
                 }
-                Panel::hstack().id_salt("row").show(ui, |ui| {
-                    for (nth, field) in fields.iter_mut().enumerate() {
-                        if !field.label.is_empty() {
-                            Text::new(field.label).id_salt(field.label).show(ui);
+                // A column, so the answers sit under what they answer rather
+                // than running off to one side of it — two buttons on the end
+                // of a row put the whole form wider than the number it is
+                // about, and it is standing on a drawing.
+                Panel::vstack().id_salt("form").show(ui, |ui| {
+                    Panel::hstack().id_salt("row").show(ui, |ui| {
+                        for (nth, field) in fields.iter_mut().enumerate() {
+                            if !field.label.is_empty() {
+                                Text::new(field.label).id_salt(field.label).show(ui);
+                            }
+                            let shown = TextEdit::new(&mut field.draft)
+                                .id(Self::field_id(nth))
+                                .style(look)
+                                .select_all_on_focus()
+                                .text_align(Align::CENTER)
+                                .size((Sizing::HUG, Sizing::HUG))
+                                .show(ui);
+                            said = said.and(Said::of(&shown));
                         }
-                        let shown = TextEdit::new(&mut field.draft)
-                            .id(Self::field_id(nth))
-                            .style(look)
-                            .select_all_on_focus()
-                            .text_align(Align::CENTER)
-                            .size((Sizing::HUG, Sizing::HUG))
-                            .show(ui);
-                        said = said.and(Said::of(&shown));
-                    }
+                    });
                     // Only where this is how the form is dismissed. A form that
                     // blurs shut has no use for them, and two buttons that were
                     // not the way out would be two buttons lying about it.
                     if answerable {
-                        for (glyph, theme, answer) in [
-                            (look::CONFIRM, &*goes, Done::Commit),
-                            (look::CANCEL, &*stops, Done::Cancel),
-                        ] {
-                            let pressed = Button::new()
-                                .id_salt(glyph)
-                                .label(glyph)
-                                .style(theme)
-                                .show(ui)
-                                .left
-                                .clicked();
-                            if pressed {
-                                answered = Some(answer);
+                        Panel::hstack().id_salt("answers").show(ui, |ui| {
+                            for (glyph, theme, answer) in [
+                                (look::CONFIRM, &*goes, Done::Commit),
+                                (look::CANCEL, &*stops, Done::Cancel),
+                            ] {
+                                let pressed = Button::new()
+                                    .id_salt(glyph)
+                                    .label(glyph)
+                                    .style(theme)
+                                    .show(ui)
+                                    .left
+                                    .clicked();
+                                if pressed {
+                                    answered = Some(answer);
+                                }
                             }
-                        }
+                        });
                     }
                 });
             });

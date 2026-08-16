@@ -496,6 +496,14 @@ impl SceneView {
                     intents.push(Choice::Hold(Tool::Circle {
                         center: Some(middle),
                     }));
+                    // The radius can be typed as well as clicked, so the form
+                    // stands from the moment there is a centre to measure one
+                    // from. Both ways finish the circle; whichever is used
+                    // first is the one that does.
+                    intents.push(Choice::Ask(Some(Opening::Circle {
+                        sketch,
+                        center: middle,
+                    })));
                 }
                 (
                     Tool::Circle {
@@ -509,6 +517,9 @@ impl SceneView {
                         rim,
                     });
                     intents.push(Choice::Hold(Tool::Circle { center: None }));
+                    // The click answered what the form was asking, so the form
+                    // has nothing left to ask.
+                    intents.push(Choice::Ask(None));
                 }
                 // Nothing in hand — or a plane seen so nearly edge-on that a
                 // click names nowhere on it, where there is nothing to build
@@ -778,6 +789,16 @@ impl SceneView {
         // than pushed by the document, which has no business knowing a renderer
         // exists.
         *renderer.camera_mut() = document.camera();
+    }
+
+    /// Where the band has carried the rim of the circle being drawn, if one is
+    /// being drawn.
+    ///
+    /// What a form asking for a radius is placed against. The band rather than
+    /// the centre it was struck from: a form flush with the centre is a form
+    /// under the circle, and under the very click that would finish it.
+    pub(crate) fn band_rim(&self) -> Option<Vec3> {
+        self.preview.and_then(Preview::ring).map(|band| band.to)
     }
 
     /// Where the region at `region` of `sketch` lands on screen, or `None` where

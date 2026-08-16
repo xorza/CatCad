@@ -2,7 +2,7 @@
 
 use aperture::Projection;
 use glam::Vec3;
-use silverpoint::{Constraint, ConstraintId, Entity};
+use silverpoint::{CircleId, Constraint, ConstraintId, Entity};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -401,6 +401,25 @@ pub(crate) enum Choice {
 pub(crate) enum Opening {
     /// Restate a dimension, seeded with what it measures now.
     Dimension { part: Part, from: f64 },
+    /// Draw a circle about a centre already placed, seeded at no size at all.
+    ///
+    /// Opened by the click that puts the centre down, so the form is standing
+    /// *before* there is a circle — which is the only reason a tool can offer
+    /// one at all. What a change makes has no handle until the change lands,
+    /// and the session applies before the history does; a form opened after
+    /// the fact would have nothing to name.
+    Circle { sketch: FeatureId, center: Anchor },
+    /// Hold a circle to a radius, seeded with the size it already is.
+    ///
+    /// A *number* where the bar's other offers are relations: every one of them
+    /// says something the drawing can work out for itself, and this one needs a
+    /// value nobody has typed yet — which is what the offer has always been
+    /// short of. See [`Model::offers`](crate::model::Model).
+    Radius {
+        sketch: FeatureId,
+        circle: CircleId,
+        from: f64,
+    },
     /// Grow a solid off a region, seeded at no depth at all.
     ///
     /// Nothing reaches the timeline until the form is committed — see

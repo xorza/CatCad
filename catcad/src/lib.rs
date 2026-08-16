@@ -298,6 +298,29 @@ impl CatCad {
                 let at = at.expect("a form is open over a dimension the drawing no longer holds");
                 camera.screen_of(at, viewport).map(Stands::Over)
             }
+            // Beside the centre already placed, which is all there is of the
+            // circle until a radius says otherwise.
+            Asking::Circle { sketch, center } => models
+                .at(*sketch)
+                .and_then(|model| {
+                    // The whole rim rather than the centre and the pointer
+                    // between them: a circle reaches its radius in *every*
+                    // direction, so a box drawn to wherever the band happens to
+                    // have got to is a quarter of one — and a form standing
+                    // clear of that quarter stands on the rest.
+                    let middle = model.drawing().at(*center);
+                    let radius = self.view.band_rim().map_or(0.0, |to| middle.distance(to));
+                    crate::prompt::footprint(model.rim_around(middle, radius), &camera, viewport)
+                })
+                .map(Stands::Beside),
+            // Beside the circle it is about, which is the rim projected: a
+            // form standing over the middle of one would cover the very
+            // geometry the number is describing.
+            Asking::Radius { sketch, circle } => {
+                let rim = models.at(*sketch).map(|model| model.rim_of(*circle));
+                rim.and_then(|rim| crate::prompt::footprint(rim, &camera, viewport))
+                    .map(Stands::Beside)
+            }
             // Resolved here rather than remembered, for the reason the form
             // holds a name at all: the arrangement it was read from is not the
             // one it is being drawn against.
