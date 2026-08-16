@@ -33,6 +33,13 @@ A value can be said twice — by the pointer and by the keyboard — and the rul
 for which is speaking needs no flag: **the keyboard is driving exactly when the
 draft is not empty.** Backspacing the last character hands the pointer back.
 
+Which of the two starts with the value is `Seed`'s to say, and it follows from
+what the form is *for*: `Stated` puts it in the draft, for restating something
+already drawn; `Offered` puts it in the placeholder, for making something new.
+Getting that wrong is not a crash but a field that will not hand control back —
+a seeded draft reads as one somebody typed, so the pointer never drives and the
+placeholder is never seen.
+
 That works because the pointer writes the **placeholder**, not the draft. A
 pointer writing the draft of a focused field destroys the selection that makes
 the first keystroke *replace* rather than insert, so typing `3` into a field the
@@ -86,3 +93,7 @@ Rough edges:
 - The form has no chrome behind it, so a label floats over the model.
 - The depth arrow stands at the widest fill triangle's middle: inside the region
   by construction, which is what makes it grabbable, but not centred in it.
+- The solid arrow reads pale against a light solid. Its shading is baked into
+  the corners against `aperture::KEY_LIGHT` — the gizmo pass is unlit and must
+  stay so, or an axis would say which axis it is differently on every plane — so
+  the contrast is `lit`'s floor to choose, not the renderer's.

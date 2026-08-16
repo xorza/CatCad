@@ -1329,3 +1329,35 @@ fn a_gizmo_sorts_against_a_face_by_which_is_nearer_rather_than_by_pass_order() {
          colour than one behind it ({under:?})"
     );
 }
+
+/// **The shader is lit from where the crate says it is.**
+///
+/// [`KEY_LIGHT`] is the one compile-time number written in both languages. Every
+/// other — the ring's step count, the minimum run, the mesh alpha — crosses as a
+/// pipeline constant with the Rust side stating it, precisely so that nothing
+/// has to be kept in step by hand; a vector cannot, because WGSL's `override`
+/// takes scalars only.
+///
+/// So the shader is read and the two are compared. Left to drift, a caller
+/// baking its own shading against `KEY_LIGHT` would light its handles from a
+/// different direction than the model they stand on — which looks like nothing
+/// at all until you notice the model is lit from the other side.
+#[test]
+fn the_shader_is_lit_from_where_the_crate_says() {
+    let source = include_str!("shader/mesh.wgsl");
+    let stated = source
+        .lines()
+        .find_map(|line| line.strip_prefix("const KEY_DIR: vec3<f32> = vec3<f32>("))
+        .expect("the shader states where its key light is")
+        .trim_end_matches(");");
+    let read: Vec<f32> = stated
+        .split(',')
+        .map(|part| part.trim().parse().expect("a number"))
+        .collect();
+    assert_eq!(
+        read,
+        crate::KEY_LIGHT.to_array(),
+        "the shader is lit from {read:?} and the crate says {:?}",
+        crate::KEY_LIGHT,
+    );
+}

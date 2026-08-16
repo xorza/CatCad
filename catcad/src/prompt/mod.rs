@@ -140,6 +140,43 @@ const STANDS_CLEAR: f32 = 14.0;
 /// near each other.
 const GAP: f32 = 4.0;
 
+/// What a field opens showing, and so which of the two inputs starts with it.
+///
+/// The one rule that keeps every form consistent, and it follows from what the
+/// form is *for*: something already drawn has a value, and something being made
+/// does not. Getting it wrong is not a crash but a field that will not hand
+/// control back — a draft seeded with a number reads as one somebody typed, so
+/// the pointer never drives and the placeholder is never seen.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Seed {
+    /// A value already decided, in the **draft**. What restating something
+    /// already drawn opens on: the keyboard has it from the first frame,
+    /// because somebody already said it.
+    Stated(f64),
+    /// A value nobody has decided, in the **placeholder**. What making
+    /// something new opens on: the pointer has it, the draft is empty, and the
+    /// first keystroke lands in a field with nothing to fight.
+    ///
+    /// Still a number rather than nothing, so what the drawing shows of the
+    /// half-made thing is decided from the moment the form opens — a solid at
+    /// no depth rather than no solid.
+    Offered(f64),
+}
+
+/// A depth being decided: the sketch whose plane it is measured along, and how
+/// deep it currently reads.
+///
+/// What a press on the arrow that carries it needs, and both halves are needed
+/// together. The plane says which line the drag travels on; the depth says how
+/// far up that line the *handle* was, which is not the same as how far up the
+/// solid is — an arrow stands off the face it carries, so a grab near its head
+/// is a grab a whole arrow-length past the depth it sets.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Carrying {
+    pub(crate) sketch: FeatureId,
+    pub(crate) depth: f64,
+}
+
 /// One value being typed, and what to call it where two are asked for at once.
 #[derive(Debug)]
 struct Field {
@@ -249,19 +286,26 @@ enum Done {
 impl Prompt {
     /// Open a form for `about`, seeded with `values`.
     ///
-    /// A field seeded `None` opens **empty**, which is a field the pointer is
-    /// driving — see [`Field::suggested`]. What restates something already
-    /// drawn opens on the value it currently has; what is still being made has
-    /// no value yet, only whatever the pointer is describing.
-    pub(crate) fn on(about: Asking, values: &[(&'static str, Option<f64>)]) -> Self {
+    /// Which of the two inputs each field starts with is [`Seed`]'s to say.
+    pub(crate) fn on(about: Asking, values: &[(&'static str, Seed)]) -> Self {
         Self {
             about,
             fields: values
                 .iter()
-                .map(|&(label, value)| Field {
-                    label,
-                    draft: value.map_or_else(String::new, |value| format!("{value:.*}", DECIMALS)),
-                    suggested: String::new(),
+                .map(|&(label, seed)| {
+                    let said = |value: f64| format!("{value:.*}", DECIMALS);
+                    match seed {
+                        Seed::Stated(value) => Field {
+                            label,
+                            draft: said(value),
+                            suggested: String::new(),
+                        },
+                        Seed::Offered(value) => Field {
+                            label,
+                            draft: String::new(),
+                            suggested: said(value),
+                        },
+                    }
                 })
                 .collect(),
             shown: false,
@@ -279,13 +323,17 @@ impl Prompt {
     /// The sketch whose region this form is growing a solid off, where that is
     /// what it is about.
     ///
-    /// The sketch alone, because it is the half of a [`Profile`] that needs no
-    /// arrangement to resolve against — which is what lets the press that grabs
-    /// the depth arrow ask for the plane it travels on without a solve in hand.
-    pub(crate) fn carrying(&self) -> Option<FeatureId> {
+    /// The sketch rather than the region, because it is the half of a
+    /// [`Profile`] that needs no arrangement to resolve against — which is what
+    /// lets the press that grabs the depth arrow ask for the plane it travels
+    /// on without a solve in hand.
+    pub(crate) fn carrying(&self) -> Option<Carrying> {
         match &self.about {
             Asking::Dimension { .. } | Asking::Radius { .. } | Asking::Circle { .. } => None,
-            Asking::Extrude { profile } => Some(profile.sketch()),
+            Asking::Extrude { profile } => Some(Carrying {
+                sketch: profile.sketch(),
+                depth: self.says(0).unwrap_or_default(),
+            }),
         }
     }
 

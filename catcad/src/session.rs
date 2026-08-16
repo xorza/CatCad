@@ -3,7 +3,7 @@
 use crate::intent::{Choice, Intent, Intents, Opening};
 use crate::model::Models;
 use crate::part::Part;
-use crate::prompt::{Asking, Prompt};
+use crate::prompt::{Asking, Prompt, Seed};
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
@@ -145,21 +145,24 @@ impl Session {
                     // next one there is.
                     let opened = match opening {
                         Opening::Dimension { part, from } => {
-                            Prompt::on(Asking::Dimension { part }, &[("", Some(from))])
+                            Prompt::on(Asking::Dimension { part }, &[("", Seed::Stated(from))])
                         }
-                        // Empty, which is the pointer driving: a circle has no
-                        // radius until the band has been carried somewhere or
-                        // one has been typed, and the field shows whichever.
-                        Opening::Circle { sketch, center } => {
-                            Prompt::on(Asking::Circle { sketch, center }, &[("Radius", None)])
-                        }
+                        // Offered rather than stated, like every form that
+                        // *makes* something: the pointer has the value until
+                        // somebody types one, and the field shows whichever is
+                        // speaking. See [`Seed`].
+                        Opening::Circle { sketch, center } => Prompt::on(
+                            Asking::Circle { sketch, center },
+                            &[("Radius", Seed::Offered(0.0))],
+                        ),
                         Opening::Radius {
                             sketch,
                             circle,
                             from,
-                        } => {
-                            Prompt::on(Asking::Radius { sketch, circle }, &[("Radius", Some(from))])
-                        }
+                        } => Prompt::on(
+                            Asking::Radius { sketch, circle },
+                            &[("Radius", Seed::Stated(from))],
+                        ),
                         // At no depth at all, which is where the ask starts:
                         // the solid is on screen from the moment the form
                         // opens, and a zero-depth prism is a well-formed one.
@@ -173,7 +176,10 @@ impl Session {
                             else {
                                 continue;
                             };
-                            Prompt::on(Asking::Extrude { profile }, &[("Depth", Some(0.0))])
+                            Prompt::on(
+                                Asking::Extrude { profile },
+                                &[("Depth", Seed::Offered(0.0))],
+                            )
                         }
                     };
                     if self

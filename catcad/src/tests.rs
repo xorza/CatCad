@@ -1843,9 +1843,15 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
     frame(&mut app, &mut harness);
     harness.click_at(EXTRUDE_BUTTON);
     frame(&mut app, &mut harness);
+    // Offered rather than stated: the form *means* no depth without anybody
+    // having typed one, so the solid is on screen and the field is still the
+    // pointer's to write.
+    let open = app.session.prompt().expect("the form is open");
+    assert_eq!(open.says(0), Some(0.0));
     assert_eq!(
-        app.session.prompt().and_then(|open| open.value(0)),
-        Some(0.0)
+        open.typed(0),
+        None,
+        "nobody has typed, so nobody is driving"
     );
 
     // The arrow is the one gizmo naming a depth — found rather than guessed,
@@ -1885,9 +1891,15 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
         .prompt()
         .and_then(|open| open.value(0))
         .expect("the form stopped reading as a number");
+    // Exactly as far as the pointer travelled, which is the claim worth
+    // making. The arrow stands *off* the face it carries, so the press landed a
+    // whole arrow-length past the depth it sets — and unaccounted for, that
+    // length is added to every drag: the solid leaps to the pointer the moment
+    // it is touched. A test that only asked whether the depth had grown would
+    // pass on the leap.
     assert!(
-        deepened > 0.1,
-        "dragging the arrow left the depth at {deepened}"
+        (deepened - 1.0).abs() < 0.05,
+        "one unit of pointer carried the solid to {deepened}"
     );
     assert_eq!(
         solids(&app),

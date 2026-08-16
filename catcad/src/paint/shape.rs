@@ -1,18 +1,19 @@
-//! The flat outlines a drawing cuts for itself, as corners in a plane's own
-//! coordinates.
+//! The shapes a drawing cuts for itself, in coordinates of their own.
 //!
-//! Every shape here is a polygon in 2D and a list of triangles over it, and
-//! nothing here knows where the plane it belongs to sits — a caller maps the
-//! corners through [`Plane::point`](silverpoint::Plane::point) and gets world
-//! geometry lying in that plane, foreshortening as it turns and vanishing
-//! edge-on, because it genuinely lies there.
+//! Two kinds, and what tells them apart is whether they have volume. A **flat**
+//! shape is a polygon in 2D: a caller maps its corners through
+//! [`Plane::point`](silverpoint::Plane::point) and gets geometry lying in that
+//! plane, foreshortening as it turns and vanishing edge-on, because it genuinely
+//! lies there. A [`Solid`] is corners in a 3D frame, each carrying the way its
+//! face looks, and a caller maps them through a frame of three axes.
 //!
-//! Cut on the CPU rather than shaped by the renderer, which is what lets a
-//! control be ordinary world geometry: it costs a shader that does nothing but
-//! transform, and it costs nothing at all when the camera moves, since a shape
-//! measured in the plane has no opinion about where the camera is.
+//! Nothing here knows where anything sits. Cut on the CPU rather than shaped by
+//! the renderer, which is what lets a control be ordinary world geometry: it
+//! costs a shader that does nothing but transform, and it costs nothing at all
+//! when the camera moves, since a shape measured in its own frame has no
+//! opinion about where the camera is.
 
-use glam::DVec2;
+use glam::{DVec2, DVec3};
 
 /// How far a datum's axis arrows reach from its origin, in sketch units.
 ///
@@ -119,6 +120,118 @@ pub(super) fn arrow(along: DVec2) -> [DVec2; 7] {
         corner(base, HEAD_HALF),
         corner(1.0, 0.0),
     ]
+}
+
+/// One corner of a solid shape, in the shape's own frame: `x` runs along the
+/// axis it points down, `y` and `z` across it.
+///
+/// Carries the way its face looks as well as where it is, because a caller
+/// cannot work that out from the position — a solid arrow is *faceted*, so two
+/// corners in the same place on two faces look different ways, and which face a
+/// corner belongs to is the thing that decides how bright it reads.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Corner {
+    pub(super) at: DVec3,
+    pub(super) facing: DVec3,
+}
+
+/// A shape with volume, as corners and the triangles over them.
+#[derive(Debug, Default)]
+pub(super) struct Solid {
+    pub(super) corners: Vec<Corner>,
+    pub(super) triangles: Vec<[u32; 3]>,
+}
+
+impl Solid {
+    /// Add a face, which is however many corners wound in order.
+    ///
+    /// Fanned from the first, which is right for anything convex and every
+    /// face here is: a quad, a triangle, or a cap's ring.
+    fn face(&mut self, at: &[DVec3], facing: DVec3) {
+        let base = self.corners.len() as u32;
+        self.corners
+            .extend(at.iter().map(|&at| Corner { at, facing }));
+        self.triangles
+            .extend((1..at.len() as u32 - 1).map(|step| [base, base + step, base + step + 1]));
+    }
+}
+
+/// How many facets a solid arrow is turned out of.
+///
+/// Eight reads as round at the size a gizmo is drawn and costs forty-odd
+/// triangles. It is faceted rather than smoothed on purpose: a smooth normal
+/// would make the arrow read as a lit *object* among the drawing's geometry,
+/// where what it is is a control.
+const FACETS: usize = 8;
+
+/// The solid arrow, pointing down `+x` of its own frame and reaching
+/// [`ARROW_REACH`].
+///
+/// Built once and handed out, because none of it depends on where the arrow
+/// stands: the shape is constants, and only the frame it is mapped through
+/// moves. A drag rewrites the gizmo every frame and this costs it nothing.
+pub(super) fn solid_arrow() -> &'static Solid {
+    static SHAPE: std::sync::OnceLock<Solid> = std::sync::OnceLock::new();
+    SHAPE.get_or_init(|| {
+        let shaft = SHAFT_HALF * ARROW_REACH;
+        let head = HEAD_HALF * ARROW_REACH;
+        let base = (1.0 - HEAD) * ARROW_REACH;
+        let around = |step: usize, radius: f64, along: f64| {
+            let angle = step as f64 / FACETS as f64 * std::f64::consts::TAU;
+            DVec3::new(along, angle.cos() * radius, angle.sin() * radius)
+        };
+        let mut solid = Solid::default();
+        for step in 0..FACETS {
+            let (near, far) = (step, step + 1);
+            // The shaft's side, and the head's, each facing out of the axis
+            // rather than out of one of its two edges — a facet's own middle is
+            // what it looks along.
+            let out = |radius: f64| {
+                let (a, b) = (around(near, radius, 0.0), around(far, radius, 0.0));
+                DVec3::new(0.0, a.y + b.y, a.z + b.z).normalize_or_zero()
+            };
+            solid.face(
+                &[
+                    around(near, shaft, 0.0),
+                    around(near, shaft, base),
+                    around(far, shaft, base),
+                    around(far, shaft, 0.0),
+                ],
+                out(shaft),
+            );
+            // The head, leaning in towards the tip: its facet looks part way
+            // between straight out and straight along.
+            // How far the head leans in towards the tip, which is how much of
+            // its facet looks along the axis rather than out of it.
+            let lean = head / (ARROW_REACH - base);
+            let side = out(head);
+            solid.face(
+                &[
+                    around(near, head, base),
+                    DVec3::new(ARROW_REACH, 0.0, 0.0),
+                    around(far, head, base),
+                ],
+                (side + DVec3::X * lean).normalize_or_zero(),
+            );
+            // The ring the head overhangs the shaft by, seen from below.
+            solid.face(
+                &[
+                    around(near, shaft, base),
+                    around(near, head, base),
+                    around(far, head, base),
+                    around(far, shaft, base),
+                ],
+                DVec3::NEG_X,
+            );
+        }
+        // The two ends. The tail is a cap; the head has none, being a point.
+        let tail: Vec<DVec3> = (0..FACETS)
+            .rev()
+            .map(|step| around(step, shaft, 0.0))
+            .collect();
+        solid.face(&tail, DVec3::NEG_X);
+        solid
+    })
 }
 
 #[cfg(test)]
@@ -248,6 +361,75 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// **The solid arrow is a closed shell, and every number of it is a
+    /// number.**
+    ///
+    /// A shape with volume is drawn through a two-sided pass, so a face left out
+    /// would let the eye through into the shape's own inside — and the pass is
+    /// unlit, so what came back would be flat colour rather than anything that
+    /// read as a mistake.
+    ///
+    /// Checked by counting how many faces each edge belongs to: every edge of a
+    /// closed shell is shared by exactly two. The disc from the axis out to the
+    /// shaft, where the head sits on it, is *not* missing and does not need to
+    /// be — the ring carries the surface from the shaft's rim out to the head's
+    /// and the cone takes it to the tip, so the inside is enclosed without it.
+    #[test]
+    fn the_solid_arrow_is_a_closed_shell() {
+        let solid = solid_arrow();
+        assert!(!solid.triangles.is_empty());
+        for corner in &solid.corners {
+            assert!(corner.at.is_finite(), "a corner at {:?}", corner.at);
+            assert!(
+                (corner.facing.length() - 1.0).abs() < 1e-9,
+                "a face looking {:?}, which is no direction",
+                corner.facing
+            );
+        }
+
+        // Reaches exactly as far as it says, and no further.
+        let along = solid
+            .corners
+            .iter()
+            .map(|corner| corner.at.x)
+            .fold(f64::MIN, f64::max);
+        assert!(
+            (along - ARROW_REACH).abs() < 1e-9,
+            "the arrow reaches {along}, where it says {ARROW_REACH}"
+        );
+
+        // Edges counted by where their two ends *are*, not by which corner
+        // index they used: the shape is faceted, so a shared edge is two
+        // corners in one place rather than one corner in two faces.
+        /// A corner as something two faces can agree about — rounded, because
+        /// the two sides of a shared edge reach it by different arithmetic.
+        type At = (i64, i64, i64);
+        let key = |at: DVec3| -> At {
+            let round = |value: f64| (value * 1e6).round() as i64;
+            (round(at.x), round(at.y), round(at.z))
+        };
+        let mut shared: std::collections::HashMap<(At, At), usize> =
+            std::collections::HashMap::new();
+        for &[a, b, c] in &solid.triangles {
+            let at = |corner: u32| key(solid.corners[corner as usize].at);
+            for (from, to) in [(a, b), (b, c), (c, a)] {
+                let (from, to) = (at(from), at(to));
+                let edge = if from < to { (from, to) } else { (to, from) };
+                *shared.entry(edge).or_default() += 1;
+            }
+        }
+        let open: Vec<_> = shared
+            .iter()
+            .filter(|(_, faces)| **faces != 2)
+            .map(|(edge, faces)| (*edge, *faces))
+            .collect();
+        assert!(
+            open.is_empty(),
+            "{} edges of the shell are not shared by exactly two faces: {open:?}",
+            open.len()
+        );
     }
 
     /// The +y arrow is the +x arrow turned a quarter, corner for corner.

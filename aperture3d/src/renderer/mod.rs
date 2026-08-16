@@ -12,7 +12,7 @@ use crate::camera::Camera;
 use crate::highlight::{Highlights, Lit};
 use crate::scene::Scene;
 use crate::viewport::Viewport;
-use glam::UVec2;
+use glam::{UVec2, Vec3};
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
 pub(crate) mod atlas;
@@ -30,6 +30,25 @@ pub(crate) mod uniforms;
 use crate::renderer::cpu::{Cpu, Laying, Order};
 use crate::renderer::gpu::{Attachments, Gpu};
 use crate::renderer::uniforms::{Uniforms, Window};
+
+/// Where the one key light comes from, as a world direction.
+///
+/// Published because a caller can need it: shading is the renderer's for
+/// anything it lights, but the gizmo pass is deliberately unlit — an axis says
+/// which axis it is by its colour, and a light would have it say so differently
+/// on every plane — so a caller drawing a control with *volume* bakes its own
+/// shading into the vertex colours and has to bake it against this light or its
+/// handles are lit by a different sun from the model they stand on.
+///
+/// Fixed in the world rather than the view, so the shading stays put as the
+/// camera orbits instead of swimming with it.
+///
+/// Stated here and read by `mesh.wgsl`, which cannot be handed a vector —
+/// WGSL's `override` takes scalars only, so this is the one compile-time number
+/// that is written in both languages rather than crossing as a pipeline
+/// constant. `the_shader_is_lit_from_where_the_crate_says` is what keeps them
+/// from drifting.
+pub const KEY_LIGHT: Vec3 = Vec3::new(0.4, 0.8, 0.45);
 
 /// A scene, where it is looked at from, and the two mirrors of it that get
 /// drawn.

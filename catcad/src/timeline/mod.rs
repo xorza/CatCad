@@ -389,6 +389,11 @@ impl Along {
         }
     }
 
+    /// Which way the number grows, as a unit direction in the world.
+    pub(crate) fn normal(self) -> Vec3 {
+        self.from.normal().as_vec3()
+    }
+
     /// The offset that puts it at `world` — how far along [`travel`] it stands,
     /// with whatever lies across the line dropped.
     ///

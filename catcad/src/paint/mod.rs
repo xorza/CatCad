@@ -8,7 +8,7 @@
 //! the renderer's `f32`, and the only place it does.
 
 use aperture::{Batch, Curve, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
-use glam::{DVec2, Mat4, Vec2, Vec3};
+use glam::{DVec2, DVec3, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Freedom, Prism, Segment, SegmentId};
 use std::fmt::Write;
@@ -444,13 +444,14 @@ fn write_gizmos(
     // time is not one a frame pays.
     if let Some(carried) = carried {
         let mut arrow = Object::new(Mesh::default());
+        let solid = shape::solid_arrow();
         remesh(
             &mut arrow.mesh,
-            shape::arrow(DVec2::X)
-                .into_iter()
-                .map(|corner| carried.at(corner)),
-            &shape::ARROW_TRIANGLES,
+            solid.corners.iter().map(|&corner| carried.at(corner)),
+            &solid.triangles,
         );
+        // The colour is the object's and the shading is the corners' — see
+        // [`Carried::at`], which puts the light into them.
         arrow.color = DEPTH_ARROW;
         // Shaped rather than a frame, unlike a datum's axes: this is what the
         // gesture is *for* while the form is open, so it takes the click over
@@ -461,23 +462,22 @@ fn write_gizmos(
     }
 }
 
-/// Where a depth arrow stands and which way it points, as a frame to map a flat
-/// shape through.
+/// Where a depth arrow stands and which way it points, as the frame its shape is
+/// cut in.
 ///
-/// A shape is cut in two dimensions — see [`shape`] — and this is what turns
-/// those into world corners: `x` runs along the solid's own normal, which is
-/// the direction the depth grows in, and `y` across it in the sketch plane. So
-/// the arrow is a flat one standing *out* of the plane rather than lying in it,
-/// which is what a shape carrying something off a face has to be.
+/// A [`shape::Solid`] is cut in a frame of its own — see [`shape`] — and this is
+/// what turns that into world corners: `x` runs along the plane's normal, which
+/// is the direction the depth grows in, and `y` and `z` across it. So the arrow
+/// stands *out* of the plane rather than lying in it, which is what a handle
+/// carrying something off a face has to do.
 #[derive(Debug, Clone, Copy)]
 struct Carried {
     tail: Vec3,
     along: Vec3,
     across: Vec3,
-    /// Across the shape's own plane, which a two-sided unlit pass never reads
-    /// — carried so the vertices are whole ones, and worked out once because
-    /// a flat shape has one however many corners it has.
-    facing: Vec3,
+    /// The third axis, so a shape with volume has a frame to be turned in
+    /// rather than a plane to lie in.
+    up: Vec3,
 }
 
 impl Carried {
@@ -486,18 +486,48 @@ impl Carried {
             tail,
             along,
             across,
-            facing: along.cross(across).normalize_or_zero(),
+            up: along.cross(across).normalize_or_zero(),
         }
     }
 
-    /// The world position of a corner of the flat shape.
-    fn at(self, corner: DVec2) -> Vertex {
+    /// A corner of the shape, put in the world and shaded.
+    ///
+    /// **Shaded here rather than by the pass**, which draws gizmos unlit — and
+    /// has to, because an axis says which axis it is by its colour and one the
+    /// key light touched would say it differently on every plane. A shape with
+    /// volume needs shading all the same or it reads as a silhouette, so it is
+    /// worked out per face on the way in and carried in the corner's own
+    /// colour. That costs nothing per frame: the geometry is only cut again
+    /// when the thing it is a handle for moves.
+    fn at(self, corner: shape::Corner) -> Vertex {
+        let put = |at: DVec3| {
+            self.along * at.x as f32 + self.across * at.y as f32 + self.up * at.z as f32
+        };
+        let facing = put(corner.facing).normalize_or_zero();
         Vertex {
-            position: self.tail + self.along * corner.x as f32 + self.across * corner.y as f32,
-            normal: self.facing,
-            color: Vec3::ONE,
+            position: self.tail + put(corner.at),
+            normal: facing,
+            color: Vec3::splat(lit(facing)),
         }
     }
+}
+
+/// How bright a face of a solid gizmo reads, from the way it looks.
+///
+/// A key light and an ambient floor, and nothing else — no ambient tint and no
+/// second light, because what this is shading is a handle rather than material.
+///
+/// The renderer's own light rather than one of this crate's choosing, and that
+/// is the whole reason [`aperture::KEY_LIGHT`] is published: the gizmo pass is
+/// deliberately unlit, so a control with volume bakes its own shading, and a
+/// handle lit from somewhere other than the solid it stands on looks *plausible*
+/// while being wrong.
+///
+/// Never reaching zero: a face turned right away from the light is still a face
+/// of the thing you are trying to grab, and a black one reads as a hole.
+fn lit(facing: Vec3) -> f32 {
+    const FLOOR: f32 = 0.55;
+    FLOOR + (1.0 - FLOOR) * facing.dot(aperture::KEY_LIGHT.normalize()).max(0.0)
 }
 
 /// Draw the whole of `model`, and `band` over it, into the room `layout` keeps

@@ -21,7 +21,7 @@ use crate::paint::layout::Layout;
 use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
-use crate::prompt::{self, Prompt};
+use crate::prompt::{self, Carrying, Prompt};
 use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
 use crate::timeline::{Along, FeatureId, Movable};
@@ -925,7 +925,7 @@ impl SceneView {
         response: &ResponseState,
         document: &Document,
         editing: FeatureId,
-        growing: Option<FeatureId>,
+        growing: Option<Carrying>,
         tool: Tool,
     ) -> Gesture {
         if tool != Tool::Pointer {
@@ -974,7 +974,7 @@ impl SceneView {
                     // along a different normal and nothing would look wrong.
                     // No form is the arrow that was never drawn.
                     Part::Growing => {
-                        Grabbed::Growing(Along::on(document.drawing_at(growing?).plane()))
+                        Grabbed::Growing(Along::on(document.drawing_at(growing?.sketch).plane()))
                     }
                     // Only the sketch being worked in can be taken hold of. A
                     // drag of geometry is an edit and an edit lands where you
@@ -999,11 +999,28 @@ impl SceneView {
                 };
                 // Where the press landed on the motion, against where what was
                 // grabbed actually is: a grab is not a teleport.
+                //
+                // A depth arrow needs a second correction, and it is the larger
+                // one. Everything else here is grabbed *by the very thing that
+                // moves* — a point by the point, a solid's far end by that
+                // face — so where the press landed and where the value is are
+                // the same place to within the width of a stroke. An arrow
+                // stands *off* the face it carries, so a grab near its head is
+                // a grab a whole arrow-length past the depth it sets, and
+                // without this the solid leaps that far the moment it is
+                // touched.
+                let carried = match grabbed {
+                    Grabbed::Growing(along) => {
+                        let held = growing?.depth - along.offset_at(hit.world);
+                        along.normal() * held as f32
+                    }
+                    _ => Vec3::ZERO,
+                };
                 Some(Held {
                     part,
                     grabbed,
                     motion,
-                    offset: hit.world - motion.resolve(&aim)?,
+                    offset: hit.world - motion.resolve(&aim)? + carried,
                 })
             })
         else {
