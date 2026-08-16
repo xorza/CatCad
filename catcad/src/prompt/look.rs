@@ -2,7 +2,7 @@
 //! answer it.
 
 use palantir::{
-    Background, ButtonTheme, Color, Corners, Palette, StatefulLook, Stroke, TextEditTheme,
+    Background, ButtonTheme, Color, Corners, Palette, Spacing, StatefulLook, Stroke, TextEditTheme,
     TextStyle, WidgetLook,
 };
 
@@ -21,6 +21,15 @@ use crate::paint::mark_font;
 /// there.
 pub(crate) const CONFIRM: &str = "\u{2713}";
 pub(crate) const CANCEL: &str = "\u{2717}";
+
+/// How far across an answer is, in logical pixels.
+///
+/// Square, and both of them the same square. A button that hugs its label comes
+/// out the width of the glyph it holds, and the two answers are not the same
+/// width — a tick is broader than a cross — so hugging gives a pair that is
+/// visibly mismatched. What these are is a pair of equal choices, and the shape
+/// should say so before the colour does.
+pub(crate) const ANSWER_SIDE: f32 = 26.0;
 
 /// Green for the one that goes through and red for the one that does not.
 ///
@@ -80,6 +89,9 @@ pub(crate) fn field() -> TextEditTheme {
 /// hovered state of one to drift from the other's.
 fn answer(ink: Color) -> ButtonTheme {
     let mut theme = ButtonTheme::from_palette(&Palette::DEFAULT);
+    // No padding of its own: the button is sized outright, so padding would be
+    // asking for a square and then adding to two of its sides.
+    theme.padding = Spacing::ZERO;
     let face = |fill: Color| {
         Some(
             Background::rounded(fill, Corners::all(4.0))

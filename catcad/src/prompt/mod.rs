@@ -133,6 +133,13 @@ pub(crate) fn footprint(
 /// underneath it.
 const STANDS_CLEAR: f32 = 14.0;
 
+/// How far apart a form sets the things it is made of, in logical pixels.
+///
+/// One number for both directions and every row, so a label, a field and two
+/// answers read as one control rather than as four things that happen to be
+/// near each other.
+const GAP: f32 = 4.0;
+
 /// One value being typed, and what to call it where two are asked for at once.
 #[derive(Debug)]
 struct Field {
@@ -629,8 +636,8 @@ impl Prompt {
                 // than running off to one side of it — two buttons on the end
                 // of a row put the whole form wider than the number it is
                 // about, and it is standing on a drawing.
-                Panel::vstack().id_salt("form").show(ui, |ui| {
-                    Panel::hstack().id_salt("row").show(ui, |ui| {
+                Panel::vstack().id_salt("form").gap(GAP).show(ui, |ui| {
+                    Panel::hstack().id_salt("row").gap(GAP).show(ui, |ui| {
                         for (nth, field) in fields.iter_mut().enumerate() {
                             if !field.label.is_empty() {
                                 Text::new(field.label).id_salt(field.label).show(ui);
@@ -649,7 +656,7 @@ impl Prompt {
                     // blurs shut has no use for them, and two buttons that were
                     // not the way out would be two buttons lying about it.
                     if answerable {
-                        Panel::hstack().id_salt("answers").show(ui, |ui| {
+                        Panel::hstack().id_salt("answers").gap(GAP).show(ui, |ui| {
                             for (glyph, theme, answer) in [
                                 (look::CONFIRM, &*goes, Done::Commit),
                                 (look::CANCEL, &*stops, Done::Cancel),
@@ -658,6 +665,10 @@ impl Prompt {
                                     .id_salt(glyph)
                                     .label(glyph)
                                     .style(theme)
+                                    .size((
+                                        Sizing::fixed(look::ANSWER_SIDE),
+                                        Sizing::fixed(look::ANSWER_SIDE),
+                                    ))
                                     .show(ui)
                                     .left
                                     .clicked();
