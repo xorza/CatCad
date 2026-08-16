@@ -83,6 +83,12 @@ const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
 const AXIS_X: Vec3 = Vec3::new(0.62, 0.20, 0.18);
 const AXIS_Y: Vec3 = Vec3::new(0.24, 0.52, 0.24);
 
+/// What the square joining the two is drawn in.
+///
+/// Neither hue, because it belongs to neither axis — it is the corner they make
+/// rather than a third direction, and giving it one of theirs would say it was.
+const AXIS_CORNER: Vec3 = Vec3::new(0.50, 0.52, 0.55);
+
 /// What a sketch that is not the one open is drawn in.
 ///
 /// One colour rather than the freedom ladder above. How much a sketch you are
@@ -263,6 +269,7 @@ fn write_solids(
                 .map(|(&corner, &normal)| Vertex {
                     position: corner.as_vec3(),
                     normal: normal.as_vec3(),
+                    color: Vec3::ONE,
                 }),
             &patch.triangles,
         );
@@ -296,27 +303,40 @@ fn write_solids(
 /// not changed by being drawn differently, and it still yields a click to the
 /// geometry drawn on it.
 fn write_gizmos(models: Models<'_>, names: &mut Names, gizmos: &mut Batch<Object>) {
-    gizmos.refill(
-        models.planes().flat_map(|(at, plane)| {
-            [(DVec2::X, AXIS_X), (DVec2::Y, AXIS_Y)]
-                .map(move |(along, ink)| (at, plane, along, ink))
-        }),
-        |object, (at, plane, along, ink)| {
-            let normal = plane.normal().as_vec3();
-            remesh(
-                &mut object.mesh,
-                shape::arrow(along).into_iter().map(|corner| Vertex {
-                    position: plane.point(corner).as_vec3(),
-                    normal,
-                }),
-                &shape::ARROW_TRIANGLES,
-            );
-            object.transform = Mat4::IDENTITY;
-            object.color = ink;
-            object.precedence = Precedence::Frame;
-            object.tag = Some(names.tag(Part::Plane(at)));
-        },
-    );
+    gizmos.refill(models.planes(), |object, (at, plane)| {
+        let normal = plane.normal().as_vec3();
+        let mesh = &mut object.mesh;
+        // Written over what is there rather than through [`remesh`], which
+        // takes one shape: this is four, and each has to be rebased onto the
+        // corners already written. Cleared rather than replaced all the same,
+        // so a plane that moves costs no allocation.
+        mesh.vertices.clear();
+        mesh.indices.clear();
+        let mut piece = |corners: &[DVec2], triangles: &[[u32; 3]], ink: Vec3| {
+            let base = mesh.vertices.len() as u32;
+            mesh.vertices.extend(corners.iter().map(|&at| Vertex {
+                position: plane.point(at).as_vec3(),
+                normal,
+                color: ink,
+            }));
+            mesh.indices
+                .extend(triangles.iter().flatten().map(|corner| base + corner));
+        };
+        piece(&shape::hub(), &shape::SQUARE_TRIANGLES, AXIS_CORNER);
+        piece(&shape::arrow(DVec2::X), &shape::ARROW_TRIANGLES, AXIS_X);
+        piece(&shape::arrow(DVec2::Y), &shape::ARROW_TRIANGLES, AXIS_Y);
+        piece(&shape::corner(), &shape::SQUARE_TRIANGLES, AXIS_CORNER);
+
+        object.transform = Mat4::IDENTITY;
+        // White, so each corner's own colour is what lands — see
+        // [`Vertex::color`](aperture::Vertex). What the object's colour is still
+        // for is a highlight: a `Tint::Ink` replaces it and flattens the gizmo
+        // to one colour, where a `Tint::Lift` multiplies and leaves the axes
+        // telling themselves apart.
+        object.color = Vec3::ONE;
+        object.precedence = Precedence::Frame;
+        object.tag = Some(names.tag(Part::Plane(at)));
+    });
 }
 
 /// Draw the whole of `model`, and `band` over it, into the room `layout` keeps
@@ -450,6 +470,7 @@ fn write_faces(
                 fill.corners.iter().map(|&corner| Vertex {
                     position: plane.point(corner).as_vec3(),
                     normal,
+                    color: Vec3::ONE,
                 }),
                 &fill.triangles,
             );

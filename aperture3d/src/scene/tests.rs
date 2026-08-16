@@ -433,6 +433,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
         let at = |x: f32, y: f32| Vertex {
             position: Vec3::new(x, y, z),
             normal: Vec3::Z,
+            color: Vec3::ONE,
         };
         Object::new(Mesh {
             vertices: vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
@@ -567,6 +568,7 @@ fn a_surface_is_picked_anywhere_over_it_and_loses_to_what_is_drawn_on_it() {
         mesh.vertices.push(Vertex {
             position: corner,
             normal: Vec3::Z,
+            color: Vec3::ONE,
         });
     }
     mesh.indices.extend([0, 1, 2, 0, 2, 3]);
@@ -664,6 +666,7 @@ fn a_surface_is_picked_from_behind_as_well_as_in_front() {
         mesh.vertices.push(Vertex {
             position: corner,
             normal: Vec3::Z,
+            color: Vec3::ONE,
         });
     }
     mesh.indices.extend([0, 1, 2]);
@@ -710,6 +713,7 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
         let at = |x: f32, y: f32| Vertex {
             position: Vec3::new(x, y, z),
             normal: Vec3::Z,
+            color: Vec3::ONE,
         };
         Object::new(Mesh {
             vertices: vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],

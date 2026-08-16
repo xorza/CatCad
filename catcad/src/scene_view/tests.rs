@@ -1867,11 +1867,7 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
         let tags: Vec<_> = gizmos.iter().filter_map(|gizmo| gizmo.tag).collect();
         (middle, tags)
     };
-    assert_eq!(
-        drawn.len(),
-        2,
-        "the demo's one datum is drawn as two arrows"
-    );
+    assert_eq!(drawn.len(), 1, "the demo's one datum is drawn as one gizmo");
 
     raised.harness.move_to(raised.cursor_on(on_shaft));
     raised.frame();
@@ -1881,13 +1877,14 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
         "the cursor on a datum's axis reported {hovered:?}"
     );
 
-    // Both arrows, not the one that answered the pick.
+    // The whole gizmo, not the one piece that answered the pick.
     let lit: Vec<_> = raised.view.lit.iter().map(|lit| lit.tag).collect();
     assert_eq!(
         lit,
         drawn,
-        "hovering one axis lit {} of the gizmo's 2 arrows",
-        lit.len()
+        "hovering one axis lit {} of the gizmo's {} pieces",
+        lit.len(),
+        drawn.len(),
     );
     // And each keeps its own colour, brightened. `Tint::Ink` here would be the
     // hover's yellow on both, which is also how it would look if the two arrows

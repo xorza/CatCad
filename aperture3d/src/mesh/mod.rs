@@ -11,6 +11,21 @@ pub struct Vertex {
     pub position: Vec3,
     /// Object-space normal, expected to be unit length.
     pub normal: Vec3,
+    /// Linear-RGB, multiplied into [`Object::color`](crate::Object::color).
+    /// [`Vec3::ONE`] leaves the object's own colour alone, which is what a mesh
+    /// of one colour wants and what [`Mesh::cube`] gives.
+    ///
+    /// For a mesh that is several things at once — a gizmo whose axes are two
+    /// colours and whose corner is a third — which is a shape that has to be
+    /// *one* mesh rather than three. Its pieces are coplanar and go through one
+    /// pass at one depth bias, so three objects would be three surfaces settling
+    /// their own seams in the last bits of a depth each computed separately.
+    ///
+    /// A modulation rather than a replacement, so that a caller with nothing to
+    /// say per corner says nothing: [`Object::color`](crate::Object::color)
+    /// stays the colour of an object, and a highlight still has one colour to
+    /// take the place of — see [`Tint`](crate::Tint).
+    pub color: Vec3,
 }
 
 /// A triangle list: `indices` reads three entries per triangle, each an index
@@ -61,6 +76,7 @@ impl Mesh {
                 vertices.push(Vertex {
                     position: centre + u * (su * half) + v * (sv * half),
                     normal,
+                    color: Vec3::ONE,
                 });
             }
             indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);

@@ -72,6 +72,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
             Vertex {
                 position: Vec3::ZERO,
                 normal: diagonal,
+                color: Vec3::ONE,
             };
             3
         ],
@@ -124,6 +125,7 @@ fn facing_quad() -> Mesh {
             .map(|(x, y)| Vertex {
                 position: Vec3::new(x, y, 0.0),
                 normal: Vec3::Z,
+                color: Vec3::ONE,
             })
             .to_vec(),
         indices: vec![0, 1, 2, 0, 2, 3],

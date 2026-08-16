@@ -586,9 +586,7 @@ impl Triangles {
             // Remembered rather than recomputed, because the next relight has to
             // know whether this one left a colour behind to undo.
             highlighted |= look.is_some();
-            let color = look
-                .map_or(object.color, |look| look.tint.over(object.color))
-                .to_array();
+            let color = look.map_or(object.color, |look| look.tint.over(object.color));
             let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
                 position: object
                     .transform
@@ -597,7 +595,12 @@ impl Triangles {
                 normal: (normal_matrix * vertex.normal)
                     .normalize_or_zero()
                     .to_array(),
-                color,
+                // The object's colour through the corner's own, which for a
+                // mesh of one colour is that colour times one. A highlight has
+                // already been folded into `color`, so a `Tint::Ink` still
+                // flattens the whole mesh to one and a `Tint::Lift` still
+                // brightens whatever each corner was.
+                color: (color * vertex.color).to_array(),
             });
             self.extend(vertices, &object.mesh.indices);
         }
