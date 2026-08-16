@@ -1,8 +1,8 @@
 //! A sketch and where it lies, read together.
 
 use aperture::{HitAt, Motion};
-use glam::{DVec2, Vec3};
-use silverpoint::{CircleId, Constraint, Entity, Plane, PointId, SegmentId, Sketch};
+use glam::Vec3;
+use silverpoint::{CircleId, Entity, Plane, PointId, SegmentId, Sketch};
 
 use crate::drawing::anchor::Anchor;
 
@@ -43,57 +43,6 @@ impl<'a> Drawing<'a> {
     /// The plane it lies on.
     pub(crate) fn plane(self) -> Plane {
         self.plane
-    }
-
-    /// Where a mark for `constraint` belongs in the world.
-    ///
-    /// The middle of what it names, which is the one rule that reads sensibly
-    /// for all twelve: on the point for a coincidence, along the span for a
-    /// distance, between the two edges for a parallel. A modeller would put a
-    /// mark against *each* entity a relation names — two ∥ marks, one per edge
-    /// — and that is a better drawing; it is also two glyphs per relation and a
-    /// tag apiece, which is worth doing when the drawing is busy enough to need
-    /// it rather than now.
-    ///
-    /// Answers a place rather than the absence of one, because there is no
-    /// arrangement in which a constraint the drawing holds has nothing to be
-    /// about: geometry taken away takes its constraints with it — see
-    /// [`Sketch::remove_point`] — and no constraint names another. A `None`
-    /// here would be one of those two broken, and drawing the mark at the
-    /// world origin instead is how that would go unnoticed.
-    pub(crate) fn mark_at(self, constraint: Constraint) -> Vec3 {
-        let mut sum = DVec2::ZERO;
-        let mut count = 0.0;
-        for entity in constraint.referents() {
-            sum += self
-                .middle_of(entity)
-                .expect("a constraint the drawing holds is about geometry it holds");
-            count += 1.0;
-        }
-        assert!(count > 0.0, "every constraint is about something");
-        self.plane.point(sum / count).as_vec3()
-    }
-
-    /// The middle of one entity on the sketch plane, or `None` where the drawing
-    /// no longer holds it.
-    fn middle_of(self, entity: Entity) -> Option<DVec2> {
-        match entity {
-            Entity::Point(id) => self
-                .sketch
-                .holds(id)
-                .then(|| self.sketch.point(id).position),
-            Entity::Segment(id) => self.sketch.holds(id).then(|| {
-                let edge = self.sketch.segment(id);
-                (self.sketch.point(edge.a).position + self.sketch.point(edge.b).position) * 0.5
-            }),
-            Entity::Circle(id) => self
-                .sketch
-                .holds(id)
-                .then(|| self.sketch.point(self.sketch.circle(id).center).position),
-            // Nothing names a constraint, so nothing reaches this — see
-            // [`Entity`].
-            Entity::Constraint(_) => None,
-        }
     }
 
     /// Where `anchor` sits in the world — on whatever it landed on, which is

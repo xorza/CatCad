@@ -29,6 +29,7 @@ use crate::timeline::FeatureId;
 pub(crate) mod gizmos;
 pub(crate) mod growing;
 pub(crate) mod layout;
+pub(crate) mod marks;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -523,7 +524,7 @@ fn write_marks(
                 }
                 None => mark.content.push_str(symbol(constraint)),
             }
-            mark.position = model.drawing().mark_at(constraint);
+            mark.position = marks::at(model.drawing(), constraint);
             mark.font = mark_font();
             // Above the middle of what it names, so the mark clears the geometry it
             // is about rather than sitting on top of it.

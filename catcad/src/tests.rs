@@ -10,6 +10,7 @@ use crate::build::Build;
 use crate::demo;
 use crate::intent::{Choice, Intents, Opening};
 use crate::model::Models;
+use crate::paint::marks;
 use crate::paint::{mark_font, mark_lift};
 use crate::part::Part;
 use crate::prompt::{Asking, Prompt};
@@ -1588,10 +1589,8 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     let Some(Entity::Constraint(id)) = dimension.entity() else {
         panic!("not a constraint");
     };
-    let at = app
-        .document
-        .drawing_at(sketch)
-        .mark_at(app.document.drawing_at(sketch).sketch().constraint(id));
+    let drawing = app.document.drawing_at(sketch);
+    let at = marks::at(drawing, drawing.sketch().constraint(id));
     // The *number*, not the point the dimension hangs it from: `MARK_ANCHOR`
     // lifts the mark clear of the line it measures, and the field stands over
     // the mark rather than over the line. Half a line back down from the
@@ -1670,10 +1669,8 @@ fn the_open_field_is_placed_against_this_frames_camera() {
     let Some(Entity::Constraint(id)) = dimension.entity() else {
         panic!("not a constraint");
     };
-    let at = app
-        .document
-        .drawing_at(sketch)
-        .mark_at(app.document.drawing_at(sketch).sketch().constraint(id));
+    let drawing = app.document.drawing_at(sketch);
+    let at = marks::at(drawing, drawing.sketch().constraint(id));
     // Where the number now sits: the mark's own anchor, brought back down to
     // the middle of the run it hangs above.
     let middle =

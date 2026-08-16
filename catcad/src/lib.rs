@@ -47,6 +47,7 @@ use crate::filing::Filing;
 use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::{Change, Choice, Errand, Intent, Intents, Step};
+use crate::paint::marks;
 use crate::part::Part;
 use crate::prompt::{Asking, Stands};
 use crate::scene_view::SceneView;
@@ -288,7 +289,7 @@ impl CatCad {
                 // mark of whatever is being typed into.
                 let at = models.iter().find_map(|model| match model.entity(part) {
                     Some(Entity::Constraint(id)) => {
-                        Some(model.drawing().mark_at(model.sketch().constraint(id)))
+                        Some(marks::at(model.drawing(), model.sketch().constraint(id)))
                     }
                     _ => None,
                 });
