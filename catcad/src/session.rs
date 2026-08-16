@@ -1,12 +1,12 @@
 //! What the user is working *with*, as against what they are working *on*.
 
-use crate::intent::{Choice, Intent, Intents};
+use crate::intent::{Choice, Intent, Intents, Opening};
 use crate::model::Models;
 use crate::part::Part;
+use crate::prompt::{Asking, Prompt};
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
-use crate::typing::Typing;
 
 /// What is in hand, and what is picked out.
 ///
@@ -39,12 +39,12 @@ pub(crate) struct Session {
     /// do, this becomes an `Option` and the compiler will point at every place
     /// that then has to answer for it.
     editing: FeatureId,
-    /// The dimension being retyped, where one is.
+    /// The form open against the drawing, where one is.
     ///
     /// Session state on the same terms as the rest: a draft is not in the
-    /// document until it is committed, an undo should not reopen a field, and
-    /// opening one is not a step to take back. See [`Typing`].
-    typing: Option<Typing>,
+    /// document until it is committed, an undo should not reopen a form, and
+    /// opening one is not a step to take back. See [`Prompt`].
+    prompt: Option<Prompt>,
 }
 
 impl Session {
@@ -55,7 +55,7 @@ impl Session {
             tool: Tool::default(),
             selection: Selection::default(),
             editing,
-            typing: None,
+            prompt: None,
         }
     }
 
@@ -74,21 +74,21 @@ impl Session {
         &self.selection
     }
 
-    /// The dimension being retyped, where one is.
-    pub(crate) fn typing(&self) -> Option<&Typing> {
-        self.typing.as_ref()
+    /// The form open against the drawing, where one is.
+    pub(crate) fn prompt(&self) -> Option<&Prompt> {
+        self.prompt.as_ref()
     }
 
     /// The same, to show and be typed into.
     ///
     /// The one thing here written outside [`Session::apply`], and the reason is
     /// that the writer is a *widget*: what a keystroke does to a line is
-    /// palantir's, decided where the field is shown, which is the asking half of
-    /// a frame. What the draft then comes to — a value on the dimension, a field
-    /// put away — goes through the inbox like everything else, so the document is
-    /// still written in one place at one time.
-    pub(crate) fn typing_mut(&mut self) -> Option<&mut Typing> {
-        self.typing.as_mut()
+    /// palantir's, decided where the form is shown, which is the asking half of
+    /// a frame. What the draft then comes to — a value on the document, a form
+    /// put away — goes through the inbox like everything else, so the document
+    /// is still written in one place at one time.
+    pub(crate) fn prompt_mut(&mut self) -> Option<&mut Prompt> {
+        self.prompt.as_mut()
     }
 
     /// Land everything a frame asked of the session.
@@ -115,22 +115,36 @@ impl Session {
                     self.editing = what.sketch().unwrap_or(self.editing);
                     self.selection.include(what);
                 }
-                // Seeded from what the dimension says now, and picked out
-                // whole — see [`Typing::on`]. A second open of the one already
-                // open would start the draft over, which is why the guard is
-                // here rather than left to whoever raises this: a double-click
-                // on a field already open should place a caret, not undo the
-                // typing.
-                Intent::Choice(Choice::Type(Some(typed))) => {
+                // A second open of the form already open would start its
+                // drafts over, which is why the guard is here rather than left
+                // to whoever raises this: a double-click on a field already
+                // open should place a caret, not undo the typing.
+                Intent::Choice(Choice::Ask(Some(opening))) => {
+                    // Each arm stands up its own form rather than answering
+                    // with a pair the match then builds from: the seeds are
+                    // arrays, so two arms of different *lengths* would not
+                    // agree on a type — and a form asking two things is the
+                    // next one there is.
+                    let opened = match opening {
+                        Opening::Dimension { part, from } => {
+                            Prompt::on(Asking::Dimension { part }, &[("", from)])
+                        }
+                        // At no depth at all, which is where the ask starts:
+                        // the solid is on screen from the moment the form
+                        // opens, and a zero-depth prism is a well-formed one.
+                        Opening::Extrude { sketch, region } => {
+                            Prompt::on(Asking::Extrude { sketch, region }, &[("Depth", 0.0)])
+                        }
+                    };
                     if self
-                        .typing
+                        .prompt
                         .as_ref()
-                        .is_none_or(|open| open.part() != typed.part)
+                        .is_none_or(|open| open.about() != opened.about())
                     {
-                        self.typing = Some(Typing::on(typed.part, typed.from));
+                        self.prompt = Some(opened);
                     }
                 }
-                Intent::Choice(Choice::Type(None)) => self.typing = None,
+                Intent::Choice(Choice::Ask(None)) => self.prompt = None,
                 // The history's, and the document's through it. Landed by
                 // `CatCad::apply` right after this, in the order the pointer
                 // made them.
@@ -158,16 +172,18 @@ impl Session {
     /// back is the point, not the intention to draw.
     pub(crate) fn prune(&mut self, models: Models<'_>) {
         self.selection.retain(|part| models.holds(part));
-        // A dimension an undo took back is one there is nothing left to retype,
-        // and a field left open over it would commit onto a handle naming
-        // nothing. The draft goes with it: what was typed was about *that*
-        // dimension.
+        // A dimension an undo took back is one there is nothing left to
+        // restate, and a form left open over it would commit onto a handle
+        // naming nothing. The draft goes with it: what was typed was about
+        // *that* dimension. A form about something the timeline does not hold
+        // yet — an extrude still being decided — has nothing here to lose.
         if self
-            .typing
+            .prompt
             .as_ref()
-            .is_some_and(|open| !models.holds(open.part()))
+            .and_then(Prompt::marks)
+            .is_some_and(|part| !models.holds(part))
         {
-            self.typing = None;
+            self.prompt = None;
         }
         // The tool draws in the open sketch and nowhere else, so what it is
         // half-way through hangs off that one — asking the rest would be asking

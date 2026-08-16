@@ -21,12 +21,12 @@ mod paint;
 mod part;
 mod preview;
 mod profile;
+mod prompt;
 mod scene_view;
 mod selection;
 mod session;
 mod timeline;
 mod tool;
-mod typing;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.
@@ -48,10 +48,10 @@ use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::{Change, Choice, Errand, Intent, Intents, Step};
 use crate::part::Part;
+use crate::prompt::{Asking, Prompt, Stands};
 use crate::scene_view::SceneView;
 use crate::session::Session;
 use crate::tool::Tool;
-use crate::typing::Typing;
 
 /// Take back the last step, and put it back.
 ///
@@ -239,7 +239,7 @@ impl CatCad {
     /// still reaches the document on the frame it was typed.
     fn draw(&mut self, ui: &mut Ui) {
         self.view.draw(ui);
-        self.retype(ui);
+        self.ask(ui);
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
@@ -257,46 +257,60 @@ impl CatCad {
         );
     }
 
-    /// Show the field open over a dimension, where one is open.
+    /// Show the form open against the drawing, where one is open.
     ///
-    /// Placed by the *view*, because where a dimension lands on screen is a
+    /// Placed by the *view*, because where geometry lands on screen is a
     /// question about the camera and the viewport and the view owns both — and
     /// answered against the drawing this frame's edits have not yet reached,
     /// like everything else in the asking half.
     ///
-    /// Nothing is gated on the field being open. It is a focusable widget, so
-    /// palantir routes presses and keystrokes to it the way it routes them to a
-    /// button on the bar; there is no arbitration for this to do and no
-    /// keyboard for it to drain.
-    fn retype(&mut self, ui: &mut Ui) {
-        let Some(part) = self.session.typing().map(Typing::part) else {
+    /// Nothing is gated on the form being open. Its fields are focusable
+    /// widgets, so palantir routes presses and keystrokes to them the way it
+    /// routes them to a button on the bar; there is no arbitration for this to
+    /// do and no keyboard for it to drain.
+    fn ask(&mut self, ui: &mut Ui) {
+        let Some(about) = self.session.prompt().map(Prompt::about) else {
             return;
         };
         let Some(viewport) = self.view.viewport() else {
             return;
         };
-        // Where the mark would be drawn, which is where the field stands
-        // instead — see [`paint::redraw`](crate::paint::redraw), which leaves
-        // out the mark of whatever is being typed into.
-        //
-        // Read before the field is borrowed to be shown, because the drawing is
-        // reached through the session and the field is part of it.
-        let models = self.document.models(&self.build, self.session.editing());
-        let at = models.iter().find_map(|model| match model.entity(part) {
-            Some(Entity::Constraint(id)) => {
-                Some(model.drawing().mark_at(model.sketch().constraint(id)))
-            }
-            _ => None,
-        });
-        // Never missing, on the same terms `Session::prune` guarantees: a field
-        // open over a dimension an undo took away is closed before the frame
-        // that would draw it.
-        let at = at.expect("a field is open over a dimension the drawing no longer holds");
         let camera = self.document.camera();
-        let Some(typing) = self.session.typing_mut() else {
-            unreachable!("the field was open a moment ago");
+        let models = self.document.models(&self.build, self.session.editing());
+        // Where each kind of form stands, worked out before the form is
+        // borrowed to be shown — the drawing is reached through the session and
+        // the form is part of it.
+        let stands = match about {
+            Asking::Dimension { part } => {
+                // Where the mark would be drawn, which is where the field
+                // stands instead — see [`paint::redraw`], which leaves out the
+                // mark of whatever is being typed into.
+                let at = models.iter().find_map(|model| match model.entity(part) {
+                    Some(Entity::Constraint(id)) => {
+                        Some(model.drawing().mark_at(model.sketch().constraint(id)))
+                    }
+                    _ => None,
+                });
+                // Never missing, on the same terms `Session::prune` guarantees:
+                // a form open over a dimension an undo took away is closed
+                // before the frame that would draw it.
+                let at = at.expect("a form is open over a dimension the drawing no longer holds");
+                camera.screen_of(at, viewport).map(Stands::Over)
+            }
+            Asking::Extrude { sketch, region } => self
+                .view
+                .region_footprint(models, sketch, region, &camera, viewport)
+                .map(Stands::Beside),
         };
-        typing.show(ui, at, &camera, viewport, &mut self.intents);
+        // Nowhere to stand is a frame the form is not shown for, not a form
+        // that closes: the camera turning back brings it round again.
+        let Some(stands) = stands else {
+            return;
+        };
+        let Some(prompt) = self.session.prompt_mut() else {
+            unreachable!("the form was open a moment ago");
+        };
+        prompt.show(ui, stands, &mut self.intents);
     }
 
     /// Land everything the frame asked for, on whichever of the three things a

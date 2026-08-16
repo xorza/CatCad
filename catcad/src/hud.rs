@@ -7,7 +7,7 @@ use palantir::{
     Sizing, Text, TextWrap, Ui,
 };
 
-use crate::intent::{Change, Choice, Errand, Intents, Step};
+use crate::intent::{Change, Choice, Errand, Intents, Opening, Step};
 use crate::model::{Model, Models};
 use crate::paint::DECIMALS;
 use crate::part::Part;
@@ -138,11 +138,12 @@ impl Hud {
                     .left
                     .clicked();
                 if pressed {
-                    intents.push(Change::Extrude {
-                        sketch,
-                        region,
-                        distance: EXTRUDE_DEPTH,
-                    });
+                    // Asks rather than builds. The solid appears at no depth at
+                    // all and the form beside it decides how far it goes, so
+                    // what reaches the timeline is one step carrying the depth
+                    // that was settled on — and a form cancelled leaves the
+                    // document never having heard of it.
+                    intents.push(Choice::Ask(Some(Opening::Extrude { sketch, region })));
                 }
             }
             for &constraint in &self.offers {
@@ -300,14 +301,6 @@ fn dimension_picked(model: Model<'_>, selection: &Selection) -> Option<(Constrai
         .then(|| model.sketch().constraint(id).value().map(|at| (id, at)))
         .flatten()
 }
-
-/// How deep a solid is grown when the button is first pressed.
-///
-/// A number the user did not ask for, and so a number they have to be able to
-/// change: what makes it fair is that the far end can be dragged the moment it
-/// is there. Large enough to read as a solid at the size the view opens at, and
-/// not so large that it leaves the frame.
-const EXTRUDE_DEPTH: f64 = 1.0;
 
 /// The one region picked out, if what is picked is exactly that.
 ///

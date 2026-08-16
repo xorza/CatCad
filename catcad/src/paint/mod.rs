@@ -10,7 +10,7 @@
 use aperture::{Batch, Curve, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
 use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Constraint, Freedom, Prism, Segment, SegmentId};
 use std::fmt::Write;
 
 use crate::model::{Model, Models};
@@ -18,6 +18,7 @@ use crate::names::Names;
 use crate::paint::layout::{Layout, Made, Sheets};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
+use crate::timeline::FeatureId;
 
 pub(crate) mod layout;
 mod shape;
@@ -226,7 +227,7 @@ pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
     // No band and nothing being retyped. Nothing can be half-drawn or half-typed
     // in a document nobody has looked at yet.
-    redraw(models, layout, None, None, &mut scene);
+    redraw(models, layout, None, None, None, &mut scene);
     scene
 }
 
@@ -248,6 +249,7 @@ fn write_solids(
     models: Models<'_>,
     names: &mut Names,
     sheets: &mut Sheets,
+    growing: Option<Growing>,
     into: &mut Batch<Object>,
 ) {
     let Sheets { skinner, patch, .. } = sheets;
@@ -255,8 +257,18 @@ fn write_solids(
     // as an iterator, so the whole of a document's solids is written straight
     // into the batch. A list of them first would be an allocation a frame, which
     // is exactly what a rubber band's redraw would pay every frame it lasts.
+    // The one being decided is chained on rather than pushed after, so a depth
+    // typed a digit at a time rewrites the batch it is already in — see
+    // `Batch::refill`. Last, so the tags of everything the document holds come
+    // out the same whether or not a form is open.
     let faces = models
         .solids()
+        .map(|(at, prism)| (Some(at), prism))
+        .chain(
+            growing
+                .and_then(|growing| growing.prism(models))
+                .map(|prism| (None, prism)),
+        )
         .flat_map(|(at, prism)| prism.grown().map(move |face| (at, prism, face)));
     into.refill(faces, |object, (at, prism, face)| {
         skinner.cut(&prism, face, SOLID_SAGITTA, patch);
@@ -276,8 +288,38 @@ fn write_solids(
         object.transform = Mat4::IDENTITY;
         object.color = SOLID;
         object.precedence = Precedence::Shaped;
-        object.tag = Some(names.tag(Part::Solid { of: at, face }));
+        // Untagged while it is being decided, which is what keeps a solid that
+        // is not in the document out of everything that names one: it cannot be
+        // hovered, picked out, or built on, because there is nothing yet to
+        // name. What *is* grabbable is the arrow that carries it, which is a
+        // control rather than the solid.
+        object.tag = at.map(|of| names.tag(Part::Solid { of, face }));
     });
+}
+
+/// A solid being decided: a region, and how deep it currently reads.
+///
+/// What a form asking for a depth hands the drawing, so the solid is on screen
+/// from the moment it is asked for. A [`Prism`](silverpoint::Prism) is a
+/// reading rather than a thing the document holds — an arrangement, a region, a
+/// plane and a distance — so all of this is drawable without a step existing,
+/// and cancelling the form leaves the timeline never having heard of it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Growing {
+    pub(crate) sketch: FeatureId,
+    pub(crate) region: usize,
+    pub(crate) distance: f64,
+}
+
+impl Growing {
+    /// What it currently reads as, or `None` where the sketch no longer holds
+    /// the region it names.
+    fn prism(self, models: Models<'_>) -> Option<Prism<'_>> {
+        let model = models.at(self.sketch)?;
+        let arrangement = model.arrangement();
+        (self.region < arrangement.faces().len())
+            .then(|| Prism::new(arrangement, self.region, model.plane(), self.distance))
+    }
 }
 
 /// Two arrows per datum, from its origin along each of its axes.
@@ -373,6 +415,7 @@ pub(crate) fn redraw(
     layout: &mut Layout,
     band: Option<Preview>,
     typed: Option<Part>,
+    growing: Option<Growing>,
     into: &mut Scene,
 ) {
     // The check is here rather than at the call, so that what a layout claims
@@ -384,6 +427,7 @@ pub(crate) fn redraw(
         editing: models.editing(),
         band,
         typed,
+        growing,
     };
     if !layout.stale(made) {
         return;
@@ -400,7 +444,7 @@ pub(crate) fn redraw(
     write_points(models, names, &mut into.points);
     write_marks(models, typed, names, &mut into.texts);
     write_faces(models, names, sheets, &mut into.faces);
-    write_solids(models, names, sheets, &mut into.solids);
+    write_solids(models, names, sheets, growing, &mut into.solids);
     write_gizmos(models, names, &mut into.gizmos);
     layout.drawn(made);
 }
@@ -486,6 +530,37 @@ fn write_faces(
     );
 }
 
+/// Where the region at `region` of `sketch` lies in the world, as the corners
+/// its fill was cut from.
+///
+/// What a form standing *beside* a region is placed against — see
+/// [`Stands`](crate::prompt::Stands). The fill rather than the boundary curves,
+/// because that is the shape the region actually covers: a crescent's bounding
+/// box taken off its two arcs' endpoints would sit half outside it.
+///
+/// Cut through the same [`Filler`] the sheets are, so what a form stands clear
+/// of is exactly what is drawn.
+pub(crate) fn region_corners(
+    models: Models<'_>,
+    sheets: &mut Sheets,
+    sketch: FeatureId,
+    region: usize,
+    into: &mut Vec<Vec3>,
+) {
+    into.clear();
+    let Sheets { filler, fill, .. } = sheets;
+    let Some(model) = models.at(sketch) else {
+        return;
+    };
+    let arrangement = model.arrangement();
+    let Some(face) = arrangement.faces().get(region) else {
+        return;
+    };
+    filler.fill(arrangement, face, FACE_SAGITTA, fill);
+    let plane = model.plane();
+    into.extend(fill.corners.iter().map(|&at| plane.point(at).as_vec3()));
+}
+
 /// A mark per constraint, saying what relation holds and where.
 ///
 /// Set in type rather than drawn as geometry, which is what makes the whole set
@@ -520,7 +595,7 @@ fn write_marks(
                     .map(move |stated| (model, stated))
             })
             // The one being retyped has a field standing over it — see
-            // [`Typing::show`](crate::typing::Typing) — and a mark left under
+            // [`Prompt::show`](crate::prompt::Prompt) — and a mark left under
             // one would be a second copy of the number showing through wherever
             // the field did not quite cover it.
             .filter(move |(model, (id, _))| Some(model.part(*id)) != typed),

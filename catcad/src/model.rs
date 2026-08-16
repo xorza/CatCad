@@ -303,6 +303,17 @@ impl<'a> Models<'a> {
     /// Found among the rest rather than built apart from them, so there is one
     /// place a model is made and no second one to drift: whether a model is
     /// live is decided by the same line for all of them.
+    /// The reading of the sketch at `at`, or `None` where the timeline holds no
+    /// sketch there.
+    ///
+    /// Beside [`Models::open`] rather than folded into it: that one answers for
+    /// the sketch being *worked in*, which is a fact about the session, and this
+    /// answers for one named outright — a region a form is deciding over names
+    /// the sketch it came from, whichever is open.
+    pub(crate) fn at(self, sketch: FeatureId) -> Option<Model<'a>> {
+        self.iter().find(|model| model.of() == sketch)
+    }
+
     pub(crate) fn open(self) -> Model<'a> {
         self.iter()
             .find(|model| model.of() == self.editing)

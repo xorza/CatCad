@@ -3,11 +3,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Extent, Highlight, Lit, Motion, Renderer, Tint, Viewport};
+use aperture::{Camera, Extent, Highlight, Lit, Motion, Renderer, Tint, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
-    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, ResponseState, Sense, Sizing, Ui,
-    WidgetId,
+    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Rect, ResponseState, Sense,
+    Sizing, Ui, WidgetId,
 };
 use silverpoint::{Entity, Grown};
 
@@ -15,16 +15,17 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
-use crate::intent::{Change, Choice, Intents, Step, Typed};
+use crate::intent::{Change, Choice, Intents, Opening, Step};
+use crate::model::Models;
 use crate::paint::layout::Layout;
 use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
+use crate::prompt::{self, Prompt};
 use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
 use crate::timeline::{FeatureId, Movable};
 use crate::tool::Tool;
-use crate::typing::Typing;
 
 mod aimed;
 
@@ -202,6 +203,9 @@ pub(crate) struct SceneView {
     /// mean nothing to another. It says which revision it drew and is written
     /// only by the call that draws — see [`Layout`].
     layout: Layout,
+    /// Where a region's fill puts its corners, kept for its room rather than
+    /// its contents — see [`SceneView::region_footprint`].
+    corners: Vec<Vec3>,
     gesture: Gesture,
     /// How far the middle button has dragged so far, so this frame's step can
     /// be taken off it.
@@ -262,6 +266,7 @@ impl SceneView {
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             layout,
+            corners: Vec::new(),
             gesture: Gesture::None,
             panned: Vec2::ZERO,
             hovered: None,
@@ -433,14 +438,14 @@ impl SceneView {
             if response.left.double_clicked()
                 && let Some(typed) = under.and_then(|part| dimension(part, document, sketch))
             {
-                intents.push(Choice::Type(Some(typed)));
+                intents.push(Choice::Ask(Some(typed)));
             } else {
                 // Any other click puts away whatever was open. Committing would
                 // be the other reading, and it is the wrong one: a click that
                 // landed somewhere else was about somewhere else, and a number
                 // half-typed should not be written to the document by a gesture
                 // that never mentioned it.
-                intents.push(Choice::Type(None));
+                intents.push(Choice::Ask(None));
             }
             // A tool in hand takes every click, whatever it landed on: what was
             // clicked is what the new geometry is *held to*, so a click on the
@@ -680,7 +685,8 @@ impl SceneView {
             models,
             &mut self.layout,
             self.preview,
-            session.typing().map(Typing::part),
+            session.prompt().and_then(Prompt::marks),
+            session.prompt().and_then(Prompt::growing),
             renderer.scene_mut(),
         );
         // What the pointer is over is one thing, however many are picked out: a
@@ -747,6 +753,35 @@ impl SceneView {
         // than pushed by the document, which has no business knowing a renderer
         // exists.
         *renderer.camera_mut() = document.camera();
+    }
+
+    /// Where the region at `region` of `sketch` lands on screen, or `None` where
+    /// the projection draws none of it.
+    ///
+    /// Here rather than in [`prompt`](crate::prompt) because it needs three
+    /// things this owns and nothing else does: the camera's viewport, and the
+    /// [`Filler`](silverpoint::Filler) the layout keeps — a region's shape is
+    /// cut rather than read, and cutting it through the same filler the sheets
+    /// use is what makes a form stand clear of exactly what is drawn.
+    ///
+    /// `&mut self` for the filler's scratch, not to write anything: the corners
+    /// are read into a buffer this keeps for its room rather than its contents.
+    pub(crate) fn region_footprint(
+        &mut self,
+        models: Models<'_>,
+        sketch: FeatureId,
+        region: usize,
+        camera: &Camera,
+        viewport: Viewport,
+    ) -> Option<Rect> {
+        paint::region_corners(
+            models,
+            self.layout.sheets(),
+            sketch,
+            region,
+            &mut self.corners,
+        );
+        prompt::footprint(self.corners.iter().copied(), camera, viewport)
     }
 
     /// The part of the drawing under the cursor as the scene now stands, or
@@ -942,7 +977,7 @@ pub(crate) mod internals {
 /// A free fn rather than a method, because nothing about it is the view's:
 /// it reads the document, and the view is only what happened to be holding
 /// the click.
-fn dimension(part: Part, document: &Document, sketch: FeatureId) -> Option<Typed> {
+fn dimension(part: Part, document: &Document, sketch: FeatureId) -> Option<Opening> {
     let Some(Entity::Constraint(id)) = part.entity() else {
         return None;
     };
@@ -950,7 +985,7 @@ fn dimension(part: Part, document: &Document, sketch: FeatureId) -> Option<Typed
     // same on the frame a click lands and need not stay so.
     let at = part.sketch().unwrap_or(sketch);
     let from = document.drawing_at(at).sketch().constraint(id).value()?;
-    Some(Typed { part, from })
+    Some(Opening::Dimension { part, from })
 }
 
 #[cfg(test)]

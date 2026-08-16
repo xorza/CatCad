@@ -4,6 +4,7 @@ use silverpoint::{Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
 use crate::names::Names;
+use crate::paint::Growing;
 use crate::part::Part;
 use crate::preview::Preview;
 use crate::timeline::FeatureId;
@@ -53,6 +54,17 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
+    /// The room a cut is worked in.
+    ///
+    /// Handed out because cutting a region is not only the drawing's business:
+    /// a form standing beside one has to know what shape it covers, and cutting
+    /// it through a second filler would be a second answer free to differ from
+    /// what was drawn. See
+    /// [`SceneView::region_footprint`](crate::scene_view::SceneView).
+    pub(crate) fn sheets(&mut self) -> &mut Sheets {
+        &mut self.sheets
+    }
+
     /// What each tag stands for.
     pub(crate) fn names(&self) -> &Names {
         &self.names
@@ -89,13 +101,19 @@ pub(crate) struct Made {
     pub(crate) band: Option<Preview>,
     /// The dimension being retyped, whose mark is left out because the field
     /// standing in for it is drawn over the top — see
-    /// [`Typing::show`](crate::typing::Typing).
+    /// [`Prompt::show`](crate::prompt::Prompt).
     ///
     /// A fact about the picture of the drawing, which is why it is here: opening
     /// or closing a field adds or removes a mark, and that is a redraw. What the
     /// field *says* moves nothing here at all — it is a palantir widget in
     /// another layer, and the scene never hears about it.
     pub(crate) typed: Option<Part>,
+    /// The solid being decided, if one is.
+    ///
+    /// A depth typed a digit at a time is a different picture each time, and
+    /// nothing else here would say so: the document is untouched while a form
+    /// is open, so its revision does not move.
+    pub(crate) growing: Option<Growing>,
 }
 
 /// The room turning a drawing's faces into sheets takes.

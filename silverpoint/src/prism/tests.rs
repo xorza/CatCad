@@ -210,3 +210,69 @@ fn a_wall_swept_off_an_arc_carries_the_curves_own_normal() {
     // sagitta a circle of radius three wants hundreds of pieces.
     assert!(seen > 100, "only {seen} corners round the whole rim");
 }
+
+/// **A prism of no depth is well-formed, and encloses nothing.**
+///
+/// Where an extrude *starts*: a solid is grown the moment it is asked for and
+/// the depth is typed or dragged afterwards, so the first thing built is always
+/// this one. It has to survive being asked for before it is worth looking at.
+///
+/// Nothing here is a special case in the code, and the point of the test is to
+/// say so. The walls come out as quads whose head and foot coincide — zero-area
+/// triangles the rasterizer discards — and their normals are read off the
+/// *edge's* outward direction rather than off the sweep, so there is no
+/// direction of travel to normalize and no zero to divide by. The two caps land
+/// coincident and wound against each other, which is exactly what encloses
+/// nothing.
+///
+/// The face count is the half that would break quietly. A prism that dropped its
+/// walls when they had no height would still measure zero volume and still draw
+/// correctly, and then a solid dragged up off zero would have to grow faces it
+/// had never had — where `Grown` names them durably so a selection survives the
+/// drag.
+#[test]
+fn a_prism_of_no_depth_is_well_formed_and_encloses_nothing() {
+    let mut sketch = Sketch::default();
+    outline(
+        &mut sketch,
+        &[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
+    );
+    let found = arranged(&sketch);
+    let flat = Prism::new(&found, 0, Plane::GROUND, 0.0);
+
+    // Six faces, the same six a prism of any depth has: two caps and a wall per
+    // bounding curve. None of them is skipped for being flat.
+    let faces: Vec<Grown> = flat.grown().collect();
+    assert_eq!(faces.len(), 6, "{faces:?}");
+    assert_eq!(faces[0], Grown::Base);
+    assert_eq!(faces[1], Grown::Far);
+
+    // Coincident caps wound against each other enclose nothing at all.
+    assert_eq!(volume(&flat), 0.0);
+
+    // And every number of it is a number. A sweep of no length is where a
+    // normalize would divide by zero, and every corner and normal reaching the
+    // caller finite is what says none happens.
+    let mut skinner = Skinner::default();
+    let mut patch = Patch::default();
+    for grown in flat.grown() {
+        skinner.cut(&flat, grown, FINE, &mut patch);
+        assert!(
+            !patch.corners.is_empty(),
+            "{grown:?} came out with no corners"
+        );
+        for corner in &patch.corners {
+            assert!(corner.is_finite(), "{grown:?} put a corner at {corner:?}");
+        }
+        for normal in &patch.normals {
+            assert!(normal.is_finite(), "{grown:?} gave a normal of {normal:?}");
+            // Read off the edge rather than off the sweep, so it is still a
+            // direction even where nothing was swept.
+            assert!(
+                (normal.length() - 1.0).abs() < 1e-9,
+                "{grown:?} gave a normal of length {}",
+                normal.length()
+            );
+        }
+    }
+}

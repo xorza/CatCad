@@ -240,7 +240,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let one = drawn(demo::sketch());
     let mut scene = Scene::default();
     let mut layout = Layout::default();
-    redraw(one.models(), &mut layout, None, None, &mut scene);
+    redraw(one.models(), &mut layout, None, None, None, &mut scene);
 
     // Seven segments — four sides, the rail, and the arm's two bars — two
     // circles, and a marker on each of the nine points.
@@ -262,7 +262,14 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     // adding to it. Through a layout that has drawn nothing, because one that
     // has already drawn this revision correctly declines to draw it twice —
     // and what is being checked here is the refill, not the skip.
-    redraw(one.models(), &mut Layout::default(), None, None, &mut scene);
+    redraw(
+        one.models(),
+        &mut Layout::default(),
+        None,
+        None,
+        None,
+        &mut scene,
+    );
     assert_eq!(scene.curves.len(), 7);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
@@ -530,6 +537,7 @@ fn only_the_open_sketch_shows_its_constraints() {
         &mut layout,
         None,
         None,
+        None,
         &mut scene,
     );
     assert_eq!(
@@ -545,6 +553,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     redraw(
         document.models(&build, there),
         &mut layout,
+        None,
         None,
         None,
         &mut scene,
@@ -596,6 +605,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
         &mut layout,
         None,
         None,
+        None,
         &mut scene,
     );
     assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
@@ -609,6 +619,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     redraw(
         document.models(&build, there),
         &mut layout,
+        None,
         None,
         None,
         &mut scene,
@@ -645,6 +656,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     redraw(
         document.models(&build, document.opening()),
         &mut layout,
+        None,
         None,
         None,
         &mut scene,

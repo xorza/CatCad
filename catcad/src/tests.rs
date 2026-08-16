@@ -8,10 +8,11 @@ use silverpoint::{Drive, Entity, Freedom, Outcome, Plane, PointId, Removed, Solv
 
 use crate::build::Build;
 use crate::demo;
-use crate::intent::{Choice, Intents, Typed};
+use crate::intent::{Choice, Intents, Opening};
 use crate::model::Models;
 use crate::paint::{mark_font, mark_lift};
 use crate::part::Part;
+use crate::prompt::{Asking, Prompt};
 use crate::timeline::Timeline;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
@@ -1349,10 +1350,34 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
     // is found rather than guessed: it is the leftmost thing on the bottom bar.
     harness.click_at(EXTRUDE_BUTTON);
     frame(&mut app, &mut harness);
+    // The button *asks* rather than builds: the solid is on screen at no depth
+    // at all, drawn from the form's own reading, and the timeline has not heard
+    // of it. A cancel here would leave nothing behind to take back.
+    assert!(
+        matches!(
+            app.session.prompt().map(Prompt::about),
+            Some(Asking::Extrude { .. })
+        ),
+        "pressing Extrude opened no form: {}",
+        app.status()
+    );
+    assert_eq!(
+        solids(&app),
+        1,
+        "pressing Extrude reached the document before the depth was settled"
+    );
+
+    // The depth typed, and Enter to settle it. One step, carrying the depth it
+    // was given rather than a zero that was then carried.
+    harness.type_text("2");
+    frame(&mut app, &mut harness);
+    harness.key(Key::Enter);
+    frame(&mut app, &mut harness);
+    assert!(app.session.prompt().is_none(), "Enter left the form open");
     assert_eq!(
         solids(&app),
         2,
-        "pressing Extrude did not grow a solid: {}",
+        "committing the form did not grow a solid: {}",
         app.status()
     );
 
@@ -1415,7 +1440,7 @@ fn open_field(app: &mut CatCad, harness: &mut UiHarness, part: Part, from: f64) 
     frame(app, harness);
 
     let mut intents = Intents::default();
-    intents.push(Choice::Type(Some(Typed { part, from })));
+    intents.push(Choice::Ask(Some(Opening::Dimension { part, from })));
     app.session.apply(&intents);
 }
 
@@ -1448,9 +1473,9 @@ fn typing_a_dimension_restates_it_as_one_step() {
 
     open_field(&mut app, &mut harness, dimension, was);
     frame(&mut app, &mut harness);
-    let typing = app.session.typing().expect("the field never opened");
-    assert_eq!(typing.part(), dimension);
-    assert_eq!(typing.value(), Some(was), "opened on some other value");
+    let prompt = app.session.prompt().expect("the field never opened");
+    assert_eq!(prompt.marks(), Some(dimension));
+    assert_eq!(prompt.value(0), Some(was), "opened on some other value");
 
     // The mark is gone from the drawing, because the field stands over it — a
     // number drawn twice, once editable and once not, is the mistake this
@@ -1473,7 +1498,7 @@ fn typing_a_dimension_restates_it_as_one_step() {
     harness.type_text("40");
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.session.typing().expect("still open").value(),
+        app.session.prompt().expect("still open").value(0),
         Some(40.0)
     );
     assert_eq!(
@@ -1484,7 +1509,7 @@ fn typing_a_dimension_restates_it_as_one_step() {
 
     harness.key(Key::Enter);
     frame(&mut app, &mut harness);
-    assert!(app.session.typing().is_none(), "Enter left the field open");
+    assert!(app.session.prompt().is_none(), "Enter left the field open");
     assert!(
         (stated(&app) - 40.0).abs() < 1e-6,
         "landed on {}",
@@ -1580,7 +1605,7 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     frame(&mut app, &mut harness);
 
     assert!(
-        app.session.typing().is_some(),
+        app.session.prompt().is_some(),
         "the gesture closed the field"
     );
     assert_eq!(
@@ -1597,7 +1622,7 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     harness.click_at(elsewhere);
     frame(&mut app, &mut harness);
     assert!(
-        app.session.typing().is_none(),
+        app.session.prompt().is_none(),
         "a click beside the field left it open"
     );
 }
@@ -1642,7 +1667,7 @@ fn the_open_field_is_placed_against_this_frames_camera() {
     let middle =
         cursor_on(&mut app, at) - Vec2::new(0.0, mark_lift() - mark_font().line_height_px * 0.5);
     let rect = harness
-        .layout_rect(crate::typing::field_id())
+        .layout_rect(crate::prompt::Prompt::nth_field_id(0))
         .expect("the field was arranged on the frame that scrolled");
     let centre = rect.min + Vec2::new(rect.size.w, rect.size.h) * 0.5;
     assert!(
@@ -1701,7 +1726,7 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     harness.key(Key::Backspace);
     frame(&mut app, &mut harness);
     assert_eq!(
-        app.session.typing().expect("still open").value(),
+        app.session.prompt().expect("still open").value(0),
         None,
         "the keys reached the application instead of the field"
     );
@@ -1724,7 +1749,7 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
         edits,
         "Ctrl+Z reached the document while a field was open"
     );
-    assert!(app.session.typing().is_some(), "Ctrl+Z closed the field");
+    assert!(app.session.prompt().is_some(), "Ctrl+Z closed the field");
 
     // An accelerator is nobody's but the application's, and goes on working
     // while a field is open — which is the whole reason a focused field
@@ -1754,13 +1779,13 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
         std::fs::metadata(&path).expect("saved again").len(),
         written
     );
-    assert!(app.session.typing().is_some(), "saving closed the field");
+    assert!(app.session.prompt().is_some(), "saving closed the field");
     let _ = std::fs::remove_file(&path);
 
     // Escape closes the field and puts nothing else down.
     harness.key(Key::Escape);
     frame(&mut app, &mut harness);
-    assert!(app.session.typing().is_none(), "Escape left the field open");
+    assert!(app.session.prompt().is_none(), "Escape left the field open");
     assert_eq!(relations(&app), stated);
     // The dimension is exactly as it was: a draft abandoned never happened.
     let after = app.document.drawing_at(sketch).sketch();

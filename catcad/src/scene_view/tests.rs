@@ -141,6 +141,7 @@ impl Raised {
             &mut Layout::default(),
             None,
             None,
+            None,
             &mut scene,
         );
         scene.points.iter().map(|point| point.position).collect()
@@ -1807,11 +1808,10 @@ fn opening_a_dimension_is_the_only_double_click_that_means_anything() {
         match constraint.value() {
             Some(states) => {
                 dimensions += 1;
-                let typed = opened.expect("a dimension has a number to type into");
-                assert_eq!(typed.part, part);
                 assert_eq!(
-                    typed.from, states,
-                    "the field would open on the wrong value"
+                    opened.expect("a dimension has a number to type into"),
+                    Opening::Dimension { part, from: states },
+                    "the form would open on the wrong dimension or value"
                 );
             }
             None => {
