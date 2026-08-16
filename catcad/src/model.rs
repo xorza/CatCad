@@ -41,8 +41,6 @@ pub(crate) struct Model<'a> {
     /// Which sketch of the timeline this is, which is half of what names
     /// anything picked out of it — see [`Part`].
     of: FeatureId,
-    /// Which plane it is drawn on.
-    on: FeatureId,
     /// Whether this is the sketch being edited.
     ///
     /// Not a fact about the document — which sketch you have open is the
@@ -85,11 +83,6 @@ impl<'a> Model<'a> {
     /// Which sketch of the timeline this is.
     pub(crate) fn of(self) -> FeatureId {
         self.of
-    }
-
-    /// Which plane this sketch is drawn on.
-    pub(crate) fn on(self) -> FeatureId {
-        self.on
     }
 
     /// Whether this is the sketch being edited.
@@ -299,7 +292,6 @@ impl<'a> Models<'a> {
         } = self;
         timeline.sketches().map(move |at| Model {
             of: at,
-            on: timeline.drawn_on(at),
             live: at == editing,
             drawing: timeline.drawing(at),
             settled: build.settled(at),

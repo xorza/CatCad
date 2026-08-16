@@ -115,7 +115,7 @@ pub use batch::Batch;
 pub use camera::{Camera, Projection};
 pub use curve::Curve;
 pub use extent::Extent;
-pub use highlight::{Highlight, Lit};
+pub use highlight::{Highlight, Lit, Tint};
 pub use hit::{Hit, HitAt, Precedence};
 pub use mesh::{Mesh, Vertex};
 pub use motion::Motion;

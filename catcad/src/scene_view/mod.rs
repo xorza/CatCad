@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Extent, Highlight, Lit, Motion, Renderer, Viewport};
+use aperture::{Extent, Highlight, Lit, Motion, Renderer, Tint, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, ResponseState, Sense, Sizing, Ui,
@@ -56,7 +56,7 @@ pub(crate) const HOVER_REACH: f32 = 6.0;
 /// What the thing under the cursor looks like. How far forward a highlight
 /// reads is the renderer's, not this — see `Highlight`.
 const HOVERED: Highlight = Highlight {
-    color: Vec3::new(1.0, 0.85, 0.25),
+    tint: Tint::Ink(Vec3::new(1.0, 0.85, 0.25)),
     scale: 1.8,
 };
 
@@ -68,9 +68,37 @@ const HOVERED: Highlight = Highlight {
 /// things in one colour. Lifted like the hover and drawn a little smaller, so
 /// that the thing under the cursor still reads over the rest of what is picked.
 const SELECTED: Highlight = Highlight {
-    color: Vec3::new(0.30, 0.95, 0.45),
+    tint: Tint::Ink(Vec3::new(0.30, 0.95, 0.45)),
     scale: 1.5,
 };
+
+/// What a datum's axes look like singled out, hovered and picked out alike.
+///
+/// Brighter rather than recoloured, because an axis arrow is *saying something*
+/// in its colour — which of the two it is — and the looks above exist to
+/// override exactly that. Lighting the x arrow yellow would light up an arrow
+/// that had stopped being the x arrow.
+///
+/// One look for both, where everything else has two. A datum is a place to
+/// work rather than a thing to gather, so there is no state to tell apart:
+/// what a hover means here is only "this is what pressing would take".
+///
+/// Unscaled, unlike the two above, and by the constructor rather than by hand:
+/// a shape that keeps its own colour is one already saying what it is, and
+/// growing it would move the control out from under the cursor pointing at it.
+const AXIS_LIT: Highlight = Highlight::lifted(1.9);
+
+/// How `part` reads when it has been singled out.
+///
+/// One place rather than two matches at the call, so that a kind whose
+/// highlight is its own cannot be given the general look by whichever of the
+/// two branches was written second.
+fn singled(part: Part, ordinary: Highlight) -> Highlight {
+    match part {
+        Part::Plane(_) => AXIS_LIT,
+        _ => ordinary,
+    }
+}
 
 /// What is being dragged, and where the pointer may take it.
 ///
@@ -673,32 +701,40 @@ impl SceneView {
             Gesture::Move(held) => Some(held.part),
             _ => None,
         };
-        let under = self.aimed.filter(|_| held.is_none()).and_then(|aimed| {
-            let aim = aimed.aim(&document.camera());
-            renderer.scene().nearest(aim).map(|hit| hit.tag)
-        });
+        // A part rather than the one tag that answered, because a part can have
+        // been drawn as several primitives — a datum is two arrows — and
+        // lighting the tag that happened to be hit lights half of it.
+        let pointed = self
+            .aimed
+            .filter(|_| held.is_none())
+            .and_then(|aimed| {
+                let aim = aimed.aim(&document.camera());
+                renderer.scene().nearest(aim).map(|hit| hit.tag)
+            })
+            .and_then(|tag| self.layout.names().get(tag));
         // What is *named* is not what is lit, and a drag is the one moment they
         // part: the readout goes on saying what the pointer is working on, which
         // is the thing in hand rather than whatever it is passing over. Lighting
         // that would be redundant — it is picked out, and reads as picked out.
-        self.hovered = held.or_else(|| under.and_then(|tag| self.layout.names().get(tag)));
+        self.hovered = held.or(pointed);
 
-        // The hover first, because where two entries name one tag the renderer
-        // takes the first: the thing under the cursor reads as hovered even
-        // when it is also picked out, which is what says the pointer would act
-        // on *it*.
+        // One walk of the names for both, going the way the names run: what is
+        // picked out are the sketch's own handles and what is lit are the tags
+        // this layout gave them, and the same is true of what is hovered now
+        // that a hover is a part.
+        //
+        // The hover wins where something is both, which is what says the
+        // pointer would act on *it*.
         self.lit.clear();
-        self.lit.extend(under.map(|tag| Lit { tag, look: HOVERED }));
-        // Asked of the names rather than of the selection, because the walk has
-        // to go the other way: what is picked out are the sketch's own handles,
-        // and what is lit are the tags this layout gave them.
-        for (tag, entity) in self.layout.names().iter() {
-            if Some(tag) != under && session.selection().contains(entity) {
-                self.lit.push(Lit {
-                    tag,
-                    look: SELECTED,
-                });
-            }
+        for (tag, part) in self.layout.names().iter() {
+            let look = if Some(part) == pointed {
+                singled(part, HOVERED)
+            } else if session.selection().contains(part) {
+                singled(part, SELECTED)
+            } else {
+                continue;
+            };
+            self.lit.push(Lit { tag, look });
         }
         // Unconditionally, and cheap when nothing moved: the renderer compares
         // the set before it rewrites anything, so a still frame over a settled

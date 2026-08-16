@@ -193,6 +193,10 @@ impl Renderer {
             relight,
             Gpu::faces_order(camera.eye()),
         );
+        // Opaque, so the depth test settles what covers what and there is
+        // nothing for an order to buy.
+        cpu.gizmos
+            .refresh(&mut scene.gizmos, highlights, relight, Order::Given);
         cpu.curves
             .refill_from(&mut scene.curves, highlights, relight);
         cpu.rings.refill_from(&mut scene.rings, highlights, relight);
@@ -278,6 +282,8 @@ impl GpuPaint for Renderer {
         gpu.solids
             .upload_mesh(ctx.device, ctx.queue, &mut cpu.solids);
         gpu.faces.upload_mesh(ctx.device, ctx.queue, &mut cpu.faces);
+        gpu.gizmos
+            .upload_mesh(ctx.device, ctx.queue, &mut cpu.gizmos);
         gpu.curves.upload(ctx.device, ctx.queue, &mut cpu.curves);
         gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings);
         gpu.points.upload(ctx.device, ctx.queue, &mut cpu.points);
@@ -310,6 +316,13 @@ impl GpuPaint for Renderer {
         // kinds write depth and can go in any order among themselves, because
         // there the depth test is the whole answer.
         gpu.solids.draw(&mut pass);
+        // With the opaque geometry, and before the faces for the reason
+        // everything opaque is: a face is blended, so whatever should show
+        // through one has to be in the target already — and whatever should
+        // *not* has to be in the depth buffer already, which is the half a
+        // control depends on. Where it lands among the other opaque kinds is
+        // the depth ladder's business and not this sequence's.
+        gpu.gizmos.draw(&mut pass);
         // Every ordinary pass before any highlight, rather than each kind's two
         // together: a highlight has to read over anything it doubles whatever
         // kind that is, and not merely over its own kind.

@@ -59,6 +59,28 @@ const FACE_BIAS: i32 = 2048;
 /// way round.
 const FACE_OPACITY: f32 = 0.45;
 
+/// The flat controls, which lie on a datum among the faces rather than over the
+/// drawing.
+///
+/// Between the faces and the strokes, and that is the whole of what it says: a
+/// gizmo is furniture the drawing is done *on*, so a stroke or a marker of that
+/// drawing reads over it and the region it encloses reads under.
+///
+/// A rung and nothing else — it decides the coplanar case, which is the only
+/// one a bias is entitled to decide. What it deliberately does *not* do is put
+/// a control in front of geometry that is genuinely in front of it: a gizmo is
+/// opaque world geometry and writes depth like any other, so a solid standing
+/// over one hides it and a datum's axis standing over another sketch hides
+/// that. Both are what the scene actually is.
+///
+/// It was briefly the other way, with the pass writing no depth so that a
+/// control could never take a pixel from the drawing. That is not a rung on a
+/// ladder, it is an exemption from one — and two passes that both decline to
+/// write cannot sort against each other at all, so the faces (which decline for
+/// a real reason, being blended) simply painted over the controls in draw
+/// order, whichever was actually in front.
+const GIZMO_BIAS: i32 = FACE_BIAS * 2;
+
 /// Strokes and rims, which are the drawing itself and read over the faces they
 /// enclose.
 ///
@@ -246,6 +268,7 @@ impl Passes {
 pub(super) struct Gpu {
     pub(super) solids: Pass,
     pub(super) faces: Pass,
+    pub(super) gizmos: Pass,
     pub(super) curves: Passes,
     pub(super) rings: Passes,
     pub(super) points: Passes,
@@ -301,6 +324,7 @@ impl Gpu {
             include_str!("shader/curve.wgsl"),
             include_str!("shader/ring.wgsl"),
             include_str!("shader/point.wgsl"),
+            include_str!("shader/gizmo.wgsl"),
             include_str!("shader/text.wgsl"),
         ]
         .concat();
@@ -421,6 +445,26 @@ impl Gpu {
             opacity: FACE_OPACITY,
             depth_write: false,
         });
+        // A third set of rules over the same triangles, and the reason the
+        // vertex is shared rather than the pass: a control is cut in the world
+        // like a face and drawn unlit like nothing else here. Two-sided, because
+        // a flat shape has no outside to be culled from and one that vanished as
+        // the view crossed its plane would be a handle that came and went.
+        //
+        // Opaque and writing depth, like every other opaque pass here. What
+        // that buys is that a control sorts against everything else by being
+        // somewhere, rather than by which pass ran first — see [`GIZMO_BIAS`],
+        // where the alternative is written down and why it fails.
+        let gizmos = pipelines.build::<GpuVertex>(PassSpec {
+            name: "gizmo",
+            indices: None,
+            cull: None,
+            alpha_to_coverage: false,
+            blend: None,
+            depth_bias: GIZMO_BIAS,
+            opacity: 1.0,
+            depth_write: true,
+        });
         let curves = Passes::build::<CurveInstance>(
             &pipelines,
             PassSpec {
@@ -458,6 +502,7 @@ impl Gpu {
         Self {
             solids,
             faces,
+            gizmos,
             curves,
             rings,
             points,

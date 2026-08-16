@@ -52,7 +52,7 @@ impl Look {
     /// this one edits the tail of one, and two things called `highlighted` on
     /// either side of a `look_mut()` read as the same operation twice.
     fn take_on(&mut self, look: Highlight) {
-        self.color = look.color.to_array();
+        self.color = look.tint.over(Vec3::from_array(self.color)).to_array();
         self.half_extent *= look.scale;
     }
 }

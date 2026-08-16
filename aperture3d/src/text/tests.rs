@@ -120,23 +120,6 @@ fn a_run_that_was_never_laid_out_cannot_be_picked() {
     assert!(scenery.pick(&aim_at(CENTRE, 0.0)).is_none());
 }
 
-/// A marker beats a label beats an edge, whatever their depths.
-///
-/// The middle rung is the one this adds, and it is the one a dimension needs: a
-/// dimension sits on its own line, so an edge running under a label must not
-/// take the click meant for the label.
-#[test]
-fn a_label_outranks_an_edge_and_yields_to_a_marker() {
-    let marker = HitAt::Point.rank();
-    let label = HitAt::Text.rank();
-    let edge = HitAt::Segment { index: 0, t: 0.5 }.rank();
-    let rim = HitAt::Ring { angle: 0.0 }.rank();
-
-    assert!(marker < label, "a marker should beat a label");
-    assert!(label < edge, "a label should beat an edge");
-    assert_eq!(edge, rim, "an edge is an edge however it curves");
-}
-
 /// Measuring a batch fills in what picking needs, and leaves the batch clean.
 ///
 /// The clean half is the one that matters. A renderer re-flattens whatever is

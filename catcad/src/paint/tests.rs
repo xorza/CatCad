@@ -294,12 +294,13 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
     // cylinder.
     assert_eq!(picture.solids.len(), 3);
     // And both sketches: the frame's seven edges and the triangle's three, two
-    // rims, nine markers and three. The eleventh stroke is the shelf plane's own
-    // outline — the ground draws none, being where the world is rather than a
-    // plane anybody put there.
-    assert_eq!(picture.curves.len(), 11);
+    // rims, nine markers and three.
+    assert_eq!(picture.curves.len(), 10);
     assert_eq!(picture.rings.len(), 2);
     assert_eq!(picture.points.len(), 12);
+    // Two arrows for the shelf plane's gizmo — the ground gets none, being
+    // where the world is rather than a plane anybody put there.
+    assert_eq!(picture.gizmos.len(), 2);
 }
 
 /// Every symbol a mark is drawn as has a glyph in the faces the shaper falls
@@ -620,18 +621,23 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     assert_eq!(drawn(&scene, &layout, there), [FREE]);
 }
 
-/// A plane that can be moved is outlined around what is drawn on it, and one
+/// A plane that can be moved is drawn as two axis arrows at its origin, and one
 /// that cannot is not drawn at all.
 ///
-/// The outline is what makes a datum a thing to aim at — and it is one closed
-/// stroke rather than four, so a cursor over any edge of it is over the plane
-/// rather than over a quarter of one.
+/// The gizmo is what makes a datum a thing to aim at, and both arrows report
+/// the plane: an axis is not a part of the drawing in its own right yet, so a
+/// cursor over either is over the datum.
 ///
 /// The ground draws nothing. It is what everything else is measured *from*
-/// rather than something anybody put anywhere, and a rectangle standing for it
-/// would be a rectangle standing for the world.
+/// rather than something anybody put anywhere, and axes standing for it would
+/// be axes standing for the world.
+///
+/// What this pins beyond the count is that the gizmo is *not* fitted to the
+/// sketch: it starts at the plane's own origin and reaches a fixed distance,
+/// so nothing about where the drawing happens to lie can move it. A gizmo
+/// sized from the drawing would pass every count below and fail the last two.
 #[test]
-fn a_movable_plane_is_outlined_around_what_is_drawn_on_it() {
+fn a_movable_plane_is_drawn_as_two_axis_arrows_at_its_origin() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
     let mut layout = Layout::default();
@@ -644,60 +650,60 @@ fn a_movable_plane_is_outlined_around_what_is_drawn_on_it() {
         &mut scene,
     );
 
-    let outlines: Vec<_> = scene
-        .curves
+    let named: Vec<_> = scene
+        .gizmos
         .iter()
-        .filter(|curve| {
+        .filter(|gizmo| {
             matches!(
-                curve.tag.and_then(|tag| layout.names().get(tag)),
+                gizmo.tag.and_then(|tag| layout.names().get(tag)),
                 Some(Part::Plane(_))
             )
         })
         .collect();
-    let [outline] = outlines[..] else {
-        panic!("the demo holds one movable plane, not {}", outlines.len());
-    };
-    assert!(
-        outline.closed,
-        "a datum was drawn as an open run of strokes"
+    assert_eq!(
+        named.len(),
+        2,
+        "the demo holds one movable plane, so two arrows and no more"
     );
-    assert_eq!(outline.points.len(), 4, "a datum is a rectangle");
+    let Some(Part::Plane(at)) = named[0].tag.and_then(|tag| layout.names().get(tag)) else {
+        unreachable!("the arrows were found by their tags naming a plane");
+    };
+    assert_eq!(
+        named[1].tag.and_then(|tag| layout.names().get(tag)),
+        Some(Part::Plane(at)),
+        "the two axes of one datum report two different parts"
+    );
 
-    // It brackets every point of the sketch on it, clear by the margin. Read
-    // in the world, where the plane put both: the outline is drawn in the same
-    // coordinates the sketch is, so a plane that moved would carry the two
-    // together and this would still hold.
-    let Some(Part::Plane(at)) = outline.tag.and_then(|tag| layout.names().get(tag)) else {
-        unreachable!("the outline was found by its tag naming a plane");
-    };
+    // The plane the arrows named, not whichever the first sketch happens to be
+    // drawn on: the demo sketches on the ground as well, and measuring against
+    // that one would be asking whether the arrows lie in a plane they were
+    // never on.
     let models = document.models(&build, document.opening());
-    let on_it: Vec<_> = models
-        .iter()
-        .filter(|model| model.on() == at)
-        .flat_map(|model| {
-            let plane = model.plane();
-            model
-                .sketch()
-                .points()
-                .map(move |(_, point)| plane.point(point.position).as_vec3())
-        })
-        .collect();
-    assert!(
-        !on_it.is_empty(),
-        "nothing is drawn on the plane that was drawn"
-    );
-    let low = outline
-        .points
-        .iter()
-        .fold(Vec3::MAX, |low, &at| low.min(at));
-    let high = outline
-        .points
-        .iter()
-        .fold(Vec3::MIN, |high, &at| high.max(at));
-    for point in on_it {
+    let (_, plane) = models
+        .planes()
+        .find(|(id, _)| *id == at)
+        .expect("the arrows name a plane the document holds");
+    let origin = plane.point(DVec2::ZERO).as_vec3();
+    let normal = plane.normal().as_vec3();
+    for arrow in &named {
+        // Every corner lies in the plane, which is the whole of what makes it
+        // flat *in* the datum rather than a shape hung in front of it.
+        for corner in &arrow.mesh.vertices {
+            let off = (corner.position - origin).dot(normal);
+            assert!(off.abs() < 1e-5, "a corner stands {off} off its own plane");
+        }
+        // A tail on the origin and a tip a fixed reach away, both measured
+        // from the plane rather than from anything drawn on it.
+        let far = arrow
+            .mesh
+            .vertices
+            .iter()
+            .map(|corner| corner.position.distance(origin))
+            .fold(0.0f32, f32::max);
         assert!(
-            point.cmpge(low).all() && point.cmple(high).all(),
-            "{point:?} is drawn outside the outline of the plane it is on"
+            (far - shape::ARROW_REACH as f32).abs() < 1e-4,
+            "an arrow reached {far}, where the gizmo is a fixed {} across",
+            shape::ARROW_REACH,
         );
     }
 }

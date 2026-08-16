@@ -1837,3 +1837,66 @@ fn opening_a_dimension_is_the_only_double_click_that_means_anything() {
     };
     assert!(dimension(marker, &raised.document, sketch).is_none());
 }
+
+/// Hovering one arrow of a datum's gizmo lights the whole gizmo, and lights it
+/// without taking its colours away.
+///
+/// Two failures, both of which looked like working code. A hover lights what
+/// the *tag* under the cursor named, and a datum is drawn as two arrows with a
+/// tag apiece — so pointing at one lit one, and the gizmo came apart under the
+/// cursor into a thing that was half highlighted. And the look every other part
+/// takes replaces the colour outright, which for an axis erases the one thing
+/// it is saying: which axis it is.
+#[test]
+fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
+    let mut raised = Raised::new();
+    raised.frame();
+
+    // Aimed at geometry that was actually drawn rather than at coordinates
+    // worked out here: the middle of the first arrow's shaft quad, which is its
+    // four corners averaged and therefore inside it whatever the shape's
+    // proportions become.
+    let (on_shaft, drawn) = {
+        let renderer = raised.view.renderer().borrow();
+        let gizmos = &renderer.scene().gizmos;
+        let corners = &gizmos[0].mesh.vertices[..4];
+        let middle = corners
+            .iter()
+            .fold(Vec3::ZERO, |sum, corner| sum + corner.position)
+            / corners.len() as f32;
+        let tags: Vec<_> = gizmos.iter().filter_map(|gizmo| gizmo.tag).collect();
+        (middle, tags)
+    };
+    assert_eq!(
+        drawn.len(),
+        2,
+        "the demo's one datum is drawn as two arrows"
+    );
+
+    raised.harness.move_to(raised.cursor_on(on_shaft));
+    raised.frame();
+    let hovered = raised.view.hovered();
+    assert!(
+        matches!(hovered, Some(Part::Plane(_))),
+        "the cursor on a datum's axis reported {hovered:?}"
+    );
+
+    // Both arrows, not the one that answered the pick.
+    let lit: Vec<_> = raised.view.lit.iter().map(|lit| lit.tag).collect();
+    assert_eq!(
+        lit,
+        drawn,
+        "hovering one axis lit {} of the gizmo's 2 arrows",
+        lit.len()
+    );
+    // And each keeps its own colour, brightened. `Tint::Ink` here would be the
+    // hover's yellow on both, which is also how it would look if the two arrows
+    // had stopped being told apart.
+    for entry in &raised.view.lit {
+        assert!(
+            matches!(entry.look.tint, aperture::Tint::Lift(by) if by > 1.0),
+            "an axis was lit with {:?}, which spends the colour it is made of",
+            entry.look.tint,
+        );
+    }
+}

@@ -39,6 +39,10 @@ use palantir::{PlacedGlyph, TextGlyphs};
 pub(super) struct Cpu {
     pub(super) solids: Triangles,
     pub(super) faces: Triangles,
+    /// The flat controls, which are a triangle list like the two above and not
+    /// an overlay: their shape is cut in the world rather than built in the
+    /// shader, so what ships is vertices.
+    pub(super) gizmos: Triangles,
     pub(super) curves: Records<CurveInstance>,
     pub(super) rings: Records<RingInstance>,
     pub(super) points: Records<PointInstance>,
@@ -582,7 +586,9 @@ impl Triangles {
             // Remembered rather than recomputed, because the next relight has to
             // know whether this one left a colour behind to undo.
             highlighted |= look.is_some();
-            let color = look.map_or(object.color, |look| look.color).to_array();
+            let color = look
+                .map_or(object.color, |look| look.tint.over(object.color))
+                .to_array();
             let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
                 position: object
                     .transform

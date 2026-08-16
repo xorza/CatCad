@@ -4,7 +4,7 @@ use crate::aim::Aim;
 use crate::batch::Batch;
 use crate::curve::Curve;
 use crate::extent::Extent;
-use crate::hit::{Hit, Precedence};
+use crate::hit::{Hit, HitAt, Precedence};
 use crate::object::Object;
 use crate::point::Point;
 use crate::primitive;
@@ -40,6 +40,30 @@ pub struct Scene {
     pub rings: Batch<Ring>,
     pub points: Batch<Point>,
     pub texts: Batch<Text>,
+    /// The flat controls: a datum's axes, an arrowhead on a leader — the things
+    /// a drawing puts on screen to be *used* rather than measured.
+    ///
+    /// The third way an [`Object`] is drawn, and the furthest from the first.
+    /// Unlit, because a control says what it is by its colour and one the key
+    /// light shaded would say it differently on every plane; two-sided, like a
+    /// face and for the same reason; opaque, unlike one; and standing between
+    /// the two on the depth ladder, so that on one datum the region it encloses
+    /// reads under the control and every stroke and marker of the drawing reads
+    /// over it. A gizmo is furniture the drawing is done *on*.
+    ///
+    /// It is ordinary opaque geometry for all that, and writes depth like any:
+    /// what is genuinely in front of a control hides it, control included. The
+    /// rung decides the coplanar case and nothing else.
+    ///
+    /// Cut in the world rather than built in the shader, which is what makes it
+    /// an object and not an overlay. So its size is a world size and its
+    /// vertices are only ever rewritten when the thing it is a control *for*
+    /// moves — never when the camera does.
+    ///
+    /// It also picks as the opposite of what it is made of: a solid and a face
+    /// are backdrops that yield to everything drawn on them, where a gizmo
+    /// outranks every other kind there is. See [`Object::pick`].
+    pub gizmos: Batch<Object>,
 }
 
 /// How much farther than something a hit has to be before it counts as being
@@ -89,6 +113,7 @@ impl Scene {
         primitive::extent(&self.rings, &mut extent);
         primitive::extent(&self.points, &mut extent);
         primitive::extent(&self.texts, &mut extent);
+        primitive::extent(&self.gizmos, &mut extent);
         extent
     }
 
@@ -188,6 +213,11 @@ impl Scene {
             .iter()
             .filter(|text| framed(&text.precedence))
             .filter_map(|text| text.pick(aim));
+        let gizmos = self
+            .gizmos
+            .iter()
+            .filter(|gizmo| framed(&gizmo.precedence))
+            .filter_map(|gizmo| gizmo.pick(aim, HitAt::Gizmo));
         let curves = self
             .curves
             .iter()
@@ -200,6 +230,7 @@ impl Scene {
             .filter_map(|ring| ring.pick(aim));
         points
             .chain(texts)
+            .chain(gizmos)
             .chain(curves)
             .chain(rings)
             .fold(f32::INFINITY, |front, hit| front.min(hit.distance))
@@ -210,7 +241,9 @@ impl Scene {
     ///
     /// Both mesh batches, because which one an object is in decides how it is
     /// *drawn* and says nothing about whether it can be aimed at — an untagged
-    /// one is scenery and answers nothing either way.
+    /// one is scenery and answers nothing either way. Not the gizmos, which are
+    /// objects and no part of the ground: a control is the thing held in front,
+    /// never the thing others are held in front of.
     ///
     /// A surface hides other surfaces as readily as it hides what is drawn over
     /// them, and that is what settles the two against each other: depth first,
@@ -245,7 +278,7 @@ impl Scene {
         let meshes = || self.faces.iter().chain(self.solids.iter());
         let mut front = f32::INFINITY;
         let mut ranked: Option<Hit> = None;
-        for hit in meshes().filter_map(|mesh| mesh.pick(aim)) {
+        for hit in meshes().filter_map(|mesh| mesh.pick(aim, HitAt::Surface)) {
             front = front.min(hit.distance);
             if ranked.is_none_or(|best| hit.aim_order(&best).is_lt()) {
                 ranked = Some(hit);
@@ -259,7 +292,7 @@ impl Scene {
         // answer is whichever of the rest it prefers — and that is the only
         // question this second walk is here to settle.
         meshes()
-            .filter_map(|mesh| mesh.pick(aim))
+            .filter_map(|mesh| mesh.pick(aim, HitAt::Surface))
             .filter(|hit| shows(front, hit.distance))
             .min_by(Hit::aim_order)
     }
@@ -274,6 +307,11 @@ impl Scene {
             .iter()
             .filter_map(move |point| point.pick(aim))
             .chain(self.texts.iter().filter_map(move |text| text.pick(aim)))
+            .chain(
+                self.gizmos
+                    .iter()
+                    .filter_map(move |gizmo| gizmo.pick(aim, HitAt::Gizmo)),
+            )
             .chain(self.curves.iter().filter_map(move |curve| curve.pick(aim)))
             .chain(self.rings.iter().filter_map(move |ring| ring.pick(aim)))
     }

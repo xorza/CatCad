@@ -13,6 +13,11 @@ use std::cmp::Ordering;
 ///
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HitAt {
+    /// A flat control, anywhere on it. Like a surface, it has no part of itself
+    /// nearer the aim than the rest — but unlike one it is a target rather than
+    /// a backdrop, which is what puts it at the far end of this ladder from
+    /// [`HitAt::Surface`].
+    Gizmo,
     Point,
     /// A run of text, anywhere within the box it is drawn in.
     Text,
@@ -45,18 +50,24 @@ impl HitAt {
     /// placed, and the edge it labels usually runs right under it — a dimension
     /// sits on its own dimension line — so an edge crossing a label must not
     /// take the click meant for the label.
+    ///
+    /// A gizmo beats a marker, and everything else with it. It is the one thing
+    /// in a scene put there to be *taken hold of*: it is drawn over the geometry
+    /// it controls, deliberately, so a click inside it can have been meant for
+    /// nothing under it.
     pub(crate) fn rank(&self) -> u8 {
         match self {
-            Self::Point => 0,
-            Self::Text => 1,
+            Self::Gizmo => 0,
+            Self::Point => 1,
+            Self::Text => 2,
             // An edge is an edge however it curves, so a stroke and a rim rank
             // together and the cursor's distance decides between them.
-            Self::Segment { .. } | Self::Ring { .. } => 2,
+            Self::Segment { .. } | Self::Ring { .. } => 3,
             // Last, and never actually reached: a surface is ranked against
             // other surfaces and nothing else — see [`Hit::aim_order`] — so
             // every comparison this arm could enter is one the arms above have
             // already tied. It is here to keep the ladder total.
-            Self::Surface => 3,
+            Self::Surface => 4,
         }
     }
 }
@@ -190,6 +201,35 @@ mod tests {
         // A sketch set aside loses to the one being worked in, whatever the two
         // are made of.
         assert_eq!(edge.aim_order(&near), Ordering::Less);
+    }
+
+    /// A gizmo beats a marker beats a label beats an edge, whatever their depths.
+    ///
+    /// The whole ladder in one place, because what it says is a chain of
+    /// *comparisons* and a rung is only ever wrong relative to its neighbours. The
+    /// middle one is what a dimension needs — a dimension sits on its own line, so
+    /// an edge running under a label must not take the click meant for the label —
+    /// and the top one is what a control needs, which is the opposite claim: a
+    /// gizmo is drawn over the geometry it controls deliberately, so a click inside
+    /// it cannot have been meant for what it covers.
+    #[test]
+    fn a_gizmo_outranks_a_marker_outranks_a_label_outranks_an_edge() {
+        let gizmo = HitAt::Gizmo.rank();
+        let marker = HitAt::Point.rank();
+        let label = HitAt::Text.rank();
+        let edge = HitAt::Segment { index: 0, t: 0.5 }.rank();
+        let rim = HitAt::Ring { angle: 0.0 }.rank();
+        let surface = HitAt::Surface.rank();
+
+        assert!(gizmo < marker, "a gizmo should beat a marker");
+        assert!(marker < label, "a marker should beat a label");
+        assert!(label < edge, "a label should beat an edge");
+        assert_eq!(edge, rim, "an edge is an edge however it curves");
+        // The two ends are the same shape asked about — a mesh with no part of
+        // itself nearer the aim than the rest — and they sit at opposite ends,
+        // which is the whole of what makes a control a control and a face a
+        // backdrop.
+        assert!(edge < surface, "a backdrop should lose to everything drawn");
     }
 
     /// Two surfaces rank by what they are for, like anything else.

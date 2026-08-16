@@ -83,6 +83,14 @@ impl Object {
     /// Where the aim's ray first goes through this mesh, or `None` where it
     /// misses or the mesh is scenery.
     ///
+    /// `at` is what a hit here counts as, and the caller's rather than the
+    /// object's for the same reason culling and bias are: which batch an object
+    /// is in decides what it *is*, and nothing on the object says so. A solid
+    /// and a face are [`HitAt::Surface`] — backdrops, ranked against each other
+    /// and never against what is drawn on them — where a gizmo is
+    /// [`HitAt::Gizmo`], a target that beats everything. Same geometry, same
+    /// arithmetic, opposite ends of the ladder.
+    ///
     /// Every triangle tested, front and back alike. A sheet has no outside to
     /// be culled from — see [`Scene::faces`](crate::Scene) — and one that could
     /// only be picked from the side it happens to face would be one that stops
@@ -94,7 +102,7 @@ impl Object {
     /// the cursor is *near*: it is either over it or it is not, and a face
     /// reported at some distance would beat a nearer one for no reason a user
     /// could see. What separates two faces under one cursor is depth alone.
-    pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
+    pub(crate) fn pick(&self, aim: &Aim, at: HitAt) -> Option<Hit> {
         let tag = self.tag?;
         let ray = aim.ray();
         let mut along = f32::INFINITY;
@@ -109,7 +117,7 @@ impl Object {
         }
         along
             .is_finite()
-            .then(|| aim.hit(tag, HitAt::Surface, self.precedence, ray.at(along), 0.0))
+            .then(|| aim.hit(tag, at, self.precedence, ray.at(along), 0.0))
     }
 }
 

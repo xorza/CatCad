@@ -772,9 +772,14 @@ fn solids_still_hide_the_strokes_behind_them() {
 /// in front of it. Under parallel rays what lies between them is the same width
 /// at either depth, so the two rows measure alike; perspective spreads the near
 /// one by a quarter.
+///
+/// Both also clear the datum's gizmo, which lies between them and reaches
+/// further left than the drawing does — [`lit_span`] measures a silhouette and
+/// cannot tell furniture from geometry, so what the two rows must have in
+/// common is that neither crosses any.
 #[test]
 fn orthographic_holds_the_drawing_to_one_width() {
-    const FAR_ROW: u32 = 350;
+    const FAR_ROW: u32 = 240;
     const NEAR_ROW: u32 = 420;
 
     let flat = render(
@@ -815,8 +820,10 @@ fn orthographic_holds_the_drawing_to_one_width() {
 #[test]
 fn the_gpu_draws_the_marker_where_the_projection_says_it_is() {
     // Nearly overhead, so the drawing lies open across the frame and its
-    // corners are as far apart on screen as they get.
-    let frame = render(UVec2::new(800, 628), edge_on(1.4));
+    // corners are as far apart on screen as they get — but not so far over that
+    // the shelf datum's gizmo, which stands nearer the eye than the ground
+    // does, clips the disc being measured and drags its centroid off.
+    let frame = render(UVec2::new(800, 628), edge_on(1.2));
     let viewport = Viewport::new(frame.size);
 
     // The sketch's anchor is fixed at sketch (0, 0), which the ground plane

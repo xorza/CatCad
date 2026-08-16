@@ -1,4 +1,5 @@
 use super::*;
+use crate::batch::Batch;
 use crate::camera::Projection;
 use crate::curve::Curve;
 use crate::highlight::Highlight;
@@ -96,6 +97,87 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
     // Transforming the normal directly would have tipped it the other way.
     let naive = Vec3::new(2.0, 1.0, 0.0).normalize();
     assert!(!actual.abs_diff_eq(naive, 1e-3));
+}
+
+/// The middle pixel of the frame, RGB as the target holds it — which is
+/// sRGB-encoded, the pass having written linear colour into an sRGB target.
+///
+/// The middle because that is where a test puts the thing it is asking about,
+/// and one pixel because what these ask is what colour came out rather than how
+/// much of it there was. Fully covered, so the resolve has nothing to average.
+fn middle_pixel(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> [i32; 3] {
+    let pixels = frame_pixels(gpu, target);
+    let at = ((FRAME.y / 2 * FRAME.x + FRAME.x / 2) * 4) as usize;
+    [
+        i32::from(pixels[at]),
+        i32::from(pixels[at + 1]),
+        i32::from(pixels[at + 2]),
+    ]
+}
+
+/// A quad facing the camera, big enough to cover the middle of the frame
+/// and small enough to stay inside it.
+fn facing_quad() -> Mesh {
+    let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)];
+    Mesh {
+        vertices: corners
+            .map(|(x, y)| Vertex {
+                position: Vec3::new(x, y, 0.0),
+                normal: Vec3::Z,
+            })
+            .to_vec(),
+        indices: vec![0, 1, 2, 0, 2, 3],
+    }
+}
+
+/// A lifted highlight keeps the primitive's own colour and an inked one
+/// replaces it.
+///
+/// The distinction a control depends on. A datum's axes say *which axis they
+/// are* by their colour, so the hover cannot spend it — where for a sketch
+/// entity spending it is the entire point, since what a selection means is that
+/// everything in it reads alike.
+///
+/// Asked of the flattened vertices rather than of [`Tint::over`], because the
+/// question is whether the mesh path *asks*: a flatten that went on taking a
+/// replacement colour would pass any test of the tint by itself.
+#[test]
+fn a_lifted_highlight_keeps_the_colour_it_was_over_and_an_inked_one_replaces_it() {
+    const OWN: Vec3 = Vec3::new(0.4, 0.1, 0.2);
+    let mut scene = Scene::default();
+    scene.gizmos.push(
+        Object::new(Mesh::cube(2.0))
+            .colored(OWN)
+            .tagged(Tag::new(1)),
+    );
+    let mut renderer = Renderer::new(scene);
+
+    // Unlit first, so what the lift is measured against is what the flatten
+    // actually wrote rather than what the object was built with.
+    renderer.refresh(1.0);
+    assert_eq!(renderer.cpu.gizmos.vertices[0].color, OWN.to_array());
+
+    // Twice as bright, channel for channel — so the hue is untouched and only
+    // the brightness moved, which is the whole of the claim.
+    renderer.highlight_only(Lit {
+        tag: Tag::new(1),
+        look: Highlight::lifted(2.0),
+    });
+    renderer.refresh(1.0);
+    assert_eq!(
+        renderer.cpu.gizmos.vertices[0].color,
+        [0.8, 0.2, 0.4],
+        "a lift recoloured the primitive instead of brightening it"
+    );
+
+    // And the other arm still overrides outright, which is what every other
+    // kind of highlight in the drawing relies on.
+    renderer.highlight_only(Lit {
+        tag: Tag::new(1),
+        look: Highlight::new(Vec3::Y),
+    });
+    renderer.refresh(1.0);
+    assert_eq!(renderer.cpu.gizmos.vertices[0].color, Vec3::Y.to_array());
 }
 
 /// A refresh takes each batch's mark, so a frame that changed nothing owes the
@@ -686,9 +768,25 @@ fn frame_target(device: &wgpu::Device) -> wgpu::Texture {
 /// about 40 — and everything this crate draws is lit well clear of it, so the
 /// threshold is a wide gap rather than a tuned one.
 fn drawn_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> usize {
-    /// Above the background and far below anything drawn.
-    const LIT: u8 = 80;
+    drawn_ink(gpu, target).count
+}
 
+/// Where the drawn pixels are, and how many — the same readback, asked the
+/// fuller question.
+#[derive(Debug)]
+struct Ink {
+    count: usize,
+    min: UVec2,
+    max: UVec2,
+}
+
+/// The whole frame, RGBA a byte a channel, as the target holds it — which is
+/// sRGB-encoded, the pass having written linear colour into an sRGB target.
+///
+/// Its own function because two questions are asked of it: how much was drawn,
+/// and what colour a given pixel came out. Both are one readback, and neither
+/// wants the other's answer.
+fn frame_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Vec<u8> {
     let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("aperture.test.readback"),
         size: u64::from(FRAME.x * FRAME.y * 4),
@@ -727,17 +825,115 @@ fn drawn_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> usize {
         })
         .expect("device poll");
 
-    let pixels = readback
+    let mapped = readback
         .slice(..)
         .get_mapped_range()
         .expect("the readback was mapped");
-    let drawn = pixels
-        .chunks_exact(4)
-        .filter(|pixel| pixel[0].max(pixel[1]).max(pixel[2]) > LIT)
-        .count();
-    drop(pixels);
+    let pixels = mapped.to_vec();
+    drop(mapped);
     readback.unmap();
-    drawn
+    pixels
+}
+
+fn drawn_ink(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Ink {
+    /// Above the background and far below anything drawn.
+    const LIT: u8 = 80;
+
+    let mut ink = Ink {
+        count: 0,
+        min: UVec2::splat(u32::MAX),
+        max: UVec2::ZERO,
+    };
+    for (at, pixel) in frame_pixels(gpu, target).chunks_exact(4).enumerate() {
+        if pixel[0].max(pixel[1]).max(pixel[2]) <= LIT {
+            continue;
+        }
+        let at = UVec2::new(at as u32 % FRAME.x, at as u32 / FRAME.x);
+        ink.count += 1;
+        ink.min = ink.min.min(at);
+        ink.max = ink.max.max(at);
+    }
+    ink
+}
+
+/// **A gizmo is drawn in the colour it was handed, where the same geometry as a
+/// solid is not.**
+///
+/// Unlit is the whole of what the gizmo pass is *for*, and the failure it
+/// guards against is the tempting one: pointing the pass at `mesh_fs`, which
+/// already draws world triangles and is right there. It would look plausible —
+/// shapes in roughly the right colours — and it would be wrong in a way no
+/// count of pixels can see, because `mesh_fs` multiplies by the key light and
+/// the ambient. That factor is not even grey: on a z-facing plane it is
+/// (0.589, 0.594, 0.624), so a red arrow comes back blue-shifted, and it
+/// changes with every plane a control is laid on.
+///
+/// So the frame is asked for a *colour* rather than an amount. The same object
+/// is drawn twice, moving only which batch it is in — which is the one thing
+/// that decides how an [`Object`] is drawn, and here the only difference there
+/// is.
+#[test]
+fn a_gizmo_is_drawn_in_the_colour_it_was_handed_where_a_solid_is_shaded() {
+    /// Linear-RGB as the sRGB target encodes it, to a byte. The standard
+    /// transfer function — the frame is asked what it holds, so the test has to
+    /// know what the write did to get there.
+    fn srgb8(linear: f32) -> i32 {
+        let encoded = if linear <= 0.003_130_8 {
+            12.92 * linear
+        } else {
+            1.055 * linear.powf(1.0 / 2.4) - 0.055
+        };
+        (encoded * 255.0).round() as i32
+    }
+
+    /// Deliberately far from grey, so a multiply that treated the channels
+    /// alike and one that did not cannot both pass.
+    const COLOR: Vec3 = Vec3::new(0.8, 0.2, 0.2);
+
+    let gpu = headless_test_gpu();
+    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+    let target = frame_target(&gpu.device);
+    let mut pane = ScenePane {
+        view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
+    };
+
+    // One pane throughout: the host initialises the view it is first given, and
+    // a second `Renderer` handed to the same host has never been through that.
+    let mut painted = |into: fn(&mut Scene) -> &mut Batch<Object>| {
+        {
+            let mut view = pane.view.borrow_mut();
+            let scene = view.scene_mut();
+            scene.solids.clear();
+            scene.gizmos.clear();
+            into(scene).push(Object::new(facing_quad()).colored(COLOR));
+        }
+        host.frame_offscreen(&target, 1.0, &mut pane);
+        middle_pixel(&gpu, &target)
+    };
+
+    // Exactly what was asked for. A byte either way for the rounding, and no
+    // more: this is a fully covered interior pixel, so the resolve has nothing
+    // to average and the encode is the only arithmetic between the colour and
+    // the frame.
+    let drawn = painted(|scene| &mut scene.gizmos);
+    let asked = [srgb8(COLOR.x), srgb8(COLOR.y), srgb8(COLOR.z)];
+    for (channel, (&got, want)) in drawn.iter().zip(asked).enumerate() {
+        assert!(
+            (got - want).abs() <= 1,
+            "channel {channel} of a gizmo came back {got}, having been handed \
+             {want} — something shaded it",
+        );
+    }
+
+    // And the same geometry in the batch above it does not, which is what says
+    // the assertion over it was worth making.
+    let shaded = painted(|scene| &mut scene.solids);
+    assert!(
+        shaded != drawn,
+        "a solid and a gizmo of one colour reached the frame identically at \
+         {drawn:?}, so the gizmo pass is shading like a mesh or the mesh pass \
+         has stopped shading",
+    );
 }
 
 /// One kind put into an otherwise empty scene, and what to call it when the
@@ -805,6 +1001,10 @@ fn every_kind_reaches_the_frame() {
             stage: |scene| scene.points.push(Point::new(Vec3::ZERO).size(32.0)),
         },
         Staged {
+            batch: "gizmos",
+            stage: |scene| scene.gizmos.push(Object::new(Mesh::cube(2.0))),
+        },
+        Staged {
             batch: "texts",
             stage: |scene| scene.texts.push(Text::new(Vec3::ZERO, "125.4", 48.0)),
         },
@@ -817,6 +1017,7 @@ fn every_kind_reaches_the_frame() {
             scene.curves.clear();
             scene.rings.clear();
             scene.points.clear();
+            scene.gizmos.clear();
             scene.texts.clear();
             stage(scene);
         }
@@ -1011,5 +1212,87 @@ fn a_highlighted_mesh_is_recoloured_where_it_stands() {
             .iter()
             .all(|v| v.color == plain.to_array()),
         "a mesh stayed lit after nothing named it"
+    );
+}
+
+/// A gizmo behind a face is drawn behind it, and one in front is drawn in
+/// front.
+///
+/// The question a control has to answer like any other geometry, and the one
+/// the pass got wrong twice. A gizmo lies among the faces on a datum, so
+/// *which* of the two is nearer is a fact about the scene rather than about
+/// which pass ran first — and it went wrong in both directions. Writing no
+/// depth, a control was blended over by every face there was, because two
+/// passes that both decline to write cannot sort against each other at all and
+/// draw order decided. Drawn after the faces instead, it painted over them the
+/// same way, including the ones genuinely in front of it.
+///
+/// So both orders are asked, of one scene, moving only where the two sheets
+/// sit. Anything that answered by pass order gives the same pixel twice.
+#[test]
+fn a_gizmo_sorts_against_a_face_by_which_is_nearer_rather_than_by_pass_order() {
+    /// Far apart in hue, so the blend cannot be mistaken for either.
+    const AXIS: Vec3 = Vec3::new(0.80, 0.10, 0.10);
+    const REGION: Vec3 = Vec3::new(0.10, 0.10, 0.80);
+    /// The camera looks down −Z from +Z, so a greater z is nearer the eye.
+    const NEAR: f32 = 1.0;
+    const FAR: f32 = -1.0;
+
+    let gpu = headless_test_gpu();
+    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+    let target = frame_target(&gpu.device);
+    let mut pane = ScenePane {
+        view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
+    };
+
+    // One pane throughout: the host initialises the view it is first given, and
+    // a second `Renderer` handed to the same host has never been through that.
+    let mut sheets_at = |gizmo_at: f32, face_at: f32| {
+        {
+            let mut view = pane.view.borrow_mut();
+            let scene = view.scene_mut();
+            scene.gizmos.clear();
+            scene.faces.clear();
+            scene.gizmos.push(
+                Object::new(facing_quad())
+                    .colored(AXIS)
+                    .at(Vec3::Z * gizmo_at),
+            );
+            scene.faces.push(
+                Object::new(facing_quad())
+                    .colored(REGION)
+                    .at(Vec3::Z * face_at),
+            );
+        }
+        host.frame_offscreen(&target, 1.0, &mut pane);
+        middle_pixel(&gpu, &target)
+    };
+
+    // In front: the face loses the depth test where the control covers it, so
+    // nothing of the region reaches the frame there.
+    let over = sheets_at(NEAR, FAR);
+    // Behind: the face is nearer, passes, and blends its own colour over the
+    // control — which still shows through, a face being see-through by design.
+    let under = sheets_at(FAR, NEAR);
+
+    assert_ne!(
+        over, under,
+        "the same two sheets gave one pixel whichever was in front, so what \
+         decided it was the order the passes ran in"
+    );
+    // The two frames against each other rather than either against a number,
+    // which is what keeps the claim exact: a region is 45% opaque *and* shaded,
+    // so a control behind one still comes back mostly its own colour. What says
+    // the region got there is that more of its blue did.
+    assert!(
+        under[2] > over[2],
+        "the region's colour reached the frame no more when the control was \
+         behind it ({under:?}) than when it was in front ({over:?})"
+    );
+    // And the other way: a control in front is the only one drawn undiluted.
+    assert!(
+        over[0] > under[0],
+        "a control in front of a region ({over:?}) came back no more its own \
+         colour than one behind it ({under:?})"
     );
 }

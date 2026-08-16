@@ -16,22 +16,75 @@ use glam::Vec3;
 /// that had to be told about tools.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Highlight {
-    /// Linear-RGB the primitive takes on, in place of its own.
-    pub color: Vec3,
+    /// What colour it takes on.
+    pub tint: Tint,
     /// Multiplier on the stroke's width or the marker's diameter. Anything
     /// under 1 hides behind the primitive it is meant to be pointing at.
+    ///
+    /// Read by the overlays alone. A mesh has no screen-space size to scale —
+    /// what it is is its geometry — so a highlighted [`Object`](crate::Object)
+    /// takes the tint and nothing else.
     pub scale: f32,
 }
 
+/// What colour a highlighted primitive takes on.
+///
+/// The two arms are opposite answers to the same question, and both are right
+/// for what asks them: whether the colour a primitive is drawn in is carrying
+/// information a highlight can afford to spend.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Tint {
+    /// Linear-RGB in place of the primitive's own.
+    ///
+    /// What a hover and a selection want. The whole point there is that
+    /// everything singled out reads *alike* — one colour meaning "this is what
+    /// you would act on" — and whatever the drawing was painted in is what that
+    /// colour is standing in for.
+    Ink(Vec3),
+    /// The primitive's own colour, multiplied.
+    ///
+    /// What a control wants. A datum's axes say *which axis they are* by their
+    /// colour, so a highlight that replaced it would take away the very thing
+    /// being pointed at — the arrow would light up and stop being the x arrow.
+    /// Brighter, and still itself.
+    Lift(f32),
+}
+
+impl Tint {
+    /// What `color` comes out as under this tint.
+    pub(crate) fn over(self, color: Vec3) -> Vec3 {
+        match self {
+            Self::Ink(ink) => ink,
+            Self::Lift(by) => color * by,
+        }
+    }
+}
+
 impl Highlight {
-    /// A wider, brighter version of the primitive, drawn one step further
+    /// A wider version of the primitive in `color`, drawn one step further
     /// forward than its ordinary self.
     ///
     /// How much further forward is not said here and cannot be: a highlight is
     /// drawn by its kind's own pipeline, which carries the step as depth bias
     /// like every other layer this crate draws.
     pub fn new(color: Vec3) -> Self {
-        Self { color, scale: 2.0 }
+        Self {
+            tint: Tint::Ink(color),
+            scale: 2.0,
+        }
+    }
+
+    /// The primitive as it was, `by` times brighter. See [`Tint::Lift`].
+    ///
+    /// Unscaled, where [`Highlight::new`] widens: something that keeps its own
+    /// colour is something whose *shape* is already saying what it is, and
+    /// growing it would move a control out from under the cursor that is
+    /// pointing at it.
+    pub const fn lifted(by: f32) -> Self {
+        Self {
+            tint: Tint::Lift(by),
+            scale: 1.0,
+        }
     }
 
     /// Set the width or diameter multiplier.

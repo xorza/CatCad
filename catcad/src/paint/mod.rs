@@ -10,7 +10,7 @@
 use aperture::{Batch, Curve, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Vertex};
 use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Freedom, Plane, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
 use std::fmt::Write;
 
 use crate::model::{Model, Models};
@@ -18,9 +18,9 @@ use crate::names::Names;
 use crate::paint::layout::{Layout, Made, Sheets};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
-use crate::timeline::FeatureId;
 
 pub(crate) mod layout;
+mod shape;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -69,19 +69,19 @@ const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
 const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
 const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
 
-/// What a datum plane is outlined in.
+/// What a datum's two axis arrows are drawn in.
 ///
-/// Dimmer than anything drawn *on* one and cooler than all of it: a datum is
-/// where geometry goes rather than geometry, and reads as the frame around a
-/// drawing rather than as part of it.
-const DATUM: Vec3 = Vec3::new(0.33, 0.40, 0.50);
-
-/// How far a datum's outline stands clear of what is drawn on it, in sketch
-/// units.
+/// The convention every modeller shares — x red, y green — which is worth
+/// having because it is the one thing about a gizmo a user already knows.
 ///
-/// Enough that the outline is not mistaken for something the sketch states,
-/// and little enough that a plane still reads as belonging to what is on it.
-const DATUM_MARGIN: f64 = 0.9;
+/// It collides, and knowingly: [`PINNED`] is a red and [`FREE`] is close to it,
+/// so a red arrow and a pinned point are two things saying different things in
+/// one hue. What keeps them apart for now is that they are never the same
+/// *shape* — an axis is a great flat arrow and a pinned point is a small disc —
+/// and both of these are muted well below the drawing's own, so they read as
+/// chrome rather than as state. A palette is where this gets settled properly.
+const AXIS_X: Vec3 = Vec3::new(0.62, 0.20, 0.18);
+const AXIS_Y: Vec3 = Vec3::new(0.24, 0.52, 0.24);
 
 /// What a sketch that is not the one open is drawn in.
 ///
@@ -273,6 +273,52 @@ fn write_solids(
     });
 }
 
+/// Two arrows per datum, from its origin along each of its axes.
+///
+/// Cut here rather than shaped by a renderer, which is what lets a control be
+/// ordinary world geometry: an arrow lying in its plane is a polygon in that
+/// plane's coordinates, and mapping seven of them through
+/// [`Plane::point`](silverpoint::Plane::point) is the whole of the work. It
+/// foreshortens as the plane turns and vanishes edge-on because it genuinely
+/// lies there, rather than because a shader was told to pretend.
+///
+/// Named as the plane itself, both of them: two tags reporting one
+/// [`Part`] is what [`Names`] is already built to allow — a tag is a position
+/// in a list and nothing assumes the list holds each part once — so grabbing
+/// either axis grabs the datum, and lighting the datum lights both.
+///
+/// The whole of how a datum is drawn, since the outline around what was
+/// sketched on it is gone: a plane's origin and the way its axes run are facts
+/// about the plane, where a box around the drawing was a fact about the
+/// drawing, restated in furniture.
+///
+/// Standing as a frame, like the outline around it: what a datum is *for* has
+/// not changed by being drawn differently, and it still yields a click to the
+/// geometry drawn on it.
+fn write_gizmos(models: Models<'_>, names: &mut Names, gizmos: &mut Batch<Object>) {
+    gizmos.refill(
+        models.planes().flat_map(|(at, plane)| {
+            [(DVec2::X, AXIS_X), (DVec2::Y, AXIS_Y)]
+                .map(move |(along, ink)| (at, plane, along, ink))
+        }),
+        |object, (at, plane, along, ink)| {
+            let normal = plane.normal().as_vec3();
+            remesh(
+                &mut object.mesh,
+                shape::arrow(along).into_iter().map(|corner| Vertex {
+                    position: plane.point(corner).as_vec3(),
+                    normal,
+                }),
+                &shape::ARROW_TRIANGLES,
+            );
+            object.transform = Mat4::IDENTITY;
+            object.color = ink;
+            object.precedence = Precedence::Frame;
+            object.tag = Some(names.tag(Part::Plane(at)));
+        },
+    );
+}
+
 /// Draw the whole of `model`, and `band` over it, into the room `layout` keeps
 /// and under the names it holds.
 ///
@@ -335,6 +381,7 @@ pub(crate) fn redraw(
     write_marks(models, typed, names, &mut into.texts);
     write_faces(models, names, sheets, &mut into.faces);
     write_solids(models, names, sheets, &mut into.solids);
+    write_gizmos(models, names, &mut into.gizmos);
     layout.drawn(made);
 }
 
@@ -412,42 +459,6 @@ fn write_faces(
             object.tag = Some(names.tag(model.region(at)));
         },
     );
-}
-
-/// The middle of everything drawn on the plane at `at`, and how far it reaches
-/// from there — or `None` where nothing is drawn on it.
-///
-/// In the plane's own coordinates, because that is what a datum is outlined in:
-/// a plane that moves carries its outline with it for the same reason it
-/// carries the sketches, which is that neither is measured in the world.
-///
-/// A plane with nothing on it has no size to be drawn at. A nominal square
-/// would be a number invented here and belonging to nothing — where an outline
-/// around what is actually there says what the plane is *for*.
-fn spanned(models: Models<'_>, at: FeatureId) -> Option<Span> {
-    let mut low = DVec2::splat(f64::INFINITY);
-    let mut high = DVec2::splat(f64::NEG_INFINITY);
-    for model in models.iter().filter(|model| model.on() == at) {
-        for (_, point) in model.sketch().points() {
-            low = low.min(point.position);
-            high = high.max(point.position);
-        }
-    }
-    (low.x <= high.x).then(|| Span {
-        middle: (low + high) * 0.5,
-        reach: (high - low) * 0.5 + DVec2::splat(DATUM_MARGIN),
-    })
-}
-
-/// How far a rectangle reaches from its middle, in the plane's own axes.
-///
-/// A middle and a half-extent rather than two corners, because that is what
-/// drawing one from its corners wants: each is the middle plus the reach with
-/// a sign apiece.
-#[derive(Debug, Clone, Copy)]
-struct Span {
-    middle: DVec2,
-    reach: DVec2,
 }
 
 /// A mark per constraint, saying what relation holds and where.
@@ -620,14 +631,13 @@ fn write_curves(
     // once a frame for as long as a line is being drawn.
     curves.refill(
         models
-            .planes()
-            .filter_map(|(at, plane)| Some(Stroke::Datum(at, plane, spanned(models, at)?)))
-            .chain(models.iter().flat_map(|model| {
+            .iter()
+            .flat_map(|model| {
                 model
                     .sketch()
                     .segments()
                     .map(move |(id, edge)| Stroke::Edge(model, id, edge))
-            }))
+            })
             .chain(band.map(Stroke::Band)),
         |curve, stroke| {
             curve.width = EDGE_WIDTH;
@@ -646,27 +656,6 @@ fn write_curves(
                 // skips a primitive with no tag, so it cannot be hovered,
                 // grabbed or picked out, and the click that finishes the line
                 // resolves against the geometry behind it.
-                // One closed stroke rather than four, so a datum is one thing
-                // to hover, one thing to pick and one tag to light.
-                Stroke::Datum(at, plane, span) => {
-                    curve.points.clear();
-                    curve
-                        .points
-                        .extend([(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(
-                            |(x, y)| {
-                                plane
-                                    .point(span.middle + span.reach * DVec2::new(x, y))
-                                    .as_vec3()
-                            },
-                        ));
-                    curve.closed = true;
-                    curve.color = DATUM;
-                    // Furniture around a drawing rather than part of one, so it
-                    // yields every click to the geometry it frames.
-                    curve.precedence = Precedence::Frame;
-                    curve.plane_normal = Some(plane.normal().as_vec3());
-                    curve.tag = Some(names.tag(Part::Plane(at)));
-                }
                 Stroke::Band(ends) => {
                     curve.set_segment(ends.from, ends.to);
                     curve.color = GHOST;
@@ -684,8 +673,6 @@ fn write_curves(
 #[derive(Debug)]
 enum Stroke<'a> {
     Edge(Model<'a>, SegmentId, Segment),
-    /// A datum plane, as the rectangle around what is drawn on it.
-    Datum(FeatureId, Plane, Span),
     Band(Ends),
 }
 
