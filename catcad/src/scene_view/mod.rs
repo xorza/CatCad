@@ -3,9 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{
-    Aim, Camera, Extent, Highlight, Hit, Lit, Motion, Renderer, Scene, Tag, Tint, Viewport,
-};
+use aperture::{Aim, Camera, Extent, Highlight, Hit, Lit, Motion, Renderer, Scene, Tint, Viewport};
 use glam::{Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Rect, ResponseState, Sense,
@@ -352,20 +350,6 @@ impl SceneView {
     /// picked out. See `settle`.
     pub(crate) fn hovered(&self) -> Option<Part> {
         self.hovered
-    }
-
-    /// Whether the pointer is over the thing `tag` names, as this frame's
-    /// layout resolved it.
-    ///
-    /// A question rather than the tag itself, because the view keeps what it is
-    /// hovering as a [`Part`] and a tag is only how the *scene* reported it —
-    /// answering with one would mean keeping a second copy of the map that
-    /// already turns one into the other.
-    pub(crate) fn hovering(&self, tag: Tag) -> bool {
-        self.layout
-            .names()
-            .get(tag)
-            .is_some_and(|part| Some(part) == self.hovered)
     }
 
     /// Show the view, and put what the pointer over it asks for in `intents`.
@@ -1267,11 +1251,31 @@ impl SceneView {
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::scene_view::SceneView;
-    use aperture::Renderer;
+    use aperture::{Renderer, Tag};
     use std::cell::RefCell;
     use std::rc::Rc;
 
     impl SceneView {
+        /// Whether the pointer is over the thing `tag` names, as this frame's
+        /// layout resolved it.
+        ///
+        /// A question rather than the tag itself, because the view keeps what it
+        /// is hovering as a [`Part`](crate::part::Part) and a tag is only how
+        /// the *scene* reported it — answering with one would mean keeping a
+        /// second copy of the map that already turns one into the other.
+        ///
+        /// Here rather than beside [`SceneView::hovered`] because nothing in the
+        /// application asks it: what the view lights and what the readout names
+        /// are both parts, and a tag is what only a *harness* holds — it reads
+        /// one off the scene it just drew and wants to know whether the pointer
+        /// found it.
+        pub(crate) fn hovering(&self, tag: Tag) -> bool {
+            self.layout
+                .names()
+                .get(tag)
+                .is_some_and(|part| Some(part) == self.hovered)
+        }
+
         /// The renderer being drawn, for a harness that wants to edit the scene
         /// or move the camera without going through a pointer.
         ///
