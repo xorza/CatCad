@@ -1,9 +1,9 @@
 //! What the user is working *with*, as against what they are working *on*.
 
-use crate::intent::{Choice, Intent, Intents, Opening};
+use crate::intent::{Choice, Intent, Intents};
 use crate::model::Models;
 use crate::part::Part;
-use crate::prompt::{Asking, Prompt, Seed};
+use crate::prompt::Prompt;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
@@ -133,55 +133,19 @@ impl Session {
                     self.editing = what.sketch().unwrap_or(self.editing);
                     self.selection.include(what);
                 }
-                // A second open of the form already open would start its
-                // drafts over, which is why the guard is here rather than left
-                // to whoever raises this: a double-click on a field already
-                // open should place a caret, not undo the typing.
                 Intent::Choice(Choice::Ask(Some(opening))) => {
-                    // Each arm stands up its own form rather than answering
-                    // with a pair the match then builds from: the seeds are
-                    // arrays, so two arms of different *lengths* would not
-                    // agree on a type — and a form asking two things is the
-                    // next one there is.
-                    let opened = match opening {
-                        Opening::Dimension { part, from } => {
-                            Prompt::on(Asking::Dimension { part }, &[("", Seed::Stated(from))])
-                        }
-                        // Offered rather than stated, like every form that
-                        // *makes* something: the pointer has the value until
-                        // somebody types one, and the field shows whichever is
-                        // speaking. See [`Seed`].
-                        Opening::Circle { sketch, center } => Prompt::on(
-                            Asking::Circle { sketch, center },
-                            &[("Radius", Seed::Offered(0.0))],
-                        ),
-                        Opening::Radius {
-                            sketch,
-                            circle,
-                            from,
-                        } => Prompt::on(
-                            Asking::Radius { sketch, circle },
-                            &[("Radius", Seed::Stated(from))],
-                        ),
-                        // At no depth at all, which is where the ask starts:
-                        // the solid is on screen from the moment the form
-                        // opens, and a zero-depth prism is a well-formed one.
-                        // Where a position becomes a name. An intent carries
-                        // one because it lands the frame it was raised, and a
-                        // form outlives several arrangements — see
-                        // [`Asking::Extrude`] and [`Model::profile`].
-                        Opening::Extrude { sketch, region } => {
-                            let Some(profile) =
-                                models.at(sketch).map(|model| model.profile(region))
-                            else {
-                                continue;
-                            };
-                            Prompt::on(
-                                Asking::Extrude { profile },
-                                &[("Depth", Seed::Offered(0.0))],
-                            )
-                        }
+                    // What a form for `opening` is made of is
+                    // [`Prompt::opening`]'s — which fields it shows and what
+                    // each starts out saying is the form's business rather than
+                    // the session's. What is left here is *which* form is open,
+                    // which is session state and nobody else's.
+                    let Some(opened) = Prompt::opening(opening, models) else {
+                        continue;
                     };
+                    // A second open of the form already open would start its
+                    // drafts over, which is why the guard is here rather than
+                    // left to whoever raises this: a double-click on a field
+                    // already open should place a caret, not undo the typing.
                     if self
                         .prompt
                         .as_ref()

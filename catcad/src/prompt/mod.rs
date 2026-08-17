@@ -23,7 +23,7 @@ use silverpoint::{CircleId, Constraint, Dimension, Entity};
 use std::fmt::Write;
 
 use crate::drawing::anchor::Anchor;
-use crate::intent::{Change, Choice, Intents, Step};
+use crate::intent::{Change, Choice, Intents, Opening, Step};
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::{DECIMALS, mark_font};
@@ -82,6 +82,23 @@ pub(crate) enum Asking {
     Extrude { profile: Profile },
 }
 
+impl Asking {
+    /// The region a solid is being grown from, where growing one is what this
+    /// form is about.
+    ///
+    /// **The one arm two readings share.** What a *press* on the depth arrow
+    /// needs and what the *drawing* shows are different answers — see
+    /// [`Prompt::carrying`] and [`Prompt::growing`], which part company over
+    /// whether they can afford to resolve the profile against an arrangement —
+    /// but both begin here, and they began here in two different spellings.
+    fn extruding(&self) -> Option<&Profile> {
+        match self {
+            Asking::Extrude { profile } => Some(profile),
+            Asking::Dimension { .. } | Asking::Radius { .. } | Asking::Circle { .. } => None,
+        }
+    }
+}
+
 /// Where a form stands relative to what it is about.
 ///
 /// **The distinction the whole module turns on.** A dimension's field stands
@@ -138,7 +155,7 @@ const GAP: f32 = 4.0;
 /// control back — a draft seeded with a number reads as one somebody typed, so
 /// the pointer never drives and the placeholder is never seen.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) enum Seed {
+enum Seed {
     /// A value already decided, in the **draft**. What restating something
     /// already drawn opens on: the keyboard has it from the first frame,
     /// because somebody already said it.
@@ -274,10 +291,61 @@ enum Done {
 }
 
 impl Prompt {
+    /// The form `opening` asks for, or `None` where what it names has gone.
+    ///
+    /// **Where a request becomes a form**, which is what [`Opening`] is a
+    /// separate enum for: an intent is [`Copy`] and carries what the form is to
+    /// start out saying, and a form owns its drafts and a name meant to outlive
+    /// the arrangement it was read from. Here rather than where the request
+    /// lands, because which fields a form shows and what each begins with is the
+    /// form's business and not the session's. A fifth kind of form is still
+    /// three arms — one in [`Opening`], one in [`Asking`], one here — but two of
+    /// the three now sit in the file that owns what they build.
+    ///
+    /// `models` is the drawing the asking was read against, and one arm wants
+    /// it: a position among the faces is only good for the arrangement it came
+    /// from, so this is where that position becomes a name — see
+    /// [`Asking::Extrude`] and [`Model::profile`].
+    pub(crate) fn opening(opening: Opening, models: Models<'_>) -> Option<Self> {
+        Some(match opening {
+            Opening::Dimension { part, from } => {
+                Self::on(Asking::Dimension { part }, &[("", Seed::Stated(from))])
+            }
+            // Offered rather than stated, like every form that *makes*
+            // something: the pointer has the value until somebody types one,
+            // and the field shows whichever is speaking. See [`Seed`].
+            Opening::Circle { sketch, center } => Self::on(
+                Asking::Circle { sketch, center },
+                &[("Radius", Seed::Offered(0.0))],
+            ),
+            Opening::Radius {
+                sketch,
+                circle,
+                from,
+            } => Self::on(
+                Asking::Radius { sketch, circle },
+                &[("Radius", Seed::Stated(from))],
+            ),
+            // At no depth at all, which is where the ask starts: the solid is on
+            // screen from the moment the form opens, and a zero-depth prism is a
+            // well-formed one.
+            Opening::Extrude { sketch, region } => Self::on(
+                Asking::Extrude {
+                    profile: models.at(sketch)?.profile(region),
+                },
+                &[("Depth", Seed::Offered(0.0))],
+            ),
+        })
+    }
+
     /// Open a form for `about`, seeded with `values`.
     ///
     /// Which of the two inputs each field starts with is [`Seed`]'s to say.
-    pub(crate) fn on(about: Asking, values: &[(&'static str, Seed)]) -> Self {
+    /// Reached through [`Prompt::opening`], which is what decides both for each
+    /// kind of form; each arm stands up its own rather than answering with a
+    /// pair the match then builds from, because the seeds are arrays and two
+    /// arms of different *lengths* would not agree on a type.
+    fn on(about: Asking, values: &[(&'static str, Seed)]) -> Self {
         Self {
             about,
             fields: values
@@ -323,13 +391,10 @@ impl Prompt {
     /// so a fallback here would be the arrow travelling against a depth the
     /// solid was never drawn at.
     pub(crate) fn carrying(&self) -> Option<Carrying> {
-        match &self.about {
-            Asking::Dimension { .. } | Asking::Radius { .. } | Asking::Circle { .. } => None,
-            Asking::Extrude { profile } => Some(Carrying {
-                sketch: profile.sketch(),
-                depth: self.says(0)?,
-            }),
-        }
+        Some(Carrying {
+            sketch: self.about.extruding()?.sketch(),
+            depth: self.says(0)?,
+        })
     }
 
     /// The part of the drawing this form is about, where it is about one the
@@ -378,9 +443,7 @@ impl Prompt {
     /// what the [`Profile`] is for: a position is only good for the arrangement
     /// it was read from, and a form outlives several.
     pub(crate) fn growing(&self, models: Models<'_>) -> Option<Growing> {
-        let Asking::Extrude { profile } = &self.about else {
-            return None;
-        };
+        let profile = self.about.extruding()?;
         Some(Growing {
             sketch: profile.sketch(),
             region: profile.face_of(models)?,

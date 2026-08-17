@@ -268,27 +268,26 @@ impl CatCad {
     /// routes them to a button on the bar; there is no arbitration for this to
     /// do and no keyboard for it to drain.
     fn ask(&mut self, ui: &mut Ui) {
-        let Some(prompt) = self.session.prompt() else {
-            return;
-        };
         // How the drawing is being looked at, which is what placing a form
         // against it is answered in. `None` until the view has arranged, and
         // until then there is nowhere on screen for a form to stand.
         let Some(lens) = self.view.lens(self.document.camera()) else {
             return;
         };
+        // Read before the form is taken, because both come off the session: one
+        // asks which sketch is open and the other borrows the form itself.
         let models = self.document.models(&self.build, self.session.editing());
-        // Where the form stands, asked of the view before the form is borrowed
-        // *mutably* to be shown — what it is about is reached through the
-        // session, and the form is part of one.
+        let Some(prompt) = self.session.prompt_mut() else {
+            return;
+        };
+        // Where the form stands, asked of the view — which holds both halves of
+        // that answer, the room the camera is read in and the layout the marks
+        // were placed in.
         //
         // Nowhere to stand is a frame the form is not shown for rather than a
         // form that closes — see [`SceneView::stands`].
         let Some(stands) = self.view.stands(prompt.about(), models, lens) else {
             return;
-        };
-        let Some(prompt) = self.session.prompt_mut() else {
-            unreachable!("the form was open a moment ago");
         };
         prompt.show(ui, stands, models, &mut self.intents);
     }
