@@ -467,18 +467,27 @@ impl SceneView {
                     // An `Intent` rather than a `Change`, because one of the
                     // four is not an edit: a depth still being decided lives in
                     // a form, so what the drag writes is a draft.
-                    intents.push(match held.grabbed {
-                        Grabbed::Sketch(grip) => Intent::from(Change::Drag { sketch, grip, to }),
-                        Grabbed::Datum(movable) => Change::MovePlane {
-                            plane: movable.at,
-                            to: movable.along.offset_at(to),
+                    //
+                    // An `Option`, because one of the five can fail to have an
+                    // answer this frame — see the label arm.
+                    let edit = match held.grabbed {
+                        Grabbed::Sketch(grip) => {
+                            Some(Intent::from(Change::Drag { sketch, grip, to }))
                         }
-                        .into(),
-                        Grabbed::Cap(movable) => Change::Carry {
-                            extrude: movable.at,
-                            to: movable.along.offset_at(to),
-                        }
-                        .into(),
+                        Grabbed::Datum(movable) => Some(
+                            Change::MovePlane {
+                                plane: movable.at,
+                                to: movable.along.offset_at(to),
+                            }
+                            .into(),
+                        ),
+                        Grabbed::Cap(movable) => Some(
+                            Change::Carry {
+                                extrude: movable.at,
+                                to: movable.along.offset_at(to),
+                            }
+                            .into(),
+                        ),
                         // Where the *box* should land, less where the box stands
                         // off the point a placement names — read as it is now,
                         // because a radius's standoff turns with the number and
@@ -486,18 +495,32 @@ impl SceneView {
                         // frame behind, and that is what makes it converge: each
                         // frame corrects with the last one's answer, and a drag
                         // is many frames.
-                        Grabbed::Label(constraint) => Change::Place {
-                            sketch,
-                            constraint,
-                            at: to - self.label_standoff(constraint, drawing, document),
-                        }
-                        .into(),
-                        Grabbed::Growing(along) => Choice::Set {
-                            nth: 0,
-                            to: along.offset_at(to),
-                        }
-                        .into(),
-                    });
+                        //
+                        // A frame that cannot say where the box stands says
+                        // nothing at all. The number stays where it was for that
+                        // frame, which is a stutter; placing it against a
+                        // standoff of nothing would move it by the whole of one.
+                        Grabbed::Label(constraint) => self
+                            .label_standoff(constraint, drawing, document)
+                            .map(|standoff| {
+                                Change::Place {
+                                    sketch,
+                                    constraint,
+                                    at: to - standoff,
+                                }
+                                .into()
+                            }),
+                        Grabbed::Growing(along) => Some(
+                            Choice::Set {
+                                nth: 0,
+                                to: along.offset_at(to),
+                            }
+                            .into(),
+                        ),
+                    };
+                    if let Some(edit) = edit {
+                        intents.push(edit);
+                    }
                 }
             }
             (_, Drag::Stopped) => {
@@ -1024,21 +1047,27 @@ impl SceneView {
     }
 
     /// How far the mark for `constraint` stands off the point it names, as the
-    /// drawing last laid it out.
+    /// drawing last laid it out, or `None` where it has not laid one out at all.
     ///
-    /// Zero where the drawing has not placed it, which is a frame that has not
-    /// drawn one rather than a mark without a standoff — and a drag that started
-    /// on it has one already.
+    /// **`None` rather than nothing**, and the difference is the whole reason
+    /// this answers an `Option`: a standoff of zero is a real answer — a mark
+    /// sitting on the point it names — and handing one back where there is no
+    /// mark would place the point where the *box* goes, which moves the number
+    /// by its whole clearance. That is the failure this correction exists to
+    /// stop, so it must not be its own fallback.
     fn label_standoff(
         &self,
         constraint: ConstraintId,
         drawing: Drawing<'_>,
         document: &Document,
-    ) -> Vec3 {
-        let Some((placed, viewport)) = self.placed(constraint).zip(self.viewport()) else {
-            return Vec3::ZERO;
-        };
-        paint::mark_standoff(placed.mark, drawing, &document.camera(), viewport)
+    ) -> Option<Vec3> {
+        let (placed, viewport) = self.placed(constraint).zip(self.viewport())?;
+        Some(paint::mark_standoff(
+            placed.mark,
+            drawing,
+            &document.camera(),
+            viewport,
+        ))
     }
 
     /// What `aimed` is over in `scene`, or `None` where it is over nothing the
@@ -1218,24 +1247,19 @@ impl SceneView {
                     // under it goes. Without this the number leaps its own
                     // clearance the moment it is touched.
                     //
-                    // The lift comes back off by reading where the drawing
-                    // anchored the mark rather than by working the clearance out
-                    // again — the lane it rises in is a fact about every other
-                    // mark, and a second opinion about it would be a number that
-                    // jumped by exactly one lane.
-                    //
-                    // The whole standoff and not the lane's share of it, because
-                    // it is given back a frame at a time rather than once — see
-                    // [`paint::mark_standoff`]. What the press records is where
-                    // the *box* sat relative to the cursor, and every frame of
-                    // the drag puts the box back there.
+                    // So what the press records is where the *box* sat relative
+                    // to the cursor, and every frame of the drag puts the box
+                    // back there — giving the standoff back as it stands then
+                    // rather than as it stood here, because it moves. See
+                    // [`paint::mark_standoff`].
                     Grabbed::Label(id) => self.placed(id).map_or(Vec3::ZERO, |placed| {
-                        paint::mark_centre(
-                            placed.mark,
-                            drawing,
-                            &document.camera(),
-                            aimed.viewport(),
-                        ) - hit.world
+                        placed.mark.world(drawing) - hit.world
+                            + paint::mark_standoff(
+                                placed.mark,
+                                drawing,
+                                &document.camera(),
+                                aimed.viewport(),
+                            )
                     }),
                     _ => Vec3::ZERO,
                 };
