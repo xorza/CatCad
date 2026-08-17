@@ -119,7 +119,6 @@ impl Bounding {
             }
         }
         debug_assert_eq!(pieces.len(), walls.len(), "a wall without its pieces");
-        debug_assert_eq!(pieces.len(), walls.len(), "a wall without its pieces");
     }
 }
 

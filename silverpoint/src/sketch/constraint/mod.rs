@@ -279,7 +279,7 @@ impl Constraint {
     ///
     /// Inside `sketch` for [`Self::value_mut`]'s reason, and reached through
     /// the sketch by [`Sketch::set_value`](crate::Sketch::set_value) and
-    /// [`Sketch::set_placement`](crate::Sketch::set_placement).
+    /// [`Sketch::place`](crate::Sketch::place).
     pub(super) fn dimension_mut(&mut self) -> Option<&mut Dimension> {
         match self {
             Constraint::Distance { dimension, .. }

@@ -214,6 +214,13 @@ impl Sketch {
     /// A starting guess like the one it was added with, exactly as
     /// [`Sketch::set_point`] is: a radius is a solver parameter, so the next
     /// solve is free to move it again unless a constraint holds it.
+    ///
+    /// Kept although nothing in this workspace calls it — an application sizes
+    /// its circles by stating a [`Constraint::Radius`] or by dragging a rim,
+    /// both of which go through the solver. It is the other half of
+    /// [`Sketch::set_point`], and without it a circle could be sized when it was
+    /// drawn and never again except by solving, which is a hole in what a sketch
+    /// can be asked to do rather than a call nobody happens to want.
     pub fn set_radius(&mut self, id: CircleId, radius: f64) {
         self.circle_mut(id).radius = radius;
     }
@@ -458,9 +465,9 @@ impl Sketch {
     /// Where two edges' *infinite* lines cross, or `None` where they do not
     /// meaningfully meet.
     ///
-    /// The lines rather than the edges, which is the whole difference from
-    /// [`intersect::spans`](crate::math::intersect): that one answers where two
-    /// edges *touch*, because an arrangement has to split them where they do,
+    /// The lines rather than the edges, which is the whole difference from what
+    /// an arrangement asks: that one answers where two edges *touch*, because it
+    /// has to split them where they do,
     /// and this answers where they would meet if they ran on. Two edges that
     /// would meet a long way past both their ends are still at an angle to each
     /// other, and something saying so has to be put somewhere.
@@ -468,8 +475,8 @@ impl Sketch {
     /// `None` covers both ways there is no answer, and they are the same two
     /// [`Sketch::parallel`] answers `false` for: lines too near parallel to say
     /// where they meet, and an edge whose ends have met and so has no line at
-    /// all. Both are read off the same [`Sketch::turn`] and against the same
-    /// tolerance, which is what keeps "these do not cross" and "these run
+    /// all. Both are read off one sine between the two edges and against the
+    /// same tolerance, which is what keeps "these do not cross" and "these run
     /// together" from being two opinions about one pair.
     pub fn crossing(&self, first: SegmentId, second: SegmentId) -> Option<DVec2> {
         let sine = self.turn(first, second)?;

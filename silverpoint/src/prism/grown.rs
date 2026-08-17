@@ -9,9 +9,9 @@ use crate::sketch::arrangement::bound::Bound;
 /// one wall per curve that bounded it.
 ///
 /// **The same vocabulary the region was named in.** A wall carries the [`Bound`]
-/// it was swept from, which is what a
-/// [`Profile`](../../catcad/profile/struct.Profile.html) is made of — so a
-/// feature built on a face of a solid is named the way the solid's own input
+/// it was swept from, which is what a caller's own durable name for a region
+/// is made of — so a feature built on a face of a solid is named the way the
+/// solid's own input
 /// was, and a datum on a wall, a sketch on that datum and an extrude of *that*
 /// compose without any of them inventing a second scheme.
 ///

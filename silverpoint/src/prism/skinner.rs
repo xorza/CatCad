@@ -19,7 +19,8 @@ use glam::{DVec2, DVec3};
 /// A normal per corner, not per triangle. It is what makes an arc read as one
 /// curved wall: two pieces of one arc are handed the same normal where they
 /// meet, and a straight edge meeting an arc is handed two different ones and
-/// creases. See [`Edge::outward`](crate::sketch::arrangement::edge::Edge).
+/// creases — which is the arrangement's rule for which way a wall faces,
+/// asked per parameter along the edge rather than once for it.
 #[derive(Debug, Default)]
 pub struct Patch {
     pub corners: Vec<DVec3>,

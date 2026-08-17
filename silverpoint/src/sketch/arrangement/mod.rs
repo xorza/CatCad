@@ -15,7 +15,7 @@
 //! **What a crossing cannot say, this cannot either.** Curves that lie *along*
 //! each other — two collinear segments overlapping, two circles in the same
 //! place — share a stretch rather than a point, and
-//! [`intersect`](crate::math::intersect) answers nowhere for both. A drawing
+//! the crossing search answers nowhere for both. A drawing
 //! holding one comes out as though the overlap were not there.
 
 use crate::loops::Loops;

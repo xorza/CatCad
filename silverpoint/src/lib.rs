@@ -36,6 +36,20 @@
 //! is twice the point count plus one per circle. Everything is `f64`: the
 //! residuals of a nearly-degenerate sketch do not survive `f32`.
 
+// Doc links rot silently: nothing in a build reads them, so a renamed method
+// leaves a dead link behind, and a `pub` item can come to point at a private one
+// the rendered docs will not show. Denied rather than warned so that `cargo doc`
+// refuses them — it is the only step that reads them at all, and it reads only
+// what it documents, so `--document-private-items` is what puts the private half
+// of the crate under them too.
+//
+// Here rather than in the manifest because cargo will not take a crate lint
+// table beside an inherited one, and the two `[workspace.lints.rust]` entries
+// are worth keeping shared.
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
+#![deny(rustdoc::redundant_explicit_links)]
+
 pub(crate) mod arena;
 pub(crate) mod loops;
 pub(crate) mod math;
