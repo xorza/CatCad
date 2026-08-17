@@ -67,7 +67,7 @@ impl Layout {
     /// a form standing beside one has to know what shape it covers, and cutting
     /// it through a second filler would be a second answer free to differ from
     /// what was drawn. See
-    /// [`SceneView::region_footprint`](crate::scene_view::SceneView).
+    /// [`Picture::region_footprint`](crate::scene_view::picture::Picture).
     pub(crate) fn sheets(&mut self) -> &mut Sheets {
         &mut self.sheets
     }

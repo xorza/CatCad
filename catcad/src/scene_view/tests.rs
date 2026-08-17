@@ -2144,7 +2144,7 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
     );
 
     // The whole gizmo, not the one piece that answered the pick.
-    let lit: Vec<_> = raised.view.lit.iter().map(|lit| lit.tag).collect();
+    let lit: Vec<_> = raised.view.lit().iter().map(|lit| lit.tag).collect();
     assert_eq!(
         lit,
         drawn,
@@ -2155,7 +2155,7 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
     // And each keeps its own colour, brightened. `Tint::Ink` here would be the
     // hover's yellow on both, which is also how it would look if the two arrows
     // had stopped being told apart.
-    for entry in &raised.view.lit {
+    for entry in raised.view.lit() {
         assert!(
             matches!(entry.look.tint, aperture::Tint::Lift(by) if by > 1.0),
             "an axis was lit with {:?}, which spends the colour it is made of",

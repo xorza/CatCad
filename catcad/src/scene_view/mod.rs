@@ -3,11 +3,11 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Aim, Camera, Extent, Highlight, Hit, Lit, Motion, Renderer, Scene, Tint, Viewport};
+use aperture::{Camera, Extent, Motion, Viewport};
 use glam::{Vec2, Vec3};
 use palantir::{
-    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Rect, ResponseState, Sense,
-    Sizing, Ui, WidgetId,
+    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, ResponseState, Sense, Sizing, Ui,
+    WidgetId,
 };
 use silverpoint::{ConstraintId, Entity, Grown};
 
@@ -18,21 +18,19 @@ use crate::drawing::{Drawing, Grip};
 use crate::intent::{Change, Choice, Intent, Intents, Opening, Step};
 use crate::lens::Lens;
 use crate::model::Models;
-use crate::paint::layout::Layout;
-use crate::paint::marks::Placed;
 use crate::paint::showing::Showing;
-use crate::paint::write;
-use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::prompt::{Asking, Prompt, Stands};
 use crate::scene_view::aimed::Aimed;
+use crate::scene_view::picture::{Picture, Under};
 use crate::session::Session;
 use crate::timeline::{Along, FeatureId, Movable};
 use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
 
 mod aimed;
+mod picture;
 
 /// What the viewport is recorded under.
 ///
@@ -58,53 +56,6 @@ const ZOOM_RATE: f32 = 1.12;
 /// is larger, so a marker grown past twice this would quietly become the pick
 /// radius instead.
 pub(crate) const HOVER_REACH: f32 = 6.0;
-
-/// What the thing under the cursor looks like. How far forward a highlight
-/// reads is the renderer's, not this — see `Highlight`.
-const HOVERED: Highlight = Highlight {
-    tint: Tint::Ink(Vec3::new(1.0, 0.85, 0.25)),
-    scale: 1.8,
-};
-
-/// What something picked out looks like.
-///
-/// Green, which is the one hue the drawing does not already use: its own
-/// colours run blue through yellow to orange for how much freedom is left, and
-/// red for pinned, and a selection that reused any of them would be saying two
-/// things in one colour. Lifted like the hover and drawn a little smaller, so
-/// that the thing under the cursor still reads over the rest of what is picked.
-const SELECTED: Highlight = Highlight {
-    tint: Tint::Ink(Vec3::new(0.30, 0.95, 0.45)),
-    scale: 1.5,
-};
-
-/// What a datum's axes look like singled out, hovered and picked out alike.
-///
-/// Brighter rather than recoloured, because an axis arrow is *saying something*
-/// in its colour — which of the two it is — and the looks above exist to
-/// override exactly that. Lighting the x arrow yellow would light up an arrow
-/// that had stopped being the x arrow.
-///
-/// One look for both, where everything else has two. A datum is a place to
-/// work rather than a thing to gather, so there is no state to tell apart:
-/// what a hover means here is only "this is what pressing would take".
-///
-/// Unscaled, unlike the two above, and by the constructor rather than by hand:
-/// a shape that keeps its own colour is one already saying what it is, and
-/// growing it would move the control out from under the cursor pointing at it.
-const AXIS_LIT: Highlight = Highlight::lifted(1.9);
-
-/// How `part` reads when it has been singled out.
-///
-/// One place rather than two matches at the call, so that a kind whose
-/// highlight is its own cannot be given the general look by whichever of the
-/// two branches was written second.
-fn singled(part: Part, ordinary: Highlight) -> Highlight {
-    match part {
-        Part::Plane(_) => AXIS_LIT,
-        _ => ordinary,
-    }
-}
 
 /// What is being dragged, and where the pointer may take it.
 ///
@@ -140,26 +91,6 @@ struct Held {
     /// part that cannot be used is dropped where the travel becomes a number —
     /// see [`Movable::offset_at`](crate::timeline::Movable::offset_at).
     offset: Vec3,
-}
-
-/// What the pointer is over: the aim it was asked through, what the scene
-/// answered, and what the layout calls it.
-///
-/// **One question the hover, the click and the press all ask.** They asked it
-/// three times over in three spellings — build an aim through the document's
-/// camera, take the scene's nearest, look the tag up in the names — and the
-/// comment on [`SceneView::settle`] records the last time two of them came apart
-/// over which camera to aim through. Three callers reading one answer is what
-/// stops a fourth from inventing a second.
-///
-/// The aim rides along because a press wants it afterwards, to resolve where the
-/// grab landed on the motion. Taking it off the same value is what keeps the hit
-/// and the ray from coming from two viewpoints.
-#[derive(Debug, Clone, Copy)]
-struct Under {
-    aim: Aim,
-    hit: Hit,
-    part: Part,
 }
 
 /// What a drag took hold of, and so which change its travel is written as.
@@ -230,23 +161,21 @@ enum Gesture {
 
 /// One scene, drawn into a viewport the pointer can orbit, zoom and drag.
 ///
-/// Owns everything the pointer's state is made of, so the app above it holds
-/// a view rather than a renderer plus the loose fields that were only ever
-/// about pointing at one.
+/// **Two halves and the frame that sequences them.** What has been drawn is the
+/// [`Picture`]'s — the scene, the names a pick answers through, the room both
+/// were made in — and everything below it is what the pointer has established:
+/// which gesture a press settled on, how far the middle button has travelled,
+/// what the band is showing. They meet in exactly one question, asked twice a
+/// frame: what is under the cursor, which is a question about the picture put
+/// with the pointer's own cursor.
+///
+/// The app above holds a view rather than a renderer plus the loose fields that
+/// were only ever about pointing at one, and the view holds two things rather
+/// than ten.
 #[derive(Debug)]
 pub(crate) struct SceneView {
-    renderer: Rc<RefCell<Renderer>>,
-    /// The picture of the drawing this view last wrote, and the room it was
-    /// written in.
-    ///
-    /// The view's rather than the drawing's, for the same reason the scene is:
-    /// what it holds describes this view's picture of the drawing and would
-    /// mean nothing to another. It says which revision it drew and is written
-    /// only by the call that draws — see [`Layout`].
-    layout: Layout,
-    /// Where a region's fill puts its corners, kept for its room rather than
-    /// its contents — see [`SceneView::region_footprint`].
-    corners: Vec<Vec3>,
+    /// What has been drawn, and the room it was drawn in.
+    picture: Picture,
     gesture: Gesture,
     /// How far the middle button has dragged so far, so this frame's step can
     /// be taken off it.
@@ -267,10 +196,6 @@ pub(crate) struct SceneView {
     hovered: Option<Part>,
     /// The shape a two-click tool is half-way through, if one is.
     preview: Option<Preview>,
-    /// What the renderer was last told to light: the hover and the selection,
-    /// rebuilt every settle. Kept for its room rather than its contents, so a
-    /// frame that lights the same set as the last asks the heap for nothing.
-    lit: Vec<Lit>,
     /// How big the view was when it was last shown, or `None` before it has
     /// arranged.
     ///
@@ -307,17 +232,12 @@ impl SceneView {
     /// step does, so they are laid out with the rest of it and by the same call
     /// — which is also what lets one be pointed at.
     pub(crate) fn new(document: &Document, build: &Build, editing: FeatureId) -> Self {
-        let mut layout = Layout::default();
-        let scene = paint::scene(document.models(build, editing), &mut layout);
         Self {
-            renderer: Rc::new(RefCell::new(Renderer::new(scene))),
-            layout,
-            corners: Vec::new(),
+            picture: Picture::new(document.models(build, editing)),
             gesture: Gesture::None,
             panned: Vec2::ZERO,
             hovered: None,
             preview: None,
-            lit: Vec::new(),
             viewport: None,
             aimed: None,
         }
@@ -331,7 +251,7 @@ impl SceneView {
     /// would otherwise reach through `renderer().borrow().scene()` to ask the
     /// scene the same thing.
     pub(crate) fn extent(&self) -> Option<Extent> {
-        self.renderer.borrow().scene().extent()
+        self.picture.extent()
     }
 
     /// How this view is looking at the drawing through `camera`, or `None`
@@ -346,15 +266,6 @@ impl SceneView {
     /// claim on the view.
     pub(crate) fn lens(&self, camera: Camera) -> Option<Lens> {
         Some(Lens::new(camera, self.viewport?))
-    }
-
-    /// Where the drawing put the mark for the relation `of` names.
-    ///
-    /// Forwarded rather than the layout being handed out, because a layout is
-    /// written by exactly one call and everything else reads one answer out of
-    /// it — see [`Layout`].
-    fn placed(&self, of: ConstraintId) -> Option<Placed> {
-        self.layout.placed(of)
     }
 
     /// What the pointer is working on, if anything.
@@ -521,8 +432,11 @@ impl SceneView {
                         // to invert says nothing at all: the number stays put,
                         // which is a stutter, where placing it against no
                         // clearance would move it by the whole of one.
-                        Grabbed::Label(constraint) => {
-                            self.placed(constraint).zip(lens).map(|(placed, lens)| {
+                        Grabbed::Label(constraint) => self
+                            .picture
+                            .placed(constraint)
+                            .zip(lens)
+                            .map(|(placed, lens)| {
                                 Change::Place {
                                     sketch,
                                     constraint,
@@ -534,8 +448,7 @@ impl SceneView {
                                     ),
                                 }
                                 .into()
-                            })
-                        }
+                            }),
                         Grabbed::Growing(along) => Some(
                             Choice::Set {
                                 nth: 0,
@@ -578,10 +491,7 @@ impl SceneView {
             // for an answer nothing reads.
             let under = pointing
                 .zip(lens)
-                .and_then(|(aimed, lens)| {
-                    let renderer = self.renderer.borrow();
-                    self.under(renderer.scene(), aimed, lens)
-                })
+                .and_then(|(aimed, lens)| self.picture.under(aimed, lens))
                 .map(|under| under.part);
             clicked(
                 Click {
@@ -623,7 +533,7 @@ impl SceneView {
     /// the drawing as this frame's edits left it rather than as it stood before
     /// them.
     pub(crate) fn draw(&self, ui: &mut Ui) {
-        let paint: Rc<RefCell<dyn GpuPaint>> = self.renderer.clone();
+        let paint: Rc<RefCell<dyn GpuPaint>> = self.picture.painting();
         GpuView::new(paint)
             .id(view_id())
             .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL | Sense::PINCH)
@@ -743,21 +653,10 @@ impl SceneView {
     pub(crate) fn settle(&mut self, document: &Document, build: &Build, session: &Session) {
         // How the drawing is looked at now this frame's edits have landed,
         // which is what the controls are cut against and what the hover is
-        // resolved through — the document's own camera rather than the copy
-        // handed to the renderer below, which is still wherever this frame's
-        // orbit found it.
+        // resolved through — the document's own camera rather than the copy the
+        // picture is handed below, which is still wherever this frame's orbit
+        // found it.
         let lens = self.lens(document.camera());
-        let mut renderer = self.renderer.borrow_mut();
-        // Unconditionally, and cheap when nothing moved: the layout compares
-        // what it describes against what it is handed and returns without
-        // writing a batch. A rubber band is written after the drawing and wiped
-        // out by the next rewrite of it, so a live one is laid out every frame
-        // — and the frame it stops being live lays out once more to take it
-        // away. That is what a drag already costs, and refilling reaches the
-        // heap for none of it.
-        //
-        // Into the batches the renderer already holds, so a drag rewrites the
-        // drawing every frame without asking the heap for anything.
         let models = document.models(build, session.editing());
         // **Derived once, for both halves of the picture.** They are written on
         // different schedules — the drawing when the drawing moves, the controls
@@ -771,21 +670,7 @@ impl SceneView {
             typed: open.and_then(Prompt::marks),
             growing: open.and_then(|open| open.growing(models)),
         };
-        paint::redraw(models, &mut self.layout, showing, renderer.scene_mut());
-        // Every frame, where the drawing above is written only when the drawing
-        // moves. A control holds its size on screen, so it is built against the
-        // camera and the camera moving is what invalidates it — and gating the
-        // two together would mean re-cutting every face and solid on every
-        // frame of an orbit. See [`paint::gizmos::write`].
-        if let Some(lens) = lens {
-            paint::gizmos::write(
-                models,
-                &mut self.layout,
-                showing,
-                lens,
-                &mut renderer.scene_mut().gizmos,
-            );
-        }
+        self.picture.redraw(models, showing, lens);
         // What the pointer is over is one thing, however many are picked out: a
         // marker sits on the end of every edge that meets it, and lighting all
         // of them would answer a question nobody asked.
@@ -797,9 +682,8 @@ impl SceneView {
         // moves under a still cursor, and what is under it afterwards is a fair
         // question.
         //
-        // Aimed through the *document's* camera, not the renderer's copy of it:
-        // the copy is written below, so a pick that read it would answer
-        // through wherever the camera was before this frame's orbit.
+        // Asked of the picture that was just written, so what the pointer is
+        // told it is over is what it can see.
         let held = match self.gesture {
             Gesture::Move(held) => Some(held.part),
             _ => None,
@@ -811,43 +695,15 @@ impl SceneView {
             .aimed
             .filter(|_| held.is_none())
             .zip(lens)
-            .and_then(|(aimed, lens)| self.under(renderer.scene(), aimed, lens))
+            .and_then(|(aimed, lens)| self.picture.under(aimed, lens))
             .map(|under| under.part);
         // What is *named* is not what is lit, and a drag is the one moment they
         // part: the readout goes on saying what the pointer is working on, which
         // is the thing in hand rather than whatever it is passing over. Lighting
         // that would be redundant — it is picked out, and reads as picked out.
         self.hovered = held.or(pointed);
-
-        // One walk of the names for both, going the way the names run: what is
-        // picked out are the sketch's own handles and what is lit are the tags
-        // this layout gave them, and the same is true of what is hovered now
-        // that a hover is a part.
-        //
-        // The hover wins where something is both, which is what says the
-        // pointer would act on *it*.
-        self.lit.clear();
-        for (tag, part) in self.layout.names().iter() {
-            let look = if Some(part) == pointed {
-                singled(part, HOVERED)
-            } else if session.selection().contains(part) {
-                singled(part, SELECTED)
-            } else {
-                continue;
-            };
-            self.lit.push(Lit { tag, look });
-        }
-        // Unconditionally, and cheap when nothing moved: the renderer compares
-        // the set before it rewrites anything, so a still frame over a settled
-        // selection dirties no batch.
-        renderer.highlight_all(&self.lit);
-
-        // Wholesale rather than on change: the document owns the camera and the
-        // scene holds the copy the next paint reads, so overwriting it every
-        // frame is what keeps the two from ever disagreeing. Copied here rather
-        // than pushed by the document, which has no business knowing a renderer
-        // exists.
-        *renderer.camera_mut() = document.camera();
+        self.picture.light(pointed, session.selection());
+        self.picture.aimed_through(document.camera());
     }
 
     /// Where a form open against the drawing stands, or `None` where the view is
@@ -871,7 +727,7 @@ impl SceneView {
     /// form's dimension out of the document.
     ///
     /// `&mut self` for the filler's scratch alone — see
-    /// [`SceneView::region_footprint`].
+    /// [`Picture::region_footprint`].
     pub(crate) fn stands(
         &mut self,
         about: &Asking,
@@ -900,7 +756,8 @@ impl SceneView {
                 // is a broken promise. A drawing places the marks of the sketch
                 // it is *in*, so a form outliving a click that opened another
                 // sketch has a dimension the layout knows nothing about.
-                self.placed(id)
+                self.picture
+                    .placed(id)
                     .and_then(|placed| {
                         // The middle of the mark's own box rather than the point
                         // it hangs off, and worked out by the drawing: the box
@@ -937,7 +794,10 @@ impl SceneView {
             // one it is being drawn against.
             Asking::Extrude { profile } => profile
                 .face_of(models)
-                .and_then(|region| self.region_footprint(models, profile.sketch(), region, lens))
+                .and_then(|region| {
+                    self.picture
+                        .region_footprint(models, profile.sketch(), region, lens)
+                })
                 .map(Stands::Beside),
         }
     }
@@ -950,58 +810,6 @@ impl SceneView {
     /// under the circle, and under the very click that would finish it.
     fn band_rim(&self) -> Option<Vec3> {
         self.preview.and_then(Preview::ring).map(|band| band.to)
-    }
-
-    /// Where the region at `region` of `sketch` lands on screen, or `None` where
-    /// the projection draws none of it.
-    ///
-    /// Here rather than in [`crate::prompt`] because of the one thing this owns
-    /// and nothing else does: the [`Filler`](silverpoint::Filler) the layout keeps.
-    /// A region's shape is cut rather than read, and cutting it through the same
-    /// filler the sheets use is what makes a form stand clear of exactly what is
-    /// drawn. The lens comes in from outside, being the caller's frame rather
-    /// than the view's.
-    ///
-    /// `&mut self` for the filler's scratch, not to write anything: the corners
-    /// are read into a buffer this keeps for its room rather than its contents.
-    fn region_footprint(
-        &mut self,
-        models: Models<'_>,
-        sketch: FeatureId,
-        region: usize,
-        lens: Lens,
-    ) -> Option<Rect> {
-        write::region_corners(
-            models,
-            self.layout.sheets(),
-            sketch,
-            region,
-            &mut self.corners,
-        );
-        lens.footprint(self.corners.iter().copied())
-    }
-
-    /// What `aimed` is over in `scene`, or `None` where it is over nothing the
-    /// layout names.
-    ///
-    /// The scene by argument rather than taken from the view, and that is not
-    /// ceremony: the hover asks this while already holding the renderer open to
-    /// write the controls into, and a second borrow of the same cell would
-    /// panic. Handing it in is also what says this reads the scene and nothing
-    /// else about the view.
-    ///
-    /// Aimed through a lens built on the **document's** camera, which every
-    /// caller here does — see [`SceneView::lens`]. The renderer keeps a copy of
-    /// that camera, written at the end of every frame, so one built on *that*
-    /// would answer through wherever the camera was before this frame's orbit.
-    fn under(&self, scene: &Scene, aimed: Aimed, lens: Lens) -> Option<Under> {
-        let aim = aimed.aim(lens);
-        let hit = scene.nearest(aim)?;
-        Some(Under {
-            aim,
-            hit,
-            part: self.layout.names().get(hit.tag)?,
-        })
     }
 
     /// Decide what this press is the start of.
@@ -1037,8 +845,7 @@ impl SceneView {
         let Some(held) = aimed
             .zip(self.lens(document.camera()))
             .and_then(|(aimed, lens)| {
-                let renderer = self.renderer.borrow();
-                let Under { aim, hit, part } = self.under(renderer.scene(), aimed, lens)?;
+                let Under { aim, hit, part } = self.picture.under(aimed, lens)?;
                 let drawing = document.drawing_at(editing);
                 let grabbed = match part {
                     // A plane whatever sketch is open: what it moves is where
@@ -1129,7 +936,7 @@ impl SceneView {
                     // back there — giving the standoff back as it stands then
                     // rather than as it stood here, because it moves. See
                     // [`Mark::standoff`].
-                    Grabbed::Label(id) => self.placed(id).map_or(Vec3::ZERO, |placed| {
+                    Grabbed::Label(id) => self.picture.placed(id).map_or(Vec3::ZERO, |placed| {
                         placed.mark.world(drawing) - hit.world + placed.mark.standoff(drawing, lens)
                     }),
                     _ => Vec3::ZERO,
@@ -1170,9 +977,8 @@ pub(crate) mod internals {
         /// one off the scene it just drew and wants to know whether the pointer
         /// found it.
         pub(crate) fn hovering(&self, tag: Tag) -> bool {
-            self.layout
-                .names()
-                .get(tag)
+            self.picture
+                .part(tag)
                 .is_some_and(|part| Some(part) == self.hovered)
         }
 
@@ -1184,7 +990,7 @@ pub(crate) mod internals {
         /// caller wanting the renderer is a caller standing outside the frame —
         /// which is a harness, and only a harness.
         pub(crate) fn renderer(&self) -> &Rc<RefCell<Renderer>> {
-            &self.renderer
+            self.picture.renderer()
         }
     }
 
@@ -1199,7 +1005,7 @@ pub(crate) mod internals {
     #[cfg(test)]
     mod looking {
         use crate::paint::marks::mark::Mark;
-        use aperture::Tag;
+        use aperture::{Lit, Tag};
         use glam::Vec3;
         use silverpoint::ConstraintId;
 
@@ -1230,7 +1036,13 @@ pub(crate) mod internals {
             /// things a press can take hold of and has no entity to be narrowed
             /// to. A sweep after geometry narrows it itself.
             pub(crate) fn part(&self, tag: Tag) -> Option<Part> {
-                self.layout.names().get(tag)
+                self.picture.part(tag)
+            }
+
+            /// What the renderer was last told to light — see
+            /// [`Picture::lit`].
+            pub(crate) fn lit(&self) -> &[Lit] {
+                self.picture.lit()
             }
 
             /// The mark the drawing put up for the relation `of` names.
@@ -1242,7 +1054,7 @@ pub(crate) mod internals {
             /// picking a dimension by how its mark came out, which is a test
             /// choosing a fixture.
             pub(crate) fn marked(&self, of: ConstraintId) -> Option<Mark> {
-                self.placed(of).map(|placed| placed.mark)
+                self.picture.placed(of).map(|placed| placed.mark)
             }
 
             /// Where the band has carried the rim of the circle being drawn.
