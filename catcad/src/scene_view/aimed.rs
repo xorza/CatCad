@@ -6,7 +6,16 @@ use glam::{UVec2, Vec2, Vec3};
 use palantir::ResponseState;
 
 use crate::lens::Lens;
-use crate::scene_view::HOVER_REACH;
+
+/// How far from the cursor a thing may be and still count as under it, in
+/// logical pixels.
+///
+/// Wider than anything drawn, because aiming is not precise: a stroke of
+/// `EDGE_WIDTH` is under two pixels across and is not a target. It has to stay
+/// above half the widest marker too — `Aim::reach` takes whichever of the two
+/// is larger, so a marker grown past twice this would quietly become the pick
+/// radius instead.
+pub(super) const HOVER_REACH: f32 = 6.0;
 
 /// Where the pointer is over the view.
 ///
