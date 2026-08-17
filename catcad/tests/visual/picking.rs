@@ -430,3 +430,80 @@ fn a_number_dragged_by_its_box_travels_with_the_cursor() {
         );
     }
 }
+
+/// **A number the cursor has stopped moving stops moving.**
+///
+/// The property a drag has to have and the one nothing else asks for. A number
+/// is grabbed by its box and placed by its *point*, so the gesture has to take
+/// the clearance between them off — and taking off the last frame's is only
+/// right where the clearance does not depend on the answer.
+///
+/// For every dimension but one it does not: the direction a mark is set along
+/// comes from the geometry it measures, which a drag on the number leaves alone.
+/// A radius is the one, because its leader runs out through wherever the number
+/// was *put*. Subtracting there is a drag chasing an answer that keeps moving,
+/// and held still it did not stop — at some bearings the number swapped between
+/// two places a whole clearance apart, every frame, for ever.
+///
+/// Swept round the compass and at two reaches, because it is a question about
+/// angle *and* about how long the placement is: subtraction converges only while
+/// the placement is the longer of the two, so a number dragged in close is where
+/// it gives out. `paint::mark_point` inverts the clearance instead, so what is
+/// asked here is not "settles down to" but "is right on the frame it lands".
+#[test]
+fn a_number_held_still_stops_moving() {
+    let gpu = headless_test_gpu();
+    let target = target(&gpu);
+    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+    let mut app = CatCad::build();
+    host.frame_offscreen(&target, RASTER, &mut app);
+    host.frame_offscreen(&target, RASTER, &mut app);
+
+    let radius = |app: &CatCad| -> Vec3 {
+        drawn(app)
+            .into_iter()
+            .find(|mark| mark.content.starts_with('R'))
+            .expect("the demo states a radius")
+            .middle
+    };
+    let start = app
+        .renderer()
+        .borrow()
+        .camera()
+        .screen_of(radius(&app), viewport())
+        .expect("a drawn mark is somewhere the projection draws");
+    host.ui().on_input(InputEvent::PointerMoved(start));
+    host.frame_offscreen(&target, RASTER, &mut app);
+    host.ui()
+        .on_input(InputEvent::PointerPressed(PointerButton::Left));
+    host.frame_offscreen(&target, RASTER, &mut app);
+
+    for step in 0..24 {
+        let turn = step as f32 * std::f32::consts::TAU / 24.0;
+        // A whole turn so no bearing is skipped, and the reach alternating
+        // between well clear of the circle and in close — the second is where
+        // subtracting the clearance stops converging at all.
+        let reach = if step % 2 == 0 { 60.0 } else { 22.0 };
+        let at = start + Vec2::new(turn.cos(), turn.sin()) * reach;
+        host.ui().on_input(InputEvent::PointerMoved(at));
+        // Three frames at one cursor. The first carries the move; the other two
+        // have to agree with it *exactly*. Not "settle down to" — allowing a
+        // frame of catching up is the difference between a drag that converges
+        // and a drag that is simply right.
+        host.frame_offscreen(&target, RASTER, &mut app);
+        let settled = radius(&app);
+        host.frame_offscreen(&target, RASTER, &mut app);
+        let then = radius(&app);
+        host.frame_offscreen(&target, RASTER, &mut app);
+        let still = radius(&app);
+        let jitter = (then - settled).length().max((still - then).length());
+        assert!(
+            jitter < 1e-4,
+            "at {:.0}° reaching {reach} px the number went on moving by {jitter} with the \
+             cursor held: {settled:?} then {then:?} then {still:?}",
+            turn.to_degrees()
+        );
+    }
+    host.ui()
+        .on_input(InputEvent::PointerReleased(PointerButton::Left));
+}

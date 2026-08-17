@@ -496,17 +496,28 @@ impl SceneView {
                         // frame corrects with the last one's answer, and a drag
                         // is many frames.
                         //
-                        // A frame that cannot say where the box stands says
-                        // nothing at all. The number stays where it was for that
-                        // frame, which is a stutter; placing it against a
-                        // standoff of nothing would move it by the whole of one.
+                        // `to` is where the *box* should land and a placement
+                        // names the point under it, so the clearance comes off
+                        // by [`paint::mark_point`] — which inverts it rather
+                        // than taking off the last frame's. A frame with no mark
+                        // to invert says nothing at all: the number stays put,
+                        // which is a stutter, where placing it against no
+                        // clearance would move it by the whole of one.
                         Grabbed::Label(constraint) => self
-                            .label_standoff(constraint, drawing, document)
-                            .map(|standoff| {
+                            .placed(constraint)
+                            .zip(self.viewport())
+                            .map(|(placed, viewport)| {
                                 Change::Place {
                                     sketch,
                                     constraint,
-                                    at: to - standoff,
+                                    at: paint::mark_point(
+                                        placed.mark,
+                                        drawing.sketch().constraint(constraint),
+                                        drawing,
+                                        &document.camera(),
+                                        viewport,
+                                        to,
+                                    ),
                                 }
                                 .into()
                             }),
@@ -1044,30 +1055,6 @@ impl SceneView {
             &mut self.corners,
         );
         prompt::footprint(self.corners.iter().copied(), camera, viewport)
-    }
-
-    /// How far the mark for `constraint` stands off the point it names, as the
-    /// drawing last laid it out, or `None` where it has not laid one out at all.
-    ///
-    /// **`None` rather than nothing**, and the difference is the whole reason
-    /// this answers an `Option`: a standoff of zero is a real answer — a mark
-    /// sitting on the point it names — and handing one back where there is no
-    /// mark would place the point where the *box* goes, which moves the number
-    /// by its whole clearance. That is the failure this correction exists to
-    /// stop, so it must not be its own fallback.
-    fn label_standoff(
-        &self,
-        constraint: ConstraintId,
-        drawing: Drawing<'_>,
-        document: &Document,
-    ) -> Option<Vec3> {
-        let (placed, viewport) = self.placed(constraint).zip(self.viewport())?;
-        Some(paint::mark_standoff(
-            placed.mark,
-            drawing,
-            &document.camera(),
-            viewport,
-        ))
     }
 
     /// What `aimed` is over in `scene`, or `None` where it is over nothing the

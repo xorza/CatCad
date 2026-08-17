@@ -16,7 +16,7 @@ use aperture::{
     Batch, Camera, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Turn,
     Vertex, Viewport,
 };
-use glam::{Mat4, Vec2, Vec3};
+use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
 use std::fmt::Write;
@@ -773,6 +773,60 @@ pub(crate) fn mark_standoff(
     viewport: Viewport,
 ) -> Vec3 {
     mark_centre(placed, drawing, camera, viewport) - placed.world(drawing)
+}
+
+/// Where a mark's point has to be for its box to land on `at`.
+///
+/// **The inverse of [`mark_centre`], and stated beside it because a drag needs
+/// both.** A number is grabbed by its box and placed by its point, so a gesture
+/// that says where the box goes has to answer where the point goes — and taking
+/// the clearance off by subtraction is only right where the clearance does not
+/// depend on the answer.
+///
+/// For every dimension but one it does not: the direction a mark is set along
+/// comes from the geometry it measures, which a drag on the number leaves alone.
+/// A **radius** is the one, because its leader runs out through wherever the
+/// number was *put* — so the clearance turns as the number moves, and taking off
+/// the last frame's is a drag chasing an answer that keeps changing. Held still
+/// it did not stop: at some bearings the number swapped between two places a
+/// whole clearance apart, frame after frame, for ever.
+///
+/// So a radius is inverted rather than iterated, and it inverts in closed form.
+/// The clearance is square to the leader, so with `q` running from the circle's
+/// centre to the box, `q = p + clear · perp(p̂)` is a right triangle: Pythagoras
+/// gives `|p|` outright, and reading `q` against the basis `p̂` makes gives the
+/// direction in one line more. No search, no lag, and nothing left to be
+/// unstable.
+pub(crate) fn mark_point(
+    placed: Mark,
+    constraint: Constraint,
+    drawing: Drawing<'_>,
+    camera: &Camera,
+    viewport: Viewport,
+    at: Vec3,
+) -> Vec3 {
+    // Taken at the box rather than at the point it is solving for, which is the
+    // one approximation here and is a fraction of a pixel: the two are a
+    // clearance apart, and what a pixel is worth changes over that distance only
+    // as far as the perspective divide does.
+    let step = camera.world_per_pixel(at, viewport);
+    let Constraint::Radius { circle, .. } = constraint else {
+        // Square to a direction the geometry decides, so taking it off is exact.
+        return at - mark_turn(drawing, placed).lift_world() * step;
+    };
+    let sketch = drawing.sketch();
+    let centre = sketch.point(sketch.circle(circle).center).position;
+    let plane = drawing.plane();
+    let clear = f64::from(mark_rise(placed.lane) * step);
+    let q = plane.flatten(at.as_dvec3()) - centre;
+    let across = q.length_squared();
+    let reach = (across - clear * clear).max(0.0).sqrt();
+    let point = if across > 0.0 {
+        (q * reach - q.perp() * clear) * (reach / across)
+    } else {
+        DVec2::ZERO
+    };
+    plane.point(centre + point).as_vec3()
 }
 
 /// How the mark for `placed` is laid in the drawing's plane.
