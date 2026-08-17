@@ -4,7 +4,6 @@ use crate::aim::Aim;
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::mesh::Mesh;
 use crate::primitive::Primitive;
-use crate::ray::Ray;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Mat4, Vec3};
@@ -102,16 +101,47 @@ impl Object {
     /// the cursor is *near*: it is either over it or it is not, and a face
     /// reported at some distance would beat a nearer one for no reason a user
     /// could see. What separates two faces under one cursor is depth alone.
+    ///
+    /// **The ray is brought into the mesh's own space rather than the mesh into
+    /// the world.** A triangle list is read three corners at a time and shares
+    /// nearly every corner with a neighbour, so carrying the mesh across costs
+    /// three transforms per triangle — about six per vertex on a closed mesh,
+    /// and a sketch face is retriangulated every frame the drawing moves. The
+    /// ray is one origin and one direction whatever the mesh is, so this way
+    /// costs an inverse and two transforms and then no matrix work at all — and
+    /// for a mesh already standing where it is drawn, not even those.
+    ///
+    /// What comes back is still a world distance, and that is what makes the
+    /// swap free rather than merely cheap: the inverse is applied to the
+    /// direction *as a direction and unnormalized*, so a point `t` along the
+    /// object-space ray is the image of the point `t` along the world one, for
+    /// the same `t`. A normalized object-space direction would measure in
+    /// whatever units the transform scales to, and hits from two objects would
+    /// stop being comparable.
     pub(crate) fn pick(&self, aim: &Aim, at: HitAt) -> Option<Hit> {
         let tag = self.tag?;
         let ray = aim.ray();
+        let (origin, direction) = if self.transform == Mat4::IDENTITY {
+            // A mesh already standing where it is drawn, which is what an
+            // application that bakes its own geometry hands over — and both of
+            // this crate's mesh batches are filled that way. Sixteen floats
+            // compared against inverting a matrix that was never going to move
+            // anything.
+            (ray.origin, ray.direction)
+        } else {
+            // A singular transform inverts to non-finite, which every comparison
+            // in `crossed` then refuses — so a mesh scaled flat answers with
+            // nothing rather than with nonsense, which is also what it draws.
+            let inverse = self.transform.inverse();
+            (
+                inverse.transform_point3(ray.origin),
+                inverse.transform_vector3(ray.direction),
+            )
+        };
         let mut along = f32::INFINITY;
         for triangle in self.mesh.indices.chunks_exact(3) {
-            let corner = |of: usize| {
-                self.transform
-                    .transform_point3(self.mesh.vertices[triangle[of] as usize].position)
-            };
-            if let Some(travelled) = crossed(ray, [corner(0), corner(1), corner(2)]) {
+            let corners = [0, 1, 2].map(|of| self.mesh.vertices[triangle[of] as usize].position);
+            if let Some(travelled) = crossed(origin, direction, corners) {
                 along = along.min(travelled);
             }
         }
@@ -135,27 +165,33 @@ impl Styled for Object {
     }
 }
 
-/// How far along `ray` it goes through the triangle, or `None` where it misses.
+/// How far along the ray from `origin` in `direction` it goes through the
+/// triangle, or `None` where it misses.
 ///
 /// Möller–Trumbore, without the early-out that culls a back face: the
 /// determinant's *sign* is which side is being entered, and only its magnitude
 /// says whether the ray runs in the triangle's own plane.
-fn crossed(ray: Ray, corners: [Vec3; 3]) -> Option<f32> {
+///
+/// Loose origin and direction rather than a [`Ray`](crate::Ray), because the
+/// direction here is not unit and a ray promises that it is — see
+/// [`Object::pick`], which carries a world ray into a mesh's own space and needs
+/// `t` to keep meaning what it meant outside.
+fn crossed(origin: Vec3, direction: Vec3, corners: [Vec3; 3]) -> Option<f32> {
     let [a, b, c] = corners;
     let (along, across) = (b - a, c - a);
-    let sideways = ray.direction.cross(across);
+    let sideways = direction.cross(across);
     let determinant = along.dot(sideways);
     if determinant.abs() < f32::EPSILON {
         return None;
     }
     let inverse = 1.0 / determinant;
-    let offset = ray.origin - a;
+    let offset = origin - a;
     let u = offset.dot(sideways) * inverse;
     if !(0.0..=1.0).contains(&u) {
         return None;
     }
     let upward = offset.cross(along);
-    let v = ray.direction.dot(upward) * inverse;
+    let v = direction.dot(upward) * inverse;
     if v < 0.0 || u + v > 1.0 {
         return None;
     }

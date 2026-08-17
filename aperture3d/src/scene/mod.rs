@@ -3,11 +3,10 @@
 use crate::aim::Aim;
 use crate::batch::Batch;
 use crate::curve::Curve;
-use crate::extent::Extent;
+use crate::extent::{Extent, Reach};
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::object::Object;
 use crate::point::Point;
-use crate::primitive;
 use crate::ring::Ring;
 use crate::text::Text;
 
@@ -138,15 +137,15 @@ impl Scene {
         // width, a marker's glyph and the box a label or a field is drawn in
         // are screen-space quantities, and the distance that would satisfy one
         // of those is the distance being solved for.
-        let mut extent: Option<Extent> = None;
-        primitive::extent(&self.solids, &mut extent);
-        primitive::extent(&self.faces, &mut extent);
-        primitive::extent(&self.curves, &mut extent);
-        primitive::extent(&self.rings, &mut extent);
-        primitive::extent(&self.points, &mut extent);
-        primitive::extent(&self.texts, &mut extent);
-        primitive::extent(&self.gizmos, &mut extent);
-        extent
+        let mut reach = Reach::default();
+        reach.cover(&self.solids);
+        reach.cover(&self.faces);
+        reach.cover(&self.curves);
+        reach.cover(&self.rings);
+        reach.cover(&self.points);
+        reach.cover(&self.texts);
+        reach.cover(&self.gizmos);
+        reach.extent()
     }
 
     /// What the aim was most likely meant for, or `None` if nothing is near

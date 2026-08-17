@@ -1,25 +1,71 @@
-//! How much of the world a scene occupies.
+//! How much of the world a scene occupies, and what walks a scene to find out.
 
+use crate::primitive::Primitive;
 use glam::Vec3;
 
-/// A world-space axis-aligned box. Built by growing from a first point, so an
-/// empty scene has no extent at all rather than a degenerate one at the
-/// origin.
+/// A world-space axis-aligned box, holding at least the point it was built
+/// from.
+///
+/// There is no empty one. A scene with nothing in it has no extent at all rather
+/// than a degenerate box at the origin, which is why the walk that grows one
+/// over a scene's batches is a type of its own and answers with an `Option`.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Extent {
     pub min: Vec3,
     pub max: Vec3,
 }
 
-impl Extent {
-    /// The box containing one point, and nothing else yet.
-    pub(crate) fn point(point: Vec3) -> Self {
+/// How much of the world a run of primitives covers, grown from nothing.
+///
+/// An [`Extent`] always holds at least one point, and a scene may hold none — so
+/// growing one over several batches through an `Option` means asking, at every
+/// point of every mesh, whether this is the first. Held inverted instead, the
+/// emptiness is a fact about the numbers rather than a branch: min starts above
+/// max, every point narrows the gap, and only [`Reach::extent`] has to ask.
+///
+/// Its own type rather than an [`Extent`] carrying the sentinel, because those
+/// bounds are the wrong way round and an `Extent` is published with both fields
+/// public. Nothing outside this walk should be able to hold one.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Reach {
+    min: Vec3,
+    max: Vec3,
+}
+
+impl Default for Reach {
+    /// Inverted, so that the first point covered replaces both bounds.
+    fn default() -> Self {
         Self {
-            min: point,
-            max: point,
+            min: Vec3::INFINITY,
+            max: Vec3::NEG_INFINITY,
+        }
+    }
+}
+
+impl Reach {
+    /// Widen to hold everything `items` reaches.
+    pub(crate) fn cover<P: Primitive>(&mut self, items: &[P]) {
+        for item in items {
+            item.reaches(|point| {
+                self.min = self.min.min(point);
+                self.max = self.max.max(point);
+            });
         }
     }
 
+    /// The box this came to, or `None` where nothing was ever put in it.
+    ///
+    /// One axis decides it because all three are written together above, so
+    /// either every bound has been narrowed or none has.
+    pub(crate) fn extent(self) -> Option<Extent> {
+        (self.min.x <= self.max.x).then_some(Extent {
+            min: self.min,
+            max: self.max,
+        })
+    }
+}
+
+impl Extent {
     /// Grow to cover `point`.
     pub fn include(&mut self, point: Vec3) {
         self.min = self.min.min(point);
@@ -43,7 +89,10 @@ mod tests {
 
     #[test]
     fn growing_covers_every_point_seen() {
-        let mut extent = Extent::point(Vec3::new(1.0, 2.0, 3.0));
+        // The smallest box there is, which is what every assertion below grows
+        // out of.
+        let at = Vec3::new(1.0, 2.0, 3.0);
+        let mut extent = Extent { min: at, max: at };
         assert_eq!(extent.centre(), Vec3::new(1.0, 2.0, 3.0));
         assert_eq!(extent.radius(), 0.0, "one point has no extent");
 

@@ -119,15 +119,21 @@ pub(crate) enum Stands {
 /// `None`, and the form is not shown for the frame — not *closed*, because a
 /// camera turning back brings it round again and geometry swinging out of view
 /// is nobody asking to stop typing.
+///
+/// The projection is built once and every corner read through it, rather than
+/// asked of the camera apiece: [`Camera::screen_of`] builds a whole
+/// view-projection per call, which is what a caller placing one thing wants and
+/// what a region's whole boundary does not.
 pub(crate) fn footprint(
     at: impl Iterator<Item = Vec3>,
     camera: &Camera,
     viewport: Viewport,
 ) -> Option<Rect> {
+    let view_proj = camera.view_proj(viewport.aspect());
     let mut low = Vec2::splat(f32::MAX);
     let mut high = Vec2::splat(f32::MIN);
     let mut drawn = false;
-    for corner in at.filter_map(|corner| camera.screen_of(corner, viewport)) {
+    for corner in at.filter_map(|corner| viewport.pixel_of(view_proj * corner.extend(1.0))) {
         low = low.min(corner);
         high = high.max(corner);
         drawn = true;

@@ -202,10 +202,17 @@ fn a_measured_run_is_picked_across_the_width_it_measured() {
 /// it: same anchor, same extent, same box, so every cursor that finds one finds
 /// the other at the same reach.
 ///
-/// The fixture is what makes it exact rather than approximate. Ninety degrees of
-/// vertical fov across a hundred pixels at a depth of five puts one world unit
-/// at ten pixels and one pixel at a tenth of a unit, so the run's own pixel and
-/// the screen's are the same pixel.
+/// The fixture is what makes the two agree at all. Ninety degrees of vertical
+/// fov across a hundred pixels at a depth of five puts one world unit at ten
+/// pixels and one pixel at a tenth of a unit, so the run's own pixel and the
+/// screen's are the same pixel.
+///
+/// *Whether* each finds the run is compared exactly, because that is a decision
+/// and not a measurement. How far it fell is compared to well inside a pixel:
+/// the two reach the same number down different routes — one clamps a cursor in
+/// screen space, the other brings it onto the plane's axes and takes the
+/// overshoot back out — and holding them to the same float bits would be
+/// pinning the order those multiplies happen to be written in.
 #[test]
 fn a_run_laid_in_the_plane_faced_is_picked_where_an_unturned_run_is() {
     let flat = label();
@@ -222,11 +229,15 @@ fn a_run_laid_in_the_plane_faced_is_picked_where_an_unturned_run_is() {
     ] {
         let aim = aim_at(cursor, 10.0);
         let (laid, flat) = (laid.pick(&aim), flat.pick(&aim));
-        assert_eq!(
-            laid.map(|hit| hit.screen),
-            flat.map(|hit| hit.screen),
-            "at {cursor:?}"
-        );
+        assert_eq!(laid.is_some(), flat.is_some(), "at {cursor:?}");
+        if let (Some(laid), Some(flat)) = (laid, flat) {
+            assert!(
+                (laid.screen - flat.screen).abs() < 1e-4,
+                "at {cursor:?}: laid {} against flat {}",
+                laid.screen,
+                flat.screen
+            );
+        }
     }
 }
 

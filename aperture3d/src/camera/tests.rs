@@ -46,7 +46,8 @@ fn the_near_plane_rides_with_the_orbit_distance() {
 
     // Framing re-derives the distance, and the near plane follows that too
     // rather than staying wherever the last dolly left it.
-    let mut extent = Extent::point(Vec3::splat(-3.0));
+    let at = Vec3::splat(-3.0);
+    let mut extent = Extent { min: at, max: at };
     extent.include(Vec3::splat(3.0));
     camera.frame(extent);
     assert!(camera.distance > 1.0, "{camera:?}");
@@ -359,7 +360,8 @@ fn frame_pulls_back_until_the_bounds_fit() {
     camera.orbit(0.7, 0.3);
     let (yaw, pitch) = (camera.yaw, camera.pitch);
 
-    let mut extent = Extent::point(Vec3::new(2.0, 2.0, 2.0));
+    let at = Vec3::new(2.0, 2.0, 2.0);
+    let mut extent = Extent { min: at, max: at };
     extent.include(Vec3::new(6.0, 6.0, 6.0));
     camera.frame(extent);
 
@@ -411,7 +413,10 @@ fn frame_pulls_back_until_the_bounds_fit() {
 
     // A single point has no extent to fit, so the distance floors rather
     // than collapsing onto it.
-    camera.frame(Extent::point(Vec3::ZERO));
+    camera.frame(Extent {
+        min: Vec3::ZERO,
+        max: Vec3::ZERO,
+    });
     assert_eq!(camera.target, Vec3::ZERO);
     assert_eq!(camera.distance, MIN_DISTANCE);
 }

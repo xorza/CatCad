@@ -268,8 +268,16 @@ impl Ring {
             }
         }
 
-        let angle = (low + high) * 0.5;
-        let screen = screen_at(angle);
+        // The better of the two the bracket already holds, rather than its
+        // midpoint measured afresh. Both are inside a bracket 2.3e-5 of an arc
+        // wide, so which one is taken is immaterial — but one of them is a
+        // reading and the midpoint is a guess, and taking the reading is what
+        // makes the count above the whole count.
+        let (angle, screen) = if at_lower <= at_upper {
+            (lower, at_lower)
+        } else {
+            (upper, at_upper)
+        };
         screen.is_finite().then(|| NearestOnRing {
             angle: angle.rem_euclid(std::f32::consts::TAU),
             screen,

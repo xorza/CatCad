@@ -226,31 +226,43 @@ impl Turn {
         let across = self.normal.cross(self.right);
         let along = viewport.screen_tangent(self.right, here, view_proj);
         let sideways = viewport.screen_tangent(across, here, view_proj);
-        // Of the plane's two ways to run down, the one that winds the way the
-        // screen does.
-        let down = if along.perp_dot(sideways) >= 0.0 {
-            across
+        // Which of the plane's two ways to run down is the one that winds the
+        // way the screen does, as the sign that picks it.
+        let winding = if along.perp_dot(sideways) >= 0.0 {
+            1.0
         } else {
-            -across
+            -1.0
         };
         // And the half turn, which is a sign on both rather than a second frame
         // — which is what makes it a rotation and so leaves the choice above
         // where it was.
         let upright = if along.x < 0.0 { -1.0 } else { 1.0 };
+        // Both signs at once, since the down axis takes both and the advance
+        // takes only the second.
+        let downward = winding * upright;
         Axes {
             advance: self.right * upright,
-            down: down * upright,
+            down: across * downward,
+            // The tangents that settled those signs, carried out under them
+            // rather than thrown away: `screen_tangent` is linear in the
+            // direction it is asked about, so a tangent of the settled axis is
+            // the tangent of the authored one under the same sign, and asking
+            // the projection again would be three more products for an answer
+            // already in hand.
+            advance_px: along * upright,
+            down_px: sideways * downward,
         }
     }
 }
 
-/// The plane directions a run is laid along: the way it advances, and the way
-/// its own box runs down.
+/// The plane directions a run is laid along: the way it advances, the way its
+/// own box runs down, and how far each of them carries on screen.
 ///
 /// World directions, both unit and square to each other, both in the run's
 /// plane. Where a run *sits* on those axes is the anchor's and how far it
-/// reaches along them is the shaping's; this is only which way they point, which
-/// is the half the projection has a say in. See [`Turn::axes`].
+/// reaches along them is the shaping's; what is here is which way they point and
+/// how fast they run, which is the half the projection has a say in. See
+/// [`Turn::axes`].
 ///
 /// The advance is [`Turn::right`] *as settled* and so is sometimes its negation
 /// — named apart for that reason, since the two are a half turn out from each
@@ -260,4 +272,15 @@ impl Turn {
 pub struct Axes {
     pub advance: Vec3,
     pub down: Vec3,
+    /// Pixels per world unit along [`Axes::advance`], at the point the axes
+    /// were settled at, with y running down the screen.
+    ///
+    /// The projection's own tangent — see
+    /// [`Viewport::screen_tangent`](crate::Viewport). Carried because settling
+    /// the signs above had to ask for it, and because the one reader that
+    /// inverts the pair to bring a cursor into the run's frame would otherwise
+    /// ask for it a second time.
+    pub advance_px: Vec2,
+    /// The same along [`Axes::down`].
+    pub down_px: Vec2,
 }

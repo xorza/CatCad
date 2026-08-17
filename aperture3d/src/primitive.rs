@@ -1,6 +1,5 @@
 //! What everything a scene holds has in common.
 
-use crate::extent::Extent;
 use crate::renderer::record::Instance;
 use crate::tag::Tag;
 use glam::Vec3;
@@ -77,14 +76,4 @@ pub(crate) trait Flatten: Primitive {
 
     /// The records themselves, in the order they are drawn.
     fn records(&self) -> impl Iterator<Item = Self::Record>;
-}
-
-/// Widen `into` to hold everything `items` reaches.
-pub(crate) fn extent<P: Primitive>(items: &[P], into: &mut Option<Extent>) {
-    for item in items {
-        item.reaches(|point| match into.as_mut() {
-            Some(extent) => extent.include(point),
-            None => *into = Some(Extent::point(point)),
-        });
-    }
 }

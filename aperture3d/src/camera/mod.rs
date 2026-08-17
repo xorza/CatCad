@@ -290,9 +290,12 @@ impl Camera {
     /// handed, for the reason the ray gives: a projection derived independently
     /// agrees with the picture only until someone changes it.
     ///
-    /// One position at a time, and no shortcut for many. A caller placing a
-    /// handful of things per frame pays a view-projection apiece, which is a
-    /// matrix multiply against the arithmetic of drawing them.
+    /// One position at a time, and it builds a whole view-projection to answer:
+    /// a caller placing a handful of things per frame pays one apiece, which is
+    /// nothing against the arithmetic of drawing them. A caller with a *run* of
+    /// positions — a region's boundary, a rim's corners — should build the
+    /// matrix once with [`Camera::view_proj`] and read each through
+    /// [`Viewport::pixel_of`], which is what this does and all it does.
     pub fn screen_of(&self, world: Vec3, viewport: Viewport) -> Option<Vec2> {
         viewport.pixel_of(self.view_proj(viewport.aspect()) * world.extend(1.0))
     }
