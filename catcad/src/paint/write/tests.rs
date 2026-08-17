@@ -330,7 +330,7 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
     );
     let stepped = column[1].2.y - column[0].2.y;
     assert!(
-        (stepped - STACK_STEP * mark_font().line_height_px).abs() < 1e-3,
+        (stepped - STACK_STEP * MARK_FONT.line_height_px).abs() < 1e-3,
         "the second mark cleared the first by {stepped} rather than by a line"
     );
 

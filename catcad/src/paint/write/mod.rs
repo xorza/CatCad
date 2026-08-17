@@ -31,7 +31,7 @@ use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::{
     DECIMALS, DORMANT_FACE, EDGE_WIDTH, FACE, FACE_SAGITTA, FIXED_MARKER, FREE_MARKER, GHOST, MARK,
-    PINNED, REDUNDANT, SOLID, SOLID_SAGITTA, colour, ink, mark_font, marks, radius_prefix,
+    MARK_FONT, PINNED, REDUNDANT, SOLID, SOLID_SAGITTA, colour, ink, marks, radius_prefix,
     standing, symbol,
 };
 use crate::part::Part;
@@ -304,7 +304,7 @@ pub(super) fn texts(
             }
             let plane = live.plane();
             mark.position = plane.point(placed.at).as_vec3();
-            mark.font = mark_font();
+            mark.font = MARK_FONT;
             // **Centred on its own box**, with the clearance carried by the
             // lift below instead. An anchor fraction rides in the run's own
             // frame, and both rules that settle that frame — the mirror and the

@@ -153,7 +153,7 @@ fn every_mark_has_a_glyph_to_draw_it() {
         // The face and the size the drawing sets marks in, not a stand-in: a
         // symbol the mono bold face lacks falls through to whatever the system
         // offers, and one nothing offers draws blank.
-        glyphs.line(mark, super::mark_font(), 1.0, &mut placed);
+        glyphs.line(mark, super::MARK_FONT, 1.0, &mut placed);
         let [glyph] = placed[..] else {
             panic!(
                 "{mark:?} for {constraint:?} shaped to {} glyphs",

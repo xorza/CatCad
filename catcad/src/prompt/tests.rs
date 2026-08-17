@@ -205,7 +205,7 @@ fn both_answers_have_a_glyph_to_draw_them() {
     let mut placed = Vec::new();
 
     for answer in [look::CONFIRM, look::CANCEL] {
-        glyphs.line(answer, crate::paint::mark_font(), 1.0, &mut placed);
+        glyphs.line(answer, crate::paint::MARK_FONT, 1.0, &mut placed);
         let [glyph] = placed[..] else {
             panic!("{answer:?} shaped to {} glyphs", placed.len());
         };

@@ -8,16 +8,17 @@
 //!
 //! **What is left after palantir.** Where the caret is, what is picked out,
 //! what a keystroke does to either, and every rule about clicking into a line
-//! belong to the [`TextEdit`] a field is shown through — and *fitting the form
-//! on screen* belongs to [`Popup`], which resolves a body against an anchor and
-//! flips or shifts it to stay on the surface. What is left is the two things
-//! neither can know: where in the world the form is about, and what pressing
-//! Enter means.
+//! belong to the [`TextEdit`] a field is shown through — its own furniture
+//! included, which is what puts a field's glyphs back on the pixels the mark's
+//! were read at. *Fitting the form on screen* belongs to [`Popup`], which
+//! resolves a body against an anchor and flips or shifts it to stay on the
+//! surface. What is left is the two things neither can know: where in the world
+//! the form is about, and what pressing Enter means.
 
 use glam::Vec2;
 use palantir::{
-    Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Sizing, Text,
-    TextEdit, TextEditTheme, TextRun, TextWrap, Ui, VAlign, WidgetId,
+    Align, Button, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing, Text,
+    TextEdit, TextRun, TextWrap, Ui, VAlign, WidgetId,
 };
 use silverpoint::{CircleId, Constraint, Dimension, Entity};
 use std::fmt::Write;
@@ -26,7 +27,7 @@ use crate::drawing::anchor::Anchor;
 use crate::intent::{Change, Choice, Intents, Opening, Step};
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
-use crate::paint::{DECIMALS, mark_font};
+use crate::paint::{DECIMALS, MARK_FONT};
 use crate::part::Part;
 use crate::profile::Profile;
 use crate::timeline::FeatureId;
@@ -227,17 +228,6 @@ pub(crate) struct Prompt {
     /// never the frame it was opened on, and nothing outside it is in a
     /// position to say which one that was.
     shown: bool,
-    /// What its fields are set in. Built once per opening rather than per frame
-    /// — it is the stock theme with one axis rewritten, and rebuilding it sixty
-    /// times a second to say the same thing would be sixty copies of a bundle
-    /// that never changes.
-    look: TextEditTheme,
-    /// The two answers, on the same terms. Built for every form rather than
-    /// only the ones that show them: two bundles per *opening* is nothing, and
-    /// an `Option` here would be a second thing saying what
-    /// [`Prompt::blurs`] already says.
-    goes: ButtonTheme,
-    stops: ButtonTheme,
 }
 
 /// What a field made of the frame.
@@ -367,9 +357,6 @@ impl Prompt {
                 })
                 .collect(),
             shown: false,
-            look: look::field(),
-            goes: look::confirm(),
-            stops: look::cancel(),
         }
     }
 
@@ -702,15 +689,14 @@ impl Prompt {
     /// is what that draws. Unbounded and single-line: a dimension is one run
     /// that the box is sized to rather than the other way about.
     fn run(&self, nth: usize) -> TextRun<'_> {
-        let font = mark_font();
         TextRun {
             text: &self.fields[nth].draft,
-            font_size_px: font.size_px,
-            line_height_px: font.line_height_px,
+            font_size_px: MARK_FONT.size_px,
+            line_height_px: MARK_FONT.line_height_px,
             wrap: TextWrap::Scroll,
             align: Align::CENTER,
-            family: font.family,
-            weight: font.weight,
+            family: MARK_FONT.family,
+            weight: MARK_FONT.weight,
             max_width_px: None,
         }
     }
@@ -723,14 +709,26 @@ impl Prompt {
     /// press it does not contain falls through to the viewport beneath — which
     /// is what makes clicking away from the field a click on the drawing as
     /// well as a blur.
+    ///
+    /// **What keeps the number from jumping as it becomes editable** is
+    /// [`TextEditTheme::corner_centring`](palantir::TextEditTheme::corner_centring),
+    /// which is asked rather than worked out here: a field is a box *around* a
+    /// run, and how far inside its own corner it hangs that run is a handful of
+    /// facts about the widget's own layout. What is left is measuring the run
+    /// and saying where its middle goes.
     fn over(&mut self, ui: &mut Ui, centre: Vec2, opening: bool) -> Option<Done> {
         // Measured before the field is shown, because where its corner goes
         // depends on how wide its number comes out. The same shaper the widget
         // itself will use, asked the same question, so the two cannot answer
         // differently.
+        //
+        // The run's own leading rather than what it measured, so an empty draft
+        // is a box where the number was and not one half a line higher: a
+        // backspace onto nothing must not move the field it was typed in.
         let width = ui.probe_text(self.run(0)).size().w;
-        let origin = self.placed_over(centre, width);
-        let Self { fields, look, .. } = self;
+        let run = Size::new(width, MARK_FONT.line_height_px);
+        let origin = look::FIELD.corner_centring(run, centre);
+        let Self { fields, .. } = self;
         let id = Self::field_id(0);
         let said = Panel::canvas()
             .id_salt("prompt.over")
@@ -746,7 +744,7 @@ impl Prompt {
                 }
                 let shown = TextEdit::new(&mut fields[0].draft)
                     .id(id)
-                    .style(look)
+                    .style(&look::FIELD)
                     .select_all_on_focus()
                     .text_align(Align::CENTER)
                     .size((Sizing::HUG, Sizing::HUG))
@@ -783,13 +781,7 @@ impl Prompt {
             anchor.size.h + STANDS_CLEAR * 2.0,
         );
         let blurs = self.blurs();
-        let Self {
-            fields,
-            look,
-            goes,
-            stops,
-            ..
-        } = self;
+        let Self { fields, .. } = self;
         let mut said = Said::default();
         let mut answered = None;
         Popup::below(anchor)
@@ -824,7 +816,7 @@ impl Prompt {
                             }
                             let shown = TextEdit::new(&mut field.draft)
                                 .id(Self::field_id(nth))
-                                .style(look)
+                                .style(&look::FIELD)
                                 .select_all_on_focus()
                                 // Cloned because [`TextEdit::placeholder`]
                                 // takes a `Cow<'static, str>` and this string
@@ -851,8 +843,8 @@ impl Prompt {
                             .align(Align::h(HAlign::Right))
                             .show(ui, |ui| {
                                 for (glyph, theme, answer) in [
-                                    (look::CONFIRM, &*goes, Done::Commit),
-                                    (look::CANCEL, &*stops, Done::Cancel),
+                                    (look::CONFIRM, &*look::GOES, Done::Commit),
+                                    (look::CANCEL, &*look::STOPS, Done::Cancel),
                                 ] {
                                     let pressed = Button::new()
                                         .id_salt(glyph)
@@ -877,44 +869,6 @@ impl Prompt {
         // made of the same frame, and a field that lost focus *to* the button
         // must not cancel out from under it.
         answered.or_else(|| self.resolve(said))
-    }
-
-    /// Where to put a field's own corner so that its glyphs land exactly where
-    /// the mark's did.
-    ///
-    /// **What keeps a number from jumping as it becomes editable.** `centre` is
-    /// the middle of the box the mark's own glyphs sat in — the drawing worked
-    /// that out, up the run's frame and through however many lanes it rose. What
-    /// is left here is the field's own furniture: it hangs its text off its
-    /// corner by the ring it is drawn with, the padding inside that, and the
-    /// caret's room at the trailing edge, so the corner is that middle with all
-    /// of it backed off.
-    ///
-    /// Read off the theme this module authored rather than written out again,
-    /// so a box restyled in [`look::field`] moves the field with it instead of
-    /// leaving this behind.
-    ///
-    /// The text's own width cancels: both centre their text on the same point,
-    /// so both land half a run to the left of it whatever the run measures. Only
-    /// the caret's room breaks the symmetry, being reserved on one side.
-    fn placed_over(&self, centre: Vec2, width: f32) -> Vec2 {
-        // Off `normal`, and safe to be: palantir pins the ring's width across
-        // every state so that focus changes its colour without moving the inner
-        // rect — which is the same shift this call exists to avoid, one state
-        // further along.
-        let ring = self
-            .look
-            .looks
-            .normal
-            .background
-            .as_ref()
-            .map_or(0.0, |bg| bg.stroke.width);
-        let inset = Vec2::new(self.look.padding.horiz(), self.look.padding.vert()) * 0.5
-            + Vec2::splat(ring);
-        Vec2::new(
-            centre.x - width * 0.5 - inset.x - self.look.caret_width * 0.5,
-            centre.y - mark_font().line_height_px * 0.5 - inset.y,
-        )
     }
 }
 

@@ -1,12 +1,24 @@
 //! What a form is set in: the face its fields take, and the two buttons that
 //! answer it.
+//!
+//! **Three bundles the program has one of, not one per form.** Each is the
+//! stock theme with an axis or two rewritten, and none of the three reads
+//! anything about the form it dresses — so a form building its own would be
+//! arriving at the same answer on every double-click, and carrying three fields
+//! that said nothing about it.
+//!
+//! Built on first use rather than stated outright because `from_palette` is no
+//! `const fn` — which also means a session that only ever restates dimensions
+//! never builds the two answers, those being the one kind of form that does not
+//! show them.
 
 use palantir::{
     Background, ButtonTheme, Color, Corners, Palette, Spacing, StatefulLook, Stroke, TextEditTheme,
     TextStyle, WidgetLook,
 };
+use std::sync::LazyLock;
 
-use crate::paint::mark_font;
+use crate::paint::MARK_FONT;
 
 /// What confirm and cancel are drawn as.
 ///
@@ -43,33 +55,32 @@ pub(crate) const ANSWER_SIDE: f32 = 19.0;
 /// [`PINNED`](crate::paint) says is a fact about a point, and what this says is
 /// which button you are about to press. Muted well below a saturated signal so
 /// that two small blocks of colour sitting on a model read as chrome.
-const GOES: Color = Color::rgb(0.24, 0.52, 0.30);
-const STOPS: Color = Color::rgb(0.58, 0.22, 0.20);
+const GOES_INK: Color = Color::rgb(0.24, 0.52, 0.30);
+const STOPS_INK: Color = Color::rgb(0.58, 0.22, 0.20);
 
 /// The stock field, set in the face a dimension's mark is set in.
 ///
-/// **Mono**, and for the reason [`mark_font`] gives rather than for a matching
+/// **Mono**, and for the reason [`MARK_FONT`] gives rather than for a matching
 /// one: a value being typed is read digit by digit, and a proportional face
 /// sets `1` narrower than `8`, so a number shifts under the caret as it is
 /// typed. The mark a dimension's field stands over is mono already, so this is
 /// also what keeps a number the same shape whether it is being edited or merely
 /// shown.
 ///
-/// The size and weight come from the same call for the same reason. Nothing
+/// The size and weight come from the same constant for the same reason. Nothing
 /// else is touched: the box, the caret and the wash are palantir's, and a field
 /// in the drawing has no cause to look unlike a field anywhere else.
-pub(crate) fn field() -> TextEditTheme {
-    let font = mark_font();
+pub(crate) static FIELD: LazyLock<TextEditTheme> = LazyLock::new(|| {
     let text = TextStyle {
-        font_size_px: font.size_px,
-        family: font.family,
-        weight: font.weight,
+        font_size_px: MARK_FONT.size_px,
+        family: MARK_FONT.family,
+        weight: MARK_FONT.weight,
         // The mark's leading, not the stock one. A field is the same string in
         // the same face as the mark it stands over, so a different line box
         // would set the glyphs at a different height inside it — the number
         // would drop as it became editable — and would make the box taller than
         // the line it holds for no reason anyone could see.
-        line_height_mult: font.line_height_px / font.size_px,
+        line_height_mult: MARK_FONT.line_height_px / MARK_FONT.size_px,
         ..TextStyle::default()
     };
     let mut theme = TextEditTheme::from_palette(&Palette::DEFAULT);
@@ -85,7 +96,7 @@ pub(crate) fn field() -> TextEditTheme {
         state.text = Some(text.clone());
     }
     theme
-}
+});
 
 /// The stock button in `ink`, its four states told apart by how bright it is.
 ///
@@ -126,11 +137,7 @@ fn answer(ink: Color) -> ButtonTheme {
 }
 
 /// The button that commits the form.
-pub(crate) fn confirm() -> ButtonTheme {
-    answer(GOES)
-}
+pub(crate) static GOES: LazyLock<ButtonTheme> = LazyLock::new(|| answer(GOES_INK));
 
 /// The button that throws it away.
-pub(crate) fn cancel() -> ButtonTheme {
-    answer(STOPS)
-}
+pub(crate) static STOPS: LazyLock<ButtonTheme> = LazyLock::new(|| answer(STOPS_INK));

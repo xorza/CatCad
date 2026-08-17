@@ -6,7 +6,7 @@ use silverpoint::Constraint;
 
 use crate::drawing::Drawing;
 use crate::lens::Lens;
-use crate::paint::mark_font;
+use crate::paint::MARK_FONT;
 
 /// Where one mark goes, without saying whose it is.
 ///
@@ -96,7 +96,7 @@ impl Mark {
     /// The lane comes into it because a mark sharing its place with others does
     /// not sit where a lone one would.
     fn rise(self) -> f32 {
-        (MARK_CLEAR + f32::from(self.lane) * STACK_STEP) * mark_font().line_height_px
+        (MARK_CLEAR + f32::from(self.lane) * STACK_STEP) * MARK_FONT.line_height_px
     }
 
     /// How far a dimension's own line stands clear of the geometry it measures,
@@ -108,7 +108,7 @@ impl Mark {
     /// number floating off its own dimension. Which is a thing you would only
     /// see on a drawing whose marks had piled up.
     pub(crate) fn rule_rise(self) -> f32 {
-        self.rise() - RULE_DROP * mark_font().line_height_px
+        self.rise() - RULE_DROP * MARK_FONT.line_height_px
     }
 
     /// How the mark is laid in the drawing's plane.

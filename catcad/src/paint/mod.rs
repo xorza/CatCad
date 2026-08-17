@@ -178,13 +178,16 @@ const MARK_SIZE: f32 = 13.0;
 /// `every_mark_has_a_glyph_to_draw_it` asks about the faces the drawing
 /// actually sets marks in. A coverage check against a font nobody uses would
 /// pass while the drawing showed nothing.
-pub(crate) fn mark_font() -> GlyphFont {
-    GlyphFont {
-        family: FontFamily::Mono,
-        weight: FontWeight::Bold,
-        ..GlyphFont::new(MARK_SIZE)
-    }
-}
+///
+/// A constant beside the sizes and colours around it, because nothing about a
+/// mark, a frame or a camera moves it — and
+/// [`Mark::rise`](crate::paint::marks::mark::Mark) reads it once per mark on
+/// the drawing, every frame.
+pub(crate) const MARK_FONT: GlyphFont = GlyphFont {
+    family: FontFamily::Mono,
+    weight: FontWeight::Bold,
+    ..GlyphFont::new(MARK_SIZE)
+};
 
 /// What a mark is drawn in.
 ///

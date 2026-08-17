@@ -2,7 +2,7 @@ use super::*;
 use crate::build::Build;
 use crate::demo;
 use crate::paint::growing::Growing;
-use crate::paint::{mark_font, redraw};
+use crate::paint::{MARK_FONT, redraw};
 use crate::preview::Preview;
 use aperture::Scene;
 use silverpoint::{Along, Dimension, Sketch};
@@ -387,7 +387,7 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     let apart = figure
         .position
         .distance(rule.points[0].midpoint(rule.points[1]));
-    let drop = 0.5 * mark_font().line_height_px * lens.world_per_pixel(figure.position);
+    let drop = 0.5 * MARK_FONT.line_height_px * lens.world_per_pixel(figure.position);
     assert!(
         (apart - drop).abs() < 1e-5,
         "the figure sits {apart} from its own rule rather than {drop}, so the \
