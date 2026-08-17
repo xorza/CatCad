@@ -756,9 +756,20 @@ fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
     };
 
     raised.hold(Tool::Dimension(Dimensioning::Empty));
-    for at in places {
+    for (nth, at) in places.into_iter().enumerate() {
         raised.harness.click_at(raised.cursor_on(at));
         raised.frame();
+        // Picked out as it is picked up, which between the first click and the
+        // second is the only thing on screen that has changed — see the tool's
+        // arm in [`SceneView::poll`]. The count is what tells "added to" from
+        // "replaced", and both are wanted here: the first click starts over and
+        // the second joins it.
+        assert_eq!(
+            raised.session.selection().picked().len(),
+            nth + 1,
+            "after {} click(s) the tool showed nothing for what it had picked",
+            nth + 1
+        );
     }
     assert_eq!(
         relations(&raised),
@@ -812,11 +823,16 @@ fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
         "dragging out to the side read the pair the wrong way: {landed:?}"
     );
 
-    // And the tool is ready for another rather than still holding the pair.
+    // And the tool is ready for another rather than still holding the pair —
+    // holding nothing, either, since what was picked has now been said.
     assert_eq!(
         raised.session.tool(),
         Tool::Dimension(Dimensioning::Empty),
         "the tool kept what it had already stated"
+    );
+    assert!(
+        raised.session.selection().picked().is_empty(),
+        "the pair stayed picked out after the dimension was stated"
     );
 }
 

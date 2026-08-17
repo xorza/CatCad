@@ -506,7 +506,14 @@ impl SceneView {
             // A tool in hand takes every click, whatever it landed on: what was
             // clicked is what the new geometry is *held to*, so a click on the
             // drawing is worth more to a tool than one beside it. Nothing is
-            // picked out by a click a tool took — selecting is the pointer's.
+            // picked out by a click a tool took — selecting is the pointer's,
+            // and a tool that placed a point and picked it out would be arguing
+            // with the hand that placed it.
+            //
+            // The dimension tool is the exception, and the difference is what it
+            // clicks *for*: its picks are the whole of what it has done until the
+            // second one lands, so they are what a reader has to be shown. See
+            // its arm below.
             match (tool, self.anchor(&response, document, sketch, under)) {
                 // One click. On a point already there it adds nothing, and the
                 // drawing comes out of it unchanged.
@@ -572,17 +579,34 @@ impl SceneView {
                             // Ready for another, which is what a modeller expects
                             // of a tool it took a trip to the bar to pick up.
                             intents.push(Choice::Hold(Tool::Dimension(Dimensioning::Empty)));
+                            // And holding nothing, because what was picked has
+                            // been said: a selection left standing would offer
+                            // the bar a relation over geometry the user has
+                            // finished with.
+                            intents.push(Choice::Select(None));
                         }
                         // Still picking. A click on nothing, or on something the
                         // pair cannot be measured against, leaves what has been
                         // picked where it is.
                         None => {
-                            if let Some(entity) = under
-                                .filter(|part| part.sketch() == Some(sketch))
-                                .and_then(Part::entity)
+                            if let Some(part) = under.filter(|part| part.sketch() == Some(sketch))
+                                && let Some(entity) = part.entity()
                                 && let Some(next) = dimensioning.picked(drawing.sketch(), entity)
                             {
                                 intents.push(Choice::Hold(Tool::Dimension(next)));
+                                // **Picked out as well as picked up**, which is
+                                // the one place a tool's click selects anything.
+                                // Every other tool *places* geometry, and what it
+                                // has done is on the screen the moment it does it;
+                                // this one says something about geometry already
+                                // there, and between the first click and the
+                                // second there is nothing else to see. A
+                                // selection is what the drawing already has for
+                                // "these are the ones", lights and all.
+                                intents.push(match dimensioning {
+                                    Dimensioning::Empty => Choice::Select(Some(part)),
+                                    _ => Choice::Include(part),
+                                });
                             }
                         }
                     }
@@ -1160,8 +1184,13 @@ pub(crate) mod internals {
     /// The half of the reach-in that only this crate's own tests want, kept off
     /// the feature so a build that turns `internals` on does not carry a method
     /// nothing outside can call.
+    ///
+    /// Named for looking rather than for picking, which is what it held when
+    /// there was one of them: what a tag stands for and what a gesture is
+    /// showing are both readings of what the view is holding, and neither is a
+    /// pick.
     #[cfg(test)]
-    mod picking {
+    mod looking {
         use crate::part::Part;
         use crate::preview::Preview;
         use crate::scene_view::SceneView;

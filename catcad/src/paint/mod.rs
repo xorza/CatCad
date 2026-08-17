@@ -649,19 +649,10 @@ impl<'a> Marked<'a> {
     }
 
     /// Where it stands and which way it runs.
-    ///
-    /// A proposal takes the ground lane, because it stands in no stack: a lane
-    /// counts how many marks share a place, and one that admitted a preview
-    /// would shuffle the drawing every frame the pointer moved. See
-    /// [`marks::previewed`].
     fn mark(self) -> Mark {
         match self {
             Marked::Stated(_, placed) => placed.mark,
-            Marked::Proposed(_, _, standing) => Mark {
-                at: standing.at,
-                along: standing.along,
-                lane: 0,
-            },
+            Marked::Proposed(_, _, standing) => standing.grounded(),
         }
     }
 }

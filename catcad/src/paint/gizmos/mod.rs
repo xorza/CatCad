@@ -30,7 +30,7 @@ use crate::model::Models;
 use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::growing::Growing;
 use crate::paint::layout::Layout;
-use crate::paint::marks::{Mark, Placed};
+use crate::paint::marks::Placed;
 use crate::paint::{EDGE_WIDTH, GHOST, MARK, marks, rule_rise};
 use crate::part::Part;
 
@@ -205,17 +205,9 @@ fn ruled<'a>(
             placed
                 .iter()
                 .map(|placed| (sketch.constraint(placed.of), placed.mark, false))
-                .chain(previewed.map(|(constraint, standing)| {
-                    (
-                        constraint,
-                        Mark {
-                            at: standing.at,
-                            along: standing.along,
-                            lane: 0,
-                        },
-                        true,
-                    )
-                }))
+                .chain(
+                    previewed.map(|(constraint, standing)| (constraint, standing.grounded(), true)),
+                )
                 .filter_map(move |(constraint, placed, proposed)| {
                     let measured = Measurement::of(sketch, constraint)?;
                     // Where the *number* stands, which is what an extension line

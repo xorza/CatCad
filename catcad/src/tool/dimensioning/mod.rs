@@ -70,17 +70,36 @@ impl Dimensioning {
                     second: Some(entity),
                     along: None,
                 };
-                // Asked by proposing one rather than by a table of which pairs
-                // admit what: the table is [`Self::proposed`]'s, and a second
-                // here would be a second chance to disagree with it. Where the
-                // pointer is makes no difference to *whether* there is a
-                // dimension, so the middle of the drawing does.
-                placing.proposed(sketch, DVec2::ZERO).map(|_| placing)
+                placing.admits(sketch).then_some(placing)
             }
             // Already placing. A further click commits rather than picking, so
             // nothing here answers it.
             Dimensioning::Placing { .. } => None,
         }
+    }
+
+    /// Whether this pair admits a dimension at all.
+    ///
+    /// Asked by proposing one rather than by a table of which pairs admit what:
+    /// the table is [`Self::proposed`]'s, and a second here would be a second
+    /// chance to disagree with it.
+    ///
+    /// With a reading already named, which is what makes the answer independent
+    /// of where the pointer is — and it has to be, because a pick happens before
+    /// the pointer has said anything about which reading was meant. `Shortest`
+    /// measures something exactly when the pair is not in one place, which is
+    /// the whole of what a pair of points has to clear.
+    fn admits(self, sketch: &Sketch) -> bool {
+        let named = match self {
+            Dimensioning::Placing { first, second, .. } => Dimensioning::Placing {
+                first,
+                second,
+                along: Some(Along::Shortest),
+            },
+            picking => picking,
+        };
+        // Anywhere at all: with the reading named, nothing below reads it.
+        named.proposed(sketch, DVec2::ZERO).is_some()
     }
 
     /// What the next click would state, with its number at `at`.

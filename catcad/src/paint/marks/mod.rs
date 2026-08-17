@@ -76,6 +76,26 @@ pub(crate) struct Mark {
     pub(crate) lane: u8,
 }
 
+impl Standing {
+    /// The same, as a mark that stands in no stack.
+    ///
+    /// What a *proposal* is — a dimension a tool is half-way through placing.
+    /// A lane counts how many marks share a place, and one that admitted a
+    /// preview would shuffle the drawing every frame the pointer moved, so a
+    /// proposal takes the ground lane and every other mark ignores it.
+    ///
+    /// Here rather than at the two writers that draw one, which had a copy
+    /// apiece: what a preview's lane is is one decision, and two spellings of it
+    /// are two places to change it.
+    pub(super) fn grounded(self) -> Mark {
+        Mark {
+            at: self.at,
+            along: self.along,
+            lane: 0,
+        }
+    }
+}
+
 impl Mark {
     /// Where the mark is anchored in the world.
     ///
