@@ -9,14 +9,14 @@ use crate::paint::layout::Layout;
 use crate::paint::showing::Showing;
 use crate::part::Part;
 use crate::preview::Preview;
-use crate::scene_view::aimed::HOVER_REACH;
+use crate::scene_view::aimed::Aimed;
 use crate::scene_view::click::dimension;
 use crate::scene_view::gesture::label;
 use crate::scene_view::pointing::ZOOM_RATE;
 use crate::session::Session;
 use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
-use aperture::{Aim, HitAt, Motion, Scene, Viewport};
+use aperture::{HitAt, Motion, Scene};
 use glam::{DVec2, UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{Modifiers, PointerButton};
@@ -235,11 +235,14 @@ impl Raised {
         })
     }
 
-    /// The first cursor of a coarse sweep whose hit satisfies `keep`, asked of
-    /// the very scene the view picks against.
+    /// The first cursor of a coarse sweep whose hit satisfies `keep`, asked
+    /// through the very pick a press makes.
+    ///
+    /// The view's own call rather than an aim built here, which is what it was:
+    /// a hand-rolled pick agrees with the real one until one of them is changed,
+    /// and what these sweeps are *for* is finding what a press would find.
     fn scan(&self, keep: impl Fn(Option<Part>, HitAt) -> bool) -> Option<Vec2> {
-        let renderer = self.view.renderer().borrow();
-        let viewport = Viewport::new(SIZE);
+        let lens = self.lens();
         (0..SIZE.y)
             .step_by(4)
             .flat_map(|y| {
@@ -248,40 +251,42 @@ impl Raised {
                     .map(move |x| Vec2::new(x as f32, y as f32))
             })
             .find(|&cursor| {
-                renderer
-                    .scene()
-                    .nearest(Aim::new(
-                        &self.document.camera(),
-                        cursor,
-                        viewport,
-                        HOVER_REACH,
-                    ))
-                    .is_some_and(|hit| keep(self.view.part(hit.tag), hit.at))
+                self.view
+                    .picture
+                    .under(Aimed::at(cursor), lens)
+                    .is_some_and(|under| keep(Some(under.part), under.hit.at))
             })
+    }
+
+    /// How this frame's view is looking at the drawing, which every pick below
+    /// is asked through.
+    fn lens(&self) -> Lens {
+        self.view
+            .lens(self.document.camera())
+            .expect("the harness records a frame before anything picks")
     }
 
     fn camera(&self) -> aperture::Camera {
         self.document.camera()
     }
 
-    /// What the drawing has at `cursor`, asked of the very scene the view picks
-    /// against — so a test knows what a click there would have found.
+    /// What the drawing has at `cursor`, asked through the same pick — so a
+    /// test knows what a click there would have found.
     fn named_at(&self, cursor: Vec2) -> Option<Entity> {
-        let renderer = self.view.renderer().borrow();
-        let viewport = Viewport::new(SIZE);
-        let hit = renderer.scene().nearest(Aim::new(
-            &self.document.camera(),
-            cursor,
-            viewport,
-            HOVER_REACH,
-        ))?;
-        self.view.part(hit.tag).and_then(Part::entity)
+        self.view
+            .picture
+            .under(Aimed::at(cursor), self.lens())?
+            .part
+            .entity()
     }
 
     /// Where a world position lands on screen — the cursor that aims at it.
+    ///
+    /// Through the view's own lens, so a test aims at what the *view* would
+    /// project rather than at what a viewport built here says.
     fn cursor_on(&self, world: Vec3) -> Vec2 {
-        self.camera()
-            .screen_of(world, Viewport::new(SIZE))
+        self.lens()
+            .screen_of(world)
             .expect("aimed at something the projection draws")
     }
 
@@ -607,9 +612,6 @@ fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
         let cursor = raised
             .over_datum()
             .unwrap_or_else(|| panic!("yaw {yaw}: no cursor found the datum"));
-        let camera = raised.camera();
-        let viewport = Viewport::new(SIZE);
-
         let (_, shelf) = raised
             .document
             .models(&raised.build, raised.session.editing())
@@ -622,7 +624,7 @@ fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
             origin: shelf.origin.as_vec3(),
             normal: shelf.normal().as_vec3(),
         }
-        .resolve(&Aim::new(&camera, cursor, viewport, 6.0))
+        .resolve(&Aimed::at(cursor).aim(raised.lens()))
         .unwrap_or_else(|| panic!("yaw {yaw}: the press missed the plane"));
 
         let step = Vec2::new(0.0, 45.0);

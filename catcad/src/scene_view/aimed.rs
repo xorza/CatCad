@@ -109,3 +109,24 @@ pub(super) fn landing(
     let aimed = Aimed::of(response)?;
     motion.resolve(&aimed.aim(lens?))
 }
+
+/// What a harness reaches past a response for.
+///
+/// Sweeping candidate cursors is how a test finds something to grab without a
+/// press to ask through, and a sweep has no `Response` to read a position off —
+/// it is trying positions. So the one thing a response supplies arrives
+/// directly, and everything the pick then does is the view's own.
+#[cfg(test)]
+mod sweeping {
+    use glam::Vec2;
+
+    use crate::scene_view::aimed::Aimed;
+
+    impl Aimed {
+        /// The pointer at `cursor`, in the same logical pixels [`Aimed::of`]
+        /// reads.
+        pub(crate) fn at(cursor: Vec2) -> Self {
+            Self { cursor }
+        }
+    }
+}
