@@ -56,7 +56,7 @@ fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) ->
     let aim = Aim::new(through, cursor, viewport(), radius);
     let occluders = scene.occluders(&aim);
     let mut hits: Vec<Hit> = scene
-        .overlays(&aim)
+        .overlays(&aim, |_| true)
         .filter(|hit| occluders.shows(hit.distance))
         .collect();
     hits.sort_by(Hit::aim_order);

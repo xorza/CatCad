@@ -1,8 +1,9 @@
-//! The one buffer every pass reads, rebuilt each frame.
+//! The one buffer every pass reads, and the shape of the frame it is built for.
 
 use crate::camera::{Camera, Projection};
 use crate::viewport::Viewport;
-use glam::{Mat4, Vec2, Vec4};
+use glam::{Mat4, UVec2, Vec2, Vec4};
+use palantir::GpuFrameCtx;
 
 /// The part of a view actually being drawn into, in physical pixels from the
 /// view's own top-left corner.
@@ -46,6 +47,48 @@ impl Window {
             Vec4::new(0.0, 0.0, 1.0, 0.0),
             Vec4::new(-middle.x * scale.x, -middle.y * scale.y, 0.0, 1.0),
         )
+    }
+}
+
+/// The shape of one frame's target: how much of the view is being drawn into,
+/// and at what density.
+///
+/// **The one reading of the frame context, and the one place its floors are
+/// applied.** Everything that wants a pixel count takes it from here — the
+/// uniforms below, the textures a frame is drawn into, the pass those confine —
+/// so a size cannot arrive somewhere unfloored, and two of them cannot disagree.
+///
+/// Both floors are hygiene at a crate boundary rather than cases that arise: the
+/// target always has a pixel in it and is never larger than the view it is part
+/// of. Neither is this crate's to guarantee, and a zero here would divide by it.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Frame {
+    /// The target's own size in physical pixels.
+    pub(super) size: UVec2,
+    /// The whole view the target is a part of.
+    ///
+    /// What the scene is framed for, so that what is drawn agrees with what a
+    /// pick at the same cursor answers — see [`Uniforms::of`].
+    viewport: Viewport,
+    /// Which part of that view the target actually covers. See [`Window`].
+    window: Window,
+    /// Physical pixels per logical one.
+    pub(super) raster_scale: f32,
+}
+
+impl Frame {
+    /// What palantir is asking for this frame, floored.
+    pub(super) fn of(ctx: &GpuFrameCtx<'_>) -> Self {
+        let size = ctx.size_px.max(UVec2::ONE);
+        Self {
+            size,
+            viewport: Viewport::new(ctx.full_px.max(size)),
+            window: Window {
+                min: ctx.offset_px.as_vec2(),
+                size: size.as_vec2(),
+            },
+            raster_scale: ctx.raster_scale,
+        }
     }
 }
 
@@ -113,8 +156,8 @@ pub(super) struct Uniforms {
 const _: () = assert!(size_of::<Uniforms>().is_multiple_of(16));
 
 impl Uniforms {
-    /// What a frame of `camera` over the whole of `viewport` is drawn through,
-    /// rendered into the part of it `window` names.
+    /// What a frame of `camera` over the whole of `frame`'s view is drawn
+    /// through, rendered into the part of it the frame's window names.
     ///
     /// The two are the same thing whenever the view is wholly on screen, which
     /// is the usual case — see [`Window`].
@@ -129,12 +172,13 @@ impl Uniforms {
     /// `viewport` in the uniform is the *window*, not the whole: it is what
     /// turns a length in pixels into one in NDC, and the pixels a shader is
     /// writing are the target's.
-    pub(super) fn of(
-        camera: &Camera,
-        viewport: Viewport,
-        window: Window,
-        raster_scale: f32,
-    ) -> Self {
+    pub(super) fn of(camera: &Camera, frame: Frame) -> Self {
+        let Frame {
+            viewport,
+            window,
+            raster_scale,
+            ..
+        } = frame;
         let whole = camera.view_proj(viewport.aspect());
         Self {
             view_proj: (window.onto(viewport) * whole).to_cols_array(),

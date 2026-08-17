@@ -2,7 +2,7 @@
 
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::cpu::{Order, Records};
+use crate::renderer::cpu::{Cpu, Order, Records};
 use crate::renderer::pass;
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{
@@ -116,6 +116,10 @@ const BACKGROUND: wgpu::Color = wgpu::Color {
 
 /// The two textures a frame is drawn into, and the size they were built for.
 ///
+/// Reached only through [`Gpu::resize`] and [`Gpu::draw`], which is what keeps
+/// building them and drawing into them from being two things a frame has to
+/// remember to pair.
+///
 /// Multisampled, both of them, and neither outlives the pass: the colour buffer
 /// is resolved into whatever palantir hands over and the depth buffer is read
 /// only by the pass that wrote it. Both are discarded rather than stored when it
@@ -125,18 +129,14 @@ const BACKGROUND: wgpu::Color = wgpu::Color {
 /// a frame compares it against the target's and rebuilds the pair when the view
 /// has been resized, which is the only thing that invalidates one.
 #[derive(Debug)]
-pub(super) struct Attachments {
+struct Attachments {
     color: wgpu::TextureView,
     depth: wgpu::TextureView,
-    pub(super) size: UVec2,
+    size: UVec2,
 }
 
 impl Attachments {
-    pub(super) fn new(
-        device: &wgpu::Device,
-        size: UVec2,
-        target_format: wgpu::TextureFormat,
-    ) -> Self {
+    fn new(device: &wgpu::Device, size: UVec2, target_format: wgpu::TextureFormat) -> Self {
         Self {
             color: Self::view(device, "aperture.msaa", size, target_format),
             depth: Self::view(device, "aperture.depth", size, DEPTH_FORMAT),
@@ -144,18 +144,24 @@ impl Attachments {
         }
     }
 
-    /// Open the one render pass a frame is drawn in, clearing both buffers.
+    /// Open the one render pass a frame is drawn in, cleared and confined to
+    /// these two textures.
     ///
     /// Here rather than at the call site because everything it decides is about
-    /// these two textures: that the resolve is all palantir composites, so the
-    /// samples behind it are discarded rather than stored, and that reversed
-    /// depth puts the far end at zero.
-    pub(super) fn begin<'pass>(
+    /// them: that the resolve is all palantir composites, so the samples behind
+    /// it are discarded rather than stored, that reversed depth puts the far end
+    /// at zero, and that the pass covers the whole of what was built.
+    ///
+    /// The viewport and the scissor come off [`Attachments::size`], which is the
+    /// only place a frame's size is kept. A caller handing one in would be
+    /// stating a second time what these textures were built to, and the two are
+    /// only ever right together.
+    fn begin<'pass>(
         &self,
         encoder: &'pass mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
     ) -> wgpu::RenderPass<'pass> {
-        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("aperture.pass"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: &self.color,
@@ -177,7 +183,11 @@ impl Attachments {
             timestamp_writes: None,
             occlusion_query_set: None,
             multiview_mask: None,
-        })
+        });
+        let size = self.size.as_vec2();
+        pass.set_viewport(0.0, 0.0, size.x, size.y, 0.0, 1.0);
+        pass.set_scissor_rect(0, 0, self.size.x, self.size.y);
+        pass
     }
 
     fn view(
@@ -248,7 +258,7 @@ impl Passes {
     /// this be written once: three kinds are a bare `Records` and text keeps its
     /// beside a raster scale and a scratch buffer, and neither is any of this
     /// method's business.
-    pub(super) fn upload<R: Record>(
+    fn upload<R: Record>(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
@@ -273,17 +283,17 @@ pub(super) struct Gpu {
     pub(super) rings: Passes,
     pub(super) points: Passes,
     pub(super) texts: Passes,
-    pub(super) uniforms: wgpu::Buffer,
+    uniforms: wgpu::Buffer,
     /// Kept so the bind group can be built again when the glyph sheet is
     /// replaced by a larger one — everything else about the group survives.
     sampler: wgpu::Sampler,
     bgl: wgpu::BindGroupLayout,
     sheet: Sheet,
-    pub(super) bind_group: wgpu::BindGroup,
-    pub(super) attachments: Option<Attachments>,
+    bind_group: wgpu::BindGroup,
+    attachments: Option<Attachments>,
     /// Kept from init: the multisampled colour buffer has to match what it
     /// resolves into, and that isn't known until the first frame's size is.
-    pub(super) target_format: wgpu::TextureFormat,
+    target_format: wgpu::TextureFormat,
 }
 
 impl Gpu {
@@ -506,18 +516,105 @@ impl Gpu {
         }
     }
 
+    /// Hand the GPU everything this frame owes it, and nothing it does not.
+    ///
+    /// **The list every drawn kind has to appear on, and [`Gpu::draw`] below is
+    /// the other one.** A kind uploaded and never drawn is invisible — it
+    /// flattens, it uploads, and nothing asks for it — and a kind drawn without
+    /// being uploaded goes on showing whatever it last held. Nothing checks
+    /// that the two agree, so they are written one after the other beside the
+    /// fields they walk, which is the most that can be done about it.
+    ///
+    /// Unconditional, all of them: each takes what it is owed and does nothing
+    /// when that is nothing, which is what a still frame costs.
+    pub(super) fn upload(
+        &mut self,
+        device: &wgpu::Device,
+        queue: &wgpu::Queue,
+        cpu: &mut Cpu,
+        uniforms: &Uniforms,
+    ) {
+        queue.write_buffer(&self.uniforms, 0, bytemuck::bytes_of(uniforms));
+        self.solids.upload_mesh(device, queue, &mut cpu.solids);
+        self.faces.upload_mesh(device, queue, &mut cpu.faces);
+        self.gizmos.upload(device, queue, &mut cpu.gizmos);
+        self.curves.upload(device, queue, &mut cpu.curves);
+        self.rings.upload(device, queue, &mut cpu.rings);
+        self.points.upload(device, queue, &mut cpu.points);
+        // The sheet before the records that read it: a restart replaces the
+        // texture, and the records name places on the new one.
+        self.upload_sheet(device, queue, &mut cpu.atlas);
+        self.texts.upload(device, queue, &mut cpu.texts.records);
+    }
+
+    /// Build the textures a frame is drawn into again, if the ones in hand were
+    /// built for another size.
+    ///
+    /// **The one place a frame's size is spent.** What is built here is what the
+    /// pass is then confined to — see [`Attachments::begin`] — so the size is
+    /// stated once and read back rather than handed to the draw a second time.
+    ///
+    /// Apart from [`Gpu::draw`] because it is the one part of drawing a frame
+    /// that wants `&mut self`, where everything the draw reads it reads through
+    /// a shared borrow — which is also why the draw's `expect` cannot fire, this
+    /// being what makes sure of it.
+    pub(super) fn resize(&mut self, device: &wgpu::Device, size: UVec2) {
+        if self.attachments.as_ref().map(|used| used.size) != Some(size) {
+            self.attachments = Some(Attachments::new(device, size, self.target_format));
+        }
+    }
+
+    /// Draw the whole frame into `target`.
+    ///
+    /// **The other half of [`Gpu::upload`]'s list**, and the one that decides
+    /// the order.
+    ///
+    /// Everything opaque first, then what is see-through, then what is blended —
+    /// which is the order transparency has to be drawn in and the whole of why
+    /// the passes go in this sequence rather than the ladder's. A blend mixes
+    /// with what is *already* in the target, so whatever should show through a
+    /// surface has to have been drawn before it. The opaque kinds write depth
+    /// and can go in any order among themselves, because there the depth test is
+    /// the whole answer.
+    pub(super) fn draw(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        let attachments = self.attachments.as_ref().expect("resize runs before draw");
+        let mut pass = attachments.begin(encoder, target);
+        pass.set_bind_group(0, &self.bind_group, &[]);
+        self.solids.draw(&mut pass);
+        // Every ordinary pass before any highlight, rather than each kind's two
+        // together: a highlight has to read over anything it doubles whatever
+        // kind that is, and not merely over its own kind.
+        //
+        // Named once and walked twice, so the two halves cannot disagree.
+        let opaque = [&self.gizmos, &self.curves, &self.rings, &self.points];
+        for kind in opaque {
+            kind.ordinary.draw(&mut pass);
+        }
+        for kind in opaque {
+            kind.lit.draw(&mut pass);
+        }
+        // The faces after all of it, because a face is the one see-through thing
+        // here: drawn earlier it would mix with a target the drawing had not
+        // reached yet, and everything behind it would be missing from the
+        // mixture rather than dimmed by it. Drawn now, a stroke it crosses in
+        // front of shows through it shaded, and a stroke of its *own* sketch —
+        // coplanar, and a ladder rung above — beats it on depth and reads over
+        // it untouched.
+        self.faces.draw(&mut pass);
+        // Text last of all. It is the one alpha-blended pass, so what it reads
+        // over has to be there already — and it writes no depth, so nothing
+        // after it could be sorted against it anyway.
+        self.texts.ordinary.draw(&mut pass);
+        self.texts.lit.draw(&mut pass);
+    }
+
     /// Bring the glyph sheet on the GPU up to date with the one on the CPU,
     /// rebuilding the texture when it has been started again at a new size.
     ///
     /// The bind group is rebuilt with it: it names a view of the old texture,
     /// which no longer exists. That is the whole reason the layout and the
     /// sampler are kept — everything else about the group is unchanged.
-    pub(super) fn upload_sheet(
-        &mut self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        atlas: &mut GlyphAtlas,
-    ) {
+    fn upload_sheet(&mut self, device: &wgpu::Device, queue: &wgpu::Queue, atlas: &mut GlyphAtlas) {
         if self.sheet.side != atlas.side() {
             self.sheet = Sheet::new(device, atlas.side());
             self.bind_group = self

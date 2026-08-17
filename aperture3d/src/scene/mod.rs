@@ -182,7 +182,7 @@ impl Scene {
         // alone, so the ground answers exactly when nothing else survived being
         // behind it.
         let occluders = self.occluders(&aim);
-        self.overlays(&aim)
+        self.overlays(&aim, |_| true)
             .filter(|hit| occluders.shows(hit.distance))
             .min_by(Hit::aim_order)
             .or(occluders.ground)
@@ -191,7 +191,7 @@ impl Scene {
     /// How far off the nearest frame the aim crosses lies, or infinity where it
     /// crosses none — which then hides nothing, at no cost to the arithmetic.
     ///
-    /// Named for what it answers rather than what it walks, like [`Ground`]'s
+    /// Named for what it answers rather than what it walks, like [`Occluders`]'s
     /// own `front` beside it: both are a depth that decides what is still in the
     /// running.
     ///
@@ -204,48 +204,11 @@ impl Scene {
     /// A second walk of the overlays rather than a list kept from the first, for
     /// the reason the ground is settled by name above: what a pick hands back is
     /// one hit, and holding every hit in order to take one is the cost this is
-    /// shaped to avoid.
-    ///
-    /// What it is for is asked *before* it is picked, which is what keeps the
-    /// second walk from costing what the first does. A frame is the rarest thing
-    /// a scene holds — a drawing has one per datum and no more — and picking is
-    /// where the arithmetic is: a rim alone answers by sweeping its circumference
-    /// and then bisecting, and a walk that picked every rim in the drawing to
-    /// find out none of them was a frame would double the cost of every pick to
-    /// learn nothing. Standing is a field on the primitive and reading it is
-    /// free, so the five kinds are filtered where they lie rather than after.
+    /// shaped to avoid. The same walk, though: [`Scene::overlays`] is handed the
+    /// standing worth picking rather than being filtered after it, so this pays
+    /// for reading a field per primitive and picks only the frames.
     fn frame_front(&self, aim: &Aim) -> f32 {
-        let framed = |precedence: &Precedence| *precedence == Precedence::Frame;
-        let points = self
-            .points
-            .iter()
-            .filter(|point| framed(&point.precedence))
-            .filter_map(|point| point.pick(aim));
-        let texts = self
-            .texts
-            .iter()
-            .filter(|text| framed(&text.precedence))
-            .filter_map(|text| text.pick(aim));
-        let gizmos = self
-            .gizmos
-            .iter()
-            .filter(|gizmo| framed(&gizmo.precedence))
-            .filter_map(|gizmo| Self::grabbed(gizmo, aim));
-        let curves = self
-            .curves
-            .iter()
-            .filter(|curve| framed(&curve.precedence))
-            .filter_map(|curve| curve.pick(aim));
-        let rings = self
-            .rings
-            .iter()
-            .filter(|ring| framed(&ring.precedence))
-            .filter_map(|ring| ring.pick(aim));
-        points
-            .chain(texts)
-            .chain(gizmos)
-            .chain(curves)
-            .chain(rings)
+        self.overlays(aim, |precedence| precedence == Precedence::Frame)
             .fold(f32::INFINITY, |front, hit| front.min(hit.distance))
     }
 
@@ -338,23 +301,58 @@ impl Scene {
         Some(hit)
     }
 
-    /// Every overlay the aim reaches — the markers, labels, strokes and rims a
-    /// drawing is made of — in no particular order.
+    /// Every overlay the aim reaches whose standing `keep` admits — the
+    /// markers, labels, strokes and rims a drawing is made of — in no
+    /// particular order.
+    ///
+    /// **The one statement of what the overlays are.** Both phases of a pick
+    /// walk these five batches by these five rules, and they walk them through
+    /// here: a kind this list forgets is a kind that can neither take a click
+    /// nor hide one, and there is nowhere else for either half to remember it.
+    ///
+    /// The standing is a parameter rather than a filter over what comes back,
+    /// and that is what keeps the second walk from costing what the first does.
+    /// A frame is the rarest thing a scene holds — a drawing has one per datum
+    /// and no more — and picking is where the arithmetic is: a rim alone answers
+    /// by sweeping its circumference and then bisecting, so a walk that picked
+    /// every rim in the drawing to find out none of them was a frame would
+    /// double the cost of every pick to learn nothing. Standing is a field on
+    /// the primitive and reading it is free, so the five kinds are filtered
+    /// where they lie.
     ///
     /// Never a backdrop, which is what lets [`Scene::nearest`] take the least of
     /// these and fall through to the ground only when there is none.
-    fn overlays(&self, aim: &Aim) -> impl Iterator<Item = Hit> {
-        self.points
+    fn overlays(
+        &self,
+        aim: &Aim,
+        keep: impl Fn(Precedence) -> bool + Copy,
+    ) -> impl Iterator<Item = Hit> {
+        let points = self
+            .points
             .iter()
-            .filter_map(move |point| point.pick(aim))
-            .chain(self.texts.iter().filter_map(move |text| text.pick(aim)))
-            .chain(
-                self.gizmos
-                    .iter()
-                    .filter_map(move |gizmo| Self::grabbed(gizmo, aim)),
-            )
-            .chain(self.curves.iter().filter_map(move |curve| curve.pick(aim)))
-            .chain(self.rings.iter().filter_map(move |ring| ring.pick(aim)))
+            .filter(move |point| keep(point.precedence))
+            .filter_map(move |point| point.pick(aim));
+        let texts = self
+            .texts
+            .iter()
+            .filter(move |text| keep(text.precedence))
+            .filter_map(move |text| text.pick(aim));
+        let gizmos = self
+            .gizmos
+            .iter()
+            .filter(move |gizmo| keep(gizmo.precedence))
+            .filter_map(move |gizmo| Self::grabbed(gizmo, aim));
+        let curves = self
+            .curves
+            .iter()
+            .filter(move |curve| keep(curve.precedence))
+            .filter_map(move |curve| curve.pick(aim));
+        let rings = self
+            .rings
+            .iter()
+            .filter(move |ring| keep(ring.precedence))
+            .filter_map(move |ring| ring.pick(aim));
+        points.chain(texts).chain(gizmos).chain(curves).chain(rings)
     }
 }
 

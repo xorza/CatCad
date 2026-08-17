@@ -11,8 +11,6 @@
 use crate::camera::Camera;
 use crate::highlight::{Highlights, Lit};
 use crate::scene::Scene;
-use crate::viewport::Viewport;
-use glam::UVec2;
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
 pub(crate) mod atlas;
@@ -28,8 +26,8 @@ pub(crate) mod target;
 pub(crate) mod uniforms;
 
 use crate::renderer::cpu::{Cpu, Laying, Order};
-use crate::renderer::gpu::{Attachments, Gpu};
-use crate::renderer::uniforms::{Uniforms, Window};
+use crate::renderer::gpu::Gpu;
+use crate::renderer::uniforms::{Frame, Uniforms};
 
 /// A scene, where it is looked at from, and the two mirrors of it that get
 /// drawn.
@@ -250,96 +248,30 @@ impl GpuPaint for Renderer {
         self.shaper = Some(ctx.text.clone());
     }
 
+    /// Work out what shape this frame is, bring the CPU mirror up to date with
+    /// the scene, hand the GPU what it is owed, and draw — each of them
+    /// somebody else's whole job, and none of them decided here.
+    ///
+    /// Which kinds are uploaded and which are drawn belongs to the GPU half,
+    /// where the two lists sit one after the other beside the fields they walk.
+    /// They have to agree, and this is not a place that could show whether they
+    /// do.
     fn paint(&mut self, ctx: &mut GpuFrameCtx<'_>) {
-        // The target's size, and the view it is a part of. The two differ only
-        // where something clips the view — palantir allocates for what is on
-        // screen — and the scene is framed for the *view*, so that what is drawn
-        // agrees with what a pick at the same cursor answers. See [`Window`].
-        //
-        // Both floored, and the floor is hygiene at a crate boundary rather
-        // than a case that arises: the target always has a pixel in it and is
-        // never larger than the view it is part of. Neither is this crate's to
-        // guarantee, and a zero here would divide by it.
-        let size = ctx.size_px.max(UVec2::ONE);
-        let full = ctx.full_px.max(size);
-        let window = Window {
-            min: ctx.offset_px.as_vec2(),
-            size: size.as_vec2(),
-        };
-        let uniforms = Uniforms::of(&self.camera, Viewport::new(full), window, ctx.raster_scale);
+        let frame = Frame::of(ctx);
+        let uniforms = Uniforms::of(&self.camera, frame);
         // Refilled before the GPU is borrowed, since both want `self`. Each kind
         // answers for itself, so a hover over a marker no longer rebuilds the
         // highlights of the strokes and rims it passed over.
-        self.refresh(ctx.raster_scale);
-
+        self.refresh(frame.raster_scale);
         // Split so the two mirrors are borrowed apart: the uploads read one
-        // while writing the other. Unconditional, all four — each takes what it
-        // is owed and does nothing when that is nothing.
+        // while writing the other.
         let Self { cpu, gpu, .. } = self;
         let gpu = gpu.as_mut().expect("init runs before paint");
-        gpu.solids
-            .upload_mesh(ctx.device, ctx.queue, &mut cpu.solids);
-        gpu.faces.upload_mesh(ctx.device, ctx.queue, &mut cpu.faces);
-        gpu.gizmos.upload(ctx.device, ctx.queue, &mut cpu.gizmos);
-        gpu.curves.upload(ctx.device, ctx.queue, &mut cpu.curves);
-        gpu.rings.upload(ctx.device, ctx.queue, &mut cpu.rings);
-        gpu.points.upload(ctx.device, ctx.queue, &mut cpu.points);
-        // The sheet before the records that read it: a restart replaces the
-        // texture, and the records name places on the new one.
-        gpu.upload_sheet(ctx.device, ctx.queue, &mut cpu.atlas);
-        gpu.texts
-            .upload(ctx.device, ctx.queue, &mut cpu.texts.records);
-        if gpu.attachments.as_ref().map(|used| used.size) != Some(size) {
-            gpu.attachments = Some(Attachments::new(ctx.device, size, gpu.target_format));
-        }
-        // Two statements rather than a get-or-create returning the reference:
-        // that would tie what comes back to a `&mut Gpu`, and the bind group is
-        // read out of the same `Gpu` a few lines down. The `expect` cannot fire
-        // — the line above is what makes sure of it.
-        let attachments = gpu.attachments.as_ref().expect("attachments just ensured");
-        ctx.queue
-            .write_buffer(&gpu.uniforms, 0, bytemuck::bytes_of(&uniforms));
-
-        let mut pass = attachments.begin(ctx.encoder, ctx.target);
-        pass.set_viewport(0.0, 0.0, size.x as f32, size.y as f32, 0.0, 1.0);
-        pass.set_scissor_rect(0, 0, size.x, size.y);
-        pass.set_bind_group(0, &gpu.bind_group, &[]);
-        // Everything opaque first, then what is see-through, then what is
-        // blended — which is the order transparency has to be drawn in and the
-        // whole of why the passes go in this sequence rather than the ladder's.
-        //
-        // A blend mixes with what is *already* in the target, so whatever should
-        // show through a surface has to have been drawn before it. The opaque
-        // kinds write depth and can go in any order among themselves, because
-        // there the depth test is the whole answer.
-        gpu.solids.draw(&mut pass);
-        // Every ordinary pass before any highlight, rather than each kind's two
-        // together: a highlight has to read over anything it doubles whatever
-        // kind that is, and not merely over its own kind.
-        //
-        // Named once and walked twice, so the two halves cannot disagree. A
-        // kind listed in one and forgotten in the other is invisible — it
-        // flattens, it uploads, and it is simply never drawn.
-        let opaque = [&gpu.gizmos, &gpu.curves, &gpu.rings, &gpu.points];
-        for kind in opaque {
-            kind.ordinary.draw(&mut pass);
-        }
-        for kind in opaque {
-            kind.lit.draw(&mut pass);
-        }
-        // The faces after all of it, because a face is the one see-through
-        // thing here: drawn earlier it would mix with a target the drawing had
-        // not reached yet, and everything behind it would be missing from the
-        // mixture rather than dimmed by it. Drawn now, a stroke it crosses in
-        // front of shows through it shaded, and a stroke of its *own* sketch —
-        // coplanar, and a ladder rung above — beats it on depth and reads over
-        // it untouched.
-        gpu.faces.draw(&mut pass);
-        // Text last of all. It is the one alpha-blended pass, so what it reads
-        // over has to be there already — and it writes no depth, so nothing
-        // after it could be sorted against it anyway.
-        gpu.texts.ordinary.draw(&mut pass);
-        gpu.texts.lit.draw(&mut pass);
+        gpu.upload(ctx.device, ctx.queue, cpu, &uniforms);
+        // The size is spent here and nowhere else: the draw is confined to
+        // whatever this built.
+        gpu.resize(ctx.device, frame.size);
+        gpu.draw(ctx.encoder, ctx.target);
     }
 }
 
