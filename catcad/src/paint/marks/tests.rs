@@ -1,5 +1,5 @@
 use super::*;
-use silverpoint::Plane;
+use silverpoint::{Along, Dimension, Plane};
 
 /// A drawing of `sketch` on the ground, whose plane maps sketch `(x, y)` to
 /// world `(x, 0, -y)` — so an anchor is read back by asking for x and −z.
@@ -144,7 +144,8 @@ fn a_relation_between_separate_things_is_drawn_against_each_and_a_dimension_once
             Constraint::Distance {
                 a: start,
                 b: across,
-                distance: 0.0,
+                along: Along::Shortest,
+                dimension: Dimension::new(0.0),
             },
         ),
         DVec2::new(3.0, 5.0),
@@ -152,6 +153,41 @@ fn a_relation_between_separate_things_is_drawn_against_each_and_a_dimension_once
     near(
         sole(&sketch, Constraint::Horizontal { a: start, b: end }),
         DVec2::new(3.0, 0.0),
+    );
+
+    // The two that measure square to an edge span the perpendicular rather than
+    // the geometry, so their marks sit midway along *that*. The first edge runs
+    // along y = 0, so both feet drop straight down and the answers are the
+    // halfway points of two vertical spans ten long.
+    //
+    // A standoff measures from the point it names: `over` is at (0, 10), its
+    // foot is the origin, and the number goes at (0, 5). The foot is on the
+    // edge's infinite line and not on the edge, which here is the same place —
+    // and `across` below is where the two part.
+    near(
+        sole(
+            &sketch,
+            Constraint::Standoff {
+                point: over,
+                segment: first,
+                dimension: Dimension::new(10.0),
+            },
+        ),
+        DVec2::new(0.0, 5.0),
+    );
+    // A spacing measures from the *middle* of the second edge, at (3, 10),
+    // whose foot is (3, 0) — so it lands on the middle of the gap rather than
+    // over either end. A rule that took an endpoint instead would answer (0, 5).
+    near(
+        sole(
+            &sketch,
+            Constraint::Spacing {
+                first,
+                second,
+                dimension: Dimension::new(10.0),
+            },
+        ),
+        DVec2::new(3.0, 5.0),
     );
 
     // A radius reads on the rim. At the centre it would read as belonging to
@@ -164,7 +200,7 @@ fn a_relation_between_separate_things_is_drawn_against_each_and_a_dimension_once
             &sketch,
             Constraint::Radius {
                 circle: ring,
-                radius: 3.0,
+                dimension: Dimension::new(3.0),
             },
         ),
         DVec2::new(5.0, 2.0),
@@ -302,7 +338,8 @@ fn the_world_anchor_is_the_sketch_anchor_on_the_drawings_plane() {
     let of = sketch.add_constraint(Constraint::Distance {
         a,
         b,
-        distance: 0.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(0.0),
     });
     let ground = on_ground(&sketch);
     let placed = Placed {
@@ -395,7 +432,8 @@ fn a_mark_is_set_along_the_geometry_it_is_about() {
             Constraint::Distance {
                 a: origin,
                 b: along,
-                distance: 5.0,
+                along: Along::Shortest,
+                dimension: Dimension::new(5.0),
             },
         )
         .along,
@@ -480,7 +518,8 @@ fn a_span_drawn_back_to_front_is_set_the_same_way_round() {
             Constraint::Distance {
                 a,
                 b,
-                distance: 1.0,
+                along: Along::Shortest,
+                dimension: Dimension::new(1.0),
             },
         )
         .along

@@ -1,6 +1,6 @@
 use super::*;
 use crate::Snapshot;
-use crate::sketch::constraint::Constraint;
+use crate::sketch::constraint::{Along, Constraint, Dimension};
 use crate::sketch::solver::freedoms::Freedom;
 use glam::DVec2;
 
@@ -26,7 +26,8 @@ fn distance_moves_a_point_along_its_own_direction() {
     sketch.add_constraint(Constraint::Distance {
         a: anchor,
         b: free,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
 
     let mut outcome = Outcome::default();
@@ -68,7 +69,8 @@ fn a_sketch_solves_the_same_once_geometry_and_constraints_are_removed() {
     sketch.add_constraint(Constraint::Distance {
         a: anchor,
         b: end,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
 
     let mut solver = Solver::default();
@@ -110,7 +112,8 @@ fn the_requested_distance_is_what_changes_the_answer() {
         sketch.add_constraint(Constraint::Distance {
             a: anchor,
             b: free,
-            distance,
+            along: Along::Shortest,
+            dimension: Dimension::new(distance),
         });
         let mut outcome = Outcome::default();
         Solver::default().solve(&mut sketch, &mut outcome);
@@ -133,7 +136,8 @@ fn three_distances_make_a_right_triangle() {
         sketch.add_constraint(Constraint::Distance {
             a: first,
             b: second,
-            distance,
+            along: Along::Shortest,
+            dimension: Dimension::new(distance),
         });
     }
 
@@ -176,7 +180,8 @@ fn a_rectangle_is_fully_constrained() {
     sketch.add_constraint(Constraint::Distance {
         a: p0,
         b: p1,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
     sketch.add_constraint(Constraint::Perpendicular {
         first: bottom,
@@ -185,7 +190,8 @@ fn a_rectangle_is_fully_constrained() {
     sketch.add_constraint(Constraint::Distance {
         a: p1,
         b: p2,
-        distance: 3.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(3.0),
     });
     sketch.add_constraint(Constraint::Parallel {
         first: bottom,
@@ -257,12 +263,14 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     sketch.add_constraint(Constraint::Distance {
         a: anchor,
         b: held,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
     sketch.add_constraint(Constraint::Distance {
         a: held,
         b: trailing,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
     let mut outcome = Outcome::default();
     Solver::default().solve(&mut sketch, &mut outcome);
@@ -367,7 +375,8 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
     sketch.add_constraint(Constraint::Distance {
         a: anchor,
         b: pinned,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
     sketch.add_constraint(Constraint::Horizontal {
         a: anchor,
@@ -416,7 +425,8 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
     sketch.add_constraint(Constraint::Distance {
         a: pinned,
         b: swinging,
-        distance: 3.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(3.0),
     });
     solver.solve(&mut sketch, &mut outcome);
     assert!(outcome.converged(), "{outcome:?}");
@@ -597,7 +607,8 @@ fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
         sketch.add_constraint(Constraint::Distance {
             a: corner[0],
             b: corner[1],
-            distance: 5.0,
+            along: Along::Shortest,
+            dimension: Dimension::new(5.0),
         });
         sketch.add_constraint(Constraint::Vertical {
             a: corner[1],
@@ -606,7 +617,8 @@ fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
         sketch.add_constraint(Constraint::Distance {
             a: corner[1],
             b: corner[2],
-            distance: 3.0,
+            along: Along::Shortest,
+            dimension: Dimension::new(3.0),
         });
         sketch
     }
@@ -620,7 +632,8 @@ fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
         sketch.add_constraint(Constraint::Distance {
             a: anchor,
             b: free,
-            distance: 5.0,
+            along: Along::Shortest,
+            dimension: Dimension::new(5.0),
         });
         sketch
     }
@@ -670,7 +683,8 @@ fn a_duplicate_constraint_is_reported_as_redundant() {
     let distance = Constraint::Distance {
         a: anchor,
         b: free,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     };
     let first = sketch.add_constraint(distance);
     let second = sketch.add_constraint(distance);
@@ -721,7 +735,8 @@ fn redundancy_names_constraints_and_leaves_the_needed_ones_alone() {
     let apart = sketch.add_constraint(Constraint::Distance {
         a: anchor,
         b: other,
-        distance: 2.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(2.0),
     });
 
     let mut outcome = Outcome::default();
@@ -759,7 +774,8 @@ fn conflicting_distances_settle_at_the_least_squares_compromise() {
         sketch.add_constraint(Constraint::Distance {
             a: anchor,
             b: free,
-            distance,
+            along: Along::Shortest,
+            dimension: Dimension::new(distance),
         });
     }
 
@@ -789,7 +805,7 @@ fn a_circle_solves_its_radius_and_the_point_on_it_together() {
     let circle = sketch.add_circle(center, 1.0);
     sketch.add_constraint(Constraint::Radius {
         circle,
-        radius: 2.0,
+        dimension: Dimension::new(2.0),
     });
     sketch.add_constraint(Constraint::PointOnCircle { point: rim, circle });
 
@@ -907,7 +923,8 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
     rectangle.add_constraint(Constraint::Distance {
         a: corner[0],
         b: corner[1],
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
     rectangle.add_constraint(Constraint::Vertical {
         a: corner[1],
@@ -916,7 +933,8 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
     rectangle.add_constraint(Constraint::Distance {
         a: corner[1],
         b: corner[2],
-        distance: 3.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(3.0),
     });
     solver.solve(&mut rectangle, &mut outcome);
     assert!(outcome.converged());
@@ -978,7 +996,7 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
     let ring = orbit.add_circle(hub, 2.0);
     orbit.add_constraint(Constraint::Radius {
         circle: ring,
-        radius: 2.0,
+        dimension: Dimension::new(2.0),
     });
     orbit.add_constraint(Constraint::PointOnCircle {
         point: rider,
@@ -1052,7 +1070,8 @@ fn determined_rectangle() -> Sketch {
     sketch.add_constraint(Constraint::Distance {
         a,
         b,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
     sketch
 }
@@ -1065,7 +1084,7 @@ fn point_on_a_circle() -> Sketch {
     let ring = sketch.add_circle(hub, 2.0);
     sketch.add_constraint(Constraint::Radius {
         circle: ring,
-        radius: 2.0,
+        dimension: Dimension::new(2.0),
     });
     sketch.add_constraint(Constraint::PointOnCircle {
         point: rider,
@@ -1082,7 +1101,8 @@ fn duplicated_distance() -> Sketch {
     let distance = Constraint::Distance {
         a: anchor,
         b: free,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     };
     sketch.add_constraint(distance);
     sketch.add_constraint(distance);
@@ -1098,7 +1118,8 @@ fn conflicting_distances() -> Sketch {
         sketch.add_constraint(Constraint::Distance {
             a: anchor,
             b: free,
-            distance,
+            along: Along::Shortest,
+            dimension: Dimension::new(distance),
         });
     }
     sketch
@@ -1124,7 +1145,10 @@ fn a_tangency_stands_the_centre_off_the_line_by_the_radius() {
         let edge = sketch.add_segment(a, b);
         let centre = sketch.add_point(start);
         let circle = sketch.add_circle(centre, radius);
-        sketch.add_constraint(Constraint::Radius { circle, radius });
+        sketch.add_constraint(Constraint::Radius {
+            circle,
+            dimension: Dimension::new(radius),
+        });
         sketch.add_constraint(Constraint::Tangent {
             segment: edge,
             circle,
@@ -1175,7 +1199,8 @@ fn equality_matches_two_lengths_and_two_radii_without_fixing_either() {
     sketch.add_constraint(Constraint::Distance {
         a,
         b,
-        distance: 2.5,
+        along: Along::Shortest,
+        dimension: Dimension::new(2.5),
     });
     sketch.add_constraint(Constraint::EqualLength {
         first: measured,

@@ -1,6 +1,6 @@
 use super::*;
 use glam::DVec2;
-use silverpoint::{Constraint, Sketch};
+use silverpoint::{Along, Constraint, Dimension, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::Timeline;
@@ -21,7 +21,8 @@ fn dimension() -> Part {
     let span = sketch.add_constraint(Constraint::Distance {
         a: from,
         b: to,
-        distance: 1.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(1.0),
     });
     let at = timeline.add(Feature::Sketch { on: ground, sketch });
     Part::Entity {

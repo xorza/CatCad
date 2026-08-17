@@ -5,12 +5,14 @@ pub(crate) mod arrangement;
 pub(crate) mod constraint;
 pub(crate) mod entity;
 mod jacobian_row;
+pub(crate) mod measurement;
 mod params;
 pub(crate) mod snapshot;
 pub(crate) mod solver;
 
 use crate::arena::{Arena, Id};
-use crate::math::approx::{ApproxEq, TOUCHING};
+use crate::math::approx::{ApproxEq, PARALLEL, TOUCHING};
+use crate::math::direction::Direction;
 use crate::sketch::constraint::{Constraint, ConstraintId};
 use crate::sketch::entity::Entity;
 use crate::sketch::params::{Params, ParamsMut};
@@ -322,6 +324,52 @@ impl Sketch {
             .value_mut()
             .expect("this relation states no magnitude to set");
         *magnitude = value;
+    }
+
+    /// Move where a dimension's number sits.
+    ///
+    /// Read in the measurement's own frame — see
+    /// [`Dimension::placement`](crate::Dimension). Nothing about the geometry
+    /// changes, so unlike [`Sketch::set_value`] beside it there is nothing for
+    /// the next solve to move onto; what changes is only what the drawing shows
+    /// and where.
+    ///
+    /// Panics on a relation that states no number, for
+    /// [`Sketch::set_value`]'s reason: a caller asking to place a parallel is
+    /// asking for something that does not exist rather than handing over data
+    /// that is wrong. [`Constraint::value`] is how a caller finds out which
+    /// those are.
+    pub fn set_placement(&mut self, id: ConstraintId, placement: DVec2) {
+        let constraint = self.constraints.get_mut(id).expect(REMOVED_CONSTRAINT);
+        let dimension = constraint
+            .dimension_mut()
+            .expect("this relation states no number to place");
+        dimension.placement = placement;
+    }
+
+    /// Whether two segments currently run parallel.
+    ///
+    /// A question about where the geometry *is* rather than about what the
+    /// sketch states, which is what a caller offering
+    /// [`Constraint::Spacing`] wants: a distance between two edges is one
+    /// number only while they run together, and a pair the drawing has brought
+    /// parallel is as good as a pair a relation holds there.
+    ///
+    /// Asked here rather than by whoever offers, because the tolerance is this
+    /// crate's — [`PARALLEL`] is a sine, and comparing unit directions is what
+    /// makes the cross product one.
+    ///
+    /// An edge whose ends have met answers `false` however the other runs. It
+    /// has no direction of its own, only the `+x` a fallback handed it, and
+    /// reading two collapsed edges as parallel to each other would be reading
+    /// agreement into two pieces of made-up data.
+    pub fn parallel(&self, first: SegmentId, second: SegmentId) -> bool {
+        let running = |id| {
+            let edge = self.segment(id);
+            Direction::of(self.point(edge.b).position - self.point(edge.a).position)
+        };
+        let (one, two) = (running(first), running(second));
+        one.known() && two.known() && one.unit.perp_dot(two.unit).abs() <= PARALLEL
     }
 
     /// Take a constraint out of the sketch.

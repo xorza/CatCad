@@ -14,7 +14,7 @@ use crate::part::Part;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
-use silverpoint::{Constraint, ConstraintId, Entity};
+use silverpoint::{Along, Constraint, ConstraintId, Entity};
 
 /// Logical pixels of breathing room inside a floating panel, and between the
 /// things standing on one.
@@ -162,11 +162,11 @@ impl Hud {
                     // the size the circle happened to be. See
                     // [`Opening::Radius`].
                     intents.push(match constraint {
-                        Constraint::Radius { circle, radius } => {
+                        Constraint::Radius { circle, dimension } => {
                             Intent::from(Choice::Ask(Some(Opening::Radius {
                                 sketch,
                                 circle,
-                                from: radius,
+                                from: dimension.value,
                             })))
                         }
                         constraint => Change::Constrain { sketch, constraint }.into(),
@@ -342,7 +342,26 @@ fn region_picked(selection: &Selection) -> Option<(FeatureId, usize)> {
 fn label(constraint: Constraint) -> &'static str {
     match constraint {
         Constraint::Coincident { .. } => "Coincident",
-        Constraint::Distance { .. } => "Distance",
+        // Which way a distance is read is part of what the button asks for, so
+        // it is part of what the button says. "Distance" alone for the aligned
+        // one, because that is the plain case and the other two are the ones
+        // that need naming.
+        Constraint::Distance {
+            along: Along::Shortest,
+            ..
+        } => "Distance",
+        Constraint::Distance {
+            along: Along::Horizontal,
+            ..
+        } => "Horizontal distance",
+        Constraint::Distance {
+            along: Along::Vertical,
+            ..
+        } => "Vertical distance",
+        // Both are a distance to whoever is drawing, and which one is meant is
+        // plain from what is picked out — a point and an edge, or two edges.
+        // The same argument "Equal" is one word for two relations below.
+        Constraint::Standoff { .. } | Constraint::Spacing { .. } => "Distance",
         Constraint::Horizontal { .. } => "Horizontal",
         Constraint::Vertical { .. } => "Vertical",
         Constraint::Parallel { .. } => "Parallel",

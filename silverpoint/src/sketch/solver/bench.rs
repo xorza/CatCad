@@ -24,7 +24,7 @@
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.
 
-use crate::sketch::constraint::Constraint;
+use crate::sketch::constraint::{Along, Constraint, Dimension};
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::solver::{Drive, Solver};
@@ -73,12 +73,14 @@ fn fixture() -> Sketch {
     sketch.add_constraint(Constraint::Distance {
         a: corner[0],
         b: corner[1],
-        distance: WIDTH,
+        along: Along::Shortest,
+        dimension: Dimension::new(WIDTH),
     });
     sketch.add_constraint(Constraint::Distance {
         a: corner[1],
         b: corner[2],
-        distance: HEIGHT,
+        along: Along::Shortest,
+        dimension: Dimension::new(HEIGHT),
     });
 
     let hub = sketch.add_point(DVec2::new(3.6, 2.1));
@@ -87,16 +89,18 @@ fn fixture() -> Sketch {
     sketch.add_constraint(Constraint::Distance {
         a: corner[0],
         b: hub,
-        distance: to_centre,
+        along: Along::Shortest,
+        dimension: Dimension::new(to_centre),
     });
     sketch.add_constraint(Constraint::Distance {
         a: corner[1],
         b: hub,
-        distance: to_centre,
+        along: Along::Shortest,
+        dimension: Dimension::new(to_centre),
     });
     sketch.add_constraint(Constraint::Radius {
         circle: hole,
-        radius: 1.5,
+        dimension: Dimension::new(1.5),
     });
     sketch
 }
@@ -133,12 +137,14 @@ fn chain() -> Chain {
     sketch.add_constraint(Constraint::Distance {
         a: anchor,
         b: elbow,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
     sketch.add_constraint(Constraint::Distance {
         a: elbow,
         b: wrist,
-        distance: 5.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
     });
     Chain { sketch, wrist }
 }

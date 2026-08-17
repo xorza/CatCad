@@ -98,6 +98,19 @@ fn a_document_is_written_exactly_like_this() {
         a: origin,
         b: across,
     });
+    // A dimension as well as a relation, because the two are written
+    // differently and only one of them was here: a dimension carries which way
+    // it is read and where its number was dragged to, and the whole point of
+    // this test is that a person can see what a file says.
+    sketch.add_constraint(Constraint::Distance {
+        a: origin,
+        b: across,
+        along: silverpoint::Along::Horizontal,
+        dimension: Dimension {
+            value: 2.0,
+            placement: DVec2::new(0.0, 0.75),
+        },
+    });
 
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::Ground));
@@ -132,7 +145,7 @@ fn a_document_is_written_exactly_like_this() {
         written(&timeline),
         "\
 (
-    version: 2,
+    version: 3,
     camera: (
         projection: Perspective,
         target: (0.0, 0.0, 0.0),
@@ -163,6 +176,7 @@ fn a_document_is_written_exactly_like_this() {
                 ],
                 relations: [
                     Horizontal(a: 0, b: 1),
+                    Distance(a: 0, b: 1, along: Horizontal, figure: (value: 2.0, at: (0.0, 0.75))),
                 ],
             ),
         ),
@@ -210,10 +224,17 @@ fn every_relation_the_drawing_can_state_survives_the_round_trip() {
             a: point[0],
             b: point[1],
         },
+        // Placed somewhere in particular, and read a way that is not the
+        // default one: both are carried only by a dimension, and a writer that
+        // dropped either would still round-trip through every relation here.
         Constraint::Distance {
             a: point[0],
             b: point[1],
-            distance: 2.0,
+            along: silverpoint::Along::Vertical,
+            dimension: Dimension {
+                value: 2.0,
+                placement: DVec2::new(-0.5, 1.25),
+            },
         },
         Constraint::Horizontal {
             a: point[1],
@@ -230,9 +251,19 @@ fn every_relation_the_drawing_can_state_survives_the_round_trip() {
             point: point[3],
             segment: second,
         },
+        Constraint::Standoff {
+            point: point[3],
+            segment: first,
+            dimension: Dimension::new(3.0),
+        },
+        Constraint::Spacing {
+            first,
+            second,
+            dimension: Dimension::new(3.0),
+        },
         Constraint::Radius {
             circle: round,
-            radius: 1.0,
+            dimension: Dimension::new(1.0),
         },
         Constraint::PointOnCircle {
             point: point[1],
@@ -262,6 +293,8 @@ fn every_relation_the_drawing_can_state_survives_the_round_trip() {
         "Perpendicular",
         "EqualLength",
         "PointOnSegment",
+        "Standoff",
+        "Spacing",
         "Radius",
         "PointOnCircle",
         "Tangent",
@@ -338,32 +371,32 @@ fn a_document_that_says_something_impossible_is_refused() {
         // say — here the one that came before, which is the way a stamp is
         // actually met in the wild.
         (
-            document(1, &format!("Ground, Sketch(on: 0, {A_SKETCH})")),
-            Fault::Version(1),
+            document(VERSION - 1, &format!("Ground, Sketch(on: 0, {A_SKETCH})")),
+            Fault::Version(VERSION - 1),
         ),
         // Planes and nothing to draw on them. A document is opened *in* a
         // sketch, so one holding none has nowhere to put you.
-        (document(2, "Ground"), Fault::NoSketch),
+        (document(VERSION, "Ground"), Fault::NoSketch),
         // A step built on one the file has not got.
         (
-            document(2, &format!("Ground, Sketch(on: 4, {A_SKETCH})")),
+            document(VERSION, &format!("Ground, Sketch(on: 4, {A_SKETCH})")),
             Fault::UnknownStep { at: 1, names: 4 },
         ),
         // A step built on itself, which is the same failure: a reference only
         // ever points backwards, and this one does not.
         (
-            document(2, &format!("Sketch(on: 0, {A_SKETCH})")),
+            document(VERSION, &format!("Sketch(on: 0, {A_SKETCH})")),
             Fault::UnknownStep { at: 0, names: 0 },
         ),
         // A step built on a later one, likewise.
         (
-            document(2, "Plane(from: 1, by: 1.0), Ground"),
+            document(VERSION, "Plane(from: 1, by: 1.0), Ground"),
             Fault::UnknownStep { at: 0, names: 1 },
         ),
         // A sketch drawn on a sketch.
         (
             document(
-                2,
+                VERSION,
                 &format!("Ground, Sketch(on: 0, {A_SKETCH}), Sketch(on: 1, {A_SKETCH})"),
             ),
             Fault::NotAPlane { at: 2, names: 1 },
@@ -373,7 +406,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // what would have been right are both different.
         (
             document(
-                2,
+                VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
                      Extrude(profile: (sketch: 0, bounds: []), distance: 1.0)"
@@ -386,7 +419,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // read through the same numbering and refused by the same lookup.
         (
             document(
-                2,
+                VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
                      Extrude(profile: (sketch: 1, bounds: [Segment(at: 3, along: true)]), \
@@ -402,7 +435,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // renderer as geometry nobody could draw.
         (
             document(
-                2,
+                VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
                      Extrude(profile: (sketch: 1, bounds: []), distance: inf)"
@@ -413,7 +446,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // An edge between points the sketch does not hold.
         (
             document(
-                2,
+                VERSION,
                 "Ground, Sketch(on: 0, sketch: (points: [(at: (0.0, 0.0))], \
                  segments: [(a: 0, b: 5)], circles: [], relations: []))",
             ),
@@ -425,7 +458,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // A relation about an edge that is not there.
         (
             document(
-                2,
+                VERSION,
                 "Ground, Sketch(on: 0, sketch: (points: [], segments: [], circles: [], \
                  relations: [Parallel(first: 0, second: 1)]))",
             ),
@@ -437,9 +470,9 @@ fn a_document_that_says_something_impossible_is_refused() {
         // And about a circle that is not there.
         (
             document(
-                2,
+                VERSION,
                 "Ground, Sketch(on: 0, sketch: (points: [], segments: [], circles: [], \
-                 relations: [Radius(circle: 2, radius: 1.0)]))",
+                 relations: [Radius(circle: 2, figure: (value: 1.0))]))",
             ),
             Fault::Unknown {
                 at: 1,
@@ -450,7 +483,7 @@ fn a_document_that_says_something_impossible_is_refused() {
         // the solver, which has no way to report having been handed it.
         (
             document(
-                2,
+                VERSION,
                 "Ground, Sketch(on: 0, sketch: (points: [(at: (0.0, inf))], segments: [], \
                  circles: [], relations: []))",
             ),

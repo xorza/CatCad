@@ -20,7 +20,7 @@ use palantir::{
     Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Sizing, Text,
     TextEdit, TextEditTheme, TextRun, TextWrap, Ui, VAlign, WidgetId,
 };
-use silverpoint::{CircleId, Constraint, Entity};
+use silverpoint::{CircleId, Constraint, Dimension, Entity};
 use std::fmt::Write;
 
 use crate::drawing::anchor::Anchor;
@@ -588,7 +588,7 @@ impl Prompt {
                     sketch: *sketch,
                     constraint: Constraint::Radius {
                         circle: *circle,
-                        radius,
+                        dimension: Dimension::new(radius),
                     },
                 });
             }

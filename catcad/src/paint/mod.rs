@@ -703,7 +703,13 @@ fn symbol(constraint: Constraint) -> &'static str {
     match constraint {
         // A coincidence makes two points one, so it is drawn as the one.
         Constraint::Coincident { .. } => "\u{2022}",
-        Constraint::Distance { .. } => "\u{2194}",
+        // The four that carry a number are drawn as the number — see the arm
+        // above the call. The symbol is what a relation with nothing to say
+        // gets instead, and a dimension reaching here would be one the writer
+        // failed to recognise as one.
+        Constraint::Distance { .. } | Constraint::Standoff { .. } | Constraint::Spacing { .. } => {
+            "\u{2194}"
+        }
         Constraint::Horizontal { .. } => "\u{2015}",
         Constraint::Vertical { .. } => "\u{2502}",
         Constraint::Parallel { .. } => "\u{2225}",

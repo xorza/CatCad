@@ -11,13 +11,18 @@
 //!
 //! ```
 //! # use glam::DVec2;
-//! # use silverpoint::{Constraint, Outcome, Sketch, Solver};
+//! # use silverpoint::{Along, Constraint, Dimension, Outcome, Sketch, Solver};
 //! let mut sketch = Sketch::default();
 //! let origin = sketch.add_point(DVec2::ZERO);
 //! let end = sketch.add_point(DVec2::new(1.0, 0.2));
 //! sketch.fix(origin);
 //! sketch.add_constraint(Constraint::Horizontal { a: origin, b: end });
-//! sketch.add_constraint(Constraint::Distance { a: origin, b: end, distance: 5.0 });
+//! sketch.add_constraint(Constraint::Distance {
+//!     a: origin,
+//!     b: end,
+//!     along: Along::Shortest,
+//!     dimension: Dimension::new(5.0),
+//! });
 //!
 //! let mut outcome = Outcome::default();
 //! Solver::default().solve(&mut sketch, &mut outcome);
@@ -47,8 +52,9 @@ pub use sketch::arrangement::Arrangement;
 pub use sketch::arrangement::bound::Bound;
 pub use sketch::arrangement::face::Face;
 pub use sketch::arrangement::filler::Filler;
-pub use sketch::constraint::{Constraint, ConstraintId};
+pub use sketch::constraint::{Along, Constraint, ConstraintId, Dimension};
 pub use sketch::entity::Entity;
+pub use sketch::measurement::Measurement;
 pub use sketch::snapshot::Snapshot;
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.

@@ -6,7 +6,7 @@
 //! test fixture as it is the startup content.
 
 use glam::DVec2;
-use silverpoint::{Constraint, Sketch};
+use silverpoint::{Along, Constraint, Dimension, Sketch};
 
 use crate::build::Build;
 use crate::document::Document;
@@ -115,7 +115,8 @@ fn aside() -> Sketch {
     sketch.add_constraint(Constraint::Distance {
         a: left,
         b: right,
-        distance: 2.5,
+        along: Along::Shortest,
+        dimension: Dimension::new(2.5),
     });
     sketch
 }
@@ -176,12 +177,14 @@ pub(crate) fn sketch() -> Sketch {
     sketch.add_constraint(Constraint::Distance {
         a: corner[0],
         b: corner[1],
-        distance: WIDTH,
+        along: Along::Shortest,
+        dimension: Dimension::new(WIDTH),
     });
     sketch.add_constraint(Constraint::Distance {
         a: corner[1],
         b: corner[2],
-        distance: HEIGHT,
+        along: Along::Shortest,
+        dimension: Dimension::new(HEIGHT),
     });
 
     let hub = sketch.add_point(DVec2::new(3.6, 2.1));
@@ -195,12 +198,14 @@ pub(crate) fn sketch() -> Sketch {
     sketch.add_constraint(Constraint::Distance {
         a: corner[0],
         b: hub,
-        distance: to_centre,
+        along: Along::Shortest,
+        dimension: Dimension::new(to_centre),
     });
     sketch.add_constraint(Constraint::Distance {
         a: corner[1],
         b: hub,
-        distance: to_centre,
+        along: Along::Shortest,
+        dimension: Dimension::new(to_centre),
     });
 
     // A rail and a two-bar arm, in the band of slab between the rectangle
@@ -222,12 +227,14 @@ pub(crate) fn sketch() -> Sketch {
     sketch.add_constraint(Constraint::Distance {
         a: shoulder,
         b: elbow,
-        distance: 2.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(2.0),
     });
     sketch.add_constraint(Constraint::Distance {
         a: elbow,
         b: wrist,
-        distance: 1.4,
+        along: Along::Shortest,
+        dimension: Dimension::new(1.4),
     });
     sketch.add_constraint(Constraint::Perpendicular {
         first: upper,
@@ -237,7 +244,7 @@ pub(crate) fn sketch() -> Sketch {
     let eye = sketch.add_circle(wrist, 0.45);
     sketch.add_constraint(Constraint::Radius {
         circle: eye,
-        radius: 0.45,
+        dimension: Dimension::new(0.45),
     });
     sketch
 }

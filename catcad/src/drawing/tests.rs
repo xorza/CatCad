@@ -7,7 +7,7 @@ use crate::part::Part;
 use crate::timeline::Timeline;
 use aperture::Scene;
 use glam::DVec2;
-use silverpoint::{Constraint, PointId};
+use silverpoint::{Along, Constraint, Dimension, PointId};
 
 /// Where a point of `plane` lands in the world as the drawing draws it — the
 /// model's `f64` read out into the `f32` a renderer wants, which is the same
@@ -38,7 +38,8 @@ impl Linkage {
         sketch.add_constraint(Constraint::Distance {
             a: grip,
             b: swing,
-            distance: 2.0,
+            along: Along::Shortest,
+            dimension: Dimension::new(2.0),
         });
         let mut build = Build::default();
         let mut timeline = Timeline::of(sketch);
@@ -381,6 +382,8 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
                 Constraint::Parallel { .. } => "parallel",
                 Constraint::Perpendicular { .. } => "perpendicular",
                 Constraint::PointOnSegment { .. } => "on edge",
+                Constraint::Standoff { .. } => "standoff",
+                Constraint::Spacing { .. } => "spacing",
                 Constraint::Radius { .. } => "radius",
                 Constraint::PointOnCircle { .. } => "on circle",
                 // Told apart here where the bar calls both "Equal", because
@@ -399,10 +402,10 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
         ["coincident", "distance", "horizontal", "vertical"]
     );
     // The distance offered is the one the drawing already has: 3-4-5.
-    let Constraint::Distance { distance, .. } = offers[1] else {
+    let Constraint::Distance { dimension, .. } = offers[1] else {
         panic!("{offers:?}");
     };
-    assert!((distance - 5.0).abs() < 1e-9, "{distance}");
+    assert!((dimension.value - 5.0).abs() < 1e-9, "{dimension:?}");
 
     model.offers(&[model.part(first), model.part(second)], &mut offers);
     assert_eq!(
@@ -433,10 +436,10 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     // what is there rather than demanding a number nobody can type yet.
     model.offers(&[model.part(circle)], &mut offers);
     assert_eq!(kinds(&offers), ["radius"]);
-    let Constraint::Radius { radius, .. } = offers[0] else {
+    let Constraint::Radius { dimension, .. } = offers[0] else {
         panic!("{offers:?}");
     };
-    assert_eq!(radius, 2.5);
+    assert_eq!(dimension.value, 2.5);
 
     // And the selections that bear nothing, which are now only the wrong
     // *size*: every pair of geometry kinds above admits something, so a pair

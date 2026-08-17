@@ -8,7 +8,7 @@ use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};
 use aperture::Scene;
 use glam::DVec2;
-use silverpoint::{Entity, Sketch};
+use silverpoint::{Along, Dimension, Entity, Sketch};
 
 /// A drawing and what solving it decided — the pair every writer here takes.
 #[derive(Debug)]
@@ -193,7 +193,7 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     let pinned_hole = sketch.add_circle(anchor, 1.0);
     sketch.add_constraint(silverpoint::Constraint::Radius {
         circle: pinned_hole,
-        radius: 1.0,
+        dimension: Dimension::new(1.0),
     });
     sketch.add_circle(anchor, 2.0);
 
@@ -512,7 +512,8 @@ fn only_the_open_sketch_shows_its_constraints() {
         sketch.add_constraint(silverpoint::Constraint::Distance {
             a,
             b,
-            distance: 5.0,
+            along: Along::Shortest,
+            dimension: Dimension::new(5.0),
         });
         timeline.add(Feature::Sketch { on: ground, sketch })
     };
@@ -706,7 +707,8 @@ fn a_relation_drawn_twice_is_named_once() {
     sketch.add_constraint(silverpoint::Constraint::Distance {
         a,
         b,
-        distance: 6.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(6.0),
     });
 
     let one = drawn(sketch);

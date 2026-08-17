@@ -2,7 +2,9 @@
 //! solve made of it.
 
 use glam::Vec3;
-use silverpoint::{Arrangement, CircleId, Constraint, Entity, Outcome, Plane, Prism, Sketch};
+use silverpoint::{
+    Along, Arrangement, CircleId, Constraint, Dimension, Entity, Outcome, Plane, Prism, Sketch,
+};
 
 use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
@@ -211,7 +213,7 @@ impl<'a> Model<'a> {
                 if let Some(Entity::Circle(circle)) = self.entity(only) {
                     into.push(Constraint::Radius {
                         circle,
-                        radius: self.sketch().circle(circle).radius,
+                        dimension: Dimension::new(self.sketch().circle(circle).radius),
                     });
                 }
             }
@@ -231,8 +233,11 @@ impl<'a> Model<'a> {
                 Constraint::Distance {
                     a,
                     b,
-                    distance: (self.sketch().point(a).position - self.sketch().point(b).position)
-                        .length(),
+                    along: Along::Shortest,
+                    dimension: Dimension::new(
+                        (self.sketch().point(a).position - self.sketch().point(b).position)
+                            .length(),
+                    ),
                 },
                 Constraint::Horizontal { a, b },
                 Constraint::Vertical { a, b },

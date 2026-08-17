@@ -6,7 +6,7 @@
 //! residual with respect to the parameters it touches.
 
 use crate::arena::Id;
-use crate::math::approx::NO_DIRECTION;
+use crate::math::direction::Direction;
 use crate::sketch::entity::Entity;
 use crate::sketch::jacobian_row::JacobianRow;
 use crate::sketch::{CircleId, PointId, Segment, SegmentId, Sketch};
@@ -15,27 +15,89 @@ use glam::DVec2;
 /// Handle to a constraint in a [`Sketch`].
 pub type ConstraintId = Id<Constraint>;
 
-/// A difference of two points, split into how far it ran and which way.
+/// What a dimension states, and where its number sits.
 ///
-/// Every constraint measuring a distance needs both halves — the length is its
-/// residual and the direction is its partials — and every one of them has to
-/// answer for the pair being in the same place.
-#[derive(Debug, Clone, Copy)]
-struct Direction {
-    /// Unit length, or `+x` where there was no direction left to recover.
-    unit: DVec2,
-    length: f64,
+/// The two halves of a dimension that are not the geometry it is about: what it
+/// measures to, which the solver drives onto, and where the drawing puts the
+/// figure, which the solver never reads.
+///
+/// The placement is here rather than beside the sketch because it is content: a
+/// number dragged clear of the geometry stays clear of it across a save, an
+/// undo and every solve in between, and the sketch is the one thing that
+/// already promises all three — [`Snapshot`](crate::Snapshot) clones the arenas,
+/// a restore puts back the generations, the file mirrors every relation, and a
+/// removal takes the dimension along with what it was about. What is *not* here
+/// is anything about appearance: what colour, what size, what face it is set in
+/// all stay with whoever draws it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Dimension {
+    pub value: f64,
+    /// Where the number sits, read in the measurement's own frame: `+x` along
+    /// the dimension line from the middle of what is measured, `+y` across it.
+    ///
+    /// Relative rather than a place on the sketch, so a label follows its
+    /// geometry when that geometry is dragged, turned, or resolved somewhere
+    /// else entirely — a dimension left behind by what it measures is not a
+    /// dimension.
+    ///
+    /// A radius is the one exception and states its own frame: a circle has no
+    /// orientation to be relative to, so its placement is an offset from the
+    /// centre in the sketch's own coordinates, and the leader runs out through
+    /// it. See [`Measurement`](crate::Measurement), which is where either
+    /// reading becomes a position.
+    pub placement: DVec2,
 }
 
-impl Direction {
-    fn of(delta: DVec2) -> Self {
-        let length = delta.length();
-        let unit = if length < NO_DIRECTION {
-            DVec2::X
-        } else {
-            delta / length
-        };
-        Self { unit, length }
+impl Dimension {
+    /// A dimension stating `value`, with its number wherever the geometry puts
+    /// it.
+    ///
+    /// Where a dimension starts before anyone has dragged it, and what a caller
+    /// with no opinion about placement asks for: zero is the middle of what is
+    /// measured, so the number lands on the geometry and whoever draws it is
+    /// free to stand it off. Not a [`Default`], because the value is the whole
+    /// point and there is no sensible one to leave out.
+    pub fn new(value: f64) -> Self {
+        Self {
+            value,
+            placement: DVec2::ZERO,
+        }
+    }
+}
+
+/// Which way a distance between two points is read.
+///
+/// The three readings a drawing offers for one pair, and the whole of what
+/// tells them apart is which components of the difference survive the
+/// projection below — so all three are one residual rather than three.
+///
+/// Named for the drawing's words, and the same words the relations beside them
+/// wear: [`Constraint::Horizontal`] states that a pair shares a y, and
+/// [`Along::Horizontal`] measures the x between them. Both are about the
+/// sketch's own axes, and where those point in the world is the
+/// [`Plane`](crate::Plane)'s to say.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Along {
+    /// Straight between the two, whichever way that runs.
+    Shortest,
+    /// Along the sketch's x, so the reading is how far apart they are across.
+    Horizontal,
+    /// Along its y.
+    Vertical,
+}
+
+impl Along {
+    /// What is left of a difference once it is read this way.
+    ///
+    /// The one place the three differ. A projected difference is still a
+    /// difference, so the residual and the partials that follow are written
+    /// once for all of them.
+    fn project(self, delta: DVec2) -> DVec2 {
+        match self {
+            Along::Shortest => delta,
+            Along::Horizontal => DVec2::new(delta.x, 0.0),
+            Along::Vertical => DVec2::new(0.0, delta.y),
+        }
     }
 }
 
@@ -52,11 +114,12 @@ fn direction(sketch: &Sketch, segment: Segment) -> DVec2 {
 pub enum Constraint {
     /// Two points occupy the same position. Two equations — one per axis.
     Coincident { a: PointId, b: PointId },
-    /// Fixed straight-line distance between two points.
+    /// Fixed distance between two points, measured the way `along` says.
     Distance {
         a: PointId,
         b: PointId,
-        distance: f64,
+        along: Along,
+        dimension: Dimension,
     },
     /// The two points share a y coordinate.
     Horizontal { a: PointId, b: PointId },
@@ -76,8 +139,45 @@ pub enum Constraint {
     /// The point lies on the segment's infinite line — not necessarily
     /// between its endpoints.
     PointOnSegment { point: PointId, segment: SegmentId },
+    /// The point stands this far off the segment's infinite line, square to it.
+    ///
+    /// [`Self::PointOnSegment`] with a number in place of the zero, and the
+    /// same residual as [`Self::Tangent`] with a constant where that one has a
+    /// radius. Says nothing about *which side* the point stands on, for
+    /// tangency's reason: a distance has no sign, so the relation holds
+    /// mirrored either way and the solve keeps whichever side it started from.
+    Standoff {
+        point: PointId,
+        segment: SegmentId,
+        dimension: Dimension,
+    },
+    /// The two edges stand this far apart, square to the first.
+    ///
+    /// The standoff of `second`'s middle from `first`'s infinite line, which
+    /// for a parallel pair *is* the distance between the two lines. Only
+    /// offered for a parallel pair, because that is the only arrangement in
+    /// which a distance between two lines is one number at all — see
+    /// [`Sketch::parallel`].
+    ///
+    /// It does not state parallelism itself, deliberately. The natural order is
+    /// to make two edges parallel and then dimension the gap, and a relation
+    /// that restated the parallel would report the sketch over-constrained for
+    /// having been used the way it reads.
+    ///
+    /// Its own variant rather than a [`Self::Standoff`] on an endpoint borrowed
+    /// from `second`, because it names both edges: removing a segment keeps its
+    /// endpoints, so the borrowed form would leave a dimension alive on a vertex
+    /// nothing draws, measuring a gap to an edge that has gone.
+    Spacing {
+        first: SegmentId,
+        second: SegmentId,
+        dimension: Dimension,
+    },
     /// The circle has exactly this radius.
-    Radius { circle: CircleId, radius: f64 },
+    Radius {
+        circle: CircleId,
+        dimension: Dimension,
+    },
     /// The point lies on the circle's circumference.
     PointOnCircle { point: PointId, circle: CircleId },
     /// The segment's infinite line touches the circle exactly once: the
@@ -107,9 +207,9 @@ impl Constraint {
     /// about it.
     ///
     /// Answers in [`Entity`], which is wider than what any variant here yields:
-    /// none of the twelve names another constraint, so the cascade is two levels
-    /// deep and stops without being made to. That is a property of the list
-    /// below rather than of the type — see [`Entity`] — and the sweep in
+    /// none of the fourteen names another constraint, so the cascade is two
+    /// levels deep and stops without being made to. That is a property of the
+    /// list below rather than of the type — see [`Entity`] — and the sweep in
     /// `every_constraint_names_the_geometry_it_is_about` is what holds it.
     ///
     /// No constraint names more than two things, so the pair is built on the
@@ -122,10 +222,12 @@ impl Constraint {
             | Constraint::Vertical { a, b } => [Some(Entity::Point(a)), Some(Entity::Point(b))],
             Constraint::Parallel { first, second }
             | Constraint::Perpendicular { first, second }
-            | Constraint::EqualLength { first, second } => {
+            | Constraint::EqualLength { first, second }
+            | Constraint::Spacing { first, second, .. } => {
                 [Some(Entity::Segment(first)), Some(Entity::Segment(second))]
             }
-            Constraint::PointOnSegment { point, segment } => {
+            Constraint::PointOnSegment { point, segment }
+            | Constraint::Standoff { point, segment, .. } => {
                 [Some(Entity::Point(point)), Some(Entity::Segment(segment))]
             }
             Constraint::Radius { circle, .. } => [Some(Entity::Circle(circle)), None],
@@ -149,8 +251,9 @@ impl Constraint {
     /// ten state a relation that has no magnitude — parallel is parallel, and
     /// there is nothing to type.
     ///
-    /// Read off the same list `value_mut` matches on, so which variants carry
-    /// a magnitude is stated once rather than in two lists free to disagree.
+    /// Read off the same list [`Self::dimension_mut`] matches on, so which
+    /// variants carry a magnitude is stated once rather than in two lists free
+    /// to disagree.
     pub fn value(&self) -> Option<f64> {
         let mut copy = *self;
         copy.value_mut().copied()
@@ -162,16 +265,27 @@ impl Constraint {
     /// outside changes one through the sketch that holds it — see
     /// [`Sketch::set_value`](crate::Sketch::set_value). Editing a constraint in
     /// a caller's own hand would leave the sketch it came from unsolved.
-    ///
-    /// The one list of which variants carry a magnitude, spelled out over all
-    /// twelve rather than falling through: a thirteenth carrying a value — an angle,
-    /// most obviously — has to say here that it does, and one that quietly
-    /// answered `None` would be a dimension the drawing showed as a symbol and
-    /// refused to edit.
     pub(super) fn value_mut(&mut self) -> Option<&mut f64> {
+        self.dimension_mut().map(|dimension| &mut dimension.value)
+    }
+
+    /// The whole dimension, to restate what it says or move where it says it.
+    ///
+    /// The one list of which variants carry a number, spelled out over all
+    /// fourteen rather than falling through: a fifteenth carrying a value — an
+    /// angle, most obviously — has to say here that it does, and one that
+    /// quietly answered `None` would be a dimension the drawing showed as a
+    /// symbol and refused to edit or to place.
+    ///
+    /// Inside `sketch` for [`Self::value_mut`]'s reason, and reached through
+    /// the sketch by [`Sketch::set_value`](crate::Sketch::set_value) and
+    /// [`Sketch::set_placement`](crate::Sketch::set_placement).
+    pub(super) fn dimension_mut(&mut self) -> Option<&mut Dimension> {
         match self {
-            Constraint::Distance { distance, .. } => Some(distance),
-            Constraint::Radius { radius, .. } => Some(radius),
+            Constraint::Distance { dimension, .. }
+            | Constraint::Standoff { dimension, .. }
+            | Constraint::Spacing { dimension, .. }
+            | Constraint::Radius { dimension, .. } => Some(dimension),
             Constraint::Coincident { .. }
             | Constraint::Horizontal { .. }
             | Constraint::Vertical { .. }
@@ -226,12 +340,23 @@ impl Constraint {
             Constraint::Coincident { .. } => {
                 unreachable!("`equations` expands a coincidence into its two axes")
             }
-            Constraint::Distance { a, b, distance } => {
+            Constraint::Distance {
+                a,
+                b,
+                along,
+                dimension,
+            } => {
                 let (pa, pb) = (sketch.point(a).position, sketch.point(b).position);
-                let apart = Direction::of(pa - pb);
+                // Projected before it is measured, which is the whole of what
+                // the three readings differ by: what survives is still a
+                // difference, so its length is the residual and its direction
+                // the partials, exactly as an unprojected one would be. A
+                // reading that drops an axis drops that axis's partials with
+                // it, because the projected difference has nothing there.
+                let apart = Direction::of(along.project(pa - pb));
                 row.point(a, apart.unit);
                 row.point(b, -apart.unit);
-                apart.length - distance
+                apart.length - dimension.value
             }
             Constraint::Horizontal { a, b } => {
                 row.point(a, DVec2::Y);
@@ -287,9 +412,47 @@ impl Constraint {
                 row.point(s.b, -offset.perp());
                 edge.perp_dot(offset)
             }
-            Constraint::Radius { circle, radius } => {
+            Constraint::Standoff {
+                point,
+                segment,
+                dimension,
+            } => standoff(
+                sketch,
+                row,
+                Standing {
+                    at: sketch.point(point).position,
+                    // The place is a point the sketch holds, so the whole of
+                    // the gradient goes to it.
+                    carried: &[(point, 1.0)],
+                    segment,
+                    distance: dimension.value,
+                },
+            ),
+            Constraint::Spacing {
+                first,
+                second,
+                dimension,
+            } => {
+                let edge = sketch.segment(second);
+                let (a, b) = (sketch.point(edge.a).position, sketch.point(edge.b).position);
+                standoff(
+                    sketch,
+                    row,
+                    Standing {
+                        at: a.midpoint(b),
+                        // The place is the middle of an edge, which moves half
+                        // as fast as either end — so each end takes half the
+                        // gradient. Evenly, which is what makes a pull on this
+                        // slide the edge rather than pivot it.
+                        carried: &[(edge.a, 0.5), (edge.b, 0.5)],
+                        segment: first,
+                        distance: dimension.value,
+                    },
+                )
+            }
+            Constraint::Radius { circle, dimension } => {
                 row.radius(circle, 1.0);
-                sketch.circle(circle).radius - radius
+                sketch.circle(circle).radius - dimension.value
             }
             Constraint::PointOnCircle { point, circle } => {
                 let c = sketch.circle(circle);
@@ -314,6 +477,13 @@ impl Constraint {
                 // have met and multiplying does not; the radius is scaled to
                 // match, so the whole equation is one length larger and reads
                 // zero in the same places.
+                //
+                // [`Self::Standoff`] is this equation with a constant in place
+                // of the radius and it divides instead, because there the other
+                // side of the equation is a number a user typed and an equation
+                // scaled by an edge's length would converge differently for
+                // every length of edge. The two want unifying once dimensions
+                // have settled.
                 let reach = edge.perp_dot(offset);
                 // The cross product carries which side of the line the centre
                 // is on, and tangency does not care: it is a distance, and the
@@ -337,6 +507,75 @@ impl Constraint {
             }
         }
     }
+}
+
+/// One place standing off one segment's line, and what that place is made of.
+///
+/// The arguments [`standoff`] takes, gathered because they only mean anything
+/// together: `at` is where the place currently is and `carried` is which
+/// parameters it is a function of, so a caller handing over one without the
+/// other would be asking for a gradient of the wrong thing.
+#[derive(Debug)]
+struct Standing<'a> {
+    /// Where the place is now.
+    at: DVec2,
+    /// The points `at` is built from, each with how fast it moves when that
+    /// point does — one at full weight for a point the sketch holds, two at a
+    /// half each for the middle of an edge.
+    carried: &'a [(PointId, f64)],
+    /// The segment whose infinite line the place stands off.
+    segment: SegmentId,
+    distance: f64,
+}
+
+/// The residual and partials of "this place stands `distance` off that line".
+///
+/// Shared by [`Constraint::Standoff`] and [`Constraint::Spacing`], which differ
+/// only in where the place comes from — a point the sketch holds, or the middle
+/// of an edge — and so only in [`Standing::carried`]. Written once, because the
+/// two differing in the chain rule applied to one of three gradients is not two
+/// equations.
+///
+/// A private free fn rather than a method: it asks the sketch for geometry and
+/// answers a number, and there is no type here it is *of*.
+fn standoff(sketch: &Sketch, row: &mut JacobianRow<'_>, standing: Standing<'_>) -> f64 {
+    let Standing {
+        at,
+        carried,
+        segment,
+        distance,
+    } = standing;
+    let s = sketch.segment(segment);
+    let edge = direction(sketch, s);
+    let offset = at - sketch.point(s.a).position;
+    let along = Direction::of(edge);
+    // The line's unit normal, and how far off it the place stands. Signed,
+    // which the residual then takes back out for [`Constraint::Tangent`]'s
+    // reason: a distance has no sign, so the relation holds mirrored either way
+    // and a solve settles onto whichever side it started from.
+    let normal = along.unit.perp();
+    let reach = normal.dot(offset);
+    let side = if reach < 0.0 { -1.0 } else { 1.0 };
+    for &(point, share) in carried {
+        row.point(point, side * share * normal);
+    }
+    // The two ends only where there is a line for them to be a gradient of.
+    // Both terms divide by the length, so a segment whose ends have met would
+    // run away — and it has no line to stand off in the first place. What is
+    // left is the place's own gradient, which still asks it to stand `distance`
+    // from where the edge collapsed to; what is given up is any way for this
+    // equation to push the ends apart, which is right, because a distance to a
+    // point says nothing about how long an edge should be.
+    if along.known() {
+        let scale = side / along.length;
+        // Each is [`Constraint::PointOnSegment`]'s own gradient, divided by the
+        // length, plus the term that division adds: the length moves with
+        // either end too, and how far off the line the place stands scales with
+        // it.
+        row.point(s.a, scale * ((offset - edge).perp() + reach * along.unit));
+        row.point(s.b, scale * (-offset.perp() - reach * along.unit));
+    }
+    side * reach - distance
 }
 
 #[cfg(test)]

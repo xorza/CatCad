@@ -3,7 +3,7 @@
 use glam::DVec2;
 use ron::ser::PrettyConfig;
 use serde::{Deserialize, Serialize};
-use silverpoint::{Bound, CircleId, Constraint, Entity, PointId, SegmentId};
+use silverpoint::{Bound, CircleId, Constraint, Dimension, Entity, PointId, SegmentId};
 
 use crate::document::file::error::{Fault, LoadError, Missing, SaveError};
 use crate::profile::Profile;
@@ -16,7 +16,7 @@ use crate::timeline::{FeatureId, Timeline};
 /// anything else outright rather than guessing at it: a format that changes
 /// shape and keeps its number is one where a wrong answer looks like a right
 /// one, and the whole point of the stamp is to make the mismatch loud.
-const VERSION: u32 = 2;
+const VERSION: u32 = 3;
 
 /// A document as it is written down: what was done, and where it is being
 /// looked at from.
@@ -487,18 +487,140 @@ struct Circle {
 /// than one that quietly stops being saved.
 #[derive(Debug, Serialize, Deserialize)]
 enum Relation {
-    Coincident { a: usize, b: usize },
-    Distance { a: usize, b: usize, distance: f64 },
-    Horizontal { a: usize, b: usize },
-    Vertical { a: usize, b: usize },
-    Parallel { first: usize, second: usize },
-    Perpendicular { first: usize, second: usize },
-    EqualLength { first: usize, second: usize },
-    PointOnSegment { point: usize, segment: usize },
-    Radius { circle: usize, radius: f64 },
-    PointOnCircle { point: usize, circle: usize },
-    Tangent { segment: usize, circle: usize },
-    EqualRadius { first: usize, second: usize },
+    Coincident {
+        a: usize,
+        b: usize,
+    },
+    Distance {
+        a: usize,
+        b: usize,
+        along: Along,
+        figure: Figure,
+    },
+    Horizontal {
+        a: usize,
+        b: usize,
+    },
+    Vertical {
+        a: usize,
+        b: usize,
+    },
+    Parallel {
+        first: usize,
+        second: usize,
+    },
+    Perpendicular {
+        first: usize,
+        second: usize,
+    },
+    EqualLength {
+        first: usize,
+        second: usize,
+    },
+    PointOnSegment {
+        point: usize,
+        segment: usize,
+    },
+    Standoff {
+        point: usize,
+        segment: usize,
+        figure: Figure,
+    },
+    Spacing {
+        first: usize,
+        second: usize,
+        figure: Figure,
+    },
+    Radius {
+        circle: usize,
+        figure: Figure,
+    },
+    PointOnCircle {
+        point: usize,
+        circle: usize,
+    },
+    Tangent {
+        segment: usize,
+        circle: usize,
+    },
+    EqualRadius {
+        first: usize,
+        second: usize,
+    },
+}
+
+/// A dimension as a file holds it: what it states, and where its number sits.
+///
+/// The mirror of [`Dimension`], and its own record rather than two more fields
+/// on each relation carrying one, for the reason [`Profiled`] and [`Camera`] are
+/// theirs: it is what the model holds, spelled the way a file spells it. Four
+/// relations carry one, and four spellings would be four chances to disagree.
+///
+/// One level deeper than a relation's own fields and so still on the same line —
+/// see [`SKETCH_DEPTH`].
+#[derive(Debug, Serialize, Deserialize)]
+struct Figure {
+    value: f64,
+    /// Where the number sits, read in the measurement's own frame — see
+    /// [`Dimension::placement`].
+    ///
+    /// Left out of a hand-written file means on the geometry, which is where a
+    /// dimension nobody has dragged sits. Always written back, like a point's
+    /// `fixed`, so a file this produces says where every number is rather than
+    /// leaving a reader to know the rule.
+    #[serde(default)]
+    at: (f64, f64),
+}
+
+impl Figure {
+    fn of(dimension: Dimension) -> Self {
+        Self {
+            value: dimension.value,
+            at: (dimension.placement.x, dimension.placement.y),
+        }
+    }
+
+    /// This as a dimension, or the first number in it that is not one.
+    ///
+    /// All three checked, not only the value. A placement is never solved
+    /// against, so an infinity there would reach the renderer rather than the
+    /// solver — and a label at infinity is a drawing with nothing on it.
+    fn dimension(&self, at: usize) -> Result<Dimension, Fault> {
+        finite(at, self.value)?;
+        finite(at, self.at.0)?;
+        finite(at, self.at.1)?;
+        Ok(Dimension {
+            value: self.value,
+            placement: DVec2::new(self.at.0, self.at.1),
+        })
+    }
+}
+
+/// Which way a distance between two points is read — [`silverpoint::Along`] as
+/// a file spells it.
+#[derive(Debug, Serialize, Deserialize)]
+enum Along {
+    Shortest,
+    Horizontal,
+    Vertical,
+}
+
+impl Along {
+    fn of(along: silverpoint::Along) -> Self {
+        match along {
+            silverpoint::Along::Shortest => Along::Shortest,
+            silverpoint::Along::Horizontal => Along::Horizontal,
+            silverpoint::Along::Vertical => Along::Vertical,
+        }
+    }
+
+    fn along(&self) -> silverpoint::Along {
+        match self {
+            Along::Shortest => silverpoint::Along::Shortest,
+            Along::Horizontal => silverpoint::Along::Horizontal,
+            Along::Vertical => silverpoint::Along::Vertical,
+        }
+    }
 }
 
 impl Relation {
@@ -509,10 +631,16 @@ impl Relation {
                 a: handles.of_point(a),
                 b: handles.of_point(b),
             },
-            Constraint::Distance { a, b, distance } => Relation::Distance {
+            Constraint::Distance {
+                a,
+                b,
+                along,
+                dimension,
+            } => Relation::Distance {
                 a: handles.of_point(a),
                 b: handles.of_point(b),
-                distance,
+                along: Along::of(along),
+                figure: Figure::of(dimension),
             },
             Constraint::Horizontal { a, b } => Relation::Horizontal {
                 a: handles.of_point(a),
@@ -538,9 +666,27 @@ impl Relation {
                 point: handles.of_point(point),
                 segment: handles.of_segment(segment),
             },
-            Constraint::Radius { circle, radius } => Relation::Radius {
+            Constraint::Standoff {
+                point,
+                segment,
+                dimension,
+            } => Relation::Standoff {
+                point: handles.of_point(point),
+                segment: handles.of_segment(segment),
+                figure: Figure::of(dimension),
+            },
+            Constraint::Spacing {
+                first,
+                second,
+                dimension,
+            } => Relation::Spacing {
+                first: handles.of_segment(first),
+                second: handles.of_segment(second),
+                figure: Figure::of(dimension),
+            },
+            Constraint::Radius { circle, dimension } => Relation::Radius {
                 circle: handles.of_circle(circle),
-                radius,
+                figure: Figure::of(dimension),
             },
             Constraint::PointOnCircle { point, circle } => Relation::PointOnCircle {
                 point: handles.of_point(point),
@@ -565,14 +711,17 @@ impl Relation {
                 a: handles.point(at, a)?,
                 b: handles.point(at, b)?,
             },
-            Relation::Distance { a, b, distance } => {
-                finite(at, distance)?;
-                Constraint::Distance {
-                    a: handles.point(at, a)?,
-                    b: handles.point(at, b)?,
-                    distance,
-                }
-            }
+            Relation::Distance {
+                a,
+                b,
+                ref along,
+                ref figure,
+            } => Constraint::Distance {
+                a: handles.point(at, a)?,
+                b: handles.point(at, b)?,
+                along: along.along(),
+                dimension: figure.dimension(at)?,
+            },
             Relation::Horizontal { a, b } => Constraint::Horizontal {
                 a: handles.point(at, a)?,
                 b: handles.point(at, b)?,
@@ -597,13 +746,28 @@ impl Relation {
                 point: handles.point(at, point)?,
                 segment: handles.segment(at, segment)?,
             },
-            Relation::Radius { circle, radius } => {
-                finite(at, radius)?;
-                Constraint::Radius {
-                    circle: handles.circle(at, circle)?,
-                    radius,
-                }
-            }
+            Relation::Standoff {
+                point,
+                segment,
+                ref figure,
+            } => Constraint::Standoff {
+                point: handles.point(at, point)?,
+                segment: handles.segment(at, segment)?,
+                dimension: figure.dimension(at)?,
+            },
+            Relation::Spacing {
+                first,
+                second,
+                ref figure,
+            } => Constraint::Spacing {
+                first: handles.segment(at, first)?,
+                second: handles.segment(at, second)?,
+                dimension: figure.dimension(at)?,
+            },
+            Relation::Radius { circle, ref figure } => Constraint::Radius {
+                circle: handles.circle(at, circle)?,
+                dimension: figure.dimension(at)?,
+            },
             Relation::PointOnCircle { point, circle } => Constraint::PointOnCircle {
                 point: handles.point(at, point)?,
                 circle: handles.circle(at, circle)?,

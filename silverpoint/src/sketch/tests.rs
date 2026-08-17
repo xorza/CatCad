@@ -1,4 +1,5 @@
 use super::*;
+use crate::sketch::constraint::{Along, Dimension};
 
 /// The iteration order is the parameter order, which is what lets a
 /// handle index straight into the parameter vector.
@@ -97,7 +98,7 @@ fn removing_a_point_takes_what_was_built_on_it_and_nothing_else() {
     });
     let by_circle = sketch.add_constraint(Constraint::Radius {
         circle: hole,
-        radius: 0.5,
+        dimension: Dimension::new(0.5),
     });
     // Named by both routes at once — the point going and the segment going —
     // so the cascade reaches it twice and has to take that as calmly as once.
@@ -109,7 +110,8 @@ fn removing_a_point_takes_what_was_built_on_it_and_nothing_else() {
     let spanning = sketch.add_constraint(Constraint::Distance {
         a: before,
         b: after,
-        distance: 2.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(2.0),
     });
 
     sketch.remove_point(doomed);
@@ -320,7 +322,8 @@ fn a_cleanup_removes_spare_geometry_and_keeps_everything_depended_on() {
     sketch.add_constraint(Constraint::Distance {
         a: measured,
         b,
-        distance: 3.0,
+        along: Along::Shortest,
+        dimension: Dimension::new(3.0),
     });
 
     // A second edge drawn over the first through its own points, and a third

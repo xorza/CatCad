@@ -9,6 +9,7 @@
 
 pub(crate) mod approx;
 pub(crate) mod dense;
+pub(crate) mod direction;
 pub(crate) mod intersect;
 pub(crate) mod plane;
 pub(crate) mod triangulate;
