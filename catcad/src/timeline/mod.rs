@@ -137,10 +137,12 @@ impl Timeline {
     /// where the world is, and a caller asking to move it has mistaken a plane
     /// for the world.
     pub(crate) fn offset(&mut self, at: FeatureId, to: f64) {
-        let Feature::Plane(Datum::Offset { by, .. }) = self.feature_mut(at) else {
-            panic!("{at:?} does not name a plane that can be moved");
-        };
-        *by = to;
+        match self.feature_mut(at) {
+            Feature::Plane(Datum::Offset { by, .. }) => *by = to,
+            other @ (Feature::Plane(Datum::Ground)
+            | Feature::Sketch { .. }
+            | Feature::Extrude { .. }) => wrong_kind(at, "a plane that can be moved", other),
+        }
     }
 
     /// Carry the solid at `at` to a new distance off the plane its region was
@@ -150,10 +152,12 @@ impl Timeline {
     /// same reason: both steps are one number measured along a normal, and
     /// restating it is the whole of the edit.
     pub(crate) fn carry(&mut self, at: FeatureId, to: f64) {
-        let Feature::Extrude { distance, .. } = self.feature_mut(at) else {
-            panic!("{at:?} does not name a solid that can be carried");
-        };
-        *distance = to;
+        match self.feature_mut(at) {
+            Feature::Extrude { distance, .. } => *distance = to,
+            other @ (Feature::Plane(_) | Feature::Sketch { .. }) => {
+                wrong_kind(at, "an extrude", other)
+            }
+        }
     }
 
     /// The solid at `at` as something that can be carried, and the line it
@@ -375,6 +379,12 @@ const REMOVED_STEP: &str = "this step is no longer in the timeline";
 /// out for itself: one that asked a sketch for its frame and one that asked a
 /// plane for its geometry have made opposite mistakes, and each knows only what
 /// it wanted. What it actually named is [`Feature::kind`]'s to say.
+///
+/// **Every way of naming the wrong step comes through here**, the two that read
+/// a step in order to write it included. `wanted` may be narrower than a kind —
+/// moving a plane wants one that *can* be moved, and the ground is a plane that
+/// cannot — which is why it is a phrase the caller writes rather than a second
+/// [`Feature::kind`].
 fn wrong_kind(at: FeatureId, wanted: &str, found: &Feature) -> ! {
     panic!("{at:?} names {} rather than {wanted}", found.kind());
 }

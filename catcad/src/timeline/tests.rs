@@ -130,6 +130,39 @@ fn a_sketch_is_not_a_plane_that_can_be_moved() {
     timeline.movable(timeline.first_sketch());
 }
 
+/// **Moving the ground says the ground is what was named.**
+///
+/// The one refusal that cannot be worded as a kind: the ground *is* a plane, so
+/// a caller told it had named "a plane rather than a plane" would learn nothing
+/// — and this is the caller most in need of telling, having mistaken a plane for
+/// the world. See [`Feature::kind`](crate::timeline::feature::Feature), which is
+/// what tells the two apart, and [`wrong_kind`](crate::timeline::wrong_kind),
+/// which every refusal here comes through.
+#[test]
+#[should_panic(expected = "names the ground rather than a plane that can be moved")]
+fn the_ground_is_a_plane_and_not_one_that_moves() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    timeline.offset(ground, 1.0);
+}
+
+/// And carrying a plane says which kind of step it found.
+///
+/// A plane held off the ground rather than the ground itself, which is what
+/// makes this the other half of the test above: the same slip about the two
+/// kinds of plane is reported in the two ways that tell them apart.
+#[test]
+#[should_panic(expected = "names a plane rather than an extrude")]
+fn a_plane_is_not_a_solid_that_can_be_carried() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let shelf = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: 1.0,
+    }));
+    timeline.carry(shelf, 1.0);
+}
+
 /// Editing reaches the sketch the timeline holds, and the report follows it.
 ///
 /// What `Document::apply` does, one level down: an edit goes through the pair

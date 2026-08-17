@@ -113,7 +113,12 @@ impl Feature {
     /// the only reason this is a noun phrase rather than a word.
     pub(super) fn kind(&self) -> &'static str {
         match self {
-            Feature::Plane(_) => "a plane",
+            // *Which* plane, because the ground is not somewhere anybody put
+            // one and the slip about it is its own: a caller asking the ground
+            // to move has mistaken a plane for the world, and "a plane rather
+            // than a plane" would tell them nothing.
+            Feature::Plane(Datum::Ground) => "the ground",
+            Feature::Plane(Datum::Offset { .. }) => "a plane",
             Feature::Sketch { .. } => "a sketch",
             Feature::Extrude { .. } => "an extrude",
         }
