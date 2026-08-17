@@ -1545,9 +1545,7 @@ fn a_face_coplanar_with_the_slab_under_it_is_not_fought_for() {
     /// The demo at `pitch`, with the slab either in the sketch plane or
     /// `dropped` below it, and the faces either drawn or taken away.
     fn frame_of(pitch: f32, dropped: f32, faces: bool) -> Frame {
-        let app = CatCad::build();
-        {
-            let mut renderer = app.renderer().borrow_mut();
+        painted(UVec2::new(700, 520), |renderer| {
             edge_on(pitch)(renderer.camera_mut());
             renderer.camera_mut().distance = 6.0;
             let scene = renderer.scene_mut();
@@ -1557,6 +1555,7 @@ fn a_face_coplanar_with_the_slab_under_it_is_not_fought_for() {
             scene.rings.clear();
             scene.points.clear();
             scene.texts.clear();
+            scene.gizmos.clear();
             if !faces {
                 scene.faces.clear();
             }
@@ -1568,11 +1567,7 @@ fn a_face_coplanar_with_the_slab_under_it_is_not_fought_for() {
                 .next()
                 .expect("the demo stands its drawing on a slab");
             slab.transform = Mat4::from_translation(Vec3::new(0.0, -dropped, 0.0)) * slab.transform;
-        }
-        let mut pane = ScenePane {
-            view: app.renderer().clone(),
-        };
-        capture(UVec2::new(700, 520), &mut pane)
+        })
     }
 
     // How many pixels the faces reach with the slab `dropped` this far.
@@ -1694,15 +1689,17 @@ fn strokes_behind_a_face_still_reach_the_frame() {
     /// The demo at `pitch` with the solids and markers gone, so what is left is
     /// the strokes and — at the caller's word — the faces they cross.
     fn frame_of(pitch: f32, faces: bool, strokes: bool) -> Frame {
-        let app = CatCad::build();
-        {
-            let mut renderer = app.renderer().borrow_mut();
+        painted(UVec2::new(820, 560), |renderer| {
             edge_on(pitch)(renderer.camera_mut());
             renderer.camera_mut().distance = 11.0;
             let scene = renderer.scene_mut();
             scene.solids.clear();
             scene.points.clear();
             scene.texts.clear();
+            // The controls and a dimension's lines are strokes of their own, and
+            // this counts what the *drawing's* reach, so they would be weighed
+            // as though they were part of it.
+            scene.gizmos.clear();
             if !faces {
                 scene.faces.clear();
             }
@@ -1710,11 +1707,7 @@ fn strokes_behind_a_face_still_reach_the_frame() {
                 scene.curves.clear();
                 scene.rings.clear();
             }
-        }
-        let mut pane = ScenePane {
-            view: app.renderer().clone(),
-        };
-        capture(UVec2::new(820, 560), &mut pane)
+        })
     }
 
     for pitch in [0.6f32, 0.9] {

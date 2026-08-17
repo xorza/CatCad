@@ -128,36 +128,26 @@ pub(crate) fn write(
             // control on a distant plane built to the target's scale would come
             // out the wrong size.
             //
-            // Asked for rather than taken, because a dimension's strokes were
-            // sized where they stand before they were ever a [`Piece`] — see
-            // [`ruled`], which has to know the scale to work out what shape they
-            // are at all.
-            let scale = || f64::from(camera.world_per_pixel(piece.stands_at(), viewport));
+            // A dimension's strokes stand nowhere, because they were sized where
+            // they stand before they were ever a [`Piece`] — see [`ruled`],
+            // which has to know the scale to work out what shape they are at
+            // all. Whatever this then answers for one is never read.
+            let scale = piece
+                .stands_at()
+                .map_or(1.0, |at| f64::from(camera.world_per_pixel(at, viewport)));
             match piece {
-                Piece::Axis(plane, along, _) => {
-                    let scale = scale();
-                    curve
-                        .points
-                        .extend(shape::arrow(along).map(|at| plane.point(at * scale).as_vec3()));
-                }
-                Piece::Hub(plane) => {
-                    let scale = scale();
-                    curve
-                        .points
-                        .extend(shape::hub().map(|at| plane.point(at * scale).as_vec3()));
-                }
-                Piece::Corner(plane) => {
-                    let scale = scale();
-                    curve
-                        .points
-                        .extend(shape::corner().map(|at| plane.point(at * scale).as_vec3()));
-                }
-                Piece::Depth(carried) => {
-                    let scale = scale();
-                    curve
-                        .points
-                        .extend(shape::arrow(DVec2::X).map(|at| carried.at(at, scale)));
-                }
+                Piece::Axis(plane, along, _) => curve
+                    .points
+                    .extend(shape::arrow(along).map(|at| plane.point(at * scale).as_vec3())),
+                Piece::Hub(plane) => curve
+                    .points
+                    .extend(shape::hub().map(|at| plane.point(at * scale).as_vec3())),
+                Piece::Corner(plane) => curve
+                    .points
+                    .extend(shape::corner().map(|at| plane.point(at * scale).as_vec3())),
+                Piece::Depth(carried) => curve
+                    .points
+                    .extend(shape::arrow(DVec2::X).map(|at| carried.at(at, scale))),
                 Piece::Ruled(plane, stroke) => curve
                     .points
                     .extend(stroke.corners().map(|at| plane.point(at).as_vec3())),
@@ -231,9 +221,9 @@ fn ruled<'a>(
                         !matches!(constraint, Constraint::Radius { .. }),
                         scale,
                     );
-                    Some((plane, strokes))
+                    Some(strokes)
                 })
-                .flat_map(|(plane, strokes)| {
+                .flat_map(move |strokes| {
                     strokes
                         .into_iter()
                         .flatten()
@@ -278,18 +268,23 @@ impl Piece {
     }
 
     /// Where in the world it stands, which is where its size in pixels is
-    /// measured.
+    /// measured — and `None` where it is already sized.
     ///
-    /// A dimension's strokes are never asked: they were sized where they stand
-    /// before they became pieces, and the plane's origin they would answer with
-    /// here is nowhere near where they were drawn.
-    fn stands_at(self) -> Vec3 {
+    /// A dimension's strokes are the `None`. They carry world lengths *and*
+    /// pixel ones — an extension line spans the geometry and starts a gap off
+    /// it — so what shape they are cannot be known without a scale, and it is
+    /// spent before there is a piece to hold the answer. See [`ruled`].
+    ///
+    /// An `Option` rather than a place nobody reads, because the two are not the
+    /// same claim: a plane's origin is a real answer to the wrong question, and
+    /// this is the question not applying.
+    fn stands_at(self) -> Option<Vec3> {
         match self {
-            Piece::Axis(plane, ..)
-            | Piece::Hub(plane)
-            | Piece::Corner(plane)
-            | Piece::Ruled(plane, _) => plane.origin.as_vec3(),
-            Piece::Depth(carried) => carried.tail,
+            Piece::Axis(plane, ..) | Piece::Hub(plane) | Piece::Corner(plane) => {
+                Some(plane.origin.as_vec3())
+            }
+            Piece::Depth(carried) => Some(carried.tail),
+            Piece::Ruled(..) => None,
         }
     }
 

@@ -647,7 +647,7 @@ const RULE_DROP: f32 = 0.6;
 /// together, and a stack that raised one and not the other would leave a number
 /// floating off its own dimension. Which is a thing you would only see on a
 /// drawing whose marks had piled up.
-pub(super) fn rule_rise(lane: u8) -> f32 {
+fn rule_rise(lane: u8) -> f32 {
     mark_rise(lane) - RULE_DROP * mark_font().line_height_px
 }
 

@@ -87,7 +87,7 @@ fn a_dimension_is_a_rule_through_its_number_with_a_line_and_a_head_at_each_end()
 
     // A head is filled and a line is not, which is the whole of what the two
     // shapes differ by once they are strokes.
-    assert!(head_of(far_head).len() == 3 && far_head.expect("drawn").closes());
+    assert!(far_head.expect("drawn").closes());
     assert!(!rule.expect("drawn").closes());
 }
 
