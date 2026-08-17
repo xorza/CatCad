@@ -23,15 +23,20 @@ use crate::math::approx::SLIVER;
 use crate::math::intersect::{self, Span};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::bound::Bound;
+use crate::sketch::arrangement::bounding::Bounding;
+use crate::sketch::arrangement::components::Components;
 use crate::sketch::arrangement::curves::Curves;
+use crate::sketch::arrangement::departures::Departures;
 use crate::sketch::arrangement::edge::{Edge, Half, Shape};
 use crate::sketch::arrangement::face::Face;
-use crate::sketch::entity::Entity;
 use glam::DVec2;
 use std::f64::consts::TAU;
 
 pub(crate) mod bound;
+mod bounding;
+mod components;
 mod curves;
+mod departures;
 pub(crate) mod edge;
 pub(crate) mod face;
 pub(crate) mod filler;
@@ -146,99 +151,8 @@ impl Arrangement {
             scratch,
             ..
         } = self;
-        let edges = &edges[..];
-        let Scratch {
-            along, gathered, ..
-        } = scratch;
         for face in &mut faces[..*faces_filled] {
-            let Face {
-                outline,
-                holes,
-                named,
-                walls,
-                pieces,
-                ..
-            } = face;
-
-            // The boundary laid out flat, each piece with the curve it is of
-            // and which loop walked it. Everything below reads this rather than
-            // the loops: the curve a piece is of is worked out once here where
-            // deriving it again per reading is what made asking dear in the
-            // first place, and what is left is a slice to scan rather than an
-            // iterator over loops to rebuild three times.
-            along.clear();
-            along.reserve_exact(outline.len() + holes.total());
-            let mut lay = |run: &[Half], on_outline: bool| {
-                along.extend(run.iter().map(|&half| {
-                    let bound = edges[half.edge].bound(half.forward);
-                    Walked {
-                        half,
-                        bound,
-                        key: key_of(bound),
-                        on_outline,
-                    }
-                }));
-            };
-            lay(outline, true);
-            for hole in holes.iter() {
-                lay(hole, false);
-            }
-
-            // Gathered by curve, so that the pieces of one fall together and
-            // every reading below is a walk of the runs rather than a search
-            // through them. Stable, so within a curve the pieces stay in the
-            // order the region was walked along them.
-            along.sort_by_key(|walked| walked.key);
-            gathered.clear();
-            let mut at = 0;
-            while at < along.len() {
-                let key = along[at].key;
-                let mut end = at;
-                let mut on_outline = false;
-                while end < along.len() && along[end].key == key {
-                    on_outline |= along[end].on_outline;
-                    end += 1;
-                }
-                gathered.push(Gathered {
-                    key,
-                    bound: along[at].bound,
-                    on_outline,
-                    at,
-                    pieces: end - at,
-                });
-                at = end;
-            }
-
-            // A spur is walked out and back, so it appears both ways round and
-            // bounds nothing at all; without this, drawing a stray line
-            // touching a region would rename it. The far side of a curve is its
-            // key with the low bit flipped, and the runs are in key order, so
-            // finding it is a search of the curves rather than of the pieces.
-            //
-            // Which side of the drawing cancels a curve out is the reading's
-            // own. A name is made of the outline, so a spur dangling into a
-            // *hole* is no part of what names the region and cannot take an
-            // outline curve out of it — where a wall, being the whole edge of
-            // the region, is cancelled by either.
-            named.clear();
-            walls.clear();
-            pieces.clear();
-            for run in gathered.iter() {
-                let turned = gathered
-                    .binary_search_by(|had| had.key.cmp(&(run.key ^ 1)))
-                    .ok()
-                    .map(|found| &gathered[found]);
-                if turned.is_none() {
-                    walls.push(run.bound);
-                    pieces.add(|into| {
-                        into.extend(along[run.at..][..run.pieces].iter().map(|it| it.half));
-                    });
-                }
-                if run.on_outline && !turned.is_some_and(|had| had.on_outline) {
-                    named.push(run.bound);
-                }
-            }
-            debug_assert_eq!(pieces.len(), walls.len(), "a wall without its pieces");
+            scratch.bounding.fill(face, edges);
         }
     }
 
@@ -491,113 +405,6 @@ impl Arrangement {
     }
 }
 
-/// A number to gather a region's pieces by: which curve, and which side of it.
-///
-/// Ordered rather than merely compared, so that the pieces of one curve fall
-/// together in a sort and a region bounded by a hundred curves is described by
-/// walking runs instead of searching for them. The side is the low bit, which
-/// puts the far side of a curve one flip away — and a spur is exactly a curve
-/// whose far side is here too.
-fn key_of(bound: Bound) -> u64 {
-    // A slot is a `u32`, so one shifted up by the side bit still stops short of
-    // the thirty-fourth: the segments fill the bottom of the range and the
-    // circles start above everything they can reach.
-    let (kind, slot) = match bound.of {
-        Entity::Segment(id) => (0u64, id.slot()),
-        Entity::Circle(id) => (1u64, id.slot()),
-        // An edge is cut from a segment or a circle and from nothing else.
-        of => unreachable!("{of:?} was never cut into an edge"),
-    };
-    (kind << 33) | ((slot as u64) << 1) | u64::from(bound.along)
-}
-
-/// One piece of curve a region is walked along, with what
-/// [`Arrangement::bound_faces`] would otherwise work out about it more than
-/// once.
-#[derive(Debug, Clone, Copy)]
-struct Walked {
-    half: Half,
-    /// The curve it is a piece of, and the side the region is on.
-    bound: Bound,
-    /// That same curve and side as something to sort by — see [`key_of`].
-    key: u64,
-    /// Whether it was walked by the region's outline as against by a hole.
-    on_outline: bool,
-}
-
-/// One curve found bounding a region, and the run of pieces it was walked
-/// along.
-///
-/// The whole of what a name and a wall are decided from: which curve and side,
-/// whether the region's *outline* runs along it as against only a hole, and
-/// where its pieces sit in the sorted run of them.
-#[derive(Debug, Clone, Copy)]
-struct Gathered {
-    key: u64,
-    bound: Bound,
-    on_outline: bool,
-    /// Where this curve's pieces begin, and how many there are.
-    at: usize,
-    pieces: usize,
-}
-
-/// Which piece of drawing each corner belongs to.
-///
-/// Two curves are the same piece when a walk along edges gets from one to the
-/// other. What this decides is which faces an outside loop may be assigned to —
-/// see [`Arrangement::owner_of`] — and nothing else.
-///
-/// Its own type because the two lists below only mean anything together, and
-/// only once a fill has run: one is the working state the other is read out of,
-/// and neither says anything about a drawing nobody has walked yet.
-#[derive(Debug, Default)]
-struct Components {
-    /// Union-find over the corners, which the fill collapses as it goes.
-    parent: Vec<usize>,
-    /// The piece each corner ended up in.
-    joined: Vec<usize>,
-}
-
-impl Components {
-    /// Work out which piece of the drawing each corner belongs to.
-    ///
-    /// Takes the corners rather than how many there are, so it reads at a call
-    /// site as [`Departures::fill`] beside it does. Only the count is wanted:
-    /// which piece a corner is in follows from what the edges join, not from
-    /// where anything lies.
-    fn fill(&mut self, corners: &[DVec2], edges: &[Edge]) {
-        let Self { parent, joined } = self;
-        parent.clear();
-        parent.reserve_exact(corners.len());
-        parent.extend(0..corners.len());
-        for edge in edges {
-            let (a, b) = (root(parent, edge.from), root(parent, edge.to));
-            parent[a] = b;
-        }
-        joined.clear();
-        joined.reserve_exact(corners.len());
-        for at in 0..corners.len() {
-            joined.push(root(parent, at));
-        }
-    }
-
-    /// Which piece `corner` ended up in.
-    fn of(&self, corner: usize) -> usize {
-        self.joined[corner]
-    }
-}
-
-/// Which corner stands for the piece `at` belongs to.
-fn root(parent: &mut [usize], mut at: usize) -> usize {
-    while parent[at] != at {
-        // Halve the path on the way up, which is what keeps the walk from
-        // growing into a list.
-        parent[at] = parent[parent[at]];
-        at = parent[at];
-    }
-    at
-}
-
 /// Every list a rebuild works in, kept so that the next one need not ask for
 /// them again.
 ///
@@ -622,109 +429,8 @@ struct Scratch {
     tightest: Vec<usize>,
     /// Which piece of drawing each corner belongs to.
     components: Components,
-    /// The boundary of the face being described, laid out flat.
-    along: Vec<Walked>,
-    /// The curves found bounding it.
-    gathered: Vec<Gathered>,
-}
-
-/// Where each half-edge sits in the fan of them leaving its corner.
-///
-/// One run of half-edges gathered by corner rather than a vector per corner: a
-/// drawing with a hundred corners would otherwise be a hundred heap blocks, and
-/// emptying them to rebuild would hand every one of them straight back.
-#[derive(Debug, Default)]
-struct Departures {
-    /// Every half-edge, gathered by the corner it leaves and ordered within
-    /// each corner by the direction it leaves in.
-    leaving: Vec<Leaving>,
-    /// Where each corner's fan begins in `leaving`, with the total on the end —
-    /// so a corner's fan is `starts[corner]..starts[corner + 1]`, and a corner
-    /// nothing leaves is the empty stretch between two equal entries.
-    starts: Vec<usize>,
-    /// Where each half-edge sits within its own fan.
-    at: Vec<usize>,
-}
-
-impl Departures {
-    /// Sort the half-edges leaving each corner by the direction they leave in —
-    /// which is what the walk reads to decide where to turn.
-    fn fill(&mut self, corners: &[DVec2], edges: &[Edge]) {
-        let Self {
-            leaving,
-            starts,
-            at,
-        } = self;
-        // Both halves of what the sort reads, worked out once here rather than
-        // per comparison. An arc's departure is a cosine and a sine and the
-        // angle of it an `atan2`, and a sort asks its key of an item about
-        // `log n` times — so measuring in the comparison measures the same
-        // direction a dozen times over.
-        leaving.clear();
-        leaving.reserve_exact(edges.len() * 2);
-        for (edge, piece) in edges.iter().enumerate() {
-            for forward in [true, false] {
-                let out = piece.departure(corners, forward);
-                leaving.push(Leaving {
-                    half: Half { edge, forward },
-                    corner: piece.ends(forward)[0],
-                    angle: out.y.atan2(out.x),
-                });
-            }
-        }
-        // Gathered by corner, and within a corner ordered by the direction the
-        // edge leaves in — which is the fan the walk turns through. One sort
-        // rather than one per corner, and no dearer for it: the angle is
-        // compared only where the corners already match, which is exactly the
-        // comparison a fan of its own would have made.
-        leaving.sort_by(|a, b| {
-            a.corner.cmp(&b.corner).then_with(|| {
-                a.angle
-                    .partial_cmp(&b.angle)
-                    .expect("a direction between finite corners is finite")
-            })
-        });
-
-        // Where each corner's fan begins, by counting what landed in it and
-        // running the counts up.
-        starts.clear();
-        starts.resize(corners.len() + 1, 0);
-        for leave in leaving.iter() {
-            starts[leave.corner + 1] += 1;
-        }
-        for corner in 1..starts.len() {
-            starts[corner] += starts[corner - 1];
-        }
-
-        // Where each half-edge sits within its own fan, which is what the walk
-        // reads to decide where to turn.
-        at.clear();
-        at.resize(edges.len() * 2, 0);
-        for corner in 0..corners.len() {
-            let fan = &leaving[starts[corner]..starts[corner + 1]];
-            for (position, leave) in fan.iter().enumerate() {
-                at[leave.half.slot()] = position;
-            }
-        }
-    }
-
-    /// The half-edge leaving `corner` just clockwise of `half`.
-    fn after(&self, corner: usize, half: Half) -> Half {
-        let fan = &self.leaving[self.starts[corner]..self.starts[corner + 1]];
-        let position = self.at[half.slot()];
-        fan[(position + fan.len() - 1) % fan.len()].half
-    }
-}
-
-/// One half-edge in the fan at the corner it leaves, with what that fan is
-/// ordered by carried alongside it.
-#[derive(Debug, Clone, Copy)]
-struct Leaving {
-    half: Half,
-    /// The corner it leaves, which is the fan it belongs to.
-    corner: usize,
-    /// Which way it heads as it goes, as an angle.
-    angle: f64,
+    /// What bounds each face, and out of what pieces.
+    bounding: Bounding,
 }
 
 #[cfg(test)]
