@@ -171,6 +171,16 @@ impl Stepper {
                 // `JᵀJ` this row reaches is a pair of them. Gathered once,
                 // because walking the row per nonzero costs the whole width
                 // again to find the same four.
+                //
+                // Gathered *here* rather than carried over from the assembly,
+                // which already decides it cell by cell to apply the mask. Every
+                // assembly would have to build the list and only the stepper's
+                // reads it, and a conditional push per nonzero turns a masking
+                // pass the compiler vectorizes into a scalar one — measured 5-21%
+                // slower across a solve, a drag and a bare measurement alike, at
+                // 22, 82 and 242 parameters. The scan below is a contiguous read
+                // of a row already in cache; carrying the answer costs more than
+                // finding it again.
                 self.touched.clear();
                 self.touched.extend((0..n).filter(|&col| row[col] != 0.0));
                 for (taken, &a) in self.touched.iter().enumerate() {
