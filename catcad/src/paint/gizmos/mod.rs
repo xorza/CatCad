@@ -127,44 +127,10 @@ pub(crate) fn write(
             .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))
             .chain(ruled(models, placed, showing.proposed(), lens)),
         |curve, (part, piece)| {
-            curve.width = piece.width();
-            curve.closed = piece.closes();
-            curve.points.clear();
-            // Sized where it *stands*, not where the camera is looking: under
-            // perspective a pixel covers more world the further off it is, so a
-            // control on a distant plane built to the target's scale would come
-            // out the wrong size.
-            //
-            // A dimension's strokes stand nowhere, because they were sized where
-            // they stand before they were ever a [`Piece`] — see [`ruled`],
-            // which has to know the scale to work out what shape they are at
-            // all. Whatever this then answers for one is never read.
-            let scale = piece
-                .stands_at()
-                .map_or(1.0, |at| f64::from(lens.world_per_pixel(at)));
-            match piece {
-                Piece::Axis(plane, along, _) => curve
-                    .points
-                    .extend(shape::arrow(along).map(|at| plane.point(at * scale).as_vec3())),
-                Piece::Hub(plane) => curve
-                    .points
-                    .extend(shape::hub().map(|at| plane.point(at * scale).as_vec3())),
-                Piece::Corner(plane) => curve
-                    .points
-                    .extend(shape::corner().map(|at| plane.point(at * scale).as_vec3())),
-                Piece::Depth(carried) => curve
-                    .points
-                    .extend(shape::arrow(DVec2::X).map(|at| carried.at(at, scale))),
-                Piece::Ruled { plane, stroke, .. } => curve
-                    .points
-                    .extend(stroke.corners().map(|at| plane.point(at).as_vec3())),
-            }
-            curve.color = piece.ink();
-            // A control lies in a plane and is widened in screen space, so it
-            // takes that plane's depth rather than its anchor's — the same
-            // thing every stroke of the drawing does.
-            curve.plane_normal = piece.lies_in().map(|plane| plane.normal().as_vec3());
-            curve.precedence = piece.ranks();
+            piece.stroke(curve, lens);
+            // The one thing left to the caller, because it is the only one that
+            // is not the piece's: a name is minted out of the list this walk is
+            // appending to.
             curve.tag = part.map(|part| names.tag(part));
         },
     );
@@ -277,104 +243,127 @@ enum Piece {
 }
 
 impl Piece {
-    /// The plane it lies in, where it lies in one.
-    fn lies_in(self) -> Option<Plane> {
-        match self {
-            Piece::Axis(plane, ..)
-            | Piece::Hub(plane)
-            | Piece::Corner(plane)
-            | Piece::Ruled { plane, .. } => Some(plane),
-            Piece::Depth(_) => None,
-        }
-    }
-
-    /// Where in the world it stands, which is where its size in pixels is
-    /// measured — and `None` where it is already sized.
+    /// Write it into `curve`, corners and all.
     ///
-    /// A dimension's strokes are the `None`. They carry world lengths *and*
-    /// pixel ones — an extension line spans the geometry and starts a gap off
-    /// it — so what shape they are cannot be known without a scale, and it is
-    /// spent before there is a piece to hold the answer. See [`ruled`].
+    /// **One match rather than one per property.** What a piece answers — the
+    /// depth it takes, whether it closes, how wide, in what ink, how hard it
+    /// competes for a click, and the corners themselves — is not six questions
+    /// about five kinds but two families that share almost nothing: four handles
+    /// differing only in their outline and their colour, and a dimension's
+    /// stroke sharing none of it. Asked a property at a time, every answer had
+    /// to spell out all five kinds to say that.
     ///
-    /// An `Option` rather than a place nobody reads, because the two are not the
-    /// same claim: a plane's origin is a real answer to the wrong question, and
-    /// this is the question not applying.
-    fn stands_at(self) -> Option<Vec3> {
+    /// The tag is not here: a name is minted out of the list the caller is
+    /// appending to, and this is handed a `Curve` rather than the walk.
+    fn stroke(self, curve: &mut Curve, lens: Lens) {
+        curve.points.clear();
         match self {
-            Piece::Axis(plane, ..) | Piece::Hub(plane) | Piece::Corner(plane) => {
-                Some(plane.origin.as_vec3())
+            Piece::Axis(plane, along, ink) => {
+                control(curve, ink, Some(plane));
+                lay(curve, plane, &shape::arrow(along), lens);
             }
-            Piece::Depth(carried) => Some(carried.tail),
-            Piece::Ruled { .. } => None,
-        }
-    }
-
-    /// Whether the last corner joins back to the first.
-    ///
-    /// Every control is a filled outline, and a dimension is filled at its heads
-    /// and open along its lines.
-    fn closes(self) -> bool {
-        match self {
-            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Depth(_) => true,
-            Piece::Ruled { stroke, .. } => stroke.closes(),
-        }
-    }
-
-    /// How wide it is stroked, in logical pixels.
-    ///
-    /// A dimension takes the drawing's own width rather than a control's,
-    /// because it *is* drawing: what a heavier stroke says is "take hold of
-    /// me", and a dimension line is read.
-    fn width(self) -> f32 {
-        match self {
-            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Depth(_) => GIZMO_WIDTH,
-            Piece::Ruled { .. } => EDGE_WIDTH,
-        }
-    }
-
-    /// What it is stroked in.
-    fn ink(self) -> Vec3 {
-        match self {
-            Piece::Axis(_, _, ink) => ink,
-            Piece::Hub(_) | Piece::Corner(_) => AXIS_CORNER,
-            Piece::Depth(_) => DEPTH_ARROW,
-            // The number's own colour: the lines are that number's, and a hue
-            // of their own would read as a third kind of thing on the drawing.
-            // Not the redundant red a spare relation wears — a dimension the
-            // constraints could do without says so in its figure, and saying it
-            // twice would double the ink on the one case that is already loud.
+            Piece::Hub(plane) => {
+                control(curve, AXIS_CORNER, Some(plane));
+                lay(curve, plane, &shape::hub(), lens);
+            }
+            Piece::Corner(plane) => {
+                control(curve, AXIS_CORNER, Some(plane));
+                lay(curve, plane, &shape::corner(), lens);
+            }
+            Piece::Depth(carried) => {
+                // Standing out of a plane rather than lying in one, so it takes
+                // no plane's depth — see [`Carried`].
+                control(curve, DEPTH_ARROW, None);
+                // **The one control that does not yield.** A datum stands as a
+                // frame: it is what the drawing is done *on*, so it gives up a
+                // click to anything drawn on it. This is what the gesture is
+                // *for* — a form is open and the arrow is the thing being
+                // dragged — so it has to take the click over the geometry it
+                // stands over. Ranking it as a frame would also enter it among
+                // the occluders, so it would go on to hide what is behind it
+                // from a pick as well as losing to it.
+                curve.precedence = Precedence::Shaped;
+                // Sized where it stands, like every control — see [`lay`] — but
+                // laid out in a frame of its own rather than on a plane.
+                let scale = f64::from(lens.world_per_pixel(carried.tail));
+                curve
+                    .points
+                    .extend(shape::arrow(DVec2::X).map(|at| carried.at(at, scale)));
+            }
+            // **Drawing rather than a handle**, which is where it parts from
+            // the four above. It takes the drawing's own width, because what a
+            // heavier stroke says is "take hold of me" and a dimension line is
+            // read; it closes at its heads and runs open along its lines, where
+            // a control is a filled outline throughout; and it is already sized,
+            // having had to know the scale before it was a [`Piece`] at all —
+            // see [`ruled`].
+            //
+            // The depth it takes and how hard it competes it *does* share, and
+            // writes out all the same: three of the five differ, so going
+            // through [`control`] would be setting more than it kept. The
+            // standing decides nothing either way — a dimension's lines carry no
+            // tag, so no pick ever reaches them — and is stated because a stroke
+            // that later earned a name would otherwise inherit whatever this
+            // happened to say.
             Piece::Ruled {
-                proposed: false, ..
-            } => MARK,
-            // A proposal has no state to report — the constraints have not been
-            // asked about it — so it wears the grey a rubber band does, and for
-            // the reason that one does: it is not in the drawing yet.
-            Piece::Ruled { proposed: true, .. } => GHOST,
-        }
-    }
-
-    /// How hard it competes for a click that lands on several things at once.
-    ///
-    /// A datum stands as a frame: it is what the drawing is done *on*, so it
-    /// yields to anything drawn on it. The depth arrow does not, and the
-    /// difference is that one of them is what the gesture is *for* — a form is
-    /// open, the arrow is the thing being dragged, and it has to take the click
-    /// over the geometry it stands over. Ranking it as a frame also enters it
-    /// among the occluders, so it would go on to hide what is behind it from a
-    /// pick as well as losing to it.
-    fn ranks(self) -> Precedence {
-        match self {
-            // A dimension's lines rank with the datum for the same reason, and
-            // it decides nothing anyway: they carry no tag, so no pick ever
-            // reaches them. Stated all the same, because a stroke that later
-            // earned a name would otherwise inherit whatever this happened to
-            // say.
-            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Ruled { .. } => {
-                Precedence::Frame
+                plane,
+                stroke,
+                proposed,
+            } => {
+                // The number's own colour: the lines are that number's, and a
+                // hue of their own would read as a third kind of thing on the
+                // drawing. Not the redundant red a spare relation wears — a
+                // dimension the constraints could do without says so in its
+                // figure, and saying it twice would double the ink on the one
+                // case that is already loud. A proposal has no state to report
+                // at all, so it wears the grey a rubber band does.
+                curve.color = if proposed { GHOST } else { MARK };
+                curve.width = EDGE_WIDTH;
+                curve.closed = stroke.closes();
+                curve.plane_normal = Some(plane.normal().as_vec3());
+                curve.precedence = Precedence::Frame;
+                curve
+                    .points
+                    .extend(stroke.corners().map(|at| plane.point(at).as_vec3()));
             }
-            Piece::Depth(_) => Precedence::Shaped,
         }
     }
+}
+
+/// Set `curve` up as a control in `ink`, lying in `plane` where it lies in one.
+///
+/// What the four handles share, which is everything but their outline and their
+/// colour: the width a handle is stroked at — see [`GIZMO_WIDTH`] — closed,
+/// because every control is a filled outline, and ranked as a frame, being
+/// furniture the drawing is done *on*. The depth arrow overrides that last one,
+/// and says why where it does.
+///
+/// A control lies in a plane and is widened in screen space, so it takes that
+/// plane's depth rather than its anchor's — the same thing every stroke of the
+/// drawing does. `None` is the arrow that stands *out* of a plane instead.
+fn control(curve: &mut Curve, ink: Vec3, plane: Option<Plane>) {
+    curve.color = ink;
+    curve.width = GIZMO_WIDTH;
+    curve.closed = true;
+    curve.plane_normal = plane.map(|plane| plane.normal().as_vec3());
+    curve.precedence = Precedence::Frame;
+}
+
+/// Put `outline` on `plane`, at the scale a pixel is worth where that plane
+/// stands.
+///
+/// **Sized where it stands, not where the camera is looking**: under perspective
+/// a pixel covers more world the further off it is, so a control on a distant
+/// plane built to the target's scale would come out the wrong size.
+///
+/// The outline arrives in logical pixels and in coordinates of its own — see
+/// [`shape`] — so this is the one step that turns one into geometry, and the
+/// three flat pieces of a datum differ in nothing else.
+fn lay(curve: &mut Curve, plane: Plane, outline: &[DVec2], lens: Lens) {
+    let scale = f64::from(lens.world_per_pixel(plane.origin.as_vec3()));
+    curve
+        .points
+        .extend(outline.iter().map(|&at| plane.point(at * scale).as_vec3()));
 }
 
 /// Where a depth arrow stands and which way it points, as the frame its outline
