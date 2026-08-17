@@ -751,6 +751,30 @@ pub(crate) fn mark_centre(
     anchor + mark_turn(drawing, placed).lift_world() * camera.world_per_pixel(anchor, viewport)
 }
 
+/// How far a mark's box stands off the point it names, in the world.
+///
+/// **What a drag on a number has to give back, every frame.** The box floats
+/// clear of the geometry so the figure can be read, and a placement says where
+/// the *point* goes — so a press lands in the box while the change writes the
+/// anchor, and the two differ by exactly this.
+///
+/// Read afresh rather than kept from the press, because it is not a constant.
+/// Two things move it mid-drag and they move it differently. A mark sharing its
+/// place with another rises a lane to clear it, and carrying it away leaves it
+/// nothing to clear — one step, once, on the first frame. And a *radius* stands
+/// off along its own leader, which runs out through wherever the number was put:
+/// drag the number and the frame it stands off in turns with it, continuously.
+/// A correction taken once at the press holds for the first and never for the
+/// second.
+pub(crate) fn mark_standoff(
+    placed: Mark,
+    drawing: Drawing<'_>,
+    camera: &Camera,
+    viewport: Viewport,
+) -> Vec3 {
+    mark_centre(placed, drawing, camera, viewport) - placed.world(drawing)
+}
+
 /// How the mark for `placed` is laid in the drawing's plane.
 ///
 /// One statement, read twice: the run is given it, and whatever stands in the

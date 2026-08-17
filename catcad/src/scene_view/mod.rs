@@ -479,10 +479,17 @@ impl SceneView {
                             to: movable.along.offset_at(to),
                         }
                         .into(),
+                        // Where the *box* should land, less where the box stands
+                        // off the point a placement names — read as it is now,
+                        // because a radius's standoff turns with the number and
+                        // a stacked mark's drops a lane the moment it moves. A
+                        // frame behind, and that is what makes it converge: each
+                        // frame corrects with the last one's answer, and a drag
+                        // is many frames.
                         Grabbed::Label(constraint) => Change::Place {
                             sketch,
                             constraint,
-                            at: to,
+                            at: to - self.label_standoff(constraint, drawing, document),
                         }
                         .into(),
                         Grabbed::Growing(along) => Choice::Set {
@@ -1016,6 +1023,24 @@ impl SceneView {
         prompt::footprint(self.corners.iter().copied(), camera, viewport)
     }
 
+    /// How far the mark for `constraint` stands off the point it names, as the
+    /// drawing last laid it out.
+    ///
+    /// Zero where the drawing has not placed it, which is a frame that has not
+    /// drawn one rather than a mark without a standoff — and a drag that started
+    /// on it has one already.
+    fn label_standoff(
+        &self,
+        constraint: ConstraintId,
+        drawing: Drawing<'_>,
+        document: &Document,
+    ) -> Vec3 {
+        let Some((placed, viewport)) = self.placed(constraint).zip(self.viewport()) else {
+            return Vec3::ZERO;
+        };
+        paint::mark_standoff(placed.mark, drawing, &document.camera(), viewport)
+    }
+
     /// What `aimed` is over in `scene`, or `None` where it is over nothing the
     /// layout names.
     ///
@@ -1198,9 +1223,20 @@ impl SceneView {
                     // again — the lane it rises in is a fact about every other
                     // mark, and a second opinion about it would be a number that
                     // jumped by exactly one lane.
-                    Grabbed::Label(id) => self
-                        .placed(id)
-                        .map_or(Vec3::ZERO, |placed| placed.mark.world(drawing) - hit.world),
+                    //
+                    // The whole standoff and not the lane's share of it, because
+                    // it is given back a frame at a time rather than once — see
+                    // [`paint::mark_standoff`]. What the press records is where
+                    // the *box* sat relative to the cursor, and every frame of
+                    // the drag puts the box back there.
+                    Grabbed::Label(id) => self.placed(id).map_or(Vec3::ZERO, |placed| {
+                        paint::mark_centre(
+                            placed.mark,
+                            drawing,
+                            &document.camera(),
+                            aimed.viewport(),
+                        ) - hit.world
+                    }),
                     _ => Vec3::ZERO,
                 };
                 Some(Held {

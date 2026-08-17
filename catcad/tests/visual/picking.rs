@@ -1,4 +1,5 @@
-//! What a press on what the drawing drew actually finds.
+//! What a press on what the drawing drew actually finds, and what a drag does
+//! with it.
 //!
 //! Here rather than beside the app's own tests because a mark is pickable only
 //! once a frame has laid it out: how far a run reaches is the shaper's answer,
@@ -7,11 +8,22 @@
 //! mark somewhere, the renderer lays it out, and a pick finds it — is a rendered
 //! frame.
 
-use aperture::{Aim, Facing, Scene, Tag, Viewport};
+use aperture::{Aim, Camera, Facing, Scene, Tag, Viewport};
 use catcad::CatCad;
-use glam::{UVec2, Vec2};
+use glam::{UVec2, Vec2, Vec3};
 use palantir::internals::headless_test_gpu;
-use palantir::{InputEvent, OffscreenHost, wgpu};
+use palantir::{InputEvent, OffscreenHost, PointerButton, wgpu};
+
+/// The target every frame below is drawn into, in *physical* pixels.
+const PHYSICAL: UVec2 = UVec2::new(1200, 900);
+
+/// Physical pixels to the logical one, which is what a display set to any scale
+/// but 1 hands the application.
+///
+/// Not 1, and that is the whole reason it is stated: a run is laid out by the
+/// shader in the target's pixels and picked in logical ones, so every factor
+/// between the two is invisible at 1 and wrong everywhere else.
+const RASTER: f32 = 1.5;
 
 /// A target of [`PHYSICAL`] for a headless host to draw the app into.
 fn target(gpu: &palantir::internals::HeadlessTestGpuLease) -> wgpu::Texture {
@@ -42,13 +54,27 @@ fn viewport() -> Viewport {
     ))
 }
 
-/// Where every mark the app drew has its box, as the tag that reports it and the
-/// middle of the box on screen.
+/// One mark the app drew, read off the scene it last painted.
 ///
-/// Read off the scene the app last painted, which is the only place the answer
-/// exists: where a mark stands is `paint`\'s, how far it reaches is the shaper\'s,
-/// and the two meet only in a run that has been drawn.
-fn boxes(app: &CatCad) -> Vec<(String, Tag, Vec2)> {
+/// A named result rather than a tuple, and the fields are what the two sweeps
+/// below ask between them: one wants the box on screen to hover, the other wants
+/// it in the world to measure a drag against. Both start from the same walk, and
+/// the walk is the only place the answer exists — where a mark stands is
+/// `paint`'s, how far it reaches is the shaper's, and the two meet only in a run
+/// that has been drawn.
+#[derive(Debug, Clone)]
+struct Drawn {
+    tag: Tag,
+    content: String,
+    /// The middle of the box in the world: the point the run names, carried by
+    /// the lift. See `paint::mark_centre`.
+    middle: Vec3,
+    /// The plane the run is laid in.
+    normal: Vec3,
+}
+
+/// Every mark the app drew, in the order the scene holds them.
+fn drawn(app: &CatCad) -> Vec<Drawn> {
     let renderer = app.renderer().borrow();
     let camera = *renderer.camera();
     let mut found = Vec::new();
@@ -57,16 +83,25 @@ fn boxes(app: &CatCad) -> Vec<(String, Tag, Vec2)> {
         let Facing::Turned(turn) = text.facing else {
             panic!("a mark is laid in its sketch plane");
         };
-        // The lift carries the point the run names, and the run is centred on
-        // what it carries. See `paint::mark_centre`.
         let step = camera.world_per_pixel(text.position, viewport());
-        let middle = text.position + turn.lift_world() * step;
-        let cursor = camera
-            .screen_of(middle, viewport())
-            .expect("a drawn mark is somewhere the projection draws");
-        found.push((text.content.clone(), tag, cursor));
+        found.push(Drawn {
+            tag,
+            content: text.content.clone(),
+            middle: text.position + turn.lift_world() * step,
+            normal: turn.normal,
+        });
     }
     found
+}
+
+/// Where `mark`'s box sits on screen, seen through the camera the app last
+/// painted with.
+fn on_screen(app: &CatCad, mark: &Drawn) -> Vec2 {
+    app.renderer()
+        .borrow()
+        .camera()
+        .screen_of(mark.middle, viewport())
+        .expect("a drawn mark is somewhere the projection draws")
 }
 
 /// **A mark answers a hover over the whole of its box, not only over the middle
@@ -102,10 +137,16 @@ fn a_mark_answers_a_hover_over_all_of_its_box() {
     host.frame_offscreen(&target, RASTER, &mut app);
     host.frame_offscreen(&target, RASTER, &mut app);
 
-    let drawn = boxes(&app);
-    let every: Vec<Tag> = drawn.iter().map(|(_, tag, _)| *tag).collect();
+    let marks: Vec<(Drawn, Vec2)> = drawn(&app)
+        .into_iter()
+        .map(|mark| {
+            let at = on_screen(&app, &mark);
+            (mark, at)
+        })
+        .collect();
+    let every: Vec<Tag> = marks.iter().map(|(mark, _)| mark.tag).collect();
     let mut answered = 0;
-    for (content, tag, middle) in &drawn {
+    for (mark, middle) in &marks {
         // Any mark, off the middle, rather than this one. Marks stack and stand
         // beside each other, so a few pixels off one box is sometimes inside its
         // neighbour\'s and the neighbour rightly answers — which is a question
@@ -116,8 +157,8 @@ fn a_mark_answers_a_hover_over_all_of_its_box() {
             host.frame_offscreen(&target, RASTER, &mut app);
             of.iter().any(|tag| app.hovering(*tag))
         };
-        let (middle, content) = (*middle, content);
-        if !hover(middle, &[*tag]) {
+        let (middle, content) = (*middle, &mark.content);
+        if !hover(middle, &[mark.tag]) {
             continue;
         }
         answered += 1;
@@ -142,17 +183,6 @@ fn a_mark_answers_a_hover_over_all_of_its_box() {
         "only {answered} marks answered a hover at all — the sweep asked nothing"
     );
 }
-
-/// The target every frame below is drawn into, in *physical* pixels.
-const PHYSICAL: UVec2 = UVec2::new(1200, 900);
-
-/// Physical pixels to the logical one, which is what a display set to any scale
-/// but 1 hands the application.
-///
-/// Not 1, and that is the whole reason it is stated: a run is laid out by the
-/// shader in the target's pixels and picked in logical ones, so every factor
-/// between the two is invisible at 1 and wrong everywhere else.
-const RASTER: f32 = 1.5;
 
 /// **Every mark the drawing draws answers a press in the middle of its own
 /// box.**
@@ -281,5 +311,122 @@ fn every_mark_is_picked_where_it_is_drawn() {
                 "{projection:?} at yaw {yaw} pitch {pitch}: only {marks} marks were drawn"
             );
         }
+    }
+}
+
+/// Where the cursor ray meets the plane through `on`, or `None` looking along it.
+fn on_plane(camera: &Camera, cursor: Vec2, on: Vec3, normal: Vec3) -> Option<Vec3> {
+    let ray = camera.ray_through(cursor, viewport());
+    let along = normal.dot(ray.direction);
+    (along.abs() > 1e-4)
+        .then(|| ray.origin + ray.direction * ((on - ray.origin).dot(normal) / along))
+}
+
+/// **A number dragged by its box travels exactly as far as the cursor does.**
+///
+/// The whole of what a grab promises, and the one thing a placement can get
+/// wrong in a way nothing else notices: the drawing is still correct after a
+/// jump, the solve is untouched, and only the number has moved out from under
+/// the pointer.
+///
+/// It caught two, and they are the same defect at two speeds. A dimension sharing
+/// its place with its own relation rises a lane to clear it, and carrying it
+/// away leaves it nothing to clear — so it dropped thirteen logical pixels, about
+/// its own height, on the first frame of every drag; the demo has two of those.
+/// And a **radius** stands off along its own leader, which runs out through
+/// wherever the number was put — so dragging it turns the frame it stands off
+/// in, continuously, and it never caught the cursor at all.
+///
+/// Compared against the **drawn box**, not the anchor the change writes. The
+/// anchor tracked the cursor perfectly through both bugs; what moved was the
+/// standoff between the two, which is exactly what a test of the anchor cannot
+/// see. The radius is the sharp case: nothing taken once at the press can hold a
+/// standoff that turns, so it is what says the correction is read afresh.
+#[test]
+fn a_number_dragged_by_its_box_travels_with_the_cursor() {
+    let gpu = headless_test_gpu();
+    let opened = *CatCad::build().camera_mut();
+    for (yaw, pitch, zoom) in [
+        (opened.yaw, opened.pitch, 1.0f32),
+        (opened.yaw, opened.pitch, 0.6),
+    ] {
+        // One app and one host for the whole camera. A drag leaves the number it
+        // moved where it put it, which is nothing to the next one — and building
+        // a fresh app per mark is what made this the slowest test in the suite.
+        let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
+        let target = target(&gpu);
+        let mut app = CatCad::build();
+        {
+            let camera = app.camera_mut();
+            camera.yaw = yaw;
+            camera.pitch = pitch;
+            camera.distance = opened.distance * zoom;
+        }
+        host.frame_offscreen(&target, RASTER, &mut app);
+        host.frame_offscreen(&target, RASTER, &mut app);
+
+        let mut carried = 0;
+        for nth in 0..drawn(&app).len() {
+            let Drawn {
+                tag,
+                content,
+                middle: was,
+                normal,
+            } = drawn(&app)[nth].clone();
+            // Relations carry no placement and rightly do not move; a radius is
+            // the gap named above.
+            if !content.chars().any(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            let camera = *app.renderer().borrow().camera();
+            let Some(cursor) = camera.screen_of(was, viewport()) else {
+                continue;
+            };
+
+            host.ui().on_input(InputEvent::PointerMoved(cursor));
+            host.frame_offscreen(&target, RASTER, &mut app);
+            // Only where the press would take the number. Elsewhere it turns the
+            // view, and a number that stayed put is right rather than stuck.
+            if !app.hovering(tag) {
+                continue;
+            }
+            host.ui()
+                .on_input(InputEvent::PointerPressed(PointerButton::Left));
+            host.frame_offscreen(&target, RASTER, &mut app);
+            // Well past palantir's drag latch, so this is a drag and not a click
+            // — and along both axes, since a placement is a pair.
+            let moved = cursor + Vec2::new(21.0, -13.0);
+            host.ui().on_input(InputEvent::PointerMoved(moved));
+            host.frame_offscreen(&target, RASTER, &mut app);
+            host.frame_offscreen(&target, RASTER, &mut app);
+            host.ui()
+                .on_input(InputEvent::PointerReleased(PointerButton::Left));
+            host.frame_offscreen(&target, RASTER, &mut app);
+
+            let now = drawn(&app)
+                .into_iter()
+                .find(|mark| mark.tag == tag)
+                .expect("the mark survived its own drag")
+                .middle;
+            let (Some(from), Some(to)) = (
+                on_plane(&camera, cursor, was, normal),
+                on_plane(&camera, moved, was, normal),
+            ) else {
+                continue;
+            };
+            let off = ((now - was) - (to - from)).length();
+            assert!(
+                off < 0.02,
+                "yaw {yaw} zoom {zoom}: the number {content:?} moved {:?} where the cursor \
+                 carried it {:?} — out by {off}",
+                now - was,
+                to - from,
+            );
+            carried += 1;
+        }
+        assert!(
+            carried >= 4,
+            "yaw {yaw} zoom {zoom}: only {carried} numbers were dragged at all"
+        );
     }
 }

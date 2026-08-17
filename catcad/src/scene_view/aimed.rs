@@ -41,6 +41,17 @@ impl Aimed {
         })
     }
 
+    /// The viewport this aim measures in.
+    ///
+    /// The one it was built with, so anything the caller sizes against the
+    /// screen is sized against the very rect the cursor was measured in. Reading
+    /// it back off the view instead would be reading a second copy — set from
+    /// the same response a phase earlier, and one ordering change away from
+    /// being a different number.
+    pub(super) fn viewport(self) -> Viewport {
+        self.viewport
+    }
+
     /// The pick this cursor makes, seen through `camera`.
     ///
     /// Everything that asks the scene a question about the cursor goes through
