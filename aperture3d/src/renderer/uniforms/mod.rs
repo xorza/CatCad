@@ -69,10 +69,12 @@ pub(super) struct Uniforms {
     /// [`Camera::world_per_clip_w`](crate::Camera::world_per_clip_w).
     ///
     /// Physical rather than logical because the pixels a shader lays a glyph
-    /// out in are the target's: a run's offsets arrive in logical pixels and are
-    /// scaled by `raster_scale` before this is applied, so the two have to be
-    /// counting the same pixel. Picking works the other way round and in logical
-    /// pixels throughout, and the two agree because both factors move together.
+    /// out in are the target's: a run's offsets and its lift alike arrive in
+    /// logical pixels and are scaled by `raster_scale` before this is applied,
+    /// so the two have to be counting the same pixel. Picking works the other
+    /// way round and in logical pixels throughout, and the two agree because
+    /// both factors move together — a length that reached here without the
+    /// scale would be drawn short by exactly it and clicked where it asked for.
     world_per_clip_w: f32,
     /// Nothing, and it has to be here: WGSL rounds a uniform struct up to its
     /// own sixteen-byte alignment, so the five trailing scalars are read out of

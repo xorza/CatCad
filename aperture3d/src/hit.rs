@@ -106,6 +106,26 @@ pub enum Precedence {
     Frame,
 }
 
+impl Precedence {
+    /// How many standings there are, which is what a table kept per standing is
+    /// sized by.
+    pub(crate) const COUNT: usize = 3;
+
+    /// Where this sits in the competition, foremost first — its own order, as
+    /// an index into such a table.
+    ///
+    /// The cast is what the derive above already means: the variants carry no
+    /// data and no discriminants, so where each is written is both what `Ord`
+    /// compares them by and what this counts.
+    pub(crate) const fn nth(self) -> usize {
+        self as usize
+    }
+}
+
+/// Fails the build when a standing is added without [`Precedence::COUNT`]
+/// following it, which would index a table one short of the variants.
+const _: () = assert!(Precedence::Frame.nth() + 1 == Precedence::COUNT);
+
 /// One primitive the cursor was near enough to.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Hit {

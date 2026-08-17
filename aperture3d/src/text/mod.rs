@@ -149,7 +149,7 @@ impl Text {
     /// laid run's own pixels are foreshortened, so a cursor two pixels under a
     /// raked box is further than two in the box's frame — and what the answer is
     /// compared against is a radius in *screen* pixels.
-    fn reach_from(&self, aim: &Aim) -> Option<f32> {
+    fn reach_from(&self, aim: &Aim) -> Option<Reach> {
         let extent = self.extent.get();
         if extent.x <= 0.0 || extent.y <= 0.0 {
             return None;
@@ -158,7 +158,10 @@ impl Text {
         let box_of = Rect::new(origin.x, origin.y, extent.x, extent.y);
         let Facing::Turned(turn) = self.facing else {
             let from_anchor = aim.cursor - aim.screen_of(self.position)?;
-            return Some(aim::reach_to_box(from_anchor, box_of));
+            return Some(Reach {
+                screen: aim::reach_to_box(from_anchor, box_of),
+                at: self.touched(aim, self.position),
+            });
         };
         // What one logical pixel of the run reaches on screen: it is sized
         // against the screen and built in the world, so this is the step between
@@ -172,7 +175,8 @@ impl Text {
         //
         // Bailing here rather than later is what earns the axes below: they are
         // meaningless for a point the projection does not draw.
-        let from_anchor = aim.cursor - aim.screen_of(self.position + turn.lift_world() * step)?;
+        let hangs = self.position + turn.lift_world() * step;
+        let from_anchor = aim.cursor - aim.screen_of(hangs)?;
         // Settled at the run's *unlifted* anchor, both of them, because that is
         // where the vertex shader settles them: it has the anchor's own clip
         // position and nothing else. A lifted point is a few pixels off and
@@ -195,7 +199,43 @@ impl Text {
         // Back out through the same pair, so what is measured is a screen
         // distance however the box is foreshortened.
         let past = aim::into_box(local, box_of);
-        Some((across * past.x + down * past.y).length())
+        Some(Reach {
+            screen: (across * past.x + down * past.y).length(),
+            at: self.touched(aim, hangs),
+        })
+    }
+
+    /// Where the cursor meets the run, in the world, given the point the run's
+    /// box hangs off.
+    ///
+    /// **A run is a box, and a box on a surface seen at an angle is not all at
+    /// one depth.** Where the cursor falls on it decides what is in front of it,
+    /// so a run answering from its anchor answers about a place the cursor is
+    /// not — and on a drawing lying flat that is the whole lower half of every
+    /// label. The face the drawing encloses is coplanar with the label and so
+    /// nearer than the label's *centre* everywhere below it: measured from the
+    /// centre, the bottom half of every number read as being behind the sheet it
+    /// is drawn on and could not be clicked, while the empty space above it
+    /// could.
+    ///
+    /// Read off [`Facing::normal`] rather than off which way the run is set,
+    /// because this is the depth question and that is what the surface a run's
+    /// depth follows is for — the same surface the shader takes its corners'
+    /// depth from, whether it lays them in a plane or slides a screen-space quad
+    /// along one.
+    ///
+    /// A run belonging to no surface has only its anchor's depth, which is also
+    /// what the shader gives every corner of one.
+    fn touched(&self, aim: &Aim, hangs: Vec3) -> Vec3 {
+        let Some(normal) = self.facing.normal() else {
+            return hangs;
+        };
+        let ray = aim.ray();
+        let along = normal.dot(ray.direction);
+        if along.abs() <= GRAZING {
+            return hangs;
+        }
+        ray.origin + ray.direction * ((hangs - ray.origin).dot(normal) / along)
     }
 
     /// Whether the cursor landed on this run.
@@ -207,10 +247,34 @@ impl Text {
     /// still find it.
     pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
         let tag = self.tag?;
-        let screen = self.reach_from(aim)?;
-        (screen <= aim.radius)
-            .then(|| aim.hit(tag, HitAt::Text, self.precedence, self.position, screen))
+        let reach = self.reach_from(aim)?;
+        (reach.screen <= aim.radius)
+            .then(|| aim.hit(tag, HitAt::Text, self.precedence, reach.at, reach.screen))
     }
+}
+
+/// Where a run stands in the world, and how far the cursor fell from the box it
+/// stands in.
+///
+/// The two come out of one measurement and are wanted together: the depth a hit
+/// is ordered and occluded by is a depth *where the run is*, and where the run
+/// is is what the lift decided on the way to answering the reach. Two calls for
+/// them would be two chances to take the depth from the point a run names
+/// rather than from the run.
+///
+/// [`Reach::at`] is what a run standing clear of its geometry makes worth
+/// naming. For a run square to the viewer it is the anchor and nothing has
+/// happened; for one laid in a plane and lifted off the point it names, the
+/// anchor is a place the run is *about* and can be a long way from where it was
+/// drawn — a whole label's width along the plane, which under a grazing view is
+/// most of the depth between the drawing and whatever surface it lies on.
+#[derive(Debug, Clone, Copy)]
+struct Reach {
+    /// How far outside the run's box the cursor fell, in screen pixels, and
+    /// zero anywhere within it.
+    screen: f32,
+    /// Where the run's box hangs — the point it names, carried by the lift.
+    at: Vec3,
 }
 
 /// A run is an overlay like the other three, and not a [`Flatten`]: how many
@@ -514,6 +578,15 @@ pub struct Axes {
 /// foreshortening all the way to nothing, which is what being in the plane means
 /// and what the drawing should show.
 const EDGE_ON: f32 = 1e-3;
+
+/// How square the surface a run's depth follows has to be to the cursor's ray
+/// before the depth is read off that surface rather than off the run's anchor.
+///
+/// The cosine between the two, so a thousandth is within a twentieth of a degree
+/// of the ray lying *in* the surface — where the intersection runs off to
+/// infinity and the anchor's own depth is the only honest answer left. See
+/// [`Text::touched`].
+const GRAZING: f32 = 1e-3;
 
 /// How far a step along `world` carries on screen where a point of clip
 /// position `here` is drawn: pixels per world unit, with y running down.

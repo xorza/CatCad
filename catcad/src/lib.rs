@@ -733,6 +733,15 @@ pub(crate) mod internals {
         pub fn camera_mut(&mut self) -> &mut Camera {
             self.document.camera_mut()
         }
+
+        /// Whether the pointer is over the thing `tag` names.
+        ///
+        /// Published for the visual suite, which is the only place a mark can
+        /// be hovered at all: a run is pickable only once a frame has laid it
+        /// out, and laying one out wants a device.
+        pub fn hovering(&self, tag: aperture::Tag) -> bool {
+            self.view.hovering(tag)
+        }
     }
 }
 

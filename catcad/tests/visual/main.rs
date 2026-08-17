@@ -24,6 +24,7 @@ use palantir::internals::headless_test_gpu;
 use palantir::{App, Configure, GpuPaint, GpuView, OffscreenHost, Sizing, Ui, WindowToken, wgpu};
 
 mod goldens;
+mod picking;
 
 use std::cell::RefCell;
 use std::rc::Rc;

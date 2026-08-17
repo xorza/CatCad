@@ -994,15 +994,24 @@ impl<'a> Lettering<'a> {
         }
     }
 
-    /// What `text` inks, as the only thing in the scene.
+    /// What `text` inks, as the only thing in the scene, on a display of one
+    /// physical pixel to the logical one.
     fn ink(&mut self, text: Text) -> Ink {
+        self.ink_at(text, 1.0)
+    }
+
+    /// The same, seen on a display of `scale` physical pixels to the logical
+    /// one — which leaves the target and the framing alone and changes only what
+    /// a logical pixel of the run is worth.
+    fn ink_at(&mut self, text: Text, scale: f32) -> Ink {
         {
             let mut view = self.pane.view.borrow_mut();
             let texts = &mut view.scene_mut().texts;
             texts.clear();
             texts.push(text);
         }
-        self.host.frame_offscreen(&self.target, 1.0, &mut self.pane);
+        self.host
+            .frame_offscreen(&self.target, scale, &mut self.pane);
         drawn_ink(self.gpu, &self.target)
     }
 }
@@ -1194,6 +1203,42 @@ fn a_lifted_run_only_changes_direction_when_it_comes_round() {
     assert!(
         (min - was_min).abs().max_element() <= 2 && (max - was_max).abs().max_element() <= 2,
         "coming round moved the run from {was_min:?}..{was_max:?} to {min:?}..{max:?}"
+    );
+
+    // **And the twelve are logical pixels, like the shaping they stand off
+    // from.** On a display of two physical pixels to the logical one the box
+    // doubles about its anchor, and so must the lift — a lift left in physical
+    // pixels would hold at twelve on the target and so at six logical, while
+    // `Text::pick` measures the box a full twelve out.
+    //
+    // Read off the box's *middle*, which is the anchor the run is centred on
+    // carried by the lift and nothing else: its edges move with the type size as
+    // well, and only one of those two is under test.
+    const SCALE: f32 = 2.0;
+    let middle = |ink: Ink| (ink.min.as_ivec2() + ink.max.as_ivec2()) / 2;
+    let (sat, went) = (
+        middle(
+            view.ink_at(
+                run()
+                    .anchored(Vec2::splat(0.5))
+                    .facing(Facing::Turned(upward(0.01))),
+                SCALE,
+            ),
+        ),
+        middle(
+            view.ink_at(
+                run()
+                    .anchored(Vec2::splat(0.5))
+                    .facing(Facing::Turned(upward(0.01).lifted(lift))),
+                SCALE,
+            ),
+        ),
+    );
+    let want = (-lift.y * SCALE) as i32;
+    assert!(
+        (went.x - sat.x - want).abs() <= 2 && (went.y - sat.y).abs() <= 2,
+        "at {SCALE} physical pixels to the logical one a lift of {lift:?} moved \
+         the run from {sat:?} to {went:?}, where it owes {want} across"
     );
 }
 

@@ -3,7 +3,7 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Camera, Extent, Highlight, Lit, Motion, Renderer, Tint, Viewport};
+use aperture::{Camera, Extent, Highlight, Lit, Motion, Renderer, Tag, Tint, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Rect, ResponseState, Sense,
@@ -330,6 +330,20 @@ impl SceneView {
     /// picked out. See `settle`.
     pub(crate) fn hovered(&self) -> Option<Part> {
         self.hovered
+    }
+
+    /// Whether the pointer is over the thing `tag` names, as this frame's
+    /// layout resolved it.
+    ///
+    /// A question rather than the tag itself, because the view keeps what it is
+    /// hovering as a [`Part`] and a tag is only how the *scene* reported it —
+    /// answering with one would mean keeping a second copy of the map that
+    /// already turns one into the other.
+    pub(crate) fn hovering(&self, tag: Tag) -> bool {
+        self.layout
+            .names()
+            .get(tag)
+            .is_some_and(|part| Some(part) == self.hovered)
     }
 
     /// Show the view, and put what the pointer over it asks for in `intents`.
@@ -1145,6 +1159,21 @@ impl SceneView {
                         let held = growing?.depth - along.offset_at(hit.world);
                         along.normal() * held as f32
                     }
+                    // A number stands *off* the point it names, for the reason
+                    // the arrow above stands off its face: the box floats clear
+                    // of the geometry so it can be read, and a press lands in
+                    // the box while what a placement says is where the point
+                    // under it goes. Without this the number leaps its own
+                    // clearance the moment it is touched.
+                    //
+                    // The lift comes back off by reading where the drawing
+                    // anchored the mark rather than by working the clearance out
+                    // again — the lane it rises in is a fact about every other
+                    // mark, and a second opinion about it would be a number that
+                    // jumped by exactly one lane.
+                    Grabbed::Label(id) => self
+                        .placed(id)
+                        .map_or(Vec3::ZERO, |placed| placed.mark.world(drawing) - hit.world),
                     _ => Vec3::ZERO,
                 };
                 Some(Held {
@@ -1191,10 +1220,11 @@ pub(crate) mod internals {
     /// pick.
     #[cfg(test)]
     mod looking {
+        use aperture::Tag;
+
         use crate::part::Part;
         use crate::preview::Preview;
         use crate::scene_view::SceneView;
-        use aperture::Tag;
 
         impl SceneView {
             /// The shape a tool is half-way through, for a test that wants to

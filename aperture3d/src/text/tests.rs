@@ -466,6 +466,53 @@ fn a_lift_floats_the_box_off_the_point_the_run_names() {
         0.0
     );
     assert!(lifted.pick(&aim_at(sat, 0.0)).is_none());
+
+    // **And the hit is reported on the run's own surface, under the cursor.**
+    // What a hit's world position feeds is the depth it is ordered and occluded
+    // by, and neither the point a run *names* nor the middle of its box is where
+    // the cursor is: a box lying in a plane seen at an angle is not all at one
+    // depth, so a run answering from one place answers about a place the cursor
+    // is not. The face a drawing encloses is coplanar with the numbers on it and
+    // therefore nearer than any one point of them over half their area — which
+    // read as the lower half of every label being behind the sheet it is drawn
+    // on while the empty space above it was not.
+    //
+    // Two claims, and they are the whole of it: the answer lies in the run's own
+    // plane, and it lies under the cursor. Swept across the box rather than taken
+    // at one point, since a single point is exactly what the old answer got
+    // right.
+    let viewport = Viewport::new(UVec2::new(100, 100));
+    for cursor in [carried, Vec2::new(52.0, 63.0), Vec2::new(88.0, 73.0)] {
+        let hit = lifted.pick(&aim_at(cursor, 0.0)).expect("in the lift");
+        assert!(
+            hit.world.z.abs() < 1e-5,
+            "at {cursor:?} the run answered from {:?}, off the plane it is set in",
+            hit.world
+        );
+        let back = head_on()
+            .screen_of(hit.world, viewport)
+            .expect("a point of the run is drawn");
+        assert!(
+            back.abs_diff_eq(cursor, 1e-3),
+            "at {cursor:?} the run answered from {:?}, which is drawn at {back:?}",
+            hit.world
+        );
+    }
+
+    // The middle of the box is where the two old answers and this one agree, and
+    // it is what says the sweep above is measuring a plane rather than a mistake:
+    // twelve pixels down the plane's own down — world −y for this turn — from the
+    // point the run names, times what a pixel is worth there.
+    let step = head_on().world_per_pixel(Vec3::ZERO, viewport);
+    let hangs = Vec3::new(0.0, -12.0 * step, 0.0);
+    let at_corner = lifted
+        .pick(&aim_at(Vec2::new(50.0, 62.0), 0.0))
+        .expect("on the corner the box hangs from");
+    assert!(
+        at_corner.world.abs_diff_eq(hangs, 1e-5),
+        "the box hangs from {hangs:?} and the run answered from {:?}",
+        at_corner.world
+    );
 }
 
 /// **A centred box holds its place when the run comes round; an off-centre one

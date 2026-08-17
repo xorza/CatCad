@@ -113,7 +113,13 @@ fn text_vs(
         // is in the plane's own axes rather than the run's, so the mirror and
         // the half turn above leave it where it is. A run that comes round to
         // stay readable only changes direction.
-        let hangs = anchor + lift * step;
+        //
+        // Through `raster_scale` like the shaping above, and for the same
+        // reason: `step` is world per *physical* pixel, and a lift arrives in
+        // logical ones. Without it a lift shrank with the display's scale while
+        // picking — which is in logical pixels throughout — went on measuring
+        // the box where the lift asked for it.
+        let hangs = anchor + lift * (u.raster_scale * step);
         let corner_world =
             hangs + axes.advance * (px.x * step) + axes.down * (px.y * step);
         out.clip = u.view_proj * vec4<f32>(corner_world, 1.0);
