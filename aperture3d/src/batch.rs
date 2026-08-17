@@ -59,10 +59,9 @@ impl<T> Batch<T> {
     ///
     /// Three more marks downstream keep this discipline by hand rather than
     /// sharing a type with it — the flattened records, the triangle list and the
-    /// glyph sheet. A `Dirty(bool)` exposing only `mark` and `take` was measured
-    /// against them: seventeen sites rewritten one for one, every wrapper still
-    /// wanted for its own name and doc, and fifteen lines added for a rule the
-    /// four already hold.
+    /// glyph sheet. A `Dirty(bool)` exposing only `mark` and `take` would add
+    /// lines rather than remove them: each of the four still wants its own name
+    /// and its own doc, and the rule they hold is one line apiece.
     pub(crate) fn take_dirty(&mut self) -> bool {
         std::mem::take(&mut self.dirty)
     }

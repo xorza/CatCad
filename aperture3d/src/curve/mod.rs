@@ -43,12 +43,9 @@ pub struct Curve {
 impl Curve {
     /// An open white curve of default width through `points`.
     ///
-    /// The general form, and published as such alongside [`Curve::closed`] even
-    /// where an application draws nothing but two-point strokes: a polyline that
-    /// can join its ends is what this type says it is, and a shape nothing
-    /// outside the crate can construct is not a published one. Both are one
-    /// caller away from earning their keep, and neither costs anything until
-    /// then.
+    /// The general form. A polyline that can join its ends is what this type is
+    /// — see [`Curve::points`] and [`Curve::closed`] — and a shape nothing
+    /// outside the crate could construct would not be one this crate published.
     pub fn new(points: Vec<Vec3>) -> Self {
         Self {
             points,

@@ -16,25 +16,10 @@ pub struct Vertex {
 /// A triangle list: `indices` reads three entries per triangle, each an index
 /// into `vertices`. Triangles wind counter-clockwise seen from the outside,
 /// which is what the renderer's back-face culling expects.
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct Mesh {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
-}
-
-// Written out for `clone_from` alone — see the note on [`Object`](crate::Object)'s.
-impl Clone for Mesh {
-    fn clone(&self) -> Self {
-        Self {
-            vertices: self.vertices.clone(),
-            indices: self.indices.clone(),
-        }
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-        self.vertices.clone_from(&source.vertices);
-        self.indices.clone_from(&source.indices);
-    }
 }
 
 impl Mesh {

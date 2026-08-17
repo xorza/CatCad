@@ -55,7 +55,7 @@ const FACE_BIAS: i32 = 2048;
 /// through it is already in the target to be mixed with — see `Renderer::paint`.
 /// And it writes no depth, so one face does not cull the next; they are sorted
 /// back to front instead, because blending is order-dependent whether or not
-/// anything is written — see [`Order`](crate::renderer::cpu::triangles::Order).
+/// anything is written — see [`Order`].
 ///
 /// It still *tests* depth, which is what keeps the drawing's own layering: a
 /// stroke of the sketch this face belongs to is coplanar with it and a rung
@@ -79,12 +79,11 @@ const FACE_OPACITY: f32 = 0.45;
 /// over one hides it and a datum's axis standing over another sketch hides
 /// that. Both are what the scene actually is.
 ///
-/// It was briefly the other way, with the pass writing no depth so that a
-/// control could never take a pixel from the drawing. That is not a rung on a
-/// ladder, it is an exemption from one — and two passes that both decline to
-/// write cannot sort against each other at all, so the faces (which decline for
-/// a real reason, being blended) simply painted over the controls in draw
-/// order, whichever was actually in front.
+/// Writing no depth, so that a control could never take a pixel from the
+/// drawing, is not a rung on this ladder but an exemption from it — and two
+/// passes that both decline to write cannot sort against each other at all, so
+/// the faces (which decline for a real reason, being blended) would paint over
+/// the controls in draw order whichever was actually in front.
 const GIZMO_BIAS: i32 = FACE_BIAS * 2;
 
 /// Strokes and rims, which are the drawing itself and read over the faces they

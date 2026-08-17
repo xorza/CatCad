@@ -31,13 +31,9 @@ pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 1.5;
 ///
 /// Picking is deliberately absent, though a scene asks all five for it. Those
 /// are five different algorithms wearing a three-line frame — take the tag,
-/// compare against the reach, build the hit — and hoisting the frame onto a
-/// trait was tried and measured at forty-four lines *more* than it saved, since
-/// naming the result each kind hands back costs more than the frame does. If it
-/// is revisited: a label's bare `aim.radius` is exactly `aim.reach(0.0)`, a
-/// stroke's reach test can leave its loop, because its nearest segment being out
-/// of reach means all of them were, and an object has no reach test at all — the
-/// cursor is over it or it is not.
+/// compare against the reach, build the hit — and the frame is the cheap part:
+/// what each kind hands back differs, so hoisting it costs a named result per
+/// kind and buys three lines.
 pub(crate) trait Primitive {
     /// What a pick that lands on it reports, and what a highlight names.
     fn tag(&self) -> Option<Tag>;

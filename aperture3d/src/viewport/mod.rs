@@ -131,7 +131,7 @@ impl Viewport {
 
     /// Where a point on the viewport sits in NDC. `cursor` counts down from
     /// the top-left corner, the way a pointer position arrives.
-    pub fn ndc_from_pixel(&self, cursor: Vec2) -> Vec2 {
+    pub(crate) fn ndc_from_pixel(&self, cursor: Vec2) -> Vec2 {
         let unit = cursor / self.extent;
         Vec2::new(unit.x * 2.0 - 1.0, 1.0 - unit.y * 2.0)
     }

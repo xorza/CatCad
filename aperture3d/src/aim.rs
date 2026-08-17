@@ -64,9 +64,10 @@ impl Aim {
 
     /// The ray the cursor casts into the world.
     ///
-    /// The same one a hit was ordered along, so a caller resolving it against a
-    /// plane and a caller reading [`Hit::world`] are answering about one
-    /// viewpoint rather than two.
+    /// The same one every hit here was ordered along, which is what makes a
+    /// depth read off one comparable with a place resolved against the other —
+    /// see [`Hit::world`], and [`Motion`](crate::Motion), which resolves through
+    /// this aim rather than a viewpoint of its own.
     pub fn ray(&self) -> Ray {
         self.ray
     }

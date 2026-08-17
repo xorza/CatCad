@@ -1,11 +1,10 @@
 //! How a run is laid in a plane: which surface, which way round on it, and how
 //! far off the point it names.
 //!
-//! Apart from [`Text`](crate::Text) because it stands on its own: three readers
-//! agree by reading [`Turn::axes`] — the box is built along it, a pick brings
-//! the cursor onto it, and an application standing something of its own over a
-//! run measures from it — and the vertex shader is a fourth that cannot call it
-//! and builds the same two rules instead.
+//! Apart from [`Text`](crate::Text) because it stands on its own: [`Turn::axes`]
+//! is where a laid run's frame is settled, the box is built along what it
+//! answers and a pick brings the cursor onto the same pair — and the vertex
+//! shader cannot call it, so it builds the same two rules instead.
 
 use crate::viewport::Viewport;
 use glam::{Mat4, Vec2, Vec3};
@@ -19,7 +18,7 @@ use glam::{Mat4, Vec2, Vec3};
 ///
 /// Both are sized in *logical pixels*. Turning a run changes the direction its
 /// box runs in and nothing else: it does not foreshorten, and the zoom cannot
-/// reach it. See [`Text`].
+/// reach it. See [`Text`](crate::Text).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum Facing {
     /// Square to the viewer, running across the screen.
@@ -130,22 +129,21 @@ pub struct Turn {
     /// along `normal × right`.
     ///
     /// **Nothing the projection decides reaches it, and that is the whole of
-    /// what it is for.** An offset written into [`Text::anchor`] rides in the
+    /// what it is for.** An offset written into [`Text::anchor`](crate::Text) rides in the
     /// run's *own* frame, and both rules that settle that frame move it: the
     /// mirror that keeps a run readable from behind its plane, and the half turn
     /// that keeps it the right way up. Either swings the box off whatever it was
     /// standing clear of. Stated here it is fixed in the plane, so a run that
     /// comes round to stay readable only changes direction.
     ///
-    /// Resolved in the world rather than against [`Turn::axes`] — see
-    /// [`Turn::carried`] — because those carry *two* camera-dependent signs, the
-    /// mirror and the half turn, and a lift that went through them would pick up
-    /// both.
+    /// Resolved in the world rather than against [`Turn::axes`], because those
+    /// carry *two* camera-dependent signs — the mirror and the half turn — and a
+    /// lift that went through them would pick up both.
     ///
     /// Which leaves one thing for the caller: a box hung off a *centred* anchor
     /// is mapped onto itself by that half turn, so its place holds outright. One
     /// hung off any other fraction is reflected through the lifted point, which
-    /// is a real answer but rarely the wanted one — see [`Text::anchor`].
+    /// is a real answer but rarely the wanted one — see [`Text::anchor`](crate::Text).
     ///
     /// In pixels rather than world units, like everything else about a laid
     /// run's size: how far a mark stands off the line it measures is a thing you
@@ -208,10 +206,9 @@ impl Turn {
     /// with both signs settled.
     ///
     /// **The whole of how a laid run is placed, and the one statement of it.**
-    /// Three readers agree by reading this: the box is built along these, a pick
-    /// brings the cursor onto them, and an application standing something of its
-    /// own over the run measures from them. The vertex shader is a fourth and
-    /// cannot call it, so it builds the same two rules — the same arrangement
+    /// The box is built along these and a pick brings the cursor onto them, so
+    /// what is drawn and what is clicked cannot disagree. The vertex shader
+    /// cannot call it and builds the same two rules — the same arrangement
     /// [`MIN_RUN_PX`](crate::Viewport) is under, where one number is stated in
     /// Rust and handed to the shader.
     ///
@@ -243,7 +240,7 @@ impl Turn {
     /// edge-on: the tests are a winding and a sign, both of which a collapsed
     /// projection answers deterministically, and a run whose plane covers no
     /// screen is one nobody can read or click either way. What refuses it is the
-    /// area its box comes to — see [`Text::pick`].
+    /// area its box comes to, which is what a pick refuses on.
     pub fn axes(self, at: Vec3, view_proj: Mat4, viewport: Viewport) -> Axes {
         let here = view_proj * at.extend(1.0);
         let across = self.normal.cross(self.right);

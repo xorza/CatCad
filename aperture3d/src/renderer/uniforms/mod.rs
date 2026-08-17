@@ -117,11 +117,10 @@ pub(super) struct Uniforms {
     /// something in *screen* space — a stroke's width, a marker's diameter, a
     /// glyph quad square to the viewer — and ends in NDC, where the target's
     /// pixels are physical and the scale belongs. A run laid in a plane is the
-    /// exception: its corners are world positions, and it was reaching them
-    /// through the scale *and* a per-physical-pixel step. Two quantities went
-    /// that way, the glyph offsets and the lift, and only one of them
-    /// remembered — so the standoff was drawn at two-thirds of what picking
-    /// measured on a display at 1.5.
+    /// exception: its corners are world positions, so a per-physical-pixel step
+    /// beside the scale would be two quantities to spend and two chances to
+    /// spend only one — which on a display at 1.5 draws a standoff at two-thirds
+    /// of what picking measures.
     ///
     /// This is the number picking already divides by:
     /// `Aim::world_per_pixel` is `Camera::world_per_clip_w` of the *logical*
@@ -147,12 +146,12 @@ pub(super) struct Uniforms {
 /// scalars satisfy it by filling the next sixteen rather than by having this
 /// number rewritten.
 ///
-/// **A bare `const` item, and anonymous.** An associated const is evaluated
+/// **A bare `const` item, and anonymous.** An associated const is evaluated only
 /// where something reaches it, and a `let () = Self::…` in a method of this very
-/// struct turned out not to reach — the record trait's own guard gets there only
-/// because a generic parameter forces it at every impl. This form depends on
-/// nothing to fire, and having no name is what keeps it from reading as a
-/// constant somebody forgot to use.
+/// struct does not: the record trait's own guard gets there only because a
+/// generic parameter forces it at every impl. This form depends on nothing to
+/// fire, and having no name is what keeps it from reading as a constant somebody
+/// forgot to use.
 const _: () = assert!(size_of::<Uniforms>().is_multiple_of(16));
 
 impl Uniforms {

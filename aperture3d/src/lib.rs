@@ -86,6 +86,18 @@
 //! [`Styled::precedence`], the third of that trait's setters, and leaving it
 //! unsaid enters a primitive on shape alone.
 
+// The docs are load-bearing here — every threshold and every layering decision
+// is argued for in one — so a link that has stopped resolving is a reader sent
+// to a page that no longer says what it was cited for. Denied rather than
+// warned so that a rename cannot leave one behind.
+//
+// `--document-private-items` is what puts the private half under these: rustdoc
+// only checks links in items it documents, so a guard tested against a
+// `pub(crate)` item passes without ever having looked.
+#![deny(rustdoc::broken_intra_doc_links)]
+#![deny(rustdoc::private_intra_doc_links)]
+#![deny(rustdoc::redundant_explicit_links)]
+
 pub(crate) mod aim;
 pub(crate) mod batch;
 pub(crate) mod camera;

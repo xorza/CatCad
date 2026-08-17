@@ -101,7 +101,7 @@ pub enum Precedence {
     ///
     /// Behind every drawn thing, that is — not behind the surfaces they are
     /// drawn on. A surface is never ranked against a drawn thing at all, so
-    /// this says nothing about one: see [`Hit::aim_order`].
+    /// this says nothing about one: see how a pick orders what it found.
     Frame,
 }
 
@@ -260,9 +260,9 @@ mod tests {
     /// [`Hit::aim_order`]. That a face loses to what is drawn *on* it is not
     /// said here at all: it is the shape of
     /// [`Scene::nearest`](crate::Scene::nearest), which takes the least of the
-    /// overlays and falls through to the ground only when none survived. The
-    /// assertion that used to stand here asked this ordering to answer for it,
-    /// and answered for a comparison the pick never makes.
+    /// overlays and falls through to the ground only when none survived — so
+    /// asking it of this ordering would be asking about a comparison the pick
+    /// never makes.
     #[test]
     fn two_surfaces_rank_by_what_they_are_for() {
         let face = hit(Precedence::Shaped, HitAt::Surface, 0.0);

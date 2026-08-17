@@ -289,7 +289,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // And dropping the highlight owes the vertices once more, to take the
     // colour back off. This is the half a batch cannot learn from the new set
     // alone — it no longer names the object at all.
-    renderer.clear_highlights();
+    renderer.highlight_all(&[]);
     renderer.refresh(1.0);
     assert!(
         renderer.cpu.solids.vertices_to_upload().is_some(),
@@ -564,7 +564,7 @@ fn refilled_records_hold_only_what_the_scene_holds_now() {
     });
     renderer.refresh(1.0);
     assert_eq!(renderer.cpu.curves.lit.len(), 1);
-    renderer.clear_highlights();
+    renderer.highlight_all(&[]);
     renderer.refresh(1.0);
     assert!(
         renderer.cpu.curves.lit.is_empty(),
@@ -674,7 +674,7 @@ fn a_highlight_repeats_only_what_its_tag_names() {
     renderer.refresh(1.0);
     let cpu = &renderer.cpu;
     assert!(cpu.curves.lit.len() == 1 && cpu.points.lit.len() == 1 && cpu.rings.lit.is_empty());
-    renderer.clear_highlights();
+    renderer.highlight_all(&[]);
     renderer.refresh(1.0);
     let cpu = &renderer.cpu;
     assert!(cpu.curves.lit.is_empty() && cpu.rings.lit.is_empty() && cpu.points.lit.is_empty());
@@ -713,13 +713,13 @@ fn re_lighting_what_is_already_lit_dirties_nothing() {
     });
     assert!(renderer.relight);
     renderer.relight = false;
-    renderer.clear_highlights();
+    renderer.highlight_all(&[]);
     assert!(renderer.relight);
 
     // And clearing what is already clear is the same nothing: a pointer over
     // empty space says so every frame it does not move.
     renderer.relight = false;
-    renderer.clear_highlights();
+    renderer.highlight_all(&[]);
     assert!(!renderer.relight, "nothing was lit to drop");
 }
 

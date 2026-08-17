@@ -13,7 +13,7 @@ use glam::{Mat4, Vec3};
 /// object and linear-RGB, matching palantir's CPU-side colour space.
 ///
 /// `Default` draws nothing — its mesh is empty.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Object {
     pub mesh: Mesh,
     /// Object-to-world transform.
@@ -30,30 +30,6 @@ pub struct Object {
 impl Default for Object {
     fn default() -> Self {
         Self::new(Mesh::default())
-    }
-}
-
-// Written out for `clone_from`, which `derive(Clone)` leaves at the trait's
-// default — `*self = source.clone()`, a fresh mesh every call. A caller
-// refilling a batch of these is writing a document's geometry over the objects
-// it already holds, and the vertices are what make that worth not re-allocating.
-impl Clone for Object {
-    fn clone(&self) -> Self {
-        Self {
-            mesh: self.mesh.clone(),
-            transform: self.transform,
-            color: self.color,
-            precedence: self.precedence,
-            tag: self.tag,
-        }
-    }
-
-    fn clone_from(&mut self, source: &Self) {
-        self.mesh.clone_from(&source.mesh);
-        self.transform = source.transform;
-        self.color = source.color;
-        self.precedence = source.precedence;
-        self.tag = source.tag;
     }
 }
 

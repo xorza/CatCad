@@ -97,7 +97,8 @@ pub struct Text {
     ///
     /// A [`Cell`] because it is a memo and not state. What a run *is* — where it
     /// is anchored, what it says, how it is styled — is the caller's, and a
-    /// [`Batch`] marks itself whenever any of that is written so the renderer
+    /// [`Batch`](crate::Batch) marks itself whenever any of that is written so the
+    /// renderer
     /// knows to flatten it again. How wide the run came out is the answer to
     /// that flatten rather than a part of it, and recording it through `&mut`
     /// would mark the batch, so every measured batch would ask to be measured

@@ -136,8 +136,8 @@ fn ring_vs(
     // Guarded before the divide rather than after it. Edge-on the rim covers
     // no screen area and the tangential rate goes to zero, where `normalize`
     // answers NaN — and a NaN carried into the fragment stage takes the whole
-    // band with it. The floor below used to be applied to the *result*, which
-    // is one step too late to catch it.
+    // band with it — which a floor on the *result* would be one step too late
+    // to catch.
     let square_to = vec2<f32>(-tangential_px.y, tangential_px.x);
     let runs = length(square_to);
     let across = select(vec2<f32>(1.0, 0.0), square_to / runs, runs > MIN_PX_PER_WORLD);
@@ -164,11 +164,11 @@ fn ring_vs(
 // carried in: the rate is smooth around the rim where the radius is not, so one
 // interpolates honestly and the other has to be measured where it is used.
 //
-// Which is what this stopped asking `fwidth` for. That answers `|dpdx| +
-// |dpdy|` where the gradient's own length was wanted — the box's diagonal
-// against its hypotenuse, up to `SQRT_2` too long and longest exactly where a
-// rim runs diagonally across the grid — and a rate too large understates the
-// distance to the rim, which draws the band wider than it was authored.
+// Which is why `fwidth` is not what carries it. That answers `|dpdx| + |dpdy|`
+// where the gradient's own length is wanted — the box's diagonal against its
+// hypotenuse, up to `SQRT_2` too long and longest exactly where a rim runs
+// diagonally across the grid — and a rate too large understates the distance to
+// the rim, which draws the band wider than it was authored.
 @fragment
 fn ring_fs(in: RingVsOut) -> @location(0) vec4<f32> {
     let from_rim_px = abs(length(in.plane) - in.radius) * in.px_per_radius;

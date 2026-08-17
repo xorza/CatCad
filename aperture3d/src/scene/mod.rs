@@ -53,7 +53,7 @@ pub struct Scene {
     ///
     /// It also picks as the opposite of what it is made of: a stroke of the
     /// drawing is ranked by shape like anything else, where a control outranks
-    /// every kind there is. See [`Curve::pick`].
+    /// every kind there is. See [`Scene::grabbed`](Scene).
     pub gizmos: Batch<Curve>,
 }
 
@@ -156,9 +156,10 @@ impl Scene {
     /// **Nothing it answers with lies behind a surface the aim crosses.**
     /// Hiding is a fact about the eye: what is in front is what the cursor is
     /// over, and [`Precedence`] decides between what *survives* being in front
-    /// rather than what is visible. Stated because it was once made conditional
-    /// — a surface set aside was let off hiding the drawing being worked in, and
-    /// a number a whole plane back took the click from the sheet in front of it.
+    /// rather than what is visible. Stated because it is the rule most worth
+    /// making conditional and least able to survive it: let a surface set aside
+    /// off hiding the drawing worked in, and a number a whole plane back takes
+    /// the click from the sheet in front of it.
     ///
     /// ```text
     /// nearest(aim) is an overlay  ⟹  its depth ≤ the frontmost surface's, within BEHIND
@@ -223,10 +224,11 @@ impl Scene {
     /// frame is furniture *around* a drawing and yields its click to the
     /// geometry it frames — which is geometry it is level with, being drawn
     /// around it in the same plane. Something a plane away behind it is not what
-    /// it frames, and had been taking the click all the same: [`Hit::aim_order`]
-    /// settles precedence before depth, and a frame ranks below every kind of
-    /// geometry there is, so a datum lost to any edge of any sketch however far
-    /// off that sketch lay. Different rule, same depth, one number.
+    /// it frames, and would take the click all the same without this:
+    /// [`Hit::aim_order`] settles precedence before depth, and a frame ranks
+    /// below every kind of geometry there is, so a datum would lose to any edge
+    /// of any sketch however far off that sketch lay. Different rule, same
+    /// depth, one number.
     ///
     /// Both are filters rather than rules inside the ordering, because "behind
     /// *that* one" is a fact about a pair where an ordering has to be a fact
@@ -237,18 +239,11 @@ impl Scene {
     /// the shortcut is exact rather than a guess. The walk keeps how far off the
     /// frontmost surface is and which surface the ordering prefers of *all* of
     /// them — neither of which depends on the order they are met in. If the
-    /// preferred one is not hidden by the frontmost, it is the answer outright:
-    /// it is the least by the ordering over every hit, so it is the least over
-    /// the survivors too, and it is one of them. Only where the ordering's
-    /// favourite is itself hidden does the answer have to be looked for among
-    /// what is left, and only then is a second walk paid for.
-    ///
-    /// Worth the four extra lines: a mesh is picked by casting the ray at every
-    /// triangle it holds, and a drawing's faces are triangulated afresh each
-    /// frame, so the meshes are where a pick spends most of its arithmetic.
-    /// Measured on a scene the size the application runs at — four solids, three
-    /// filled faces, and the overlays over them — this took the ground from
-    /// 1.80 µs to 0.94 µs and the whole pick from 4.39 µs to 3.65 µs.
+    /// preferred one is not hidden by the frontmost it is the answer outright,
+    /// being the least by the ordering over every hit and so over the survivors
+    /// too; only where the favourite is itself hidden is a second walk paid for.
+    /// A mesh is picked by casting the ray at every triangle it holds, which is
+    /// worth halving.
     fn occluders(&self, aim: &Aim) -> Occluders {
         let meshes = || self.faces.iter().chain(self.solids.iter());
         let mut front = f32::INFINITY;

@@ -221,8 +221,8 @@ impl Ring {
         /// What the steps have to overcome is angular, so it is the rim's size
         /// on screen rather than the number of arcs that decides how many are
         /// wanted. Twenty-two leaves the bracket at `0.618²² ≈ 2.3e-5` of the
-        /// arc, inside the `(2/3)²⁴ ≈ 5.9e-5` the ternary search this replaced
-        /// reached — and reaches it in twenty-four probes against forty-eight.
+        /// arc in twenty-four probes, where a ternary search needs forty-eight
+        /// to reach `(2/3)²⁴ ≈ 5.9e-5`.
         const RIM_STEPS: usize = 22;
 
         /// The reciprocal of the golden ratio, which is the fraction a

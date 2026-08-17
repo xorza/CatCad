@@ -46,10 +46,10 @@ fn the_near_plane_rides_with_the_orbit_distance() {
 
     // Framing re-derives the distance, and the near plane follows that too
     // rather than staying wherever the last dolly left it.
-    let at = Vec3::splat(-3.0);
-    let mut extent = Extent { min: at, max: at };
-    extent.include(Vec3::splat(3.0));
-    camera.frame(extent);
+    camera.frame(Extent {
+        min: Vec3::splat(-3.0),
+        max: Vec3::splat(3.0),
+    });
     assert!(camera.distance > 1.0, "{camera:?}");
     assert!((camera.z_near() - camera.distance / 5.0).abs() < 1e-6);
 
@@ -378,10 +378,10 @@ fn frame_pulls_back_until_the_bounds_fit() {
     camera.orbit(0.7, 0.3);
     let (yaw, pitch) = (camera.yaw, camera.pitch);
 
-    let at = Vec3::new(2.0, 2.0, 2.0);
-    let mut extent = Extent { min: at, max: at };
-    extent.include(Vec3::new(6.0, 6.0, 6.0));
-    camera.frame(extent);
+    camera.frame(Extent {
+        min: Vec3::splat(2.0),
+        max: Vec3::splat(6.0),
+    });
 
     // The centre is what the eye now orbits, and the angles are untouched
     // — framing chooses a distance, not a viewpoint.

@@ -112,9 +112,10 @@ impl Renderer {
 
     /// Light `lit` and nothing else, dropping whatever was lit before.
     ///
-    /// What a hover wants, where the answer is one thing and the previous
-    /// answer is of no interest. A call that changes nothing dirties nothing,
-    /// as with [`Renderer::highlight_all`] below it.
+    /// [`Renderer::highlight_all`] of a set with one thing in it, and here only
+    /// to spare the slice around a single value — an answer that *is* one thing
+    /// is the common one. Lighting none of them has no such wrapper: the empty
+    /// set says it without hiding that clearing and setting are one door.
     pub fn highlight_only(&mut self, lit: Lit) {
         self.highlight_all(&[lit]);
     }
@@ -127,7 +128,8 @@ impl Renderer {
     /// entries to arrive back at what it already has.
     ///
     /// Where two entries name one tag the first wins, so a caller that wants
-    /// one look to beat another puts it first.
+    /// one look to beat another puts it first. The empty set is how a pointer
+    /// over nothing puts everything out.
     ///
     /// Compared before it is written, so re-asking for the set already in force
     /// dirties nothing — which is what lets this be called unconditionally
@@ -135,16 +137,6 @@ impl Renderer {
     /// clear followed by a run of single additions.
     pub fn highlight_all(&mut self, lit: &[Lit]) {
         self.relight |= self.highlights.set_all(lit);
-    }
-
-    /// Drop every highlight, leaving the scene drawn as nothing but itself.
-    ///
-    /// The other half of what a hover asks for — a pointer over nothing has no
-    /// [`Lit`] to name — and free in the same way when there was nothing lit to
-    /// drop, since lighting none of them is [`Renderer::highlight_all`] asked
-    /// for the empty set and answers on the same terms.
-    pub fn clear_highlights(&mut self) {
-        self.highlight_all(&[]);
     }
 
     /// Bring the CPU mirror up to date with the scene, and the scene's own
@@ -258,8 +250,8 @@ impl GpuPaint for Renderer {
         let frame = Frame::of(ctx);
         let uniforms = Uniforms::of(&self.camera, frame);
         // Refilled before the GPU is borrowed, since both want `self`. Each kind
-        // answers for itself, so a hover over a marker no longer rebuilds the
-        // highlights of the strokes and rims it passed over.
+        // answers for itself, so a hover over a marker leaves the highlights of
+        // the strokes and rims it passed over alone.
         self.refresh(frame.raster_scale);
         // Split so the two mirrors are borrowed apart: the uploads read one
         // while writing the other.
