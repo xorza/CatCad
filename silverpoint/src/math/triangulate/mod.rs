@@ -66,9 +66,19 @@ impl Cutter {
     /// counterclockwise and each hole clockwise, whichever way they arrived, so
     /// a loop that came off a face walk and one typed by hand fill the same.
     ///
-    /// An outline of fewer than three corners fills to nothing, and so does one
-    /// with no area — there is no triangle in either, and answering with an
-    /// empty fill is the honest thing rather than a degenerate one.
+    /// An outline of fewer than three corners fills to nothing, and so does a
+    /// triple with no area in it — there is no triangle in either, and
+    /// answering with an empty fill is the honest thing rather than a
+    /// degenerate one.
+    ///
+    /// A *longer* run of corners with no area between them is the one case that
+    /// still comes back with triangles in it, and they are slivers covering
+    /// nothing. No ear can be cut from such a contour, so every corner leaves
+    /// through the fallback in [`clip`], which emits rather than stalling —
+    /// deliberately, because what reaches it in earnest is a self-crossing
+    /// contour, where handing back nothing would leave a hole in the drawing.
+    /// Guarding that too would trade a sliver nobody can see for a region that
+    /// does not get drawn.
     pub(crate) fn polygon(&mut self, around: &[DVec2], holes: &Loops<DVec2>, into: &mut Fill) {
         into.clear();
         if around.len() < 3 {
@@ -277,7 +287,12 @@ fn clip(corners: &[DVec2], contour: &mut Vec<u32>, into: &mut Vec<[u32; 3]>) {
         };
         into.extend(cut(contour, at));
     }
-    if contour.len() == 3 {
+    // On the same terms every ear was cut on. Nothing tests the last three the
+    // way [`ear`] tests all the rest, so this is the one place a sliver could
+    // reach the caller — and an outline with no area is nothing *but* this
+    // triple, which is what makes it fill to nothing rather than to a
+    // degenerate triangle.
+    if contour.len() == 3 && turn(corners, contour, 0) > SLIVER {
         into.push([contour[0], contour[1], contour[2]]);
     }
 }
@@ -320,6 +335,47 @@ fn turn(corners: &[DVec2], contour: &[u32], at: usize) -> f64 {
 fn triangle(corners: &[DVec2], contour: &[u32], at: usize) -> [DVec2; 3] {
     let step = |offset: usize| corners[contour[(at + offset) % contour.len()] as usize];
     [step(contour.len() - 1), step(0), step(1)]
+}
+
+#[cfg(test)]
+mod measuring {
+    use crate::math::triangulate::{Fill, sweep};
+    use glam::DVec2;
+
+    impl Fill {
+        /// The three corners of one triangle.
+        fn corners_of(&self, at: usize) -> [DVec2; 3] {
+            self.triangles[at].map(|corner| self.corners[corner as usize])
+        }
+
+        /// One triangle's own sweep — twice its signed area, positive where it
+        /// is wound counterclockwise.
+        ///
+        /// Through [`sweep`] rather than off the two edges, so a triangle is
+        /// measured by the same reading that decided which way its outline was
+        /// walked in the first place.
+        pub(super) fn sweep_of(&self, at: usize) -> f64 {
+            sweep(&self.corners_of(at))
+        }
+
+        /// Where the middle of one triangle falls.
+        pub(super) fn middle(&self, at: usize) -> DVec2 {
+            let [a, b, c] = self.corners_of(at);
+            (a + b + c) / 3.0
+        }
+
+        /// Everything the triangles cover, signed.
+        ///
+        /// Equal to the polygon's own area exactly when they tile it without gap
+        /// or overlap and all wind one way — which is the whole of what a
+        /// triangulation has to promise. Read from the arrangement's tests too,
+        /// where a filled face is held against the area it says it encloses.
+        pub(crate) fn covered(&self) -> f64 {
+            (0..self.triangles.len())
+                .map(|at| self.sweep_of(at) / 2.0)
+                .sum()
+        }
+    }
 }
 
 #[cfg(test)]

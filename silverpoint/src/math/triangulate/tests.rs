@@ -19,35 +19,12 @@ fn corners(of: &[(f64, f64)]) -> Vec<DVec2> {
     of.iter().map(|&(x, y)| DVec2::new(x, y)).collect()
 }
 
-/// The three corners of one triangle.
-fn spans(fill: &Fill, at: usize) -> [DVec2; 3] {
-    fill.triangles[at].map(|corner| fill.corners[corner as usize])
-}
-
-/// Twice the signed area of one triangle — positive counterclockwise.
-fn turned(fill: &Fill, at: usize) -> f64 {
-    let [a, b, c] = spans(fill, at);
-    (b - a).perp_dot(c - a)
-}
-
-/// Everything the triangles cover, signed. Equal to the polygon's own area
-/// exactly when they tile it without gap or overlap and all wind one way —
-/// which is the whole of what a triangulation has to promise.
-fn covered(fill: &Fill) -> f64 {
-    (0..fill.triangles.len())
-        .map(|at| turned(fill, at) / 2.0)
-        .sum()
-}
-
-/// Every triangle turns counterclockwise, and none of them is a sliver.
+/// Every triangle turns counterclockwise.
+///
+/// Winding alone. How *large* each one is, is what `covered` reads, and a
+/// sliver that survived clipping still turns the right way.
 fn all_wound_forward(fill: &Fill) -> bool {
-    (0..fill.triangles.len()).all(|at| turned(fill, at) > 0.0)
-}
-
-/// Where the middle of a triangle falls.
-fn middle(fill: &Fill, at: usize) -> DVec2 {
-    let [a, b, c] = spans(fill, at);
-    (a + b + c) / 3.0
+    (0..fill.triangles.len()).all(|at| fill.sweep_of(at) > 0.0)
 }
 
 /// A square comes out as two triangles that cover it exactly, whichever way
@@ -57,7 +34,7 @@ fn a_square_fills_both_ways_round() {
     let square = corners(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
     let fill = polygon(&square, &[]);
     assert_eq!(fill.triangles.len(), 2);
-    assert!((covered(&fill) - 4.0).abs() < 1e-12, "{}", covered(&fill));
+    assert!((fill.covered() - 4.0).abs() < 1e-12, "{}", fill.covered());
     assert!(all_wound_forward(&fill));
 
     // The same square wound the other way fills to the same area, still
@@ -67,7 +44,7 @@ fn a_square_fills_both_ways_round() {
     backwards.reverse();
     let flipped = polygon(&backwards, &[]);
     assert_eq!(flipped.triangles.len(), 2);
-    assert!((covered(&flipped) - 4.0).abs() < 1e-12);
+    assert!((flipped.covered() - 4.0).abs() < 1e-12);
     assert!(all_wound_forward(&flipped));
 }
 
@@ -86,7 +63,7 @@ fn a_concave_outline_leaves_its_notch_empty() {
         (0.0, 3.0),
     ]);
     let fill = polygon(&ell, &[]);
-    assert!((covered(&fill) - 5.0).abs() < 1e-12, "{}", covered(&fill));
+    assert!((fill.covered() - 5.0).abs() < 1e-12, "{}", fill.covered());
     assert!(all_wound_forward(&fill));
     // Six corners, so four triangles — a simple loop always cuts to two fewer
     // triangles than it has corners.
@@ -95,7 +72,7 @@ fn a_concave_outline_leaves_its_notch_empty() {
     // Nothing sits in the bite. A fan from corner 0 would put a triangle
     // straight across it, which is the failure this catches.
     for at in 0..fill.triangles.len() {
-        let at = middle(&fill, at);
+        let at = fill.middle(at);
         assert!(
             !(at.x > 1.0 && at.y > 1.0),
             "a triangle covered the notch at {at:?}"
@@ -111,7 +88,7 @@ fn a_hole_is_punched_out_of_what_surrounds_it() {
     let fill = polygon(&outer, &[hole]);
 
     // Sixteen less the one taken out of it.
-    assert!((covered(&fill) - 15.0).abs() < 1e-12, "{}", covered(&fill));
+    assert!((fill.covered() - 15.0).abs() < 1e-12, "{}", fill.covered());
     assert!(all_wound_forward(&fill));
     // Four corners outside and four in, plus the bridge walked out and back:
     // ten around the loop, so eight triangles.
@@ -119,7 +96,7 @@ fn a_hole_is_punched_out_of_what_surrounds_it() {
 
     // And none of them lies over the hole.
     for at in 0..fill.triangles.len() {
-        let at = middle(&fill, at);
+        let at = fill.middle(at);
         let within = at.x > 1.0 && at.x < 2.0 && at.y > 1.0 && at.y < 2.0;
         assert!(!within, "a triangle covered the hole at {at:?}");
     }
@@ -135,11 +112,11 @@ fn two_holes_are_both_punched_out() {
     let fill = polygon(&outer, &[near, far]);
 
     // Twenty-four, less two of two apiece.
-    assert!((covered(&fill) - 20.0).abs() < 1e-12, "{}", covered(&fill));
+    assert!((fill.covered() - 20.0).abs() < 1e-12, "{}", fill.covered());
     assert!(all_wound_forward(&fill));
 
     for at in 0..fill.triangles.len() {
-        let at = middle(&fill, at);
+        let at = fill.middle(at);
         let in_hole =
             |left: f64, right: f64| at.x > left && at.x < right && at.y > 1.0 && at.y < 3.0;
         assert!(!in_hole(1.0, 2.0) && !in_hole(4.0, 5.0), "covered {at:?}");
@@ -161,11 +138,11 @@ fn a_hole_wound_like_its_outline_is_still_cut_out() {
 
     let one = polygon(&outer, &[hole]);
     let other = polygon(&outer, &[backwards]);
-    assert!((covered(&one) - 15.0).abs() < 1e-12, "{}", covered(&one));
+    assert!((one.covered() - 15.0).abs() < 1e-12, "{}", one.covered());
     assert!(
-        (covered(&other) - 15.0).abs() < 1e-12,
+        (other.covered() - 15.0).abs() < 1e-12,
         "{}",
-        covered(&other)
+        other.covered()
     );
 }
 
@@ -190,7 +167,7 @@ fn a_flattened_ring_fills_to_the_area_it_encloses() {
     assert!(all_wound_forward(&fill));
     // A 64-gon covers a shade under its circle, by the same fraction at both
     // radii, so the difference lands just under 3π.
-    let area = covered(&fill);
+    let area = fill.covered();
     let exact = std::f64::consts::PI * (4.0 - 1.0);
     assert!(
         area < exact && area > exact * 0.997,
@@ -200,14 +177,21 @@ fn a_flattened_ring_fills_to_the_area_it_encloses() {
     // Nothing was laid across the middle.
     for triangle in 0..fill.triangles.len() {
         assert!(
-            middle(&fill, triangle).length() > 1.0,
+            fill.middle(triangle).length() > 1.0,
             "a triangle reached into the hole"
         );
     }
 }
 
-/// Outlines with no triangle in them fill to nothing rather than to a
-/// degenerate one.
+/// Outlines with no triangle in them cover nothing, and the one that is nothing
+/// *but* a degenerate triangle comes back empty rather than carrying it.
+///
+/// The emptiness is the half worth asserting. Every triangle a fill hands back
+/// is one the caller flattens, indexes and rasterizes, so a sliver in the list
+/// is work done to draw no pixels — and the last three corners are the one
+/// place one could reach the caller, being the only triple `ear` never tests.
+/// Reading the *area* instead would pass either way: a degenerate triangle
+/// covers nothing, which is exactly what makes it invisible here.
 #[test]
 fn an_outline_with_no_area_fills_to_nothing() {
     assert!(polygon(&[], &[]).triangles.is_empty());
@@ -217,7 +201,26 @@ fn an_outline_with_no_area_fills_to_nothing() {
             .triangles
             .is_empty()
     );
-    // Three corners in a line enclose nothing, so there is nothing to cut.
+
+    // Three corners in a line enclose nothing, so there is nothing to cut and
+    // nothing comes back — not one triangle of no area.
     let flat = polygon(&corners(&[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0)]), &[]);
-    assert!(covered(&flat).abs() < 1e-12, "{}", covered(&flat));
+    assert!(flat.triangles.is_empty(), "{:?}", flat.triangles);
+
+    // A longer run of them is the stated limit rather than an oversight: no ear
+    // can be cut from a contour with no area anywhere, so every corner leaves
+    // through the fallback, which emits to keep a self-crossing contour from
+    // going undrawn. What holds whatever the length is that nothing is covered.
+    for run in [
+        &[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0)][..],
+        &[(0.0, 0.0), (1.0, 0.0), (2.0, 0.0), (3.0, 0.0), (4.0, 0.0)][..],
+    ] {
+        let along = polygon(&corners(run), &[]);
+        assert!(
+            along.covered().abs() < 1e-12,
+            "{} corners in a line covered {}",
+            run.len(),
+            along.covered()
+        );
+    }
 }

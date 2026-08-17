@@ -13,24 +13,6 @@ use std::f64::consts::PI;
 /// really encloses rather than against whatever the flattening happened to give.
 const FINE: f64 = 1e-5;
 
-/// One arrangement of `sketch`.
-fn arranged(sketch: &Sketch) -> Arrangement {
-    let mut found = Arrangement::default();
-    found.rebuild(sketch);
-    found
-}
-
-/// A closed run of segments through the given corners.
-fn outline(sketch: &mut Sketch, corners: &[(f64, f64)]) {
-    let placed: Vec<_> = corners
-        .iter()
-        .map(|&(x, y)| sketch.add_point(DVec2::new(x, y)))
-        .collect();
-    for at in 0..placed.len() {
-        sketch.add_segment(placed[at], placed[(at + 1) % placed.len()]);
-    }
-}
-
 /// How much space `prism` shuts in, read off the triangles alone.
 ///
 /// The divergence theorem over a closed surface: a sixth of the sum of
@@ -72,11 +54,8 @@ fn volume(prism: &Prism<'_>) -> f64 {
 #[test]
 fn a_prism_closes_the_right_way_out_whichever_way_it_grows() {
     let mut sketch = Sketch::default();
-    outline(
-        &mut sketch,
-        &[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
-    );
-    let found = arranged(&sketch);
+    sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
     assert_eq!(found.faces().len(), 1);
 
     let up = Prism::new(&found, 0, Plane::GROUND, 3.0);
@@ -125,7 +104,7 @@ fn a_hole_is_carried_through_and_its_wall_faces_inward() {
     let outer = sketch.add_circle(middle, 3.0);
     let bore = sketch.add_circle(middle, 1.0);
 
-    let found = arranged(&sketch);
+    let found = Arrangement::of(&sketch);
     let ring = found
         .faces()
         .iter()
@@ -172,7 +151,7 @@ fn a_wall_swept_off_an_arc_carries_the_curves_own_normal() {
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(DVec2::new(1.0, -2.0));
     let rim = sketch.add_circle(middle, 3.0);
-    let found = arranged(&sketch);
+    let found = Arrangement::of(&sketch);
     let prism = Prism::new(&found, 0, Plane::GROUND, 1.0);
 
     let mut skinner = Skinner::default();
@@ -233,11 +212,8 @@ fn a_wall_swept_off_an_arc_carries_the_curves_own_normal() {
 #[test]
 fn a_prism_of_no_depth_is_well_formed_and_encloses_nothing() {
     let mut sketch = Sketch::default();
-    outline(
-        &mut sketch,
-        &[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
-    );
-    let found = arranged(&sketch);
+    sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
     let flat = Prism::new(&found, 0, Plane::GROUND, 0.0);
 
     // Six faces, the same six a prism of any depth has: two caps and a wall per

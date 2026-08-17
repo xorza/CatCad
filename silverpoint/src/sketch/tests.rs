@@ -107,12 +107,7 @@ fn removing_a_point_takes_what_was_built_on_it_and_nothing_else() {
         segment: trailing,
     });
     let survivor = sketch.add_constraint(Constraint::Vertical { a: near, b: far });
-    let spanning = sketch.add_constraint(Constraint::Distance {
-        a: before,
-        b: after,
-        along: Along::Shortest,
-        dimension: Dimension::new(2.0),
-    });
+    let spanning = sketch.add_constraint(Constraint::apart(before, after, 2.0));
 
     sketch.remove_point(doomed);
 
@@ -319,12 +314,7 @@ fn a_cleanup_removes_spare_geometry_and_keeps_everything_depended_on() {
     // And one on `a` that a *dimension* is written against. Duplicated like the
     // first, but something is said about it, so it stays.
     let measured = sketch.add_point(DVec2::new(0.0, 0.0));
-    sketch.add_constraint(Constraint::Distance {
-        a: measured,
-        b,
-        along: Along::Shortest,
-        dimension: Dimension::new(3.0),
-    });
+    sketch.add_constraint(Constraint::apart(measured, b, 3.0));
 
     // A second edge drawn over the first through its own points, and a third
     // written the other way round — both duplicates of it.
@@ -534,10 +524,9 @@ fn a_dimension_is_fitted_to_what_the_drawing_measures_and_dropped_where_it_measu
 #[test]
 fn two_edges_run_together_or_cross_and_a_collapsed_one_does_neither() {
     let mut sketch = Sketch::default();
-    let at = |sketch: &mut Sketch, x, y| sketch.add_point(DVec2::new(x, y));
-    let (a, b) = (at(&mut sketch, 0.0, 0.0), at(&mut sketch, 3.0, 4.0));
-    let (c, d) = (at(&mut sketch, 1.0, 0.0), at(&mut sketch, 4.0, 4.0));
-    let (e, f) = (at(&mut sketch, 0.0, 0.0), at(&mut sketch, 4.0, 3.0));
+    let (a, b) = (sketch.add_point_at(0.0, 0.0), sketch.add_point_at(3.0, 4.0));
+    let (c, d) = (sketch.add_point_at(1.0, 0.0), sketch.add_point_at(4.0, 4.0));
+    let (e, f) = (sketch.add_point_at(0.0, 0.0), sketch.add_point_at(4.0, 3.0));
     let first = sketch.add_segment(a, b);
     let beside = sketch.add_segment(c, d);
     let across = sketch.add_segment(e, f);
@@ -560,7 +549,7 @@ fn two_edges_run_together_or_cross_and_a_collapsed_one_does_neither() {
 
     // And a pair at an angle meets where it meets. `first` runs (0,0)→(3,4) and
     // this one (0,4)→(3,0), so they cross at half of each: (1.5, 2).
-    let (over, under) = (at(&mut sketch, 0.0, 4.0), at(&mut sketch, 3.0, 0.0));
+    let (over, under) = (sketch.add_point_at(0.0, 4.0), sketch.add_point_at(3.0, 0.0));
     let slanting = sketch.add_segment(over, under);
     assert_eq!(sketch.crossing(first, slanting), Some(DVec2::new(1.5, 2.0)));
     // Either way round names the same place, which is the whole of what a
@@ -571,14 +560,14 @@ fn two_edges_run_together_or_cross_and_a_collapsed_one_does_neither() {
     // are asked. `across` runs (0,0)→(4,3) and this one is well off the end of
     // it — a crossing bounded to the edges would answer nothing here, and what
     // a mark about the angle between them needs is somewhere to stand.
-    let (far, farther) = (at(&mut sketch, 8.0, 0.0), at(&mut sketch, 8.0, 2.0));
+    let (far, farther) = (sketch.add_point_at(8.0, 0.0), sketch.add_point_at(8.0, 2.0));
     let beyond = sketch.add_segment(far, farther);
     assert_eq!(sketch.crossing(across, beyond), Some(DVec2::new(8.0, 6.0)));
 
     // An edge whose ends have met has no direction of its own, so it is
     // parallel to nothing and crosses nothing — not even another that has also
     // collapsed, which is the pair that would divide by nothing at all.
-    let (here, there) = (at(&mut sketch, 2.0, 2.0), at(&mut sketch, 2.0, 2.0));
+    let (here, there) = (sketch.add_point_at(2.0, 2.0), sketch.add_point_at(2.0, 2.0));
     let collapsed = sketch.add_segment(here, there);
     let also = sketch.add_segment(there, here);
     assert!(!sketch.parallel(collapsed, first));
@@ -606,12 +595,7 @@ fn a_number_put_somewhere_comes_back_there_and_moves_no_geometry() {
     let mut sketch = Sketch::default();
     let a = sketch.add_point(DVec2::ZERO);
     let b = sketch.add_point(DVec2::new(3.0, 4.0));
-    let id = sketch.add_constraint(Constraint::Distance {
-        a,
-        b,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
+    let id = sketch.add_constraint(Constraint::apart(a, b, 5.0));
     let label = |sketch: &Sketch| {
         Measurement::of(sketch, sketch.constraint(id))
             .expect("a distance is a dimension")
@@ -675,10 +659,9 @@ fn a_number_put_somewhere_comes_back_there_and_moves_no_geometry() {
 #[test]
 fn a_point_drops_onto_an_edges_line_or_onto_the_edge_itself() {
     let mut sketch = Sketch::default();
-    let at = |sketch: &mut Sketch, x, y| sketch.add_point(DVec2::new(x, y));
     // Four along the x axis from the origin, so the foot of anything is its own
     // x and the ends are at 0 and 4.
-    let (a, b) = (at(&mut sketch, 0.0, 0.0), at(&mut sketch, 4.0, 0.0));
+    let (a, b) = (sketch.add_point_at(0.0, 0.0), sketch.add_point_at(4.0, 0.0));
     let edge = sketch.add_segment(a, b);
 
     // Square onto the middle: both answers are the foot, and it is the point's
@@ -702,7 +685,7 @@ fn a_point_drops_onto_an_edges_line_or_onto_the_edge_itself() {
     // An edge whose ends have met has no line to drop onto and no edge to land
     // on, so neither answers — where dividing by the length it does not have
     // would answer a NaN.
-    let (c, d) = (at(&mut sketch, 7.0, 7.0), at(&mut sketch, 7.0, 7.0));
+    let (c, d) = (sketch.add_point_at(7.0, 7.0), sketch.add_point_at(7.0, 7.0));
     let collapsed = sketch.add_segment(c, d);
     assert_eq!(sketch.foot_on(collapsed, middle), None);
     assert_eq!(sketch.nearest_on(collapsed, middle), None);

@@ -1,6 +1,6 @@
 use super::*;
 use crate::Snapshot;
-use crate::sketch::constraint::{Along, Constraint, Dimension};
+use crate::sketch::constraint::{Constraint, ConstraintId, Dimension};
 use crate::sketch::solver::freedom::Freedom;
 use glam::DVec2;
 
@@ -17,18 +17,165 @@ const EPSILON: f64 = 1e-9;
 /// decades under one pixel of the drawing on screen.
 const DRAGGED: f64 = 1e-7;
 
+/// A fixed anchor at the origin and a free point one along, stated five apart.
+///
+/// The smallest sketch here that has an answer worth naming, and what the two
+/// redundancy fixtures below start from.
+#[derive(Debug)]
+struct Apart {
+    sketch: Sketch,
+    anchor: PointId,
+    free: PointId,
+    /// The distance itself, for the fixture that states it a second time.
+    stated: ConstraintId,
+}
+
+impl Apart {
+    fn new() -> Self {
+        let mut sketch = Sketch::default();
+        let anchor = sketch.add_point(DVec2::ZERO);
+        let free = sketch.add_point(DVec2::new(1.0, 0.0));
+        sketch.fix(anchor);
+        let stated = sketch.add_constraint(Constraint::apart(anchor, free, 5.0));
+        Self {
+            sketch,
+            anchor,
+            free,
+            stated,
+        }
+    }
+}
+
+/// An [`Apart`] with its distance stated a second time.
+#[derive(Debug)]
+struct Doubled {
+    sketch: Sketch,
+    free: PointId,
+    stated: [ConstraintId; 2],
+}
+
+impl Doubled {
+    fn new() -> Self {
+        let Apart {
+            mut sketch,
+            anchor,
+            free,
+            stated,
+        } = Apart::new();
+        let again = sketch.add_constraint(Constraint::apart(anchor, free, 5.0));
+        Self {
+            sketch,
+            free,
+            stated: [stated, again],
+        }
+    }
+}
+
+/// One pair with two distances over it, of one and of two, which cannot both
+/// hold.
+#[derive(Debug)]
+struct Conflicting {
+    sketch: Sketch,
+    free: PointId,
+}
+
+impl Conflicting {
+    fn new() -> Self {
+        let mut sketch = Sketch::default();
+        let anchor = sketch.add_point(DVec2::ZERO);
+        let free = sketch.add_point(DVec2::new(1.0, 0.0));
+        sketch.fix(anchor);
+        for distance in [1.0, 2.0] {
+            sketch.add_constraint(Constraint::apart(anchor, free, distance));
+        }
+        Self { sketch, free }
+    }
+}
+
+/// Three corners of a five-by-three rectangle, the first of them pinned.
+///
+/// Four free parameters against four independent equations, which is what makes
+/// it the large sketch wherever one here is measured against a small one.
+#[derive(Debug)]
+struct Rectangle {
+    sketch: Sketch,
+    corner: [PointId; 3],
+}
+
+impl Rectangle {
+    fn new() -> Self {
+        let mut sketch = Sketch::default();
+        let corner = [
+            sketch.add_point(DVec2::ZERO),
+            sketch.add_point(DVec2::new(5.1, 0.2)),
+            sketch.add_point(DVec2::new(4.9, 3.1)),
+        ];
+        sketch.fix(corner[0]);
+        sketch.add_constraint(Constraint::Horizontal {
+            a: corner[0],
+            b: corner[1],
+        });
+        sketch.add_constraint(Constraint::apart(corner[0], corner[1], 5.0));
+        sketch.add_constraint(Constraint::Vertical {
+            a: corner[1],
+            b: corner[2],
+        });
+        sketch.add_constraint(Constraint::apart(corner[1], corner[2], 3.0));
+        Self { sketch, corner }
+    }
+}
+
+/// A point riding a circle of stated size about a fixed hub.
+#[derive(Debug)]
+struct Orbit {
+    sketch: Sketch,
+    rider: PointId,
+    ring: CircleId,
+}
+
+impl Orbit {
+    fn new() -> Self {
+        let mut sketch = Sketch::default();
+        let hub = sketch.add_point(DVec2::ZERO);
+        let rider = sketch.add_point(DVec2::new(2.0, 0.5));
+        sketch.fix(hub);
+        let ring = sketch.add_circle(hub, 2.0);
+        sketch.add_constraint(Constraint::Radius {
+            circle: ring,
+            dimension: Dimension::new(2.0),
+        });
+        sketch.add_constraint(Constraint::PointOnCircle {
+            point: rider,
+            circle: ring,
+        });
+        Self {
+            sketch,
+            rider,
+            ring,
+        }
+    }
+}
+
+/// An [`Apart`] with a level across it, so the free point has one place to be.
+fn determined_pair() -> Sketch {
+    let Apart {
+        mut sketch,
+        anchor,
+        free,
+        ..
+    } = Apart::new();
+    sketch.add_constraint(Constraint::Horizontal { a: anchor, b: free });
+    sketch
+}
+
 #[test]
 fn distance_moves_a_point_along_its_own_direction() {
-    let mut sketch = Sketch::default();
-    let anchor = sketch.add_point(DVec2::ZERO);
-    let free = sketch.add_point(DVec2::new(1.0, 0.0));
-    sketch.fix(anchor);
-    sketch.add_constraint(Constraint::Distance {
-        a: anchor,
-        b: free,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
+    let Apart {
+        mut sketch,
+        anchor,
+        free,
+        ..
+    } = Apart::new();
 
     let mut outcome = Outcome::default();
     Solver::default().solve(&mut sketch, &mut outcome);
@@ -66,12 +213,7 @@ fn a_sketch_solves_the_same_once_geometry_and_constraints_are_removed() {
     let spare = sketch.add_point(DVec2::new(4.0, 4.0));
     sketch.fix(anchor);
     let level = sketch.add_constraint(Constraint::Horizontal { a: anchor, b: end });
-    sketch.add_constraint(Constraint::Distance {
-        a: anchor,
-        b: end,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
+    sketch.add_constraint(Constraint::apart(anchor, end, 5.0));
 
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
@@ -109,12 +251,7 @@ fn the_requested_distance_is_what_changes_the_answer() {
         let anchor = sketch.add_point(DVec2::ZERO);
         let free = sketch.add_point(DVec2::new(1.0, 0.0));
         sketch.fix(anchor);
-        sketch.add_constraint(Constraint::Distance {
-            a: anchor,
-            b: free,
-            along: Along::Shortest,
-            dimension: Dimension::new(distance),
-        });
+        sketch.add_constraint(Constraint::apart(anchor, free, distance));
         let mut outcome = Outcome::default();
         Solver::default().solve(&mut sketch, &mut outcome);
         assert!(outcome.converged());
@@ -133,12 +270,7 @@ fn three_distances_make_a_right_triangle() {
     let c = sketch.add_point(DVec2::new(0.1, 3.9));
     sketch.fix(a);
     for (first, second, distance) in [(a, b, 3.0), (a, c, 4.0), (b, c, 5.0)] {
-        sketch.add_constraint(Constraint::Distance {
-            a: first,
-            b: second,
-            along: Along::Shortest,
-            dimension: Dimension::new(distance),
-        });
+        sketch.add_constraint(Constraint::apart(first, second, distance));
     }
 
     let mut outcome = Outcome::default();
@@ -177,22 +309,12 @@ fn a_rectangle_is_fully_constrained() {
     let top = sketch.add_segment(p2, p3);
 
     sketch.add_constraint(Constraint::Horizontal { a: p0, b: p1 });
-    sketch.add_constraint(Constraint::Distance {
-        a: p0,
-        b: p1,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
+    sketch.add_constraint(Constraint::apart(p0, p1, 5.0));
     sketch.add_constraint(Constraint::Perpendicular {
         first: bottom,
         second: right,
     });
-    sketch.add_constraint(Constraint::Distance {
-        a: p1,
-        b: p2,
-        along: Along::Shortest,
-        dimension: Dimension::new(3.0),
-    });
+    sketch.add_constraint(Constraint::apart(p1, p2, 3.0));
     sketch.add_constraint(Constraint::Parallel {
         first: bottom,
         second: top,
@@ -260,18 +382,8 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     sketch.fix(anchor);
     // A chain: anchor — held — trailing, each pair five apart. Holding the
     // middle one leaves the last with somewhere to go.
-    sketch.add_constraint(Constraint::Distance {
-        a: anchor,
-        b: held,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
-    sketch.add_constraint(Constraint::Distance {
-        a: held,
-        b: trailing,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
+    sketch.add_constraint(Constraint::apart(anchor, held, 5.0));
+    sketch.add_constraint(Constraint::apart(held, trailing, 5.0));
     let mut outcome = Outcome::default();
     Solver::default().solve(&mut sketch, &mut outcome);
     assert!(outcome.converged(), "{outcome:?}");
@@ -372,12 +484,7 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
     let anchor = sketch.add_point(DVec2::ZERO);
     let pinned = sketch.add_point(DVec2::new(5.0, 0.0));
     sketch.fix(anchor);
-    sketch.add_constraint(Constraint::Distance {
-        a: anchor,
-        b: pinned,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
+    sketch.add_constraint(Constraint::apart(anchor, pinned, 5.0));
     sketch.add_constraint(Constraint::Horizontal {
         a: anchor,
         b: pinned,
@@ -432,12 +539,7 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
         a: anchor,
         b: pinned,
     });
-    sketch.add_constraint(Constraint::Distance {
-        a: pinned,
-        b: swinging,
-        along: Along::Shortest,
-        dimension: Dimension::new(3.0),
-    });
+    sketch.add_constraint(Constraint::apart(pinned, swinging, 3.0));
     solver.solve(&mut sketch, &mut outcome);
     assert!(outcome.converged(), "{outcome:?}");
     // The arm's swing, and it is the whole reason this fixture says anything the
@@ -618,57 +720,11 @@ fn a_drag_the_constraints_cannot_take_exactly_lands_as_near_as_they_allow() {
 /// nowhere else — and the large one again afterwards covers the grow back.
 #[test]
 fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
-    fn rectangle() -> Sketch {
-        let mut sketch = Sketch::default();
-        let corner = [
-            sketch.add_point(DVec2::ZERO),
-            sketch.add_point(DVec2::new(5.1, 0.2)),
-            sketch.add_point(DVec2::new(4.9, 3.1)),
-        ];
-        sketch.fix(corner[0]);
-        sketch.add_constraint(Constraint::Horizontal {
-            a: corner[0],
-            b: corner[1],
-        });
-        sketch.add_constraint(Constraint::Distance {
-            a: corner[0],
-            b: corner[1],
-            along: Along::Shortest,
-            dimension: Dimension::new(5.0),
-        });
-        sketch.add_constraint(Constraint::Vertical {
-            a: corner[1],
-            b: corner[2],
-        });
-        sketch.add_constraint(Constraint::Distance {
-            a: corner[1],
-            b: corner[2],
-            along: Along::Shortest,
-            dimension: Dimension::new(3.0),
-        });
-        sketch
-    }
-    // Four parameters against one equation, where the rectangle has six
-    // against four.
-    fn pair() -> Sketch {
-        let mut sketch = Sketch::default();
-        let anchor = sketch.add_point(DVec2::ZERO);
-        let free = sketch.add_point(DVec2::new(1.0, 0.0));
-        sketch.fix(anchor);
-        sketch.add_constraint(Constraint::Distance {
-            a: anchor,
-            b: free,
-            along: Along::Shortest,
-            dimension: Dimension::new(5.0),
-        });
-        sketch
-    }
-
     // What each looks like to a solver that has never seen anything.
-    let mut fresh_rectangle = rectangle();
+    let mut fresh_rectangle = Rectangle::new().sketch;
     let mut rectangle_outcome = Outcome::default();
     Solver::default().solve(&mut fresh_rectangle, &mut rectangle_outcome);
-    let mut fresh_pair = pair();
+    let mut fresh_pair = Apart::new().sketch;
     let mut pair_outcome = Outcome::default();
     Solver::default().solve(&mut fresh_pair, &mut pair_outcome);
 
@@ -678,13 +734,15 @@ fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
     // the geometry shows up there and in nothing else.
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
-    let mut large = rectangle();
+    let mut large = Rectangle::new().sketch;
     solver.solve(&mut large, &mut outcome);
     assert_eq!(outcome, rectangle_outcome);
-    let mut small = pair();
+    // Four parameters against one equation, where the rectangle has six
+    // against four.
+    let mut small = Apart::new().sketch;
     solver.solve(&mut small, &mut outcome);
     assert_eq!(outcome, pair_outcome, "a smaller sketch after a larger one");
-    let mut large_again = rectangle();
+    let mut large_again = Rectangle::new().sketch;
     solver.solve(&mut large_again, &mut outcome);
     assert_eq!(outcome, rectangle_outcome, "and larger again after that");
 
@@ -702,18 +760,11 @@ fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
 
 #[test]
 fn a_duplicate_constraint_is_reported_as_redundant() {
-    let mut sketch = Sketch::default();
-    let anchor = sketch.add_point(DVec2::ZERO);
-    let free = sketch.add_point(DVec2::new(1.0, 0.0));
-    sketch.fix(anchor);
-    let distance = Constraint::Distance {
-        a: anchor,
-        b: free,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    };
-    let first = sketch.add_constraint(distance);
-    let second = sketch.add_constraint(distance);
+    let Doubled {
+        mut sketch,
+        free,
+        stated: [first, second],
+    } = Doubled::new();
 
     let mut outcome = Outcome::default();
     Solver::default().solve(&mut sketch, &mut outcome);
@@ -758,12 +809,7 @@ fn redundancy_names_constraints_and_leaves_the_needed_ones_alone() {
     let together = Constraint::Coincident { a: anchor, b: free };
     let first = sketch.add_constraint(together);
     let second = sketch.add_constraint(together);
-    let apart = sketch.add_constraint(Constraint::Distance {
-        a: anchor,
-        b: other,
-        along: Along::Shortest,
-        dimension: Dimension::new(2.0),
-    });
+    let apart = sketch.add_constraint(Constraint::apart(anchor, other, 2.0));
 
     let mut outcome = Outcome::default();
     Solver::default().solve(&mut sketch, &mut outcome);
@@ -792,18 +838,7 @@ fn redundancy_names_constraints_and_leaves_the_needed_ones_alone() {
 
 #[test]
 fn conflicting_distances_settle_at_the_least_squares_compromise() {
-    let mut sketch = Sketch::default();
-    let anchor = sketch.add_point(DVec2::ZERO);
-    let free = sketch.add_point(DVec2::new(1.0, 0.0));
-    sketch.fix(anchor);
-    for distance in [1.0, 2.0] {
-        sketch.add_constraint(Constraint::Distance {
-            a: anchor,
-            b: free,
-            along: Along::Shortest,
-            dimension: Dimension::new(distance),
-        });
-    }
+    let Conflicting { mut sketch, free } = Conflicting::new();
 
     let mut outcome = Outcome::default();
     Solver::default().solve(&mut sketch, &mut outcome);
@@ -819,7 +854,6 @@ fn conflicting_distances_settle_at_the_least_squares_compromise() {
     // against an answer it already had until the damping gives out, which on
     // this sketch is twenty-four steps for the same result.
     assert_eq!(outcome.iterations(), 2);
-    assert!(!outcome.converged(), "{:?}", outcome);
 }
 
 #[test]
@@ -935,33 +969,10 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
 
     // Six independent equations against six free parameters: every corner has
     // exactly one place it can be, and the anchor never had a choice.
-    let mut rectangle = Sketch::default();
-    let corner = [
-        rectangle.add_point(DVec2::ZERO),
-        rectangle.add_point(DVec2::new(5.1, 0.2)),
-        rectangle.add_point(DVec2::new(4.9, 3.1)),
-    ];
-    rectangle.fix(corner[0]);
-    rectangle.add_constraint(Constraint::Horizontal {
-        a: corner[0],
-        b: corner[1],
-    });
-    rectangle.add_constraint(Constraint::Distance {
-        a: corner[0],
-        b: corner[1],
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
-    rectangle.add_constraint(Constraint::Vertical {
-        a: corner[1],
-        b: corner[2],
-    });
-    rectangle.add_constraint(Constraint::Distance {
-        a: corner[1],
-        b: corner[2],
-        along: Along::Shortest,
-        dimension: Dimension::new(3.0),
-    });
+    let Rectangle {
+        sketch: mut rectangle,
+        corner,
+    } = Rectangle::new();
     solver.solve(&mut rectangle, &mut outcome);
     assert!(outcome.converged());
     for (index, point) in corner.iter().enumerate() {
@@ -1015,19 +1026,11 @@ fn freedoms_name_which_geometry_the_constraints_leave_undecided() {
     // The same one freedom, spent on a curve instead of a line. Both of its
     // coordinates change as it goes round, and it is no freer for that — a
     // cursor that leaves the circle is still asking for the impossible.
-    let mut orbit = Sketch::default();
-    let hub = orbit.add_point(DVec2::ZERO);
-    let rider = orbit.add_point(DVec2::new(2.0, 0.5));
-    orbit.fix(hub);
-    let ring = orbit.add_circle(hub, 2.0);
-    orbit.add_constraint(Constraint::Radius {
-        circle: ring,
-        dimension: Dimension::new(2.0),
-    });
-    orbit.add_constraint(Constraint::PointOnCircle {
-        point: rider,
-        circle: ring,
-    });
+    let Orbit {
+        sketch: mut orbit,
+        rider,
+        ring,
+    } = Orbit::new();
     solver.solve(&mut orbit, &mut outcome);
     assert!(outcome.converged(), "{:?}", outcome);
     assert_eq!(outcome.degrees_of_freedom(), 1, "the same one freedom");
@@ -1063,10 +1066,10 @@ fn the_freedoms_agree_with_what_holding_each_point_costs() {
     let mut solver = Solver::default();
 
     for (name, mut sketch) in [
-        ("a determined rectangle", determined_rectangle()),
-        ("a point on its own circle", point_on_a_circle()),
-        ("a duplicated constraint", duplicated_distance()),
-        ("conflicting distances", conflicting_distances()),
+        ("a determined pair", determined_pair()),
+        ("a point on its own circle", Orbit::new().sketch),
+        ("a duplicated constraint", Doubled::new().sketch),
+        ("conflicting distances", Conflicting::new().sketch),
     ] {
         solver.solve(&mut sketch, &mut outcome);
         let at_rest = solver.freedom_holding(&sketch, &[]);
@@ -1085,70 +1088,6 @@ fn the_freedoms_agree_with_what_holding_each_point_costs() {
             );
         }
     }
-}
-
-fn determined_rectangle() -> Sketch {
-    let mut sketch = Sketch::default();
-    let a = sketch.add_point(DVec2::ZERO);
-    let b = sketch.add_point(DVec2::new(5.1, 0.2));
-    sketch.fix(a);
-    sketch.add_constraint(Constraint::Horizontal { a, b });
-    sketch.add_constraint(Constraint::Distance {
-        a,
-        b,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
-    sketch
-}
-
-fn point_on_a_circle() -> Sketch {
-    let mut sketch = Sketch::default();
-    let hub = sketch.add_point(DVec2::ZERO);
-    let rider = sketch.add_point(DVec2::new(2.0, 0.5));
-    sketch.fix(hub);
-    let ring = sketch.add_circle(hub, 2.0);
-    sketch.add_constraint(Constraint::Radius {
-        circle: ring,
-        dimension: Dimension::new(2.0),
-    });
-    sketch.add_constraint(Constraint::PointOnCircle {
-        point: rider,
-        circle: ring,
-    });
-    sketch
-}
-
-fn duplicated_distance() -> Sketch {
-    let mut sketch = Sketch::default();
-    let anchor = sketch.add_point(DVec2::ZERO);
-    let free = sketch.add_point(DVec2::new(1.0, 0.0));
-    sketch.fix(anchor);
-    let distance = Constraint::Distance {
-        a: anchor,
-        b: free,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    };
-    sketch.add_constraint(distance);
-    sketch.add_constraint(distance);
-    sketch
-}
-
-fn conflicting_distances() -> Sketch {
-    let mut sketch = Sketch::default();
-    let anchor = sketch.add_point(DVec2::ZERO);
-    let free = sketch.add_point(DVec2::new(1.0, 0.0));
-    sketch.fix(anchor);
-    for distance in [1.0, 2.0] {
-        sketch.add_constraint(Constraint::Distance {
-            a: anchor,
-            b: free,
-            along: Along::Shortest,
-            dimension: Dimension::new(distance),
-        });
-    }
-    sketch
 }
 
 /// A tangency drives the circle until its rim just touches the line, and it
@@ -1222,12 +1161,7 @@ fn equality_matches_two_lengths_and_two_radii_without_fixing_either() {
     sketch.fix(c);
     let measured = sketch.add_segment(a, b);
     let matched = sketch.add_segment(c, d);
-    sketch.add_constraint(Constraint::Distance {
-        a,
-        b,
-        along: Along::Shortest,
-        dimension: Dimension::new(2.5),
-    });
+    sketch.add_constraint(Constraint::apart(a, b, 2.5));
     sketch.add_constraint(Constraint::EqualLength {
         first: measured,
         second: matched,

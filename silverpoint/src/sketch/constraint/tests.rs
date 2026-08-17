@@ -102,12 +102,7 @@ fn analytic_partials_match_central_differences() {
         // All three readings of one pair, because the projection is the whole
         // of what tells them apart and a reading that dropped the wrong axis
         // would still agree with the differences on the axis it kept.
-        Constraint::Distance {
-            a: p0,
-            b: p1,
-            along: Along::Shortest,
-            dimension: Dimension::new(2.5),
-        },
+        Constraint::apart(p0, p1, 2.5),
         Constraint::Distance {
             a: p0,
             b: p1,
@@ -195,12 +190,7 @@ fn analytic_partials_match_central_differences() {
         // itself, and twice the direction for one perpendicular to itself,
         // whose residual is the squared length.
         Constraint::Coincident { a: p0, b: p0 },
-        Constraint::Distance {
-            a: p0,
-            b: p0,
-            along: Along::Shortest,
-            dimension: Dimension::new(2.5),
-        },
+        Constraint::apart(p0, p0, 2.5),
         Constraint::Horizontal { a: p1, b: p1 },
         Constraint::Vertical { a: p1, b: p1 },
         Constraint::Parallel {
@@ -350,12 +340,7 @@ fn every_constraint_names_the_geometry_it_is_about() {
             &[Entity::Point(p0), Entity::Point(p1)],
         ),
         (
-            Constraint::Distance {
-                a: p0,
-                b: p2,
-                along: Along::Shortest,
-                dimension: Dimension::new(2.5),
-            },
+            Constraint::apart(p0, p2, 2.5),
             &[Entity::Point(p0), Entity::Point(p2)],
         ),
         (
@@ -512,12 +497,7 @@ fn only_a_coincidence_expands_and_it_expands_to_its_two_axes() {
     // Everything else is already one equation and comes back untouched.
     for one in [
         Constraint::Horizontal { a: p0, b: p1 },
-        Constraint::Distance {
-            a: p0,
-            b: p1,
-            along: Along::Shortest,
-            dimension: Dimension::new(2.5),
-        },
+        Constraint::apart(p0, p1, 2.5),
         Constraint::Radius {
             circle,
             dimension: Dimension::new(0.9),

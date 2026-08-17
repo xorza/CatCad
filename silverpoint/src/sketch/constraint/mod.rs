@@ -579,5 +579,29 @@ fn standoff(sketch: &Sketch, row: &mut JacobianRow<'_>, standing: Gap<'_>) -> f6
     side * reach - distance
 }
 
+#[cfg(any(test, feature = "bench"))]
+mod stating {
+    use crate::sketch::PointId;
+    use crate::sketch::constraint::{Along, Constraint, Dimension};
+
+    impl Constraint {
+        /// A distance of `value` between two points, read the shortest way.
+        ///
+        /// The reading every fixture that is not *about* the reading wants, and
+        /// the one that spells out to five lines of `Along` and `Dimension`
+        /// wherever it is written in full. Which way a distance is read is the
+        /// whole subject of one test next door, and that one writes its own out
+        /// — being the one place the choice is worth seeing at the call site.
+        pub(crate) fn apart(a: PointId, b: PointId, value: f64) -> Self {
+            Self::Distance {
+                a,
+                b,
+                along: Along::Shortest,
+                dimension: Dimension::new(value),
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

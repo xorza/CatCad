@@ -24,7 +24,7 @@
 //! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
 //! duration measured under it says nothing.
 
-use crate::sketch::constraint::{Along, Constraint, Dimension};
+use crate::sketch::constraint::{Constraint, Dimension};
 use crate::sketch::snapshot::Snapshot;
 use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::solver::{Drive, Solver};
@@ -70,34 +70,14 @@ fn fixture() -> Sketch {
         a: corner[3],
         b: corner[0],
     });
-    sketch.add_constraint(Constraint::Distance {
-        a: corner[0],
-        b: corner[1],
-        along: Along::Shortest,
-        dimension: Dimension::new(WIDTH),
-    });
-    sketch.add_constraint(Constraint::Distance {
-        a: corner[1],
-        b: corner[2],
-        along: Along::Shortest,
-        dimension: Dimension::new(HEIGHT),
-    });
+    sketch.add_constraint(Constraint::apart(corner[0], corner[1], WIDTH));
+    sketch.add_constraint(Constraint::apart(corner[1], corner[2], HEIGHT));
 
     let hub = sketch.add_point(DVec2::new(3.6, 2.1));
     let hole = sketch.add_circle(hub, 0.9);
     let to_centre = (WIDTH * WIDTH + HEIGHT * HEIGHT).sqrt() * 0.5;
-    sketch.add_constraint(Constraint::Distance {
-        a: corner[0],
-        b: hub,
-        along: Along::Shortest,
-        dimension: Dimension::new(to_centre),
-    });
-    sketch.add_constraint(Constraint::Distance {
-        a: corner[1],
-        b: hub,
-        along: Along::Shortest,
-        dimension: Dimension::new(to_centre),
-    });
+    sketch.add_constraint(Constraint::apart(corner[0], hub, to_centre));
+    sketch.add_constraint(Constraint::apart(corner[1], hub, to_centre));
     sketch.add_constraint(Constraint::Radius {
         circle: hole,
         dimension: Dimension::new(1.5),
@@ -134,18 +114,8 @@ fn chain() -> Chain {
     sketch.fix(anchor);
     sketch.add_segment(anchor, elbow);
     sketch.add_segment(elbow, wrist);
-    sketch.add_constraint(Constraint::Distance {
-        a: anchor,
-        b: elbow,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
-    sketch.add_constraint(Constraint::Distance {
-        a: elbow,
-        b: wrist,
-        along: Along::Shortest,
-        dimension: Dimension::new(5.0),
-    });
+    sketch.add_constraint(Constraint::apart(anchor, elbow, 5.0));
+    sketch.add_constraint(Constraint::apart(elbow, wrist, 5.0));
     Chain { sketch, wrist }
 }
 

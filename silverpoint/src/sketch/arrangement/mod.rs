@@ -434,4 +434,25 @@ struct Scratch {
 }
 
 #[cfg(test)]
+mod building {
+    use crate::sketch::Sketch;
+    use crate::sketch::arrangement::Arrangement;
+
+    impl Arrangement {
+        /// One arrangement of `sketch`, through an arrangement stood up for the
+        /// call.
+        ///
+        /// Most tests ask about one drawing, so nothing is saved by keeping the
+        /// arrangement — what keeping it saves is pinned by
+        /// `a_reused_arrangement_answers_exactly_as_a_fresh_one_would` and by
+        /// the application's allocation gates.
+        pub(crate) fn of(sketch: &Sketch) -> Self {
+            let mut found = Self::default();
+            found.rebuild(sketch);
+            found
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests;
