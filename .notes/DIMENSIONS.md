@@ -10,21 +10,46 @@ that can be dimensioned is four rather than two.
 ## What is there now
 
 `Constraint::value` states the whole of it: a dimension is a constraint carrying
-a magnitude, and two of the twelve do — `Distance` and `Radius`. Everything
-downstream is already shaped for more:
+a magnitude. Everything downstream is already shaped for more:
 
-- `Drawing::mark_at` puts a mark in the middle of what a constraint names.
-- `paint::write_marks` writes a number for anything with a value and a symbol
-  for the rest, tagged so it can be picked, deleted and double-clicked.
-- `paint::retype` draws the typing field off the same position, font and anchor,
-  so a field lands exactly where the mark was.
+- `paint::marks::anchors` puts each relation's mark where the relation *means*
+  something, `stacked` gives it a lane where several want one place, and the
+  doc calls itself "the one place a new `Constraint` variant has to be taught
+  anything". A dimension's mark already stands on the middle of its span and is
+  set **along** it.
+- `aperture::Facing::Turned(Turn)` letters a run *into* a plane, along a
+  caller-chosen direction, at the size it would have had square to the viewer —
+  and `Turn::lift` floats its box clear of the point it names in logical pixels
+  along the plane's own axes, which is what `MARK_CLEAR` and `STACK_STEP` spend.
+- `paint::gizmos` builds world geometry sized against the camera through
+  `Camera::world_per_pixel`, on its own schedule so an orbit does not re-cut
+  every face — and `gizmos::shape::arrow` is already an arrow.
+- `prompt` puts a form over `mark_centre`, so restating a number lands on the
+  mark it replaces.
 - `Model::offers` turns a selection into the relations it admits; the bar shows
-  them.
-- `HitAt::rank` already reasons about "a dimension sits on its own dimension
-  line", which is the case this note is about.
+  them, and a radius already opens a form rather than committing.
 
-What is missing is the *geometry* of a dimension, a place for the user to put
-it, and the three kinds beyond point-to-point.
+What is missing is the *geometry* of a dimension — extension lines, a dimension
+line, terminators — a place for the user to put it, and the three kinds beyond
+point-to-point.
+
+### What the marks work already settled
+
+Three decisions landed upstream while this note was being written, and each
+takes work off it:
+
+- **Direction is canonicalized.** `marks::canonical` settles a span's direction
+  against a diagonal `CUT`, so two identical segments drawn in opposite orders
+  carry their marks on the same side. Anything here that derives a frame from a
+  span has to go through it, or a placement stored in that frame would flip with
+  the span.
+- **Text turns with the plane.** The "text is never rotated" limitation this
+  note opened with is gone.
+- **Clearance is a pixel lift, not a placement.** `Turn::lift` already floats a
+  mark off its geometry and stacks it. That is the *automatic* standoff and
+  stays as it is; what `Dimension::placement` adds is the one the user drags,
+  and it is in sketch units because a dragged dimension line is a distance in
+  the model — it should scale with the zoom where a symbol's clearance must not.
 
 ## The model
 
@@ -244,135 +269,50 @@ the colour and the type.
 
 ## The drawing
 
-`write_marks` splits in two. Relations keep exactly what they have — a symbol
-over the middle of what they name. Dimensions get their own writer, which is
-handed a `Measurement` and contributes to three batches:
+Relations keep exactly what they have: `marks::anchors` puts a symbol where the
+relation means something, `Turn::lift` floats it clear, and the stack settles
+several wanting one place. A **dimension** keeps its mark too — the number is
+still a turned run set along its span — and gains the geometry around it.
 
-- `curves`: two extension lines and one dimension line. The dimension line spans
-  `min..max` of the two feet's projections and the label's own position along
-  it, plus a small overshoot, so a number dragged off the end takes the line
-  with it. Extension lines start a short gap off the geometry, as a draughtsman
-  draws them.
-- `emblems`: an arrowhead at each foot's projection, pointing along the
-  dimension line. What that costs aperture is the section below.
-- `texts`: the number, anchored above the dimension line at `MARK_ANCHOR`, which
-  is where ISO 129 puts it anyway and which the typing field already matches.
+That geometry is world-space and camera-sized, so it belongs on the **gizmo
+schedule** rather than in `redraw`: `paint::gizmos` already builds exactly this
+kind of thing, is rewritten when the camera moves rather than when the drawing
+does, and truncates the names back to what the drawing wrote before appending
+its own. A dimension's lines and arrowheads go there, beside the datum axes.
 
-`Drawing::mark_at` answers the label position for a dimension and keeps its
-current answer for a relation, so `paint::retype` needs nothing: the field lands
-on the number because it always landed on the mark.
+Per dimension, from its `Measurement`:
 
-**Only the number is tagged.** The lines are drawn untagged, like a rubber band,
-so a dimension line lying over an edge cannot take the click meant for the edge —
-`HitAt::Text` already outranks `HitAt::Segment`, which settles the number, but
-the lines rank as segments and would tie with real geometry. Tagging them wants
-a fourth `Precedence` between `Shaped` and `Aside`, and is not worth one yet.
-`Names` is happy either way: a tag is a push, so one part can be named several
-times, and `SceneView::settle` already lights every tag whose part is picked.
+- **Two extension lines and one dimension line**, as `Curve`s. The dimension
+  line is the line through `label` running along `along`; it spans `min..max` of
+  the two feet's projections onto it and of the label's own position, plus a
+  small overshoot, so a number dragged off the end takes the line with it.
+  Extension lines run from each foot to its own projection, starting a short gap
+  off the geometry.
+- **An arrowhead at each end**, pointing along the dimension line —
+  `gizmos::shape::arrow` without its shaft, laid in the sketch's plane and sized
+  in logical pixels through `Camera::world_per_pixel`, exactly as a datum's axis
+  arrows are. That is the whole of it: no new aperture primitive, because the
+  gizmo work already built the one thing that was missing.
 
-Text is never rotated, because `aperture::Text` has no rotation. ISO would run
-the number along the dimension line. A `Text::rotation` is a small aperture
-change and a separate one.
+The number itself stays where it is, drawn by `write_marks` on the drawing's
+schedule. Splitting it that way is not a compromise — a mark is laid out against
+the document and sized against the screen by the *shader*, so it owes the camera
+nothing, and only the lines and heads have to be re-cut when the camera moves.
 
-## Arrowheads: `aperture::Emblem`
+What `placement` changes for the mark is its anchor: `marks::anchors` currently
+answers the middle of the span for a dimension, and it becomes the `Measurement`'s
+`label` — the same place when the placement is zero, which is what every
+dimension the bar makes starts at. `Turn::lift` goes on carrying the clearance
+and the stack on top of that.
 
-An arrowhead is the one thing a dimension needs that aperture cannot draw. A
-curve's width, a marker's diameter and a font's size are the only screen
-measurements there are; everything with a *shape* is measured in world units, so
-an arrowhead built out of world geometry would shrink as the camera pulled back
-and vanish at the zoom a drawing is actually read at.
-
-What is missing is a primitive, and it is exactly [`Point`] with two things
-added — an orientation, and an outline that is not a disc. `Point`'s own doc
-says as much: *round because a disc is the one glyph with no orientation to get
-wrong*.
-
-```rust
-/// A small flat figure pinned to a point of the world, pointing along a world
-/// direction as that direction is *seen*, and sized in logical pixels.
-pub struct Emblem {
-    pub anchor: Vec3,
-    /// Which way it points. Projected to the screen and made unit length
-    /// *there*, so the figure follows the direction as drawn rather than as
-    /// modelled — which is what makes an arrowhead sit on the line it
-    /// terminates however the plane is turned.
-    pub direction: Vec3,
-    /// Its triangles, in logical pixels from the anchor: `+x` along
-    /// `direction` as seen, `+y` a quarter turn from it on screen.
-    pub corners: Vec<[Vec2; 3]>,
-    pub color: Vec3,
-    pub precedence: Precedence,
-    pub tag: Option<Tag>,
-    /// The plane it lies on, for depth. See overlays.
-    pub plane_normal: Option<Vec3>,
-}
-```
-
-**Triangles rather than a polygon**, because that is what makes it fit the
-machinery already there: `Flatten::record_count` is the triangle count and
-`records` yields one instance apiece, exactly as a curve yields one per segment,
-and the vertex shader picks a corner off `vertex_index % 3`. An arrowhead is one
-triangle. Nothing needs an index buffer or a vertex buffer of its own.
-
-**Sized and squared on screen, oriented and depth-fitted by the plane.** That
-is the pair worth stating outright, because it is a choice:
-
-- Its size comes from the screen, like a label's — so it never collapses, and it
-  stays matched to the dimension line beside it, which is a world line drawn at
-  a screen-constant `EDGE_WIDTH` and does not thin out either.
-- Its direction comes from the world, projected — so it points along the line as
-  the line is *drawn*, at any camera angle.
-- Its depth comes from the plane, through the same `plane_depth_shift` a marker
-  already uses — so it reads as lying on the drawing rather than floating over
-  it.
-
-The alternative is a genuinely in-plane shape scaled uniformly, which
-foreshortens to a sliver as the plane turns edge-on while the line it sits on
-keeps its full width. That reads as broken. This one is the gizmo behaviour:
-constant on screen, oriented by the world.
-
-The shader is the smallest of the six. `ring.wgsl` already carries the one piece
-it needs — `screen_rate(at, w, d)`, "how far a clip-space direction moves the
-screen, in pixels" — which moves to `common.wgsl` and is then the whole of the
-orientation:
-
-```wgsl
-let c        = u.view_proj * vec4<f32>(anchor, 1.0);
-let w        = max(c.w, MIN_W);
-let along_px = screen_rate(c, w, u.view_proj * vec4<f32>(direction, 0.0));
-let runs     = length(along_px);
-// Edge-on there is no direction left to point along, and the screen's own +x
-// will do — the same fallback a stroke with no run on screen already takes.
-let along    = select(vec2<f32>(1.0, 0.0), along_px / runs, runs > MIN_RUN_PX);
-let across   = vec2<f32>(-along.y, along.x);
-let offset_ndc = ndc_from_px_delta((corner.x * along + corner.y * across) * scale * u.raster_scale);
-// Depth off the plane, exactly as `point_vs` does it.
-```
-
-The fragment stage has nothing to measure — a triangle covers what it covers —
-so it writes the colour at full alpha and leans on the 4× multisampling the
-overlay passes already run (`target::SAMPLES`). It is the one overlay with no
-`coverage_px` in it, and that absence is the thing to comment: a stroke, a rim
-and a marker each spell out how they measure their own edge, and this one says
-why it has no edge to measure.
-
-`Look::half_extent` carries the scale, so a highlight's `scale` enlarges an
-arrowhead the way it enlarges a marker, for free and by the one rule.
-
-**Name.** `Emblem` for what it is — a small figure standing for something.
-`Badge` and `Motif` read as well; the register is `Point`, `Ring`, `Curve`, so
-it wants a plain noun and not a compound.
-
-What it costs: `emblem.rs`, `EmblemInstance` and its attribute list,
-`emblem.wgsl`, a pipeline in `pass.rs`, a batch on `Scene`, flattening,
-the CPU renderer's arm for the golden suite, extent, picking, and tests.
-Comparable to the work `Ring` was. It is its own phase, and it lands before the
-dimension drawing so the goldens are authored once against the final picture.
-
-Beyond dimensions it is the primitive every later gizmo wants: direction cones
-on a datum's normal, snap indicators, a drag handle on a solid's far end.
-
-[`Point`]: aperture::Point
+**Only the number is tagged.** The lines and heads are drawn untagged, so a
+dimension line lying over an edge cannot take the click meant for the edge —
+`HitAt::Text` already outranks `HitAt::Segment`, which settles the number, but a
+line ranks as a segment and would tie with real geometry. Tagging them wants a
+fourth `Precedence` between `Shaped` and `Aside`, and is not worth one yet. The
+datum gizmos take the other choice and are all named as their plane, which is
+the right answer for a *handle* and the wrong one here: a dimension already has
+a handle, and it is the number.
 
 ## The gestures
 
@@ -476,9 +416,19 @@ bar is placed with the pointer exactly as one asked for with the tool. That the
 dimension buttons behave differently from the relation buttons is not an
 inconsistency: a relation has nowhere to go and a dimension does.
 
-The default placement, for a bar-created dimension before the pointer has moved,
-is catcad's to invent — silverpoint stores whatever it is told. A standoff of a
-fraction of the measured value, floored at a minimum, reads at any size.
+**Two ways to answer a button, and they are about different things.** The bar
+already knows one: a radius raises `Choice::Ask(Opening::Radius)` and a form asks
+for the *number*. Placing asks for *where the line goes*. They compose rather
+than compete — a dimension the drawing can already measure needs no form and
+wants placing, and one the drawing cannot (a radius on a circle with no radius
+stated, which is why that button opens a form at all) wants the number first and
+the placement after. So `Opening` grows a dimension arm only where there is no
+number to read, and everything else goes straight to placing.
+
+The default placement, for a dimension whose form was answered without the
+pointer having placed it, is catcad's to invent — silverpoint stores whatever it
+is told. A standoff of a fraction of the measured value, floored at a minimum,
+reads at any size.
 
 ### Moving one afterwards
 
@@ -512,51 +462,81 @@ Documents written at version 2 are refused, which is what the stamp is for.
 
 Each phase compiles, tests and is worth having on its own.
 
-**1 — silverpoint: the model.** `Dimension`, `Along`, the reshaped `Distance`
-and `Radius`, the new `Standoff` and `Spacing`, `Sketch::set_placement`,
-`Measurement` and `Sketch::measure`. Extend the three sweeps in
-`constraint/tests.rs` rather than adding files: the central-difference check
-covers the new residuals, `every_constraint_names_the_geometry_it_is_about`
-gains a line apiece, and `residuals_read_zero_exactly_when_satisfied` gains the
-new cases. Add: the three `Along` readings solving to *different* answers over
-one fixture, so the parameter is proved to matter; the degenerate edge; the
-gradient-sum-to-zero check; and hand-computed `Measurement`s for all six rows of
-the table. catcad follows mechanically — `offers`, `label`, `symbol`, `Saved` —
-without changing what it draws.
+**1 — silverpoint: the model.** *Built.* `Dimension`, `Along`, the reshaped
+`Distance` and `Radius`, the new `Standoff` and `Spacing`,
+`Sketch::set_placement`, `Sketch::parallel`, and `Measurement::of`. Two things
+came out differently from what was written above. `Direction` moved to
+`math/direction.rs`: the drawing wants the same "which way does this run, and
+what if it runs nowhere" rule the residuals do, and two statements of it would
+be two fallbacks free to disagree. And the measurement is built by
+`Measurement::of(sketch, constraint)` rather than `Sketch::measure`, so the
+per-variant match sits beside the type it produces rather than in `sketch/mod.rs`
+— the shape `Drawing::new` and `Prism::new` already have.
 
-**2 — catcad: the file and the bar.** `VERSION` 3 and the mirrored relations,
-with the round-trip test extended to carry every new variant. `offers` grows the
-four rows above; `hud::label` grows the captions. Dimensions still draw as
-today's bare number, so this lands and is usable before anything is drawn
-differently.
+Tests went where the plan said: the central-difference sweep covers the new
+residuals on both sides of their kink, the referents sweep gained a line apiece,
+and the residual test gained the three readings measured against each other. The
+gradient check became a stronger one than "sums to zero" — every row is asserted
+to leave its residual unmoved when the whole sketch slides, which is what a
+missing length-correction term actually looks like. The file format followed
+mechanically to VERSION 3.
 
-**3 — aperture: `Emblem`.** The primitive, its record and attribute list, the
-shader, the pipeline, the batch, flattening, the CPU arm, extent and picking.
-`screen_rate` moves from `ring.wgsl` to `common.wgsl` on the way. Nothing in
-catcad reads it yet, so it is verified where the other five are: a golden of a
-scene holding emblems on a plane at three tilts, plus the aim tests for its
-`pick`. Before the drawing rather than after, so the dimension goldens are
-authored once against the final picture.
+**2 — catcad: the bar.** `offers` grows the four rows above and `hud::label`
+grows the captions. Dimensions still draw as today's bare number, so this lands
+and is usable before anything is drawn differently.
 
-**4 — catcad: drawing one properly.** The dimension writer, the split out of
-`write_marks`, `mark_at` answering the label position, the arrowhead outline and
-the gap/overshoot constants. Visual goldens for a sketch carrying one of each.
-`retype` is verified by the existing double-click path landing on the new
-position.
+The file format is already done — it had to move for phase 1 to compile — and
+its two sweeps went with it: the golden now carries a placed, vertically-read
+distance so the shape is visible on the page, and the round-trip sweep carries
+`Standoff`, `Spacing` and a non-default `along` and placement, so a writer that
+dropped either would be caught.
 
-**5 — placing and moving.** `Change::Place`, `Sketching::place`, coalescing, the
+**3 — catcad: drawing one properly.** The dimension geometry in `paint::gizmos`
+— extension lines, dimension line, arrowheads off `shape::arrow` — and
+`marks::anchors` answering the `Measurement`'s `label` for a dimension so the
+number rides its placement. The gap, overshoot and head-size constants. Visual
+goldens for a sketch carrying one of each. The form is verified by the existing
+double-click path landing on the moved mark, since it is placed off
+`mark_centre`.
+
+**4 — placing and moving.** `Change::Place`, `Sketching::place`, coalescing, the
 fourth `Grabbed`, and the grip on the number. Tested by placing a label,
 dragging the geometry, and asserting the label followed.
 
-**6 — the tool.** `Tool::Dimension`, `Dimensioning`, `proposed`, the alignment
+**5 — the tool.** `Tool::Dimension`, `Dimensioning`, `proposed`, the alignment
 rule, `Preview::Dimension`, the bar routing into placing, and `prune`. The
 alignment rule is a pure function over feet and a pointer and gets a table-driven
 sweep: eight pointer positions round two fixtures, each asserting which reading
 came out.
 
+The `Emblem` primitive this note used to plan for is **dropped**. It was going to
+be a way to draw a flat shape sized in logical pixels, and `paint::gizmos` plus
+`Camera::world_per_pixel` already are one — built on the right schedule, with an
+arrow shape to hand. Nothing about a dimension's arrowhead is different from a
+datum's, so nothing new is owed.
+
+## Where `Measurement` and `marks::anchors` overlap
+
+They answer overlapping questions and should not stay two. `anchors` says where
+a relation's mark stands and which way it runs; `Measurement` says what a
+dimension spans, which way it is measured, and where its number sits. For the
+four dimensions those are the same question, and `Measurement` is the fuller
+answer — it carries the feet, which is the half the drawing needs and `anchors`
+does not have.
+
+The reconciliation belongs in phase 3, where the drawing first needs the feet:
+`anchors`' four dimension arms become one that asks `Measurement::of` and reads
+`label` and `along` off it. Two things have to come with it — `Measurement::along`
+has to go through `marks::canonical`, or a span drawn back to front would flip
+the frame a stored placement is read in; and `Measurement` for a radius has to
+stop deriving its direction from the placement, or dragging the number would
+swing the leader and the anchors' stated reason for a fixed bearing ("a circle
+being dragged does not send its own number round it") would be lost. A radius
+wants its own bearing field on the dimension rather than a direction inferred
+from where the label went.
+
 ## Named and not planned
 
-- **Rotated text**, for a number that runs along its own dimension line.
 - **Diameter** beside radius, which is a second reading of one circle and so a
   second variant rather than a flag.
 - **Angle**, which is what a non-parallel pair of edges should offer and the
@@ -565,8 +545,9 @@ came out.
   before it is written.
 - **`Along::Edge(SegmentId)`**, a distance measured parallel to a named edge.
   The enum was shaped to take a fourth reading without anything else moving.
-- **An extrude's depth**, which is the one dimension that is not a sketch's —
-  see EXTRUDE.md, where the missing piece is exactly a mark to double-click.
+- **An extrude's depth**, which is the one dimension that is not a sketch's.
+  It has a form already — `Asking::Extrude` — and a draggable handle; what it
+  has not got is a dimension line saying how deep.
 - **Unifying `Tangent` with `Standoff`.** They are one equation with the radius
   as a parameter in one and a constant in the other, and they scale differently.
   Worth doing once the new one has settled.
