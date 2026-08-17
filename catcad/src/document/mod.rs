@@ -434,7 +434,8 @@ impl Edits {
 ///
 /// Turning the camera by hand is standing outside a frame: the application only
 /// ever moves it through an intent, so a caller wanting the camera itself is a
-/// test or a bench aiming one without a pointer to aim it with.
+/// test or a bench aiming one without a pointer to aim it with. The shape and
+/// both its gates are argued at [`CatCad::internals`](crate::internals).
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::document::Document;

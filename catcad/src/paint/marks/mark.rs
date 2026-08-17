@@ -13,7 +13,7 @@ use crate::paint::mark_font;
 /// Apart from the handle beside it because not every mark has one: a dimension a
 /// tool is half-way through placing is drawn exactly as a stated one and is not
 /// in the sketch, so there is no [`ConstraintId`](silverpoint::ConstraintId) to
-/// name it by — see [`previewed`](crate::paint::marks::previewed). Everything
+/// name it by — see [`Proposed`](crate::paint::marks::Proposed). Everything
 /// that *draws* a mark wants this half and nothing makes it ask for the other.
 ///
 /// **Where the pixels are.** The rules that put a mark somewhere are plane

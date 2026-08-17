@@ -618,12 +618,28 @@ impl App for CatCad {
 
 /// What a harness reaches past the app for.
 ///
-/// Both of these are ways of standing outside a frame: the app itself never
-/// wants either, because everything it draws it draws from the document it has
-/// just written, through a view that lays itself out. A caller that wants to
-/// aim the camera or edit the scene by hand is one driving the app without a
-/// pointer, which is a test or a bench and nothing else — so neither is part of
-/// what this crate publishes to a program that merely runs it.
+/// **Where the whole shape is argued**, because it repeats at every layer below
+/// and the argument should not. Everything here is a way of standing outside a
+/// frame: the app itself never wants any of it, since everything it draws it
+/// draws from the document it has just written, through a view that lays itself
+/// out. A caller that wants to aim the camera or read the scene by hand is one
+/// driving the app without a pointer, which is a test or a bench and nothing
+/// else — so none of it is part of what this crate publishes to a program that
+/// merely runs it.
+///
+/// **Two gates, and the same two wherever this appears.** What an integration
+/// test or a bench reaches has to survive `cfg(test)` being off in the library
+/// it links, so it rides the `internals` feature; what only this crate's own
+/// unit tests want is gated on `test` alone, so a build that turns the feature
+/// on carries no method nothing outside can call. The second is spelt as a
+/// `looking` module inside the first.
+///
+/// **And it is layered, because the fields are.** A harness holds a [`CatCad`];
+/// the renderer it wants is a private field of a private field of one. So an
+/// answer is forwarded outward rather than the fields opened up, and what each
+/// layer adds is reach and nothing else — which is why a reach-in is argued
+/// where the thing it reaches *lives*, and every layer above says only what it
+/// forwards to.
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use std::cell::RefCell;

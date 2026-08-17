@@ -235,7 +235,7 @@ pub(crate) struct Prompt {
     /// The two answers, on the same terms. Built for every form rather than
     /// only the ones that show them: two bundles per *opening* is nothing, and
     /// an `Option` here would be a second thing saying what
-    /// [`Prompt::answered`] already says.
+    /// [`Prompt::blurs`] already says.
     goes: ButtonTheme,
     stops: ButtonTheme,
 }
@@ -927,7 +927,8 @@ impl Prompt {
 ///
 /// Gated on `test` alone rather than on `internals` beside it: the one caller
 /// is a unit test, and the wider gate would leave this dead in every build that
-/// turned the feature on without turning tests on.
+/// turned the feature on without turning tests on. Which gate means what is
+/// argued at [`CatCad::internals`](crate::internals).
 #[cfg(test)]
 pub(crate) mod internals {
     use palantir::WidgetId;

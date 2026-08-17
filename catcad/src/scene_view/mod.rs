@@ -292,6 +292,8 @@ impl SceneView {
     }
 }
 
+/// The reach-ins one layer in — see [`CatCad::internals`](crate::internals),
+/// where the shape and both its gates are argued.
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::scene_view::SceneView;
@@ -319,21 +321,15 @@ pub(crate) mod internals {
                 .is_some_and(|part| Some(part) == self.pointing.hovered())
         }
 
-        /// The renderer being drawn, for a harness that wants to edit the scene
-        /// or move the camera without going through a pointer.
-        ///
-        /// Nothing in the application reaches for this: the view lays itself
-        /// out from the document and paints itself from what that left, so a
-        /// caller wanting the renderer is a caller standing outside the frame —
-        /// which is a harness, and only a harness.
+        /// The renderer being drawn — see
+        /// [`Picture::renderer`](crate::scene_view::picture::Picture::renderer),
+        /// which is the field this reaches and where it is argued.
         pub(crate) fn renderer(&self) -> &Rc<RefCell<Renderer>> {
             self.picture.renderer()
         }
     }
 
-    /// The half of the reach-in that only this crate's own tests want, kept off
-    /// the feature so a build that turns `internals` on does not carry a method
-    /// nothing outside can call.
+    /// The `test`-only half — see [`CatCad::internals`](crate::internals).
     ///
     /// Named for looking rather than for picking, which is what it held when
     /// there was one of them: what a tag stands for and what a gesture is
@@ -363,21 +359,14 @@ pub(crate) mod internals {
                 self.pointing.preview()
             }
 
-            /// What `tag` stands for in the layout this view last made.
-            ///
-            /// For a test sweeping candidate cursors to find one that would
-            /// grab something — which asks what a press would find without a
-            /// press to ask it through.
-            ///
-            /// Whole parts rather than entities, because a plane is one of the
-            /// things a press can take hold of and has no entity to be narrowed
-            /// to. A sweep after geometry narrows it itself.
+            /// What `tag` stands for in the layout this view last made — see
+            /// [`Picture::part`](crate::scene_view::picture::Picture::part).
             pub(crate) fn part(&self, tag: Tag) -> Option<Part> {
                 self.picture.part(tag)
             }
 
             /// What the renderer was last told to light — see
-            /// [`Picture::lit`].
+            /// [`Picture::lit`](crate::scene_view::picture::Picture::lit).
             pub(crate) fn lit(&self) -> &[Lit] {
                 self.picture.lit()
             }

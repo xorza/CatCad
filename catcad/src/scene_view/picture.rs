@@ -287,6 +287,8 @@ pub(super) struct Under {
     pub(super) part: Part,
 }
 
+/// The reach-ins two layers in — see [`CatCad::internals`](crate::internals),
+/// where the shape and both its gates are argued.
 #[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use std::cell::RefCell;
@@ -301,10 +303,10 @@ pub(crate) mod internals {
         /// The renderer being drawn, for a harness that wants to edit the scene
         /// or move the camera without going through a pointer.
         ///
-        /// Nothing in the application reaches for this: the picture lays itself
-        /// out from the document and paints itself from what that left, so a
-        /// caller wanting the renderer is a caller standing outside the frame —
-        /// which is a harness, and only a harness.
+        /// The picture lays itself out from the document and paints itself from
+        /// what that left, so there is nothing in the application that could
+        /// want this — which is the module's rule rather than the renderer's,
+        /// and argued there.
         pub(crate) fn renderer(&self) -> &Rc<RefCell<Renderer>> {
             &self.renderer
         }
@@ -324,9 +326,7 @@ pub(crate) mod internals {
         }
     }
 
-    /// The half of the reach-in that only this crate's own tests want, kept off
-    /// the feature so a build that turns `internals` on does not carry a method
-    /// nothing outside can call.
+    /// The `test`-only half — see [`CatCad::internals`](crate::internals).
     #[cfg(test)]
     mod looking {
         use aperture::Lit;
