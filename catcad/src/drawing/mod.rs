@@ -99,8 +99,8 @@ impl<'a> Drawing<'a> {
     /// A dimension's *number* is the exception that proves it, and is not one of
     /// these. It does have a place of its own, and dragging it moves that place
     /// and no geometry at all — so there is nothing here for the solver to be
-    /// asked about, and it is taken hold of before this is reached. See
-    /// [`label`](crate::scene_view::label) and
+    /// asked about, and it is taken hold of before this is reached — by the
+    /// press that settles a gesture, which answers for a number itself. See
     /// [`Change::Place`](crate::intent::Change).
     ///
     /// Nothing the drawing pins: `fix` is the user saying where a point goes,

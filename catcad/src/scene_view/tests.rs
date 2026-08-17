@@ -1,19 +1,21 @@
 use super::*;
 use crate::build::Build;
 use crate::demo;
+use crate::drawing::Grip;
 use crate::history::History;
 use crate::intent::{Choice, Intent, Intents};
 use crate::paint;
 use crate::paint::layout::Layout;
 use crate::paint::showing::Showing;
 use crate::part::Part;
+use crate::scene_view::gesture::label;
 use crate::session::Session;
 use crate::tool::Tool;
 use aperture::{Aim, HitAt, Motion, Scene, Viewport};
 use glam::{DVec2, UVec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{Modifiers, PointerButton};
-use silverpoint::Measurement;
+use silverpoint::{Grown, Measurement};
 
 const SIZE: UVec2 = UVec2::new(800, 600);
 
