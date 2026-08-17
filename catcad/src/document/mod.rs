@@ -215,14 +215,13 @@ impl Document {
         into.clone_from(self.timeline.feature(at));
     }
 
-    /// The drawing as `build` last left it.
+    /// Every sketch the document holds as `build` last left them, with
+    /// `editing` the one being worked in.
     ///
-    /// The pairing everything that reads the model reads it through — see
-    /// [`Model`]. Here because a caller holding a document and a build is
+    /// The pairing everything that reads a drawing reads it through — see
+    /// [`Models`]. Here because a caller holding a document and a build is
     /// holding both halves already, and naming the type to put them together
     /// would be ceremony.
-    /// Every sketch it holds as `build` last left them, with `editing` the one
-    /// being worked in.
     pub(crate) fn models<'a>(&'a self, build: &'a Build, editing: FeatureId) -> Models<'a> {
         Models::new(&self.timeline, build, editing)
     }

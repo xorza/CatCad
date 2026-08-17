@@ -175,8 +175,7 @@ pub(super) enum Stage {
 }
 
 impl Stage {
-    /// How many there are, which is how many starts
-    /// [`Names`](crate::paint::names::Names) keeps.
+    /// How many there are, which is how many starts [`Names`] keeps.
     ///
     /// Off the last variant rather than written out, so a stage added anywhere
     /// in the ladder is one this counts.

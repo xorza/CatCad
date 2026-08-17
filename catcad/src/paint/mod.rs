@@ -14,7 +14,7 @@
 //!
 //! **What is in this file is the deciding**, and the two calls that spend it:
 //! [`scene`] makes a picture and [`redraw`] keeps one current. Turning geometry
-//! into primitives is [`write`], a writer per batch; where a mark's *box* lands
+//! into primitives is [`write`](mod@write), a writer per batch; where a mark's *box* lands
 //! on screen is [`Mark`](marks::mark::Mark)'s, being the one part of a drawing
 //! measured in pixels after it has been laid out.
 
@@ -215,15 +215,13 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 /// [`redraw`] instead — and the two are shaped as differently as they are so
 /// that reaching for the wrong one is a change of code rather than of nothing.
 ///
-/// The solids arrive beside the model rather than out of it, because no step
-/// made them — see [`demo::scenery`](crate::demo::scenery). That is also why
-/// they are written once here and never by [`redraw`]: what the drawing says
-/// changes sixty times a second, and what stands around it does not change at
-/// all.
+/// Everything in the picture comes out of the document, solids included: a
+/// step grows one, so it is laid out with the drawing and by the same call —
+/// which is also what lets one be pointed at. Nothing is handed in beside the
+/// model, and there is nowhere in the signature for anything to be.
 ///
-/// The controls are not here either, and for the opposite reason: they are
-/// built against a camera rather than against the document. See
-/// [`gizmos::write()`].
+/// The controls are the one thing not here, because they are built against a
+/// camera rather than against the document. See [`gizmos::write()`].
 pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
     // Nothing half-done: no band, nothing being retyped and nothing being grown

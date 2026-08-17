@@ -105,11 +105,10 @@ impl Picture {
     /// what lets it say honestly which revision it has drawn — the one claim it
     /// makes about its own contents is one it is in a position to make.
     ///
-    /// Everything in the scene comes out of the document, solids included. It
-    /// did not always: the solids used to be scenery handed in from outside and
-    /// written once, because nothing in a document could yet *make* one. Now a
-    /// step does, so they are laid out with the rest of it and by the same call
-    /// — which is also what lets one be pointed at.
+    /// Everything in the scene comes out of the document, solids included —
+    /// see [`paint::scene`], which is the only place a scene comes from. There
+    /// is no second source for a picture to reconcile, so what it holds is
+    /// described by one revision rather than by a revision and a provenance.
     pub(super) fn new(models: Models<'_>) -> Self {
         let mut layout = Layout::default();
         let scene = paint::scene(models, &mut layout);

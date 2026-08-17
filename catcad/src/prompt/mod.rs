@@ -37,10 +37,11 @@ pub(crate) mod look;
 
 /// What a form is about, and so what committing it asks for.
 ///
-/// One arm per operation, which is the same shape [`Tool`](crate::tool::Tool)
-/// and [`Change`] already take. It is what turns "the user pressed Enter" into
-/// something the document understands, and there is no way to know that without
-/// knowing which operation is in hand.
+/// One arm per operation, which is the same shape [`Tool`] and [`Change`]
+/// already take. It is what turns "the user pressed Enter" into something the
+/// document understands, and there is no way to know that without knowing which
+/// operation is in hand.
+///
 /// Not [`Copy`], and that is [`Profile`]'s doing rather than an oversight — see
 /// [`Asking::Extrude`].
 #[derive(Debug, Clone, PartialEq)]

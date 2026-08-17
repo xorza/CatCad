@@ -34,7 +34,7 @@ const GAP: f32 = 8.0;
 /// record pass is gated at zero allocations.
 ///
 /// Shows and does not act — the whole of it. Every control reads app state and
-/// asks for what it wants as an [`Intent`](crate::intent::Intent): one that
+/// asks for what it wants as an [`Intent`]: one that
 /// turned the camera itself would be one that had to be handed a camera, and
 /// one that armed a tool itself would arm it and put it straight back down on a
 /// replayed pass.

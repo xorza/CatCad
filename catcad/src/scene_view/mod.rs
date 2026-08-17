@@ -57,15 +57,10 @@ pub(crate) struct SceneView {
 impl SceneView {
     /// A view of `document`, laid out as it stands.
     ///
-    /// The view lays it out itself rather than being handed a scene, which is
-    /// what lets it say honestly which revision it has drawn — the one claim it
-    /// makes about its own contents is one it is in a position to make.
-    ///
-    /// Everything in the scene comes out of the document, solids included. It
-    /// did not always: the solids used to be scenery handed in from outside and
-    /// written once, because nothing in a document could yet *make* one. Now a
-    /// step does, so they are laid out with the rest of it and by the same call
-    /// — which is also what lets one be pointed at.
+    /// A document and a build rather than a [`Models`], because the pairing is
+    /// what the app above holds and the view is what it holds one for. Laying
+    /// out is [`Picture::new`]'s and argued there; a pointer that has
+    /// established nothing yet is the whole of the other half.
     pub(crate) fn new(document: &Document, build: &Build, editing: FeatureId) -> Self {
         Self {
             picture: Picture::new(document.models(build, editing)),

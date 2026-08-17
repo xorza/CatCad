@@ -71,9 +71,9 @@ impl<'a> Drawing<'a> {
     /// What anything keeping handles across an edit has to ask. A handle
     /// outlives what it names whenever a step that *created* geometry is taken
     /// back, and it does not merely stop resolving:
-    /// [`Sketching::restore`](sketching::Sketching::restore) puts the sketch
-    /// back arenas and all, so the next entity created takes the very same
-    /// handle and would be mistaken for the one that went.
+    /// [`Document::restore`](crate::document::Document::restore) puts the
+    /// sketch back arenas and all, so the next entity created takes the very
+    /// same handle and would be mistaken for the one that went.
     ///
     /// The sketch's own answer, forwarded. Here as well because what a caller
     /// holds is a drawing — reaching through to the sketch to ask whether its

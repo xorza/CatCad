@@ -116,7 +116,7 @@ impl AllocBench {
         }
     }
 
-    /// Warm up, then count what [`MEASURE`] runs of `body` allocate, and hold
+    /// Warm up, then count what `MEASURE` runs of `body` allocate, and hold
     /// it to at most `max` blocks per run.
     ///
     /// A step that needs to vary between runs — a cursor walking across a

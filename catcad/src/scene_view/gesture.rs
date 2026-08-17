@@ -111,7 +111,7 @@ pub(super) struct Held {
     ///
     /// Three pixels either way. Geometry is grabbed by the very thing that
     /// moves, and a datum by an outline whose travel line is taken through the
-    /// grab — see [`Movable::travel`](crate::timeline::Movable::travel) — so
+    /// grab — see [`Along::travel`](crate::timeline::Along::travel) — so
     /// what is left over in both cases is only how far the pick landed from the
     /// cursor, which is the width of a stroke and no more.
     ///
@@ -119,7 +119,7 @@ pub(super) struct Held {
     /// carries a little of *across*: a pick on an outline answers with the
     /// nearest point of the stroke rather than the one under the cursor. The
     /// part that cannot be used is dropped where the travel becomes a number —
-    /// see [`Movable::offset_at`](crate::timeline::Movable::offset_at).
+    /// see [`Along::offset_at`](crate::timeline::Along::offset_at).
     offset: Vec3,
 }
 

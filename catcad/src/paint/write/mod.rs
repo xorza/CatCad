@@ -450,7 +450,8 @@ pub(super) fn faces(
 /// something you can point at: a tag names a primitive, so a face that is to be
 /// hovered, picked out and later built on has to be a primitive of its own.
 ///
-/// Named by what each face was grown from — see [`Grown`] — rather than by where
+/// Named by what each face was grown from — see [`Grown`](silverpoint::Grown) —
+/// rather than by where
 /// it fell in this frame's list. That is the same durable vocabulary the region
 /// underneath was named in, so a selection survives the drawing moving under it
 /// exactly as a sketch entity's does.
