@@ -2045,7 +2045,7 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
             sketch,
             entity: id.into(),
         };
-        let opened = dimension(part, &raised.document, sketch);
+        let opened = dimension(part, &raised.document);
         let held = label(part, drawing, sketch);
         match constraint.value() {
             Some(states) => {
@@ -2079,7 +2079,7 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
         sketch,
         entity: point.into(),
     };
-    assert!(dimension(marker, &raised.document, sketch).is_none());
+    assert!(dimension(marker, &raised.document).is_none());
     assert_eq!(label(marker, drawing, sketch), None);
 
     // A press refuses a number of a sketch you are not in, where the

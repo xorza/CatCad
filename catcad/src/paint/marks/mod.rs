@@ -386,6 +386,9 @@ fn bearing(run: DVec2) -> DVec2 {
 /// The point of the span nearest `at`, or `None` where the span is a point and
 /// has no line to drop a perpendicular onto.
 ///
+/// `at` brought onto the span itself, which for a point already on it is that
+/// point and otherwise is whichever end it ran past.
+///
 /// The foot of that perpendicular where it lands on the span, and the end it
 /// ran past where it does not — one projection, clamped where it is taken. The
 /// two as separate steps would take the parameter, build a point from it and
@@ -394,17 +397,6 @@ fn nearest_on(at: DVec2, span: [DVec2; 2]) -> Option<DVec2> {
     let run = span[1] - span[0];
     let squared = run.length_squared();
     (squared > 0.0).then(|| span[0] + run * ((at - span[0]).dot(run) / squared).clamp(0.0, 1.0))
-}
-
-/// `at` brought onto the span itself, which for a point already on it is that
-/// point and otherwise is whichever end it ran past.
-fn clamped_to(at: DVec2, span: [DVec2; 2]) -> DVec2 {
-    let run = span[1] - span[0];
-    let squared = run.length_squared();
-    if squared <= 0.0 {
-        return span[0];
-    }
-    span[0] + run * ((at - span[0]).dot(run) / squared).clamp(0.0, 1.0)
 }
 
 /// `cross` brought onto whichever of the two spans it is nearer.
@@ -416,7 +408,14 @@ fn clamped_to(at: DVec2, span: [DVec2; 2]) -> DVec2 {
 /// attached to nothing. A crossing that falls on both spans is on both already
 /// and neither clamp moves it.
 fn nearer_span(cross: DVec2, one: [DVec2; 2], other: [DVec2; 2]) -> DVec2 {
-    let (here, there) = (clamped_to(cross, one), clamped_to(cross, other));
+    // Neither span can be a point here: a crossing is answered only where both
+    // edges have a direction to cross at — see
+    // [`Sketch::crossing`](silverpoint::Sketch) — so the foot is always there to
+    // drop. The `Option` is kept on the projection for the other caller, whose
+    // degenerate case is real and falls back to the circle's own centre.
+    let onto =
+        |span: [DVec2; 2]| nearest_on(cross, span).expect("two spans that cross both have length");
+    let (here, there) = (onto(one), onto(other));
     if cross.distance_squared(here) <= cross.distance_squared(there) {
         here
     } else {

@@ -557,6 +557,12 @@ impl Prompt {
     /// form carries its own buttons: an extrude's depth is dragged by an arrow
     /// in the drawing, and a form that threw itself away when the pointer went
     /// to that arrow would be one you could never drag.
+    ///
+    /// **Which is the same bit read the other way**, and the whole of what says
+    /// a form carries its own answers: one is dismissed by its buttons or by
+    /// clicking away, never by both and never by neither. It had a name apiece,
+    /// and the second was a negation of the first — so the pair could not
+    /// disagree and a test that asked both was asking once.
     fn blurs(&self) -> bool {
         match self.about {
             Asking::Dimension { .. } => true,
@@ -702,15 +708,6 @@ impl Prompt {
         }
     }
 
-    /// Whether the form carries its own confirm and cancel.
-    ///
-    /// The same question [`Prompt::blurs`] answers from the other side, and
-    /// deliberately its opposite: a form is dismissed by its buttons or by
-    /// clicking away, never by both and never by neither.
-    fn answered(&self) -> bool {
-        !self.blurs()
-    }
-
     /// One field standing exactly where the drawing would have put the mark it
     /// replaces.
     ///
@@ -778,7 +775,6 @@ impl Prompt {
             anchor.size.w + STANDS_CLEAR * 2.0,
             anchor.size.h + STANDS_CLEAR * 2.0,
         );
-        let answerable = self.answered();
         let blurs = self.blurs();
         let Self {
             fields,
@@ -838,7 +834,7 @@ impl Prompt {
                     // Only where this is how the form is dismissed. A form that
                     // blurs shut has no use for them, and two buttons that were
                     // not the way out would be two buttons lying about it.
-                    if answerable {
+                    if !blurs {
                         // Under the far end of the row rather than its start,
                         // so the answers line up with the number they are about
                         // instead of with the word naming it.

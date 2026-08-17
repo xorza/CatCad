@@ -72,7 +72,7 @@ pub(super) fn clicked(click: Click, document: &Document, session: &Session, inte
     // A dimension and nothing else. Every other part has no number to type, and
     // a double-click on one should mean whatever a double-click comes to mean
     // next rather than nothing-in-particular now.
-    if double && let Some(typed) = under.and_then(|part| dimension(part, document, sketch)) {
+    if double && let Some(typed) = under.and_then(|part| dimension(part, document)) {
         intents.push(Choice::Ask(Some(typed)));
     } else {
         // Any other click puts away whatever was open. Committing would be the
@@ -239,13 +239,23 @@ fn anchor(at: Option<Vec3>, editing: FeatureId, under: Option<Part>) -> Option<A
 /// offers to be *dragged* by is
 /// [`label`](crate::scene_view::gesture::label)'s, and the two walk the same
 /// constraints — which is why one test asks both.
-pub(super) fn dimension(part: Part, document: &Document, sketch: FeatureId) -> Option<Opening> {
-    let Some(Entity::Constraint(id)) = part.entity() else {
+pub(super) fn dimension(part: Part, document: &Document) -> Option<Opening> {
+    // Both halves at once, because they are one question: whether this names a
+    // relation of some sketch. A part that names an entity always names the
+    // sketch holding it — see [`Part`] — so the pair is `Some` together or not
+    // at all, and taking them apart left a fallback to a sketch that could not
+    // be reached.
+    let (Some(sketch), Some(Entity::Constraint(id))) = (part.sketch(), part.entity()) else {
         return None;
     };
-    // Off the sketch the part names rather than the one open, which are the
-    // same on the frame a click lands and need not stay so.
-    let at = part.sketch().unwrap_or(sketch);
-    let from = document.drawing_at(at).sketch().constraint(id).value()?;
+    // The sketch the part names rather than the one open. They are the same
+    // wherever a click can find a mark, since only the open sketch's are drawn
+    // — see [`texts`](crate::paint::write::texts) — and what a form opens over
+    // is what the part says it is rather than what happens to be open.
+    let from = document
+        .drawing_at(sketch)
+        .sketch()
+        .constraint(id)
+        .value()?;
     Some(Opening::Dimension { part, from })
 }

@@ -151,7 +151,6 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
         &[("", Seed::Stated(1.0))],
     );
     assert!(typed.blurs(), "a dimension form has no other way out");
-    assert!(!typed.answered());
     assert_eq!(
         typed.resolve(Said {
             lost_focus: true,
@@ -161,8 +160,7 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
     );
 
     let grown = grown();
-    assert!(grown.answered(), "an extrude form carries its own answers");
-    assert!(!grown.blurs());
+    assert!(!grown.blurs(), "an extrude form carries its own answers");
     assert_eq!(
         grown.resolve(Said {
             lost_focus: true,
