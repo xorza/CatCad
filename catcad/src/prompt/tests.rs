@@ -31,6 +31,25 @@ fn dimension() -> Part {
     }
 }
 
+/// A form growing a solid, seeded the way one is opened.
+///
+/// A real name out of a real sketch, though which region it names is never
+/// resolved by anything below — resolving one wants an arrangement, and what
+/// these tests ask a form is what it *says*. Beside [`dimension`] because the
+/// two are the pair every test here needs: the kind of form that is dismissed
+/// by clicking away, and the kind that carries its own answers.
+fn grown() -> Prompt {
+    let Part::Entity { sketch, .. } = dimension() else {
+        unreachable!("the fixture is a dimension of a sketch");
+    };
+    Prompt::on(
+        Asking::Extrude {
+            profile: Profile::new(sketch, Vec::new()),
+        },
+        &[("Depth", Seed::Offered(0.0))],
+    )
+}
+
 /// A form opens showing what the dimension says, to the places a dimension is
 /// read out to.
 ///
@@ -52,20 +71,12 @@ fn a_form_opens_on_the_value_the_dimension_states() {
 }
 
 /// A draft that is not a number has no value to commit, and says so without
-/// refusing anything — and what the form hands the drawing is what it says.
+/// refusing anything.
 ///
 /// What a half-typed field looks like — "1." on the way to "1.5" — and what an
 /// expression will look like before it parses. The caller reads `None` as "not
 /// yet" and leaves the field open, which is why this is an `Option` rather than
 /// an error.
-///
-/// The second half is the tie between what a form *says* and what it hands to
-/// the press that grabs the depth arrow. [`Prompt::carrying`] and
-/// [`Prompt::growing`] are read on different schedules — one at a press, one
-/// every settle — so a `carrying` that substituted a value of its own would
-/// have the arrow travelling against a depth the solid was never drawn at. The
-/// same drafts run through both, because the answer has to be one answer: where
-/// the draft says nothing the *placeholder* speaks, and it speaks to both.
 #[test]
 fn a_draft_that_is_not_a_number_has_no_value() {
     let mut prompt = Prompt::on(
@@ -86,19 +97,22 @@ fn a_draft_that_is_not_a_number_has_no_value() {
         prompt.fields[0].draft.push_str(draft);
         assert_eq!(prompt.value(0), value, "{draft:?}");
     }
+}
 
-    // A real name out of a real sketch, though which region it is is never
-    // resolved below: what this half is about is the depth, which the form
-    // answers without a drawing to ask.
-    let Part::Entity { sketch, .. } = dimension() else {
-        unreachable!("the fixture is a dimension of a sketch");
-    };
-    let mut grown = Prompt::on(
-        Asking::Extrude {
-            profile: Profile::new(sketch, Vec::new()),
-        },
-        &[("Depth", Seed::Offered(0.0))],
-    );
+/// **A form hands over the depth it shows, never one of its own.**
+///
+/// [`Prompt::carrying`] is read at the press that grabs the depth arrow and
+/// [`Prompt::says`] at the commit, on different schedules — so a `carrying`
+/// that substituted a value where the draft said nothing would have the arrow
+/// travelling against a depth the solid was never drawn at.
+///
+/// Which is also what the sweep pins about the *placeholder*: where the draft
+/// does not read as a number the seed speaks, and it has to speak to both. A
+/// field opened on an offer is never short of an answer, so there is no draft
+/// at all for which this reports nothing — see [`Seed::Offered`].
+#[test]
+fn a_form_hands_over_the_depth_it_shows() {
+    let mut grown = grown();
     for (draft, says) in [
         // Nobody has typed, so the placeholder the form opened on speaks — a
         // solid at no depth rather than no solid. See [`Seed::Offered`].
@@ -146,16 +160,7 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
         Some(Done::Cancel)
     );
 
-    // A real name out of a real sketch, though which region it is is never read
-    // below: what this is about is only which of the two kinds of form it is.
-    let Part::Entity { sketch, .. } = dimension() else {
-        unreachable!("the fixture is a dimension of a sketch");
-    };
-    let profile = Profile::new(sketch, Vec::new());
-    let grown = Prompt::on(
-        Asking::Extrude { profile },
-        &[("Depth", Seed::Offered(0.0))],
-    );
+    let grown = grown();
     assert!(grown.answered(), "an extrude form carries its own answers");
     assert!(!grown.blurs());
     assert_eq!(

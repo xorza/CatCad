@@ -374,10 +374,9 @@ impl Document {
                 region,
                 distance,
             } => {
-                // Found by name rather than through [`Models::open`], though
-                // the two land on the same model here: which sketch is being
-                // worked in is the session's and no business of an edit, and
-                // what this wants is the one the change names.
+                // By name rather than through [`Models::open`], which lands on
+                // the same model here: which sketch is being *worked in* is the
+                // session's, and an edit names its own.
                 let profile = self
                     .models(build, sketch)
                     .at(sketch)

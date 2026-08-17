@@ -18,7 +18,7 @@ use aperture::{
 };
 use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId};
+use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId, Sketch};
 use std::fmt::Write;
 
 use crate::drawing::Drawing;
@@ -537,20 +537,19 @@ fn write_marks(
             // under one would be a second copy of the number showing
             // through wherever the field did not quite cover it.
             .filter(move |placed| Some(live.part(placed.of)) != typed)
-            .map(move |placed| Marked::Stated(live, *placed))
+            .map(|placed| Marked::Stated(*placed))
             // Last, so a dimension being placed is written over the drawing
             // rather than under it — and so the tags the drawing handed out
             // are the same whether or not a tool is half-way through one.
             .chain(proposed.and_then(|constraint| {
                 Some(Marked::Proposed(
-                    live,
                     constraint,
                     marks::previewed(live.sketch(), constraint)?,
                 ))
             })),
         |mark, marked| {
-            let (model, placed) = (marked.model(), marked.mark());
-            let constraint = marked.constraint();
+            let placed = marked.mark();
+            let constraint = marked.constraint(live.sketch());
             // Rewritten in place rather than assigned, so a drawing whose marks are
             // laid out every frame keeps the string it already has — which is what
             // keeps a scrubbed dimension off the heap sixty times a second.
@@ -567,7 +566,7 @@ fn write_marks(
                 }
                 None => mark.content.push_str(symbol(constraint)),
             }
-            let plane = model.plane();
+            let plane = live.plane();
             mark.position = plane.point(placed.at).as_vec3();
             mark.font = mark_font();
             // **Centred on its own box**, with the clearance carried by the
@@ -583,12 +582,12 @@ fn write_marks(
                 // anything else either. The grey a rubber band wears, and for
                 // the same reason — it is not in the drawing yet.
                 Marked::Proposed(..) => GHOST,
-                Marked::Stated(_, stated) if model.outcome().is_redundant(stated.of) => {
-                    ink(model, REDUNDANT)
+                Marked::Stated(stated) if live.outcome().is_redundant(stated.of) => {
+                    ink(live, REDUNDANT)
                 }
-                Marked::Stated(..) => ink(model, MARK),
+                Marked::Stated(..) => ink(live, MARK),
             };
-            mark.precedence = standing(model);
+            mark.precedence = standing(live);
             // Lettered on the drawing rather than pinned over it: set along the
             // geometry it is about — the span a dimension measures, the edge a
             // symbol names — so a number reads as belonging to the line under it
@@ -598,13 +597,13 @@ fn write_marks(
             // Clear of that geometry by the lift, which is stated in the plane's
             // own axes and so is the one thing about a mark the projection
             // cannot move.
-            mark.facing = Facing::Turned(mark_turn(model.drawing(), placed));
+            mark.facing = Facing::Turned(mark_turn(live.drawing(), placed));
             // Untagged where it is a proposal, which is what keeps it out of the
             // way: a pick skips a primitive with no tag, so the click that
             // *commits* the dimension resolves against the geometry behind it
             // rather than against the picture of what it is about to make.
             mark.tag = match marked {
-                Marked::Stated(_, stated) => Some(names.tag(model.part(stated.of))),
+                Marked::Stated(stated) => Some(names.tag(live.part(stated.of))),
                 Marked::Proposed(..) => None,
             };
         },
@@ -619,37 +618,36 @@ fn write_marks(
 /// preview is for is showing what the click will make. What they differ in is
 /// stated in the two places it is real: a proposal has no state to report and
 /// nothing to pick.
+///
+/// Neither carries the drawing it belongs to, unlike [`Stroke`] and [`Rim`]
+/// below. Those are written for every sketch the document holds and so name one
+/// apiece; marks are written for the open sketch alone, which is one model the
+/// writer already has in hand.
 #[derive(Debug, Clone, Copy)]
-enum Marked<'a> {
-    Stated(Model<'a>, Placed),
+enum Marked {
+    Stated(Placed),
     /// The constraint the next click would state, and where its mark would go.
     ///
     /// Carried rather than looked up, because the sketch does not hold it: there
     /// is no handle to ask with, which is exactly what makes it a proposal.
-    Proposed(Model<'a>, Constraint, Standing),
+    Proposed(Constraint, Standing),
 }
 
-impl<'a> Marked<'a> {
-    /// The drawing it belongs to.
-    fn model(self) -> Model<'a> {
+impl Marked {
+    /// What it says — out of `sketch` where the sketch is what holds it, and
+    /// carried where nothing does.
+    fn constraint(self, sketch: &Sketch) -> Constraint {
         match self {
-            Marked::Stated(model, _) | Marked::Proposed(model, ..) => model,
-        }
-    }
-
-    /// What it says.
-    fn constraint(self) -> Constraint {
-        match self {
-            Marked::Stated(model, placed) => model.sketch().constraint(placed.of),
-            Marked::Proposed(_, constraint, _) => constraint,
+            Marked::Stated(placed) => sketch.constraint(placed.of),
+            Marked::Proposed(constraint, _) => constraint,
         }
     }
 
     /// Where it stands and which way it runs.
     fn mark(self) -> Mark {
         match self {
-            Marked::Stated(_, placed) => placed.mark,
-            Marked::Proposed(_, _, standing) => standing.grounded(),
+            Marked::Stated(placed) => placed.mark,
+            Marked::Proposed(_, standing) => standing.grounded(),
         }
     }
 }

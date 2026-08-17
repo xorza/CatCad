@@ -344,10 +344,9 @@ impl Prompt {
     /// on without a solve in hand.
     ///
     /// The depth the form says and never one of its own, on the same terms
-    /// [`Prompt::growing`] reads one — which is what keeps the arrow travelling
-    /// against the solid it is carrying. The two are read on different
-    /// schedules, and a fallback here would be a value the drawing was never
-    /// showing.
+    /// [`Prompt::growing`] reads one. The two are read on different schedules,
+    /// so a fallback here would be the arrow travelling against a depth the
+    /// solid was never drawn at.
     pub(crate) fn carrying(&self) -> Option<Carrying> {
         match &self.about {
             Asking::Dimension { .. } | Asking::Radius { .. } | Asking::Circle { .. } => None,
