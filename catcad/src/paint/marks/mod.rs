@@ -20,7 +20,7 @@
 //! arithmetic.
 
 use glam::{DVec2, Vec3};
-use silverpoint::{Constraint, ConstraintId, PointId, SegmentId, Sketch};
+use silverpoint::{Constraint, ConstraintId, Measurement, PointId, SegmentId, Sketch};
 
 use crate::drawing::Drawing;
 use crate::model::Model;
@@ -243,23 +243,21 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
             let (a, b) = (at_point(sketch, a), at_point(sketch, b));
             one((a + b) * 0.5, along([a, b]))
         }
-        // The two that measure square to an edge, and they span the same thing:
-        // the foot of the perpendicular, and whatever stands off it. So the
-        // number goes midway along that perpendicular and is set along it,
-        // which is the same rule the distance above follows — the span a
-        // dimension measures is where its number belongs.
+        // The two that measure square to an edge, asked of the one place that
+        // works out what a dimension spans. Both want the foot of a
+        // perpendicular on an edge's *infinite* line, which is geometry rather
+        // than presentation and is already answered — writing it out again here
+        // would be a second formula for one rule, and the two would agree until
+        // the day one of them was changed.
         //
-        // The foot on the edge's *infinite* line, unclamped, because that is
-        // what the relation measures — see
-        // [`Constraint::Standoff`](silverpoint::Constraint). A tangency clamps
-        // because its mark is about the touch rather than about a number, and
-        // a number sitting off the end of its own perpendicular would be a
-        // number in the wrong place.
-        Constraint::Standoff { point, segment, .. } => {
-            standing_off(at_point(sketch, point), span(sketch, segment))
-        }
-        Constraint::Spacing { first, second, .. } => {
-            standing_off(middle(span(sketch, second)), span(sketch, first))
+        // What is still this file's is the direction: a measurement runs from
+        // the line out toward what stands off it, and a mark has to be settled
+        // either side of [`CUT`] so it does not turn over when the drawing is
+        // dragged past it.
+        Constraint::Standoff { .. } | Constraint::Spacing { .. } => {
+            let measured = Measurement::of(sketch, constraint)
+                .expect("a standoff and a spacing both state a number");
+            one(measured.label, canonical(measured.along))
         }
         Constraint::Radius { circle, .. } => {
             let it = sketch.circle(circle);
@@ -275,50 +273,6 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
             one(at_point(sketch, it.center) + radial * it.radius, radial)
         }
     }
-}
-
-/// Where the mark for "this place stands off that line" goes: midway along the
-/// perpendicular, set along it.
-///
-/// Both variants that measure square to an edge, because they differ only in
-/// where the place comes from — a point the sketch holds, or the middle of
-/// another edge — exactly as their residual does.
-///
-/// A line with no direction has no perpendicular to drop, and then the place is
-/// as good an answer as any: the number sits on what it is about and is set
-/// along the sketch's own +x, which is what every mark with no span of its own
-/// already does.
-fn standing_off(at: DVec2, line: [DVec2; 2]) -> [Option<Standing>; 2] {
-    let Some(foot) = foot_on(at, line) else {
-        return [
-            Some(Standing {
-                at,
-                along: DVec2::X,
-            }),
-            None,
-        ];
-    };
-    [
-        Some(Standing {
-            at: (at + foot) * 0.5,
-            along: along([foot, at]),
-        }),
-        None,
-    ]
-}
-
-/// The foot of the perpendicular from `at` onto the span's *infinite* line, or
-/// `None` where the span is a point and names no line.
-///
-/// [`nearest_on`] without the clamp, and apart from it rather than a flag on it
-/// because the two answer different questions: that one is asked where on a
-/// segment something touches, and this is asked what a measurement square to a
-/// line is measured from. A dimension whose foot had been dragged back onto the
-/// segment would read a distance the constraint does not state.
-fn foot_on(at: DVec2, span: [DVec2; 2]) -> Option<DVec2> {
-    let run = span[1] - span[0];
-    let squared = run.length_squared();
-    (squared > 0.0).then(|| span[0] + run * ((at - span[0]).dot(run) / squared))
 }
 
 /// The direction a mark on `span` is set along: the way it runs, settled.

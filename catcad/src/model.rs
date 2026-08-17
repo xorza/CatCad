@@ -189,6 +189,8 @@ impl<'a> Model<'a> {
     /// asking for a distance *locks* what is there rather than demanding a value
     /// the user has no way to type yet. That is also what a modeller does: the
     /// dimension appears reading what it measured, and is retyped afterwards.
+    /// Fitting it is [`Sketch::fitted`]'s, which also drops a dimension that
+    /// would measure nothing — see the note there.
     ///
     /// Fills rather than returns, because the bar asks this every frame and the
     /// record pass allocates nothing.
@@ -206,19 +208,38 @@ impl<'a> Model<'a> {
                     self.between(one, two, into);
                 }
             }
-            // The one relation a single pick admits: a radius takes the size
-            // the circle already is, so asking for one locks what is there
-            // rather than demanding a number nobody can type yet.
+            // The one relation a single pick admits.
             [only] => {
                 if let Some(Entity::Circle(circle)) = self.entity(only) {
-                    into.push(Constraint::Radius {
-                        circle,
-                        dimension: Dimension::new(self.sketch().circle(circle).radius),
-                    });
+                    self.admits(
+                        [Constraint::Radius {
+                            circle,
+                            dimension: Dimension::new(0.0),
+                        }],
+                        into,
+                    );
                 }
             }
             _ => {}
         }
+    }
+
+    /// Whatever of `candidates` the drawing can actually state, appended to
+    /// `into`.
+    ///
+    /// Every offer goes through here, which is what makes "a dimension holds
+    /// what the drawing measures" one rule rather than one per row of the table
+    /// below: a candidate is written with the geometry it is about and a
+    /// placeholder number, and the sketch fills the number in — or refuses the
+    /// candidate outright where there is nothing to measure. A relation has no
+    /// number and passes straight through.
+    fn admits(self, candidates: impl IntoIterator<Item = Constraint>, into: &mut Vec<Constraint>) {
+        let sketch = self.sketch();
+        into.extend(
+            candidates
+                .into_iter()
+                .filter_map(|candidate| sketch.fitted(candidate)),
+        );
     }
 
     /// What a pair of entities admits, in the order they were picked.
@@ -227,40 +248,91 @@ impl<'a> Model<'a> {
     /// these is: every pair below reads the same whichever way round it was
     /// reached, which is why each mixed one is matched both ways.
     fn between(self, one: Entity, two: Entity, into: &mut Vec<Constraint>) {
+        // The number every dimension below is written with, and none of them
+        // keeps: what it measures is the drawing's answer, and [`Model::admits`]
+        // is where the drawing gives it. Named so a reader is not left wondering
+        // what a zero here would mean.
+        let unmeasured = Dimension::new(0.0);
         match (one, two) {
-            (Entity::Point(a), Entity::Point(b)) => into.extend([
-                Constraint::Coincident { a, b },
-                Constraint::Distance {
-                    a,
-                    b,
-                    along: Along::Shortest,
-                    dimension: Dimension::new(
-                        (self.sketch().point(a).position - self.sketch().point(b).position)
-                            .length(),
-                    ),
-                },
-                Constraint::Horizontal { a, b },
-                Constraint::Vertical { a, b },
-            ]),
-            (Entity::Segment(first), Entity::Segment(second)) => into.extend([
-                Constraint::Parallel { first, second },
-                Constraint::Perpendicular { first, second },
-                Constraint::EqualLength { first, second },
-            ]),
-            (Entity::Point(point), Entity::Segment(segment))
-            | (Entity::Segment(segment), Entity::Point(point)) => {
-                into.push(Constraint::PointOnSegment { point, segment });
+            (Entity::Point(a), Entity::Point(b)) => self.admits(
+                [
+                    Constraint::Coincident { a, b },
+                    // The three readings of one pair, offered together because a
+                    // selection cannot say which was meant — see
+                    // [`Along`]. Each drops itself where it measures nothing, so
+                    // a level pair offers no vertical distance and says
+                    // [`Constraint::Horizontal`] instead.
+                    Constraint::Distance {
+                        a,
+                        b,
+                        along: Along::Shortest,
+                        dimension: unmeasured,
+                    },
+                    Constraint::Distance {
+                        a,
+                        b,
+                        along: Along::Horizontal,
+                        dimension: unmeasured,
+                    },
+                    Constraint::Distance {
+                        a,
+                        b,
+                        along: Along::Vertical,
+                        dimension: unmeasured,
+                    },
+                    Constraint::Horizontal { a, b },
+                    Constraint::Vertical { a, b },
+                ],
+                into,
+            ),
+            (Entity::Segment(first), Entity::Segment(second)) => {
+                self.admits(
+                    [
+                        Constraint::Parallel { first, second },
+                        Constraint::Perpendicular { first, second },
+                        Constraint::EqualLength { first, second },
+                    ],
+                    into,
+                );
+                // **Only where the two already run parallel.** A distance
+                // between two lines is one number only while they run together;
+                // where they cross, the gap depends on where along them it is
+                // measured, and there is nothing honest for a dimension to hold.
+                // What a non-parallel pair should be offered is an angle, which
+                // the drawing cannot state yet.
+                if self.sketch().parallel(first, second) {
+                    self.admits(
+                        [Constraint::Spacing {
+                            first,
+                            second,
+                            dimension: unmeasured,
+                        }],
+                        into,
+                    );
+                }
             }
+            (Entity::Point(point), Entity::Segment(segment))
+            | (Entity::Segment(segment), Entity::Point(point)) => self.admits(
+                [
+                    Constraint::PointOnSegment { point, segment },
+                    Constraint::Standoff {
+                        point,
+                        segment,
+                        dimension: unmeasured,
+                    },
+                ],
+                into,
+            ),
             (Entity::Point(point), Entity::Circle(circle))
             | (Entity::Circle(circle), Entity::Point(point)) => {
-                into.push(Constraint::PointOnCircle { point, circle });
+                self.admits([Constraint::PointOnCircle { point, circle }], into);
             }
             (Entity::Circle(first), Entity::Circle(second)) => {
-                into.push(Constraint::EqualRadius { first, second });
+                self.admits([Constraint::EqualRadius { first, second }], into);
             }
             (Entity::Segment(segment), Entity::Circle(circle))
             | (Entity::Circle(circle), Entity::Segment(segment)) => {
-                into.push(Constraint::Tangent { segment, circle });
+                self.admits([Constraint::Tangent { segment, circle }], into);
             }
             _ => {}
         }

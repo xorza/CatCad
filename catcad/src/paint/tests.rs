@@ -9,6 +9,8 @@ use crate::timeline::feature::{Datum, Feature};
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Along, Dimension, Entity, Sketch};
+use std::collections::HashSet;
+use std::mem::{Discriminant, discriminant};
 
 /// A drawing and what solving it decided — the pair every writer here takes.
 #[derive(Debug)]
@@ -327,7 +329,12 @@ fn every_mark_has_a_glyph_to_draw_it() {
     let mut glyphs = shaper.glyphs();
     let mut placed = Vec::new();
 
-    for constraint in every_relation() {
+    // The relations alone. A dimension is drawn as its number, so it never
+    // reaches `symbol` and asking it for one panics — see the arm there.
+    for constraint in every_statable()
+        .into_iter()
+        .filter(|constraint| constraint.value().is_none())
+    {
         let mark = super::symbol(constraint);
         // The face and the size the drawing sets marks in, not a stand-in: a
         // symbol the mono bold face lacks falls through to whatever the system
@@ -351,13 +358,27 @@ fn every_mark_has_a_glyph_to_draw_it() {
 
 /// One of every relation the drawing can state, so a sweep over them is a sweep
 /// over the enum.
-fn every_relation() -> Vec<silverpoint::Constraint> {
+///
+/// Named for what it gathers rather than for relations alone, because it
+/// gathers dimensions too — and the two want different things of a caller: a
+/// relation is drawn as a symbol and a dimension as a number, so a sweep over
+/// marks has to sift them and a sweep over the enum must not.
+fn every_statable() -> Vec<silverpoint::Constraint> {
     let mut sketch = Sketch::default();
     let a = sketch.add_point(DVec2::ZERO);
     let b = sketch.add_point(DVec2::new(3.0, 4.0));
     let c = sketch.add_point(DVec2::new(6.0, 0.0));
     let first = sketch.add_segment(a, b);
     let second = sketch.add_segment(b, c);
+    // A third edge running with the first, because a distance between two edges
+    // is offered only where they are already parallel — so a pair that crosses
+    // could never reach `Spacing`, and the sweep below would be short of the one
+    // variant nothing else states.
+    let (aside, along) = (
+        sketch.add_point(DVec2::new(1.0, 0.0)),
+        sketch.add_point(DVec2::new(4.0, 4.0)),
+    );
+    let alongside = sketch.add_segment(aside, along);
     let circle = sketch.add_circle(c, 2.0);
     let other = sketch.add_circle(a, 1.0);
     let mut build = Build::default();
@@ -371,6 +392,7 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
     for picked in [
         vec![Entity::Point(a), Entity::Point(b)],
         vec![Entity::Segment(first), Entity::Segment(second)],
+        vec![Entity::Segment(first), Entity::Segment(alongside)],
         vec![Entity::Point(a), Entity::Segment(second)],
         vec![Entity::Point(a), Entity::Circle(circle)],
         vec![Entity::Circle(circle)],
@@ -384,9 +406,17 @@ fn every_relation() -> Vec<silverpoint::Constraint> {
         model.offers(&picked, &mut offers);
         every.extend(offers.iter().copied());
     }
-    // The twelve the enum has; a variant `offers` cannot reach would be a
-    // variant nothing can state, which is its own bug.
-    assert_eq!(every.len(), 12, "{every:?}");
+    // Every variant of the enum, which is what makes a sweep over these a sweep
+    // over it: one `offers` cannot reach is one nothing can state, which is its
+    // own bug.
+    //
+    // By discriminant rather than by count, and that is what the three readings
+    // of a distance forced. A count used to be readable against the enum — one
+    // offer, one variant — and now several offers share a variant, so a total
+    // would be a number nobody could check against anything.
+    let kinds: HashSet<Discriminant<silverpoint::Constraint>> =
+        every.iter().map(discriminant).collect();
+    assert_eq!(kinds.len(), 14, "{every:?}");
     every
 }
 

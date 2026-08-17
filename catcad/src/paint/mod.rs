@@ -703,13 +703,6 @@ fn symbol(constraint: Constraint) -> &'static str {
     match constraint {
         // A coincidence makes two points one, so it is drawn as the one.
         Constraint::Coincident { .. } => "\u{2022}",
-        // The four that carry a number are drawn as the number — see the arm
-        // above the call. The symbol is what a relation with nothing to say
-        // gets instead, and a dimension reaching here would be one the writer
-        // failed to recognise as one.
-        Constraint::Distance { .. } | Constraint::Standoff { .. } | Constraint::Spacing { .. } => {
-            "\u{2194}"
-        }
         Constraint::Horizontal { .. } => "\u{2015}",
         Constraint::Vertical { .. } => "\u{2502}",
         Constraint::Parallel { .. } => "\u{2225}",
@@ -717,7 +710,6 @@ fn symbol(constraint: Constraint) -> &'static str {
         // "is on", which is the same relation whether what it is on is straight
         // or curved.
         Constraint::PointOnSegment { .. } | Constraint::PointOnCircle { .. } => "\u{2208}",
-        Constraint::Radius { .. } => "R",
         // Equal length and equal radius are one mark for the same reason: what
         // the drawing has to say is that two things match, and which two is
         // plain from what the mark sits between.
@@ -726,6 +718,17 @@ fn symbol(constraint: Constraint) -> &'static str {
         // mark that carries into a font — the drawings that need one letter it
         // too.
         Constraint::Tangent { .. } => "T",
+        // The four that carry a number never reach here: a dimension is drawn
+        // as its measurement, which is the arm above the call. A symbol for one
+        // would be a second thing the drawing could show for the same relation,
+        // and nothing would say which was meant — so there is not one, and
+        // asking for it is a caller that failed to read `value` first.
+        Constraint::Distance { .. }
+        | Constraint::Standoff { .. }
+        | Constraint::Spacing { .. }
+        | Constraint::Radius { .. } => {
+            unreachable!("a dimension is drawn as its number, not as a symbol")
+        }
     }
 }
 

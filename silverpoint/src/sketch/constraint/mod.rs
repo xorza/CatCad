@@ -419,7 +419,7 @@ impl Constraint {
             } => standoff(
                 sketch,
                 row,
-                Standing {
+                Gap {
                     at: sketch.point(point).position,
                     // The place is a point the sketch holds, so the whole of
                     // the gradient goes to it.
@@ -438,7 +438,7 @@ impl Constraint {
                 standoff(
                     sketch,
                     row,
-                    Standing {
+                    Gap {
                         at: a.midpoint(b),
                         // The place is the middle of an edge, which moves half
                         // as fast as either end — so each end takes half the
@@ -509,14 +509,15 @@ impl Constraint {
     }
 }
 
-/// One place standing off one segment's line, and what that place is made of.
+/// The gap a standoff residual is measured across, and what the place it is
+/// measured from is made of.
 ///
 /// The arguments [`standoff`] takes, gathered because they only mean anything
 /// together: `at` is where the place currently is and `carried` is which
 /// parameters it is a function of, so a caller handing over one without the
 /// other would be asking for a gradient of the wrong thing.
 #[derive(Debug)]
-struct Standing<'a> {
+struct Gap<'a> {
     /// Where the place is now.
     at: DVec2,
     /// The points `at` is built from, each with how fast it moves when that
@@ -532,14 +533,14 @@ struct Standing<'a> {
 ///
 /// Shared by [`Constraint::Standoff`] and [`Constraint::Spacing`], which differ
 /// only in where the place comes from — a point the sketch holds, or the middle
-/// of an edge — and so only in [`Standing::carried`]. Written once, because the
+/// of an edge — and so only in [`Gap::carried`]. Written once, because the
 /// two differing in the chain rule applied to one of three gradients is not two
 /// equations.
 ///
 /// A private free fn rather than a method: it asks the sketch for geometry and
 /// answers a number, and there is no type here it is *of*.
-fn standoff(sketch: &Sketch, row: &mut JacobianRow<'_>, standing: Standing<'_>) -> f64 {
-    let Standing {
+fn standoff(sketch: &Sketch, row: &mut JacobianRow<'_>, standing: Gap<'_>) -> f64 {
+    let Gap {
         at,
         carried,
         segment,

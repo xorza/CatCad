@@ -15,6 +15,7 @@ use crate::math::approx::{ApproxEq, PARALLEL, TOUCHING};
 use crate::math::direction::Direction;
 use crate::sketch::constraint::{Constraint, ConstraintId};
 use crate::sketch::entity::Entity;
+use crate::sketch::measurement::Measurement;
 use crate::sketch::params::{Params, ParamsMut};
 use crate::sketch::snapshot::Snapshot;
 use glam::DVec2;
@@ -345,6 +346,40 @@ impl Sketch {
             .dimension_mut()
             .expect("this relation states no number to place");
         dimension.placement = placement;
+    }
+
+    /// `constraint` restated at what the drawing currently measures, or `None`
+    /// where it would measure nothing.
+    ///
+    /// What a caller *offering* a dimension wants, and both halves of it. A
+    /// dimension takes the size the drawing already is, so asking for one locks
+    /// what is there rather than demanding a number nobody can type yet — and a
+    /// dimension of nothing is not one: a horizontal distance between two points
+    /// at the same height states a zero that says less than the
+    /// [`Constraint::Vertical`] beside it and has no span to be drawn along.
+    ///
+    /// A relation comes back as itself. It has no number to fit and nothing to
+    /// be empty of, so the one call does for a whole table of candidates and the
+    /// caller need not sort them into two kinds first.
+    ///
+    /// Read off [`Measurement`], which is the one place what a dimension spans
+    /// is worked out — so the number a fresh one holds and the span its drawing
+    /// draws cannot come to disagree.
+    ///
+    /// Here rather than on [`Constraint`] because it is a question about a
+    /// sketch: the constraint supplies only which geometry to ask about, and
+    /// everything that decides the answer is this sketch's.
+    pub fn fitted(&self, constraint: Constraint) -> Option<Constraint> {
+        let Some(measured) = Measurement::of(self, constraint).map(|span| span.spans()) else {
+            return Some(constraint);
+        };
+        (measured > TOUCHING).then(|| {
+            let mut fitted = constraint;
+            *fitted
+                .value_mut()
+                .expect("a constraint that measures something states a number") = measured;
+            fitted
+        })
     }
 
     /// Whether two segments currently run parallel.

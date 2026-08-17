@@ -41,6 +41,24 @@ pub struct Measurement {
 }
 
 impl Measurement {
+    /// How far the feet reach along the direction this is measured in — what
+    /// the dimension would read if the drawing satisfied it.
+    ///
+    /// The projection rather than the gap between the feet, which is the whole
+    /// of what an axis-aligned reading means: a horizontal distance measures the
+    /// x between two points and not how far apart they are. For every other kind
+    /// the two agree, because there the direction *is* the way the feet lie —
+    /// so one line answers all six.
+    ///
+    /// What tells this from [`Self::value`] beside it is which way round the
+    /// question runs. That one is what the drawing has been *told*; this is what
+    /// it currently *is*, and the two part on any sketch a solve has not
+    /// reached. A caller offering a fresh dimension wants this one — see
+    /// [`Sketch::fitted`].
+    pub fn spans(&self) -> f64 {
+        (self.feet[1] - self.feet[0]).dot(self.along).abs()
+    }
+
     /// `constraint` as a dimension to draw, or `None` where it states no
     /// number and so is a relation with a symbol rather than a figure.
     pub fn of(sketch: &Sketch, constraint: Constraint) -> Option<Self> {

@@ -448,3 +448,165 @@ fn the_cleanup_measures_nearness_and_spares_what_is_spoken_for() {
     );
     assert_eq!(sketch.constraints().count(), 1, "the parallel was dropped");
 }
+
+/// A dimension offered takes the size the drawing already is, and one that
+/// would measure nothing is not offered at all.
+///
+/// Both halves of what a bar asks of a sketch. The first is what makes a
+/// dimension appear reading what it measured rather than demanding a number
+/// nobody can type yet; the second is what keeps a horizontal distance off a
+/// pair that is already level, where it would state a zero and have no span to
+/// be drawn along.
+///
+/// A relation passes through untouched, which is what lets one call answer a
+/// whole table of candidates rather than the caller sorting them into two kinds
+/// first.
+#[test]
+fn a_dimension_is_fitted_to_what_the_drawing_measures_and_dropped_where_it_measures_nothing() {
+    let mut sketch = Sketch::default();
+    // 3-4-5 from the origin, and a third point level with the first.
+    let origin = sketch.add_point(DVec2::ZERO);
+    let corner = sketch.add_point(DVec2::new(3.0, 4.0));
+    let level = sketch.add_point(DVec2::new(6.0, 0.0));
+    let fitted = |a, b, along| {
+        sketch.fitted(Constraint::Distance {
+            a,
+            b,
+            along,
+            // Nothing, deliberately: what comes back has to be the drawing's
+            // answer rather than anything the caller wrote.
+            dimension: Dimension::new(0.0),
+        })
+    };
+
+    // The three readings of one pair are the three sides of that triangle.
+    for (along, want) in [
+        (Along::Shortest, 5.0),
+        (Along::Horizontal, 3.0),
+        (Along::Vertical, 4.0),
+    ] {
+        let offered = fitted(origin, corner, along).expect("the pair measures something");
+        assert_eq!(offered.value(), Some(want), "{along:?}");
+    }
+
+    // Level with each other, so there is no vertical distance to state — and
+    // the other two readings still are, which is what says the refusal is about
+    // the reading rather than about the pair.
+    assert_eq!(fitted(origin, level, Along::Vertical), None);
+    assert_eq!(
+        fitted(origin, level, Along::Horizontal).and_then(|offered| offered.value()),
+        Some(6.0)
+    );
+
+    // A relation has no number to fit and nothing to be empty of, so it comes
+    // back as itself — including over the level pair the vertical distance was
+    // just refused for, which is exactly the case a drawing offers it in.
+    let horizontal = Constraint::Horizontal {
+        a: origin,
+        b: level,
+    };
+    assert_eq!(sketch.fitted(horizontal), Some(horizontal));
+
+    // A standoff is fitted off its own perpendicular rather than off the gap
+    // between what it names: `corner` is four above the line through the origin
+    // and `level`, whatever its x.
+    let flat = sketch.add_segment(origin, level);
+    let standoff = sketch.fitted(Constraint::Standoff {
+        point: corner,
+        segment: flat,
+        dimension: Dimension::new(0.0),
+    });
+    assert_eq!(standoff.and_then(|offered| offered.value()), Some(4.0));
+}
+
+/// Two edges run parallel or they do not, and a collapsed one does not run at
+/// all.
+///
+/// The question a bar asks before offering a distance between two edges. The
+/// degenerate half is the sharp one: an edge whose ends have met has only the
+/// direction a fallback handed it, and reading two of those as parallel to each
+/// other would be reading agreement into two pieces of made-up data.
+#[test]
+fn two_edges_are_parallel_only_where_both_have_a_direction_to_compare() {
+    let mut sketch = Sketch::default();
+    let at = |sketch: &mut Sketch, x, y| sketch.add_point(DVec2::new(x, y));
+    let (a, b) = (at(&mut sketch, 0.0, 0.0), at(&mut sketch, 3.0, 4.0));
+    let (c, d) = (at(&mut sketch, 1.0, 0.0), at(&mut sketch, 4.0, 4.0));
+    let (e, f) = (at(&mut sketch, 0.0, 0.0), at(&mut sketch, 4.0, 3.0));
+    let first = sketch.add_segment(a, b);
+    let beside = sketch.add_segment(c, d);
+    let across = sketch.add_segment(e, f);
+
+    assert!(sketch.parallel(first, beside));
+    // Either way round, and an edge with itself, because parallelism is a
+    // property of a pair of directions and not of which was named first.
+    assert!(sketch.parallel(beside, first));
+    assert!(sketch.parallel(first, first));
+    // 3-4 against 4-3 is a long way from parallel, and near enough in *length*
+    // that a test against the bare cross product rather than the sine would be
+    // measuring how big the sketch is.
+    assert!(!sketch.parallel(first, across));
+
+    // An edge whose ends have met has no direction of its own, so it is
+    // parallel to nothing — not even to another one that has also collapsed.
+    let (here, there) = (at(&mut sketch, 2.0, 2.0), at(&mut sketch, 2.0, 2.0));
+    let collapsed = sketch.add_segment(here, there);
+    let also = sketch.add_segment(there, here);
+    assert!(!sketch.parallel(collapsed, first));
+    assert!(!sketch.parallel(first, collapsed));
+    assert!(!sketch.parallel(collapsed, also));
+}
+
+/// Where a dimension's number sits is the sketch's to hold, and nothing else
+/// moves when it does.
+///
+/// The half of a dimension the solver never reads. What it has to be is
+/// durable — a number dragged clear stays clear across a save and an undo — and
+/// what it must not be is geometry: restating a placement moves no point, so a
+/// drawing already solved is still solved afterwards.
+#[test]
+fn a_placement_is_kept_on_the_dimension_and_moves_no_geometry() {
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(3.0, 4.0));
+    let id = sketch.add_constraint(Constraint::Distance {
+        a,
+        b,
+        along: Along::Shortest,
+        dimension: Dimension::new(5.0),
+    });
+    // On the geometry to begin with, which is where a dimension nobody has
+    // dragged sits.
+    assert_eq!(
+        Measurement::of(&sketch, sketch.constraint(id)).map(|span| span.label),
+        Some(DVec2::new(1.5, 2.0))
+    );
+
+    let placed = DVec2::new(1.0, 2.0);
+    sketch.set_placement(id, placed);
+    // Read in the measurement's own frame: one along the 3-4-5 and two across
+    // it, from the middle at (1.5, 2) — so (1.5 + 0.6 − 1.6, 2 + 0.8 + 1.2).
+    let label = Measurement::of(&sketch, sketch.constraint(id))
+        .expect("a distance is a dimension")
+        .label;
+    assert!(label.abs_diff_eq(DVec2::new(0.5, 4.0), 1e-12), "{label:?}");
+
+    // The number it states is untouched, and so is the geometry: a placement is
+    // not a measurement and not a position.
+    assert_eq!(sketch.constraint(id).value(), Some(5.0));
+    assert_eq!(sketch.point(a).position, DVec2::ZERO);
+    assert_eq!(sketch.point(b).position, DVec2::new(3.0, 4.0));
+
+    // And it survives being put back, which is the whole reason it lives on the
+    // constraint rather than beside the sketch.
+    let mut snapshot = Snapshot::default();
+    sketch.snapshot_into(&mut snapshot);
+    sketch.set_placement(id, DVec2::ZERO);
+    sketch.restore(&snapshot);
+    // The same label, to the bit — a restore puts a sketch back rather than
+    // near where it was, and a placement is part of what it puts back.
+    assert_eq!(
+        Measurement::of(&sketch, sketch.constraint(id)).map(|span| span.label),
+        Some(label)
+    );
+}

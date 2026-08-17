@@ -311,6 +311,10 @@ struct Assorted {
     /// A second circle, a different size from the first — so a relation
     /// between the two has something to do.
     other: Entity,
+    /// An edge running with `first` rather than crossing it, because a distance
+    /// between two edges is offered only where they already run together — so a
+    /// fixture of crossing edges could never reach it.
+    alongside: Entity,
 }
 
 impl Assorted {
@@ -331,6 +335,11 @@ impl Assorted {
         let c = sketch.add_point(DVec2::new(6.0, 0.0));
         let first = sketch.add_segment(a, b);
         let second = sketch.add_segment(b, c);
+        // One to the right of `first` and running the same way, so the two are
+        // parallel by construction and stand 4/5 apart.
+        let aside = sketch.add_point(DVec2::new(1.0, 0.0));
+        let ahead = sketch.add_point(DVec2::new(4.0, 4.0));
+        let alongside = sketch.add_segment(aside, ahead);
         let circle = sketch.add_circle(c, 2.5);
         let other = sketch.add_circle(a, 1.0);
         let mut build = Build::default();
@@ -343,6 +352,7 @@ impl Assorted {
             b: Entity::Point(b),
             first: Entity::Segment(first),
             second: Entity::Segment(second),
+            alongside: Entity::Segment(alongside),
             circle: Entity::Circle(circle),
             other: Entity::Circle(other),
         }
@@ -363,6 +373,7 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
         b,
         first,
         second,
+        alongside,
         circle,
         other,
         ..
@@ -376,7 +387,21 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
             .iter()
             .map(|offer| match offer {
                 Constraint::Coincident { .. } => "coincident",
-                Constraint::Distance { .. } => "distance",
+                // The three readings told apart, because they are three
+                // different offers over one pair and a single name for all of
+                // them would hide the one thing `Along` is for.
+                Constraint::Distance {
+                    along: Along::Shortest,
+                    ..
+                } => "distance",
+                Constraint::Distance {
+                    along: Along::Horizontal,
+                    ..
+                } => "distance across",
+                Constraint::Distance {
+                    along: Along::Vertical,
+                    ..
+                } => "distance up",
                 Constraint::Horizontal { .. } => "horizontal",
                 Constraint::Vertical { .. } => "vertical",
                 Constraint::Parallel { .. } => "parallel",
@@ -399,25 +424,54 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     model.offers(&[model.part(a), model.part(b)], &mut offers);
     assert_eq!(
         kinds(&offers),
-        ["coincident", "distance", "horizontal", "vertical"]
+        [
+            "coincident",
+            "distance",
+            "distance across",
+            "distance up",
+            "horizontal",
+            "vertical",
+        ]
     );
-    // The distance offered is the one the drawing already has: 3-4-5.
-    let Constraint::Distance { dimension, .. } = offers[1] else {
-        panic!("{offers:?}");
-    };
-    assert!((dimension.value - 5.0).abs() < 1e-9, "{dimension:?}");
+    // Each is offered holding what the drawing already measures — the three
+    // sides of the 3-4-5 the fixture draws, one per reading.
+    for (at, want) in [(1, 5.0), (2, 3.0), (3, 4.0)] {
+        let Constraint::Distance { dimension, .. } = offers[at] else {
+            panic!("{offers:?}");
+        };
+        assert!((dimension.value - want).abs() < 1e-9, "{at}: {dimension:?}");
+    }
 
+    // Two edges that cross. A distance between them is *not* offered, because
+    // the gap between two crossing lines depends on where along them it is
+    // measured and there is nothing for one number to hold.
     model.offers(&[model.part(first), model.part(second)], &mut offers);
     assert_eq!(
         kinds(&offers),
         ["parallel", "perpendicular", "equal length"]
     );
 
+    // Two that run together, and the distance appears. The pair is the same
+    // kinds of thing either way, so what decides it is the geometry rather than
+    // the selection — which is the whole of why the offer is conditional.
+    model.offers(&[model.part(first), model.part(alongside)], &mut offers);
+    assert_eq!(
+        kinds(&offers),
+        ["parallel", "perpendicular", "equal length", "spacing"]
+    );
+    // Holding the gap it already measures: `alongside` is drawn one to the
+    // right of `first`, whose direction is the 3-4-5 — so the perpendicular
+    // between them is 1 × 4/5.
+    let Constraint::Spacing { dimension, .. } = offers[3] else {
+        panic!("{offers:?}");
+    };
+    assert!((dimension.value - 0.8).abs() < 1e-9, "{dimension:?}");
+
     // Either way round is the same relation — which was picked first says
     // nothing about which is held to which.
     for pair in [[a, second], [second, a]] {
         model.offers(&pair.map(|entity| model.part(entity)), &mut offers);
-        assert_eq!(kinds(&offers), ["on edge"], "{pair:?}");
+        assert_eq!(kinds(&offers), ["on edge", "standoff"], "{pair:?}");
     }
     for pair in [[a, circle], [circle, a]] {
         model.offers(&pair.map(|entity| model.part(entity)), &mut offers);
@@ -486,8 +540,14 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
     let mut offers = Vec::new();
     let model = Models::new(&timeline, &build, at).open();
     model.offers(&[model.part(a), model.part(b)], &mut offers);
-    let level = offers[2];
-    assert!(matches!(level, Constraint::Horizontal { .. }));
+    // Found rather than indexed: what the table offers is the drawing's to
+    // decide and has grown once already, and a test that named a position would
+    // have to be edited every time it does.
+    let level = offers
+        .iter()
+        .copied()
+        .find(|offer| matches!(offer, Constraint::Horizontal { .. }))
+        .expect("a pair of points admits being made level");
     timeline.edit(at).constrain(&mut build, level);
     assert!(
         build.settled(at).outcome().converged(),

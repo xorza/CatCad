@@ -481,9 +481,17 @@ to leave its residual unmoved when the whole sketch slides, which is what a
 missing length-correction term actually looks like. The file format followed
 mechanically to VERSION 3.
 
-**2 — catcad: the bar.** `offers` grows the four rows above and `hud::label`
-grows the captions. Dimensions still draw as today's bare number, so this lands
-and is usable before anything is drawn differently.
+**2 — catcad: the bar.** *Built.* `offers` grows the four rows above and
+`hud::label` grows the captions. Dimensions still draw as today's bare number,
+so it landed and is usable before anything is drawn differently.
+
+What came out differently: fitting a candidate to what the drawing measures is
+`Sketch::fitted`, in silverpoint, rather than arithmetic per row of the table.
+It reads the number off `Measurement::spans` — the feet's reach *along the
+direction measured in*, which is one line and right for all six kinds, where the
+gap between the feet would have been wrong for the two axis-aligned readings.
+Refusing a dimension that measures nothing went in there too, so a level pair
+drops its vertical distance without the bar knowing the tolerance.
 
 The file format is already done — it had to move for phase 1 to compile — and
 its two sweeps went with it: the golden now carries a placed, vertically-read
@@ -524,9 +532,10 @@ four dimensions those are the same question, and `Measurement` is the fuller
 answer — it carries the feet, which is the half the drawing needs and `anchors`
 does not have.
 
-The reconciliation belongs in phase 3, where the drawing first needs the feet:
-`anchors`' four dimension arms become one that asks `Measurement::of` and reads
-`label` and `along` off it. Two things have to come with it — `Measurement::along`
+Half of it is done: `anchors`' `Standoff` and `Spacing` arms already ask
+`Measurement::of` and read `label` and `along` off it, which is what deleted the
+second copy of the perpendicular-foot formula. The `Distance` and `Radius` arms
+have not moved, and that is the rest of phase 3. Two things have to come with it — `Measurement::along`
 has to go through `marks::canonical`, or a span drawn back to front would flip
 the frame a stored placement is read in; and `Measurement` for a radius has to
 stop deriving its direction from the placement, or dragging the number would
