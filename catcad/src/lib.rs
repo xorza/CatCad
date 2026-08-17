@@ -16,7 +16,6 @@ mod history;
 mod hud;
 mod intent;
 mod model;
-mod names;
 mod paint;
 mod part;
 mod preview;

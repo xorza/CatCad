@@ -3,9 +3,9 @@
 use silverpoint::{ConstraintId, Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
-use crate::names::Names;
 use crate::paint::growing::Growing;
 use crate::paint::marks::Placed;
+use crate::paint::names::Names;
 use crate::part::Part;
 use crate::preview::Preview;
 use crate::timeline::FeatureId;

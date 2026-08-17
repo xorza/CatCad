@@ -233,7 +233,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
 /// appended rather than written over leaves every tag still resolving and every
 /// other assertion here still passing — while the list grows by a gizmo's worth
 /// on every frame of an orbit. See
-/// [`Names::truncate_to_drawn`](crate::names::Names::truncate_to_drawn).
+/// [`Names::truncate_to_drawn`](crate::paint::names::Names::truncate_to_drawn).
 ///
 /// Turned between the writes rather than written twice from one place, because
 /// what is being claimed is about a camera that *moved*: two passes from the

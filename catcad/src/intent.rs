@@ -128,7 +128,7 @@ pub(crate) enum Change {
     ///
     /// The whole constraint rather than what was picked and which button was
     /// pressed, because working out what a selection admits is the drawing's —
-    /// see [`Drawing::offers`](crate::drawing::Drawing). What arrives here is
+    /// see [`Model::offers`](crate::model::Model). What arrives here is
     /// already an answer, so a replayed pass states the same relation twice
     /// rather than reading a selection that has since moved on.
     Constrain {

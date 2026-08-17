@@ -23,10 +23,10 @@ use std::fmt::Write;
 
 use crate::drawing::Drawing;
 use crate::model::{Model, Models};
-use crate::names::Names;
 use crate::paint::growing::Growing;
 use crate::paint::layout::{Layout, Made, Sheets};
 use crate::paint::marks::{Mark, Placed, Standing};
+use crate::paint::names::Names;
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::timeline::FeatureId;
@@ -35,6 +35,7 @@ pub(crate) mod gizmos;
 pub(crate) mod growing;
 pub(crate) mod layout;
 pub(crate) mod marks;
+pub(crate) mod names;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -520,37 +521,33 @@ fn write_marks(
     // crowd the sketch you are working in — and a dimension is the densest
     // thing the drawing puts on screen. The geometry of a dormant sketch still
     // shows, dimmed, because where it *is* is something you build against.
-    let live = models.iter().find(|model| model.live());
+    let live = models.open();
     // Laid out whole, before anything is left out. What lane a mark rises in
     // depends on how many share its place, so a stack that was worked out from
     // what is *shown* would close ranks the moment a field opened over one of
     // them — and closing ranks under a double-click reads as the click having
     // nudged the drawing.
     placed.clear();
-    if let Some(model) = live {
-        marks::stacked(model, placed);
-    }
+    marks::stacked(live, placed);
     marks.refill(
-        live.into_iter().flat_map(|model| {
-            placed
-                .iter()
-                // The one being retyped has a field standing over it — see
-                // [`Prompt::show`](crate::prompt::Prompt) — and a mark left
-                // under one would be a second copy of the number showing
-                // through wherever the field did not quite cover it.
-                .filter(move |placed| Some(model.part(placed.of)) != typed)
-                .map(move |placed| Marked::Stated(model, *placed))
-                // Last, so a dimension being placed is written over the drawing
-                // rather than under it — and so the tags the drawing handed out
-                // are the same whether or not a tool is half-way through one.
-                .chain(proposed.and_then(|constraint| {
-                    Some(Marked::Proposed(
-                        model,
-                        constraint,
-                        marks::previewed(model.sketch(), constraint)?,
-                    ))
-                }))
-        }),
+        placed
+            .iter()
+            // The one being retyped has a field standing over it — see
+            // [`Prompt::show`](crate::prompt::Prompt) — and a mark left
+            // under one would be a second copy of the number showing
+            // through wherever the field did not quite cover it.
+            .filter(move |placed| Some(live.part(placed.of)) != typed)
+            .map(move |placed| Marked::Stated(live, *placed))
+            // Last, so a dimension being placed is written over the drawing
+            // rather than under it — and so the tags the drawing handed out
+            // are the same whether or not a tool is half-way through one.
+            .chain(proposed.and_then(|constraint| {
+                Some(Marked::Proposed(
+                    live,
+                    constraint,
+                    marks::previewed(live.sketch(), constraint)?,
+                ))
+            })),
         |mark, marked| {
             let (model, placed) = (marked.model(), marked.mark());
             let constraint = marked.constraint();

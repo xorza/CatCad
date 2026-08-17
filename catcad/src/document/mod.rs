@@ -374,7 +374,15 @@ impl Document {
                 region,
                 distance,
             } => {
-                let profile = self.models(build, sketch).open().profile(region);
+                // Found by name rather than through [`Models::open`], though
+                // the two land on the same model here: which sketch is being
+                // worked in is the session's and no business of an edit, and
+                // what this wants is the one the change names.
+                let profile = self
+                    .models(build, sketch)
+                    .at(sketch)
+                    .expect("a change names a sketch the timeline holds")
+                    .profile(region);
                 made = Some(self.timeline.add(Feature::Extrude { profile, distance }));
                 build.revised();
             }

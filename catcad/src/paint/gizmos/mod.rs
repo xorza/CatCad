@@ -70,7 +70,7 @@ const AXIS_CORNER: Vec3 = Vec3::new(0.50, 0.52, 0.55);
 /// with.
 ///
 /// A control is named as the plane itself, every piece of it. Several tags
-/// reporting one [`Part`] is what [`Names`](crate::names::Names) is already
+/// reporting one [`Part`] is what [`Names`](crate::paint::names::Names) is already
 /// built to allow — a tag is a position in a list and nothing assumes the list
 /// holds each part once — so grabbing any of them grabs the datum, and lighting
 /// the datum lights them all.
@@ -190,62 +190,55 @@ fn ruled<'a>(
     camera: &'a Camera,
     viewport: Viewport,
 ) -> impl Iterator<Item = (Option<Part>, Piece)> + 'a {
-    models
+    let model = models.open();
+    let (sketch, plane) = (model.sketch(), model.plane());
+    // The dimension a tool is half-way through placing, which is drawn
+    // exactly as a stated one and stands in no stack — see
+    // [`marks::previewed`]. Its own mark rather than a `Placed`, because
+    // the sketch does not hold it and there is no handle to name it by.
+    let previewed =
+        proposed.and_then(|constraint| Some((constraint, marks::previewed(sketch, constraint)?)));
+    placed
         .iter()
-        .find(|model| model.live())
-        .into_iter()
-        .flat_map(move |model| {
-            let (sketch, plane) = (model.sketch(), model.plane());
-            // The dimension a tool is half-way through placing, which is drawn
-            // exactly as a stated one and stands in no stack — see
-            // [`marks::previewed`]. Its own mark rather than a `Placed`, because
-            // the sketch does not hold it and there is no handle to name it by.
-            let previewed = proposed
-                .and_then(|constraint| Some((constraint, marks::previewed(sketch, constraint)?)));
-            placed
-                .iter()
-                .map(|placed| (sketch.constraint(placed.of), placed.mark, false))
-                .chain(
-                    previewed.map(|(constraint, standing)| (constraint, standing.grounded(), true)),
+        .map(move |placed| (sketch.constraint(placed.of), placed.mark, false))
+        .chain(previewed.map(|(constraint, standing)| (constraint, standing.grounded(), true)))
+        .filter_map(move |(constraint, placed, proposed)| {
+            let measured = Measurement::of(sketch, constraint)?;
+            // Where the *number* stands, which is what an extension line
+            // is reaching to and so what the gaps at either end of one
+            // dimension have to be sized against.
+            let at = plane.point(placed.at).as_vec3();
+            let scale = f64::from(camera.world_per_pixel(at, viewport));
+            let strokes = dimension::strokes(
+                Measurement {
+                    // The mark's own direction and height, so the line
+                    // lands under the figure it carries: the first is
+                    // settled either side of a cut and the second is
+                    // where the stack left it, and neither is anything
+                    // the measurement knows.
+                    along: placed.along,
+                    label: placed.at
+                        + placed.along.perp() * (f64::from(rule_rise(placed.lane)) * scale),
+                    ..measured
+                },
+                // A radius points at its rim and not at its own centre —
+                // see [`dimension::strokes`].
+                !matches!(constraint, Constraint::Radius { .. }),
+                scale,
+            );
+            Some((strokes, proposed))
+        })
+        .flat_map(move |(strokes, proposed)| {
+            strokes.into_iter().flatten().map(move |stroke| {
+                (
+                    None,
+                    Piece::Ruled {
+                        plane,
+                        stroke,
+                        proposed,
+                    },
                 )
-                .filter_map(move |(constraint, placed, proposed)| {
-                    let measured = Measurement::of(sketch, constraint)?;
-                    // Where the *number* stands, which is what an extension line
-                    // is reaching to and so what the gaps at either end of one
-                    // dimension have to be sized against.
-                    let at = plane.point(placed.at).as_vec3();
-                    let scale = f64::from(camera.world_per_pixel(at, viewport));
-                    let strokes = dimension::strokes(
-                        Measurement {
-                            // The mark's own direction and height, so the line
-                            // lands under the figure it carries: the first is
-                            // settled either side of a cut and the second is
-                            // where the stack left it, and neither is anything
-                            // the measurement knows.
-                            along: placed.along,
-                            label: placed.at
-                                + placed.along.perp() * (f64::from(rule_rise(placed.lane)) * scale),
-                            ..measured
-                        },
-                        // A radius points at its rim and not at its own centre —
-                        // see [`dimension::strokes`].
-                        !matches!(constraint, Constraint::Radius { .. }),
-                        scale,
-                    );
-                    Some((strokes, proposed))
-                })
-                .flat_map(move |(strokes, proposed)| {
-                    strokes.into_iter().flatten().map(move |stroke| {
-                        (
-                            None,
-                            Piece::Ruled {
-                                plane,
-                                stroke,
-                                proposed,
-                            },
-                        )
-                    })
-                })
+            })
         })
 }
 

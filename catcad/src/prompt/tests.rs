@@ -52,12 +52,20 @@ fn a_form_opens_on_the_value_the_dimension_states() {
 }
 
 /// A draft that is not a number has no value to commit, and says so without
-/// refusing anything.
+/// refusing anything — and what the form hands the drawing is what it says.
 ///
 /// What a half-typed field looks like — "1." on the way to "1.5" — and what an
 /// expression will look like before it parses. The caller reads `None` as "not
 /// yet" and leaves the field open, which is why this is an `Option` rather than
 /// an error.
+///
+/// The second half is the tie between what a form *says* and what it hands to
+/// the press that grabs the depth arrow. [`Prompt::carrying`] and
+/// [`Prompt::growing`] are read on different schedules — one at a press, one
+/// every settle — so a `carrying` that substituted a value of its own would
+/// have the arrow travelling against a depth the solid was never drawn at. The
+/// same drafts run through both, because the answer has to be one answer: where
+/// the draft says nothing the *placeholder* speaks, and it speaks to both.
 #[test]
 fn a_draft_that_is_not_a_number_has_no_value() {
     let mut prompt = Prompt::on(
@@ -77,6 +85,41 @@ fn a_draft_that_is_not_a_number_has_no_value() {
         prompt.fields[0].draft.clear();
         prompt.fields[0].draft.push_str(draft);
         assert_eq!(prompt.value(0), value, "{draft:?}");
+    }
+
+    // A real name out of a real sketch, though which region it is is never
+    // resolved below: what this half is about is the depth, which the form
+    // answers without a drawing to ask.
+    let Part::Entity { sketch, .. } = dimension() else {
+        unreachable!("the fixture is a dimension of a sketch");
+    };
+    let mut grown = Prompt::on(
+        Asking::Extrude {
+            profile: Profile::new(sketch, Vec::new()),
+        },
+        &[("Depth", Seed::Offered(0.0))],
+    );
+    for (draft, says) in [
+        // Nobody has typed, so the placeholder the form opened on speaks — a
+        // solid at no depth rather than no solid. See [`Seed::Offered`].
+        ("", Some(0.0)),
+        ("3.5", Some(3.5)),
+        // Signed, which is how a solid is flipped to the other side of its
+        // plane.
+        ("-2", Some(-2.0)),
+        ("1.", Some(1.0)),
+        // Nothing a number can be read out of, so the placeholder speaks again
+        // rather than the solid vanishing between two keystrokes.
+        (".", Some(0.0)),
+    ] {
+        grown.fields[0].draft.clear();
+        grown.fields[0].draft.push_str(draft);
+        assert_eq!(grown.says(0), says, "{draft:?}");
+        assert_eq!(
+            grown.carrying().map(|carrying| carrying.depth),
+            says,
+            "the depth a press reads is not the one the form says, at {draft:?}"
+        );
     }
 }
 

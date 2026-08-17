@@ -342,12 +342,18 @@ impl Prompt {
     /// [`Profile`] that needs no arrangement to resolve against — which is what
     /// lets the press that grabs the depth arrow ask for the plane it travels
     /// on without a solve in hand.
+    ///
+    /// The depth the form says and never one of its own, on the same terms
+    /// [`Prompt::growing`] reads one — which is what keeps the arrow travelling
+    /// against the solid it is carrying. The two are read on different
+    /// schedules, and a fallback here would be a value the drawing was never
+    /// showing.
     pub(crate) fn carrying(&self) -> Option<Carrying> {
         match &self.about {
             Asking::Dimension { .. } | Asking::Radius { .. } | Asking::Circle { .. } => None,
             Asking::Extrude { profile } => Some(Carrying {
                 sketch: profile.sketch(),
-                depth: self.says(0).unwrap_or_default(),
+                depth: self.says(0)?,
             }),
         }
     }
@@ -658,9 +664,7 @@ impl Prompt {
             max_width_px: None,
         }
     }
-}
 
-impl Prompt {
     /// Whether the form carries its own confirm and cancel.
     ///
     /// The same question [`Prompt::blurs`] answers from the other side, and

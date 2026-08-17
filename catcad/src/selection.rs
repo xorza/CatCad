@@ -56,7 +56,7 @@ impl Selection {
     ///
     /// The order is the point of handing back a slice rather than a set: what a
     /// selection *admits* turns on it — see
-    /// [`Drawing::offers`](crate::drawing::Drawing) — and a pair read the other
+    /// [`Model::offers`](crate::model::Model) — and a pair read the other
     /// way round is a different relation for every constraint that is not
     /// symmetric.
     pub(crate) fn picked(&self) -> &[Part] {

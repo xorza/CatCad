@@ -360,9 +360,7 @@ impl Along {
     pub(crate) fn on(from: Plane) -> Self {
         Self { from }
     }
-}
 
-impl Along {
     /// The line it travels along — its base's normal — taken through `grabbed`.
     ///
     /// Which of the parallel lines is not a free choice, and this is the whole

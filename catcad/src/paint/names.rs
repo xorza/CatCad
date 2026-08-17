@@ -30,7 +30,7 @@ pub(crate) struct Names {
 
 impl Names {
     /// Name `part`, and hand back the tag that will report it.
-    pub(crate) fn tag(&mut self, part: Part) -> Tag {
+    pub(super) fn tag(&mut self, part: Part) -> Tag {
         self.parts.push(part);
         Tag::new((self.parts.len() - 1) as u64)
     }
@@ -58,12 +58,12 @@ impl Names {
 
     /// Remember how far the drawing got, so the controls named after it can be
     /// rewritten without the list growing.
-    pub(crate) fn drew(&mut self) {
+    pub(super) fn drew(&mut self) {
         self.drawn = self.parts.len();
     }
 
     /// Forget everything named after the drawing was.
-    pub(crate) fn truncate_to_drawn(&mut self) {
+    pub(super) fn truncate_to_drawn(&mut self) {
         self.parts.truncate(self.drawn);
     }
 
@@ -72,7 +72,7 @@ impl Names {
     /// A drawing is renamed wholesale whenever it is rewritten, which during a
     /// drag is every frame — so this empties rather than replaces, and the
     /// tags come out the same because the order they are pushed in does.
-    pub(crate) fn clear(&mut self) {
+    pub(super) fn clear(&mut self) {
         self.parts.clear();
         self.drawn = 0;
     }
