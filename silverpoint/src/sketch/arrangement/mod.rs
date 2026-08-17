@@ -65,20 +65,19 @@ impl Arrangement {
     /// Every list is rewritten, so nothing of the last drawing survives in the
     /// answer — what survives is only the room they took.
     pub fn rebuild(&mut self, sketch: &Sketch) {
-        {
-            let Self {
-                corners,
-                edges,
-                scratch,
-                ..
-            } = self;
-            let Scratch { curves, on, .. } = scratch;
-            curves.gather(sketch);
-            curves.corners(corners);
-            // Cutting may add corners of its own: a circle nothing crosses is
-            // its own loop, and a loop still needs somewhere to start.
-            curves.cut(corners, edges, on);
-        }
+        let Self {
+            corners,
+            edges,
+            scratch,
+            ..
+        } = self;
+        let Scratch { curves, on, .. } = scratch;
+        curves.gather(sketch);
+        curves.corners(corners);
+        // Cutting may add corners of its own: a circle nothing crosses is its
+        // own loop, and a loop still needs somewhere to start.
+        curves.cut(corners, edges, on);
+
         self.walk_loops();
         self.punch_holes();
         self.bound_faces();
@@ -289,7 +288,7 @@ impl Arrangement {
     /// than built where it belongs: which of the two it belongs to is its
     /// *area*, and there is no knowing that until it is walked.
     fn walk_loops(&mut self) {
-        self.departures();
+        self.scratch.departures.fill(&self.corners, &self.edges);
         self.scratch.walked.clear();
         self.scratch.walked.resize(self.edges.len() * 2, false);
         self.faces_filled = 0;
@@ -333,44 +332,30 @@ impl Arrangement {
 
     /// Give each outside loop to the face it is cut from.
     fn punch_holes(&mut self) {
-        self.components();
-        {
-            let Self {
-                faces,
-                faces_filled,
-                scratch,
-                ..
-            } = self;
-            // Sorted *positions* rather than the faces themselves, because the
-            // order they come back in is something callers name them by — see
-            // [`Arrangement::faces`].
-            scratch.tightest.clear();
-            scratch.tightest.extend(0..*faces_filled);
-            scratch.tightest.sort_by(|&a, &b| {
-                faces[a]
-                    .area
-                    .partial_cmp(&faces[b].area)
-                    .expect("an area computed from finite corners is finite")
-            });
-        }
+        self.scratch.components.fill(&self.corners, &self.edges);
+        // Sorted *positions* rather than the faces themselves, because the
+        // order they come back in is something callers name them by — see
+        // [`Arrangement::faces`].
+        self.scratch.tightest.clear();
+        self.scratch.tightest.extend(0..self.faces_filled);
+        let faces = &self.faces;
+        self.scratch.tightest.sort_by(|&a, &b| {
+            faces[a]
+                .area
+                .partial_cmp(&faces[b].area)
+                .expect("an area computed from finite corners is finite")
+        });
 
-        // Which face holds each outside, worked out before any of them is put
-        // anywhere: deciding reads every face's outline, and placing writes
-        // one, and the two cannot be interleaved over the same faces.
-        self.scratch.owners.clear();
+        // Decided and placed one at a time, which is safe because placing
+        // changes nothing the deciding reads: an owner is found by casting a ray
+        // at face outlines in an order settled above, and what a hole does to a
+        // face is take area off it and add a loop to it.
         for at in 0..self.scratch.outsides.len() {
-            let owner = self.owner_of(at);
-            self.scratch.owners.push(owner);
-        }
-
-        let Self { faces, scratch, .. } = self;
-        for at in 0..scratch.outsides.len() {
-            let Some(face) = scratch.owners[at] else {
+            let Some(face) = self.owner_of(at) else {
                 continue;
             };
-            let face = &mut faces[face];
-            face.area -= scratch.areas[at].abs();
-            face.holes.push(scratch.outsides.get(at));
+            self.faces[face].area -= self.scratch.areas[at].abs();
+            self.faces[face].holes.push(self.scratch.outsides.get(at));
         }
     }
 
@@ -393,36 +378,11 @@ impl Arrangement {
         })
     }
 
-    /// Which piece of drawing each corner belongs to.
-    ///
-    /// Two curves are the same piece when a walk along edges gets from one to
-    /// the other. What this decides is which faces an outside loop may be
-    /// assigned to — see [`Arrangement::owner_of`] — and nothing else.
-    fn components(&mut self) {
-        let Self {
-            corners,
-            edges,
-            scratch,
-            ..
-        } = self;
-        let Scratch { parent, joined, .. } = scratch;
-        parent.clear();
-        parent.reserve_exact(corners.len());
-        parent.extend(0..corners.len());
-        for edge in edges.iter() {
-            let (a, b) = (root(parent, edge.from), root(parent, edge.to));
-            parent[a] = b;
-        }
-        joined.clear();
-        joined.reserve_exact(corners.len());
-        for at in 0..corners.len() {
-            joined.push(root(parent, at));
-        }
-    }
-
     /// Which piece of drawing a loop is part of.
     fn component(&self, boundary: &[Half]) -> usize {
-        self.scratch.joined[self.edges[boundary[0].edge].from]
+        self.scratch
+            .components
+            .of(self.edges[boundary[0].edge].from)
     }
 
     /// Whether `at` falls inside `boundary`, by counting how many times a ray
@@ -476,73 +436,6 @@ impl Arrangement {
             };
         }
         crossings % 2 == 1
-    }
-
-    /// Sort the half-edges leaving each corner by the direction they leave in —
-    /// which is what the walk below reads to decide where to turn.
-    fn departures(&mut self) {
-        let Self {
-            corners,
-            edges,
-            scratch,
-            ..
-        } = self;
-        let Departures {
-            leaving,
-            starts,
-            at,
-        } = &mut scratch.departures;
-        // Both halves of what the sort reads, worked out once here rather than
-        // per comparison. An arc's departure is a cosine and a sine and the
-        // angle of it an `atan2`, and a sort asks its key of an item about
-        // `log n` times — so measuring in the comparison measures the same
-        // direction a dozen times over.
-        leaving.clear();
-        leaving.reserve_exact(edges.len() * 2);
-        for (edge, piece) in edges.iter().enumerate() {
-            for forward in [true, false] {
-                let out = piece.departure(corners, forward);
-                leaving.push(Leaving {
-                    half: Half { edge, forward },
-                    corner: piece.ends(forward)[0],
-                    angle: out.y.atan2(out.x),
-                });
-            }
-        }
-        // Gathered by corner, and within a corner ordered by the direction the
-        // edge leaves in — which is the fan the walk turns through. One sort
-        // rather than one per corner, and no dearer for it: the angle is
-        // compared only where the corners already match, which is exactly the
-        // comparison a fan of its own would have made.
-        leaving.sort_by(|a, b| {
-            a.corner.cmp(&b.corner).then_with(|| {
-                a.angle
-                    .partial_cmp(&b.angle)
-                    .expect("a direction between finite corners is finite")
-            })
-        });
-
-        // Where each corner's fan begins, by counting what landed in it and
-        // running the counts up.
-        starts.clear();
-        starts.resize(corners.len() + 1, 0);
-        for leave in leaving.iter() {
-            starts[leave.corner + 1] += 1;
-        }
-        for corner in 1..starts.len() {
-            starts[corner] += starts[corner - 1];
-        }
-
-        // Where each half-edge sits within its own fan, which is what the walk
-        // reads to decide where to turn.
-        at.clear();
-        at.resize(edges.len() * 2, 0);
-        for corner in 0..corners.len() {
-            let fan = &leaving[starts[corner]..starts[corner + 1]];
-            for (position, leave) in fan.iter().enumerate() {
-                at[leave.half.slot()] = position;
-            }
-        }
     }
 
     /// Walk one loop from `start` into the scratch boundary, keeping what it
@@ -648,6 +541,52 @@ struct Gathered {
     pieces: usize,
 }
 
+/// Which piece of drawing each corner belongs to.
+///
+/// Two curves are the same piece when a walk along edges gets from one to the
+/// other. What this decides is which faces an outside loop may be assigned to —
+/// see [`Arrangement::owner_of`] — and nothing else.
+///
+/// Its own type because the two lists below only mean anything together, and
+/// only once a fill has run: one is the working state the other is read out of,
+/// and neither says anything about a drawing nobody has walked yet.
+#[derive(Debug, Default)]
+struct Components {
+    /// Union-find over the corners, which the fill collapses as it goes.
+    parent: Vec<usize>,
+    /// The piece each corner ended up in.
+    joined: Vec<usize>,
+}
+
+impl Components {
+    /// Work out which piece of the drawing each corner belongs to.
+    ///
+    /// Takes the corners rather than how many there are, so it reads at a call
+    /// site as [`Departures::fill`] beside it does. Only the count is wanted:
+    /// which piece a corner is in follows from what the edges join, not from
+    /// where anything lies.
+    fn fill(&mut self, corners: &[DVec2], edges: &[Edge]) {
+        let Self { parent, joined } = self;
+        parent.clear();
+        parent.reserve_exact(corners.len());
+        parent.extend(0..corners.len());
+        for edge in edges {
+            let (a, b) = (root(parent, edge.from), root(parent, edge.to));
+            parent[a] = b;
+        }
+        joined.clear();
+        joined.reserve_exact(corners.len());
+        for at in 0..corners.len() {
+            joined.push(root(parent, at));
+        }
+    }
+
+    /// Which piece `corner` ended up in.
+    fn of(&self, corner: usize) -> usize {
+        self.joined[corner]
+    }
+}
+
 /// Which corner stands for the piece `at` belongs to.
 fn root(parent: &mut [usize], mut at: usize) -> usize {
     while parent[at] != at {
@@ -679,13 +618,10 @@ struct Scratch {
     /// The loops that shut nothing in, and what each covers.
     outsides: Loops<Half>,
     areas: Vec<f64>,
-    /// Which face holds each outside, or `None` where none does.
-    owners: Vec<Option<usize>>,
     /// Face positions, smallest first.
     tightest: Vec<usize>,
-    /// Union-find over the corners, and the piece each ends up in.
-    parent: Vec<usize>,
-    joined: Vec<usize>,
+    /// Which piece of drawing each corner belongs to.
+    components: Components,
     /// The boundary of the face being described, laid out flat.
     along: Vec<Walked>,
     /// The curves found bounding it.
@@ -711,6 +647,67 @@ struct Departures {
 }
 
 impl Departures {
+    /// Sort the half-edges leaving each corner by the direction they leave in —
+    /// which is what the walk reads to decide where to turn.
+    fn fill(&mut self, corners: &[DVec2], edges: &[Edge]) {
+        let Self {
+            leaving,
+            starts,
+            at,
+        } = self;
+        // Both halves of what the sort reads, worked out once here rather than
+        // per comparison. An arc's departure is a cosine and a sine and the
+        // angle of it an `atan2`, and a sort asks its key of an item about
+        // `log n` times — so measuring in the comparison measures the same
+        // direction a dozen times over.
+        leaving.clear();
+        leaving.reserve_exact(edges.len() * 2);
+        for (edge, piece) in edges.iter().enumerate() {
+            for forward in [true, false] {
+                let out = piece.departure(corners, forward);
+                leaving.push(Leaving {
+                    half: Half { edge, forward },
+                    corner: piece.ends(forward)[0],
+                    angle: out.y.atan2(out.x),
+                });
+            }
+        }
+        // Gathered by corner, and within a corner ordered by the direction the
+        // edge leaves in — which is the fan the walk turns through. One sort
+        // rather than one per corner, and no dearer for it: the angle is
+        // compared only where the corners already match, which is exactly the
+        // comparison a fan of its own would have made.
+        leaving.sort_by(|a, b| {
+            a.corner.cmp(&b.corner).then_with(|| {
+                a.angle
+                    .partial_cmp(&b.angle)
+                    .expect("a direction between finite corners is finite")
+            })
+        });
+
+        // Where each corner's fan begins, by counting what landed in it and
+        // running the counts up.
+        starts.clear();
+        starts.resize(corners.len() + 1, 0);
+        for leave in leaving.iter() {
+            starts[leave.corner + 1] += 1;
+        }
+        for corner in 1..starts.len() {
+            starts[corner] += starts[corner - 1];
+        }
+
+        // Where each half-edge sits within its own fan, which is what the walk
+        // reads to decide where to turn.
+        at.clear();
+        at.resize(edges.len() * 2, 0);
+        for corner in 0..corners.len() {
+            let fan = &leaving[starts[corner]..starts[corner + 1]];
+            for (position, leave) in fan.iter().enumerate() {
+                at[leave.half.slot()] = position;
+            }
+        }
+    }
+
     /// The half-edge leaving `corner` just clockwise of `half`.
     fn after(&self, corner: usize, half: Half) -> Half {
         let fan = &self.leaving[self.starts[corner]..self.starts[corner + 1]];
