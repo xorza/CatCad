@@ -142,16 +142,6 @@ impl Highlights {
         true
     }
 
-    /// Drop everything, and say whether there was anything to drop.
-    pub(crate) fn clear(&mut self) -> bool {
-        if self.entries.is_empty() {
-            return false;
-        }
-        self.entries.clear();
-        self.by_tag.clear();
-        true
-    }
-
     /// The look `tag` was given, if it was given one.
     ///
     /// `None` for an untagged primitive, which is scenery and never lit.
@@ -259,7 +249,6 @@ mod tests {
     #[test]
     fn only_a_real_change_reports_one() {
         let mut highlights = Highlights::default();
-        assert!(!highlights.clear(), "there was nothing to drop");
         assert!(!highlights.set_all(&[]), "empty was already the answer");
 
         assert!(highlights.set_all(&[lit(1, Vec3::X)]));
@@ -281,7 +270,7 @@ mod tests {
             Some(Highlight::new(Vec3::Z))
         );
 
-        assert!(highlights.clear());
+        assert!(highlights.set_all(&[]), "a set in force was not dropped");
         assert_eq!(highlights.look_of(Some(Tag::new(1))), None);
     }
 }

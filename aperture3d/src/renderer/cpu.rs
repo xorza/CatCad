@@ -54,11 +54,11 @@ pub(super) struct Cpu {
     pub(super) atlas: GlyphAtlas,
 }
 
-/// What the scene's text flattens to — its labels and its fields alike — plus
-/// the two things filling it needs that a [`Records`] alone cannot ask for.
+/// What the scene's text flattens to, plus the two things filling it needs
+/// that a [`Records`] alone cannot ask for.
 ///
 /// Every other overlay answers `records()` from `&self`, so its `Records` needs
-/// nothing but the batch — see [`Records::refill_from`]. A run needs the shaper to
+/// nothing but the batch — see [`Records::refresh`]. A run needs the shaper to
 /// know how many glyphs it is worth and the atlas to know where each one is
 /// read from, and neither is something a `Text` holds. So what the four kinds
 /// share is the buffers and not the way any of them is filled.
@@ -94,9 +94,9 @@ impl TextRecords {
     /// on the old one has gone — and the raster scale may have moved, which
     /// changes what every glyph is rasterized as.
     ///
-    /// Written out rather than going through [`Records::refill`], which has no
-    /// second buffer to fill: a run is laid out once for the ordinary pass and
-    /// again, and only if it is lit, for the highlight.
+    /// Written out rather than sharing [`Records::refresh`] beside it: a run is
+    /// laid out once for the ordinary pass and again, and only if it is lit, for
+    /// the highlight, where every other kind maps the records it already has.
     pub(super) fn refresh(
         &mut self,
         texts: &mut Batch<Text>,
@@ -324,12 +324,12 @@ impl<R> Records<R> {
     /// does. The scene changing forces both, since an edit can add or remove
     /// whatever a tag named.
     ///
-    /// Every kind but text, which needs the shaper and the sheet to know what it
-    /// comes to and so fills its buffers itself — see [`TextRecords::refresh`].
-    /// The two shared a closure-taking `refill` while text could be made to fit
-    /// through one; what ended that is text now flattening from *two* batches in
-    /// an order of its own, which is not a shape a single-batch seam can hold.
-    pub(super) fn refill_from<O: Flatten<Record = R>>(
+    /// Every kind but text, which fills its buffers itself — see
+    /// [`TextRecords::refresh`]. It needs the shaper and the sheet to know what a
+    /// run comes to, it has two more things that can move it, and its highlight
+    /// is a second *shaping* rather than the same records in another colour.
+    /// None of that fits a seam whose whole input is a batch.
+    pub(super) fn refresh<O: Flatten<Record = R>>(
         &mut self,
         batch: &mut Batch<O>,
         highlights: &Highlights,
@@ -420,16 +420,6 @@ pub(super) struct Triangles {
     highlighted: bool,
 }
 
-/// Which halves of a triangle list the GPU has yet to be handed.
-///
-/// A pair rather than one answer because a relight moves one of them alone —
-/// see [`Triangles::indices_dirty`].
-#[derive(Debug, Clone, Copy)]
-pub(super) struct Rewritten {
-    pub(super) vertices: bool,
-    pub(super) indices: bool,
-}
-
 /// What order a mesh pass draws its objects in.
 #[derive(Debug, Clone, Copy)]
 pub(super) enum Order {
@@ -456,7 +446,7 @@ pub(super) enum Order {
 impl Triangles {
     /// Bring the list up to date with `objects`.
     ///
-    /// Takes the batch's mark and leaves its own, like [`Records::refill_from`] —
+    /// Takes the batch's mark and leaves its own, like [`Records::refresh`] —
     /// objects answer for their own edits the same way strokes do.
     ///
     /// Rewritten when the highlights move as well as when the objects do. A
@@ -492,7 +482,6 @@ impl Triangles {
             // take it is the walk already being made.
             let measure = moved && matches!(order, Order::BackToFront(_));
             self.write_vertices(objects, highlights, measure);
-            self.vertices_dirty = true;
         }
         // Asked every frame and answering `false` on almost all of them: a
         // camera turning through a view where nothing changes places leaves the
@@ -503,7 +492,6 @@ impl Triangles {
         // every base after it — and never when only a colour has.
         if moved || resorted {
             self.write_indices(objects);
-            self.indices_dirty = true;
         }
     }
 
@@ -557,17 +545,22 @@ impl Triangles {
         moved
     }
 
-    /// Which halves of the list have been rewritten since this last said so,
-    /// clearing the marks as it answers.
+    /// The corners if they have been rewritten since this last handed them
+    /// over, and `None` if they have not.
     ///
-    /// Bare flags where [`Records`] hands back the buffer, because there is
-    /// nothing to hand back but the whole of `self` — a pass reads the vectors
-    /// off it directly.
-    pub(super) fn take_dirty(&mut self) -> Rewritten {
-        Rewritten {
-            vertices: std::mem::take(&mut self.vertices_dirty),
-            indices: std::mem::take(&mut self.indices_dirty),
-        }
+    /// The shape [`Records::ordinary_to_upload`] answers in, and for its reason:
+    /// handing back the buffer rather than a flag about it is what leaves no
+    /// way to read one and upload the other.
+    pub(super) fn vertices_to_upload(&mut self) -> Option<&[GpuVertex]> {
+        std::mem::take(&mut self.vertices_dirty).then(|| &self.vertices[..])
+    }
+
+    /// The triangle list, on the same terms.
+    ///
+    /// Asked apart from the corners because the two do not always move
+    /// together — see [`Triangles::indices_dirty`].
+    pub(super) fn indices_to_upload(&mut self) -> Option<&[u32]> {
+        std::mem::take(&mut self.indices_dirty).then(|| &self.indices[..])
     }
 
     /// World-space corners for every object handed in, in the order the batch
@@ -595,6 +588,11 @@ impl Triangles {
     /// it has this moment touched.
     fn write_vertices(&mut self, objects: &[Object], highlights: &Highlights, measure: bool) {
         self.vertices.clear();
+        // Emptied and marked in one act, on the terms
+        // [`Records::ordinary_to_fill`] sets: a buffer refilled without its mark
+        // is one the GPU goes on drawing the old contents of, and the pairing is
+        // only reliable where there is no way to do one without the other.
+        self.vertices_dirty = true;
         self.vertices
             .reserve_exact(objects.iter().map(|o| o.mesh.vertices.len()).sum());
         self.bases.clear();
@@ -652,13 +650,15 @@ impl Triangles {
     /// — which is [`Triangles::bases`], and not where this walk has got to,
     /// because the two agree only when the draw order is the batch's own.
     fn write_indices(&mut self, objects: &[Object]) {
+        self.indices.clear();
+        // Emptied and marked together, as the corners are above.
+        self.indices_dirty = true;
         let Self {
             indices,
             order,
             bases,
             ..
         } = self;
-        indices.clear();
         indices.reserve_exact(objects.iter().map(|o| o.mesh.indices.len()).sum());
         for &step in order.iter() {
             let object = &objects[step as usize];

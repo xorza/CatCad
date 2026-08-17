@@ -207,8 +207,10 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // takes the mark, which is what the second refresh below then relies on.
     renderer.refresh(1.0);
     let cpu = &mut renderer.cpu;
-    let owed = cpu.solids.take_dirty();
-    assert!(owed.vertices && owed.indices, "the first flatten owes both");
+    assert!(
+        cpu.solids.vertices_to_upload().is_some() && cpu.solids.indices_to_upload().is_some(),
+        "the first flatten owes both"
+    );
     assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(1));
     assert_eq!(cpu.rings.ordinary_to_upload().map(<[_]>::len), Some(1));
     assert_eq!(cpu.points.ordinary_to_upload().map(<[_]>::len), Some(1));
@@ -219,8 +221,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     // And nothing twice. A still frame is the common case, not the odd one.
     renderer.refresh(1.0);
     let cpu = &mut renderer.cpu;
-    let owed = cpu.solids.take_dirty();
-    assert!(!owed.vertices && !owed.indices);
+    assert!(cpu.solids.vertices_to_upload().is_none() && cpu.solids.indices_to_upload().is_none());
     assert!(cpu.curves.ordinary_to_upload().is_none());
     assert!(cpu.rings.ordinary_to_upload().is_none());
     assert!(cpu.points.ordinary_to_upload().is_none());
@@ -237,7 +238,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     let cpu = &mut renderer.cpu;
     assert_eq!(cpu.curves.ordinary_to_upload().map(<[_]>::len), Some(2));
     assert!(
-        !cpu.solids.take_dirty().vertices,
+        cpu.solids.vertices_to_upload().is_none(),
         "adding a stroke asked for every mesh to be flattened again"
     );
     assert!(cpu.rings.ordinary_to_upload().is_none());
@@ -252,9 +253,8 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
         look: Highlight::new(Vec3::Y),
     });
     renderer.refresh(1.0);
-    let owed = renderer.cpu.solids.take_dirty();
     assert!(
-        !owed.vertices,
+        renderer.cpu.solids.vertices_to_upload().is_none(),
         "a relight rewrote a mesh that nothing can light"
     );
 
@@ -266,17 +266,23 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
         .solids
         .push(Object::new(Mesh::cube(1.0)).tagged(Tag::new(1)));
     renderer.refresh(1.0);
-    let built = renderer.cpu.solids.take_dirty();
-    assert!(built.vertices && built.indices, "the push moved geometry");
+    let solids = &mut renderer.cpu.solids;
+    assert!(
+        solids.vertices_to_upload().is_some() && solids.indices_to_upload().is_some(),
+        "the push moved geometry"
+    );
     renderer.highlight_only(Lit {
         tag: Tag::new(1),
         look: Highlight::new(Vec3::X),
     });
     renderer.refresh(1.0);
-    let owed = renderer.cpu.solids.take_dirty();
-    assert!(owed.vertices, "a relit mesh keeps its old colour");
+    let solids = &mut renderer.cpu.solids;
     assert!(
-        !owed.indices,
+        solids.vertices_to_upload().is_some(),
+        "a relit mesh keeps its old colour"
+    );
+    assert!(
+        solids.indices_to_upload().is_none(),
         "a colour change re-uploaded indices that cannot carry one"
     );
 
@@ -286,7 +292,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     renderer.clear_highlights();
     renderer.refresh(1.0);
     assert!(
-        renderer.cpu.solids.take_dirty().vertices,
+        renderer.cpu.solids.vertices_to_upload().is_some(),
         "an unlit mesh kept the colour it had just lost"
     );
 
@@ -298,7 +304,7 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     });
     renderer.refresh(1.0);
     assert!(
-        !renderer.cpu.solids.take_dirty().vertices,
+        renderer.cpu.solids.vertices_to_upload().is_none(),
         "a relight naming nothing in the batch still rewrote it"
     );
 }
@@ -336,8 +342,11 @@ fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
     };
 
     renderer.refresh(1.0);
-    let owed = renderer.cpu.faces.take_dirty();
-    assert!(owed.vertices && owed.indices, "the first flatten owes both");
+    let faces = &mut renderer.cpu.faces;
+    assert!(
+        faces.vertices_to_upload().is_some() && faces.indices_to_upload().is_some(),
+        "the first flatten owes both"
+    );
     let before = renderer.cpu.faces.indices.clone();
     let corners: Vec<[f32; 3]> = renderer
         .cpu
@@ -351,10 +360,13 @@ fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
     // nothing else about the scene has moved at all.
     renderer.camera_mut().yaw = std::f32::consts::PI;
     renderer.refresh(1.0);
-    let owed = renderer.cpu.faces.take_dirty();
-    assert!(owed.indices, "the order flipped and nothing said so");
+    let faces = &mut renderer.cpu.faces;
     assert!(
-        !owed.vertices,
+        faces.indices_to_upload().is_some(),
+        "the order flipped and nothing said so"
+    );
+    assert!(
+        faces.vertices_to_upload().is_none(),
         "a resort rewrote corners that had not moved"
     );
     assert_ne!(
@@ -376,8 +388,8 @@ fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
     // whichever order was reached last.
     renderer.camera_mut().yaw = 0.0;
     renderer.refresh(1.0);
-    let owed = renderer.cpu.faces.take_dirty();
-    assert!(owed.indices && !owed.vertices);
+    let faces = &mut renderer.cpu.faces;
+    assert!(faces.indices_to_upload().is_some() && faces.vertices_to_upload().is_none());
     assert_eq!(renderer.cpu.faces.indices, before);
 }
 

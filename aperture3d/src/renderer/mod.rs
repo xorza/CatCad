@@ -139,9 +139,10 @@ impl Renderer {
     ///
     /// The other half of what a hover asks for — a pointer over nothing has no
     /// [`Lit`] to name — and free in the same way when there was nothing lit to
-    /// drop.
+    /// drop, since lighting none of them is [`Renderer::highlight_all`] asked
+    /// for the empty set and answers on the same terms.
     pub fn clear_highlights(&mut self) {
-        self.relight |= self.highlights.clear();
+        self.highlight_all(&[]);
     }
 
     /// Bring the CPU mirror up to date with the scene, and the scene's own
@@ -163,10 +164,8 @@ impl Renderer {
     ///
     /// Text is the one thing written back into the scene rather than mirrored
     /// out of it. How far a run reaches is the shaper's answer and picking needs
-    /// it, so it is remembered on the run — and a field remembers where every
-    /// caret position along it falls, which is what a click that places the
-    /// caret reads. Both go through a memo rather than the batch, which is what
-    /// keeps recording them from reading as an edit. See
+    /// it, so it is remembered on the run — through a memo rather than the batch,
+    /// which is what keeps recording it from reading as an edit. See
     /// [`Text::extent`](crate::Text::extent).
     fn refresh(&mut self, raster_scale: f32) {
         let Self {
@@ -191,13 +190,10 @@ impl Renderer {
             relight,
             Gpu::faces_order(camera.eye()),
         );
-        cpu.gizmos
-            .refill_from(&mut scene.gizmos, highlights, relight);
-        cpu.curves
-            .refill_from(&mut scene.curves, highlights, relight);
-        cpu.rings.refill_from(&mut scene.rings, highlights, relight);
-        cpu.points
-            .refill_from(&mut scene.points, highlights, relight);
+        cpu.gizmos.refresh(&mut scene.gizmos, highlights, relight);
+        cpu.curves.refresh(&mut scene.curves, highlights, relight);
+        cpu.rings.refresh(&mut scene.rings, highlights, relight);
+        cpu.points.refresh(&mut scene.points, highlights, relight);
         // Nothing to lay out, and nothing left over from when there was. The
         // first half is what lets a scene with no text in it be flattened
         // without a window having handed a font stack over.

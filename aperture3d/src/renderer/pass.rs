@@ -285,25 +285,28 @@ impl Pass {
     /// Refill from the flattened objects: one triangle list, drawn once.
     ///
     /// Does nothing while the list stands as the pass already has it, and each
-    /// half apart — which the list is what answers for, see
-    /// [`Triangles::take_dirty`]. Every upload costs the queue its staging
-    /// whatever is in it, so the half that did not move is worth not asking
-    /// about.
+    /// half apart — which the list is what answers for, handing back whichever
+    /// buffer it rewrote and nothing for the one it did not. Every upload costs
+    /// the queue its staging whatever is in it, so the half that did not move is
+    /// worth not asking about.
+    ///
+    /// The same shape [`Passes::upload`](super::gpu::Passes) reads the overlays
+    /// through, which is the point of it: a buffer and its mark arrive together
+    /// or not at all, so there is no reading one and uploading the other.
     pub(super) fn upload_mesh(
         &mut self,
         device: &wgpu::Device,
         queue: &wgpu::Queue,
         triangles: &mut Triangles,
     ) {
-        let rewritten = triangles.take_dirty();
-        if rewritten.vertices {
+        if let Some(vertices) = triangles.vertices_to_upload() {
             self.records
-                .write(device, queue, bytemuck::cast_slice(&triangles.vertices));
+                .write(device, queue, bytemuck::cast_slice(vertices));
         }
-        if rewritten.indices {
+        if let Some(indices) = triangles.indices_to_upload() {
             self.indices
-                .write(device, queue, bytemuck::cast_slice(&triangles.indices));
-            self.index_count = triangles.indices.len() as u32;
+                .write(device, queue, bytemuck::cast_slice(indices));
+            self.index_count = indices.len() as u32;
         }
         // Outside both, because it is not something an upload decides: a
         // triangle list is one draw of one instance however it got here. Inside
