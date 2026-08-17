@@ -12,7 +12,7 @@ use crate::document::file::error::{LoadError, SaveError};
 use crate::document::file::saved::Saved;
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
-use crate::intent::Change;
+use crate::intent::{About, Change};
 use crate::model::Models;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Movable, Timeline};
@@ -318,10 +318,10 @@ impl Document {
     /// belong to whoever is doing the editing, and the document borrows them
     /// for the length of the call. An edit that could happen without one in
     /// hand would be an edit that left its report stale.
+    ///
     /// Hands back the step it *made*, where the change was one that makes one —
-    /// see [`Change::creates`]. Every other change rewrites a step that is
-    /// already there and answers `None`, which is what the history reads to tell
-    /// the two apart before it records either.
+    /// see [`About::Makes`]. Every other change rewrites a step that is already
+    /// there, or is the camera's, and answers `None`.
     pub(crate) fn apply(&mut self, build: &mut Build, change: Change) -> Option<FeatureId> {
         let mut made = None;
         match change {
@@ -395,13 +395,14 @@ impl Document {
         // one sketch can take away what an extrude two steps later was grown
         // from.
         //
-        // A change that names no step is the camera's, and the camera cannot
-        // reach an arrangement: it writes one field of this and nothing the
-        // drawing says. Skipping it is what keeps an orbit off this path, which
-        // the document is careful about elsewhere for the same reason — see
-        // [`Edits`], on why turning the camera must not move the revision.
-        if change.feature().is_some() || change.creates() {
-            self.remodel(build);
+        // A change about no step is the camera's, and the camera cannot reach an
+        // arrangement: it writes one field of this and nothing the drawing says.
+        // Skipping it is what keeps an orbit off this path, which the document
+        // is careful about elsewhere for the same reason — see [`Edits`], on why
+        // turning the camera must not move the revision.
+        match change.about() {
+            About::Makes | About::Rewrites { .. } => self.remodel(build),
+            About::Nothing => {}
         }
         self.edits = self.edits.next();
         made

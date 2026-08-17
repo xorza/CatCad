@@ -185,7 +185,7 @@ pub(crate) enum Change {
     /// Grow a solid off a region of a sketch.
     ///
     /// The one change that *adds* a step rather than rewriting one, which is
-    /// what [`Change::creates`] answers and what the history has to be told
+    /// what [`About::Makes`] says of it and what the history has to be told
     /// before it can record anything: a step that was not there has no before.
     ///
     /// The region by position rather than as a
@@ -237,97 +237,102 @@ pub(crate) enum Change {
 }
 
 impl Change {
-    /// Whether this belongs to a gesture already under way, so a history
-    /// extends the step it is recording rather than starting another.
+    /// What this does to the timeline: makes a step, rewrites one, or neither.
     ///
-    /// A drag is the whole of it. It arrives a frame at a time and is one thing
-    /// the user did, so sixty of them are one step back — where a point put
-    /// down, or anything else that happens once, stands alone.
+    /// **One exhaustive match rather than three predicates.** The history asked
+    /// three questions of every change back to back — does it create, which step
+    /// is it about, does it belong to a gesture already under way — and two of
+    /// them were exhaustive while the third was a `matches!`, so a variant added
+    /// later could quietly join the wrong side of it. Every variant answers all
+    /// of it here, once, which makes a new one a compile error in every
+    /// dimension at the same time: a gesture mistaken for a single edit costs an
+    /// extra press of undo, and **a creation mistaken for a rewrite is a step
+    /// nothing can take back**.
     ///
-    /// Scrubbing a dimension is the same shape by the same argument: the
-    /// pointer travels, the number follows it, and what the user did was set a
-    /// value once. Both are closed by a [`Step::Release`], which the widget
-    /// driving them raises when its gesture ends.
-    pub(crate) fn coalesces(self) -> bool {
-        matches!(
-            self,
-            Change::Drag { .. }
-                | Change::Place { .. }
-                | Change::Resize { .. }
-                | Change::MovePlane { .. }
-                | Change::Carry { .. }
-        )
-    }
-
-    /// Whether this adds a step to the timeline rather than rewriting one that
-    /// is already there.
-    ///
-    /// The first thing the history asks, and the reason it has to ask: a step
-    /// that was not there has no *before*, so undoing one puts back its absence
-    /// rather than a value. See [`Edit`](crate::history::Edit).
-    ///
-    /// An exhaustive match rather than a `matches!`, unlike [`Change::coalesces`]
-    /// beside it, because the two get a wrong answer differently. A gesture
-    /// mistaken for a single edit costs an extra press of undo; a creation
-    /// mistaken for a rewrite is a step nothing can take back.
-    pub(crate) fn creates(self) -> bool {
-        match self {
-            Change::Extrude { .. } => true,
-            Change::Drag { .. }
-            | Change::Place { .. }
-            | Change::AddPoint { .. }
-            | Change::AddSegment { .. }
-            | Change::AddCircle { .. }
-            | Change::Constrain { .. }
-            | Change::Resize { .. }
-            | Change::Tidy { .. }
-            | Change::Delete { .. }
-            | Change::MovePlane { .. }
-            | Change::Carry { .. }
-            | Change::Orbit { .. }
-            | Change::Dolly { .. }
-            | Change::Pan { .. }
-            | Change::Project(_) => false,
-        }
-    }
-
-    /// Which step of the timeline this is about, or `None` where it is about no
-    /// step that is already there — the camera, or a change that makes one.
-    ///
-    /// What the history records a step against — see
-    /// [`History::edit`](crate::history::History). The camera is not the
-    /// document, so turning it names no step and there is nothing to take back.
-    ///
-    /// A match rather than a comparison of before and after, which is what this
-    /// used to be. Naming the step is what a document of several needs of every
-    /// edit, and once an edit names one there is nothing to compare a camera
-    /// move *against*. What the exhaustive match buys back is that a variant
-    /// added later cannot quietly land on either side: the compiler asks which
-    /// it is.
-    pub(crate) fn feature(self) -> Option<FeatureId> {
+    /// The three answers are one answer because they were never independent. A
+    /// change that makes a step is about no step that is already there — the one
+    /// it names does not exist until it lands — and a creation is never extended
+    /// by what the pointer does next, because it happened once. So what was two
+    /// booleans and an `Option` beside each other, most of whose combinations
+    /// mean nothing, is three states and a flag inside the one arm that reads it.
+    pub(crate) fn about(self) -> About {
+        // A step a gesture is still writing, so a history extends the one it is
+        // recording rather than starting another. A drag arrives a frame at a
+        // time and is one thing the user did, so sixty of them are one step
+        // back; scrubbing a dimension is the same shape by the same argument —
+        // the pointer travels, the number follows it, and what the user did was
+        // set a value once. Both are closed by a [`Step::Release`], which the
+        // widget driving them raises when its gesture ends.
+        let gesture = |at| About::Rewrites {
+            at,
+            coalesces: true,
+        };
+        // A step written in one go: a click that puts geometry down, a relation
+        // stated, a command run. Whatever the pointer does next is a different
+        // thing done.
+        let once = |at| About::Rewrites {
+            at,
+            coalesces: false,
+        };
         match self {
             Change::Drag { sketch, .. }
             | Change::Place { sketch, .. }
-            | Change::AddPoint { sketch, .. }
+            | Change::Resize { sketch, .. } => gesture(sketch),
+            Change::MovePlane { plane, .. } => gesture(plane),
+            Change::Carry { extrude, .. } => gesture(extrude),
+            Change::AddPoint { sketch, .. }
             | Change::AddSegment { sketch, .. }
             | Change::AddCircle { sketch, .. }
             | Change::Constrain { sketch, .. }
-            | Change::Resize { sketch, .. }
             | Change::Tidy { sketch }
-            | Change::Delete { sketch, .. } => Some(sketch),
-            Change::MovePlane { plane, .. } => Some(plane),
-            Change::Carry { extrude, .. } => Some(extrude),
-            // The sketch it names is what the region is *of* rather than what
-            // this is about: the step it is about does not exist until it
-            // lands, and what the history records for one is
-            // [`Change::creates`]'s business.
-            Change::Extrude { .. }
-            | Change::Orbit { .. }
+            | Change::Delete { sketch, .. } => once(sketch),
+            // The sketch it names is what the region is *of* rather than a step
+            // this is about: the step it makes does not exist until it lands, so
+            // there is nothing here for a history to record a *before* against.
+            Change::Extrude { .. } => About::Makes,
+            // The camera is not the drawing. Turning it names no step, so there
+            // is nothing to take back and nothing to solve again.
+            Change::Orbit { .. }
             | Change::Dolly { .. }
             | Change::Pan { .. }
-            | Change::Project(_) => None,
+            | Change::Project(_) => About::Nothing,
         }
     }
+}
+
+/// What a [`Change`] does to the timeline.
+///
+/// The one question the history and the document both ask of a change before
+/// they do anything with it — see [`Change::about`], which is where every
+/// variant answers it and the only place any of them does.
+///
+/// Three states rather than a pair of flags, because that is how many there
+/// are: a change puts a step on the end, rewrites one that is there, or is
+/// about no step at all.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum About {
+    /// It adds a step to the timeline.
+    ///
+    /// Which step is not said, because it does not exist yet: what it comes out
+    /// as is [`Document::apply`](crate::document::Document)'s answer, and
+    /// recording it is [`Edit::Added`](crate::history::Edit)'s shape — a step
+    /// that was not there has no *before* to put back, only its absence.
+    Makes,
+    /// It rewrites the step at `at`, which the timeline already holds.
+    Rewrites {
+        at: FeatureId,
+        /// Whether it belongs to a gesture already under way, so the history
+        /// extends the step it is recording rather than starting another.
+        ///
+        /// Inside this arm because it is only ever read here: a creation is
+        /// never extended — it happened once, and whatever the pointer does next
+        /// is a different thing done — and a change about no step is not
+        /// recorded at all.
+        coalesces: bool,
+    },
+    /// It is about no step of the timeline: the camera, which is not the
+    /// drawing.
+    Nothing,
 }
 
 /// What the history answers: where in what has been done the document stands.

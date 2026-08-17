@@ -2,7 +2,7 @@
 
 use crate::build::Build;
 use crate::document::Document;
-use crate::intent::{Change, Intent, Intents, Step};
+use crate::intent::{About, Change, Intent, Intents, Step};
 use crate::timeline::FeatureId;
 use crate::timeline::feature::Feature;
 
@@ -85,66 +85,76 @@ impl History {
 
     /// Do what `change` asks, and record an [`Edit`] if it moved the drawing.
     ///
-    /// A change that names no sketch is the camera's, and the camera is not the
-    /// drawing — so it lands and is not recorded. Which side of that line a
-    /// change falls on is [`Change::sketch`]'s to say, and it says it with an
-    /// exhaustive match: a variant added later cannot quietly join either side
-    /// without the compiler asking which.
+    /// A change about no step is the camera's, and the camera is not the drawing
+    /// — so it lands and is not recorded. Which of the three a change is is
+    /// [`Change::about`]'s to say, and it says it with an exhaustive match: a
+    /// variant added later cannot quietly join any of them without the compiler
+    /// asking which.
     ///
-    /// Everything else is recorded only if it moved the sketch it named, and
+    /// Everything else is recorded only if it moved the step it named, and
     /// the comparison is the whole of what decides that. A drag the constraints
     /// refuse records nothing, because
     /// [`Solver::drag`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
     fn edit(&mut self, document: &mut Document, build: &mut Build, change: Change) {
-        // Asked before anything else, because a step that was not there has no
-        // *before* to compare against — the whole shape below is about what a
-        // step held on either side of an edit, and a creation has only one side.
-        if change.creates() {
-            self.close();
-            let at = document
-                .apply(build, change)
-                .expect("a change that creates says which step it made");
-            let feature = document.feature(at).clone();
-            self.record(Edit::Added { at, feature });
-            return;
-        }
-        let Some(at) = change.feature() else {
-            document.apply(build, change);
-            return;
-        };
-        // The open step has to be a rewrite *of this step*, not merely open.
-        // With one drawing there was nothing else a change could be about; with
-        // several, a gesture in one followed by a gesture in another would
-        // otherwise extend the first step with the second's far end. And a
-        // creation is never extended: it happened once, and whatever the pointer
-        // does next is a different thing done.
-        //
-        // One chain rather than a test and a match, so what the test established
-        // is what the binding carries — there is no arm left over for a
-        // `unreachable!` to stand in.
-        if self.open
-            && change.coalesces()
-            && let Some(Edit::Wrote { at: had, after, .. }) = self.edits.last_mut()
-            && *had == at
-        {
-            document.apply(build, change);
-            // The open step's far end follows the gesture, in place: a drag
-            // lasting a second rewrites one buffer sixty times rather than
-            // leaving sixty steps to take back one at a time.
-            document.feature_into(at, after);
-            return;
-        }
+        // Matched rather than tested arm by arm, so the exhaustiveness
+        // [`Change::about`] buys reaches here: a fourth thing a change could do
+        // — a step *removed*, which the timeline does not offer yet — would
+        // otherwise fall through to whichever branch was written last, and the
+        // one it would fall through to is the one that records nothing.
+        match change.about() {
+            // A creation, and it is answered on its own because a step that was
+            // not there has no *before* to compare against — the arm below is
+            // all about what a step held on either side of an edit, and a
+            // creation has only one side.
+            About::Makes => {
+                self.close();
+                let at = document
+                    .apply(build, change)
+                    .expect("a change that makes a step says which one it made");
+                let feature = document.feature(at).clone();
+                self.record(Edit::Added { at, feature });
+            }
+            // The camera, which is not the drawing: it lands and is not
+            // recorded, so there is nothing here to take back.
+            About::Nothing => {
+                document.apply(build, change);
+            }
+            About::Rewrites { at, coalesces } => {
+                // The open step has to be a rewrite *of this step*, not merely
+                // open. With one drawing there was nothing else a change could
+                // be about; with several, a gesture in one followed by a gesture
+                // in another would otherwise extend the first step with the
+                // second's far end.
+                //
+                // One chain rather than a test and a match, so what the test
+                // established is what the binding carries — there is no arm left
+                // over for a `unreachable!` to stand in.
+                if self.open
+                    && coalesces
+                    && let Some(Edit::Wrote { at: had, after, .. }) = self.edits.last_mut()
+                    && *had == at
+                {
+                    document.apply(build, change);
+                    // The open step's far end follows the gesture, in place: a
+                    // drag lasting a second rewrites one buffer sixty times
+                    // rather than leaving sixty steps to take back one at a
+                    // time.
+                    document.feature_into(at, after);
+                    return;
+                }
 
-        self.close();
-        let before = document.feature(at).clone();
-        document.apply(build, change);
-        let after = document.feature(at).clone();
-        if after == before {
-            return;
+                self.close();
+                let before = document.feature(at).clone();
+                document.apply(build, change);
+                let after = document.feature(at).clone();
+                if after == before {
+                    return;
+                }
+                self.record(Edit::Wrote { at, before, after });
+                self.open = coalesces;
+            }
         }
-        self.record(Edit::Wrote { at, before, after });
-        self.open = change.coalesces();
     }
 
     /// Put `edit` on the stack as the newest thing done.
