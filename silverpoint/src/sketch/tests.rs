@@ -47,7 +47,7 @@ fn geometry_comes_back_in_insertion_order() {
     assert_eq!(params, [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 0.5]);
     params[2] = 30.0;
     params[6] = 0.75;
-    sketch.params_mut().set(&params);
+    sketch.set_params(&params);
     assert_eq!(
         sketch.points().nth(1).unwrap().1.position,
         DVec2::new(30.0, 4.0)

@@ -16,7 +16,7 @@ use crate::math::direction::Direction;
 use crate::sketch::constraint::{Constraint, ConstraintId};
 use crate::sketch::entity::Entity;
 use crate::sketch::measurement::Measurement;
-use crate::sketch::params::{Params, ParamsMut};
+use crate::sketch::params::Params;
 use crate::sketch::snapshot::Snapshot;
 use glam::DVec2;
 
@@ -563,7 +563,7 @@ impl Sketch {
 
     /// The circles nothing names that another circle already covers.
     fn spare_circles(&self) -> Vec<CircleId> {
-        let named = self.named_slots(self.circle_slot_count(), Entity::circle);
+        let named = self.named_slots(self.circles.slot_count(), Entity::circle);
         spares(
             &self.circles,
             |id| named[id.slot()],
@@ -584,7 +584,7 @@ impl Sketch {
     /// the duplicate this is looking for, and one written the other way round
     /// is the same edge — so both orientations count.
     fn spare_segments(&self) -> Vec<SegmentId> {
-        let named = self.named_slots(self.segment_slot_count(), Entity::segment);
+        let named = self.named_slots(self.segments.slot_count(), Entity::segment);
         let ends = |id| {
             let edge: Segment = self.segment(id);
             (self.point(edge.a).position, self.point(edge.b).position)
@@ -644,7 +644,7 @@ impl Sketch {
     /// distance, a horizontal, a point on an edge — is structure, and structure
     /// keeps it.
     fn carried_points(&self) -> Vec<bool> {
-        let mut carried = vec![false; self.point_slot_count()];
+        let mut carried = vec![false; self.points.slot_count()];
         for (_, segment) in self.segments.iter() {
             carried[segment.a.slot()] = true;
             carried[segment.b.slot()] = true;
@@ -685,28 +685,6 @@ impl Sketch {
         named
     }
 
-    /// Positions the points occupy, holes from removals included — the length
-    /// of anything keyed by point rather than by surviving point.
-    fn point_slot_count(&self) -> usize {
-        self.points.slot_count()
-    }
-
-    fn segment_slot_count(&self) -> usize {
-        self.segments.slot_count()
-    }
-
-    fn circle_slot_count(&self) -> usize {
-        self.circles.slot_count()
-    }
-
-    /// Positions the constraints occupy. Not part of the parameter layout —
-    /// constraints contribute equations rather than unknowns — but the width
-    /// anything keyed by constraint has to cover, which is what
-    /// [`Outcome::is_redundant`](crate::Outcome) is for the redundant ones.
-    fn constraint_slot_count(&self) -> usize {
-        self.constraints.slot_count()
-    }
-
     /// This sketch read as the vector a solve works on.
     ///
     /// The one place a [`Params`] is built, so the layout is stated in one file
@@ -718,8 +696,22 @@ impl Sketch {
         Params { sketch: self }
     }
 
-    fn params_mut(&mut self) -> ParamsMut<'_> {
-        ParamsMut { sketch: self }
+    /// Put every parameter back, in the order [`Params::write`] wrote them.
+    ///
+    /// Here rather than beside the reading half, because a parameter is written
+    /// *through* the sketch it belongs to and [`Params`] holds that sketch
+    /// immutably. What the layout is remains `params`' to say; this only walks
+    /// it.
+    fn set_params(&mut self, values: &[f64]) {
+        debug_assert_eq!(values.len(), self.params().count());
+        for (index, &value) in values.iter().enumerate() {
+            // Bound before the write: naming the parameter reads the sketch,
+            // and setting it writes the same one.
+            let param = self.params().at(index);
+            if let Some(param) = param {
+                param.set(self, value);
+            }
+        }
     }
 
     /// Take down where the sketch stands, so it can be put back later.

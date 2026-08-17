@@ -8,7 +8,7 @@
 
 use crate::math::dense::square_norm;
 use crate::sketch::Sketch;
-use crate::sketch::solver::freedoms::Freedom;
+use crate::sketch::solver::freedom::Freedom;
 use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::solver::system::System;
 
@@ -119,11 +119,11 @@ impl Elimination {
         // columns that took no pivot, so this cannot drift from the reduction it
         // describes.
         into.degrees_of_freedom = self.free.len();
-        into.freedoms.reset(sketch);
+        into.reset(sketch);
         let params = sketch.params();
         for (id, _) in sketch.points() {
             let [x, y] = params.of_point(id);
-            into.freedoms.set_point(id, self.spread(x, y));
+            into.points[id.slot()] = self.spread(x, y);
         }
         // An edge is only as settled as its looser end, and a circle only as
         // settled as the looser of its centre and its radius. Rolled up here
@@ -132,15 +132,12 @@ impl Elimination {
         // this. Read back off the labels just written, so an entity and its
         // parts cannot disagree.
         for (id, edge) in sketch.segments() {
-            let ends = into.freedoms.point(edge.a).max(into.freedoms.point(edge.b));
-            into.freedoms.set_segment(id, ends);
+            let ends = into.points[edge.a.slot()].max(into.points[edge.b.slot()]);
+            into.segments[id.slot()] = ends;
         }
         for (id, circle) in sketch.circles() {
-            let whole = into
-                .freedoms
-                .point(circle.center)
-                .max(self.travel(params.of_radius(id)));
-            into.freedoms.set_circle(id, whole);
+            let whole = into.points[circle.center.slot()].max(self.travel(params.of_radius(id)));
+            into.circles[id.slot()] = whole;
         }
         // The same rank read the other way round: the rows the reduction had
         // nothing left to do with are the equations the rest of the system
@@ -154,7 +151,7 @@ impl Elimination {
         // equations can be named twice, when both of its rows died; flagging by
         // constraint is what makes saying it twice say it once.
         for &equation in &self.origin[self.pivots.len()..] {
-            into.freedoms.set_redundant(system.equations[equation]);
+            into.redundant[system.equations[equation].slot()] = true;
         }
     }
 

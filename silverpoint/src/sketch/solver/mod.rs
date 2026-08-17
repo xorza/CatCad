@@ -234,7 +234,7 @@ impl Solver {
             .iter()
             .any(|pull| (params.value_at(pull.param) - self.was[pull.param]).abs() > UNMOVED);
         if !moved {
-            sketch.params_mut().set(&self.was);
+            sketch.set_params(&self.was);
         }
         self.describe(sketch, into, pulled + settled);
     }
@@ -298,7 +298,7 @@ impl Solver {
 }
 
 mod elimination;
-pub(crate) mod freedoms;
+pub(crate) mod freedom;
 pub(crate) mod outcome;
 mod stepper;
 mod system;

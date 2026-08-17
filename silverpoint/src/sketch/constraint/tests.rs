@@ -70,13 +70,13 @@ fn numeric(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
     for i in 0..base.len() {
         let mut params = base.clone();
         params[i] = base[i] + H;
-        scratch.params_mut().set(&params);
+        scratch.set_params(&params);
         let high = equation.evaluate(
             &scratch,
             &mut JacobianRow::new(scratch.params(), &mut discard),
         );
         params[i] = base[i] - H;
-        scratch.params_mut().set(&params);
+        scratch.set_params(&params);
         let low = equation.evaluate(
             &scratch,
             &mut JacobianRow::new(scratch.params(), &mut discard),

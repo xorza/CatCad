@@ -238,7 +238,7 @@ impl Stepper {
             self.trial_params.clear();
             self.trial_params
                 .extend(self.params.iter().zip(&self.step).map(|(p, d)| p + d));
-            sketch.params_mut().set(&self.trial_params);
+            sketch.set_params(&self.trial_params);
             self.trial.assemble(sketch);
             let trial = reach(&self.trial, drive, &self.trial_params);
             if trial < magnitude {
@@ -257,7 +257,7 @@ impl Stepper {
                     break;
                 }
             } else {
-                sketch.params_mut().set(&self.params);
+                sketch.set_params(&self.params);
                 damping *= DAMPING_GROWTH;
                 if damping > MAX_DAMPING {
                     break;

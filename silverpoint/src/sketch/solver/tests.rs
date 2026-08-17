@@ -1,7 +1,7 @@
 use super::*;
 use crate::Snapshot;
 use crate::sketch::constraint::{Along, Constraint, Dimension};
-use crate::sketch::solver::freedoms::Freedom;
+use crate::sketch::solver::freedom::Freedom;
 use glam::DVec2;
 
 /// Tight enough that a wrong answer can't hide behind it: the solver's own

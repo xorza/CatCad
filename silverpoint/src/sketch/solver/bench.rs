@@ -166,7 +166,7 @@ pub fn alloc_bench() {
     // handing one back, so it is the caller's buffer and pays for itself once.
     let mut outcome = Outcome::default();
     bench.step("solve-from-guess", 0.0, || {
-        sketch.params_mut().set(&guess);
+        sketch.set_params(&guess);
         solver.solve(&mut sketch, &mut outcome);
         black_box(&outcome);
     });
@@ -180,7 +180,7 @@ pub fn alloc_bench() {
     let mut solved = Vec::new();
     sketch.params().write(&mut solved);
     bench.step("solve-converged", 0.0, || {
-        sketch.params_mut().set(&solved);
+        sketch.set_params(&solved);
         solver.solve(&mut sketch, &mut outcome);
         black_box(&outcome);
     });
@@ -209,7 +209,7 @@ pub fn alloc_bench() {
         "this step stopped measuring a drag that is taken"
     );
     bench.step("drag-taken", 0.0, || {
-        sketch.params_mut().set(&settled);
+        sketch.set_params(&settled);
         solver.drag(
             &mut sketch,
             &[Drive::Point(wrist, reachable)],

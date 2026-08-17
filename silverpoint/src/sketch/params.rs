@@ -10,7 +10,7 @@ use glam::DVec2;
 
 /// Which of a point's two coordinates a parameter names.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Axis {
+pub(super) enum Axis {
     X,
     Y,
 }
@@ -35,7 +35,7 @@ impl Axis {
 
 /// One slot of the parameter vector, named.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Param {
+pub(super) enum Param {
     Point(PointId, Axis),
     Radius(CircleId),
 }
@@ -48,7 +48,7 @@ impl Param {
         }
     }
 
-    fn set(self, sketch: &mut Sketch, value: f64) {
+    pub(super) fn set(self, sketch: &mut Sketch, value: f64) {
         match self {
             Param::Point(id, axis) => axis.set(&mut sketch.point_mut(id).position, value),
             Param::Radius(id) => sketch.circle_mut(id).radius = value,
@@ -60,9 +60,14 @@ impl Param {
 ///
 /// [`Params::index_of`] and [`Params::at`] are inverses of each other, and
 /// between them they are the whole statement of the layout. Everything that
-/// reads a parameter, writes one, or asks whether it may move goes through this
-/// type rather than doing the arithmetic again — so a layout change is those two
-/// functions and the round-trip test over them.
+/// reads a parameter, writes one, or asks whether it may move works the index
+/// out here rather than doing the arithmetic again — so a layout change is those
+/// two functions and the round-trip test over them.
+///
+/// Reading is the half that lives here. Writing is
+/// [`Sketch::set_params`](crate::Sketch), because a parameter is written
+/// *through* the sketch it belongs to and this holds that sketch immutably; what
+/// it writes it still names by asking [`Params::at`].
 ///
 /// A borrow rather than anything owned, so it costs what naming the sketch costs
 /// and there is nothing to keep in step with the sketch it describes. Built by
@@ -78,12 +83,12 @@ impl Params<'_> {
     /// Counts positions rather than what is in them: a removed point keeps its
     /// two entries, so every surviving handle keeps indexing where it did.
     pub(super) fn count(self) -> usize {
-        self.radius_base() + self.sketch.circle_slot_count()
+        self.radius_base() + self.sketch.circles.slot_count()
     }
 
     /// Where the radii start, which is the boundary the whole layout turns on.
     fn radius_base(self) -> usize {
-        self.sketch.point_slot_count() * 2
+        self.sketch.points.slot_count() * 2
     }
 
     /// Where `param` sits. Inverse of [`Params::at`].
@@ -101,7 +106,7 @@ impl Params<'_> {
     /// An index alone can't name anything: rebuilding a handle needs the
     /// generation of the position, which only the store knows — and a freed
     /// position has no handle to give.
-    fn at(self, index: usize) -> Option<Param> {
+    pub(super) fn at(self, index: usize) -> Option<Param> {
         debug_assert!(
             index < self.count(),
             "parameter {index} is past the {} this sketch has",
@@ -163,8 +168,8 @@ impl Params<'_> {
 
     /// Append every parameter's current value, in index order.
     ///
-    /// With [`ParamsMut::set`], the pair a solve works through: the vector is
-    /// the whole of what a step can have touched, so saving it and putting it
+    /// With [`Sketch::set_params`], the pair a solve works through: the vector
+    /// is the whole of what a step can have touched, so saving it and putting it
     /// back is how a step is undone.
     ///
     /// Appends rather than replacing, so the caller owns the buffer — which is
@@ -179,30 +184,6 @@ impl Params<'_> {
         out.extend(
             (0..count).map(|index| self.at(index).map_or(0.0, |param| param.value(self.sketch))),
         );
-    }
-}
-
-/// The writing half of [`Params`].
-///
-/// Its own type because a parameter is written through the sketch it belongs to,
-/// and a [`Params`] holds that sketch immutably.
-#[derive(Debug)]
-pub(super) struct ParamsMut<'a> {
-    pub(super) sketch: &'a mut Sketch,
-}
-
-impl ParamsMut<'_> {
-    /// Put every parameter back, in the order [`Params::write`] wrote them.
-    pub(super) fn set(&mut self, values: &[f64]) {
-        debug_assert_eq!(values.len(), self.sketch.params().count());
-        for (index, &value) in values.iter().enumerate() {
-            // Bound before the write: naming the parameter reads the sketch,
-            // and setting it writes the same one.
-            let param = self.sketch.params().at(index);
-            if let Some(param) = param {
-                param.set(self.sketch, value);
-            }
-        }
     }
 }
 
@@ -281,7 +262,7 @@ mod tests {
         let mut params = Vec::new();
         sketch.params().write(&mut params);
         assert_eq!(params, [0.0, 0.0, 3.0, 4.0, 0.5]);
-        sketch.params_mut().set(&[9.0; 5]);
+        sketch.set_params(&[9.0; 5]);
         params.clear();
         sketch.params().write(&mut params);
         assert_eq!(params, [0.0, 0.0, 9.0, 9.0, 9.0]);

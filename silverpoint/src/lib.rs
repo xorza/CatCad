@@ -60,7 +60,7 @@ pub use sketch::snapshot::Snapshot;
 /// where it can reach what it measures.
 #[cfg(feature = "bench")]
 pub use sketch::solver::bench::alloc_bench;
-pub use sketch::solver::freedoms::Freedom;
+pub use sketch::solver::freedom::Freedom;
 pub use sketch::solver::outcome::Outcome;
 pub use sketch::solver::{Drive, Solver};
 pub use sketch::{Circle, CircleId, Point, PointId, Removed, Segment, SegmentId, Sketch};
