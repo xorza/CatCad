@@ -1,5 +1,6 @@
 //! One piece of a sketch curve, and the two ways to walk it.
 
+use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
 use glam::DVec2;
 use std::f64::consts::TAU;
@@ -10,7 +11,7 @@ use std::f64::consts::TAU;
 /// straight pieces and a circle gives arcs, and nothing in an arrangement turns
 /// one into the other. Which curve it was cut from rides along, because it is
 /// free to — the cutting knows it — and because what bounds a face is what a
-/// profile *is*: see [`Arrangement::bounds`](super::Arrangement::bounds).
+/// profile *is*: see [`Face::named`](super::face::Face::named).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Edge {
     pub(crate) from: usize,
@@ -67,6 +68,19 @@ impl Half {
 }
 
 impl Edge {
+    /// The curve this is a piece of, and the side of it a region walking it
+    /// `forward` lies on.
+    ///
+    /// The one place a piece of curve becomes the whole one it was cut from,
+    /// which is what a region is named and walled by — see
+    /// [`Face::named`](super::face::Face::named).
+    pub(crate) fn bound(&self, forward: bool) -> Bound {
+        Bound {
+            of: self.of,
+            along: forward,
+        }
+    }
+
     /// Where this edge starts and ends, walked `forward` or not.
     pub(crate) fn ends(&self, forward: bool) -> [usize; 2] {
         if forward {

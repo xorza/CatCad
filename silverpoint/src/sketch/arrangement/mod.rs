@@ -80,6 +80,7 @@ impl Arrangement {
         }
         self.walk_loops();
         self.punch_holes();
+        self.bound_faces();
     }
 
     /// The faces, in the order the drawing's curves are walked.
@@ -97,27 +98,6 @@ impl Arrangement {
     /// drawing's shape at all.
     pub fn faces(&self) -> &[Face] {
         &self.faces[..self.faces_filled]
-    }
-
-    /// What bounds `face`, in the order its outline is walked — the name
-    /// anything built on the region keeps.
-    ///
-    /// The answer to what a *profile* is. A face's position among the faces
-    /// holds only while the drawing's topology does — see
-    /// [`Arrangement::faces`] — so a feature that remembered "face 3" would
-    /// silently build on another region the first time an edge was added
-    /// upstream. This holds instead: the curves are the sketch's own handles,
-    /// which survive being moved and being cut, and the side is what tells two
-    /// regions bounded by the same curves apart. Read back by
-    /// [`Arrangement::face_named_by`].
-    ///
-    /// Fills `into` rather than returning it, like everything else here: a
-    /// caller resolving a feature asks this of every face of the drawing, and a
-    /// fresh list apiece would undo what the rest of this rebuild is careful
-    /// about.
-    pub fn bounds(&self, face: &Face, into: &mut Vec<Bound>) {
-        into.clear();
-        into.extend(self.bounding(std::iter::once(face.outline())));
     }
 
     /// Which face `bounds` names, or `None` where this arrangement holds no
@@ -141,47 +121,103 @@ impl Arrangement {
             return None;
         }
         self.faces().iter().position(|face| {
-            let mut found = 0;
-            for bound in self.bounding(std::iter::once(face.outline())) {
-                if !bounds.contains(&bound) {
-                    return false;
-                }
-                found += 1;
-            }
             // Both ways round, so a name is not fitted by a face bounded by
-            // everything it lists and something else besides.
-            found == bounds.len()
+            // everything it lists and something else besides. Each side holds a
+            // curve at most once, so agreeing on the count and containing every
+            // one of them is agreeing outright.
+            let named = face.named();
+            named.len() == bounds.len() && named.iter().all(|bound| bounds.contains(bound))
         })
     }
 
-    /// Each curve bounding a region once, with the side it lies on, over
-    /// whichever of the region's loops `boundary` gives.
+    /// Work out what bounds each face, and out of what pieces.
     ///
-    /// The one statement of what bounds a region, which every caller reads
-    /// through — so what a name is made of, what a name is matched against, and
-    /// what a solid raises a wall on cannot come to differ about the rules.
-    ///
-    /// *Which* loops is the caller's, and is a real choice rather than a
-    /// convenience: naming asks the outline alone and a solid asks the whole
-    /// edge, for the reason [`Face::boundary`] gives.
-    ///
-    /// Two rules, and the walk is what makes both of them necessary. A curve
-    /// cut into several pieces is walked once per piece, and all of them bound
-    /// the region on the same side, so only the first is kept. And a *spur* — a
-    /// curve dangling into the region from its boundary — is walked out and
-    /// back, so it appears both ways round and bounds nothing at all; without
-    /// the second rule, drawing a stray line touching a region would rename it.
-    pub(crate) fn bounding<'a>(
-        &'a self,
-        boundary: impl Iterator<Item = &'a [Half]> + Clone + 'a,
-    ) -> impl Iterator<Item = Bound> + 'a {
-        let along = move || boundary.clone().flatten().copied();
-        along().enumerate().filter_map(move |(at, half)| {
-            let bound = self.bound(half);
-            let kept = !along().take(at).any(|had| self.bound(had) == bound)
-                && !along().any(|had| self.bound(had) == bound.turned());
-            kept.then_some(bound)
-        })
+    /// Once per rebuild rather than once per ask, which is the whole of why it
+    /// is a step here and not a reading hung off [`Face`]. What bounds a region
+    /// is a property of how the drawing was cut, so it moves only when this
+    /// runs — where a solid being drawn walks its faces every frame, a
+    /// selection asks whether a wall is still one of them, and a feature
+    /// matches a name against every face there is.
+    fn bound_faces(&mut self) {
+        let Self {
+            edges,
+            faces,
+            faces_filled,
+            scratch,
+            ..
+        } = self;
+        let edges = &edges[..];
+        let Scratch {
+            along, gathered, ..
+        } = scratch;
+        for face in &mut faces[..*faces_filled] {
+            let Face {
+                outline,
+                holes,
+                named,
+                walls,
+                pieces,
+                ..
+            } = face;
+
+            // The boundary laid out flat, each piece with the curve it is of
+            // and which loop walked it. Everything below reads this rather than
+            // the loops: the curve a piece is of is worked out once here where
+            // deriving it again per reading is what made asking dear in the
+            // first place, and what is left is a slice to scan rather than an
+            // iterator over loops to rebuild three times.
+            along.clear();
+            along.reserve_exact(outline.len() + holes.total());
+            let mut lay = |run: &[Half], on_outline: bool| {
+                along.extend(run.iter().map(|&half| Walked {
+                    half,
+                    bound: edges[half.edge].bound(half.forward),
+                    on_outline,
+                }));
+            };
+            lay(outline, true);
+            for hole in holes.iter() {
+                lay(hole, false);
+            }
+
+            // A curve cut into several pieces is walked once per piece, and all
+            // of them bound the region on the same side — so the readings below
+            // are over the handful of curves rather than over every piece.
+            gathered.clear();
+            for walked in along.iter() {
+                match gathered.iter_mut().find(|had| had.bound == walked.bound) {
+                    Some(had) => had.on_outline |= walked.on_outline,
+                    None => gathered.push(Gathered {
+                        bound: walked.bound,
+                        on_outline: walked.on_outline,
+                    }),
+                }
+            }
+
+            // The two readings, which differ in nothing but which pieces of the
+            // region count toward them. A name is made of the outline, so a
+            // spur dangling into a *hole* is no part of what names the region
+            // and cannot take an outline curve out of it — where a wall, being
+            // the whole edge of the region, is cancelled by either.
+            bounding(gathered, |had| had.on_outline, named);
+            bounding(gathered, |_| true, walls);
+
+            // The pieces of each wall, in the order the region is walked along
+            // them. Laid down run by run, so they can only be gathered once the
+            // rule above has said which curves there are runs for.
+            pieces.clear();
+            for &wall in walls.iter() {
+                pieces.add(|run| {
+                    run.extend(
+                        along
+                            .iter()
+                            .filter(|walked| walked.bound == wall)
+                            .map(|walked| walked.half),
+                    );
+                });
+            }
+            debug_assert_eq!(pieces.len(), walls.len(), "a wall without its pieces");
+        }
     }
 
     /// Every corner the drawing's curves were cut at.
@@ -195,14 +231,6 @@ impl Arrangement {
     /// The piece of curve a half-edge walks.
     pub(crate) fn edge(&self, half: Half) -> &Edge {
         &self.edges[half.edge]
-    }
-
-    /// The curve a half-edge is a piece of, and the side of it being walked.
-    pub(crate) fn bound(&self, half: Half) -> Bound {
-        Bound {
-            of: self.edges[half.edge].of,
-            along: half.forward,
-        }
     }
 
     /// A loop as a closed polyline, each corner named once.
@@ -543,6 +571,55 @@ impl Arrangement {
     }
 }
 
+/// The curves of `gathered` that `counts` admits, less those the region is
+/// walked along both ways round, into `into`.
+///
+/// The one statement of what bounds a region, which both readings go through —
+/// so what a name is made of and what a solid raises a wall on cannot come to
+/// differ about the rule. *Which* pieces count is the reading's, and is a real
+/// choice rather than a convenience: a name is made of the outline where a wall
+/// is raised off the whole edge.
+///
+/// A curve walked both ways round is a *spur* — one dangling into the region
+/// from its boundary, walked out and back — and it bounds nothing at all;
+/// without that, drawing a stray line touching a region would rename it.
+fn bounding(gathered: &[Gathered], counts: impl Fn(&Gathered) -> bool, into: &mut Vec<Bound>) {
+    into.clear();
+    into.extend(
+        gathered
+            .iter()
+            .filter(|had| counts(had))
+            .filter(|had| {
+                !gathered
+                    .iter()
+                    .any(|other| counts(other) && other.bound == had.bound.turned())
+            })
+            .map(|had| had.bound),
+    );
+}
+
+/// One piece of curve a region is walked along, with what
+/// [`Arrangement::bound_faces`] would otherwise work out about it more than
+/// once.
+#[derive(Debug, Clone, Copy)]
+struct Walked {
+    half: Half,
+    /// The curve it is a piece of, and the side the region is on.
+    bound: Bound,
+    /// Whether it was walked by the region's outline as against by a hole.
+    on_outline: bool,
+}
+
+/// One curve found bounding a region, before either reading has had its say.
+///
+/// The whole of what a name and a wall are decided from: which curve and side,
+/// and whether the region's *outline* runs along it as against only a hole.
+#[derive(Debug, Clone, Copy)]
+struct Gathered {
+    bound: Bound,
+    on_outline: bool,
+}
+
 /// Which corner stands for the piece `at` belongs to.
 fn root(parent: &mut [usize], mut at: usize) -> usize {
     while parent[at] != at {
@@ -581,6 +658,10 @@ struct Scratch {
     /// Union-find over the corners, and the piece each ends up in.
     parent: Vec<usize>,
     joined: Vec<usize>,
+    /// The boundary of the face being described, laid out flat.
+    along: Vec<Walked>,
+    /// The curves found bounding it.
+    gathered: Vec<Gathered>,
 }
 
 /// Where each half-edge sits in the fan of them leaving its corner.

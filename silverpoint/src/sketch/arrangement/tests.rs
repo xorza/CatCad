@@ -262,14 +262,34 @@ fn a_face_fills_to_the_area_it_encloses() {
     // And it says what bounds it, which is what a later feature names it by.
     // The ring is walked round the outer circle counterclockwise, and the hole
     // it is cut from is no part of what names it.
-    let mut bounds = Vec::new();
-    found.bounds(ring, &mut bounds);
+    let named = ring.named();
     assert_eq!(
-        bounds.len(),
+        named.len(),
         1,
-        "the ring is bounded by one circle: {bounds:?}"
+        "the ring is bounded by one circle: {named:?}"
     );
-    assert!(bounds[0].along, "the ring walks its own outline backwards");
+    assert!(named[0].along, "the ring walks its own outline backwards");
+
+    // Its *walls* are the other reading of the same face, and the difference
+    // between the two is exactly the hole: a bore carried off the plane is as
+    // much a face of the solid as its outside, where a hole appearing or
+    // vanishing must not change which region a name means.
+    let walls = ring.walls();
+    assert_eq!(walls.len(), 2, "the bore raises no wall: {walls:?}");
+    assert_eq!(walls[0], named[0], "the outline comes first");
+    assert!(
+        !walls[1].along,
+        "the hole is walked the other way round: {walls:?}"
+    );
+
+    // And each wall knows which pieces of curve it is swept from. Nothing
+    // crosses either circle, so each is one whole arc — and the two loops the
+    // face is walked along are where those two arcs come from.
+    assert_eq!(ring.pieces_of(walls[0]), ring.outline());
+    assert_eq!(ring.pieces_of(walls[1]).len(), 1);
+    // A curve that bounds it on the other side bounds it not at all, which is
+    // what keeps a wall named by one from coming back as the far side's.
+    assert!(ring.pieces_of(walls[0].turned()).is_empty());
 
     // A second hole, clear of the first, and the fill still covers exactly what
     // the face says it does.
@@ -410,11 +430,7 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
 
     let found = arranged(&sketch);
     let (above, below) = (covering(&found, cap), covering(&found, PI * 4.0 - cap));
-    let named = |face: usize| {
-        let mut bounds = Vec::new();
-        found.bounds(&found.faces()[face], &mut bounds);
-        bounds
-    };
+    let named = |face: usize| found.faces()[face].named().to_vec();
     let (above_by, below_by) = (named(above), named(below));
 
     // Panics where the curve bounds nothing here, so the four calls below say
@@ -459,7 +475,7 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
     // rename it and everything built on it would be lost.
     let base = point(&mut sketch, 0.0, 1.0);
     let tip = point(&mut sketch, 0.0, 1.5);
-    sketch.add_segment(base, tip);
+    let spur = sketch.add_segment(base, tip);
 
     let found = arranged(&sketch);
     assert_eq!(found.faces().len(), 2, "the spur enclosed something");
@@ -472,6 +488,24 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
             "{name:?} found a region covering {} rather than {want}",
             found.faces()[still].area()
         );
+    }
+
+    // And a spur raises no wall either, which is the same rule read the other
+    // way: a solid grown from the cap has the faces it had before the line was
+    // drawn, so nothing built on one of them is lost. Both sides are asked,
+    // because a spur is walked out and back and it is having *both* that makes
+    // it bound nothing.
+    let dangling = &found.faces()[covering(&found, cap)];
+    for along in [true, false] {
+        let bound = Bound {
+            of: Entity::Segment(spur),
+            along,
+        };
+        assert!(
+            !dangling.walls().contains(&bound),
+            "{bound:?} raised a wall"
+        );
+        assert!(dangling.pieces_of(bound).is_empty(), "{bound:?} has pieces");
     }
 }
 
@@ -505,10 +539,8 @@ fn a_name_holds_where_a_position_does_not() {
             .all(|(got, want)| (got - want).abs() < 1e-9),
         "{before:?} is not the square and then the disc"
     );
-    let mut disc = Vec::new();
-    found.bounds(&found.faces()[1], &mut disc);
-    let mut square = Vec::new();
-    found.bounds(&found.faces()[0], &mut square);
+    let disc = found.faces()[1].named().to_vec();
+    let square = found.faces()[0].named().to_vec();
 
     outline(
         &mut sketch,
@@ -558,8 +590,7 @@ fn a_name_holds_where_a_position_does_not() {
 
     // Half the circle falls each side of the edge it is centred on.
     let bitten = covering(&found, 12.0 - PI / 2.0);
-    let mut bitten_by = Vec::new();
-    found.bounds(&found.faces()[bitten], &mut bitten_by);
+    let bitten_by = found.faces()[bitten].named().to_vec();
     assert!(
         bitten_by.len() == 5 && square.iter().all(|bound| bitten_by.contains(bound)),
         "the bitten square is not the square's four edges and one more, so this proves nothing: \
@@ -647,7 +678,6 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
 
     let mut reused = Arrangement::default();
     let mut filler = Filler::default();
-    let (mut one_bounds, mut other_bounds) = (Vec::new(), Vec::new());
     for (before, first) in drawings {
         for (after, build) in drawings {
             // Wound up to the first drawing, then over to the second — against
@@ -674,12 +704,27 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
                     is.holes(),
                     "{before} then {after}: face {at} kept a hole it does not have"
                 );
-                fresh.bounds(was, &mut one_bounds);
-                reused.bounds(is, &mut other_bounds);
                 assert_eq!(
-                    one_bounds, other_bounds,
-                    "{before} then {after}: face {at} is bounded differently"
+                    was.named(),
+                    is.named(),
+                    "{before} then {after}: face {at} is named differently"
                 );
+                // The walls and their pieces are two more lists emptied and
+                // written over rather than dropped, so a face that used to have
+                // a bore is exactly where one would come back holding a wall it
+                // no longer has.
+                assert_eq!(
+                    was.walls(),
+                    is.walls(),
+                    "{before} then {after}: face {at} is walled differently"
+                );
+                for &wall in was.walls() {
+                    assert_eq!(
+                        was.pieces_of(wall),
+                        is.pieces_of(wall),
+                        "{before} then {after}: face {at} sweeps {wall:?} from other pieces"
+                    );
+                }
             }
 
             // And the fills agree, which is the other half kept across a

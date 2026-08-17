@@ -124,10 +124,7 @@ impl<'a> Model<'a> {
     /// sketch half of the name is what a position among the faces cannot
     /// supply, and a caller holding both is holding a model.
     pub(crate) fn profile(self, at: usize) -> Profile {
-        let arrangement = self.arrangement();
-        let mut bounds = Vec::new();
-        arrangement.bounds(&arrangement.faces()[at], &mut bounds);
-        Profile::new(self.of, bounds)
+        Profile::new(self.of, self.arrangement().faces()[at].named().to_vec())
     }
 
     /// Where the rim of `circle` runs in the world, as points around it.

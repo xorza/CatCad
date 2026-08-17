@@ -66,7 +66,7 @@ impl Skinner {
     /// Cut the face of `of` that `grown` names into triangles, its arcs
     /// flattened no further than `sagitta` from the true curve.
     ///
-    /// `grown` has to be one of `of`'s — see [`Prism::faces`], which is what
+    /// `grown` has to be one of `of`'s — see [`Prism::grown`], which is what
     /// lists them. A wall named by a curve that does not bound the region comes
     /// back empty rather than wrong: there is nothing to sweep, and answering
     /// with nothing is what that means.
@@ -115,13 +115,8 @@ impl Skinner {
     /// curve cut into several by what crosses the drawing bounds the region with
     /// all of them, and they are one face — see [`Grown`].
     fn wall(&mut self, of: &Prism<'_>, bound: Bound, sagitta: f64, into: &mut Patch) {
-        let face = of.face();
-        for loop_ in face.boundary() {
-            for &half in loop_ {
-                if of.arrangement().bound(half) == bound {
-                    self.strip(of, half, sagitta, into);
-                }
-            }
+        for &half in of.face().pieces_of(bound) {
+            self.strip(of, half, sagitta, into);
         }
     }
 

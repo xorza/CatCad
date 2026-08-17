@@ -63,12 +63,13 @@ impl<'a> Prism<'a> {
     ///
     /// An iterator rather than a list filled into a buffer, which a prism can
     /// offer because it is [`Copy`] and borrows the arrangement for as long as
-    /// it lives: the walk is the arrangement's own. What asks is drawing or
-    /// picking a whole document, so not needing room for the answer is worth
-    /// more here than anywhere — a caller writing every face of every solid does
-    /// it in one pass and reaches the heap for none of it.
+    /// it lives: the walls are read off the region itself, worked out once when
+    /// the drawing was cut. What asks is drawing or picking a whole document,
+    /// so not needing room for the answer is worth more here than anywhere — a
+    /// caller writing every face of every solid does it in one pass and reaches
+    /// the heap for none of it.
     pub fn grown(self) -> impl Iterator<Item = Grown> + 'a {
-        let sides = self.of.bounding(self.face().boundary()).map(Grown::Side);
+        let sides = self.face().walls().iter().copied().map(Grown::Side);
         [Grown::Base, Grown::Far].into_iter().chain(sides)
     }
 

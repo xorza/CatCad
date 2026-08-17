@@ -6,9 +6,9 @@ use crate::sketch::entity::Entity;
 ///
 /// What a face is *named* by, where its position among the faces is only where
 /// it happened to be walked. See
-/// [`Arrangement::bounds`](super::Arrangement::bounds), which mints these, and
-/// [`Arrangement::face_named_by`](super::Arrangement::face_named_by), which
-/// reads them back.
+/// [`Face::named`](super::face::Face::named), which is where a region's own
+/// are kept, and [`Arrangement::face_named_by`](super::Arrangement::face_named_by),
+/// which reads them back.
 ///
 /// **The side is what makes it a name.** Two halves of a cut circle are bounded
 /// by the same circle and the same chord, so the curves alone tell them apart
