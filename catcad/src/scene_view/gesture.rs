@@ -1,7 +1,7 @@
 //! What the pointer is doing to the view: what a press took hold of, and what
 //! its travel writes.
 
-use aperture::Motion;
+use aperture::{HitAt, Motion};
 use glam::{Vec2, Vec3};
 use silverpoint::{ConstraintId, Entity, Grown};
 
@@ -35,6 +35,14 @@ pub(super) enum Gesture {
 }
 
 impl Gesture {
+    /// What a press that took hold of nothing comes to.
+    ///
+    /// Every way of failing to grab falls back to turning the view — no tool
+    /// free to grab, nothing under the cursor, nothing there worth taking hold
+    /// of, a cursor the motion cannot be resolved against — so it is one answer
+    /// rather than a spelling of a zero at each of them.
+    const TURNS: Self = Gesture::Orbit { travel: Vec2::ZERO };
+
     /// Decide what this press is the start of.
     ///
     /// Something that will move takes precedence, and everything else — empty
@@ -68,118 +76,12 @@ impl Gesture {
             //
             // Before anything is read of the session, because nothing below is
             // worth working out for a press that cannot grab.
-            return Gesture::Orbit { travel: Vec2::ZERO };
+            return Self::TURNS;
         }
-        let editing = session.editing();
-        // The depth the form says, read here rather than by the caller: what a
-        // press on the arrow needs is where that arrow *is*, which is the form's
-        // own reading and nobody else's.
-        let growing = session.prompt().and_then(Prompt::carrying);
-        let Some(held) = aimed.zip(lens).and_then(|(aimed, lens)| {
-            let Under { aim, hit, part } = picture.under(aimed, lens)?;
-            let drawing = document.drawing_at(editing);
-            let grabbed = match part {
-                // A plane whatever sketch is open: what it moves is where
-                // the sketches on it land, and none of them is being
-                // edited by it. The ground answers `None` and so orbits,
-                // which is right — it is not somewhere anybody put a plane.
-                Part::Plane(at) => Grabbed::Datum(document.movable(at)?),
-                // The far end alone. The base lies in the plane the region
-                // was drawn on and has nowhere of its own to go, and a wall
-                // is carried by both ends at once — so neither says how far,
-                // and a press on either turns the view like a press on
-                // anything else that does not move.
-                Part::Solid {
-                    of,
-                    face: Grown::Far,
-                } => Grabbed::Cap(document.stretching(of)),
-                // The arrow standing off a region whose depth is being
-                // decided. It travels along that region's own plane, which
-                // is the same line the far end of a built solid runs on —
-                // the difference is only that there is no step yet to name.
-                //
-                // The plane the *form* named rather than the open sketch's.
-                // The two agree whenever the form was opened the ordinary
-                // way, since picking a region opens the sketch it came
-                // from — and where they came apart the drag would travel
-                // along a different normal and nothing would look wrong.
-                // No form is the arrow that was never drawn.
-                Part::Growing => {
-                    Grabbed::Growing(Along::on(document.drawing_at(growing?.sketch).plane()))
-                }
-                // A dimension's number, which is the one thing a press can
-                // find that has a place of its own without being geometry.
-                // Before the grip below, because a grip is about what the
-                // *solver* would move and this moves nothing it knows about
-                // — see [`Drawing::grip`], which goes on answering `None`
-                // for every relation including this one.
-                _ if let Some(id) = label(part, drawing, editing) => Grabbed::Label(id),
-                // Only the sketch being worked in can be taken hold of. A
-                // drag of geometry is an edit and an edit lands where you
-                // are — and the handles would not even tell the two apart:
-                // two sketches are two arenas and mint the same ones, so a
-                // grip that read the entity alone would take hold of
-                // whatever sat at that slot in the open sketch. See
-                // [`Part`](crate::part::Part).
-                _ if part.sketch() == Some(editing) => {
-                    Grabbed::Sketch(drawing.grip(part.entity()?, hit.at)?)
-                }
-                // Anything else is a press on a sketch nobody is in, which
-                // turns the view like a press on empty space.
-                _ => return None,
-            };
-            let motion = match grabbed {
-                // A number travels across the drawing exactly as geometry
-                // does: it is placed on the sketch's own plane, and where on
-                // it is the whole of what a placement says.
-                Grabbed::Sketch(_) | Grabbed::Label(_) => drawing.motion(),
-                Grabbed::Datum(movable) | Grabbed::Cap(movable) => movable.along.travel(hit.world),
-                Grabbed::Growing(along) => along.travel(hit.world),
-            };
-            // Where the press landed on the motion, against where what was
-            // grabbed actually is: a grab is not a teleport.
-            //
-            // A depth arrow needs a second correction, and it is the larger
-            // one. Everything else here is grabbed *by the very thing that
-            // moves* — a point by the point, a solid's far end by that
-            // face — so where the press landed and where the value is are
-            // the same place to within the width of a stroke. An arrow
-            // stands *off* the face it carries, so a grab near its head is
-            // a grab a whole arrow-length past the depth it sets, and
-            // without this the solid leaps that far the moment it is
-            // touched.
-            let carried = match grabbed {
-                Grabbed::Growing(along) => {
-                    let held = growing?.depth - along.offset_at(hit.world);
-                    along.normal() * held as f32
-                }
-                // A number stands *off* the point it names, for the reason
-                // the arrow above stands off its face: the box floats clear
-                // of the geometry so it can be read, and a press lands in
-                // the box while what a placement says is where the point
-                // under it goes. Without this the number leaps its own
-                // clearance the moment it is touched.
-                //
-                // So what the press records is where the *box* sat relative
-                // to the cursor, and every frame of the drag puts the box
-                // back there — giving the standoff back as it stands then
-                // rather than as it stood here, because it moves. See
-                // [`Mark::standoff`](crate::paint::marks::mark::Mark).
-                Grabbed::Label(id) => picture.placed(id).map_or(Vec3::ZERO, |placed| {
-                    placed.mark.world(drawing) - hit.world + placed.mark.standoff(drawing, lens)
-                }),
-                _ => Vec3::ZERO,
-            };
-            Some(Held {
-                part,
-                grabbed,
-                motion,
-                offset: hit.world - motion.resolve(&aim)? + carried,
-            })
-        }) else {
-            return Gesture::Orbit { travel: Vec2::ZERO };
-        };
-        Gesture::Move(held)
+        aimed
+            .zip(lens)
+            .and_then(|(aimed, lens)| Held::taken(aimed, lens, picture, document, session))
+            .map_or(Self::TURNS, Gesture::Move)
     }
 }
 
@@ -222,13 +124,243 @@ pub(super) struct Held {
 }
 
 impl Held {
+    /// What a press aiming at `aimed` takes hold of, or `None` where it takes
+    /// hold of nothing.
+    ///
+    /// **The whole of what a press decides**, in the order the answers lean on
+    /// each other: what is under the cursor, what that is to take hold of, where
+    /// the pointer may then take it, and how far what was grabbed stands off
+    /// where the press landed. The last three are [`Grabbed`]'s own — see the
+    /// methods there — so what is left here is asking them in order and putting
+    /// the four together.
+    ///
+    /// Its own call rather than the body of [`Gesture::grab`], which is what
+    /// leaves that one the two things it decides: whether a press may grab at
+    /// all, and what a press that grabbed nothing comes to. Every `?` below
+    /// means the one thing — nothing to take hold of — where threaded through
+    /// there it stood beside a `return` and a `match` arm meaning the same.
+    fn taken(
+        aimed: Aimed,
+        lens: Lens,
+        picture: &Picture,
+        document: &Document,
+        session: &Session,
+    ) -> Option<Self> {
+        let Under { aim, hit, part } = picture.under(aimed, lens)?;
+        let drawing = document.drawing_at(session.editing());
+        let grabbed = Grabbed::under(part, hit.at, drawing, document, session)?;
+        let motion = grabbed.motion(drawing, hit.world);
+        let carried = grabbed.carried(hit.world, drawing, picture, lens);
+        Some(Held {
+            part,
+            grabbed,
+            motion,
+            // Where the press landed on the motion, against where what was
+            // grabbed actually is: a grab is not a teleport.
+            offset: hit.world - motion.resolve(&aim)? + carried,
+        })
+    }
+
     /// What this frame's travel writes, with the cursor landed at `at` on the
     /// motion.
     ///
+    /// The offset and nothing else: where the cursor landed plus however far off
+    /// centre the press was, which is the one thing a [`Held`] keeps that a
+    /// [`Grabbed`] does not. What that place then comes out *as* is
+    /// [`Grabbed::writes`]'s, which is where the five part company — including
+    /// the `None`, which is the label arm wanting a mark the drawing has placed.
+    pub(super) fn writes(
+        self,
+        at: Vec3,
+        sketch: FeatureId,
+        drawing: Drawing<'_>,
+        picture: &Picture,
+        lens: Option<Lens>,
+    ) -> Option<Intent> {
+        self.grabbed
+            .writes(at + self.offset, sketch, drawing, picture, lens)
+    }
+}
+
+/// What a drag took hold of, and so which change its travel is written as.
+///
+/// Five kinds rather than one, because they are five different things to write:
+/// geometry moves within a sketch and is solved for afterwards, a datum moves
+/// the sketches drawn on it without any of them saying anything different, a
+/// solid's far end restates how far it was carried, a depth still being decided
+/// writes a form's draft rather than the document at all, and a number moves
+/// where the drawing *says* something and no geometry with it. Which of the five
+/// a press found is settled once, at the press, exactly as everything else about
+/// a gesture is.
+///
+/// [`Grabbed::Datum`] and [`Grabbed::Cap`] carry the same [`Movable`] and stay
+/// separate arms even so, as do [`Grabbed::Cap`] and [`Grabbed::Growing`] with
+/// their shared normal. What each pair shares is the arithmetic — one number
+/// along a line — and what they differ in is the change they come out as, which
+/// is the whole of what this enum is read for.
+#[derive(Debug, Clone, Copy)]
+enum Grabbed {
+    /// Geometry of the sketch being worked in, at the grip the press settled on.
+    Sketch(Grip),
+    /// A datum plane, which travels along the line it is offset on.
+    ///
+    /// Whichever sketch is open, unlike the arm above: a plane belongs to none
+    /// of them — it is what they are drawn *on* — so moving one is not an edit
+    /// that has to land where you are.
+    Datum(Movable),
+    /// The depth of a solid still being decided, which travels along the same
+    /// normal as the arm below and writes a form's draft rather than the
+    /// document — see [`Part::Growing`].
+    ///
+    /// No handle, because there is no step to name: what this carries is a
+    /// reading the form holds, and the form is what turns it into a change when
+    /// it is committed.
+    ///
+    /// The depth rides along with the line it travels because the arrow stands
+    /// *off* the face it carries — see [`Grabbed::carried`]. Read from the form
+    /// once, here, rather than again where the standoff is worked out: the
+    /// second reading was a second `?` on an answer the first had already
+    /// settled, and a parse of the draft on every press that grabbed anything at
+    /// all.
+    Growing { along: Along, depth: f64 },
+    /// The far end of a solid, which travels along the normal of the plane its
+    /// region was drawn on.
+    ///
+    /// The same [`Movable`] the datum carries, because it is the same
+    /// arithmetic: one number measured along a normal, and a line to read it
+    /// off. What differs is the change it comes out as, and that is what these
+    /// two arms are for.
+    Cap(Movable),
+    /// A dimension's number, which moves where the drawing *says* something and
+    /// no geometry at all.
+    ///
+    /// The one grab that is not a handle on a thing: what is taken hold of is
+    /// the figure itself, which is why it travels across the whole sketch plane
+    /// like geometry rather than along a line like the two above. What it leaves
+    /// behind is a placement — see [`Change::Place`].
+    Label(ConstraintId),
+}
+
+impl Grabbed {
+    /// What a press on `part` takes hold of, or `None` where it takes hold of
+    /// nothing.
+    ///
+    /// The order of the arms is the order of precedence, and two of them are
+    /// guards rather than shapes: a dimension's number is tested before the
+    /// grip below it, because a grip is about what the *solver* would move and a
+    /// number moves nothing it knows about.
+    ///
+    /// `drawing` is the sketch being worked in, which is what every edit lands
+    /// on. The document is here for the two steps that are in no sketch, and the
+    /// session for the form a depth arrow is drawn from.
+    fn under(
+        part: Part,
+        on: HitAt,
+        drawing: Drawing<'_>,
+        document: &Document,
+        session: &Session,
+    ) -> Option<Self> {
+        let editing = session.editing();
+        Some(match part {
+            // A plane whatever sketch is open: what it moves is where the
+            // sketches on it land, and none of them is being edited by it. The
+            // ground answers `None` and so orbits, which is right — it is not
+            // somewhere anybody put a plane.
+            Part::Plane(at) => Grabbed::Datum(document.movable(at)?),
+            // The far end alone. The base lies in the plane the region was drawn
+            // on and has nowhere of its own to go, and a wall is carried by both
+            // ends at once — so neither says how far, and a press on either
+            // turns the view like a press on anything else that does not move.
+            Part::Solid {
+                of,
+                face: Grown::Far,
+            } => Grabbed::Cap(document.stretching(of)),
+            // The arrow standing off a region whose depth is being decided. It
+            // travels along that region's own plane, which is the same line the
+            // far end of a built solid runs on — the difference is only that
+            // there is no step yet to name.
+            //
+            // The plane the *form* named rather than the open sketch's. The two
+            // agree whenever the form was opened the ordinary way, since picking
+            // a region opens the sketch it came from — and where they came apart
+            // the drag would travel along a different normal and nothing would
+            // look wrong. No form is the arrow that was never drawn.
+            Part::Growing => {
+                let carrying = session.prompt().and_then(Prompt::carrying)?;
+                Grabbed::Growing {
+                    along: Along::on(document.drawing_at(carrying.sketch).plane()),
+                    depth: carrying.depth,
+                }
+            }
+            // A dimension's number, which is the one thing a press can find that
+            // has a place of its own without being geometry. See
+            // [`Drawing::grip`], which goes on answering `None` for every
+            // relation including this one.
+            _ if let Some(id) = label(part, drawing, editing) => Grabbed::Label(id),
+            // Only the sketch being worked in can be taken hold of. A drag of
+            // geometry is an edit and an edit lands where you are — and the
+            // handles would not even tell the two apart: two sketches are two
+            // arenas and mint the same ones, so a grip that read the entity
+            // alone would take hold of whatever sat at that slot in the open
+            // sketch. See [`Part`](crate::part::Part).
+            _ if part.sketch() == Some(editing) => {
+                Grabbed::Sketch(drawing.grip(part.entity()?, on)?)
+            }
+            // Anything else is a press on a sketch nobody is in, which turns the
+            // view like a press on empty space.
+            _ => return None,
+        })
+    }
+
+    /// Where the pointer may take what this has hold of.
+    ///
+    /// Taken through the grab rather than through what is being moved — see
+    /// [`Along::travel`](crate::timeline::Along::travel), which is where that
+    /// matters and why.
+    fn motion(self, drawing: Drawing<'_>, at: Vec3) -> Motion {
+        match self {
+            // A number travels across the drawing exactly as geometry does: it
+            // is placed on the sketch's own plane, and where on it is the whole
+            // of what a placement says.
+            Grabbed::Sketch(_) | Grabbed::Label(_) => drawing.motion(),
+            Grabbed::Datum(movable) | Grabbed::Cap(movable) => movable.along.travel(at),
+            Grabbed::Growing { along, .. } => along.travel(at),
+        }
+    }
+
+    /// How far what was grabbed stands off where the press landed on it.
+    ///
+    /// **Nothing, for everything grabbed by the very thing that moves** — a
+    /// point by the point, a solid's far end by that face — where the press and
+    /// the value are the same place to within the width of a stroke.
+    ///
+    /// The two that stand *off* what they carry are the two that need it. An
+    /// arrow stands off the face whose depth it sets, so a grab near its head is
+    /// a grab a whole arrow-length past that depth, and without this the solid
+    /// leaps that far the moment it is touched. A number stands off the point it
+    /// names for the same reason — the box floats clear of the geometry so it
+    /// can be read — and what a placement says is where the point under it goes,
+    /// so the press records where the *box* sat relative to the cursor and every
+    /// frame of the drag puts the box back there. Given back as it stands then
+    /// rather than as it stood here, because it moves: see
+    /// [`Mark::standoff`](crate::paint::marks::mark::Mark).
+    fn carried(self, at: Vec3, drawing: Drawing<'_>, picture: &Picture, lens: Lens) -> Vec3 {
+        match self {
+            Grabbed::Growing { along, depth } => {
+                along.normal() * (depth - along.offset_at(at)) as f32
+            }
+            Grabbed::Label(id) => picture.placed(id).map_or(Vec3::ZERO, |placed| {
+                placed.mark.world(drawing) - at + placed.mark.standoff(drawing, lens)
+            }),
+            Grabbed::Sketch(_) | Grabbed::Datum(_) | Grabbed::Cap(_) => Vec3::ZERO,
+        }
+    }
+
+    /// What a drag that has carried this to `to` writes.
+    ///
     /// **What the press decided, spent.** Which of the five a drag is was
-    /// settled when the button went down; all that is left here is turning one
-    /// place on that motion into the thing the document — or the form — is asked
-    /// for.
+    /// settled when the button went down; all that is left is turning one place
+    /// on the motion into the thing the document — or the form — is asked for.
     ///
     /// A plane and a solid's far end name a distance where geometry names a
     /// place, because that is what each of them *is*: either has one number, and
@@ -238,20 +370,15 @@ impl Held {
     /// An [`Intent`] rather than a [`Change`], because one of the five is not an
     /// edit: a depth still being decided lives in a form, so what the drag
     /// writes is a draft.
-    ///
-    /// `None` where a frame cannot say — see the label arm, which needs a mark
-    /// the drawing has placed.
-    pub(super) fn writes(
+    fn writes(
         self,
-        at: Vec3,
+        to: Vec3,
         sketch: FeatureId,
         drawing: Drawing<'_>,
         picture: &Picture,
         lens: Option<Lens>,
     ) -> Option<Intent> {
-        // Where the cursor landed, plus however far off centre the press was.
-        let to = at + self.offset;
-        match self.grabbed {
+        match self {
             Grabbed::Sketch(grip) => Some(Intent::from(Change::Drag { sketch, grip, to })),
             Grabbed::Datum(movable) => Some(
                 Change::MovePlane {
@@ -296,7 +423,7 @@ impl Held {
                     .into()
                 })
             }
-            Grabbed::Growing(along) => Some(
+            Grabbed::Growing { along, .. } => Some(
                 Choice::Set {
                     nth: 0,
                     to: along.offset_at(to),
@@ -305,58 +432,6 @@ impl Held {
             ),
         }
     }
-}
-
-/// What a drag took hold of, and so which change its travel is written as.
-///
-/// Five kinds rather than one, because they are five different things to write:
-/// geometry moves within a sketch and is solved for afterwards, a datum moves
-/// the sketches drawn on it without any of them saying anything different, a
-/// solid's far end restates how far it was carried, a depth still being decided
-/// writes a form's draft rather than the document at all, and a number moves
-/// where the drawing *says* something and no geometry with it. Which of the five
-/// a press found is settled once, at the press, exactly as everything else about
-/// a gesture is.
-///
-/// [`Grabbed::Datum`] and [`Grabbed::Cap`] carry the same [`Movable`] and stay
-/// separate arms even so, as do [`Grabbed::Cap`] and [`Grabbed::Growing`] with
-/// their shared normal. What each pair shares is the arithmetic — one number
-/// along a line — and what they differ in is the change they come out as, which
-/// is the whole of what this enum is read for.
-#[derive(Debug, Clone, Copy)]
-enum Grabbed {
-    /// Geometry of the sketch being worked in, at the grip the press settled on.
-    Sketch(Grip),
-    /// A datum plane, which travels along the line it is offset on.
-    ///
-    /// Whichever sketch is open, unlike the arm above: a plane belongs to none
-    /// of them — it is what they are drawn *on* — so moving one is not an edit
-    /// that has to land where you are.
-    Datum(Movable),
-    /// The depth of a solid still being decided, which travels along the same
-    /// normal as the arm below and writes a form's draft rather than the
-    /// document — see [`Part::Growing`].
-    ///
-    /// An [`Along`] and no handle, because there is no step to name: what this
-    /// carries is a reading the form holds, and the form is what turns it into
-    /// a change when it is committed.
-    Growing(Along),
-    /// The far end of a solid, which travels along the normal of the plane its
-    /// region was drawn on.
-    ///
-    /// The same [`Movable`] the datum carries, because it is the same
-    /// arithmetic: one number measured along a normal, and a line to read it
-    /// off. What differs is the change it comes out as, and that is what these
-    /// two arms are for.
-    Cap(Movable),
-    /// A dimension's number, which moves where the drawing *says* something and
-    /// no geometry at all.
-    ///
-    /// The one grab that is not a handle on a thing: what is taken hold of is
-    /// the figure itself, which is why it travels across the whole sketch plane
-    /// like geometry rather than along a line like the two above. What it leaves
-    /// behind is a placement — see [`Change::Place`].
-    Label(ConstraintId),
 }
 
 /// `part` as a number a press could take hold of, or `None` where it is not one.
