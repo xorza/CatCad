@@ -26,6 +26,18 @@ pub(crate) mod feature;
 /// dead rather than coming back naming whatever was done next.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Timeline {
+    /// Every step, in the order they were taken — which is also strictly
+    /// increasing in [`FeatureId`], and load-bearingly so.
+    ///
+    /// The two are the same order because a handle is issued by a counter that
+    /// only ever goes up: [`Timeline::add`] pushes one greater than every
+    /// handle ever given out, and [`Timeline::append`] asserts as much of the
+    /// step a redo hands back. Nothing else writes this, and neither of the two
+    /// can put a step anywhere but the end.
+    ///
+    /// What it buys is that a handle is *found* rather than searched for — see
+    /// [`Timeline::position`]. What it costs is that both push sites have to go
+    /// on being the only ones.
     steps: Vec<Step>,
     /// What the next step will be called. Only ever counts up.
     next: u32,
@@ -47,13 +59,20 @@ impl Timeline {
         );
         let id = FeatureId(self.next);
         self.next += 1;
+        // What the search leans on, stated where it is made true: the counter
+        // only goes up, so this is greater than every handle ever given out and
+        // the steps stay sorted by taking one on the end.
+        debug_assert!(
+            self.steps.last().is_none_or(|last| last.id < id),
+            "a step was taken out of order"
+        );
         self.steps.push(Step { id, feature });
         id
     }
 
     /// Whether the timeline still has the step `id` names.
     pub(crate) fn holds(&self, id: FeatureId) -> bool {
-        self.held(id).is_some()
+        self.position(id).is_some()
     }
 
     /// What the step at `id` holds, or `None` where the timeline no longer
@@ -64,15 +83,29 @@ impl Timeline {
     /// of thing it is. A handle outlives its step whenever a creation is taken
     /// back, so the three are one question asked three ways rather than three
     /// searches free to disagree about what a missing step is.
-    ///
-    /// Reading only. [`Timeline::feature_mut`] searches on its own rather than
-    /// through a mutable twin of this, which would be a second name for one
-    /// line and one caller.
     fn held(&self, id: FeatureId) -> Option<&Feature> {
-        self.steps
-            .iter()
-            .find(|step| step.id == id)
-            .map(|step| &step.feature)
+        Some(&self.steps[self.position(id)?].feature)
+    }
+
+    /// Where the step `id` names sits among the rest, or `None` where the
+    /// timeline no longer holds one there.
+    ///
+    /// **Halved rather than walked**, which is the whole of what the steps
+    /// running in handle order is for — see the field. Every reading of the
+    /// document comes through here several times over: laying one sketch out
+    /// asks for its own step and then for each plane back to the ground, and a
+    /// picture is every sketch laid out — so a walk made drawing a document cost
+    /// the square of its length rather than its length. Four hundred sketches
+    /// took six hundred microseconds a frame and now take two hundred and
+    /// seventy, and what is left of that is the geometry rather than the
+    /// looking.
+    ///
+    /// Reading and writing both, unlike [`Timeline::held`] above: what differs
+    /// between the two is only which way the step is then borrowed, and a
+    /// second search spelt out for the mutable one would be a second place to
+    /// forget that the steps are sorted.
+    fn position(&self, id: FeatureId) -> Option<usize> {
+        self.steps.binary_search_by_key(&id, |step| step.id).ok()
     }
 
     /// Where the plane `at` names lies in the world.
@@ -163,7 +196,7 @@ impl Timeline {
     /// that kept its name is right to find it again.
     pub(crate) fn append(&mut self, at: FeatureId, feature: Feature) {
         assert!(
-            self.steps.last().is_none_or(|last| last.id.0 < at.0),
+            self.steps.last().is_none_or(|last| last.id < at),
             "a step put back has to be the newest again"
         );
         assert!(
@@ -326,12 +359,8 @@ impl Timeline {
 
     /// The same, to be written.
     fn feature_mut(&mut self, id: FeatureId) -> &mut Feature {
-        &mut self
-            .steps
-            .iter_mut()
-            .find(|step| step.id == id)
-            .expect(REMOVED_STEP)
-            .feature
+        let at = self.position(id).expect(REMOVED_STEP);
+        &mut self.steps[at].feature
     }
 }
 
@@ -471,7 +500,14 @@ struct Step {
 /// handle carries is what tells a reused position from the one before it, and
 /// nothing here reuses a position. A handle to a deleted step names a step that
 /// is not there, which is a question the timeline answers by looking.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+///
+/// **Ordered, and the order means when.** A handle is issued by a counter that
+/// only ever goes up, so one being less than another is that step having been
+/// taken first — which is a fact about the document rather than about the
+/// numbers. It is what lets the three lists keyed by one be *sorted* by one, and
+/// so halved rather than walked: the timeline's own steps, and both of the
+/// things a [`Build`](crate::build::Build) works out from them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct FeatureId(u32);
 
 /// What a fixture reaches past the timeline for.

@@ -41,19 +41,24 @@ pub(crate) struct Build {
     /// each: a drag solves sixty times a second and the buffers come out the
     /// same size every time.
     solver: Solver,
-    /// What the last solve made of each sketch, in the order they were first
-    /// settled.
+    /// What the last solve made of each sketch, **in handle order**.
     ///
-    /// A list searched by handle rather than a map: a document holds a few
-    /// sketches, a walk of a few entries beats hashing one, and the order they
-    /// arrived in is a fair order to hold them in.
+    /// A list searched by handle rather than a map: a handle is a count that
+    /// only goes up — see [`FeatureId`] — so a list in that order is halved
+    /// rather than walked, and there is nothing to hash and nothing to keep in
+    /// step. Sorted by where a first settle *inserts* rather than by arriving
+    /// that way, which is the one thing this costs: a sketch is settled for the
+    /// first time once per document, and read on every frame that draws one.
     settled: Vec<Settled>,
     /// Which region each extrude is currently grown from, in the order the
-    /// timeline holds them.
+    /// timeline holds them — which is handle order, and searched as such like
+    /// the list above.
     ///
     /// Emptied and refilled whole by [`Build::remodel`] rather than kept in step
     /// entry by entry: an extrude names its region by what bounds it, and every
     /// edit to a sketch is an edit that could have taken one of those away.
+    /// Refilling from the timeline's own walk is also what keeps it sorted
+    /// without anything here having to arrange it.
     modelled: Vec<Modelled>,
     /// Which version of the document this describes, so anything holding a
     /// layout of it can tell whether that layout is still current.
@@ -149,11 +154,15 @@ impl Build {
         // sketch nothing has settled has nothing to say: what a caller would
         // read off an empty one is an unsolved report and an arrangement of
         // nothing, and both are answers it should not be given.
-        let at = match settled.iter().position(|had| had.of() == of) {
-            Some(at) => at,
-            None => {
-                settled.push(Settled::new(of));
-                settled.len() - 1
+        //
+        // Put where it belongs rather than on the end, which is what lets every
+        // reading afterwards halve the list instead of walking it — see the
+        // field. A shift of a few pointers, once per sketch per document.
+        let at = match settled.binary_search_by_key(&of, Settled::of) {
+            Ok(at) => at,
+            Err(at) => {
+                settled.insert(at, Settled::new(of));
+                at
             }
         };
         settled[at].settle(solver, sketch, settling);
@@ -283,9 +292,11 @@ impl Build {
 
 /// The entry of `filed` that answers for `of`, or the mistake `missing` names.
 ///
-/// Both lists the build keeps are held the same way — a short run searched by
-/// the handle each entry carries, walked rather than hashed because a document
-/// holds a few of either. One function so that is said once.
+/// Both lists the build keeps are held the same way — a run **in handle order**,
+/// searched by halving rather than hashed, because a handle is a count that only
+/// goes up and a sorted list wants nothing kept in step. One function so that is
+/// said once, and so that a list that stopped being sorted would be found out in
+/// one place rather than two.
 ///
 /// A free function over the slice rather than a method on [`Build`], because one
 /// caller has the build taken apart to write one of its fields while reading
@@ -296,10 +307,16 @@ impl Build {
 fn filed_under<'a, T>(
     filed: &'a [T],
     of: FeatureId,
-    key: impl Fn(&T) -> FeatureId,
+    key: impl FnMut(&T) -> FeatureId,
     missing: &str,
 ) -> &'a T {
-    filed.iter().find(|had| key(had) == of).expect(missing)
+    // Not `expect`, which would put the insertion point the search hands back
+    // on the end of the sentence — a number that means nothing to whoever is
+    // reading why their document would not draw.
+    let Ok(at) = filed.binary_search_by_key(&of, key) else {
+        panic!("{missing}");
+    };
+    &filed[at]
 }
 
 // What a caller reaching for an answer the build has not worked out is told.

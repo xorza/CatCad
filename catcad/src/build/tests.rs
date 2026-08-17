@@ -200,9 +200,14 @@ fn two_sketches_settle_into_two_answers_that_do_not_overwrite_each_other() {
         sketch: two_rings(),
     });
 
+    // **Settled newest first**, which is what catches the filing. A build's
+    // answers are searched by halving, so one filed where it was asked for
+    // rather than where its handle belongs reads back as another sketch's or as
+    // none — and settling in timeline order, which is what raising a document
+    // does, would put every entry right by luck.
     let mut build = Build::default();
-    timeline.edit(boxy).opened(&mut build);
     timeline.edit(rings).opened(&mut build);
+    timeline.edit(boxy).opened(&mut build);
 
     // Four free corners are eight degrees of freedom, and the square shuts one
     // region in. Two centres and two radii are six, shutting in two.
