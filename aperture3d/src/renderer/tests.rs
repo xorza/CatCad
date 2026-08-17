@@ -303,6 +303,84 @@ fn a_refresh_owes_the_gpu_only_what_was_written_to() {
     );
 }
 
+/// A resort owes the indices and leaves the corners alone.
+///
+/// The faces are drawn back to front — see [`Order::BackToFront`] — so a camera
+/// turning over a drawing reorders them on most frames of an orbit. Nothing
+/// about the corners has changed on such a frame: they are where they were, in
+/// the colour they were. What has changed is the order to read them in, and an
+/// index list is the whole of what says that.
+///
+/// Two sheets a plane apart, seen from one side and then the other, which is the
+/// smallest scene whose order can flip. Both halves are compared against
+/// themselves across the turn, because the assertions about what is *owed* would
+/// all pass on a refresh that had quietly stopped sorting.
+#[test]
+fn a_resort_owes_the_indices_and_leaves_the_corners_alone() {
+    let mut scene = Scene::default();
+    scene
+        .faces
+        .push(Object::new(Mesh::cube(1.0)).at(Vec3::Z * -4.0));
+    scene
+        .faces
+        .push(Object::new(Mesh::cube(1.0)).at(Vec3::Z * 4.0));
+    let mut renderer = Renderer::new(scene);
+    // Down −Z from well back, so both sheets are in front of the eye and the
+    // nearer one is the one at +4.
+    *renderer.camera_mut() = Camera {
+        target: Vec3::ZERO,
+        distance: 20.0,
+        yaw: 0.0,
+        pitch: 0.0,
+        ..Camera::default()
+    };
+
+    renderer.refresh(1.0);
+    let owed = renderer.cpu.faces.take_dirty();
+    assert!(owed.vertices && owed.indices, "the first flatten owes both");
+    let before = renderer.cpu.faces.indices.clone();
+    let corners: Vec<[f32; 3]> = renderer
+        .cpu
+        .faces
+        .vertices
+        .iter()
+        .map(|at| at.position)
+        .collect();
+
+    // Round to the other side. Which sheet is furthest has swapped, and
+    // nothing else about the scene has moved at all.
+    renderer.camera_mut().yaw = std::f32::consts::PI;
+    renderer.refresh(1.0);
+    let owed = renderer.cpu.faces.take_dirty();
+    assert!(owed.indices, "the order flipped and nothing said so");
+    assert!(
+        !owed.vertices,
+        "a resort rewrote corners that had not moved"
+    );
+    assert_ne!(
+        renderer.cpu.faces.indices, before,
+        "the order did not actually flip, so this test proves nothing"
+    );
+    // The first cube's corners are still the first twenty-four, which is what
+    // lets an index rebased on `bases` mean anything.
+    let after: Vec<[f32; 3]> = renderer
+        .cpu
+        .faces
+        .vertices
+        .iter()
+        .map(|at| at.position)
+        .collect();
+    assert_eq!(after, corners, "a resort moved the corners themselves");
+
+    // And turning back owes the indices again rather than settling into
+    // whichever order was reached last.
+    renderer.camera_mut().yaw = 0.0;
+    renderer.refresh(1.0);
+    let owed = renderer.cpu.faces.take_dirty();
+    assert!(owed.indices && !owed.vertices);
+    assert_eq!(renderer.cpu.faces.indices, before);
+}
+
 #[test]
 fn flatten_of_an_empty_scene_uploads_nothing() {
     let mut renderer = Renderer::new(Scene::default());

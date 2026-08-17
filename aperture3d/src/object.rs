@@ -79,6 +79,44 @@ impl Object {
         self
     }
 
+    /// Whether the ray from `origin` in `direction` — both in the mesh's own
+    /// space — comes anywhere near it.
+    ///
+    /// Worth asking because a miss is nearly the whole cost of the walk it
+    /// stands in front of: a corner is two lane-wise minimums where a triangle
+    /// is twenty-odd operations, so on a closed mesh the box comes to a few per
+    /// cent and buys the other ninety-odd whenever the ray goes by.
+    ///
+    /// Taken fresh rather than kept, because a [`Mesh`] publishes its vertices —
+    /// a box cached beside them would need something to notice a caller writing
+    /// one, and there is nothing that could.
+    ///
+    /// The slab test itself: how far along the ray each pair of planes is
+    /// crossed, keeping the last entry and the first exit. Behind the eye is a
+    /// miss, which is the `0` in the comparison.
+    ///
+    /// A direction with a zero component divides to an infinity, which orders
+    /// correctly — and to a `NaN` on an axis the mesh is *flat* on and the
+    /// origin lies exactly in, which is a ray running along a sketch face's own
+    /// plane. That axis then knows nothing and the other two have to decide, so
+    /// the two folds are written out with [`f32::max`] and [`f32::min`], which
+    /// drop a `NaN` in favour of the other operand. `Vec3::max_element` and its
+    /// twin do not: they carry it out, and what comes back then refuses every
+    /// comparison it is put to — a miss on a ray that crosses the box.
+    fn crosses_bounds(&self, origin: Vec3, direction: Vec3) -> bool {
+        let (mut low, mut high) = (Vec3::INFINITY, Vec3::NEG_INFINITY);
+        for vertex in &self.mesh.vertices {
+            low = low.min(vertex.position);
+            high = high.max(vertex.position);
+        }
+        let recip = direction.recip();
+        let (entry, exit) = ((low - origin) * recip, (high - origin) * recip);
+        let (near, far) = (entry.min(exit), entry.max(exit));
+        let enter = near.x.max(near.y).max(near.z);
+        let leave = far.x.min(far.y).min(far.z);
+        leave >= enter.max(0.0)
+    }
+
     /// Where the aim's ray first goes through this mesh, or `None` where it
     /// misses or the mesh is scenery.
     ///
@@ -138,6 +176,9 @@ impl Object {
                 inverse.transform_vector3(ray.direction),
             )
         };
+        if !self.crosses_bounds(origin, direction) {
+            return None;
+        }
         let mut along = f32::INFINITY;
         for triangle in self.mesh.indices.chunks_exact(3) {
             let corners = [0, 1, 2].map(|of| self.mesh.vertices[triangle[of] as usize].position);
@@ -229,6 +270,106 @@ impl Primitive for Object {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::camera::Camera;
+    use crate::mesh::Vertex;
+    use crate::viewport::Viewport;
+    use glam::{UVec2, Vec2};
+
+    /// A unit quad in the z = 0 plane, two triangles and no thickness — which is
+    /// what a sketch face is, and so what the box in front of one has to survive
+    /// being.
+    fn sheet() -> Object {
+        let corner = |x: f32, y: f32| Vertex {
+            position: Vec3::new(x, y, 0.0),
+            normal: Vec3::Z,
+        };
+        let mut mesh = Mesh::default();
+        mesh.vertices.extend([
+            corner(-1.0, -1.0),
+            corner(1.0, -1.0),
+            corner(1.0, 1.0),
+            corner(-1.0, 1.0),
+        ]);
+        mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+        Object::new(mesh).tagged(Tag::new(1))
+    }
+
+    /// The box in front of the triangles admits every ray they could answer,
+    /// including down the axis it has no thickness on.
+    ///
+    /// Asked of [`Object::crosses_bounds`] rather than through a camera, because the
+    /// cases that matter are exact: a direction with a hard zero in it, and an
+    /// origin lying exactly in the sheet's own plane. No camera reaches either —
+    /// a quarter turn puts `cos` at 4.4e-8 rather than at nothing — so a test
+    /// that went through one would be asking the ordinary case three times and
+    /// calling it coverage.
+    ///
+    /// What the box may never do is refuse what the triangles would have found.
+    /// It is free to admit what they then reject, which is why the grazing case
+    /// below expects `true`: that ray really does pass through a flat box, and
+    /// it is Möller–Trumbore's determinant that has the final word.
+    #[test]
+    fn the_box_admits_every_ray_the_triangles_could_answer() {
+        let sheet = sheet();
+        let down = Vec3::new(0.0, 0.0, -1.0);
+        let along = Vec3::new(-1.0, 0.0, 0.0);
+
+        // Square on through the middle: the flat axis is entered and left at
+        // one and the same distance.
+        assert!(sheet.crosses_bounds(Vec3::new(0.0, 0.0, 5.0), down));
+        // Square on, four units to the side — the x slabs are left before the z
+        // one is reached.
+        assert!(!sheet.crosses_bounds(Vec3::new(5.0, 0.0, 5.0), down));
+        // Pointing away, which is a miss however well it lines up.
+        assert!(!sheet.crosses_bounds(Vec3::new(0.0, 0.0, 5.0), -down));
+
+        // Along the sheet's own plane and through it. The flat axis divides
+        // zero by zero — a `NaN` at both ends of that slab — and the answer has
+        // to fall out of the other two rather than out of a comparison against
+        // it.
+        assert!(sheet.crosses_bounds(Vec3::new(5.0, 0.0, 0.0), along));
+        // The same ray lifted clear of the plane: the flat axis now divides by
+        // zero with something in the numerator, which is an infinity, and it is
+        // that slab which refuses.
+        assert!(!sheet.crosses_bounds(Vec3::new(5.0, 0.0, 2.0), along));
+        // And along the plane but past the corner, where the y slabs refuse.
+        assert!(!sheet.crosses_bounds(Vec3::new(5.0, 4.0, 0.0), along));
+    }
+
+    /// A flat sheet is picked where it is drawn and nowhere else, square on and
+    /// raked.
+    #[test]
+    fn a_flat_sheet_is_picked_where_it_is_drawn() {
+        let sheet = sheet();
+        let viewport = Viewport::new(UVec2::new(100, 100));
+        let looking = |pitch: f32| Camera {
+            target: Vec3::ZERO,
+            distance: 5.0,
+            yaw: 0.0,
+            pitch,
+            fov_y: std::f32::consts::FRAC_PI_2,
+            near_ratio: 1.0 / 5.0,
+            ..Camera::default()
+        };
+        let pick = |camera: &Camera, cursor: Vec2| {
+            sheet.pick(&Aim::new(camera, cursor, viewport, 6.0), HitAt::Surface)
+        };
+
+        // Ten pixels to the world unit at the target, so the quad spans the
+        // middle twenty pixels and a cursor at 95 is four units clear of it.
+        let square = looking(0.0);
+        let hit = pick(&square, Vec2::new(50.0, 50.0)).expect("dead centre of the sheet");
+        assert!(hit.world.abs_diff_eq(Vec3::ZERO, 1e-4), "{hit:?}");
+        assert!(
+            pick(&square, Vec2::new(95.0, 50.0)).is_none(),
+            "a cursor four units off the sheet found it anyway"
+        );
+
+        // Raked, which is the ordinary case for a drawing lying flat under a
+        // turned camera: still found, and still at a point of its own plane.
+        let hit = pick(&looking(0.9), Vec2::new(50.0, 50.0)).expect("the sheet seen raked");
+        assert!(hit.world.z.abs() < 1e-4, "{hit:?} is off the sheet's plane");
+    }
 
     #[test]
     fn a_tag_survives_the_rest_of_the_chain() {

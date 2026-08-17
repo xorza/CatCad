@@ -372,6 +372,14 @@ impl<R> Records<R> {
 pub(super) struct Triangles {
     pub(super) vertices: Vec<GpuVertex>,
     pub(super) indices: Vec<u32>,
+    /// Where each object's corners begin in `vertices`, one per object in the
+    /// batch's order.
+    ///
+    /// What makes the two halves separable. `vertices` is written in the batch's
+    /// order and `indices` in the drawn one, so an index cannot be rebased by
+    /// how far the index walk has got — it has to be rebased by where that
+    /// object's corners actually landed, which is this.
+    bases: Vec<u32>,
     /// Where each object's geometry centres, in world space.
     ///
     /// Kept so that ordering the objects costs a sort of *them* rather than a
@@ -456,6 +464,15 @@ impl Triangles {
     /// highlight that arrives without the geometry moving still has to be
     /// written in — where an overlay would only rebuild its `lit` list. Only
     /// when it can change something, though: see [`Triangles::relit_by`].
+    ///
+    /// **The two halves are written by two walks, and the draw order reaches
+    /// only the second.** Vertices go down in the order the batch holds them,
+    /// so what an object contributes never moves; which object is *drawn* when
+    /// is said by the index list alone. That is what keeps a resort to an index
+    /// rewrite: a camera turning over a drawing reorders its faces on most
+    /// frames, and a vertex list in draw order would put every corner through a
+    /// transform and a normal matrix on each of them, then hand the whole buffer
+    /// back to the queue, to say the same triangles in a different sequence.
     pub(super) fn refresh(
         &mut self,
         objects: &mut Batch<Object>,
@@ -466,22 +483,27 @@ impl Triangles {
         // Both marks taken, not either: `take_dirty` clears the batch's, and one
         // left behind is one that fires again next frame.
         let moved = objects.take_dirty();
-        // Only a sorted pass ever reads the centres, and measuring them is a
-        // walk of every vertex rather than of the objects — so an opaque pass
-        // does not pay for an answer it will not ask for.
-        if moved && matches!(order, Order::BackToFront(_)) {
-            self.remeasure(objects);
+        // The vertices carry the geometry *and* the colour it is drawn in, so
+        // either moving rewrites them — and only those two.
+        if moved || (relight && self.relit_by(objects, highlights)) {
+            // Only a sorted pass ever reads the centres, and only a move can
+            // change one, so an opaque pass never measures and a relight never
+            // measures again. It rides along here because the walk that would
+            // take it is the walk already being made.
+            let measure = moved && matches!(order, Order::BackToFront(_));
+            self.write_vertices(objects, highlights, measure);
+            self.vertices_dirty = true;
         }
         // Asked every frame and answering `false` on almost all of them: a
         // camera turning through a view where nothing changes places leaves the
-        // triangle list exactly as the GPU already has it.
+        // list exactly as the GPU already has it.
         let resorted = self.resort(objects.len(), order);
-        // What the geometry itself did, which is the half that moves an index.
-        let rebuilt = moved | resorted;
-        if rebuilt || (relight && self.relit_by(objects, highlights)) {
-            self.flatten(objects, highlights);
-            self.vertices_dirty = true;
-            self.indices_dirty |= rebuilt;
+        // An index says which vertex and in what order, so it moves when the
+        // draw order does and when the geometry does — a mesh that grew shifts
+        // every base after it — and never when only a colour has.
+        if moved || resorted {
+            self.write_indices(objects);
+            self.indices_dirty = true;
         }
     }
 
@@ -502,22 +524,6 @@ impl Triangles {
                 .any(|object| highlights.look_of(object.tag).is_some())
     }
 
-    /// Take each object's centre afresh, for whatever order the next frames ask
-    /// for.
-    fn remeasure(&mut self, objects: &[Object]) {
-        self.centres.clear();
-        self.centres.reserve_exact(objects.len());
-        self.centres.extend(objects.iter().map(|object| {
-            let mut sum = Vec3::ZERO;
-            for vertex in &object.mesh.vertices {
-                sum += object.transform.transform_point3(vertex.position);
-            }
-            // A mesh with no vertices contributes no triangles either, so where
-            // it sorts is a question with no consequence.
-            sum / object.mesh.vertices.len().max(1) as f32
-        }));
-    }
-
     /// Put the objects in `order`, answering whether that moved any of them.
     ///
     /// Built in scratch and compared rather than sorted in place, because the
@@ -527,6 +533,15 @@ impl Triangles {
         self.next.clear();
         self.next.extend(0..count as u32);
         if let Order::BackToFront(eye) = order {
+            // The other half of what `measure` decides in
+            // [`Triangles::write_vertices`]: a sorted pass measures on every
+            // move, so by the time one is asked for there is a centre per
+            // object. Stated here because the two are written apart.
+            debug_assert_eq!(
+                self.centres.len(),
+                count,
+                "a sorted pass reached its order with no centres to sort by"
+            );
             let centres = &self.centres;
             // Descending, so the farthest is drawn first. Squared distance,
             // because a square root is monotonic and orders nothing it did not.
@@ -555,10 +570,16 @@ impl Triangles {
         }
     }
 
-    /// World-space triangle soup for every object handed in.
+    /// World-space corners for every object handed in, in the order the batch
+    /// holds them.
     ///
     /// Transforms are applied here rather than per draw call, so a still scene
     /// costs one draw and no per-object bindings.
+    ///
+    /// **In the batch's order and not the drawn one**, which is what leaves
+    /// [`Triangles::write_indices`] the only thing a resort has to touch. Where
+    /// an object's corners land is then a fact about the batch, and
+    /// [`Triangles::bases`] can be read by anything that has a position in it.
     ///
     /// A highlighted object is written in the colour it was given, in place of
     /// its own. Only the colour: a [`Highlight`](crate::Highlight)'s `scale` and
@@ -567,17 +588,25 @@ impl Triangles {
     /// ride on. It occupies the world rather than the screen, so the only way
     /// for it to read as picked out is to be a different colour where it
     /// already is.
-    fn flatten(&mut self, objects: &[Object], highlights: &Highlights) {
-        self.clear();
-        self.reserve_exact(
-            objects.iter().map(|o| o.mesh.vertices.len()).sum(),
-            objects.iter().map(|o| o.mesh.indices.len()).sum(),
-        );
+    ///
+    /// `measure` takes each object's centre as it goes. Read back out of the
+    /// corners just written rather than summed alongside them, so a pass that
+    /// never sorts pays nothing at all for it and a pass that does reads memory
+    /// it has this moment touched.
+    fn write_vertices(&mut self, objects: &[Object], highlights: &Highlights, measure: bool) {
+        self.vertices.clear();
+        self.vertices
+            .reserve_exact(objects.iter().map(|o| o.mesh.vertices.len()).sum());
+        self.bases.clear();
+        self.bases.reserve_exact(objects.len());
+        if measure {
+            self.centres.clear();
+            self.centres.reserve_exact(objects.len());
+        }
         let mut highlighted = false;
-        for step in 0..self.order.len() {
-            // Read out as a number rather than held as a borrow, so the lists
-            // this order decides can be written while it is being walked.
-            let object = &objects[self.order[step] as usize];
+        for object in objects {
+            let base = self.vertices.len();
+            self.bases.push(base as u32);
             // Normals survive non-uniform scale only under the inverse
             // transpose; it's once per object, so the generality is free.
             let normal_matrix = Mat3::from_mat4(object.transform).inverse().transpose();
@@ -585,50 +614,56 @@ impl Triangles {
             // Remembered rather than recomputed, because the next relight has to
             // know whether this one left a colour behind to undo.
             highlighted |= look.is_some();
-            let vertices = object.mesh.vertices.iter().map(|vertex| GpuVertex {
-                position: object
-                    .transform
-                    .transform_point3(vertex.position)
-                    .to_array(),
-                normal: (normal_matrix * vertex.normal)
-                    .normalize_or_zero()
-                    .to_array(),
-                // One colour for the whole object, resolved here rather than
-                // in the shader: what a corner is drawn in is the object's
-                // colour, and a highlight is what replaces or lifts it. It
-                // rides per vertex because that is where the buffer has room
-                // for it, not because a corner has anything of its own to say.
-                color: look
-                    .map_or(object.color, |look| look.tint.over(object.color))
-                    .to_array(),
-            });
-            self.extend(vertices, &object.mesh.indices);
+            // One colour for the whole object, resolved here rather than in the
+            // shader: what a corner is drawn in is the object's colour, and a
+            // highlight is what replaces or lifts it. It rides per vertex
+            // because that is where the buffer has room for it, not because a
+            // corner has anything of its own to say.
+            let color = look
+                .map_or(object.color, |look| look.tint.over(object.color))
+                .to_array();
+            self.vertices
+                .extend(object.mesh.vertices.iter().map(|vertex| {
+                    GpuVertex {
+                        position: object
+                            .transform
+                            .transform_point3(vertex.position)
+                            .to_array(),
+                        normal: (normal_matrix * vertex.normal)
+                            .normalize_or_zero()
+                            .to_array(),
+                        color,
+                    }
+                }));
+            if measure {
+                let mine = &self.vertices[base..];
+                let sum: Vec3 = mine.iter().map(|at| Vec3::from_array(at.position)).sum();
+                // A mesh with no vertices contributes no triangles either, so
+                // where it sorts is a question with no consequence.
+                self.centres.push(sum / mine.len().max(1) as f32);
+            }
         }
         self.highlighted = highlighted;
     }
 
-    /// Empty it, keeping whatever room it has already grown to.
-    fn clear(&mut self) {
-        self.vertices.clear();
-        self.indices.clear();
-    }
-
-    /// Make room for exactly this much, on a buffer just cleared.
+    /// The triangle list, in the order the objects are drawn.
     ///
-    /// Exact rather than amortized because both counts are known in full
-    /// before anything is written, and a buffer that already has the room
-    /// does nothing here — which is the steady state after the first flatten.
-    fn reserve_exact(&mut self, vertices: usize, indices: usize) {
-        self.vertices.reserve_exact(vertices);
-        self.indices.reserve_exact(indices);
-    }
-
-    /// Add vertices and the indices addressing them, rebased past whatever is
-    /// already here.
-    fn extend(&mut self, vertices: impl IntoIterator<Item = GpuVertex>, indices: &[u32]) {
-        let base = self.vertices.len() as u32;
-        self.vertices.extend(vertices);
-        self.indices
-            .extend(indices.iter().map(|index| index + base));
+    /// Each object's own indices rebased onto where its corners actually landed
+    /// — which is [`Triangles::bases`], and not where this walk has got to,
+    /// because the two agree only when the draw order is the batch's own.
+    fn write_indices(&mut self, objects: &[Object]) {
+        let Self {
+            indices,
+            order,
+            bases,
+            ..
+        } = self;
+        indices.clear();
+        indices.reserve_exact(objects.iter().map(|o| o.mesh.indices.len()).sum());
+        for &step in order.iter() {
+            let object = &objects[step as usize];
+            let base = bases[step as usize];
+            indices.extend(object.mesh.indices.iter().map(|index| index + base));
+        }
     }
 }
