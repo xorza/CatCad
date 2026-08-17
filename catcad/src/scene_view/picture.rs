@@ -3,18 +3,18 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Aim, Extent, Highlight, Hit, Lit, Renderer, Tint};
+use aperture::{Aim, Camera, Extent, Highlight, Hit, Lit, Renderer, Tint};
 use glam::Vec3;
 use palantir::{GpuPaint, Rect};
 use silverpoint::ConstraintId;
 
 use crate::lens::Lens;
 use crate::model::Models;
+use crate::paint;
 use crate::paint::layout::Layout;
 use crate::paint::marks::Placed;
 use crate::paint::showing::Showing;
 use crate::paint::write;
-use crate::paint::{self};
 use crate::part::Part;
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
@@ -84,7 +84,7 @@ fn singled(part: Part, ordinary: Highlight) -> Highlight {
 /// inside one call here: a caller holding one open across a second call is the
 /// panic this type exists to make unreachable — see [`Picture::under`].
 #[derive(Debug)]
-pub(crate) struct Picture {
+pub(super) struct Picture {
     renderer: Rc<RefCell<Renderer>>,
     /// What was laid out, and what it claims to describe.
     ///
@@ -206,7 +206,7 @@ impl Picture {
     /// scene holds the copy the next paint reads, so overwriting it every frame
     /// is what keeps the two from ever disagreeing. Copied here rather than
     /// pushed by the document, which has no business knowing a renderer exists.
-    pub(super) fn aimed_through(&mut self, camera: aperture::Camera) {
+    pub(super) fn aimed_through(&mut self, camera: Camera) {
         *self.renderer.borrow_mut().camera_mut() = camera;
     }
 
@@ -283,10 +283,10 @@ impl Picture {
 ///
 /// **One question the hover, the click and the press all ask.** They asked it
 /// three times over in three spellings — build an aim through the document's
-/// camera, take the scene's nearest, look the tag up in the names — and the
-/// comment on [`SceneView::settle`](crate::scene_view::SceneView) records the
-/// last time two of them came apart over which camera to aim through. Three
-/// callers reading one answer is what stops a fourth from inventing a second.
+/// camera, take the scene's nearest, look the tag up in the names — and two of
+/// them once came apart over which camera to aim through, which is the argument
+/// [`Picture::under`] carries now. Three callers reading one answer is what
+/// stops a fourth from inventing a second.
 ///
 /// The aim rides along because a press wants it afterwards, to resolve where the
 /// grab landed on the motion. Taking it off the same value is what keeps the hit

@@ -1,13 +1,9 @@
 //! The 3D view, and everything the pointer does to it.
 
-use std::cell::RefCell;
-use std::rc::Rc;
-
 use aperture::{Camera, Extent, Motion, Viewport};
 use glam::{Vec2, Vec3};
 use palantir::{
-    ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, ResponseState, Sense, Sizing, Ui,
-    WidgetId,
+    ButtonPhase, Configure, Drag, GpuView, PointerWake, ResponseState, Sense, Sizing, Ui, WidgetId,
 };
 use silverpoint::{ConstraintId, Entity, Grown};
 
@@ -533,8 +529,7 @@ impl SceneView {
     /// the drawing as this frame's edits left it rather than as it stood before
     /// them.
     pub(crate) fn draw(&self, ui: &mut Ui) {
-        let paint: Rc<RefCell<dyn GpuPaint>> = self.picture.painting();
-        GpuView::new(paint)
+        GpuView::new(self.picture.painting())
             .id(view_id())
             .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL | Sense::PINCH)
             // Focusable so that a press on the drawing takes focus *off*
