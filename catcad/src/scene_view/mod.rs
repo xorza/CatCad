@@ -21,10 +21,11 @@ use crate::model::Models;
 use crate::paint::layout::Layout;
 use crate::paint::marks::Placed;
 use crate::paint::showing::Showing;
+use crate::paint::write;
 use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
-use crate::prompt::Prompt;
+use crate::prompt::{Asking, Prompt, Stands};
 use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
 use crate::timeline::{Along, FeatureId, Movable};
@@ -352,7 +353,7 @@ impl SceneView {
     /// Forwarded rather than the layout being handed out, because a layout is
     /// written by exactly one call and everything else reads one answer out of
     /// it — see [`Layout`].
-    pub(crate) fn placed(&self, of: ConstraintId) -> Option<Placed> {
+    fn placed(&self, of: ConstraintId) -> Option<Placed> {
         self.layout.placed(of)
     }
 
@@ -389,7 +390,6 @@ impl SceneView {
         session: &Session,
         intents: &mut Intents,
     ) {
-        let tool = session.tool();
         let sketch = session.editing();
         // A bare pointer move only wakes a frame for a widget that asked for
         // one: palantir skips a `PointerMoved` that crosses no boundary and
@@ -516,7 +516,7 @@ impl SceneView {
                         //
                         // `to` is where the *box* should land and a placement
                         // names the point under it, so the clearance comes off
-                        // by [`paint::mark_anchor`] — which inverts it rather
+                        // by [`Mark::anchor`] — which inverts it rather
                         // than taking off the last frame's. A frame with no mark
                         // to invert says nothing at all: the number stays put,
                         // which is a stutter, where placing it against no
@@ -526,8 +526,7 @@ impl SceneView {
                                 Change::Place {
                                     sketch,
                                     constraint,
-                                    at: paint::mark_anchor(
-                                        placed.mark,
+                                    at: placed.mark.anchor(
                                         drawing.sketch().constraint(constraint),
                                         drawing,
                                         lens,
@@ -572,6 +571,11 @@ impl SceneView {
             // is the wrong thing to answer with. Once, because both the anchor a
             // tool builds on and the entity a click picks out are this same
             // question, and asking the scene twice would be asking it twice.
+            //
+            // Inside the gate rather than beside the readings above, because it
+            // walks the scene: a hover already asks this at the settle, and
+            // asking again on every frame nobody clicked would be a second walk
+            // for an answer nothing reads.
             let under = pointing
                 .zip(lens)
                 .and_then(|(aimed, lens)| {
@@ -579,153 +583,17 @@ impl SceneView {
                     self.under(renderer.scene(), aimed, lens)
                 })
                 .map(|under| under.part);
-            // A second click on a dimension opens it for typing. Raised before
-            // the arms below rather than instead of them, because the click is
-            // still an ordinary click: it picks the dimension out, which is what
-            // makes the constraint bar agree with the field about what is being
-            // worked on. Palantir reports the second press of a double as a
-            // click of its own, so the first one already did the picking.
-            //
-            // A dimension and nothing else. Every other part has no number to
-            // type, and a double-click on one should mean whatever a
-            // double-click comes to mean next rather than nothing-in-particular
-            // now.
-            if response.left.double_clicked()
-                && let Some(typed) = under.and_then(|part| dimension(part, document, sketch))
-            {
-                intents.push(Choice::Ask(Some(typed)));
-            } else {
-                // Any other click puts away whatever was open. Committing would
-                // be the other reading, and it is the wrong one: a click that
-                // landed somewhere else was about somewhere else, and a number
-                // half-typed should not be written to the document by a gesture
-                // that never mentioned it.
-                intents.push(Choice::Ask(None));
-            }
-            // A tool in hand takes every click, whatever it landed on: what was
-            // clicked is what the new geometry is *held to*, so a click on the
-            // drawing is worth more to a tool than one beside it. Nothing is
-            // picked out by a click a tool took — selecting is the pointer's,
-            // and a tool that placed a point and picked it out would be arguing
-            // with the hand that placed it.
-            //
-            // The dimension tool is the exception, and the difference is what it
-            // clicks *for*: its picks are the whole of what it has done until the
-            // second one lands, so they are what a reader has to be shown. See
-            // its arm below.
-            match (tool, anchor(landing, sketch, under)) {
-                // One click. On a point already there it adds nothing, and the
-                // drawing comes out of it unchanged.
-                (Tool::Point, Some(at)) => {
-                    intents.push(Change::AddPoint { sketch, at });
-                }
-                // Two clicks each. The first is remembered in the tool and
-                // reaches the document not at all; the second commits the whole
-                // shape as one step.
-                (Tool::Line { from: None }, Some(start)) => {
-                    intents.push(Choice::Hold(Tool::Line { from: Some(start) }));
-                }
-                (Tool::Line { from: Some(from) }, Some(to)) => {
-                    intents.push(Change::AddSegment { sketch, from, to });
-                    intents.push(Choice::Hold(Tool::Line { from: None }));
-                }
-                (Tool::Circle { center: None }, Some(middle)) => {
-                    intents.push(Choice::Hold(Tool::Circle {
-                        center: Some(middle),
-                    }));
-                    // The radius can be typed as well as clicked, so the form
-                    // stands from the moment there is a centre to measure one
-                    // from. Both ways finish the circle; whichever is used
-                    // first is the one that does.
-                    intents.push(Choice::Ask(Some(Opening::Circle {
-                        sketch,
-                        center: middle,
-                    })));
-                }
-                (
-                    Tool::Circle {
-                        center: Some(center),
-                    },
-                    Some(rim),
-                ) => {
-                    intents.push(Change::AddCircle {
-                        sketch,
-                        center,
-                        rim,
-                    });
-                    intents.push(Choice::Hold(Tool::Circle { center: None }));
-                    // The click answered what the form was asking, so the form
-                    // has nothing left to ask.
-                    intents.push(Choice::Ask(None));
-                }
-                // The one tool whose clicks name geometry rather than a place,
-                // so what it reads is what was *under* the cursor rather than
-                // what an anchor made of it. Before the catch-all below, which
-                // would otherwise take the click on a plane seen edge-on and
-                // pick something out with it.
-                (Tool::Dimension(dimensioning), _) => {
-                    // Placing takes the click outright: what it commits is what
-                    // the preview has been showing, wherever that click landed.
-                    // Clicking geometry to *finish* a dimension is how the gesture
-                    // ends everywhere else, and dropping the number on the thing
-                    // it measures is a fair place to want it.
-                    let placed = landing
-                        .map(|at| drawing.plane().flatten(at.as_dvec3()))
-                        .and_then(|at| dimensioning.proposed(drawing.sketch(), at));
-                    match placed {
-                        Some(constraint) => {
-                            intents.push(Change::Constrain { sketch, constraint });
-                            // Ready for another, which is what a modeller expects
-                            // of a tool it took a trip to the bar to pick up.
-                            intents.push(Choice::Hold(Tool::Dimension(Dimensioning::Empty)));
-                            // And holding nothing, because what was picked has
-                            // been said: a selection left standing would offer
-                            // the bar a relation over geometry the user has
-                            // finished with.
-                            intents.push(Choice::Select(None));
-                        }
-                        // Still picking. A click on nothing, or on something the
-                        // pair cannot be measured against, leaves what has been
-                        // picked where it is.
-                        None => {
-                            if let Some(part) = under.filter(|part| part.sketch() == Some(sketch))
-                                && let Some(entity) = part.entity()
-                                && let Some(next) = dimensioning.picked(drawing.sketch(), entity)
-                            {
-                                intents.push(Choice::Hold(Tool::Dimension(next)));
-                                // **Picked out as well as picked up**, which is
-                                // the one place a tool's click selects anything.
-                                // Every other tool *places* geometry, and what it
-                                // has done is on the screen the moment it does it;
-                                // this one says something about geometry already
-                                // there, and between the first click and the
-                                // second there is nothing else to see. A
-                                // selection is what the drawing already has for
-                                // "these are the ones", lights and all.
-                                intents.push(match dimensioning {
-                                    Dimensioning::Empty => Choice::Select(Some(part)),
-                                    _ => Choice::Include(part),
-                                });
-                            }
-                        }
-                    }
-                }
-                // Nothing in hand — or a plane seen so nearly edge-on that a
-                // click names nowhere on it, where there is nothing to build
-                // from and picking out what was clicked is all that is left.
-                (Tool::Pointer, _) | (_, None) => {
-                    match under {
-                        // Shift adds to what is picked out.
-                        Some(entity) if adding => intents.push(Choice::Include(entity)),
-                        // A shift-click on empty space adds nothing, and
-                        // clearing is the plain click's business.
-                        None if adding => {}
-                        // A plain click starts over with whatever is under the
-                        // cursor — which is nothing, when it is over nothing.
-                        _ => intents.push(Choice::Select(under)),
-                    }
-                }
-            }
+            clicked(
+                Click {
+                    double: response.left.double_clicked(),
+                    adding,
+                    under,
+                    at: landing,
+                },
+                document,
+                session,
+                intents,
+            );
         }
 
         // The right button puts down whatever is in hand — the gesture every
@@ -736,58 +604,10 @@ impl SceneView {
             intents.push(Choice::Hold(Tool::Pointer));
         }
 
-        // What the second click would commit, following the cursor. Kept on the
-        // view rather than raised as an intent, because it is not in the
+        // What the second click would commit, following the cursor. Kept on
+        // the view rather than raised as an intent, because it is not in the
         // document and never will be — see [`Preview`].
-        // What the keyboard has taken over, where it has. A radius typed stops
-        // the band following the pointer — the number and the picture are two
-        // views of one value, and a band that went on tracking would be showing
-        // a different one from the form beside it.
-        let asking = session.prompt();
-        let typed = asking.and_then(|open| open.typed(0));
-        // The dimension being placed, which is a preview of a different kind:
-        // every other band is two world places, and this is the whole relation
-        // the next click states — see [`Preview::Dimension`].
-        let dimensioning = match tool {
-            Tool::Dimension(dimensioning) => landing
-                .map(|at| drawing.plane().flatten(at.as_dvec3()))
-                .and_then(|at| dimensioning.proposed(drawing.sketch(), at))
-                .map(Preview::Dimension),
-            _ => None,
-        };
-        self.preview = dimensioning.or_else(|| {
-            tool.started().zip(landing).map(|(started, at)| {
-                let from = drawing.at(started);
-                let ends = Ends { from, to: at };
-                match tool {
-                    Tool::Circle { .. } => {
-                        let ends = match typed {
-                            // Along the plane's own x, which is where a typed
-                            // radius puts the rim when it commits — so the band
-                            // and what it becomes are the same circle.
-                            Some(radius) => Ends {
-                                from,
-                                to: from + drawing.plane().x.as_vec3() * radius as f32,
-                            },
-                            None => ends,
-                        };
-                        Preview::Circle(ends)
-                    }
-                    _ => Preview::Line(ends),
-                }
-            })
-        });
-        // And the other way about while nobody has typed: what the band is
-        // showing is what the field offers, so the number follows the pointer.
-        if asking.is_some()
-            && typed.is_none()
-            && let Some(band) = self.preview.and_then(Preview::ring)
-        {
-            intents.push(Choice::Suggest {
-                nth: 0,
-                to: f64::from(band.from.distance(band.to)),
-            });
-        }
+        self.preview = previewing(session, drawing, landing, intents);
 
         // Kept for the settle, which asks what is under the pointer once the
         // document has finished moving and has no response left to read.
@@ -1030,13 +850,105 @@ impl SceneView {
         *renderer.camera_mut() = document.camera();
     }
 
+    /// Where a form open against the drawing stands, or `None` where the view is
+    /// drawing none of what it is about.
+    ///
+    /// **Where in the world a form is about is the view's**, which is the half
+    /// [`prompt`](crate::prompt) says it cannot answer: every arm below either
+    /// projects a point the drawing placed or measures the footprint of geometry
+    /// the drawing cut, and both are questions about this picture of the
+    /// document. What the *form* then does with the answer — how it stands,
+    /// what Enter means — is the prompt's, and none of it is here.
+    ///
+    /// Answered afresh every frame rather than remembered. A form outlives
+    /// orbits, edits and undos, so where it stands is a reading of the frame it
+    /// is being shown in — see [`Asking::Extrude`], which holds a name for this
+    /// to resolve rather than a position for it to trust.
+    ///
+    /// `None` is a frame the form is not shown for rather than a form that
+    /// closes: a camera turning back brings the geometry round again, and a
+    /// sketch left for another takes its marks off screen without taking the
+    /// form's dimension out of the document.
+    ///
+    /// `&mut self` for the filler's scratch alone — see
+    /// [`SceneView::region_footprint`].
+    pub(crate) fn stands(
+        &mut self,
+        about: &Asking,
+        models: Models<'_>,
+        lens: Lens,
+    ) -> Option<Stands> {
+        match about {
+            Asking::Dimension { part } => {
+                let part = *part;
+                // Where the mark *would* be drawn, which is where the field
+                // stands instead — see [`paint::redraw`], which leaves out the
+                // mark of whatever is being typed into. Read off the layout
+                // rather than worked out again, so the field lands on the lane
+                // the drawing gave the mark and not on the one an unstacked
+                // anchor would have.
+                let found = models.iter().find_map(|model| match model.entity(part) {
+                    Some(Entity::Constraint(id)) => Some((model.drawing(), id)),
+                    _ => None,
+                });
+                // Never missing, on the same terms `Session::prune` guarantees:
+                // a form open over a dimension an undo took away is closed
+                // before the frame that would draw it.
+                let (drawing, id) =
+                    found.expect("a form is open over a dimension the drawing no longer holds");
+                // Unplaced is a different thing from gone, and only the second
+                // is a broken promise. A drawing places the marks of the sketch
+                // it is *in*, so a form outliving a click that opened another
+                // sketch has a dimension the layout knows nothing about.
+                self.placed(id)
+                    .and_then(|placed| {
+                        // The middle of the mark's own box rather than the point
+                        // it hangs off, and worked out by the drawing: the box
+                        // rises up the *run's* frame, which is the sketch
+                        // plane's — see [`Mark::centre`].
+                        lens.screen_of(placed.mark.centre(drawing, lens))
+                    })
+                    .map(Stands::Over)
+            }
+            // Beside the centre already placed, which is all there is of the
+            // circle until a radius says otherwise.
+            Asking::Circle { sketch, center } => models
+                .at(*sketch)
+                .and_then(|model| {
+                    // The whole rim rather than the centre and the pointer
+                    // between them: a circle reaches its radius in *every*
+                    // direction, so a box drawn to wherever the band happens to
+                    // have got to is a quarter of one — and a form standing
+                    // clear of that quarter stands on the rest.
+                    let middle = model.drawing().at(*center);
+                    let radius = self.band_rim().map_or(0.0, |to| middle.distance(to));
+                    lens.footprint(model.rim_around(middle, radius))
+                })
+                .map(Stands::Beside),
+            // Beside the circle it is about, which is the rim projected: a
+            // form standing over the middle of one would cover the very
+            // geometry the number is describing.
+            Asking::Radius { sketch, circle } => models
+                .at(*sketch)
+                .and_then(|model| lens.footprint(model.rim_of(*circle)))
+                .map(Stands::Beside),
+            // Resolved here rather than remembered, for the reason the form
+            // holds a name at all: the arrangement it was read from is not the
+            // one it is being drawn against.
+            Asking::Extrude { profile } => profile
+                .face_of(models)
+                .and_then(|region| self.region_footprint(models, profile.sketch(), region, lens))
+                .map(Stands::Beside),
+        }
+    }
+
     /// Where the band has carried the rim of the circle being drawn, if one is
     /// being drawn.
     ///
     /// What a form asking for a radius is placed against. The band rather than
     /// the centre it was struck from: a form flush with the centre is a form
     /// under the circle, and under the very click that would finish it.
-    pub(crate) fn band_rim(&self) -> Option<Vec3> {
+    fn band_rim(&self) -> Option<Vec3> {
         self.preview.and_then(Preview::ring).map(|band| band.to)
     }
 
@@ -1052,14 +964,14 @@ impl SceneView {
     ///
     /// `&mut self` for the filler's scratch, not to write anything: the corners
     /// are read into a buffer this keeps for its room rather than its contents.
-    pub(crate) fn region_footprint(
+    fn region_footprint(
         &mut self,
         models: Models<'_>,
         sketch: FeatureId,
         region: usize,
         lens: Lens,
     ) -> Option<Rect> {
-        paint::region_corners(
+        write::region_corners(
             models,
             self.layout.sheets(),
             sketch,
@@ -1216,10 +1128,9 @@ impl SceneView {
                     // to the cursor, and every frame of the drag puts the box
                     // back there — giving the standoff back as it stands then
                     // rather than as it stood here, because it moves. See
-                    // [`paint::mark_standoff`].
+                    // [`Mark::standoff`].
                     Grabbed::Label(id) => self.placed(id).map_or(Vec3::ZERO, |placed| {
-                        placed.mark.world(drawing) - hit.world
-                            + paint::mark_standoff(placed.mark, drawing, lens)
+                        placed.mark.world(drawing) - hit.world + placed.mark.standoff(drawing, lens)
                     }),
                     _ => Vec3::ZERO,
                 };
@@ -1287,7 +1198,10 @@ pub(crate) mod internals {
     /// pick.
     #[cfg(test)]
     mod looking {
+        use crate::paint::marks::mark::Mark;
         use aperture::Tag;
+        use glam::Vec3;
+        use silverpoint::ConstraintId;
 
         use crate::part::Part;
         use crate::preview::Preview;
@@ -1318,8 +1232,277 @@ pub(crate) mod internals {
             pub(crate) fn part(&self, tag: Tag) -> Option<Part> {
                 self.layout.names().get(tag)
             }
+
+            /// The mark the drawing put up for the relation `of` names.
+            ///
+            /// Named for what a harness wants rather than for the method it
+            /// forwards to, which the view keeps to itself: where a form stands
+            /// over a mark is the view's own to answer — see
+            /// [`SceneView::stands`] — and what is left for a caller outside is
+            /// picking a dimension by how its mark came out, which is a test
+            /// choosing a fixture.
+            pub(crate) fn marked(&self, of: ConstraintId) -> Option<Mark> {
+                self.placed(of).map(|placed| placed.mark)
+            }
+
+            /// Where the band has carried the rim of the circle being drawn.
+            ///
+            /// The same kind of reach-in as the rest of this module: what a form
+            /// standing beside a half-drawn circle is placed against is the
+            /// view's, and a test asking how far the band has been carried is
+            /// asking what the pointer made of a gesture rather than what the
+            /// drawing came out as.
+            pub(crate) fn banded(&self) -> Option<Vec3> {
+                self.band_rim()
+            }
         }
     }
+}
+
+/// What one click of the left button found, as everything deciding what it
+/// means reads it.
+///
+/// The pointer's half of a click and nothing else: what is in hand and which
+/// sketch is open are the session's, and the drawing under it is the document's,
+/// so a click carries only what the *response* said and what the scene answered
+/// about it.
+#[derive(Debug, Clone, Copy)]
+struct Click {
+    /// Whether this was the second press of a double, which is a click of its
+    /// own — see [`clicked`].
+    double: bool,
+    /// Whether shift was held, which adds to what is picked out where a plain
+    /// click starts over.
+    adding: bool,
+    /// What it landed on, or `None` where it landed on nothing the layout names.
+    under: Option<Part>,
+    /// Where it landed on the open sketch's plane, and `None` on a plane seen
+    /// edge-on — the frame's one ray, resolved at the top of
+    /// [`SceneView::poll`].
+    at: Option<Vec3>,
+}
+
+/// What a click on the drawing asks for.
+///
+/// A tool in hand takes every click, whatever it landed on: what was clicked is
+/// what the new geometry is *held to*, so a click on the drawing is worth more
+/// to a tool than one beside it. Nothing is picked out by a click a tool took —
+/// selecting is the pointer's, and a tool that placed a point and picked it out
+/// would be arguing with the hand that placed it.
+///
+/// The dimension tool is the exception, and the difference is what it clicks
+/// *for*: its picks are the whole of what it has done until the second one
+/// lands, so they are what a reader has to be shown. See its arm below.
+///
+/// A free fn beside [`anchor`], [`label`] and [`dimension`], and for their
+/// reason: nothing about it is the view's. What a click means is decided out of
+/// what the pointer found, what is in hand and what the drawing holds, and the
+/// view is only what happened to be holding the press — it reads no field of one
+/// and writes none.
+fn clicked(click: Click, document: &Document, session: &Session, intents: &mut Intents) {
+    let sketch = session.editing();
+    let drawing = document.drawing_at(sketch);
+    let Click {
+        double,
+        adding,
+        under,
+        at,
+    } = click;
+    // A second click on a dimension opens it for typing. Raised before the arms
+    // below rather than instead of them, because the click is still an ordinary
+    // click: it picks the dimension out, which is what makes the constraint bar
+    // agree with the field about what is being worked on. Palantir reports the
+    // second press of a double as a click of its own, so the first one already
+    // did the picking.
+    //
+    // A dimension and nothing else. Every other part has no number to type, and
+    // a double-click on one should mean whatever a double-click comes to mean
+    // next rather than nothing-in-particular now.
+    if double && let Some(typed) = under.and_then(|part| dimension(part, document, sketch)) {
+        intents.push(Choice::Ask(Some(typed)));
+    } else {
+        // Any other click puts away whatever was open. Committing would be the
+        // other reading, and it is the wrong one: a click that landed somewhere
+        // else was about somewhere else, and a number half-typed should not be
+        // written to the document by a gesture that never mentioned it.
+        intents.push(Choice::Ask(None));
+    }
+    match (session.tool(), anchor(at, sketch, under)) {
+        // One click. On a point already there it adds nothing, and the drawing
+        // comes out of it unchanged.
+        (Tool::Point, Some(at)) => {
+            intents.push(Change::AddPoint { sketch, at });
+        }
+        // Two clicks each. The first is remembered in the tool and reaches the
+        // document not at all; the second commits the whole shape as one step.
+        (Tool::Line { from: None }, Some(start)) => {
+            intents.push(Choice::Hold(Tool::Line { from: Some(start) }));
+        }
+        (Tool::Line { from: Some(from) }, Some(to)) => {
+            intents.push(Change::AddSegment { sketch, from, to });
+            intents.push(Choice::Hold(Tool::Line { from: None }));
+        }
+        (Tool::Circle { center: None }, Some(middle)) => {
+            intents.push(Choice::Hold(Tool::Circle {
+                center: Some(middle),
+            }));
+            // The radius can be typed as well as clicked, so the form stands
+            // from the moment there is a centre to measure one from. Both ways
+            // finish the circle; whichever is used first is the one that does.
+            intents.push(Choice::Ask(Some(Opening::Circle {
+                sketch,
+                center: middle,
+            })));
+        }
+        (
+            Tool::Circle {
+                center: Some(center),
+            },
+            Some(rim),
+        ) => {
+            intents.push(Change::AddCircle {
+                sketch,
+                center,
+                rim,
+            });
+            intents.push(Choice::Hold(Tool::Circle { center: None }));
+            // The click answered what the form was asking, so the form has
+            // nothing left to ask.
+            intents.push(Choice::Ask(None));
+        }
+        // The one tool whose clicks name geometry rather than a place, so what
+        // it reads is what was *under* the cursor rather than what an anchor
+        // made of it. Before the catch-all below, which would otherwise take the
+        // click on a plane seen edge-on and pick something out with it.
+        (Tool::Dimension(dimensioning), _) => {
+            // Placing takes the click outright: what it commits is what the
+            // preview has been showing, wherever that click landed. Clicking
+            // geometry to *finish* a dimension is how the gesture ends
+            // everywhere else, and dropping the number on the thing it measures
+            // is a fair place to want it.
+            let placed = at
+                .map(|at| drawing.plane().flatten(at.as_dvec3()))
+                .and_then(|at| dimensioning.proposed(drawing.sketch(), at));
+            match placed {
+                Some(constraint) => {
+                    intents.push(Change::Constrain { sketch, constraint });
+                    // Ready for another, which is what a modeller expects of a
+                    // tool it took a trip to the bar to pick up.
+                    intents.push(Choice::Hold(Tool::Dimension(Dimensioning::Empty)));
+                    // And holding nothing, because what was picked has been
+                    // said: a selection left standing would offer the bar a
+                    // relation over geometry the user has finished with.
+                    intents.push(Choice::Select(None));
+                }
+                // Still picking. A click on nothing, or on something the pair
+                // cannot be measured against, leaves what has been picked where
+                // it is.
+                None => {
+                    if let Some(part) = under.filter(|part| part.sketch() == Some(sketch))
+                        && let Some(entity) = part.entity()
+                        && let Some(next) = dimensioning.picked(drawing.sketch(), entity)
+                    {
+                        intents.push(Choice::Hold(Tool::Dimension(next)));
+                        // **Picked out as well as picked up**, which is the one
+                        // place a tool's click selects anything. Every other
+                        // tool *places* geometry, and what it has done is on the
+                        // screen the moment it does it; this one says something
+                        // about geometry already there, and between the first
+                        // click and the second there is nothing else to see. A
+                        // selection is what the drawing already has for "these
+                        // are the ones", lights and all.
+                        intents.push(match dimensioning {
+                            Dimensioning::Empty => Choice::Select(Some(part)),
+                            _ => Choice::Include(part),
+                        });
+                    }
+                }
+            }
+        }
+        // Nothing in hand — or a plane seen so nearly edge-on that a click names
+        // nowhere on it, where there is nothing to build from and picking out
+        // what was clicked is all that is left.
+        (Tool::Pointer, _) | (_, None) => {
+            match under {
+                // Shift adds to what is picked out.
+                Some(entity) if adding => intents.push(Choice::Include(entity)),
+                // A shift-click on empty space adds nothing, and clearing is the
+                // plain click's business.
+                None if adding => {}
+                // A plain click starts over with whatever is under the cursor —
+                // which is nothing, when it is over nothing.
+                _ => intents.push(Choice::Select(under)),
+            }
+        }
+    }
+}
+
+/// The shape the next click would commit, following the cursor — and the number
+/// it is worth, offered to the form asking for one.
+///
+/// **Both halves, because they are one value seen twice.** A radius typed stops
+/// the band following the pointer — the number and the picture are two views of
+/// what the circle is, and a band that went on tracking would be showing a
+/// different one from the form beside it. The other way about while nobody has
+/// typed: what the band measures is what the field offers, so the number follows
+/// the pointer. Split apart, the two rules would be free to disagree about which
+/// of the pointer and the keyboard is driving.
+///
+/// A free fn like [`clicked`] beside it: what a gesture is half-way through is
+/// read out of the tool, the form and where the cursor landed, none of which is
+/// the view's — the view only keeps the answer, because a band is not in the
+/// document and never will be.
+fn previewing(
+    session: &Session,
+    drawing: Drawing<'_>,
+    at: Option<Vec3>,
+    intents: &mut Intents,
+) -> Option<Preview> {
+    let tool = session.tool();
+    let asking = session.prompt();
+    let typed = asking.and_then(|open| open.typed(0));
+    // The dimension being placed, which is a preview of a different kind: every
+    // other band is two world places, and this is the whole relation the next
+    // click states — see [`Preview::Dimension`].
+    let dimensioning = match tool {
+        Tool::Dimension(dimensioning) => at
+            .map(|at| drawing.plane().flatten(at.as_dvec3()))
+            .and_then(|at| dimensioning.proposed(drawing.sketch(), at))
+            .map(Preview::Dimension),
+        _ => None,
+    };
+    let preview = dimensioning.or_else(|| {
+        tool.started().zip(at).map(|(started, at)| {
+            let from = drawing.at(started);
+            let ends = Ends { from, to: at };
+            match tool {
+                Tool::Circle { .. } => {
+                    let ends = match typed {
+                        // Along the plane's own x, which is where a typed radius
+                        // puts the rim when it commits — so the band and what it
+                        // becomes are the same circle.
+                        Some(radius) => Ends {
+                            from,
+                            to: from + drawing.plane().x.as_vec3() * radius as f32,
+                        },
+                        None => ends,
+                    };
+                    Preview::Circle(ends)
+                }
+                _ => Preview::Line(ends),
+            }
+        })
+    });
+    if asking.is_some()
+        && typed.is_none()
+        && let Some(band) = preview.and_then(Preview::ring)
+    {
+        intents.push(Choice::Suggest {
+            nth: 0,
+            to: f64::from(band.from.distance(band.to)),
+        });
+    }
+    preview
 }
 
 /// What a click landing `at` would build on: what it landed on and where.

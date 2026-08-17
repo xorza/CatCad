@@ -12,18 +12,19 @@
 //! every *other* mark of the drawing. So the two passes are one call, and
 //! [`stacked`] is it.
 //!
-//! **Sketch geometry, no pixels.** A lane is a count, not a distance; turning
-//! it into a gap on screen is [`STACK_STEP`](super::STACK_STEP)'s, and clearing
-//! the stroke a mark stands on is [`MARK_CLEAR`](super::MARK_CLEAR)'s. Both do it
-//! in line-heights of the run's own type, so the same gap holds at every zoom —
-//! and keeping them out of here is what lets everything below be plane
-//! arithmetic.
+//! **Sketch geometry, no pixels.** A lane is a count, not a distance, and what
+//! it comes to on screen is [`Mark`]'s — the clearance and the stack's step are
+//! stated in line-heights of the run's own type, so the same gap holds at every
+//! zoom, and keeping that arithmetic with the thing it is about is what lets
+//! every rule below be plane arithmetic.
 
-use glam::{DVec2, Vec3};
+use glam::DVec2;
 use silverpoint::{Constraint, ConstraintId, Measurement, PointId, SegmentId, Sketch};
 
-use crate::drawing::Drawing;
 use crate::model::Model;
+use crate::paint::marks::mark::Mark;
+
+pub(crate) mod mark;
 
 /// Where one mark stands and which way it runs, before the stack has had a say.
 ///
@@ -47,26 +48,6 @@ pub(crate) struct Placed {
     pub(crate) mark: Mark,
 }
 
-/// Where one mark goes, without saying whose it is.
-///
-/// Apart from the handle beside it because not every mark has one: a dimension a
-/// tool is half-way through placing is drawn exactly as a stated one and is not
-/// in the sketch, so there is no [`ConstraintId`] to name it by — see
-/// [`previewed`]. Everything that *draws* a mark wants this half and nothing
-/// makes it ask for the other.
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct Mark {
-    pub(crate) at: DVec2,
-    /// Which way the mark is set, as a unit direction in the sketch.
-    ///
-    /// The span a dimension measures, where it measures one — which is what a
-    /// draughtsman does and what makes a number read as belonging to the line
-    /// under it rather than to the drawing at large. A relation with no span to
-    /// speak of runs along the sketch's own +x.
-    pub(crate) along: DVec2,
-    pub(crate) lane: u8,
-}
-
 impl Standing {
     /// The same, as a mark that stands in no stack.
     ///
@@ -84,18 +65,6 @@ impl Standing {
             along: self.along,
             lane: 0,
         }
-    }
-}
-
-impl Mark {
-    /// Where the mark is anchored in the world.
-    ///
-    /// The sketch coordinate put on the plane it was measured in, which is all
-    /// this is — but it is the one step between what the rules answer and what
-    /// a projection can be asked about, and two callers doing it by hand would
-    /// be two chances to reach for the wrong drawing's plane.
-    pub(crate) fn world(self, drawing: Drawing<'_>) -> Vec3 {
-        drawing.plane().point(self.at).as_vec3()
     }
 }
 

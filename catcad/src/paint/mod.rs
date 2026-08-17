@@ -11,26 +11,21 @@
 //! read — a datum's axes, the arrow carrying a solid's depth — is
 //! [`gizmos`], held apart because it is written on the camera's schedule
 //! rather than the document's.
+//!
+//! **What is in this file is the deciding**, and the two calls that spend it:
+//! [`scene`] makes a picture and [`redraw`] keeps one current. Turning geometry
+//! into primitives is [`write`], a writer per batch; where a mark's *box* lands
+//! on screen is [`Mark`](marks::mark::Mark)'s, being the one part of a drawing
+//! measured in pixels after it has been laid out.
 
-use aperture::{
-    Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Turn, Vertex,
-};
-use glam::{DVec2, Mat4, Vec2, Vec3};
+use aperture::{Precedence, Scene};
+use glam::Vec3;
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId, Sketch};
-use std::fmt::Write;
+use silverpoint::{Constraint, Freedom};
 
-use crate::drawing::Drawing;
-use crate::lens::Lens;
 use crate::model::{Model, Models};
-use crate::paint::growing::Growing;
-use crate::paint::layout::{Layout, Made, Sheets};
-use crate::paint::marks::{Mark, Placed, Standing};
-use crate::paint::names::Names;
+use crate::paint::layout::{Layout, Made};
 use crate::paint::showing::Showing;
-use crate::part::Part;
-use crate::preview::Ends;
-use crate::timeline::FeatureId;
 
 pub(crate) mod gizmos;
 pub(crate) mod growing;
@@ -38,6 +33,7 @@ pub(crate) mod layout;
 pub(crate) mod marks;
 pub(crate) mod names;
 pub(crate) mod showing;
+pub(crate) mod write;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -231,71 +227,6 @@ pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
     scene
 }
 
-/// An object per face of every solid the document has grown.
-///
-/// One object per *face* rather than one per solid, which is what makes a solid
-/// something you can point at: a tag names a primitive, so a face that is to be
-/// hovered, picked out and later built on has to be a primitive of its own.
-///
-/// Named by what each face was grown from — see [`Grown`] — rather than by where
-/// it fell in this frame's list. That is the same durable vocabulary the region
-/// underneath was named in, so a selection survives the drawing moving under it
-/// exactly as a sketch entity's does.
-///
-/// Modelled rather than drawn, so unlike everything else here there is no
-/// appearance to decide beyond the one colour: what a solid *is* is the shape,
-/// and shading it is the renderer's.
-fn write_solids(
-    models: Models<'_>,
-    names: &mut Names,
-    sheets: &mut Sheets,
-    growing: Option<Growing>,
-    into: &mut Batch<Object>,
-) {
-    let Sheets { skinner, patch, .. } = sheets;
-    // One walk and nothing gathered: a prism is `Copy` and hands out its faces
-    // as an iterator, so the whole of a document's solids is written straight
-    // into the batch. A list of them first would be an allocation a frame, which
-    // is exactly what a rubber band's redraw would pay every frame it lasts.
-    // The one being decided is chained on rather than pushed after, so a depth
-    // typed a digit at a time rewrites the batch it is already in — see
-    // `Batch::refill`. Last, so the tags of everything the document holds come
-    // out the same whether or not a form is open.
-    let faces = models
-        .solids()
-        .map(|(at, prism)| (Some(at), prism))
-        .chain(
-            growing
-                .and_then(|growing| growing.prism(models))
-                .map(|prism| (None, prism)),
-        )
-        .flat_map(|(at, prism)| prism.grown().map(move |face| (at, prism, face)));
-    into.refill(faces, |object, (at, prism, face)| {
-        skinner.cut(&prism, face, SOLID_SAGITTA, patch);
-        remesh(
-            &mut object.mesh,
-            patch
-                .corners
-                .iter()
-                .zip(&patch.normals)
-                .map(|(&corner, &normal)| Vertex {
-                    position: corner.as_vec3(),
-                    normal: normal.as_vec3(),
-                }),
-            &patch.triangles,
-        );
-        object.transform = Mat4::IDENTITY;
-        object.color = SOLID;
-        object.precedence = Precedence::Shaped;
-        // Untagged while it is being decided, which is what keeps a solid that
-        // is not in the document out of everything that names one: it cannot be
-        // hovered, picked out, or built on, because there is nothing yet to
-        // name. What *is* grabbable is the arrow that carries it, which is a
-        // control rather than the solid.
-        object.tag = at.map(|of| names.tag(Part::Solid { of, face }));
-    });
-}
-
 /// Draw the whole of `model`, and `band` over it, into the room `layout` keeps
 /// and under the names it holds.
 ///
@@ -317,10 +248,11 @@ fn write_solids(
 /// are emptied here rather than by the caller, because a name list half from
 /// one layout and half from another names nothing.
 ///
-/// `band` is what a tool is half-way through and the drawing knows nothing
-/// about — which is why this is here rather than on
-/// [`Drawing`](crate::drawing::Drawing). It is written among the strokes and
-/// rims and never named, so it cannot be picked; see the two writers below.
+/// What a gesture is half-way through arrives in `showing` and the drawing
+/// knows nothing about it — which is why it comes in here rather than off
+/// [`Drawing`](crate::drawing::Drawing). The band is written among the strokes
+/// and rims and never named, so it cannot be picked; see [`write::curves`]
+/// and [`write::rings`].
 ///
 /// Does nothing where the layout already describes what it would draw, and says
 /// so on the layout when it has drawn — so a caller settles a frame by calling
@@ -348,10 +280,10 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
     // The writers below take what they draw and not the bundle: what a stroke
     // wants of a gesture is the band, and handing each of them the whole of it
     // would be handing every writer the two thirds that are not theirs.
-    write_curves(models, names, showing.line(), &mut into.curves);
-    write_rings(models, names, showing.ring(), &mut into.rings);
-    write_points(models, names, &mut into.points);
-    write_marks(
+    write::curves(models, names, showing.line(), &mut into.curves);
+    write::rings(models, names, showing.ring(), &mut into.rings);
+    write::points(models, names, &mut into.points);
+    write::texts(
         models,
         names,
         placed,
@@ -359,459 +291,11 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         showing.proposed(),
         &mut into.texts,
     );
-    write_faces(models, names, sheets, &mut into.faces);
-    write_solids(models, names, sheets, showing.growing, &mut into.solids);
+    write::faces(models, names, sheets, &mut into.faces);
+    write::solids(models, names, sheets, showing.growing, &mut into.solids);
     // Where the controls start naming from — see [`gizmos::write()`].
     names.drew();
     layout.drawn(made);
-}
-
-/// Write `corners` and the `triangles` over them into `mesh`.
-///
-/// What a region's fill and a solid's patch have in common is exactly this, and
-/// what they differ in is where the corners come from and what colour goes on
-/// afterwards.
-///
-/// The two of them, not every mesh here: a gizmo is four shapes in one mesh,
-/// each rebased onto the corners before it, and rewriting it goes through
-/// nothing this could offer without being handed a list of shapes instead of
-/// one — see [`gizmos::write()`].
-///
-/// Written over what is already there rather than assigned, which is what keeps
-/// a drag off the heap: every face of a drawing and every face of every solid is
-/// cut afresh whenever the document moves, and they come back the same size.
-///
-/// The indices are reserved for exactly and the corners are not, and the
-/// asymmetry is the iterators': flattening triangles hides the count, where an
-/// `extend` over corners carries its own.
-fn remesh(mesh: &mut Mesh, corners: impl Iterator<Item = Vertex>, triangles: &[[u32; 3]]) {
-    mesh.vertices.clear();
-    mesh.vertices.extend(corners);
-    mesh.indices.clear();
-    mesh.indices.reserve_exact(triangles.len() * 3);
-    mesh.indices.extend(triangles.iter().flatten());
-}
-
-/// A sheet per region the drawing's curves shut in.
-///
-/// The one part of a drawing that is not drawn: a region is what the curves
-/// *enclose*, so nothing here reads a segment or a circle — it reads what
-/// [`Arrangement`](silverpoint::Arrangement) made of all of them together, and
-/// a half-circle cut by an edge is as much a region as a rectangle traced by
-/// four.
-///
-/// Meshes rather than overlays, because a region has area in the world where a
-/// stroke has width on the screen. They go to the scene's own batch for them,
-/// which is drawn two-sided and biased forward off the plane they lie in — see
-/// [`Scene::faces`](aperture::Scene).
-///
-/// Named like everything else, so a region can be hovered and picked out. A
-/// cursor over one still reaches the geometry bounding it first: a surface is
-/// the least specific thing a pick can land on — see
-/// [`HitAt`](aperture::HitAt) — and every stroke and marker that draws a region
-/// lies within it.
-///
-/// Named *by position*, which is the one thing about a region that is not a
-/// handle. See [`Part::Region`](crate::part::Part).
-fn write_faces(
-    models: Models<'_>,
-    names: &mut Names,
-    sheets: &mut Sheets,
-    faces: &mut Batch<Object>,
-) {
-    let Sheets { filler, fill, .. } = sheets;
-    faces.refill(
-        models
-            .iter()
-            .flat_map(|model| (0..model.arrangement().faces().len()).map(move |at| (model, at))),
-        |object, (model, at)| {
-            let plane = model.plane();
-            let normal = plane.normal().as_vec3();
-            let arrangement = model.arrangement();
-            let face = &arrangement.faces()[at];
-            filler.fill(arrangement, face, FACE_SAGITTA, fill);
-            remesh(
-                &mut object.mesh,
-                fill.corners.iter().map(|&corner| Vertex {
-                    position: plane.point(corner).as_vec3(),
-                    normal,
-                }),
-                &fill.triangles,
-            );
-            object.transform = Mat4::IDENTITY;
-            object.color = if model.live() { FACE } else { DORMANT_FACE };
-            object.precedence = standing(model);
-            object.tag = Some(names.tag(model.region(at)));
-        },
-    );
-}
-
-/// Where the region at `region` of `sketch` lies in the world, as the corners
-/// its fill was cut from.
-///
-/// What a form standing *beside* a region is placed against — see
-/// [`Stands`](crate::prompt::Stands). The fill rather than the boundary curves,
-/// because that is the shape the region actually covers: a crescent's bounding
-/// box taken off its two arcs' endpoints would sit half outside it.
-///
-/// Cut through the same [`Filler`] the sheets are, so what a form stands clear
-/// of is exactly what is drawn.
-pub(crate) fn region_corners(
-    models: Models<'_>,
-    sheets: &mut Sheets,
-    sketch: FeatureId,
-    region: usize,
-    into: &mut Vec<Vec3>,
-) {
-    into.clear();
-    let Sheets { filler, fill, .. } = sheets;
-    let Some(model) = models.at(sketch) else {
-        return;
-    };
-    let arrangement = model.arrangement();
-    let Some(face) = arrangement.faces().get(region) else {
-        return;
-    };
-    filler.fill(arrangement, face, FACE_SAGITTA, fill);
-    let plane = model.plane();
-    into.extend(fill.corners.iter().map(|&at| plane.point(at).as_vec3()));
-}
-
-/// A mark for every relation the drawing states, saying what holds and where.
-///
-/// Set in type rather than drawn as geometry, which is what makes the whole set
-/// one rule: every relation gets a symbol, the symbol is legible at any zoom
-/// because it is sized in pixels, and adding a tenth constraint is a line in
-/// [`symbol`] rather than a shape to construct.
-///
-/// **Turned into the sketch's plane**, so a mark reads as lettering on the
-/// drawing rather than as a note pinned over it. Only the *direction* it runs
-/// in: it is still sized in pixels, so the zoom cannot reach it and neither can
-/// the angle the plane is seen at — see [`Facing`]. Which way up it comes out is
-/// the renderer's, and always the way that reads.
-///
-/// One mark *or two*, and stacked where several want one place — see
-/// [`marks::stacked`], which decides all of how many, where, and how high.
-/// Where there are two they carry the same name, so a click on either takes
-/// the constraint.
-///
-/// Tagged like everything else, so a mark is picked and deleted the way the
-/// geometry it is about is — which is the whole of how an over-constrained
-/// sketch gets un-stuck.
-fn write_marks(
-    models: Models<'_>,
-    names: &mut Names,
-    placed: &mut Vec<Placed>,
-    typed: Option<Part>,
-    proposed: Option<Constraint>,
-    marks: &mut Batch<Text>,
-) {
-    // **The open sketch alone.** A constraint is a statement *about* a drawing,
-    // and one you are not in is not a drawing you can argue with: its marks can
-    // neither be selected into a relation nor typed into, so all they do is
-    // crowd the sketch you are working in — and a dimension is the densest
-    // thing the drawing puts on screen. The geometry of a dormant sketch still
-    // shows, dimmed, because where it *is* is something you build against.
-    let live = models.open();
-    // Laid out whole, before anything is left out. What lane a mark rises in
-    // depends on how many share its place, so a stack that was worked out from
-    // what is *shown* would close ranks the moment a field opened over one of
-    // them — and closing ranks under a double-click reads as the click having
-    // nudged the drawing.
-    placed.clear();
-    marks::stacked(live, placed);
-    marks.refill(
-        placed
-            .iter()
-            // The one being retyped has a field standing over it — see
-            // [`Prompt::show`](crate::prompt::Prompt) — and a mark left
-            // under one would be a second copy of the number showing
-            // through wherever the field did not quite cover it.
-            .filter(move |placed| Some(live.part(placed.of)) != typed)
-            .map(|placed| Marked::Stated(*placed))
-            // Last, so a dimension being placed is written over the drawing
-            // rather than under it — and so the tags the drawing handed out
-            // are the same whether or not a tool is half-way through one.
-            .chain(proposed.and_then(|constraint| {
-                Some(Marked::Proposed(
-                    constraint,
-                    marks::previewed(live.sketch(), constraint)?,
-                ))
-            })),
-        |mark, marked| {
-            let placed = marked.mark();
-            let constraint = marked.constraint(live.sketch());
-            // Rewritten in place rather than assigned, so a drawing whose marks are
-            // laid out every frame keeps the string it already has — which is what
-            // keeps a scrubbed dimension off the heap sixty times a second.
-            mark.content.clear();
-            match constraint.value() {
-                // A dimension reads as its measurement. That *is* the mark: a
-                // number beside a length says both that the length is stated and
-                // what it is stated as, where a symbol would say only the first and
-                // leave the drawing unreadable.
-                Some(value) => {
-                    let unit = radius_prefix(constraint);
-                    write!(mark.content, "{unit}{value:.*}", DECIMALS)
-                        .expect("writing to a string cannot fail");
-                }
-                None => mark.content.push_str(symbol(constraint)),
-            }
-            let plane = live.plane();
-            mark.position = plane.point(placed.at).as_vec3();
-            mark.font = mark_font();
-            // **Centred on its own box**, with the clearance carried by the
-            // lift below instead. An anchor fraction rides in the run's own
-            // frame, and both rules that settle that frame — the mirror and the
-            // half turn — would carry it along, swinging the box to the other
-            // side of the very line it stands clear of. A centred box is mapped
-            // onto itself by either, so it only ever changes direction.
-            mark.anchor = Vec2::splat(0.5);
-            mark.color = match marked {
-                // A proposal has no state to report: the constraints have not
-                // been asked about it, so it cannot be redundant and cannot be
-                // anything else either. The grey a rubber band wears, and for
-                // the same reason — it is not in the drawing yet.
-                Marked::Proposed(..) => GHOST,
-                Marked::Stated(stated) if live.outcome().is_redundant(stated.of) => {
-                    ink(live, REDUNDANT)
-                }
-                Marked::Stated(..) => ink(live, MARK),
-            };
-            mark.precedence = standing(live);
-            // Lettered on the drawing rather than pinned over it: set along the
-            // geometry it is about — the span a dimension measures, the edge a
-            // symbol names — so a number reads as belonging to the line under it
-            // and turns with the plane it belongs to. Which direction that is,
-            // is [`marks::anchors`]'s; what is here is putting it on the plane.
-            //
-            // Clear of that geometry by the lift, which is stated in the plane's
-            // own axes and so is the one thing about a mark the projection
-            // cannot move.
-            mark.facing = Facing::Turned(mark_turn(live.drawing(), placed));
-            // Untagged where it is a proposal, which is what keeps it out of the
-            // way: a pick skips a primitive with no tag, so the click that
-            // *commits* the dimension resolves against the geometry behind it
-            // rather than against the picture of what it is about to make.
-            mark.tag = match marked {
-                Marked::Stated(stated) => Some(names.tag(live.part(stated.of))),
-                Marked::Proposed(..) => None,
-            };
-        },
-    );
-}
-
-/// One mark to write: a relation the drawing states, or the dimension a tool is
-/// half-way through placing.
-///
-/// One writer for both, because a preview that was drawn by other code would be
-/// a second opinion about what a dimension looks like — and the whole of what a
-/// preview is for is showing what the click will make. What they differ in is
-/// stated in the two places it is real: a proposal has no state to report and
-/// nothing to pick.
-///
-/// Neither carries the drawing it belongs to, unlike [`Stroke`] and [`Rim`]
-/// below. Those are written for every sketch the document holds and so name one
-/// apiece; marks are written for the open sketch alone, which is one model the
-/// writer already has in hand.
-#[derive(Debug, Clone, Copy)]
-enum Marked {
-    Stated(Placed),
-    /// The constraint the next click would state, and where its mark would go.
-    ///
-    /// Carried rather than looked up, because the sketch does not hold it: there
-    /// is no handle to ask with, which is exactly what makes it a proposal.
-    Proposed(Constraint, Standing),
-}
-
-impl Marked {
-    /// What it says — out of `sketch` where the sketch is what holds it, and
-    /// carried where nothing does.
-    fn constraint(self, sketch: &Sketch) -> Constraint {
-        match self {
-            Marked::Stated(placed) => sketch.constraint(placed.of),
-            Marked::Proposed(constraint, _) => constraint,
-        }
-    }
-
-    /// Where it stands and which way it runs.
-    fn mark(self) -> Mark {
-        match self {
-            Marked::Stated(placed) => placed.mark,
-            Marked::Proposed(_, standing) => standing.grounded(),
-        }
-    }
-}
-
-/// How far a mark's own middle stands clear of the geometry it names, in
-/// line-heights.
-///
-/// Better than a box-height, so the mark clears the stroke it is about rather
-/// than sitting on it. Across, a mark is centred on what it names and there is
-/// nothing to state.
-///
-/// Reached only through [`mark_rise`], which is what folds the stack in — and
-/// that is the whole reason it is a constant rather than a number written where
-/// the run is given it. A field is drawn *instead of* a mark and must land on
-/// the same pixels, so where a mark's box stands has to be one answer: it lifts
-/// the run, and [`mark_centre`] measures from it on the field's behalf.
-const MARK_CLEAR: f32 = 1.1;
-
-/// How far a mark rises above the one below it in its stack, in line-heights.
-///
-/// One, which is the tightest spacing two runs cannot overlap in: an anchor is
-/// a fraction of the run's *own* box, so a whole one is exactly the height of
-/// the type. And a fraction of the box rather than a number of pixels, which is
-/// what keeps a stack the same shape at every zoom without the camera being
-/// consulted.
-///
-/// A column rather than a row, and that is an engineering fact rather than a
-/// preference: how *wide* a run comes out depends on the faces the shaper falls
-/// back through, which only the renderer knows — see
-/// [`Text::extent`](aperture::Text) — so nothing laying marks out could say
-/// where the second one in a row would start.
-const STACK_STEP: f32 = 1.0;
-
-/// How far a mark in `lane` stands clear of the geometry it names, in logical
-/// pixels along the plane's own down.
-///
-/// [`MARK_CLEAR`] and [`STACK_STEP`] as a length rather than as fractions of a
-/// box, which is what a lift is stated in — and the one form both readers want:
-/// the run is given it outright, and what stands in the run's place measures
-/// from it. Two spellings would be a field a lane off its own number, which is a
-/// thing you can only see by opening one.
-///
-/// The lane is asked for rather than assumed, because a mark sharing its place
-/// with others does not sit where a lone one would.
-fn mark_rise(lane: u8) -> f32 {
-    (MARK_CLEAR + f32::from(lane) * STACK_STEP) * mark_font().line_height_px
-}
-
-/// How far below the middle of its number a dimension's own line runs, in
-/// line-heights.
-///
-/// Under the figure rather than through it, which is where ISO 129 puts one and
-/// what a number with a stroke across it is not. Less than [`MARK_CLEAR`], so
-/// the line still stands clear of the geometry it measures — a rule drawn on the
-/// edge it is about is an edge drawn twice.
-const RULE_DROP: f32 = 0.6;
-
-/// How far a dimension's own line stands clear of the geometry it measures, in
-/// logical pixels along the plane's own down.
-///
-/// Read off [`mark_rise`] rather than stated apart from it, and that is the
-/// whole of why it is here: a mark and the line it sits on have to move
-/// together, and a stack that raised one and not the other would leave a number
-/// floating off its own dimension. Which is a thing you would only see on a
-/// drawing whose marks had piled up.
-fn rule_rise(lane: u8) -> f32 {
-    mark_rise(lane) - RULE_DROP * mark_font().line_height_px
-}
-
-/// Where the middle of a mark's box sits in the world.
-///
-/// **What a form standing *in place of* a mark is placed against** — see
-/// [`Stands::Over`](crate::prompt::Stands). The middle rather than the anchor,
-/// because the anchor is the geometry the mark is about and the box floats clear
-/// of it; and the middle rather than a corner, because that is where the run's
-/// own width cancels: a field centring its own text here lands on the mark's
-/// pixels whatever the number measures.
-///
-/// Read through the same [`Turn::axes`] the mark was drawn along, so the rise
-/// clears the geometry up the *run's* own frame rather than up the screen —
-/// which on a plane seen at any angle are two different directions, and on the
-/// plane the camera happens to face are one.
-///
-/// The lens comes into it here and nowhere else in this file: what a logical
-/// pixel is worth in the world at the mark is the whole of what a viewpoint has
-/// to say about where a box stands, the frame being the plane's. It does not
-/// reach [`redraw`] — a mark is laid out against the document and sized against
-/// the screen by the *shader* — so this is on the asking half's schedule, which
-/// is where the form that reads it already is.
-pub(crate) fn mark_centre(placed: Mark, drawing: Drawing<'_>, lens: Lens) -> Vec3 {
-    let anchor = placed.world(drawing);
-    anchor + mark_turn(drawing, placed).lift_world() * lens.world_per_pixel(anchor)
-}
-
-/// How far a mark's box stands off the point it names, in the world.
-///
-/// **What a press on a number records.** The box floats clear of the geometry so
-/// the figure can be read, and a placement says where the *point* goes — so a
-/// press lands in the box while the change writes the anchor, and the two differ
-/// by exactly this. Reading it here is what lets the grab keep the number under
-/// the cursor rather than snapping it.
-///
-/// Its inverse is [`mark_anchor`] and not a subtraction of this, which is the
-/// whole of what that one is for: taken at the press it is a constant, and a
-/// radius's clearance is not.
-pub(crate) fn mark_standoff(placed: Mark, drawing: Drawing<'_>, lens: Lens) -> Vec3 {
-    mark_centre(placed, drawing, lens) - placed.world(drawing)
-}
-
-/// Where a mark is anchored for its box to land on `at`.
-///
-/// **The inverse of [`mark_centre`], and stated beside it because a drag needs
-/// both.** A number is grabbed by its box and placed by its anchor, so a gesture
-/// that says where the box goes has to answer where the anchor goes — and taking
-/// the clearance off by subtraction is only right where the clearance does not
-/// depend on the answer.
-///
-/// For every dimension but one it does not: the direction a mark is set along
-/// comes from the geometry it measures, which a drag on the number leaves alone.
-/// A **radius** is the one, because its leader runs out through wherever the
-/// number was *put* — so the clearance turns as the number moves, and taking off
-/// the last frame's is a drag chasing an answer that keeps changing. Held still
-/// it did not stop: at some bearings the number swapped between two places a
-/// whole clearance apart, frame after frame, for ever.
-///
-/// So a radius is inverted rather than iterated, and it inverts in closed form.
-/// The clearance is square to the leader, so with `q` running from the circle's
-/// centre to the box, `q = p + clear · perp(p̂)` is a right triangle: Pythagoras
-/// gives `|p|` outright, and reading `q` against the basis `p̂` makes gives the
-/// direction in one line more. No search, no lag, and nothing left to be
-/// unstable.
-pub(crate) fn mark_anchor(
-    placed: Mark,
-    constraint: Constraint,
-    drawing: Drawing<'_>,
-    lens: Lens,
-    at: Vec3,
-) -> Vec3 {
-    // Taken at the box rather than at the point it is solving for, which is the
-    // one approximation here and is a fraction of a pixel: the two are a
-    // clearance apart, and what a pixel is worth changes over that distance only
-    // as far as the perspective divide does.
-    let step = lens.world_per_pixel(at);
-    let Constraint::Radius { circle, .. } = constraint else {
-        // Square to a direction the geometry decides, so taking it off is exact.
-        return at - mark_turn(drawing, placed).lift_world() * step;
-    };
-    let sketch = drawing.sketch();
-    let centre = sketch.point(sketch.circle(circle).center).position;
-    let plane = drawing.plane();
-    let clear = f64::from(mark_rise(placed.lane) * step);
-    let q = plane.flatten(at.as_dvec3()) - centre;
-    let across = q.length_squared();
-    let reach = (across - clear * clear).max(0.0).sqrt();
-    let point = if across > 0.0 {
-        (q * reach - q.perp() * clear) * (reach / across)
-    } else {
-        DVec2::ZERO
-    };
-    plane.point(centre + point).as_vec3()
-}
-
-/// How the mark for `placed` is laid in the drawing's plane.
-///
-/// One statement, read twice: the run is given it, and whatever stands in the
-/// run's place measures from it. The two coming to different answers is a field
-/// that misses its own number, and on a plane seen at an angle it would miss it
-/// in a different direction every frame.
-fn mark_turn(drawing: Drawing<'_>, placed: Mark) -> Turn {
-    let plane = drawing.plane();
-    let along = plane.x * placed.along.x + plane.y * placed.along.y;
-    Turn::new(along.as_vec3(), plane.normal().as_vec3())
-        .lifted(Vec2::new(0.0, mark_rise(placed.lane)))
 }
 
 /// Decimal places a dimension is read out to.
@@ -872,165 +356,6 @@ fn symbol(constraint: Constraint) -> &'static str {
             unreachable!("a dimension is drawn as its number, not as a symbol")
         }
     }
-}
-
-/// The sketch's straight strokes, one edge per segment, biased clear of
-/// the solids in depth so the drawing reads over them. Circles are not
-/// strokes — see [`write_rings`].
-fn write_curves(
-    models: Models<'_>,
-    names: &mut Names,
-    band: Option<Ends>,
-    curves: &mut Batch<Curve>,
-) {
-    // The band belongs to the sketch being drawn in, which is the one plane it
-    // could lie in: a tool draws where you are, not where you are not. Worked
-    // out only where there is one, since most frames have none.
-    let banding = band.map(|_| models.open().plane().normal().as_vec3());
-    // Written over the strokes already there rather than into fresh ones, which
-    // for a `Curve` is the difference between a frame that reaches the heap and
-    // one that does not — see `Batch::refill`. The band is chained on rather
-    // than pushed after for the same reason: appended, it would be dropped by
-    // the next rewrite of the drawing and allocated afresh by the one after,
-    // once a frame for as long as a line is being drawn.
-    curves.refill(
-        models
-            .iter()
-            .flat_map(|model| {
-                model
-                    .sketch()
-                    .segments()
-                    .map(move |(id, edge)| Stroke::Edge(model, id, edge))
-            })
-            .chain(band.map(Stroke::Band)),
-        |curve, stroke| {
-            curve.width = EDGE_WIDTH;
-            match stroke {
-                Stroke::Edge(model, id, edge) => {
-                    let (sketch, plane) = (model.sketch(), model.plane());
-                    let a = plane.point(sketch.point(edge.a).position).as_vec3();
-                    let b = plane.point(sketch.point(edge.b).position).as_vec3();
-                    curve.set_segment(a, b);
-                    curve.color = ink(model, colour(model.outcome().segment(id)));
-                    curve.precedence = standing(model);
-                    curve.plane_normal = Some(plane.normal().as_vec3());
-                    curve.tag = Some(names.tag(model.part(id)));
-                }
-                // Untagged, which is what keeps the band out of the way: a pick
-                // skips a primitive with no tag, so it cannot be hovered,
-                // grabbed or picked out, and the click that finishes the line
-                // resolves against the geometry behind it.
-                Stroke::Band(ends) => {
-                    curve.set_segment(ends.from, ends.to);
-                    curve.color = GHOST;
-                    curve.precedence = Precedence::Shaped;
-                    curve.plane_normal = banding;
-                    curve.tag = None;
-                }
-            }
-        },
-    );
-}
-
-/// One stroke to write: an edge the sketch holds, or the band a tool is in the
-/// middle of drawing.
-#[derive(Debug)]
-enum Stroke<'a> {
-    Edge(Model<'a>, SegmentId, Segment),
-    Band(Ends),
-}
-
-/// The sketch's points, one marker apiece — larger and pinned-coloured
-/// where the solver may not move it.
-///
-/// The plane comes along for the same reason a stroke's does: a disc is
-/// flat in depth and the surface under it is not, so without it the glyph
-/// is sliced wherever the plane is seen at an angle.
-fn write_points(models: Models<'_>, names: &mut Names, points: &mut Batch<Point>) {
-    points.refill(
-        models
-            .iter()
-            .flat_map(|model| model.sketch().points().map(move |at| (model, at))),
-        |marker, (model, (id, point))| {
-            let plane = model.plane();
-            // Pinned by hand outranks pinned by consequence: a fixed point is
-            // determined too, but saying so in the same colour would lose the
-            // one thing about it the user chose.
-            let (color, size) = if point.fixed {
-                (PINNED, FIXED_MARKER)
-            } else {
-                (colour(model.outcome().point(id)), FREE_MARKER)
-            };
-            // Assigned whole where a stroke is edited in place: a marker owns
-            // nothing, so replacing one costs what overwriting it would.
-            *marker = Point::new(plane.point(point.position).as_vec3())
-                .colored(ink(model, color))
-                .size(size)
-                .in_plane(plane.normal().as_vec3())
-                .precedence(standing(model))
-                .tagged(names.tag(model.part(id)));
-        },
-    );
-}
-
-/// The sketch's circles, one ring apiece.
-///
-/// Not tessellated into strokes: the count that looks round depends on how
-/// large the circle lands on screen, and the renderer resolves a ring in
-/// the fragment stage instead, which is round at every zoom and needs no
-/// rebuilding when the camera moves.
-///
-/// No plane named, unlike the strokes — a ring's band is widened in its
-/// own plane, so the depth it carries is already the surface's.
-fn write_rings(models: Models<'_>, names: &mut Names, band: Option<Ends>, rings: &mut Batch<Ring>) {
-    // The band's plane is the open sketch's, exactly as among the strokes.
-    let banding = band.map(|_| models.open().plane().normal().as_vec3());
-    rings.refill(
-        models
-            .iter()
-            .flat_map(|model| {
-                model
-                    .sketch()
-                    .circles()
-                    .map(move |(id, circle)| Rim::Circle(model, id, circle))
-            })
-            .chain(band.map(Rim::Band)),
-        |ring, rim| {
-            // Assigned whole, like a marker and unlike a stroke: a rim owns
-            // nothing either.
-            *ring = match rim {
-                Rim::Circle(model, id, circle) => {
-                    let (sketch, plane) = (model.sketch(), model.plane());
-                    Ring::new(
-                        plane.point(sketch.point(circle.center).position).as_vec3(),
-                        circle.radius.abs() as f32,
-                        plane.normal().as_vec3(),
-                    )
-                    .colored(ink(model, colour(model.outcome().circle(id))))
-                    .precedence(standing(model))
-                    .tagged(names.tag(model.part(id)))
-                }
-                // Through the cursor rather than out to it: the second click
-                // says how big by naming somewhere on the rim. Untagged, like
-                // the band among the strokes.
-                Rim::Band(ends) => Ring::new(
-                    ends.from,
-                    ends.from.distance(ends.to),
-                    banding.expect("a band is drawn only where there is one"),
-                )
-                .colored(GHOST),
-            }
-            .width(EDGE_WIDTH);
-        },
-    );
-}
-
-/// One rim to write: a circle the sketch holds, or the band a tool is in the
-/// middle of drawing.
-#[derive(Debug)]
-enum Rim<'a> {
-    Circle(Model<'a>, CircleId, Circle),
-    Band(Ends),
 }
 
 #[cfg(test)]

@@ -32,7 +32,7 @@ use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::layout::Layout;
 use crate::paint::marks::Placed;
 use crate::paint::showing::Showing;
-use crate::paint::{EDGE_WIDTH, GHOST, MARK, marks, rule_rise};
+use crate::paint::{EDGE_WIDTH, GHOST, MARK, marks};
 use crate::part::Part;
 
 mod dimension;
@@ -86,7 +86,7 @@ const AXIS_CORNER: Vec3 = Vec3::new(0.50, 0.52, 0.55);
 ///
 /// **The open sketch's dimensions alone**, matching the marks they belong to: a
 /// number you cannot select or type into is a number that only crowds the sketch
-/// you are working in — see [`write_marks`](crate::paint::write_marks).
+/// you are working in — see [`texts`](crate::paint::write::texts).
 pub(crate) fn write(
     models: Models<'_>,
     layout: &mut Layout,
@@ -218,7 +218,7 @@ fn ruled<'a>(
                     // the measurement knows.
                     along: placed.along,
                     label: placed.at
-                        + placed.along.perp() * (f64::from(rule_rise(placed.lane)) * scale),
+                        + placed.along.perp() * (f64::from(placed.rule_rise()) * scale),
                     ..measured
                 },
                 // A radius points at its rim and not at its own centre —

@@ -12,9 +12,9 @@ places where the code has drifted from what its own documentation claims, where
 one concept is spelled two ways, or where a bundle that already exists somewhere
 is passed apart everywhere else.
 
-The hygiene and argument-reduction ones have landed, and are gone from here
-rather than annotated. What is left is six: three moves of code into the module
-it belongs in, and three rewrites to argue about first.
+The hygiene, argument-reduction and placement ones have landed, and are gone
+from here rather than annotated. What is left is three rewrites to argue about
+first.
 
 ---
 
@@ -71,8 +71,8 @@ either:
 
 No finding rides on this any more. The pairs that were *read* apart have been
 gathered — `aimed` and `viewport` meet in `Lens`, `preview` and what a form is
-half-way through meet in `Showing` — and what is left is the size of the one
-call that reads all three concerns at once, which is F12.
+half-way through meet in `Showing` — and the one call that read all three
+concerns at once has been split into `poll`, `clicked` and `previewing`.
 
 ---
 
@@ -88,8 +88,8 @@ CatCad::record
 │     ├─ grab(response, document, session) → Gesture
 │     │  └─ under(scene, aimed, lens) → Under { aim, hit, part }
 │     ├─ drag  → aimed::landing(.., held.motion)                     a second motion
-│     ├─ click → under(..) ; anchor(landing, sketch, under)
-│     ├─ preview → the same landing
+│     ├─ click → under(..) ; clicked(Click { .., under, at: landing }, ..)
+│     ├─ previewing(session, drawing, landing, intents) → Option<Preview>
 │     └─ navigate(response, lens, intents)
 ├─ apply()
 │  ├─ Session::apply(models, intents)          walk 1 — Choice
@@ -102,7 +102,8 @@ CatCad::record
 │  └─ run()                                    walk 3 — Errand (by index)
 ├─ draw(ui)
 │  ├─ SceneView::draw(ui)
-│  ├─ ask(ui)                                  ← 92 lines of *placement* logic
+│  ├─ ask(ui)
+│  │  ├─ SceneView::stands(about, models, lens) → Option<Stands>
 │  │  └─ Prompt::show(ui, stands, models, intents) → commit → Intents
 │  └─ Hud::show(ui, Shown { .. }, intents)
 ├─ apply()
@@ -113,8 +114,8 @@ CatCad::record
    └─ *renderer.camera_mut() = document.camera()
 ```
 
-The graph is acyclic and one-directional, which is the point. What stands out on
-it now is one thing: `ask` is doing work that belongs a layer down (F9).
+The graph is acyclic and one-directional, which is the point, and nothing on it
+now sits a layer from where it belongs.
 
 ---
 
@@ -133,44 +134,7 @@ new variant. All three are asked back-to-back in `History::edit`, and `feature`
 once and makes a new variant a compile error in all three dimensions.
 **Effort: 45 min.**
 
-### Placement — code in the wrong module
-
-**F9 — `CatCad::ask` is 92 lines of *where a form stands*, in `lib.rs`.**
-`prompt/mod.rs`'s own module doc says what is left after palantir is *"the two
-things neither can know: where in the world the form is about, and what
-pressing Enter means."* The second is in `prompt`. The first is in `lib.rs`,
-matching on `Asking` and reaching into `paint::mark_centre`, `prompt::footprint`,
-`Model::rim_around`, `Model::rim_of`, `Profile::face_of`, `SceneView::placed`,
-`SceneView::band_rim` and `SceneView::region_footprint`.
-
-Every one of those inputs is the view's, plus `models` and the lens. It should be
-`SceneView::stands(&mut self, about: &Asking, models: Models<'_>, lens: Lens) ->
-Option<Stands>` — the borrow works, because `about` borrows `self.session` and
-`stands` borrows the disjoint `self.view`, and `Stands` is `Copy` so the session
-borrow ends before `prompt_mut()`. `CatCad::ask` becomes about eight lines,
-`region_footprint` and `band_rim` stop being public surface, and `lib.rs` goes
-back to being orchestration only. **Effort: 1 h. Highest structural payoff.**
-
-**F11 — `paint/mod.rs` is 1036 lines and holds five unrelated groups.** Colours
-and freedom mapping; `scene`/`redraw`; six `write_*` writers; the mark screen-
-geometry family (`mark_centre`, `mark_standoff`, `mark_anchor`, `mark_turn`,
-`mark_rise`, `rule_rise`); and the symbol table (`symbol`, `radius_prefix`,
-`DECIMALS`). The `mark_*` family is six free functions all taking a `Mark` —
-which normally means they want to be methods on `Mark` — and the reason they are
-not is a *good* one, stated in `paint/marks/mod.rs`: that module is deliberately
-pixel-free plane arithmetic. So the split is right and only the file is wrong: a
-`paint/marks/screen.rs` (pixels, a `Lens`, `Mark` methods) beside
-`paint/marks/mod.rs` (plane, no pixels) keeps the stated boundary and gives the
-family a home. The writers want `paint/write.rs` or one file per kind.
-**Effort: 1.5 h, mechanical.**
-
-**F12 — `SceneView::poll` is ~395 lines with seven responsibilities**: pointer
-subscription, press→gesture, drag→change, click→tool dispatch (8 match arms),
-right-click, preview construction, suggestion feedback, plus the already-split
-`navigate`. The click block alone is ~160 lines. Splitting `clicked(..)` and
-`previewing(..)` out follows the precedent `navigate` already set, and the
-arguments they would have had to thread are already gathered: what the extracted
-calls take is `landing`, `lens` and `session`. **Effort: 1 h.**
+### Placement — state and forwards in the wrong place
 
 **F13 — `Build::cleaned` is not derived from the timeline.** `Build` is
 documented as *"everything derived from a `Timeline` rather than written down in
@@ -213,11 +177,11 @@ Recording these so they are not re-litigated:
   spelling.
 - **`Model::live` / `Models::editing` carrying session state.** It is not a fact
   about the document, and the doc says so. The alternative threads `editing`
-  through `ink()`, `standing()` and every `write_*` — trading one field for many
+  through `ink()`, `standing()` and every writer — trading one field for many
   arguments. Current shape is correct.
 - **`Held { part, grabbed, motion, offset }`.** `motion` is genuinely not
   derivable from `grabbed` without also keeping `hit.world`.
-- **`mark_anchor`'s closed-form radius inversion.** Verified: with
+- **`Mark::anchor`'s closed-form radius inversion.** Verified: with
   `across = |q|²`, the expression `(q·reach − perp(q)·clear)·reach/across` has
   magnitude `reach` and the right bearing. The math is correct.
 - **`Choice::Select(Some(Part::Growing))`** raised on drag-start of the depth
@@ -231,9 +195,8 @@ Recording these so they are not re-litigated:
 
 ## 5. Implementation plan
 
-Two phases left of four, ordered so each lands on a clean tree. Neither changes
-behaviour: F9, F11 and F12 move code without rewriting any of it, and F3, F13
-and F14 restate what is already computed.
+One phase left of four. Nothing in it changes behaviour: F3, F13 and F14 restate
+what is already computed.
 
 Verification after every phase, per the standing rule:
 
@@ -244,35 +207,18 @@ cargo fmt -p catcad \
 ```
 
 The visual suite (`tests/visual`) needs a GPU and is the real regression net for
-F9 and F11 — run it explicitly on those phases.
-
-### Phase 2 — placement (≈3.5 h)
-
-1. **F9 — move `CatCad::ask`'s placement match to
-   `SceneView::stands(about, models, lens)`.** Largest structural win. After it,
-   `region_footprint` and `band_rim` become private and `lib.rs` drops ~85
-   lines. The `Asking` match moves wholesale; nothing inside it changes.
-2. **F12 — split `SceneView::poll`** into `poll` / `clicked` / `previewing`,
-   keeping `navigate` as it is. The extracted calls take `landing`, `lens` and
-   `session` rather than rebuilding any of them.
-3. **F11 — split `paint/mod.rs`** into `paint/{mod.rs, write.rs,
-   marks/screen.rs}`. Mechanical; `marks/screen.rs` takes the `mark_*` family
-   and turns them into `Mark` methods, which is what the no-free-functions rule
-   asks for and what the pixel/plane boundary permits once they are out of
-   `marks/mod.rs`.
-
-**Run the visual suite again.**
+anything that touches what is drawn — run it explicitly.
 
 ### Phase 3 — optional, argue first (≈2.5 h)
 
-4. **F3 — `Change::about() -> About`** replacing `creates`/`feature`/
+1. **F3 — `Change::about() -> About`** replacing `creates`/`feature`/
    `coalesces`. Straightforward, and it makes `coalesces` exhaustive, which it is
    not today. I would do this one.
-5. **F13 — move `Build::cleaned` out of `Build`.** Needs
+2. **F13 — move `Build::cleaned` out of `Build`.** Needs
    `Document::apply -> Applied { made, cleaned }` and a notice field on `CatCad`.
    Real cleanup, real churn. Worth doing before roadmap §5 (step deletion) adds
    more edit kinds that would each have to remember the clear rule.
-6. **F14 — `Document::timeline()`** replacing five forwards. Judgement call;
+3. **F14 — `Document::timeline()`** replacing five forwards. Judgement call;
    skip if the narrower surface is preferred.
 
 ### Sequencing against the roadmap

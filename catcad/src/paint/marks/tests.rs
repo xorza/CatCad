@@ -1,6 +1,11 @@
 use super::*;
 use silverpoint::{Along, Dimension, Plane};
 
+use glam::Vec3;
+
+use crate::drawing::Drawing;
+use crate::paint::marks::mark::Mark;
+
 /// A drawing of `sketch` on the ground, whose plane maps sketch `(x, y)` to
 /// world `(x, 0, -y)` — so an anchor is read back by asking for x and −z.
 fn on_ground(sketch: &Sketch) -> Drawing<'_> {

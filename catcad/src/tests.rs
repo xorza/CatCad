@@ -1501,7 +1501,7 @@ fn a_dimension_set(app: &CatCad, wanted: impl Fn(DVec2) -> bool) -> Option<(Part
     let drawing = app.document.drawing_at(sketch);
     drawing.sketch().constraints().find_map(|(id, constraint)| {
         let value = constraint.value()?;
-        wanted(app.view.placed(id)?.mark.along).then_some((
+        wanted(app.view.marked(id)?.along).then_some((
             Part::Entity {
                 sketch,
                 entity: id.into(),
@@ -2254,7 +2254,7 @@ fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
     let out = cursor_on(&mut app, plane.point(DVec2::new(-1.0, 2.5)).as_vec3());
     harness.move_to(out);
     frame(&mut app, &mut harness);
-    let banded = |app: &CatCad| app.view.band_rim().map(|to| middle.distance(to));
+    let banded = |app: &CatCad| app.view.banded().map(|to| middle.distance(to));
     assert!(
         (banded(&app).expect("the band follows the pointer") - 2.0).abs() < 1e-3,
         "the band measured {:?} rather than the two units it was carried",

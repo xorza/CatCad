@@ -48,7 +48,6 @@ use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::{Change, Choice, Errand, Intent, Intents, Step};
 use crate::part::Part;
-use crate::prompt::{Asking, Stands};
 use crate::scene_view::SceneView;
 use crate::session::Session;
 use crate::tool::Tool;
@@ -272,91 +271,20 @@ impl CatCad {
         let Some(prompt) = self.session.prompt() else {
             return;
         };
-        // Where the drawing is being looked at from, which is the whole of what
-        // placing a form against it takes: every arm below either projects a
-        // point or measures a footprint, and both are answers in a viewport.
-        // `None` until the view has arranged, and then there is nowhere on
-        // screen for a form to stand yet.
+        // How the drawing is being looked at, which is what placing a form
+        // against it is answered in. `None` until the view has arranged, and
+        // until then there is nowhere on screen for a form to stand.
         let Some(lens) = self.view.lens(self.document.camera()) else {
             return;
         };
         let models = self.document.models(&self.build, self.session.editing());
-        // Where each kind of form stands, worked out before the form is
-        // borrowed *mutably* to be shown — the drawing is reached through the
-        // session and the form is part of it.
-        let stands = match prompt.about() {
-            Asking::Dimension { part } => {
-                let part = *part;
-                // Where the mark *would* be drawn, which is where the field
-                // stands instead — see [`paint::redraw`], which leaves out the
-                // mark of whatever is being typed into. Read off the layout
-                // rather than worked out again, so the field lands on the lane
-                // the drawing gave the mark and not on the one an unstacked
-                // anchor would have.
-                let found = models.iter().find_map(|model| match model.entity(part) {
-                    Some(Entity::Constraint(id)) => Some((model.drawing(), id)),
-                    _ => None,
-                });
-                // Never missing, on the same terms `Session::prune` guarantees:
-                // a form open over a dimension an undo took away is closed
-                // before the frame that would draw it.
-                let (drawing, id) =
-                    found.expect("a form is open over a dimension the drawing no longer holds");
-                // Unplaced is a different thing from gone, and only the second
-                // is a broken promise. A drawing places the marks of the sketch
-                // it is *in*, so a form outliving a click that opened another
-                // sketch has a dimension the layout knows nothing about — and
-                // that is a frame the form is not shown for rather than one it
-                // is closed by, exactly as a form swung off screen is. See
-                // [`prompt::footprint`].
-                self.view
-                    .placed(id)
-                    .and_then(|placed| {
-                        // The middle of the mark's own box rather than the point
-                        // it hangs off, and worked out by the drawing: the box
-                        // rises up the *run's* frame, which is the sketch
-                        // plane's — see [`paint::mark_centre`].
-                        let middle = paint::mark_centre(placed.mark, drawing, lens);
-                        lens.screen_of(middle)
-                    })
-                    .map(Stands::Over)
-            }
-            // Beside the centre already placed, which is all there is of the
-            // circle until a radius says otherwise.
-            Asking::Circle { sketch, center } => models
-                .at(*sketch)
-                .and_then(|model| {
-                    // The whole rim rather than the centre and the pointer
-                    // between them: a circle reaches its radius in *every*
-                    // direction, so a box drawn to wherever the band happens to
-                    // have got to is a quarter of one — and a form standing
-                    // clear of that quarter stands on the rest.
-                    let middle = model.drawing().at(*center);
-                    let radius = self.view.band_rim().map_or(0.0, |to| middle.distance(to));
-                    lens.footprint(model.rim_around(middle, radius))
-                })
-                .map(Stands::Beside),
-            // Beside the circle it is about, which is the rim projected: a
-            // form standing over the middle of one would cover the very
-            // geometry the number is describing.
-            Asking::Radius { sketch, circle } => {
-                let rim = models.at(*sketch).map(|model| model.rim_of(*circle));
-                rim.and_then(|rim| lens.footprint(rim)).map(Stands::Beside)
-            }
-            // Resolved here rather than remembered, for the reason the form
-            // holds a name at all: the arrangement it was read from is not the
-            // one it is being drawn against.
-            Asking::Extrude { profile } => profile
-                .face_of(models)
-                .and_then(|region| {
-                    self.view
-                        .region_footprint(models, profile.sketch(), region, lens)
-                })
-                .map(Stands::Beside),
-        };
-        // Nowhere to stand is a frame the form is not shown for, not a form
-        // that closes: the camera turning back brings it round again.
-        let Some(stands) = stands else {
+        // Where the form stands, asked of the view before the form is borrowed
+        // *mutably* to be shown — what it is about is reached through the
+        // session, and the form is part of one.
+        //
+        // Nowhere to stand is a frame the form is not shown for rather than a
+        // form that closes — see [`SceneView::stands`].
+        let Some(stands) = self.view.stands(prompt.about(), models, lens) else {
             return;
         };
         let Some(prompt) = self.session.prompt_mut() else {

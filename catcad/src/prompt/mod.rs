@@ -97,7 +97,7 @@ pub(crate) enum Asking {
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Stands {
     /// The middle of the box the drawing would have put what the form replaces
-    /// in — see [`mark_centre`](crate::paint::mark_centre).
+    /// in — see [`Mark::centre`](crate::paint::marks::mark::Mark).
     ///
     /// The middle rather than the mark's anchor, and worked out before it gets
     /// here, because where a mark's box sits relative to the geometry it names

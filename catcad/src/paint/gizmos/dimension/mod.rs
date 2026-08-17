@@ -2,7 +2,7 @@
 //!
 //! **The number is not here.** A mark is laid out against the document and
 //! sized against the screen by the shader, so it owes the camera nothing and is
-//! written with the drawing — see [`write_marks`](crate::paint::write_marks).
+//! written with the drawing — see [`texts`](crate::paint::write::texts).
 //! What is here is everything that has to be *re-cut* when the camera moves:
 //! the gaps, the overshoots and the heads are all in logical pixels, and a
 //! world length grown from a pixel one is a length only a camera can give.
