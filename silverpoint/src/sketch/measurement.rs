@@ -103,14 +103,25 @@ impl Measurement {
                 // from the centre and the leader runs out through wherever the
                 // number was put — which is what makes dragging the number turn
                 // the leader with it.
-                let along = Direction::of(dimension.placement).unit;
+                let placed = Direction::of(dimension.placement);
+                // One nobody has placed reads on the rim, out along the sketch's
+                // own +x. At the centre a bare number would read as belonging to
+                // whatever else is drawn through the middle, which for a circle
+                // on a corner is every mark that corner carries — so a placement
+                // of nothing cannot mean "at the centre" and is taken as "not
+                // yet placed" instead.
+                let (along, label) = if placed.known() {
+                    (placed.unit, center + dimension.placement)
+                } else {
+                    (DVec2::X, center + DVec2::X * ring.radius)
+                };
                 Some(Self {
                     // The rim as drawn rather than as stated, so the leader
                     // touches the circle even where a solve has not yet brought
                     // the two together.
                     feet: [center, center + along * ring.radius],
                     along,
-                    label: center + dimension.placement,
+                    label,
                     value: dimension.value,
                 })
             }
@@ -359,6 +370,15 @@ mod tests {
         assert_eq!(east.along, DVec2::X);
         assert_eq!(east.feet, [DVec2::new(2.0, 2.0), DVec2::new(5.0, 2.0)]);
         assert_eq!(east.label, DVec2::new(6.0, 2.0));
+
+        // Placed nowhere at all, which is what a radius the bar has just
+        // offered holds: it reads on the rim along the sketch's own +x rather
+        // than at the centre, where a bare number would belong to whatever else
+        // runs through the middle.
+        let unplaced = leader(&sketch, DVec2::ZERO);
+        assert_eq!(unplaced.along, DVec2::X);
+        assert_eq!(unplaced.label, DVec2::new(5.0, 2.0));
+        assert_eq!(unplaced.feet, east.feet, "the leader moved with the label");
 
         // Straight down, and inside the rim: the leader still reaches the rim,
         // because what it has to touch is the circle rather than the label.

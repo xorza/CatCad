@@ -630,6 +630,27 @@ fn mark_rise(lane: u8) -> f32 {
     (MARK_CLEAR + f32::from(lane) * STACK_STEP) * mark_font().line_height_px
 }
 
+/// How far below the middle of its number a dimension's own line runs, in
+/// line-heights.
+///
+/// Under the figure rather than through it, which is where ISO 129 puts one and
+/// what a number with a stroke across it is not. Less than [`MARK_CLEAR`], so
+/// the line still stands clear of the geometry it measures — a rule drawn on the
+/// edge it is about is an edge drawn twice.
+const RULE_DROP: f32 = 0.6;
+
+/// How far a dimension's own line stands clear of the geometry it measures, in
+/// logical pixels along the plane's own down.
+///
+/// Read off [`mark_rise`] rather than stated apart from it, and that is the
+/// whole of why it is here: a mark and the line it sits on have to move
+/// together, and a stack that raised one and not the other would leave a number
+/// floating off its own dimension. Which is a thing you would only see on a
+/// drawing whose marks had piled up.
+pub(super) fn rule_rise(lane: u8) -> f32 {
+    mark_rise(lane) - RULE_DROP * mark_font().line_height_px
+}
+
 /// Where the middle of a mark's box sits in the world.
 ///
 /// **What a form standing *in place of* a mark is placed against** — see

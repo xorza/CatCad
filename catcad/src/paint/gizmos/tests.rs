@@ -279,11 +279,19 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
     // Every tag a control carries still reports the datum it was drawn for,
     // which is the half truncating has to keep true: a list written back over
     // could as easily have left the tags pointing into the drawing.
-    for gizmo in scene.gizmos.iter() {
-        let tag = gizmo.tag.expect("a control with no name cannot be grabbed");
+    for gizmo in scene.gizmos.iter().filter(|gizmo| gizmo.tag.is_some()) {
+        let tag = gizmo.tag.expect("this one was just filtered for");
         assert!(
             matches!(layout.names().get(tag), Some(Part::Plane(_))),
             "{tag:?} stopped naming the datum it belongs to"
         );
     }
+    // And the batch does hold strokes with no name, which is what makes the
+    // filter above a statement rather than a way of passing: a dimension's lines
+    // are drawn here and deliberately unnamed, because what a dimension offers a
+    // click is its number — see [`write`].
+    assert!(
+        scene.gizmos.iter().any(|gizmo| gizmo.tag.is_none()),
+        "nothing in the batch was left unnamed, so the demo drew no dimension"
+    );
 }

@@ -1,26 +1,40 @@
-//! The controls a drawing puts on screen, and the shapes they are cut from.
+//! Everything the drawing writes against the *camera* rather than against the
+//! document: the controls it puts on screen, and the lines a dimension is drawn
+//! with.
 //!
 //! **Measured in pixels**, which is what a control *is*: how big one is says
 //! nothing about the model, and one that shrank with the zoom would stop being
 //! grabbable exactly when you had zoomed out to find it. See
-//! [`Camera::world_per_pixel`](aperture::Camera).
+//! [`Camera::world_per_pixel`](aperture::Camera). A dimension's gaps, overshoots
+//! and arrowheads are pixels for the neighbouring reason — they are read rather
+//! than modelled — and a world length grown from a pixel one is a length only a
+//! camera can give.
 //!
 //! So they are written on a different schedule from the drawing beside them. A
-//! stroke of the drawing is rewritten when the *drawing* moves; a control is
-//! built against the camera, so it is rewritten whenever that moves — which
-//! during an orbit is every frame. Gating the two together would mean re-cutting
-//! every face and every solid on each of those frames, which is the whole cost
+//! stroke of the drawing is rewritten when the *drawing* moves; these are built
+//! against the camera, so they are rewritten whenever that moves — which during
+//! an orbit is every frame. Gating the two together would mean re-cutting every
+//! face and every solid on each of those frames, which is the whole cost
 //! [`redraw`](crate::paint::redraw)'s own gate exists to avoid.
+//!
+//! **The schedule is what they have in common, and it is enough.** A control is
+//! grabbed and a dimension line is read, so they share no colour, no width and
+//! no standing; what they share is that neither can be written without a camera,
+//! and one batch written twice is a batch rewritten twice.
 
 use aperture::{Batch, Camera, Curve, Precedence, Viewport};
 use glam::{DVec2, Vec3};
-use silverpoint::Plane;
+use silverpoint::{Constraint, Measurement, Plane};
 
 use crate::model::Models;
+use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::growing::Growing;
 use crate::paint::layout::Layout;
+use crate::paint::marks::Placed;
+use crate::paint::{EDGE_WIDTH, MARK, rule_rise};
 use crate::part::Part;
 
+mod dimension;
 mod shape;
 
 /// What a datum's two axis arrows are drawn in.
@@ -51,14 +65,27 @@ const DEPTH_ARROW: Vec3 = Vec3::new(0.78, 0.76, 0.70);
 /// rather than a third direction, and giving it one of theirs would say it was.
 const AXIS_CORNER: Vec3 = Vec3::new(0.50, 0.52, 0.55);
 
-/// Write every control the drawing wants: a datum's axes, and the arrow that
-/// carries a solid still being decided.
+/// Write every control the drawing wants — a datum's axes, and the arrow that
+/// carries a solid still being decided — and the lines its dimensions are drawn
+/// with.
 ///
-/// Named as the plane itself, every piece of it. Several tags reporting one
-/// [`Part`] is what [`Names`](crate::names::Names) is already built to allow —
-/// a tag is a position in a list and nothing assumes the list holds each part
-/// once — so grabbing any of them grabs the datum, and lighting the datum
-/// lights them all.
+/// A control is named as the plane itself, every piece of it. Several tags
+/// reporting one [`Part`] is what [`Names`](crate::names::Names) is already
+/// built to allow — a tag is a position in a list and nothing assumes the list
+/// holds each part once — so grabbing any of them grabs the datum, and lighting
+/// the datum lights them all.
+///
+/// **A dimension's lines are named nothing.** What a dimension offers a click is
+/// its number, which is a label and outranks any stroke running under it — see
+/// [`HitAt::rank`](aperture::HitAt). A line named as the dimension would rank as
+/// an *edge*, tying with the real ones it is drawn among, so a dimension line
+/// lying over a segment would take the click meant for the segment. Telling the
+/// two apart wants a standing between `Shaped` and `Aside` that does not exist
+/// yet, and a dimension already has a handle.
+///
+/// **The open sketch's dimensions alone**, matching the marks they belong to: a
+/// number you cannot select or type into is a number that only crowds the sketch
+/// you are working in — see [`write_marks`](crate::paint::write_marks).
 pub(crate) fn write(
     models: Models<'_>,
     layout: &mut Layout,
@@ -67,7 +94,12 @@ pub(crate) fn write(
     viewport: Viewport,
     into: &mut Batch<Curve>,
 ) {
-    let Layout { names, sheets, .. } = layout;
+    let Layout {
+        names,
+        sheets,
+        placed,
+        ..
+    } = layout;
     // Back to what the drawing named, and no further. These are appended after
     // it and rewritten far more often, so without this the list would grow by a
     // gizmo's worth every frame the camera moved.
@@ -83,31 +115,52 @@ pub(crate) fn write(
                     Piece::Hub(plane),
                     Piece::Corner(plane),
                 ]
-                .map(move |piece| (Part::Plane(at), piece))
+                .map(move |piece| (Some(Part::Plane(at)), piece))
             })
-            .chain(carried.map(|carried| (Part::Growing, Piece::Depth(carried)))),
+            .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))
+            .chain(ruled(models, placed, camera, viewport)),
         |curve, (part, piece)| {
-            curve.width = GIZMO_WIDTH;
-            curve.closed = true;
+            curve.width = piece.width();
+            curve.closed = piece.closes();
             curve.points.clear();
             // Sized where it *stands*, not where the camera is looking: under
             // perspective a pixel covers more world the further off it is, so a
             // control on a distant plane built to the target's scale would come
             // out the wrong size.
-            let scale = f64::from(camera.world_per_pixel(piece.stands_at(), viewport));
+            //
+            // Asked for rather than taken, because a dimension's strokes were
+            // sized where they stand before they were ever a [`Piece`] — see
+            // [`ruled`], which has to know the scale to work out what shape they
+            // are at all.
+            let scale = || f64::from(camera.world_per_pixel(piece.stands_at(), viewport));
             match piece {
-                Piece::Axis(plane, along, _) => curve
+                Piece::Axis(plane, along, _) => {
+                    let scale = scale();
+                    curve
+                        .points
+                        .extend(shape::arrow(along).map(|at| plane.point(at * scale).as_vec3()));
+                }
+                Piece::Hub(plane) => {
+                    let scale = scale();
+                    curve
+                        .points
+                        .extend(shape::hub().map(|at| plane.point(at * scale).as_vec3()));
+                }
+                Piece::Corner(plane) => {
+                    let scale = scale();
+                    curve
+                        .points
+                        .extend(shape::corner().map(|at| plane.point(at * scale).as_vec3()));
+                }
+                Piece::Depth(carried) => {
+                    let scale = scale();
+                    curve
+                        .points
+                        .extend(shape::arrow(DVec2::X).map(|at| carried.at(at, scale)));
+                }
+                Piece::Ruled(plane, stroke) => curve
                     .points
-                    .extend(shape::arrow(along).map(|at| plane.point(at * scale).as_vec3())),
-                Piece::Hub(plane) => curve
-                    .points
-                    .extend(shape::hub().map(|at| plane.point(at * scale).as_vec3())),
-                Piece::Corner(plane) => curve
-                    .points
-                    .extend(shape::corner().map(|at| plane.point(at * scale).as_vec3())),
-                Piece::Depth(carried) => curve
-                    .points
-                    .extend(shape::arrow(DVec2::X).map(|at| carried.at(at, scale))),
+                    .extend(stroke.corners().map(|at| plane.point(at).as_vec3())),
             }
             curve.color = piece.ink();
             // A control lies in a plane and is widened in screen space, so it
@@ -115,9 +168,78 @@ pub(crate) fn write(
             // thing every stroke of the drawing does.
             curve.plane_normal = piece.lies_in().map(|plane| plane.normal().as_vec3());
             curve.precedence = piece.ranks();
-            curve.tag = Some(names.tag(part));
+            curve.tag = part.map(|part| names.tag(part));
         },
     );
+}
+
+/// Every stroke the open sketch's dimensions are drawn from, already sized
+/// against the camera.
+///
+/// Sized here rather than in the closure below, and that is what makes it its
+/// own walk: what shape a dimension's strokes *are* depends on the scale — a gap
+/// too long for the geometry leaves no extension line, and a head is a triangle
+/// only once its reach is a world length — so the scale is spent before there is
+/// a [`Piece`] to hold the answer.
+///
+/// **Off the marks rather than off the constraints**, though both are there to
+/// be walked. Where a dimension's number went is not a property of the relation:
+/// it is settled a mark at a time and then *stacked*, so two dimensions wanting
+/// one place are moved apart — and a line worked out from the constraint alone
+/// would stay behind while its own number rose. Reading the list the marks were
+/// laid out from is what keeps the figure sitting on the line that carries it.
+///
+/// The list is [`redraw`](crate::paint::redraw)'s, and current whenever this
+/// runs: it is rewritten whenever the drawing moves, and skipped only on the
+/// frames where the drawing has not.
+fn ruled<'a>(
+    models: Models<'a>,
+    placed: &'a [Placed],
+    camera: &'a Camera,
+    viewport: Viewport,
+) -> impl Iterator<Item = (Option<Part>, Piece)> + 'a {
+    models
+        .iter()
+        .find(|model| model.live())
+        .into_iter()
+        .flat_map(move |model| {
+            let (sketch, plane) = (model.sketch(), model.plane());
+            placed
+                .iter()
+                .filter_map(move |placed| {
+                    let constraint = sketch.constraint(placed.of);
+                    let measured = Measurement::of(sketch, constraint)?;
+                    // Where the *number* stands, which is what an extension line
+                    // is reaching to and so what the gaps at either end of one
+                    // dimension have to be sized against.
+                    let at = plane.point(placed.at).as_vec3();
+                    let scale = f64::from(camera.world_per_pixel(at, viewport));
+                    let strokes = dimension::strokes(
+                        Measurement {
+                            // The mark's own direction and height, so the line
+                            // lands under the figure it carries: the first is
+                            // settled either side of a cut and the second is
+                            // where the stack left it, and neither is anything
+                            // the measurement knows.
+                            along: placed.along,
+                            label: placed.at
+                                + placed.along.perp() * (f64::from(rule_rise(placed.lane)) * scale),
+                            ..measured
+                        },
+                        // A radius points at its rim and not at its own centre —
+                        // see [`dimension::strokes`].
+                        !matches!(constraint, Constraint::Radius { .. }),
+                        scale,
+                    );
+                    Some((plane, strokes))
+                })
+                .flat_map(|(plane, strokes)| {
+                    strokes
+                        .into_iter()
+                        .flatten()
+                        .map(move |stroke| (None, Piece::Ruled(plane, stroke)))
+                })
+        })
 }
 
 /// How wide a control is stroked, in logical pixels.
@@ -138,25 +260,59 @@ enum Piece {
     /// The arrow carrying a solid's depth, which stands out of its plane rather
     /// than lying in one.
     Depth(Carried),
+    /// One stroke of a dimension: an extension line, the dimension line itself,
+    /// or an arrowhead. Already sized — see [`ruled`].
+    Ruled(Plane, Stroke),
 }
 
 impl Piece {
     /// The plane it lies in, where it lies in one.
     fn lies_in(self) -> Option<Plane> {
         match self {
-            Piece::Axis(plane, ..) | Piece::Hub(plane) | Piece::Corner(plane) => Some(plane),
+            Piece::Axis(plane, ..)
+            | Piece::Hub(plane)
+            | Piece::Corner(plane)
+            | Piece::Ruled(plane, _) => Some(plane),
             Piece::Depth(_) => None,
         }
     }
 
     /// Where in the world it stands, which is where its size in pixels is
     /// measured.
+    ///
+    /// A dimension's strokes are never asked: they were sized where they stand
+    /// before they became pieces, and the plane's origin they would answer with
+    /// here is nowhere near where they were drawn.
     fn stands_at(self) -> Vec3 {
         match self {
-            Piece::Axis(plane, ..) | Piece::Hub(plane) | Piece::Corner(plane) => {
-                plane.origin.as_vec3()
-            }
+            Piece::Axis(plane, ..)
+            | Piece::Hub(plane)
+            | Piece::Corner(plane)
+            | Piece::Ruled(plane, _) => plane.origin.as_vec3(),
             Piece::Depth(carried) => carried.tail,
+        }
+    }
+
+    /// Whether the last corner joins back to the first.
+    ///
+    /// Every control is a filled outline, and a dimension is filled at its heads
+    /// and open along its lines.
+    fn closes(self) -> bool {
+        match self {
+            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Depth(_) => true,
+            Piece::Ruled(_, stroke) => stroke.closes(),
+        }
+    }
+
+    /// How wide it is stroked, in logical pixels.
+    ///
+    /// A dimension takes the drawing's own width rather than a control's,
+    /// because it *is* drawing: what a heavier stroke says is "take hold of
+    /// me", and a dimension line is read.
+    fn width(self) -> f32 {
+        match self {
+            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Depth(_) => GIZMO_WIDTH,
+            Piece::Ruled(..) => EDGE_WIDTH,
         }
     }
 
@@ -166,6 +322,12 @@ impl Piece {
             Piece::Axis(_, _, ink) => ink,
             Piece::Hub(_) | Piece::Corner(_) => AXIS_CORNER,
             Piece::Depth(_) => DEPTH_ARROW,
+            // The number's own colour: the lines are that number's, and a hue
+            // of their own would read as a third kind of thing on the drawing.
+            // Not the redundant red a spare relation wears — a dimension the
+            // constraints could do without says so in its figure, and saying it
+            // twice would double the ink on the one case that is already loud.
+            Piece::Ruled(..) => MARK,
         }
     }
 
@@ -180,7 +342,14 @@ impl Piece {
     /// pick as well as losing to it.
     fn ranks(self) -> Precedence {
         match self {
-            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) => Precedence::Frame,
+            // A dimension's lines rank with the datum for the same reason, and
+            // it decides nothing anyway: they carry no tag, so no pick ever
+            // reaches them. Stated all the same, because a stroke that later
+            // earned a name would otherwise inherit whatever this happened to
+            // say.
+            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Ruled(..) => {
+                Precedence::Frame
+            }
             Piece::Depth(_) => Precedence::Shaped,
         }
     }

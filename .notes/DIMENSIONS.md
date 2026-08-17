@@ -499,13 +499,27 @@ distance so the shape is visible on the page, and the round-trip sweep carries
 `Standoff`, `Spacing` and a non-default `along` and placement, so a writer that
 dropped either would be caught.
 
-**3 — catcad: drawing one properly.** The dimension geometry in `paint::gizmos`
-— extension lines, dimension line, arrowheads off `shape::arrow` — and
-`marks::anchors` answering the `Measurement`'s `label` for a dimension so the
-number rides its placement. The gap, overshoot and head-size constants. Visual
-goldens for a sketch carrying one of each. The form is verified by the existing
-double-click path landing on the moved mark, since it is placed off
-`mark_centre`.
+**3 — catcad: drawing one properly.** *Built.* `gizmos::dimension` cuts the
+extension lines, the dimension line and the arrowheads; `marks::anchors` answers
+the `Measurement`'s `label` for all four dimensions, so the number rides its
+placement. The reconciliation named below is finished with it.
+
+Three things came out differently. **A radius nobody has placed** falls back to
+the rim along `+x` inside `Measurement::of`, rather than the caller having to
+know to place one — which made the whole reconciliation invisible to the tests
+that already pinned where a radius mark goes. **The strokes are cut off the mark
+list, not off the constraints**: where a dimension's number went is settled a
+mark at a time and then stacked, so a line worked out from the relation alone
+would stay behind while its own number rose. And they ride `rule_rise`, which is
+`mark_rise` less a fixed drop — the figure sits above its line and the line
+stands clear of the geometry, and the two move together because one is defined
+off the other.
+
+What the visual suite needed was not new goldens but a way to take the
+camera-scheduled batch *out*. It is rewritten on every frame recorded, so a test
+cannot empty it through the app — the capture puts it back. `painted` records
+through a bare pane instead, and the three tests that weigh what the drawing
+alone deposits go through it.
 
 **4 — placing and moving.** `Change::Place`, `Sketching::place`, coalescing, the
 fourth `Grabbed`, and the grip on the number. Tested by placing a label,
@@ -532,10 +546,13 @@ four dimensions those are the same question, and `Measurement` is the fuller
 answer — it carries the feet, which is the half the drawing needs and `anchors`
 does not have.
 
-Half of it is done: `anchors`' `Standoff` and `Spacing` arms already ask
-`Measurement::of` and read `label` and `along` off it, which is what deleted the
-second copy of the perpendicular-foot formula. The `Distance` and `Radius` arms
-have not moved, and that is the rest of phase 3. Two things have to come with it — `Measurement::along`
+*Done.* All four of `anchors`' dimension arms ask `Measurement::of` and read
+`label` and `along` off it, which deleted the second copy of the
+perpendicular-foot formula and made the placement reach the mark. What stayed
+behind in `marks` is the half that is genuinely presentation: the direction is
+settled either side of `CUT` so a mark does not turn over as the drawing is
+dragged past it, and the lane is a fact about every *other* mark rather than
+about the measurement. Two things have to come with it — `Measurement::along`
 has to go through `marks::canonical`, or a span drawn back to front would flip
 the frame a stored placement is read in; and `Measurement` for a radius has to
 stop deriving its direction from the placement, or dragging the number would

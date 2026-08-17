@@ -231,46 +231,35 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
             })
         }
 
-        // Dimension. The axis relations are here rather than among the meetings
+        // The axis relations, which are here rather than among the meetings
         // because what they constrain is the *line* through a pair of points
-        // rather than either point.
-        //
-        // Along the span they measure, which is the whole of what a drawing does
-        // with a number: it belongs to that line and reads as belonging to it.
-        Constraint::Distance { a, b, .. }
-        | Constraint::Horizontal { a, b }
-        | Constraint::Vertical { a, b } => {
+        // rather than either point. On the middle of that line and along it,
+        // which is where a statement about a span belongs.
+        Constraint::Horizontal { a, b } | Constraint::Vertical { a, b } => {
             let (a, b) = (at_point(sketch, a), at_point(sketch, b));
             one((a + b) * 0.5, along([a, b]))
         }
-        // The two that measure square to an edge, asked of the one place that
-        // works out what a dimension spans. Both want the foot of a
-        // perpendicular on an edge's *infinite* line, which is geometry rather
-        // than presentation and is already answered — writing it out again here
-        // would be a second formula for one rule, and the two would agree until
-        // the day one of them was changed.
+
+        // Dimension. All four asked of the one place that works out what a
+        // dimension spans, rather than four rules here that would have to agree
+        // with it: a number belongs to the span it measures, and *where that
+        // span is* is geometry rather than presentation.
         //
-        // What is still this file's is the direction: a measurement runs from
-        // the line out toward what stands off it, and a mark has to be settled
-        // either side of [`CUT`] so it does not turn over when the drawing is
-        // dragged past it.
-        Constraint::Standoff { .. } | Constraint::Spacing { .. } => {
-            let measured = Measurement::of(sketch, constraint)
-                .expect("a standoff and a spacing both state a number");
+        // It is also what carries a placement. A dimension the user has dragged
+        // clear reads at [`Measurement::label`], and a mark that worked out a
+        // middle of its own would leave the number behind the moment one was
+        // moved.
+        //
+        // What is still this file's is which way the mark is *set*: a
+        // measurement runs one way and a mark has to be settled either side of
+        // [`CUT`], or it would turn over as the drawing is dragged past it.
+        Constraint::Distance { .. }
+        | Constraint::Standoff { .. }
+        | Constraint::Spacing { .. }
+        | Constraint::Radius { .. } => {
+            let measured =
+                Measurement::of(sketch, constraint).expect("a dimension states a number");
             one(measured.label, canonical(measured.along))
-        }
-        Constraint::Radius { circle, .. } => {
-            let it = sketch.circle(circle);
-            // One direction, read twice: it is both where on the rim the number
-            // sits and the radius that number is measuring. Two spellings would
-            // let a bearing moved for the sake of the first quietly stop being
-            // the second.
-            let radial = DVec2::X;
-            // On the rim rather than at the centre, where a bare number reads
-            // as belonging to whatever else is drawn through the middle. A
-            // fixed bearing rather than a fitted one, so that a circle being
-            // dragged does not send its own number round it.
-            one(at_point(sketch, it.center) + radial * it.radius, radial)
         }
     }
 }

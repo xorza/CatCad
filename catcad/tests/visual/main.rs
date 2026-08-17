@@ -133,6 +133,27 @@ fn render(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
     capture(size, &mut app)
 }
 
+/// The demo painted through a bare pane rather than through the app, so that
+/// what is in the scene is the caller's to decide.
+///
+/// The app rewrites its camera-scheduled batch on every frame it records — the
+/// controls, and the lines its dimensions are drawn with, are built *against the
+/// camera* and so cannot be built once and kept. That makes them the one thing a
+/// test cannot take out by emptying: the very capture that reads the frame puts
+/// them back. A pane records nothing but the view, so whatever is left in the
+/// scene is what is drawn.
+///
+/// The camera is the renderer's here rather than the document's, for the same
+/// reason: nothing records, so nothing copies one over to the other.
+fn painted(size: UVec2, prepare: impl FnOnce(&mut Renderer)) -> Frame {
+    let app = CatCad::build();
+    prepare(&mut app.renderer().borrow_mut());
+    let mut pane = ScenePane {
+        view: app.renderer().clone(),
+    };
+    capture(size, &mut pane)
+}
+
 /// Paint `app` once and read the frame back.
 ///
 /// Split out of [`render`] so a test can paint the same app twice. The
@@ -484,8 +505,9 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
         scene.rings.clear();
     }
     let cleared = capture(size, &mut app);
-    assert!(
-        strokes(&cleared, 430).is_empty(),
+    assert_eq!(
+        strokes(&cleared, 430).len(),
+        strokes(&bare(size), 430).len(),
         "strokes outlived the curves they were drawn from"
     );
 
@@ -504,6 +526,36 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
         strokes(&first, 430).len(),
         "a grown buffer drew a different set of strokes than the same geometry did"
     );
+}
+
+/// The same view with nothing in the curves batch, and nothing ever uploaded
+/// from it.
+///
+/// What the emptiness check above compares against, because emptiness is no
+/// longer the right word: the controls and a dimension's lines are their own
+/// batch, written against the *camera* on every frame — so the very capture that
+/// reads the column redraws them, and no clearing on this side can reach them.
+///
+/// A second app rather than a second look at the first, and that is the whole of
+/// what makes it a reference: this one is emptied before it has ever painted, so
+/// there are no bytes behind its curves batch for a ghost to be read out of. Any
+/// stroke the cleared frame has over this one came from the buffer that was
+/// supposed to have been replaced.
+///
+/// Its own drawing is skipped for free: [`redraw`] is gated on what it last drew
+/// and a fresh app's layout already claims to have drawn, so the batch emptied
+/// here stays empty through the frame.
+fn bare(size: UVec2) -> Frame {
+    let mut app = CatCad::build();
+    edge_on(1.4)(app.camera_mut());
+    {
+        let mut view = app.renderer().borrow_mut();
+        let scene = view.scene_mut();
+        scene.texts.clear();
+        scene.curves.clear();
+        scene.rings.clear();
+    }
+    capture(size, &mut app)
 }
 
 /// The regression a fixed segment count cannot pass.
@@ -632,10 +684,8 @@ enum Overlay {
 /// column crosses is the demo's business and changes whenever the demo does,
 /// where what is *drawn* is this test's to decide.
 fn deposited(pitch: f32, overlay: Overlay) -> f32 {
-    let mut app = CatCad::build();
-    edge_on(pitch)(app.camera_mut());
-    {
-        let mut renderer = app.renderer().borrow_mut();
+    let frame = painted(UVec2::new(800, 628), |renderer| {
+        edge_on(pitch)(renderer.camera_mut());
         // The markers, the constraint marks, the faces and the solids go in
         // both cases: none is either of the two overlays being weighed, and each
         // lands in the columns measured below — the first two on the ends of
@@ -645,18 +695,23 @@ fn deposited(pitch: f32, overlay: Overlay) -> f32 {
         // solid is the one that *hides* rather than decorates: the demo grows a
         // cylinder off the hub, and seen from overhead it covers the rim it was
         // grown from — so a run left in would weigh nothing at all.
+        //
+        // The controls go too, and with them the lines a dimension is drawn
+        // with. Neither is one of the two overlays either, and a dimension's is
+        // the worse of the two to leave: an arrowhead is a filled triangle, so a
+        // column crossing one measures a run several times the width being
+        // weighed and drags the average with it.
         let scene = renderer.scene_mut();
         scene.points.clear();
         scene.texts.clear();
         scene.faces.clear();
         scene.solids.clear();
+        scene.gizmos.clear();
         match overlay {
             Overlay::Curves => scene.rings.clear(),
             Overlay::Rings => scene.curves.clear(),
         }
-    }
-
-    let frame = capture(UVec2::new(800, 628), &mut app);
+    });
     let widths: Vec<f32> = MEASURED_COLUMNS
         .flat_map(|column| strokes(&frame, column).into_iter().map(|drawn| drawn.width))
         .collect();
@@ -776,16 +831,24 @@ fn solids_still_hide_the_strokes_behind_them() {
 /// Both also clear the datum's gizmo, which lies between them and reaches
 /// further left than the drawing does — [`lit_span`] measures a silhouette and
 /// cannot tell furniture from geometry, so what the two rows must have in
-/// common is that neither crosses any.
+/// common is that neither crosses any. A dimension's lines are the same
+/// furniture by the same argument and are taken out outright, because unlike the
+/// gizmos they run the length of what they measure and there is no row across
+/// the drawing that misses them.
 #[test]
 fn orthographic_holds_the_drawing_to_one_width() {
     const FAR_ROW: u32 = 240;
     const NEAR_ROW: u32 = 420;
 
-    let flat = render(
-        UVec2::new(800, 628),
-        drawing_in_frame(Projection::Orthographic),
-    );
+    /// The drawing alone, framed the same way through either projection.
+    fn spanned(projection: Projection) -> Frame {
+        painted(UVec2::new(800, 628), |renderer| {
+            drawing_in_frame(projection)(renderer.camera_mut());
+            renderer.scene_mut().gizmos.clear();
+        })
+    }
+
+    let flat = spanned(Projection::Orthographic);
     let (far, near) = (lit_span(&flat, FAR_ROW), lit_span(&flat, NEAR_ROW));
     assert!(
         far > 300 && near > 300,
@@ -796,10 +859,7 @@ fn orthographic_holds_the_drawing_to_one_width() {
         "orthographic widened the drawing from {far} to {near} across the view"
     );
 
-    let solid = render(
-        UVec2::new(800, 628),
-        drawing_in_frame(Projection::Perspective),
-    );
+    let solid = spanned(Projection::Perspective);
     let (far, near) = (lit_span(&solid, FAR_ROW), lit_span(&solid, NEAR_ROW));
     assert!(
         near > far + 50,
