@@ -52,34 +52,24 @@ impl Curves {
     /// sliver of face between them that nobody drew.
     pub(super) fn corners(&self, into: &mut Vec<DVec2>) {
         into.clear();
-        let add = |at: DVec2, found: &mut Vec<DVec2>| {
-            if !found.iter().any(|&had: &DVec2| had.approx_eq(at, TOUCHING)) {
-                found.push(at);
-            }
-        };
         for (span, _) in &self.straight {
-            add(span.from, into);
-            add(span.to, into);
+            into.push(span.from);
+            into.push(span.to);
         }
         for (at, (one, _)) in self.straight.iter().enumerate() {
             for (two, _) in &self.straight[at + 1..] {
-                for crossing in intersect::spans(*one, *two).iter() {
-                    add(crossing, into);
-                }
+                into.extend(intersect::spans(*one, *two).iter());
             }
             for (ring, _) in &self.round {
-                for crossing in intersect::span_ring(*one, *ring).iter() {
-                    add(crossing, into);
-                }
+                into.extend(intersect::span_ring(*one, *ring).iter());
             }
         }
         for (at, (one, _)) in self.round.iter().enumerate() {
             for (two, _) in &self.round[at + 1..] {
-                for crossing in intersect::rings(*one, *two).iter() {
-                    add(crossing, into);
-                }
+                into.extend(intersect::rings(*one, *two).iter());
             }
         }
+        fold(into);
     }
 
     /// Cut every curve at the corners that lie on it, working in `on`.
@@ -93,8 +83,17 @@ impl Curves {
         for (span, of) in &self.straight {
             let along = span.to - span.from;
             let reach = along.length_squared();
+            // The box the span occupies, grown by as far as a corner may sit
+            // off it and still count as on it.
+            let (low, high) = (
+                span.from.min(span.to) - TOUCHING,
+                span.from.max(span.to) + TOUCHING,
+            );
             on.clear();
             on.extend(corners.iter().enumerate().filter_map(|(at, &corner)| {
+                if !within(corner, low, high) {
+                    return None;
+                }
                 let t = (corner - span.from).dot(along) / reach;
                 let nearest = span.from + along * t.clamp(0.0, 1.0);
                 nearest.approx_eq(corner, TOUCHING).then_some((t, at))
@@ -112,12 +111,27 @@ impl Curves {
             }
         }
         for (ring, of) in &self.round {
+            // The rim's own box, grown as the spans' are above, and the band a
+            // corner's distance from the centre has to fall in — squared, so
+            // the test costs no square root. A radius is over [`TOUCHING`] by
+            // the time it reaches here, so the near edge of the band is
+            // positive and squaring keeps the order.
+            let (low, high) = (
+                ring.center - (ring.radius + TOUCHING),
+                ring.center + (ring.radius + TOUCHING),
+            );
+            let (near, far) = (
+                (ring.radius - TOUCHING).powi(2),
+                (ring.radius + TOUCHING).powi(2),
+            );
             on.clear();
             on.extend(corners.iter().enumerate().filter_map(|(at, &corner)| {
+                if !within(corner, low, high) {
+                    return None;
+                }
                 let out = corner - ring.center;
-                out.length()
-                    .approx_eq(ring.radius, TOUCHING)
-                    .then(|| (out.y.atan2(out.x).rem_euclid(TAU), at))
+                let reach = out.length_squared();
+                (near <= reach && reach <= far).then(|| (out.y.atan2(out.x).rem_euclid(TAU), at))
             }));
             on.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("angles are finite"));
             if on.is_empty() {
@@ -156,4 +170,56 @@ impl Curves {
             }
         }
     }
+}
+
+/// Fold places within [`TOUCHING`] of each other into one corner.
+///
+/// Ordered across the drawing first, so each place is compared only against
+/// those it could possibly be near: two within [`TOUCHING`] of each other are
+/// within it *across*, so a walk back that stops at the first further away has
+/// already seen every place that could fold with this one. That is what keeps
+/// the fold off the square of the crossings — a drawing of a few hundred of
+/// them compared every one against every other, which is most of what a rebuild
+/// used to be.
+///
+/// **Which of a near pair survives is not a fact about the drawing**, here or
+/// before: what is being folded is a rounding, and the two are the same place.
+/// Nothing downstream reads the order either — an edge names its ends by
+/// position, and those are looked up against this list after it is settled.
+fn fold(corners: &mut Vec<DVec2>) {
+    corners.sort_by(|a, b| {
+        a.x.partial_cmp(&b.x)
+            .expect("a crossing of finite curves is finite")
+    });
+    let mut kept = 0;
+    for at in 0..corners.len() {
+        let candidate = corners[at];
+        // Back through the places already kept, which are the ones to the left
+        // of this and in order, until one is further off across than a fold
+        // could reach.
+        let mut folded = false;
+        let mut back = kept;
+        while back > 0 && candidate.x - corners[back - 1].x <= TOUCHING {
+            back -= 1;
+            if corners[back].approx_eq(candidate, TOUCHING) {
+                folded = true;
+                break;
+            }
+        }
+        if !folded {
+            corners[kept] = candidate;
+            kept += 1;
+        }
+    }
+    corners.truncate(kept);
+}
+
+/// Whether `corner` falls in the box between `low` and `high`.
+///
+/// What a curve turns corners away by before measuring them properly. Every
+/// corner in the drawing is offered to every curve and most are nowhere near
+/// it, so four comparisons stand in for a projection and a distance, or for a
+/// square root.
+fn within(corner: DVec2, low: DVec2, high: DVec2) -> bool {
+    !corner.cmplt(low).any() && !corner.cmpgt(high).any()
 }

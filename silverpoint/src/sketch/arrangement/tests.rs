@@ -746,3 +746,57 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
         }
     }
 }
+
+/// **Crossings a hair apart are one corner, not several.**
+///
+/// Three lines drawn through almost the same place cross in three places rather
+/// than one, none of them where any was drawn to be: the arithmetic puts them a
+/// fraction of a unit apart, and what the drawing means is a single junction.
+/// Left as three, the drawing gains a triangle nobody drew and the two edges
+/// meeting at each of them gain a sliver of face between them.
+///
+/// Asked of the corners rather than of the faces, because the faces cannot tell
+/// the two apart where the miss is small: a triangle that size is under
+/// [`SLIVER`] and is thrown away for its area whether or not the corners were
+/// folded. What says the fold happened is that there is one corner where there
+/// would otherwise be three.
+///
+/// Both misses over one fixture, because a count means nothing on its own — the
+/// same three lines missing by a quarter of a unit keep their three crossings
+/// and shut in the triangle between them, which is what says the count above is
+/// the fold rather than the arithmetic.
+#[test]
+fn crossings_within_a_rounding_of_each_other_fold_to_one_corner() {
+    // A tenth of the fold's own reach, and a quarter of a unit.
+    for (miss, corners, faces) in [(1e-10, 7, 0), (0.25, 9, 1)] {
+        let mut sketch = Sketch::default();
+        let flat = [point(&mut sketch, -1.0, 0.0), point(&mut sketch, 1.0, 0.0)];
+        sketch.add_segment(flat[0], flat[1]);
+        let upright = [point(&mut sketch, 0.0, -1.0), point(&mut sketch, 0.0, 1.0)];
+        sketch.add_segment(upright[0], upright[1]);
+        // `y = x + miss`, which meets the flat one at `(−miss, 0)` and the
+        // upright one at `(0, miss)` — neither of them the origin, where the
+        // other two meet.
+        let across = [
+            point(&mut sketch, -1.0, -1.0 + miss),
+            point(&mut sketch, 1.0, 1.0 + miss),
+        ];
+        sketch.add_segment(across[0], across[1]);
+
+        // Six ends, all far apart, and then either one folded junction or the
+        // three separate crossings.
+        let found = arranged(&sketch);
+        assert_eq!(
+            found.corners().len(),
+            corners,
+            "missing by {miss} left {:?}",
+            found.corners()
+        );
+        assert_eq!(
+            found.faces().len(),
+            faces,
+            "missing by {miss} enclosed {:?}",
+            areas(&found)
+        );
+    }
+}

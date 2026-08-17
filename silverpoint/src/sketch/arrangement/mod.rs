@@ -469,28 +469,32 @@ impl Arrangement {
             starts,
             at,
         } = &mut scratch.departures;
-        let leaves = |half: Half| edges[half.edge].ends(half.forward)[0];
-        let angle = |half: Half| {
-            let out = edges[half.edge].departure(corners, half.forward);
-            out.y.atan2(out.x)
-        };
-
+        // Both halves of what the sort reads, worked out once here rather than
+        // per comparison. An arc's departure is a cosine and a sine and the
+        // angle of it an `atan2`, and a sort asks its key of an item about
+        // `log n` times — so measuring in the comparison measures the same
+        // direction a dozen times over.
         leaving.clear();
         leaving.reserve_exact(edges.len() * 2);
-        for edge in 0..edges.len() {
+        for (edge, piece) in edges.iter().enumerate() {
             for forward in [true, false] {
-                leaving.push(Half { edge, forward });
+                let out = piece.departure(corners, forward);
+                leaving.push(Leaving {
+                    half: Half { edge, forward },
+                    corner: piece.ends(forward)[0],
+                    angle: out.y.atan2(out.x),
+                });
             }
         }
         // Gathered by corner, and within a corner ordered by the direction the
         // edge leaves in — which is the fan the walk turns through. One sort
         // rather than one per corner, and no dearer for it: the angle is
-        // measured only where the corners already match, which is exactly the
+        // compared only where the corners already match, which is exactly the
         // comparison a fan of its own would have made.
-        leaving.sort_by(|&a, &b| {
-            leaves(a).cmp(&leaves(b)).then_with(|| {
-                angle(a)
-                    .partial_cmp(&angle(b))
+        leaving.sort_by(|a, b| {
+            a.corner.cmp(&b.corner).then_with(|| {
+                a.angle
+                    .partial_cmp(&b.angle)
                     .expect("a direction between finite corners is finite")
             })
         });
@@ -499,8 +503,8 @@ impl Arrangement {
         // running the counts up.
         starts.clear();
         starts.resize(corners.len() + 1, 0);
-        for &half in leaving.iter() {
-            starts[leaves(half) + 1] += 1;
+        for leave in leaving.iter() {
+            starts[leave.corner + 1] += 1;
         }
         for corner in 1..starts.len() {
             starts[corner] += starts[corner - 1];
@@ -512,8 +516,8 @@ impl Arrangement {
         at.resize(edges.len() * 2, 0);
         for corner in 0..corners.len() {
             let fan = &leaving[starts[corner]..starts[corner + 1]];
-            for (position, half) in fan.iter().enumerate() {
-                at[half.slot()] = position;
+            for (position, leave) in fan.iter().enumerate() {
+                at[leave.half.slot()] = position;
             }
         }
     }
@@ -673,7 +677,7 @@ struct Scratch {
 struct Departures {
     /// Every half-edge, gathered by the corner it leaves and ordered within
     /// each corner by the direction it leaves in.
-    leaving: Vec<Half>,
+    leaving: Vec<Leaving>,
     /// Where each corner's fan begins in `leaving`, with the total on the end —
     /// so a corner's fan is `starts[corner]..starts[corner + 1]`, and a corner
     /// nothing leaves is the empty stretch between two equal entries.
@@ -687,8 +691,19 @@ impl Departures {
     fn after(&self, corner: usize, half: Half) -> Half {
         let fan = &self.leaving[self.starts[corner]..self.starts[corner + 1]];
         let position = self.at[half.slot()];
-        fan[(position + fan.len() - 1) % fan.len()]
+        fan[(position + fan.len() - 1) % fan.len()].half
     }
+}
+
+/// One half-edge in the fan at the corner it leaves, with what that fan is
+/// ordered by carried alongside it.
+#[derive(Debug, Clone, Copy)]
+struct Leaving {
+    half: Half,
+    /// The corner it leaves, which is the fan it belongs to.
+    corner: usize,
+    /// Which way it heads as it goes, as an angle.
+    angle: f64,
 }
 
 #[cfg(test)]
