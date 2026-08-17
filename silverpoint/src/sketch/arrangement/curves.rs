@@ -13,6 +13,10 @@ use std::f64::consts::TAU;
 pub(super) struct Curves {
     straight: Vec<(Span, Entity)>,
     round: Vec<(Ring, Entity)>,
+    /// Every curve's reach, ordered across the drawing — what the crossing
+    /// search walks instead of the two lists above, so that it can order a
+    /// segment against a circle.
+    sweep: Vec<Reach>,
 }
 
 impl Curves {
@@ -42,6 +46,37 @@ impl Curves {
                 Entity::Circle(id),
             ));
         }
+
+        // How far each curve reaches, grown by as far as a crossing may be
+        // admitted past either of them — so two whose reaches do not meet
+        // cannot be reported as crossing, whatever the arithmetic rounds to.
+        //
+        // Ordered across the drawing, which is the whole of the broad phase:
+        // the search below walks it in that order and stops looking the moment
+        // a curve starts past where the one in hand ends.
+        let Self {
+            straight,
+            round,
+            sweep,
+        } = self;
+        sweep.clear();
+        sweep.reserve_exact(straight.len() + round.len());
+        sweep.extend(straight.iter().enumerate().map(|(at, (span, _))| Reach {
+            low: span.from.min(span.to) - TOUCHING,
+            high: span.from.max(span.to) + TOUCHING,
+            curve: Curve::Straight(at),
+        }));
+        sweep.extend(round.iter().enumerate().map(|(at, (ring, _))| Reach {
+            low: ring.center - (ring.radius + TOUCHING),
+            high: ring.center + (ring.radius + TOUCHING),
+            curve: Curve::Round(at),
+        }));
+        sweep.sort_by(|a, b| {
+            a.low
+                .x
+                .partial_cmp(&b.low.x)
+                .expect("a curve of the sketch reaches somewhere finite")
+        });
     }
 
     /// Every place a curve should be cut: the ends of the straight ones, and
@@ -50,29 +85,67 @@ impl Curves {
     /// Folded so that places within [`TOUCHING`] of each other become one
     /// corner. Two edges that met at two corners a hair apart would have a
     /// sliver of face between them that nobody drew.
+    ///
+    /// Asking every curve about every other is what this used to be, and what
+    /// it costs is the *asking*: where two curves meet takes two square roots
+    /// and three divisions to answer, and on a drawing of any size most pairs
+    /// are nowhere near each other. So the pairs are walked in order across the
+    /// drawing and cut off twice — once for the whole tail of a row, once per
+    /// pair — before any of that arithmetic is reached.
+    ///
+    /// Leaves the corners in order across the drawing, which is the fold's
+    /// doing and which [`Curves::cut`] then leans on.
     pub(super) fn corners(&self, into: &mut Vec<DVec2>) {
         into.clear();
         for (span, _) in &self.straight {
             into.push(span.from);
             into.push(span.to);
         }
-        for (at, (one, _)) in self.straight.iter().enumerate() {
-            for (two, _) in &self.straight[at + 1..] {
-                into.extend(intersect::spans(*one, *two).iter());
-            }
-            for (ring, _) in &self.round {
-                into.extend(intersect::span_ring(*one, *ring).iter());
-            }
-        }
-        for (at, (one, _)) in self.round.iter().enumerate() {
-            for (two, _) in &self.round[at + 1..] {
-                into.extend(intersect::rings(*one, *two).iter());
+        for (at, one) in self.sweep.iter().enumerate() {
+            for two in &self.sweep[at + 1..] {
+                // Ordered by where a curve starts, so one that starts past
+                // where this ends settles every one after it too.
+                if two.low.x > one.high.x {
+                    break;
+                }
+                // Up and down there is no order to lean on, so a curve clear of
+                // this one is only itself refused.
+                if two.low.y > one.high.y || one.low.y > two.high.y {
+                    continue;
+                }
+                self.crossing(one.curve, two.curve, into);
             }
         }
         fold(into);
     }
 
+    /// Where two curves the search could not rule out actually meet, if they
+    /// do.
+    ///
+    /// The one place the three kinds of pair are told apart, which the search
+    /// above is free not to know about: it orders every curve of the drawing
+    /// together and hands back whichever two it could not separate.
+    fn crossing(&self, one: Curve, two: Curve, into: &mut Vec<DVec2>) {
+        match (one, two) {
+            (Curve::Straight(a), Curve::Straight(b)) => {
+                into.extend(intersect::spans(self.straight[a].0, self.straight[b].0).iter());
+            }
+            (Curve::Straight(a), Curve::Round(b)) | (Curve::Round(b), Curve::Straight(a)) => {
+                into.extend(intersect::span_ring(self.straight[a].0, self.round[b].0).iter());
+            }
+            (Curve::Round(a), Curve::Round(b)) => {
+                into.extend(intersect::rings(self.round[a].0, self.round[b].0).iter());
+            }
+        }
+    }
+
     /// Cut every curve at the corners that lie on it, working in `on`.
+    ///
+    /// Every corner of the drawing is offered to every curve, which is the last
+    /// place a rebuild grows by the square of what is drawn. What keeps it from
+    /// doing so is that [`Curves::corners`] leaves them in order across the
+    /// drawing: the ones a curve could touch are a stretch of that order, found
+    /// by two searches rather than by walking the lot.
     pub(super) fn cut(
         &self,
         corners: &mut Vec<DVec2>,
@@ -80,6 +153,13 @@ impl Curves {
         on: &mut Vec<(f64, usize)>,
     ) {
         edges.clear();
+        // Everything the fold left is ordered; what this adds below for a
+        // circle nothing crosses goes on the end and is not.
+        let ordered = corners.len();
+        debug_assert!(
+            corners.is_sorted_by(|a, b| a.x <= b.x),
+            "the corners reached the cutting out of order"
+        );
         for (span, of) in &self.straight {
             let along = span.to - span.from;
             let reach = along.length_squared();
@@ -90,14 +170,16 @@ impl Curves {
                 span.from.max(span.to) + TOUCHING,
             );
             on.clear();
-            on.extend(corners.iter().enumerate().filter_map(|(at, &corner)| {
-                if !within(corner, low, high) {
-                    return None;
-                }
-                let t = (corner - span.from).dot(along) / reach;
-                let nearest = span.from + along * t.clamp(0.0, 1.0);
-                nearest.approx_eq(corner, TOUCHING).then_some((t, at))
-            }));
+            on.extend(
+                near(corners, ordered, low.x, high.x).filter_map(|(at, corner)| {
+                    if !within(corner, low, high) {
+                        return None;
+                    }
+                    let t = (corner - span.from).dot(along) / reach;
+                    let nearest = span.from + along * t.clamp(0.0, 1.0);
+                    nearest.approx_eq(corner, TOUCHING).then_some((t, at))
+                }),
+            );
             on.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("parameters are finite"));
             for pair in on.windows(2) {
                 if pair[0].1 != pair[1].1 {
@@ -120,19 +202,22 @@ impl Curves {
                 ring.center - (ring.radius + TOUCHING),
                 ring.center + (ring.radius + TOUCHING),
             );
-            let (near, far) = (
+            let (inner, outer) = (
                 (ring.radius - TOUCHING).powi(2),
                 (ring.radius + TOUCHING).powi(2),
             );
             on.clear();
-            on.extend(corners.iter().enumerate().filter_map(|(at, &corner)| {
-                if !within(corner, low, high) {
-                    return None;
-                }
-                let out = corner - ring.center;
-                let reach = out.length_squared();
-                (near <= reach && reach <= far).then(|| (out.y.atan2(out.x).rem_euclid(TAU), at))
-            }));
+            on.extend(
+                near(corners, ordered, low.x, high.x).filter_map(|(at, corner)| {
+                    if !within(corner, low, high) {
+                        return None;
+                    }
+                    let out = corner - ring.center;
+                    let reach = out.length_squared();
+                    (inner <= reach && reach <= outer)
+                        .then(|| (out.y.atan2(out.x).rem_euclid(TAU), at))
+                }),
+            );
             on.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("angles are finite"));
             if on.is_empty() {
                 // Nothing crosses it, so it is its own loop — and a loop needs
@@ -182,10 +267,12 @@ impl Curves {
 /// them compared every one against every other, which is most of what a rebuild
 /// used to be.
 ///
-/// **Which of a near pair survives is not a fact about the drawing**, here or
-/// before: what is being folded is a rounding, and the two are the same place.
-/// Nothing downstream reads the order either — an edge names its ends by
-/// position, and those are looked up against this list after it is settled.
+/// **Which of a near pair survives is not a fact about the drawing**: what is
+/// being folded is a rounding, and the two are the same place.
+///
+/// The order it leaves them in *is* read, though, and has to be — [`Curves::cut`]
+/// finds the corners a curve could touch by searching it rather than by walking
+/// the lot. Sorting here is what pays for that as well as for the fold.
 fn fold(corners: &mut Vec<DVec2>) {
     corners.sort_by(|a, b| {
         a.x.partial_cmp(&b.x)
@@ -222,4 +309,49 @@ fn fold(corners: &mut Vec<DVec2>) {
 /// square root.
 fn within(corner: DVec2, low: DVec2, high: DVec2) -> bool {
     !corner.cmplt(low).any() && !corner.cmpgt(high).any()
+}
+
+/// The corners that could fall between `low` and `high` across, each with where
+/// it sits in the list.
+///
+/// The first `ordered` of them are in order across the drawing, so the stretch
+/// that could reach a curve is found by two searches. The rest are what the
+/// cutting added for circles nothing crosses, which go on the end and are in no
+/// order — walked in full, there being one per such circle and no more.
+fn near(
+    corners: &[DVec2],
+    ordered: usize,
+    low: f64,
+    high: f64,
+) -> impl Iterator<Item = (usize, DVec2)> {
+    let across = &corners[..ordered];
+    let from = across.partition_point(|corner| corner.x < low);
+    let to = across.partition_point(|corner| corner.x <= high);
+    (from..to)
+        .chain(ordered..corners.len())
+        .map(|at| (at, corners[at]))
+}
+
+/// How far one curve reaches, and which of the drawing's it is.
+///
+/// What the crossing search is ordered by. The box is grown by [`TOUCHING`] on
+/// every side, because a crossing is admitted that far past either curve's own
+/// end — so two curves whose boxes miss each other cannot be reported as
+/// meeting, which is what makes refusing them on the boxes alone safe.
+#[derive(Debug, Clone, Copy)]
+struct Reach {
+    low: DVec2,
+    high: DVec2,
+    curve: Curve,
+}
+
+/// Which of the drawing's curves a [`Reach`] belongs to.
+///
+/// Named rather than left as an index into whichever list, because the search
+/// puts the straight and the round in one order and has to be able to say which
+/// it is looking at.
+#[derive(Debug, Clone, Copy)]
+enum Curve {
+    Straight(usize),
+    Round(usize),
 }

@@ -289,7 +289,11 @@ fn a_face_fills_to_the_area_it_encloses() {
     assert_eq!(ring.pieces_of(walls[1]).len(), 1);
     // A curve that bounds it on the other side bounds it not at all, which is
     // what keeps a wall named by one from coming back as the far side's.
-    assert!(ring.pieces_of(walls[0].turned()).is_empty());
+    let far = Bound {
+        of: walls[0].of,
+        along: !walls[0].along,
+    };
+    assert!(ring.pieces_of(far).is_empty());
 
     // A second hole, clear of the first, and the fill still covers exactly what
     // the face says it does.

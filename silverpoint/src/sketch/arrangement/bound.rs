@@ -32,13 +32,3 @@ pub struct Bound {
     /// segment from its first end towards its second, a circle counterclockwise.
     pub along: bool,
 }
-
-impl Bound {
-    /// The far side of the same curve.
-    pub(crate) fn turned(self) -> Self {
-        Self {
-            along: !self.along,
-            ..self
-        }
-    }
-}

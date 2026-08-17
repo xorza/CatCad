@@ -26,6 +26,7 @@ use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::arrangement::curves::Curves;
 use crate::sketch::arrangement::edge::{Edge, Half, Shape};
 use crate::sketch::arrangement::face::Face;
+use crate::sketch::entity::Entity;
 use glam::DVec2;
 use std::f64::consts::TAU;
 
@@ -169,10 +170,14 @@ impl Arrangement {
             along.clear();
             along.reserve_exact(outline.len() + holes.total());
             let mut lay = |run: &[Half], on_outline: bool| {
-                along.extend(run.iter().map(|&half| Walked {
-                    half,
-                    bound: edges[half.edge].bound(half.forward),
-                    on_outline,
+                along.extend(run.iter().map(|&half| {
+                    let bound = edges[half.edge].bound(half.forward);
+                    Walked {
+                        half,
+                        bound,
+                        key: key_of(bound),
+                        on_outline,
+                    }
                 }));
             };
             lay(outline, true);
@@ -180,41 +185,59 @@ impl Arrangement {
                 lay(hole, false);
             }
 
-            // A curve cut into several pieces is walked once per piece, and all
-            // of them bound the region on the same side — so the readings below
-            // are over the handful of curves rather than over every piece.
+            // Gathered by curve, so that the pieces of one fall together and
+            // every reading below is a walk of the runs rather than a search
+            // through them. Stable, so within a curve the pieces stay in the
+            // order the region was walked along them.
+            along.sort_by_key(|walked| walked.key);
             gathered.clear();
-            for walked in along.iter() {
-                match gathered.iter_mut().find(|had| had.bound == walked.bound) {
-                    Some(had) => had.on_outline |= walked.on_outline,
-                    None => gathered.push(Gathered {
-                        bound: walked.bound,
-                        on_outline: walked.on_outline,
-                    }),
+            let mut at = 0;
+            while at < along.len() {
+                let key = along[at].key;
+                let mut end = at;
+                let mut on_outline = false;
+                while end < along.len() && along[end].key == key {
+                    on_outline |= along[end].on_outline;
+                    end += 1;
                 }
+                gathered.push(Gathered {
+                    key,
+                    bound: along[at].bound,
+                    on_outline,
+                    at,
+                    pieces: end - at,
+                });
+                at = end;
             }
 
-            // The two readings, which differ in nothing but which pieces of the
-            // region count toward them. A name is made of the outline, so a
-            // spur dangling into a *hole* is no part of what names the region
-            // and cannot take an outline curve out of it — where a wall, being
-            // the whole edge of the region, is cancelled by either.
-            bounding(gathered, |had| had.on_outline, named);
-            bounding(gathered, |_| true, walls);
-
-            // The pieces of each wall, in the order the region is walked along
-            // them. Laid down run by run, so they can only be gathered once the
-            // rule above has said which curves there are runs for.
+            // A spur is walked out and back, so it appears both ways round and
+            // bounds nothing at all; without this, drawing a stray line
+            // touching a region would rename it. The far side of a curve is its
+            // key with the low bit flipped, and the runs are in key order, so
+            // finding it is a search of the curves rather than of the pieces.
+            //
+            // Which side of the drawing cancels a curve out is the reading's
+            // own. A name is made of the outline, so a spur dangling into a
+            // *hole* is no part of what names the region and cannot take an
+            // outline curve out of it — where a wall, being the whole edge of
+            // the region, is cancelled by either.
+            named.clear();
+            walls.clear();
             pieces.clear();
-            for &wall in walls.iter() {
-                pieces.add(|run| {
-                    run.extend(
-                        along
-                            .iter()
-                            .filter(|walked| walked.bound == wall)
-                            .map(|walked| walked.half),
-                    );
-                });
+            for run in gathered.iter() {
+                let turned = gathered
+                    .binary_search_by(|had| had.key.cmp(&(run.key ^ 1)))
+                    .ok()
+                    .map(|found| &gathered[found]);
+                if turned.is_none() {
+                    walls.push(run.bound);
+                    pieces.add(|into| {
+                        into.extend(along[run.at..][..run.pieces].iter().map(|it| it.half));
+                    });
+                }
+                if run.on_outline && !turned.is_some_and(|had| had.on_outline) {
+                    named.push(run.bound);
+                }
             }
             debug_assert_eq!(pieces.len(), walls.len(), "a wall without its pieces");
         }
@@ -575,31 +598,24 @@ impl Arrangement {
     }
 }
 
-/// The curves of `gathered` that `counts` admits, less those the region is
-/// walked along both ways round, into `into`.
+/// A number to gather a region's pieces by: which curve, and which side of it.
 ///
-/// The one statement of what bounds a region, which both readings go through —
-/// so what a name is made of and what a solid raises a wall on cannot come to
-/// differ about the rule. *Which* pieces count is the reading's, and is a real
-/// choice rather than a convenience: a name is made of the outline where a wall
-/// is raised off the whole edge.
-///
-/// A curve walked both ways round is a *spur* — one dangling into the region
-/// from its boundary, walked out and back — and it bounds nothing at all;
-/// without that, drawing a stray line touching a region would rename it.
-fn bounding(gathered: &[Gathered], counts: impl Fn(&Gathered) -> bool, into: &mut Vec<Bound>) {
-    into.clear();
-    into.extend(
-        gathered
-            .iter()
-            .filter(|had| counts(had))
-            .filter(|had| {
-                !gathered
-                    .iter()
-                    .any(|other| counts(other) && other.bound == had.bound.turned())
-            })
-            .map(|had| had.bound),
-    );
+/// Ordered rather than merely compared, so that the pieces of one curve fall
+/// together in a sort and a region bounded by a hundred curves is described by
+/// walking runs instead of searching for them. The side is the low bit, which
+/// puts the far side of a curve one flip away — and a spur is exactly a curve
+/// whose far side is here too.
+fn key_of(bound: Bound) -> u64 {
+    // A slot is a `u32`, so one shifted up by the side bit still stops short of
+    // the thirty-fourth: the segments fill the bottom of the range and the
+    // circles start above everything they can reach.
+    let (kind, slot) = match bound.of {
+        Entity::Segment(id) => (0u64, id.slot()),
+        Entity::Circle(id) => (1u64, id.slot()),
+        // An edge is cut from a segment or a circle and from nothing else.
+        of => unreachable!("{of:?} was never cut into an edge"),
+    };
+    (kind << 33) | ((slot as u64) << 1) | u64::from(bound.along)
 }
 
 /// One piece of curve a region is walked along, with what
@@ -610,18 +626,26 @@ struct Walked {
     half: Half,
     /// The curve it is a piece of, and the side the region is on.
     bound: Bound,
+    /// That same curve and side as something to sort by — see [`key_of`].
+    key: u64,
     /// Whether it was walked by the region's outline as against by a hole.
     on_outline: bool,
 }
 
-/// One curve found bounding a region, before either reading has had its say.
+/// One curve found bounding a region, and the run of pieces it was walked
+/// along.
 ///
 /// The whole of what a name and a wall are decided from: which curve and side,
-/// and whether the region's *outline* runs along it as against only a hole.
+/// whether the region's *outline* runs along it as against only a hole, and
+/// where its pieces sit in the sorted run of them.
 #[derive(Debug, Clone, Copy)]
 struct Gathered {
+    key: u64,
     bound: Bound,
     on_outline: bool,
+    /// Where this curve's pieces begin, and how many there are.
+    at: usize,
+    pieces: usize,
 }
 
 /// Which corner stands for the piece `at` belongs to.
