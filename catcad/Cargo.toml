@@ -39,8 +39,12 @@ internals = []
 # Compiles the allocation-bench driver in `src/` and exposes the one call
 # `tests/alloc.rs` makes. Carries `palantir/internals` because the driver
 # raises the app through `UiHarness`, the same reach-in the tests use — the
-# bench has to record real frames, not a stand-in for them.
-bench = ["dep:common", "common/bench", "palantir/internals"]
+# bench has to record real frames, not a stand-in for them — and this crate's
+# own `internals` because it aims the camera and reads the demo's geometry
+# through it. Without that the driver only ever compiled by accident: the
+# dev-dependency below turns `internals` on for every *test* target, so
+# `cargo build -p catcad --features bench` failed and nothing ran it.
+bench = ["dep:common", "common/bench", "internals", "palantir/internals"]
 
 # Its own target because `dhat::Alloc` has to be *the* global allocator, which
 # is process-wide — anything sharing the binary pays a 10-30x allocator tax. A

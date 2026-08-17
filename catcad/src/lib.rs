@@ -688,6 +688,32 @@ pub(crate) mod internals {
         pub fn hovering(&self, tag: aperture::Tag) -> bool {
             self.view.hovering(tag)
         }
+
+        /// The far end of the demo's arm, which is the freest thing it draws
+        /// and so the one worth taking hold of.
+        ///
+        /// A fact about the *fixture* rather than about the app, and here all
+        /// the same, because what it reads is two private fields of one — the
+        /// document and which sketch the session has open. Every harness that
+        /// drives a drag wants it, and it was written out once per harness
+        /// until the copies disagreed.
+        ///
+        /// **The open sketch's last point, not the scene's last marker.** The
+        /// arm's points are added last of its own sketch, but the scene draws
+        /// every sketch, so its last marker belongs to whichever the document
+        /// drew last. A drag takes hold of the sketch being worked in and no
+        /// other: read off the scene, this named a point three sketches over,
+        /// and the bench's dragging step spent a release measuring a gesture
+        /// that never solved.
+        pub fn wrist(&self) -> glam::Vec3 {
+            let drawing = self.document.drawing_at(self.session.editing());
+            let (_, wrist) = drawing
+                .sketch()
+                .points()
+                .last()
+                .expect("the demo draws points");
+            drawing.plane().point(wrist.position).as_vec3()
+        }
     }
 }
 

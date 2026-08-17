@@ -8,6 +8,9 @@ use silverpoint::{Drive, Entity, Freedom, Outcome, Plane, PointId, Removed, Solv
 
 use crate::build::Build;
 use crate::demo;
+use crate::hud::internals::{
+    CIRCLE_BUTTON, EXTRUDE_BUTTON, LINE_BUTTON, POINT_BUTTON, TIDY_BUTTON,
+};
 use crate::intent::{Choice, Intents, Opening};
 use crate::lens::Lens;
 use crate::model::Models;
@@ -17,50 +20,8 @@ use crate::timeline::Timeline;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
 
-/// The far end of the demo's arm, which is the freest thing it draws.
-///
-/// The arm's points are added last of its *sketch's*, so the wrist is that
-/// sketch's last point — not the scene's last marker, which belongs to
-/// whichever sketch the document drew last. A drag takes hold of the sketch
-/// being worked in and no other, so the two are not interchangeable.
-fn wrist(app: &CatCad) -> Vec3 {
-    let drawing = app.document.drawing_at(app.session.editing());
-    let (_, wrist) = drawing
-        .sketch()
-        .points()
-        .last()
-        .expect("the demo draws points");
-    drawing.plane().point(wrist.position).as_vec3()
-}
-
 /// The surface every test that records frames raises the app at.
 const SIZE: UVec2 = UVec2::new(800, 600);
-
-/// The middle of each button on the tool row, which is the top of the column
-/// down the left edge — measured by sweeping and reading back which widget a
-/// click at each pixel would land on.
-///
-/// Hand-written numbers, and safe ones: every press below is followed by an
-/// assertion about what ended up in hand, so a layout that moved a button fails
-/// there rather than quietly testing the gap between two.
-///
-/// Pinned to the left rather than centred, which is what makes them numbers at
-/// all: a centred bar moves with the width of the widest thing on the view —
-/// see [`Hud::show`](crate::hud::Hud).
-const POINT_BUTTON: Vec2 = Vec2::new(45.0, 26.0);
-const LINE_BUTTON: Vec2 = Vec2::new(112.0, 26.0);
-const CIRCLE_BUTTON: Vec2 = Vec2::new(187.0, 26.0);
-
-/// The clean-up command, further down the same column: it asks something of the
-/// whole drawing rather than of what is picked out, so it is not a tool.
-const TIDY_BUTTON: Vec2 = Vec2::new(58.0, 140.0);
-
-/// The Extrude command, on the bar along the bottom that shows what can be asked
-/// of what is picked out.
-///
-/// With one region picked it is the only thing on that bar, and the bar hugs
-/// what it holds against the left edge.
-const EXTRUDE_BUTTON: Vec2 = Vec2::new(55.0, 570.0);
 
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
@@ -365,7 +326,7 @@ fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
     frame(&mut app, &mut harness);
 
     let at_rest = markers(&app);
-    let world = wrist(&app);
+    let world = app.wrist();
     let cursor = cursor_on(&mut app, world);
 
     // Press, travel past palantir's four-pixel latch, release.
@@ -980,7 +941,7 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
         app.status()
     );
 
-    let world = wrist(&app);
+    let world = app.wrist();
     let cursor = cursor_on(&mut app, world);
 
     harness.move_to(cursor);
@@ -1187,7 +1148,7 @@ fn a_document_written_out_comes_back_the_way_it_was_left() {
 
     // Something to notice afterwards: the arm moved somewhere the demo does not
     // start, which is a thing only this document says.
-    let held = wrist(&app);
+    let held = app.wrist();
     drag(
         &mut app,
         &mut harness,
@@ -1208,7 +1169,7 @@ fn a_document_written_out_comes_back_the_way_it_was_left() {
 
     // Move it again, and this time let the keyboard write it. The document has
     // a name now, so Ctrl+S goes straight to the disk.
-    let held = wrist(&app);
+    let held = app.wrist();
     drag(
         &mut app,
         &mut harness,
@@ -1226,7 +1187,7 @@ fn a_document_written_out_comes_back_the_way_it_was_left() {
     );
 
     // Now spoil it: a third drag, and a tool in hand.
-    let held = wrist(&app);
+    let held = app.wrist();
     drag(
         &mut app,
         &mut harness,
@@ -1401,7 +1362,7 @@ fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
     let mut harness = UiHarness::new(SIZE);
     frame(&mut app, &mut harness);
 
-    let world = wrist(&app);
+    let world = app.wrist();
     let cursor = cursor_on(&mut app, world);
     harness.move_to(cursor);
     frame(&mut app, &mut harness);

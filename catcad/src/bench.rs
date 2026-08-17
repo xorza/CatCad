@@ -32,6 +32,14 @@
 //! it is what catches a rubber band appended to a batch rather than written
 //! into it.
 //!
+//! **Every step asserts the frame it reached is the frame it names**, which is
+//! the one thing a gate on a number cannot check for itself: a step that stops
+//! reaching its own frame goes on reporting zero, and reports it about a frame
+//! nobody wanted measured. Three of the four had drifted that way at once — a
+//! click on chrome the constant no longer pointed at, a press on a point in a
+//! sketch the session was not editing, and a sweep that never left the region it
+//! started on. All three read as passing.
+//!
 //! No GPU: `Ui` records and lays out without one, which is the half of a frame
 //! this crate owns. What the renderer does with the result is gated in
 //! `aperture`'s own bench, and what palantir does beneath both is gated in
@@ -48,6 +56,8 @@ use palantir::{App, WindowToken};
 use std::hint::black_box;
 
 use crate::CatCad;
+use crate::hud::internals::LINE_BUTTON;
+use crate::tool::Tool;
 
 /// The surface every step records at. Large enough that layout does real work
 /// rather than collapsing everything to nothing.
@@ -57,96 +67,184 @@ const SURFACE: UVec2 = UVec2::new(1600, 1000);
 /// hovered and the status line stays at its shortest.
 const PARKED: Vec2 = Vec2::new(12.0, 960.0);
 
-/// The middle of the toolbar's line button at [`SURFACE`]'s width. The bar hugs
-/// its contents and is centred, so this moves with the surface — the press is
-/// followed by a click that only starts a line if it landed.
-const LINE_BUTTON: Vec2 = Vec2::new(795.0, 26.0);
+/// How wide the hovering step's sweep runs, in pixels, centred on the wrist —
+/// and so how many frames it takes to walk one, the step being a pixel.
+///
+/// Wide enough to leave the arm, so what the window averages is *hovering*
+/// rather than one answer held for the whole of it: the near half crosses a
+/// point, the edges meeting at it and the region behind them, and the far half
+/// crosses nothing. A sweep that stayed on any one of those would measure the
+/// cheapest or the dearest case and report it as the middle — which is what the
+/// fixed span this replaced did, sitting on one region for every frame of it.
+const SWEEP: usize = 120;
+
+/// The app raised on a `SURFACE`-sized view, with one frame behind it.
+///
+/// One frame in, because everything below aims at something the app has drawn:
+/// the camera is settled on the way in, and a cursor worked out before that
+/// would aim through a camera the app has since replaced.
+///
+/// A step takes its own rather than carrying the last one's on, so what each
+/// measures is a steady frame of one kind — a window that inherited a latched
+/// drag would be measuring two things and reporting one number.
+#[derive(Debug)]
+struct Raised {
+    app: CatCad,
+    harness: UiHarness,
+}
+
+impl Raised {
+    fn new() -> Self {
+        let mut raised = Self {
+            app: CatCad::build(),
+            harness: UiHarness::new(SURFACE),
+        };
+        raised.frame();
+        raised
+    }
+
+    /// One frame, recorded the way the host records one.
+    fn frame(&mut self) {
+        let Self { app, harness } = self;
+        black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));
+    }
+
+    /// The cursor that aims at `world`, through the camera the app is looking
+    /// with.
+    fn cursor_on(&mut self, world: Vec3) -> Vec2 {
+        self.app
+            .camera_mut()
+            .screen_of(world, Viewport::new(SURFACE))
+            .expect("the bench aims at what it draws")
+    }
+}
 
 /// The allocation bench: every step, one profiler, one verdict.
 pub fn alloc_bench() {
     let mut bench = AllocBench::start("catcad", "frame");
+    still(&mut bench);
+    hovering(&mut bench);
+    dragging(&mut bench);
+    banding(&mut bench);
+    bench.finish();
+}
 
-    // Frames with the pointer parked off the drawing.
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SURFACE);
-    harness.move_to(PARKED);
-    bench.step("record-still", 0.0, || {
-        black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));
-    });
+/// Frames with the pointer parked off the drawing.
+fn still(bench: &mut AllocBench) {
+    let mut raised = Raised::new();
+    raised.harness.move_to(PARKED);
+    raised.frame();
+    assert!(
+        raised.app.view.hovered().is_none(),
+        "the parked pointer is over {:?}, so this is a second hovering step",
+        raised.app.view.hovered(),
+    );
+    bench.step("record-still", 0.0, || raised.frame());
+}
 
-    // Frames with the pointer walking across the drawing, which is what the
-    // app does whenever someone is using it. The sweep is deliberately wide
-    // enough to cross geometry and empty space both, so the number is what
-    // hovering averages rather than the best or worst case of it.
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SURFACE);
-    let mut frame = 0usize;
+/// Frames with the pointer walking across the drawing, which is what the app
+/// does whenever someone is using it.
+fn hovering(bench: &mut AllocBench) {
+    let mut raised = Raised::new();
+    let middle = raised.cursor_on(raised.app.wrist());
+    let across = |step: usize| Vec2::new(step as f32 - 0.5 * SWEEP as f32, 0.0);
+
+    // Both halves of the sweep, walked before any of it is measured: a window
+    // that only ever hovered one thing would be reporting that thing's cost as
+    // hovering's.
+    let mut over = 0;
+    let mut clear = 0;
+    for step in 0..SWEEP {
+        raised.harness.move_to(middle + across(step));
+        raised.frame();
+        if raised.app.view.hovered().is_some() {
+            over += 1;
+        } else {
+            clear += 1;
+        }
+    }
+    assert!(
+        over > 0 && clear > 0,
+        "the sweep found {over} frames over something and {clear} over nothing, \
+         so it measures one of the two rather than the mix",
+    );
+
+    let mut step = 0usize;
     bench.step("record-hovering", 0.0, || {
-        frame += 1;
-        harness.move_to(Vec2::new(700.0 + (frame % 40) as f32, 520.0));
-        black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));
+        step += 1;
+        raised.harness.move_to(middle + across(step % SWEEP));
+        raised.frame();
     });
+}
 
-    // Frames with a point actually being taken somewhere. The press is landed
-    // before the window opens, so what is measured is the middle of a gesture
-    // rather than the start of one.
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SURFACE);
-    harness.frame(|ui| app.record(WindowToken(0), ui));
-    let arm_end = wrist(&app);
-    let grabbed = cursor_on(&mut app, arm_end);
-    harness.press_at(grabbed);
-    harness.frame(|ui| app.record(WindowToken(0), ui));
-    let mut frame = 0usize;
+/// Frames with a point actually being taken somewhere.
+///
+/// The press is landed before the window opens, so what is measured is the
+/// middle of a gesture rather than the start of one.
+fn dragging(bench: &mut AllocBench) {
+    let mut raised = Raised::new();
+    let grabbed = raised.cursor_on(raised.app.wrist());
+    raised.harness.move_to(grabbed);
+    raised.frame();
+    raised.harness.press_at(grabbed);
+    raised.frame();
+
+    // One drag before the window, both to latch the gesture and to say that it
+    // *writes*: a press that took hold of nothing goes on reporting zero for a
+    // frame that never reaches the solver.
+    let was = raised.app.wrist();
+    raised.harness.drag_to(grabbed + Vec2::new(41.0, 24.0));
+    raised.frame();
+    assert!(
+        raised.app.wrist().distance(was) > 0.0,
+        "the drag moved nothing, so this measures a gesture that never solves",
+    );
+
+    let mut step = 0usize;
     bench.step("record-dragging", 0.0, || {
-        frame += 1;
+        step += 1;
         // Well past palantir's four-pixel latch and never twice in the same
         // place, so the drag stays live and the geometry keeps moving — a drag
         // asked for where it already is settles to a no-op, which is not the
         // frame this is meant to be measuring.
-        harness.drag_to(grabbed + Vec2::new(40.0 + (frame % 16) as f32, 24.0));
-        black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));
+        raised
+            .harness
+            .drag_to(grabbed + Vec2::new(40.0 + (step % 16) as f32, 24.0));
+        raised.frame();
     });
+}
 
-    // Frames with a line half drawn, its rubber band following the cursor. The
-    // band is the one thing the view draws that the document did not write, and
-    // it is rewritten every frame the pointer moves.
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SURFACE);
-    harness.frame(|ui| app.record(WindowToken(0), ui));
-    harness.click_at(LINE_BUTTON);
-    harness.frame(|ui| app.record(WindowToken(0), ui));
+/// Frames with a line half drawn, its rubber band following the cursor.
+///
+/// The band is the one thing the view draws that the document did not write,
+/// and it is rewritten every frame the pointer moves.
+fn banding(bench: &mut AllocBench) {
+    let mut raised = Raised::new();
+    raised.harness.click_at(LINE_BUTTON);
+    raised.frame();
+    assert!(
+        raised.app.session.tool().is(Tool::Line { from: None }),
+        "the click at {LINE_BUTTON:?} left {:?} in hand, so it missed the button",
+        raised.app.session.tool(),
+    );
+
     // Clear of the arm, so the first click starts a line rather than putting
     // the tool down on something already drawn.
-    let empty = wrist(&app) + Vec3::new(0.0, 0.0, 3.0);
-    let start = cursor_on(&mut app, empty);
-    harness.click_at(start);
-    harness.frame(|ui| app.record(WindowToken(0), ui));
-    let mut frame = 0usize;
+    let empty = raised.app.wrist() + Vec3::new(0.0, 0.0, 3.0);
+    let start = raised.cursor_on(empty);
+    raised.harness.click_at(start);
+    raised.frame();
+    assert!(
+        raised.app.session.tool().started().is_some(),
+        "no line was begun, so there is no band here to measure",
+    );
+
+    let mut step = 0usize;
     bench.step("record-banding", 0.0, || {
-        frame += 1;
-        harness.move_to(start + Vec2::new(40.0 + (frame % 16) as f32, 24.0));
-        black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));
+        step += 1;
+        raised
+            .harness
+            .move_to(start + Vec2::new(40.0 + (step % 16) as f32, 24.0));
+        raised.frame();
     });
-
-    bench.finish();
-}
-
-/// The far end of the demo's arm, which is the freest thing it draws and so the
-/// one worth dragging. The arm's points are added last, so it is drawn last.
-fn wrist(app: &CatCad) -> Vec3 {
-    app.renderer()
-        .borrow()
-        .scene()
-        .points
-        .last()
-        .expect("the demo draws markers")
-        .position
-}
-
-/// The cursor that aims at `world`, through the camera the app is looking with.
-fn cursor_on(app: &mut CatCad, world: Vec3) -> Vec2 {
-    app.camera_mut()
-        .screen_of(world, Viewport::new(SURFACE))
-        .expect("the bench aims at what it draws")
 }

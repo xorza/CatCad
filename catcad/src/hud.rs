@@ -520,3 +520,59 @@ impl Default for Hud {
         }
     }
 }
+
+/// Where a harness has to click to reach the bar, which the bar itself never
+/// needs to know.
+///
+/// A press arrives at the application as a cursor, and nothing in it can turn
+/// "the Line button" into one — palantir places the row and a widget's rect is
+/// the layout engine's answer, a frame late. So a harness driving the real
+/// button drives it by position, and the positions belong beside the row that
+/// decides them rather than being written out once per harness. They were
+/// written out twice, and the copy that was not exercised by an assertion drifted
+/// a bar's width when the row stopped being centred.
+///
+/// Gated on `bench` rather than on `internals` beside it: the two callers are
+/// the unit tests and the allocation bench, and the wider gate would leave this
+/// dead in every build that turned `internals` on for the *renderer* reach-in
+/// and nothing else — see [`CatCad::internals`](crate::internals).
+#[cfg(any(test, feature = "bench"))]
+pub(crate) mod internals {
+    use glam::Vec2;
+
+    /// The middle of each button on the tool row, which is the top of the column
+    /// down the left edge — measured by sweeping and reading back which widget a
+    /// click at each pixel would land on.
+    ///
+    /// Hand-written numbers, and safe ones only where the caller checks: every
+    /// press through these is followed by an assertion about what ended up in
+    /// hand, so a layout that moved a button fails there rather than quietly
+    /// testing the gap between two.
+    ///
+    /// The same numbers at every surface size, which is what makes them numbers
+    /// at all: the column is pinned to the top left, where a centred bar would
+    /// move with the width of the widest thing on the view — see
+    /// [`Hud::show`](crate::hud::Hud::show).
+    pub(crate) const LINE_BUTTON: Vec2 = Vec2::new(112.0, 26.0);
+    /// The rest are `test`-only, narrower again: the bench reaches for the Line
+    /// button alone.
+    #[cfg(test)]
+    pub(crate) const POINT_BUTTON: Vec2 = Vec2::new(45.0, 26.0);
+    #[cfg(test)]
+    pub(crate) const CIRCLE_BUTTON: Vec2 = Vec2::new(187.0, 26.0);
+
+    /// The clean-up command, further down the same column: it asks something of
+    /// the whole drawing rather than of what is picked out, so it is not a tool.
+    #[cfg(test)]
+    pub(crate) const TIDY_BUTTON: Vec2 = Vec2::new(58.0, 140.0);
+
+    /// The Extrude command, on the bar along the bottom that shows what can be
+    /// asked of what is picked out.
+    ///
+    /// With one region picked it is the only thing on that bar, and the bar
+    /// hugs what it holds against the left edge. The one position here that is
+    /// *not* the same at every surface size — the bar is pinned to the bottom,
+    /// so its y is measured down from `SIZE`.
+    #[cfg(test)]
+    pub(crate) const EXTRUDE_BUTTON: Vec2 = Vec2::new(55.0, 570.0);
+}
