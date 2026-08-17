@@ -71,16 +71,16 @@ impl Lens {
     /// reads this and what that means for a form.
     pub(crate) fn footprint(self, at: impl Iterator<Item = Vec3>) -> Option<Rect> {
         let view_proj = self.camera.view_proj(self.viewport.aspect());
-        let mut low = Vec2::splat(f32::MAX);
-        let mut high = Vec2::splat(f32::MIN);
-        let mut drawn = false;
-        for corner in at.filter_map(|corner| self.viewport.pixel_of(view_proj * corner.extend(1.0)))
-        {
-            low = low.min(corner);
-            high = high.max(corner);
-            drawn = true;
-        }
-        drawn.then(|| Rect::new(low.x, low.y, high.x - low.x, high.y - low.y))
+        // The span carries "nothing drawn yet" itself, rather than a pair of
+        // sentinels with a flag beside them saying whether to believe it — an
+        // empty run then has one spelling instead of two that have to agree.
+        at.filter_map(|corner| self.viewport.pixel_of(view_proj * corner.extend(1.0)))
+            .fold(None, |span: Option<[Vec2; 2]>, corner| {
+                Some(span.map_or([corner, corner], |[low, high]| {
+                    [low.min(corner), high.max(corner)]
+                }))
+            })
+            .map(|[low, high]| Rect::new(low.x, low.y, high.x - low.x, high.y - low.y))
     }
 
     /// The pick a cursor at `cursor` makes, reaching `radius` logical pixels.
@@ -108,5 +108,94 @@ impl Lens {
     /// looked at, which is the whole of what this is.
     pub(crate) fn facing(self) -> Vec3 {
         self.camera.facing()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::UVec2;
+
+    /// A lens over a view big enough that a handful of points around the origin
+    /// all land inside it.
+    fn lens() -> Lens {
+        Lens::new(Camera::default(), Viewport::new(UVec2::new(800, 600)))
+    }
+
+    /// **A footprint is the box the same points land in when each is projected
+    /// on its own.**
+    ///
+    /// Two readings of one question — [`Lens::screen_of`] builds a
+    /// view-projection per point and [`Lens::footprint`] builds one for the run
+    /// — so what is pinned is that they *agree*, rather than either matching
+    /// numbers written out again beside it.
+    ///
+    /// The points are in no useful order along either axis, which is what makes
+    /// the box's four sides four separate claims: a corner that only ever grew
+    /// one way would leave it short on the other, and a run that happened to be
+    /// sorted would not notice.
+    #[test]
+    fn a_footprint_is_the_box_the_same_points_project_into() {
+        let lens = lens();
+        let at = [
+            Vec3::new(1.0, 0.5, -1.0),
+            Vec3::new(-2.0, -1.5, 0.5),
+            Vec3::new(0.25, 2.0, 1.5),
+            Vec3::new(-0.5, -0.25, -2.0),
+        ];
+        let seen: Vec<Vec2> = at
+            .iter()
+            .map(|&corner| lens.screen_of(corner).expect("in view"))
+            .collect();
+        let low = seen.iter().copied().reduce(Vec2::min).unwrap();
+        let high = seen.iter().copied().reduce(Vec2::max).unwrap();
+        // Every one of the four is a different point, or the sweep above would
+        // be four readings of one corner and the box would be a dot.
+        assert!(
+            (high - low).min_element() > 1.0,
+            "the fixture projects to {low:?}..{high:?}, which is nothing to bound"
+        );
+
+        let covered = lens.footprint(at.into_iter()).expect("in view");
+        assert!(
+            (covered.min - low).abs().max_element() < 1e-3,
+            "the box starts at {:?} where the points start at {low:?}",
+            covered.min,
+        );
+        assert!(
+            (Vec2::new(covered.size.w, covered.size.h) - (high - low))
+                .abs()
+                .max_element()
+                < 1e-3,
+            "the box is {:?} across where the points span {:?}",
+            covered.size,
+            high - low,
+        );
+    }
+
+    /// **A point the projection drops is skipped, and all of them dropped is
+    /// nothing at all.**
+    ///
+    /// The two halves of what a caller reads: a shape half off screen still
+    /// covers the half that was drawn, and one the view is showing none of is
+    /// what puts a form away rather than standing it in a corner — see
+    /// [`Stands::Beside`](crate::prompt::Stands).
+    #[test]
+    fn a_footprint_skips_what_is_not_drawn_and_is_nothing_where_none_is() {
+        let lens = lens();
+        // Well behind the eye, so the near plane clips it — which is the one
+        // way a position reaches here and answers with nothing.
+        let behind = lens.camera.eye() - lens.facing() * 100.0;
+        assert_eq!(lens.screen_of(behind), None, "the fixture is still drawn");
+        let front = [Vec3::new(1.0, 0.5, -1.0), Vec3::new(-2.0, -1.5, 0.5)];
+
+        let drawn = lens.footprint(front.into_iter()).expect("both are in view");
+        assert_eq!(
+            lens.footprint(front.into_iter().chain([behind])),
+            Some(drawn),
+            "a point the projection dropped moved the box"
+        );
+        assert_eq!(lens.footprint([behind, behind].into_iter()), None);
+        assert_eq!(lens.footprint(std::iter::empty()), None);
     }
 }

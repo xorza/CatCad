@@ -94,20 +94,17 @@ pub(super) fn viewport(response: &ResponseState) -> Option<Viewport> {
 /// putting a point somewhere nobody asked for. So is a view that has not
 /// arranged yet, which is what the lens being absent says.
 ///
-/// No `hovered` filter, unlike hovering and grabbing. A drag that outruns the
+/// The cursor arrives already read, and **unfiltered** — which is the one thing
+/// separating it from the `over` a frame also holds. A drag that outruns the
 /// view keeps hold of what it grabbed, and a click is already the view's by the
-/// time palantir calls it one.
+/// time palantir calls it one, so neither may be dropped for the pointer having
+/// left; hovering and grabbing are the opposite case and take the filtered one.
 ///
-/// A free fn rather than a method on [`Aimed`], because what a caller has is a
-/// `Response`: every one of them would otherwise open by making an `Aimed` and
-/// threading the `Option` on by hand.
-pub(super) fn landing(
-    response: &ResponseState,
-    lens: Option<Lens>,
-    motion: Motion,
-) -> Option<Vec3> {
-    let aimed = Aimed::of(response)?;
-    motion.resolve(&aimed.aim(lens?))
+/// A free fn rather than a method on [`Aimed`], because what it threads is two
+/// `Option`s that come from different places — the cursor and the lens — and a
+/// method would leave the caller unwrapping one of them at every call.
+pub(super) fn landing(aimed: Option<Aimed>, lens: Option<Lens>, motion: Motion) -> Option<Vec3> {
+    motion.resolve(&aimed?.aim(lens?))
 }
 
 /// What a harness reaches past a response for.

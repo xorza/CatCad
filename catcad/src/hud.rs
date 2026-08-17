@@ -104,11 +104,11 @@ impl Hud {
         // moved it, or picking a different one all show up here without anything
         // having to notice. The widget writes its draft over the seed and says
         // so, and that is the only frame anything is asked for.
-        if let Some((_, value)) = dimension {
-            self.draft = value;
+        if let Some(resizable) = dimension {
+            self.draft = resizable.value;
         }
         floating(Panel::hstack(), "constraints", Align::BOTTOM_LEFT).show(ui, |ui| {
-            if let Some((id, _)) = dimension {
+            if let Some(resizable) = dimension {
                 let edited = DragValue::new(&mut self.draft)
                     .auto_id()
                     .speed(DIMENSION_SPEED)
@@ -117,7 +117,7 @@ impl Hud {
                 if edited.changed {
                     intents.push(Change::Resize {
                         sketch,
-                        constraint: id,
+                        constraint: resizable.constraint,
                         to: self.draft,
                     });
                 }
@@ -131,7 +131,7 @@ impl Hud {
             // Before the relations, because it is the one thing here that
             // builds rather than states: a relation says something about the
             // drawing, and this puts a step on the end of the document.
-            if let Some((sketch, region)) = region {
+            if let Some(growable) = region {
                 let pressed = Button::new()
                     .id_salt("Extrude")
                     .label("Extrude")
@@ -144,7 +144,10 @@ impl Hud {
                     // what reaches the timeline is one step carrying the depth
                     // that was settled on — and a form cancelled leaves the
                     // document never having heard of it.
-                    intents.push(Choice::Ask(Some(Opening::Extrude { sketch, region })));
+                    intents.push(Choice::Ask(Some(Opening::Extrude {
+                        sketch: growable.sketch,
+                        region: growable.region,
+                    })));
                 }
             }
             for &constraint in &self.offers {
@@ -318,12 +321,23 @@ pub(crate) struct Shown<'a> {
 /// on a round number.
 const DIMENSION_SPEED: f64 = 0.01;
 
+/// A dimension the bar can scrub, and the number it states as it stands.
+///
+/// The value comes along because the field is a *view* of the dimension rather
+/// than a draft beside it — read in the same breath as the handle, so the two
+/// cannot be a frame apart.
+#[derive(Debug, Clone, Copy)]
+struct Resizable {
+    constraint: ConstraintId,
+    value: f64,
+}
+
 /// The one dimension picked out, if what is picked is exactly that.
 ///
 /// One rather than any, because the field edits a value and two values have no
 /// single answer. A selection holding a dimension *and* something else is
 /// someone part-way through picking a pair, so the field stays away.
-fn dimension_picked(model: Model<'_>, selection: &Selection) -> Option<(ConstraintId, f64)> {
+fn dimension_picked(model: Model<'_>, selection: &Selection) -> Option<Resizable> {
     let [only] = *selection.picked() else {
         return None;
     };
@@ -333,8 +347,28 @@ fn dimension_picked(model: Model<'_>, selection: &Selection) -> Option<(Constrai
     model
         .drawing()
         .holds(id)
-        .then(|| model.sketch().constraint(id).value().map(|at| (id, at)))
+        .then(|| {
+            model
+                .sketch()
+                .constraint(id)
+                .value()
+                .map(|value| Resizable {
+                    constraint: id,
+                    value,
+                })
+        })
         .flatten()
+}
+
+/// A region the bar can grow a solid off.
+///
+/// Both halves, because a region is only a region of the arrangement it was
+/// walked out of — see [`Part::Region`] — so the sketch it belongs to travels
+/// with it rather than being looked up again at the press.
+#[derive(Debug, Clone, Copy)]
+struct Growable {
+    sketch: FeatureId,
+    region: usize,
 }
 
 /// The one region picked out, if what is picked is exactly that.
@@ -346,9 +380,9 @@ fn dimension_picked(model: Model<'_>, selection: &Selection) -> Option<(Constrai
 /// Not checked against the drawing, unlike the dimension: a part that no longer
 /// exists has already been pruned out of the selection by the time anything here
 /// reads it — see [`Session::prune`](crate::session::Session::prune).
-fn region_picked(selection: &Selection) -> Option<(FeatureId, usize)> {
+fn region_picked(selection: &Selection) -> Option<Growable> {
     match *selection.picked() {
-        [Part::Region { sketch, at }] => Some((sketch, at)),
+        [Part::Region { sketch, at }] => Some(Growable { sketch, region: at }),
         _ => None,
     }
 }

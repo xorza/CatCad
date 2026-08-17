@@ -337,6 +337,11 @@ impl Prompt {
     /// pair the match then builds from, because the seeds are arrays and two
     /// arms of different *lengths* would not agree on a type.
     fn on(about: Asking, values: &[(&'static str, Seed)]) -> Self {
+        // A form that asked for nothing would stand on the drawing with nothing
+        // to type into and no way to be answered, so every form has a first
+        // field — which is what lets [`Prompt::over`] and [`Prompt::run`] index
+        // one rather than carry an `Option` for a case that would be a bug.
+        debug_assert!(!values.is_empty(), "a form that asks for nothing");
         Self {
             about,
             fields: values
@@ -469,6 +474,12 @@ impl Prompt {
     /// what the gesture said are one number: a drag and the keyboard are two
     /// ways of saying the same thing, and a form that kept them apart would have
     /// to decide which one Enter meant.
+    ///
+    /// **A field that is not there is nothing to write, not a bug** — which is
+    /// why this and its neighbours reach through `get` where the form's own
+    /// readings index. The index arrives on a replayed [`Choice::Set`], and a
+    /// drag that outlived the form it was writing into lands on whatever is
+    /// open now.
     pub(crate) fn write(&mut self, nth: usize, to: f64) {
         let Some(field) = self.fields.get_mut(nth) else {
             return;
@@ -684,14 +695,19 @@ impl Prompt {
         WidgetId::from_hash(("catcad.prompt.field", nth))
     }
 
-    /// The number as a field will shape it.
+    /// The first field's number, as that field will shape it.
     ///
     /// Built off the same face the field is styled with, so what this measures
     /// is what that draws. Unbounded and single-line: a dimension is one run
     /// that the box is sized to rather than the other way about.
-    fn run(&self, nth: usize) -> TextRun<'_> {
+    ///
+    /// The first and no other, because the only thing that measures a run is
+    /// the form that stands *over* a mark — see [`Prompt::over`] — and that is
+    /// the one-field kind. A row standing beside something is laid out by
+    /// palantir and measures nothing here.
+    fn run(&self) -> TextRun<'_> {
         TextRun {
-            text: &self.fields[nth].draft,
+            text: &self.fields[0].draft,
             font_size_px: MARK_FONT.size_px,
             line_height_px: MARK_FONT.line_height_px,
             wrap: TextWrap::Scroll,
@@ -726,7 +742,7 @@ impl Prompt {
         // The run's own leading rather than what it measured, so an empty draft
         // is a box where the number was and not one half a line higher: a
         // backspace onto nothing must not move the field it was typed in.
-        let width = ui.probe_text(self.run(0)).size().w;
+        let width = ui.probe_text(self.run()).size().w;
         let run = Size::new(width, MARK_FONT.line_height_px);
         let origin = look::FIELD.corner_centring(run, centre);
         let Self { fields, .. } = self;

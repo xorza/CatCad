@@ -268,7 +268,6 @@ pub(super) fn texts(
     // what is *shown* would close ranks the moment a field opened over one of
     // them — and closing ranks under a double-click reads as the click having
     // nudged the drawing.
-    placed.clear();
     marks::stacked(live, placed);
     into.refill(
         placed

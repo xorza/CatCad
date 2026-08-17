@@ -68,14 +68,20 @@ impl Standing {
     }
 }
 
-/// Where every mark of `model` stands, appended to `into`.
+/// Where every mark of `model` stands, filled into `into`.
 ///
 /// Both passes: the anchor per relation, then the lane per anchor. They are one
 /// call because the second cannot be done a relation at a time — where a mark
 /// goes in its stack is a fact about every *other* mark of the drawing.
+///
+/// Fills rather than appends, and clears here rather than leaving it to the
+/// caller, because the second pass wants *the drawing's* marks and no others:
+/// laning a buffer that already held some would be reading a stack that half
+/// belongs to a sketch this one knows nothing about. `into` arrives full only
+/// so that a frame's worth of room is reused.
 pub(super) fn stacked(model: Model<'_>, into: &mut Vec<Placed>) {
     let sketch = model.sketch();
-    let from = into.len();
+    into.clear();
     into.extend(sketch.constraints().flat_map(|(of, constraint)| {
         anchors(sketch, constraint)
             .into_iter()
@@ -85,7 +91,7 @@ pub(super) fn stacked(model: Model<'_>, into: &mut Vec<Placed>) {
                 mark: Mark { at, along, lane: 0 },
             })
     }));
-    lanes(&mut into[from..]);
+    lanes(into);
 }
 
 /// The dimension a tool is half-way through placing, and where its mark stands.

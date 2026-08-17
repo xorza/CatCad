@@ -1378,6 +1378,77 @@ fn drag(app: &mut CatCad, harness: &mut UiHarness, from: Vec3, to: Vec3) {
     frame(app, harness);
 }
 
+/// **A drag that outruns the view keeps hold of what it grabbed.**
+///
+/// The pointer leaving the viewport is not the user letting go, and a drag that
+/// stopped there would strand geometry wherever the edge happened to be — worst
+/// on a small window, where every long pull crosses one.
+///
+/// What it pins is a distinction two readings of the same cursor turn on. The
+/// press, the click and the hover take the cursor **filtered** by `hovered`, so
+/// the overlay's own controls do not light what is behind them; what resolves
+/// against a plane takes it **bare**, and palantir keeps answering
+/// `pointer_local` off the widget precisely so that it can. The two are one
+/// `Option<Aimed>` apiece and nothing but this says which call wants which —
+/// see [`aimed::landing`](crate::scene_view::aimed).
+///
+/// Two legs rather than one, and the second further out, so what is asserted is
+/// that the drag went on *tracking* after the pointer left rather than landing
+/// one more frame and stopping.
+#[test]
+fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
+    let mut app = CatCad::build();
+    let mut harness = UiHarness::new(SIZE);
+    frame(&mut app, &mut harness);
+
+    let world = wrist(&app);
+    let cursor = cursor_on(&mut app, world);
+    harness.move_to(cursor);
+    frame(&mut app, &mut harness);
+    let before = markers(&app);
+    harness.press_at(cursor);
+    frame(&mut app, &mut harness);
+
+    // Inside the view, which is the leg that works either way.
+    harness.drag_to(cursor + Vec2::new(60.0, 0.0));
+    frame(&mut app, &mut harness);
+    let inside = markers(&app);
+    assert_ne!(
+        inside, before,
+        "the drag moved nothing while still on the view"
+    );
+
+    // Off the left edge by a clear margin — `SIZE` is 800 across, so a negative
+    // x is outside it however the view was arranged.
+    harness.drag_to(Vec2::new(-200.0, cursor.y));
+    frame(&mut app, &mut harness);
+    let outside = markers(&app);
+    assert_ne!(
+        outside, inside,
+        "the drag stopped the moment the pointer left the view"
+    );
+
+    // And it went on the way it was pulled rather than merely twitching once.
+    // The farthest any marker has come from where it started, because the drag
+    // reaches the wrist through the constraints and what travels most is not
+    // decided here — what matters is that the drawing kept going.
+    let travelled = |now: &[Vec3]| {
+        now.iter()
+            .zip(&before)
+            .map(|(now, was)| now.distance(*was))
+            .fold(0.0, f32::max)
+    };
+    assert!(
+        travelled(&outside) > travelled(&inside),
+        "the drawing ended {} from where it started having been {} at the edge",
+        travelled(&outside),
+        travelled(&inside),
+    );
+
+    harness.release();
+    frame(&mut app, &mut harness);
+}
+
 /// **A region picked out grows a solid, and Ctrl+Z takes the whole step back.**
 ///
 /// The path a user actually has: click a region, press Extrude, and a step

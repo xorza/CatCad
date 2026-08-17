@@ -65,15 +65,21 @@ impl Stroke {
 
     /// Its corners, in the order they are stroked.
     ///
-    /// One array and a count rather than two iterator types, because what
-    /// differs between the two is a length and nothing else — and a caller
-    /// walking corners has no business knowing which shape it is walking.
-    pub(super) fn corners(self) -> impl Iterator<Item = DVec2> {
-        let (corners, count) = match self {
-            Stroke::Line([from, to]) => ([from, to, DVec2::ZERO], 2),
-            Stroke::Head(three) => (three, 3),
-        };
-        corners.into_iter().take(count)
+    /// One slice rather than two iterator types, because what differs between
+    /// the two is a length and nothing else — and a caller walking corners has
+    /// no business knowing which shape it is walking. Each arm lends out its own
+    /// array, so neither carries a corner that means nothing.
+    ///
+    /// Borrowed where [`Stroke::closes`] beside it takes a copy, and only
+    /// because the slice does: the type is [`Copy`] and small, so the reference
+    /// is the iterator's requirement rather than a statement about the cost.
+    pub(super) fn corners(&self) -> impl Iterator<Item = DVec2> + '_ {
+        match self {
+            Stroke::Line(two) => two.as_slice(),
+            Stroke::Head(three) => three.as_slice(),
+        }
+        .iter()
+        .copied()
     }
 }
 

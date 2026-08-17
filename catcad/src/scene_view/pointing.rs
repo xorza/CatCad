@@ -143,16 +143,17 @@ impl Pointing {
         // this frame's edits, like everything else in the asking half — what an
         // orbit asked for lands afterwards, and is answered for by the settle.
         let lens = self.lens(document.camera());
-        // **The pointer over this view, asked once**, like the ray below: the
-        // press, the click and the settle all want the same answer, and asking
-        // three times in three places is what lets a fourth caller forget the
-        // `hovered` half — which is the half that keeps the overlay's own
-        // controls from lighting what is behind them.
-        //
-        // Filtered, where the ray below is not: a drag that outruns the view
-        // keeps hold of what it grabbed, and a press on something the pointer
-        // is not over is not a press on it.
-        let over = Aimed::of(&response).filter(|_| response.hovered);
+        // **The cursor over this view, read once.** Everything a frame decides
+        // against the pointer starts here, and reading it again per caller is
+        // what lets one of them forget the `hovered` half below — which is the
+        // half that keeps the overlay's own controls from lighting what is
+        // behind them.
+        let aimed = Aimed::of(&response);
+        // The press, the click and the settle all want the *filtered* answer: a
+        // press on something the pointer is not over is not a press on it. What
+        // resolves against a plane wants the bare one, because a drag that
+        // outruns the view keeps hold of what it grabbed — see [`aimed::landing`].
+        let over = aimed.filter(|_| response.hovered);
 
         // Where the pointer is aiming on the sketch's own plane. **One ray,
         // asked once**, and read by everything a frame decides against it: what
@@ -161,7 +162,7 @@ impl Pointing {
         // same ray would be a second answer free to differ from the one that was
         // drawn — see [`anchor`].
         let drawing = document.drawing_at(sketch);
-        let landing = aimed::landing(&response, lens, drawing.motion());
+        let landing = aimed::landing(aimed, lens, drawing.motion());
 
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
@@ -196,7 +197,7 @@ impl Pointing {
                 // Where what is held should end up, and what that comes out
                 // as — which is the whole of what the press decided, spent one
                 // frame at a time. See [`Held::writes`].
-                if let Some(at) = aimed::landing(&response, lens, held.motion)
+                if let Some(at) = aimed::landing(aimed, lens, held.motion)
                     && let Some(edit) = held.writes(at, sketch, drawing, picture, lens)
                 {
                     intents.push(edit);
