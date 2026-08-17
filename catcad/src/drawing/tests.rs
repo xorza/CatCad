@@ -5,6 +5,7 @@ use crate::paint;
 use crate::paint::layout::Layout;
 use crate::part::Part;
 use crate::timeline::Timeline;
+use crate::tool::dimensioning::Dimensioning;
 use aperture::Scene;
 use glam::DVec2;
 use silverpoint::{Along, Constraint, Dimension, PointId};
@@ -700,5 +701,103 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
             .position
             .abs_diff_eq(parted, 1e-3),
         "the drag went nowhere, so this proves nothing"
+    );
+}
+
+/// Every dimension the bar offers can be placed, and placing it states the very
+/// relation that was offered.
+///
+/// What makes a button and the tool two halves of one gesture rather than two
+/// paths to nearly the same thing. The button names the *reading* — which of
+/// three ways a pair is measured, and a pointer can only guess at that — and
+/// hands over; the pointer says where the figure goes, which a button cannot say
+/// at all. What lands has to be the relation the button was captioned with, over
+/// the same geometry, read the same way and at the same size.
+///
+/// The reading is the sharp part. Everything else survives a table written twice
+/// by accident; the reading is the one thing that would come back as whichever
+/// the pointer happened to prefer, and it would look right most of the time.
+#[test]
+fn every_dimension_the_bar_offers_is_placed_as_the_relation_it_offered() {
+    let assorted = Assorted::new();
+    let model = assorted.model();
+    let sketch = model.sketch();
+    let Assorted {
+        a,
+        b,
+        first,
+        alongside,
+        second,
+        circle,
+        ..
+    } = assorted;
+
+    let mut offers = Vec::new();
+    let mut dimensions = 0;
+    // One selection per kind of dimension the drawing can state, which is what
+    // makes this a sweep rather than an example.
+    for picked in [
+        vec![a, b],
+        vec![a, second],
+        vec![first, alongside],
+        vec![circle],
+    ] {
+        let picked: Vec<Part> = picked
+            .into_iter()
+            .map(|entity| model.part(entity))
+            .collect();
+        model.offers(&picked, &mut offers);
+        for &offered in &offers {
+            let Some(placing) = Dimensioning::placing(offered) else {
+                // A relation has no number and so nothing to place, which is
+                // the whole of what tells the two apart.
+                assert_eq!(
+                    offered.value(),
+                    None,
+                    "a dimension refused to place: {offered:?}"
+                );
+                continue;
+            };
+            dimensions += 1;
+            // Somewhere the pointer might plausibly have gone, and off both
+            // axes: where the number lands is not what is being checked, and a
+            // place that lined up with something would hide a reading that had
+            // been swapped.
+            let stated = placing
+                .proposed(sketch, DVec2::new(-2.5, 7.25))
+                .expect("what the bar offered, the tool refused to place");
+
+            assert_eq!(
+                std::mem::discriminant(&stated),
+                std::mem::discriminant(&offered),
+                "{offered:?} was placed as {stated:?}"
+            );
+            assert_eq!(
+                stated.referents().collect::<Vec<_>>(),
+                offered.referents().collect::<Vec<_>>(),
+                "{offered:?} was placed over other geometry"
+            );
+            assert_eq!(
+                stated.value(),
+                offered.value(),
+                "{offered:?} was placed at another size"
+            );
+            // And read the way the button said, rather than the way the pointer
+            // would have chosen: the place above is out to one side, which is
+            // where a *vertical* distance is stood — so a reading taken from it
+            // would come back as that whatever the button was captioned.
+            if let (
+                Constraint::Distance { along: asked, .. },
+                Constraint::Distance { along: got, .. },
+            ) = (offered, stated)
+            {
+                assert_eq!(got, asked, "the button named {asked:?} and got {got:?}");
+            }
+        }
+    }
+    assert_eq!(
+        dimensions, 6,
+        "the four selections above state three distances, a standoff, a spacing \
+         and a radius between them"
     );
 }

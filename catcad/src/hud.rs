@@ -156,12 +156,21 @@ impl Hud {
                     .left
                     .clicked();
                 if pressed {
-                    // A radius *asks* where every other relation states. The
-                    // rest say something the drawing can work out for itself —
-                    // that two edges are parallel, that a point sits on one —
-                    // and a radius is a number, which until now could only be
-                    // the size the circle happened to be. See
-                    // [`Opening::Radius`].
+                    // **Three answers, and which one a button gives follows from
+                    // what it is short of.** A relation says something the
+                    // drawing can work out for itself — that two edges are
+                    // parallel, that a point sits on one — so pressing it states
+                    // it outright. A radius is short of a *number*, which until
+                    // there is one could only be the size the circle happened to
+                    // be, so it asks. And every other dimension already knows its
+                    // number and is short of somewhere to put it, so it goes into
+                    // the pointer's hands.
+                    //
+                    // That last one is why a bar button and the tool are not two
+                    // ways of doing one thing: the bar is what says *which* of
+                    // three readings a pair is measured by, which a pointer can
+                    // only guess at, and the tool is what says where the figure
+                    // goes, which a button cannot say at all.
                     intents.push(match constraint {
                         Constraint::Radius { circle, dimension } => {
                             Intent::from(Choice::Ask(Some(Opening::Radius {
@@ -169,6 +178,9 @@ impl Hud {
                                 circle,
                                 from: dimension.value,
                             })))
+                        }
+                        constraint if let Some(placing) = Dimensioning::placing(constraint) => {
+                            Choice::Hold(Tool::Dimension(placing)).into()
                         }
                         constraint => Change::Constrain { sketch, constraint }.into(),
                     });

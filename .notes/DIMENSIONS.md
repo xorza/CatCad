@@ -564,9 +564,17 @@ the pair leaves every reading scoring alike, and the answer there is the
 tie-break — it has no good reading to give, and what it owes is to keep still
 while the pointer moves through it.
 
-The bar still commits its dimensions where the plan had it route into placing.
-That is the remaining half, and it is small now: a button would raise
-`Choice::Hold` with the reading it named rather than `Change::Constrain`.
+The bar routes its dimensions into placing rather than committing them, so a
+button and the tool are two halves of one gesture: the button names the
+*reading*, which a pointer can only guess at, and the pointer says where the
+figure goes, which a button cannot say at all. A relation still states outright —
+it has nowhere to go — and a radius still asks for its number, which is what it
+is short of.
+
+`Dimensioning::placing` reads the pair off `Constraint::referents` rather than
+matching the variants again. That is already the one place a relation says what
+it is about, and it answers in exactly the shape `Placing` wants — so the table
+lives once instead of three times.
 
 The `Emblem` primitive this note used to plan for is **dropped**. It was going to
 be a way to draw a flat shape sized in logical pixels, and `paint::gizmos` plus
@@ -606,9 +614,6 @@ from where the label went.
   first dimension whose residual is not a length. `TOLERANCE` is documented as
   absolute over lengths *or their squares*; an angle wants reading against that
   before it is written.
-- **A default standoff** for a dimension the bar makes. One lands on its own
-  geometry today and has to be dragged clear, which the tool in phase 5 does for
-  free but the bar does not.
 - **`Along::Edge(SegmentId)`**, a distance measured parallel to a named edge.
   The enum was shaped to take a fourth reading without anything else moving.
 - **An extrude's depth**, which is the one dimension that is not a sketch's.

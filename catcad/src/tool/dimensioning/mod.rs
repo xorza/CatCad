@@ -47,6 +47,38 @@ pub(crate) enum Dimensioning {
 }
 
 impl Dimensioning {
+    /// The tool placing `constraint`, or `None` where it is not a dimension.
+    ///
+    /// What a bar button asks for. The bar has no pointer to read, so it names
+    /// the *reading* itself and leaves only the placing to the pointer — which
+    /// is the one thing a button cannot say and the one thing a dimension needs
+    /// before it is worth stating.
+    ///
+    /// Read off [`Constraint::referents`] rather than a table of which
+    /// constraint names which pair. That is already the one place a relation
+    /// says what it is about, and it answers in exactly the shape this wants: a
+    /// first, and a second where there is one. A table here would be the same
+    /// knowledge written a third time — beside [`Self::proposed`]'s and beside
+    /// the sketch's — and the three would agree until a fifth kind of dimension
+    /// was added to two of them.
+    ///
+    /// A relation is refused by having no number, which is the whole of what
+    /// tells a dimension from one: there is nothing to place.
+    pub(crate) fn placing(constraint: Constraint) -> Option<Self> {
+        constraint.value()?;
+        let mut named = constraint.referents();
+        Some(Dimensioning::Placing {
+            first: named.next()?,
+            second: named.next(),
+            along: match constraint {
+                Constraint::Distance { along, .. } => Some(along),
+                // Nothing else is read more than one way, so nothing else has a
+                // reading to name.
+                _ => None,
+            },
+        })
+    }
+
     /// The tool with `entity` picked, or `None` where picking it means nothing.
     ///
     /// A circle needs no second pick: the only dimension it admits is its own
