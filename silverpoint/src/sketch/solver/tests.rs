@@ -409,6 +409,16 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
     // precision. Nothing is put back, because nothing was broken.
     assert!(outcome.converged(), "{outcome:?}");
     assert_eq!(outcome.degrees_of_freedom(), 0, "{outcome:?}");
+    // And refused without a step being taken, which is the difference between
+    // asking whether there is anywhere to go and finding out by going. A run
+    // that has to discover this creeps toward the cursor by less than a drag is
+    // judged by, keeps step after step, and factorises the normal equations
+    // once per step to arrive back where it started.
+    assert_eq!(
+        outcome.iterations(),
+        0,
+        "a drag with nowhere to go ran anyway: {outcome:?}"
+    );
 
     // And now the half the fixture above cannot show. The same immovable point,
     // with an arm hung off it at a stated length — one freedom, free to swing.
@@ -452,6 +462,14 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
             (sketch.point(swinging).position - settled).length() < DRAGGED,
             "the cursor at {to:?} swung an arm nothing asked to move: {:?}",
             sketch.point(swinging).position
+        );
+        // Refused on what the drag *drives* rather than on what the sketch can
+        // do: this one has a freedom and the point being driven is no part of
+        // it, so there is still nowhere for the pull to go.
+        assert_eq!(
+            outcome.iterations(),
+            0,
+            "the cursor at {to:?} ran a solve to conclude nothing: {outcome:?}"
         );
     }
 }
@@ -568,6 +586,14 @@ fn a_drag_the_constraints_cannot_take_exactly_lands_as_near_as_they_allow() {
         &mut outcome,
     );
     assert!(outcome.converged(), "{:?}", outcome);
+    // And it ran to get there, which is the other side of the refusal next
+    // door: a pull the constraints cannot take *exactly* is not a pull they
+    // pin, and a drag turned away for reaching past what it can have would
+    // leave every point on an edge unable to slide along it.
+    assert!(
+        outcome.iterations() > 0,
+        "the drag was refused rather than answered: {outcome:?}"
+    );
     // Held, the cursor asked for somewhere off the edge and the constraints
     // refused; freed, they answered with the nearest place on it. That second
     // attempt is the one kept, and it is the one this names.

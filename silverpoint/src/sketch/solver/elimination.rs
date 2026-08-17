@@ -62,6 +62,41 @@ pub(super) struct Elimination {
 }
 
 impl Elimination {
+    /// Whether the constraints leave any of `params` anywhere to go.
+    ///
+    /// What a drag asks *before* running, because finding it out by running is
+    /// what costs. A pull the geometry is pinned against is not refused in a
+    /// step or two: the objective creeps by less than the drag is judged by, so
+    /// step after step is taken and kept until the reduction stalls, and the run
+    /// arrives back where it started having factorised the normal equations a
+    /// dozen times over. Measured at fourteen kept steps and 18ms on a rigid bar
+    /// of 244 parameters, against 0.2ms to ask this.
+    ///
+    /// Exact rather than a guess, and the same reading the run itself works
+    /// from: a parameter with nothing in its row of the null space cannot move
+    /// to first order, so the step that would move it is zero, so the run cannot
+    /// take it either. What is refused here is what would have been refused
+    /// anyway.
+    ///
+    /// Parameters rather than the drag that named them, so the reduction stays
+    /// what it is — a question about rank — and needs to know nothing about the
+    /// run it is asked on behalf of. The two are the separate halves
+    /// [`Solver`](crate::Solver) drives, and neither reaches for the other.
+    ///
+    /// One call rather than a reduction and a reading of it, like
+    /// [`Elimination::measure`] beside it and for the same reason — nothing here
+    /// means anything until the reduction has filled it.
+    pub(super) fn yields(
+        &mut self,
+        system: &System,
+        params: impl IntoIterator<Item = usize>,
+    ) -> bool {
+        self.null_space(system);
+        params
+            .into_iter()
+            .any(|param| self.travel(param) != Freedom::Determined)
+    }
+
     /// Reduce the system as it stands and write what its constraints leave
     /// undecided into `into`.
     ///

@@ -142,6 +142,15 @@ impl Solver {
     /// `holding` is what must not move while the drag happens, which is not
     /// what is being driven: a rim drives a radius and holds the circle's
     /// centre, so that growing a circle does not walk it.
+    ///
+    /// A pull with nowhere at all to go is turned away before any of that,
+    /// rather than being put through the run to arrive back where it started.
+    /// Whether the constraints leave the geometry being driven anywhere to go
+    /// is a question about their rank, and asking it outright answers the same
+    /// as running for the cost of the question: what the run does with such a
+    /// pull is creep toward the cursor by less than a drag is judged by,
+    /// keeping step after step and factorising the normal equations once per
+    /// step, and then hand back every parameter it was given.
     pub fn drag(
         &mut self,
         sketch: &mut Sketch,
@@ -172,6 +181,28 @@ impl Solver {
                     target: radius,
                 }),
             }
+        }
+        // Whether there is anywhere for it to go, asked before running rather
+        // than discovered by running — see [`Elimination::yields`], on what
+        // discovering it costs. Of the system the drag would be solved against,
+        // `holding` pinned: a point held is a point that cannot move.
+        //
+        // Only where the sketch already stands at an answer. One that does not
+        // has constraints to satisfy whichever way the drag goes, and settling
+        // them is a run with work to do however pinned the pull is.
+        //
+        // The run assembles this again for itself, which is left alone: one
+        // assembly is a fraction of the factorisation it saves where the answer
+        // is no, and sparing it would mean the run trusting that what the solver
+        // happens to be holding is the system it was about to build.
+        self.system.assemble_holding(sketch, holding);
+        let pinned = self.system.max_residual() <= TOLERANCE
+            && !self
+                .elimination
+                .yields(&self.system, self.pulls.iter().map(|pull| pull.param));
+        if pinned {
+            self.describe(sketch, into, 0);
+            return;
         }
         self.was.clear();
         sketch.params().write(&mut self.was);
