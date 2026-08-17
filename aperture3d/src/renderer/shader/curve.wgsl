@@ -83,9 +83,8 @@ fn curve_vs(
     // is all that stands between the divide and infinity. Those vertices exist
     // to be clipped against, and the clip reads the `z` they carry.
     let offset_ndc = ndc_from_px_delta(offset_px);
-    var depth_shift = 0.0;
     let plane_shift = plane_depth_shift(position, plane, here, here_ndc, offset_ndc);
-    depth_shift = plane_shift.shift;
+    var depth_shift = plane_shift.shift;
     let from_plane = plane_shift.found;
 
     // Without a plane only the along-segment half of the error is recoverable:
@@ -99,12 +98,7 @@ fn curve_vs(
     }
 
     var out: CurveVsOut;
-    let widened = vec4<f32>(
-        here.xy + offset_ndc * here.w,
-        here.z + depth_shift * here.w,
-        here.w,
-    );
-    out.clip = widened;
+    out.clip = moved_in_ndc(here, offset_ndc, depth_shift);
     out.color = color;
     // Which edge of the ribbon this corner is on, in a frame the whole quad
     // agrees about. `across` is measured from each end toward the other, so it

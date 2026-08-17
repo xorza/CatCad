@@ -25,15 +25,15 @@ const MIN_PX_PER_WORLD: f32 = 1e-3;
 const MAX_COVER: f32 = 2.0;
 
 // How far a clip-space direction `d` moves the screen, in pixels, at a point
-// `at` whose own `w` is `w`.
+// `at` whose own `w` is `w` — the projection's tangent, spent through the `w²`
+// and out into pixels.
 //
-// The quotient rule on the perspective divide: `ndc = clip / w`, so a step
-// along `d` moves it by `(d.xy*w - at.xy*d.w) / w²`. Exact, where differencing
-// two projected positions is exact only in the limit — and free here, because
-// the directions it is asked about are the ring's own axes, already in clip
-// space and already paid for.
+// Free here, because the directions it is asked about are the ring's own axes,
+// already in clip space and already paid for. No y flip: what comes back is a
+// rate, and every use of it below is a length or a dot product against another
+// one, so the axis the screen counts down does not enter.
 fn screen_rate(at: vec4<f32>, w: f32, d: vec4<f32>) -> vec2<f32> {
-    return px_from_ndc_delta((d.xy * w - at.xy * d.w) / (w * w));
+    return px_from_ndc_delta(ndc_tangent(at.xy, w, d) / (w * w));
 }
 
 struct RingVsOut {

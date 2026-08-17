@@ -17,23 +17,22 @@ struct TextVsOut {
 };
 
 // Which way a world direction runs on screen where a point of clip position
-// `here` is drawn, up to a positive scale — the tangent of the projection
-// itself, by the quotient rule on `ndc = clip.xy / clip.w`.
+// `here` is drawn — a bearing and not a rate, which is the whole of what the two
+// rules below read.
 //
-// `text::screen_tangent` is the same lines in Rust, where it is asked for a
-// magnitude as well and so carries the `clip.w²` this drops. Only the signs are
-// read here, and those a positive scale leaves alone — including the viewport
-// being the window rather than the whole view, and the matrix skewed onto it.
+// `Viewport::screen_tangent` is the same question in Rust and `screen_rate` in
+// `ring.wgsl` is the same one on this side; all three are the expression
+// `ndc_tangent` holds, and differ only in what they spend it through. This one
+// spends it through nothing: only the signs are read, and the `w²` and the
+// viewport are both positive scales that leave a sign where it was.
 //
-// Which makes the `u.viewport` here carried for that likeness rather than for
-// need: scaling both axes by a positive number changes neither the winding nor
-// which half of the screen the advance points into. The y flip beside it is not
-// spare — negating one axis reverses the winding, which is the whole of the
-// first rule.
-fn screen_tangent(world: vec3<f32>, here: vec4<f32>) -> vec2<f32> {
+// The y flip is *not* spare, which is why it survives where those two do not:
+// negating one axis reverses the winding, and the winding is the first of the
+// two rules.
+fn screen_bearing(world: vec3<f32>, here: vec4<f32>) -> vec2<f32> {
     let there = u.view_proj * vec4<f32>(world, 0.0);
-    let ndc = there.xy * here.w - here.xy * there.w;
-    return vec2<f32>(ndc.x, -ndc.y) * u.viewport;
+    let ndc = ndc_tangent(here.xy, here.w, there);
+    return vec2<f32>(ndc.x, -ndc.y);
 }
 
 // The plane directions a run laid in one is set along, with both signs settled.
@@ -49,8 +48,8 @@ struct RunAxes {
 
 fn run_axes(right: vec3<f32>, plane: vec3<f32>, here: vec4<f32>) -> RunAxes {
     let across = cross(plane, right);
-    let along = screen_tangent(right, here);
-    let sideways = screen_tangent(across, here);
+    let along = screen_bearing(right, here);
+    let sideways = screen_bearing(across, here);
     // Of the plane's two ways to run down, the one that winds the way the
     // screen does; then the half turn, as a sign on both.
     let winding = along.x * sideways.y - along.y * sideways.x;
@@ -133,12 +132,14 @@ fn text_vs(
         // **Square to the viewer.** A rectangle in screen space, hung off the
         // anchor's own projection.
         //
-        // The y is negated here and nowhere else: `ndc_from_px_delta` leaves the
+        // The one place a *position* is flipped: `ndc_from_px_delta` leaves the
         // flip out because every other shape widened in this crate is symmetric
         // in ±, so mirroring one only swaps which corner is which. A glyph is
         // not — it hangs down and to the right of its origin — so the difference
         // between a framebuffer counting down and NDC counting up is real, and
-        // has to be taken here.
+        // has to be taken here. `screen_bearing` flips a *direction* above, for
+        // a reason of its own.
+        //
         // Into the target's own pixels here and nowhere else in this shader:
         // NDC is a fraction of the target, and the target's pixels are physical.
         let offset_ndc = ndc_from_px_delta(vec2<f32>(px.x, -px.y) * u.raster_scale);
@@ -148,11 +149,7 @@ fn text_vs(
         // none of this: its corners are already on the surface.
         let at_ndc = ndc_from_clip(at);
         let plane_shift = plane_depth_shift(anchor, plane, at, at_ndc, offset_ndc);
-        out.clip = vec4<f32>(
-            at.xy + offset_ndc * at.w,
-            at.z + plane_shift.shift * at.w,
-            at.w,
-        );
+        out.clip = moved_in_ndc(at, offset_ndc, plane_shift.shift);
     }
     out.color = color;
     out.uv = uv_min + corner * uv_size;

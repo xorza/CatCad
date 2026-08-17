@@ -108,8 +108,40 @@ fn ndc_from_px_delta(delta: vec2<f32>) -> vec2<f32> {
     return delta * 2.0 / u.viewport;
 }
 
-/// How far the depth of a plane moves over a screen-space step away from a
-/// point on it, and whether that could be answered at all.
+// How far a clip-space direction `d` moves NDC at a point whose clip position is
+// `at_xy` over `w`, up to the `w²` that scales it.
+//
+// The quotient rule on `ndc = clip.xy / clip.w`, which is
+// `(d.xy·w − at.xy·d.w) / w²`. Exact, where differencing two projected positions
+// is exact only in the limit — and the whole of what two readers here share, so
+// that the one expression that has to match `Viewport::screen_tangent` in Rust
+// is written once on this side rather than once per shader.
+//
+// The `w²` is the caller's, and that is the point of leaving it off: a rate in
+// pixels wants it, and a bearing whose signs are all that is read does not.
+// `at_xy` and `w` arrive apart because a ring floors its own `w` before using
+// it, and the floored one has to reach both halves of the subtraction.
+fn ndc_tangent(at_xy: vec2<f32>, w: f32, d: vec4<f32>) -> vec2<f32> {
+    return d.xy * w - at_xy * d.w;
+}
+
+// A clip position moved by an offset stated in NDC — the corner a screen-space
+// widening actually lands on.
+//
+// Both halves are multiplied back up by `w` because the offsets are stated in
+// NDC and this is still clip space: the divide has not happened, so a constant
+// added here would move a vertex by less the further off it was. Written once
+// because every kind widened in *screen* space lands its corners this way — a
+// ribbon, a marker's disc and a glyph square to the viewer — and one that spent
+// one half through `w` and not the other would come out right at one depth only.
+// A ring is the kind that never arrives here: its band is widened in its own
+// plane, so its corners are already where the projection puts them.
+fn moved_in_ndc(at: vec4<f32>, offset: vec2<f32>, depth: f32) -> vec4<f32> {
+    return vec4<f32>(at.xy + offset * at.w, at.z + depth * at.w, at.w);
+}
+
+// How far the depth of a plane moves over a screen-space step away from a
+// point on it, and whether that could be answered at all.
 struct PlaneShift {
     shift: f32,
     found: bool,

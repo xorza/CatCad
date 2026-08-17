@@ -27,7 +27,7 @@ fn point_vs(
     @builtin(vertex_index) index: u32,
     @location(0) position: vec3<f32>,
     @location(1) color: vec3<f32>,
-    // Half the diameter in logical px, then the depth bias.
+    // Half the diameter, in logical px — the tail every overlay record shares.
     @location(2) half_size: f32,
     @location(3) plane: vec3<f32>,
 ) -> PointVsOut {
@@ -46,11 +46,7 @@ fn point_vs(
     let plane_shift = plane_depth_shift(position, plane, anchor, anchor_ndc, offset_ndc);
 
     var out: PointVsOut;
-    out.clip = vec4<f32>(
-        anchor.xy + offset_ndc * anchor.w,
-        anchor.z + plane_shift.shift * anchor.w,
-        anchor.w,
-    );
+    out.clip = moved_in_ndc(anchor, offset_ndc, plane_shift.shift);
     out.color = color;
     out.corner = corner;
     out.half_px = half_px;

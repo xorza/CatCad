@@ -212,12 +212,17 @@ impl Instance for PointInstance {
 /// tells them apart, and it is why this carries a direction and a lift that a
 /// screen-facing run never reads.
 ///
-/// **Sixteen of its ninety-six bytes are the glyph's.** The anchor, the colour,
-/// the plane, the advance and the lift are the *run's*, repeated once per glyph
-/// because a vertex buffer is the only thing an instance step reads. A run of
-/// four digits ships them four times over. It has never been worth a second
-/// buffer and an index — a drawing carries a few hundred glyphs — but it is the
-/// shape of this record and not an oversight.
+/// **Thirty-two of its ninety-six bytes are the glyph's** — where it hangs, how
+/// large it is, and where on the sheet to read it. The other sixty-four are the
+/// *run's*: the anchor, the colour, the plane, the advance and the lift,
+/// repeated once per glyph because a vertex buffer is the only thing an instance
+/// step reads. A run of four digits ships them four times over.
+///
+/// It has never been worth a second buffer and an index. A drawing carries a few
+/// hundred glyphs, so the whole buffer is tens of kilobytes and it is written
+/// only when the text moves — against which an index per glyph, a second binding
+/// and a second upload buy nothing. It is the shape of this record and not an
+/// oversight.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GlyphInstance {
