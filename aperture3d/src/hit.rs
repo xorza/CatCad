@@ -10,7 +10,6 @@ use std::cmp::Ordering;
 /// hit, and a label is the same — what a caller does with one is about the
 /// whole run. A stroke does have an interior: which of its segments, and how
 /// far along.
-///
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum HitAt {
     /// A flat control, anywhere on it. Like a surface, it has no part of itself
@@ -115,8 +114,30 @@ pub struct Hit {
     pub at: HitAt,
     /// What the primitive said it was for, which outranks what shape it is.
     pub precedence: Precedence,
-    /// Where on the primitive, in world space — the marker's own position, or
-    /// the point of the stroke nearest the cursor.
+    /// **Where on the primitive the cursor is**, in world space — the point of
+    /// the stroke nearest it, the triangle the ray went through, the place on a
+    /// run's own surface it fell.
+    ///
+    /// The cursor's place and not the primitive's, which for anything with area
+    /// are different points and for a marker are the same one. Two things read
+    /// this and both want the former: the depth an overlay is ordered and
+    /// occluded by, and whatever a caller does with the place it found. A run
+    /// answering from the middle of its box passed every test the crate had and
+    /// broke both at once — a label lies flat, so the face it is drawn on is
+    /// nearer than its middle over half its area, and the lower half of every
+    /// number read as being behind the sheet under it.
+    ///
+    /// Stated as a bound against [`Hit::screen`], which is what makes it one
+    /// rule over five kinds rather than five readings:
+    ///
+    /// ```text
+    /// |screen_of(hit.world) − cursor| ≤ hit.screen
+    /// ```
+    ///
+    /// Four kinds meet it with equality. A run of text is the one that can sit
+    /// strictly inside it: with the cursor outside its box but within reach,
+    /// `screen` is the gap to the box's edge while this is still the point of
+    /// the run's surface under the cursor.
     pub world: Vec3,
     /// How far that landed from the cursor on screen, in the units the pick
     /// was asked in.

@@ -76,8 +76,13 @@ fn text_vs(
     @location(3) uv_min: vec2<f32>,
     @location(4) uv_size: vec2<f32>,
     @location(5) color: vec3<f32>,
-    // A glyph's size came from its shaping, so the look's spread is unused.
-    @location(6) half_extent: f32,
+    // Location 6 is the look's `half_extent`, and a glyph has no use for one —
+    // its size came from its shaping, not from a width the shader spreads. Left
+    // undeclared rather than declared and ignored: what a declaration would buy
+    // is wgpu matching its *base type* against the layout and nothing else — the
+    // component count is free to differ — so an `f32` among `f32`s is checked by
+    // nothing, and `Record::LAYOUT_SPANS_STRUCT` already holds the attribute
+    // list to the record's own size.
     @location(7) plane: vec3<f32>,
     // Zero where the run is square to the viewer, which is the whole of what
     // tells the two apart.
@@ -92,7 +97,10 @@ fn text_vs(
         select(0.0, 1.0, (index & 2u) != 0u),
     );
     let at = u.view_proj * vec4<f32>(anchor, 1.0);
-    let px = (offset + corner * size) * u.raster_scale;
+    // Logical pixels, as the run was shaped and as the lift is stated. Which of
+    // the two branches below is taken decides what they are turned into: the
+    // laid one spends them in the world, the square one in NDC.
+    let px = offset + corner * size;
 
     var out: TextVsOut;
     if (dot(right, right) > 0.5) {
@@ -101,25 +109,23 @@ fn text_vs(
         // surface's exactly rather than extrapolated back onto it.
         //
         // Sized against the screen all the same. One logical pixel of the
-        // shaping is worth `world_per_clip_w` of world per unit of depth, so a
-        // run holds the size it would have had square to the viewer — which is
+        // shaping is worth `world_per_logical_px` of world per unit of depth, so
+        // a run holds the size it would have had square to the viewer — which is
         // also why the sheet is rasterized at one size however far off it is.
         //
         // No y flip: `px.y` runs down the run's own box, and the axes come back
         // with a down that projects downward.
         let axes = run_axes(right, plane, at);
-        let step = at.w * u.world_per_clip_w;
+        // One step, and every length below is in the pixels it counts. Nothing
+        // here goes through `raster_scale`: a display's scale reaches a laid run
+        // through `world_per_logical_px` alone, so a quantity added to this
+        // branch cannot be added in the wrong pixel.
+        let step = at.w * u.world_per_logical_px;
         // The lift moves the point the box hangs off and nothing else — and it
         // is in the plane's own axes rather than the run's, so the mirror and
         // the half turn above leave it where it is. A run that comes round to
         // stay readable only changes direction.
-        //
-        // Through `raster_scale` like the shaping above, and for the same
-        // reason: `step` is world per *physical* pixel, and a lift arrives in
-        // logical ones. Without it a lift shrank with the display's scale while
-        // picking — which is in logical pixels throughout — went on measuring
-        // the box where the lift asked for it.
-        let hangs = anchor + lift * (u.raster_scale * step);
+        let hangs = anchor + lift * step;
         let corner_world =
             hangs + axes.advance * (px.x * step) + axes.down * (px.y * step);
         out.clip = u.view_proj * vec4<f32>(corner_world, 1.0);
@@ -133,7 +139,9 @@ fn text_vs(
         // not — it hangs down and to the right of its origin — so the difference
         // between a framebuffer counting down and NDC counting up is real, and
         // has to be taken here.
-        let offset_ndc = ndc_from_px_delta(vec2<f32>(px.x, -px.y));
+        // Into the target's own pixels here and nowhere else in this shader:
+        // NDC is a fraction of the target, and the target's pixels are physical.
+        let offset_ndc = ndc_from_px_delta(vec2<f32>(px.x, -px.y) * u.raster_scale);
         // A label is wide enough for the surface under it to rise through, so it
         // follows the plane's depth as a stroke or a marker does. Without a
         // plane it stays flat and leans on the bias alone. The laid path wants

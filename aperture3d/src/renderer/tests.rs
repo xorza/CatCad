@@ -12,7 +12,8 @@ use crate::renderer::uniforms::Uniforms;
 use crate::ring::Ring;
 use crate::styled::Styled;
 use crate::tag::Tag;
-use crate::text::{Facing, Text, Turn};
+use crate::text::Text;
+use crate::text::turn::{Facing, Turn};
 use glam::{IVec2, Mat4, Vec2, Vec3};
 use palantir::OffscreenHost;
 use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
@@ -1057,7 +1058,7 @@ fn a_run_laid_in_the_plane_it_faces_is_the_screen_run_turned() {
 
     // **The constant-size claim outright.** A laid run is built in the world out
     // of a size in pixels, and the depth is the whole of what the shader
-    // multiplies by — it takes `at.w * world_per_clip_w` — so one that dropped
+    // multiplies by — it takes `at.w * world_per_logical_px` — so one that dropped
     // the `w` would size the run by the orbit distance and land nowhere near.
     // Set along the plane's +x that round trip is the identity; along −x the
     // readable-side rule brings it back to the same place rather than hanging it
@@ -1240,6 +1241,135 @@ fn a_lifted_run_only_changes_direction_when_it_comes_round() {
         "at {SCALE} physical pixels to the logical one a lift of {lift:?} moved \
          the run from {sat:?} to {went:?}, where it owes {want} across"
     );
+}
+
+/// **The box a pick measures is the box the run was drawn in.**
+///
+/// The one test that asks the two sides about *each other*. Every other run test
+/// pins one of them against arithmetic — `text::tests` hand-computes the box a
+/// pick opens, and the three above hand-compute where the ink lands — and both
+/// were right about their own half while a lift drew at two-thirds of the
+/// standoff it was picked at. Nothing compared a box against the pixels.
+///
+/// Read the ink out of the frame, find the pick box by sweeping cursors, and
+/// compare. What is compared is the **middle** of each: a run's box is its line
+/// box and its ink is the inked part of that, so the two differ by the ascent
+/// and descent whatever else is right, and only where the box *sits* is a claim
+/// about agreement. Edges are asserted as containment, which is the weaker half
+/// and catches a box the wrong size.
+///
+/// Swept over the raster scale above all, because every factor between logical
+/// and physical pixels is invisible at 1 — and over a raked plane, both
+/// projections and both ways of anchoring, since each is a rule the shader and
+/// `Turn::axes` implement separately.
+#[test]
+fn a_run_is_picked_over_the_pixels_it_was_drawn_on() {
+    let gpu = headless_test_gpu();
+    for (plane, camera) in [
+        ("square", square_on()),
+        (
+            "raked",
+            Camera {
+                yaw: 0.6,
+                pitch: -0.7,
+                ..square_on()
+            },
+        ),
+        (
+            "raked flat",
+            Camera {
+                yaw: 0.6,
+                pitch: -0.7,
+                projection: Projection::Orthographic,
+                ..square_on()
+            },
+        ),
+    ] {
+        let mut view = Lettering::new(&gpu, camera);
+        // Centred and lifted is what a drawing's marks are; hung off a corner
+        // with no lift is the other end of what `Text::origin` decides, and the
+        // two fold in opposite directions.
+        for (anchor, lift) in [
+            (Vec2::splat(0.5), Vec2::new(0.0, -20.0)),
+            (Vec2::ZERO, Vec2::ZERO),
+        ] {
+            let mut apart: Vec<Vec2> = Vec::new();
+            for scale in [1.0f32, 1.5, 2.0] {
+                let turn = Turn::new(Vec3::X, Vec3::Z).lifted(lift);
+                let mut text = run().anchored(anchor).facing(Facing::Turned(turn));
+                text.tag = Some(Tag::new(1));
+                let ink = view.ink_at(text, scale);
+                let case = format!("{plane} at scale {scale}, anchor {anchor:?}, lift {lift:?}");
+                assert!(ink.count > 0, "{case}: nothing was drawn");
+
+                // The run as the frame left it: the extent is the shaper's
+                // answer, filled by the very pass that drew the glyphs.
+                let drawn = view.pane.view.borrow().scene().texts[0].clone();
+                let logical = UVec2::new(
+                    (FRAME.x as f32 / scale) as u32,
+                    (FRAME.y as f32 / scale) as u32,
+                );
+                let viewport = Viewport::new(logical);
+                let camera = *view.pane.view.borrow().camera();
+                let (ink_min, ink_max) = (ink.min.as_vec2() / scale, ink.max.as_vec2() / scale);
+
+                // Swept around the ink rather than over the whole view, which is
+                // both cheaper and sharper: a box displaced further than this
+                // window finds nothing at all and says so.
+                let middle = (ink_min + ink_max) * 0.5;
+                let mut lo = Vec2::splat(f32::MAX);
+                let mut hi = Vec2::splat(f32::MIN);
+                for down in -80..=80 {
+                    for across in -80..=80 {
+                        let cursor = middle + Vec2::new(across as f32, down as f32);
+                        let aim = crate::aim::Aim::new(&camera, cursor, viewport, 0.0);
+                        if drawn.pick(&aim).is_some_and(|hit| hit.screen == 0.0) {
+                            lo = lo.min(cursor);
+                            hi = hi.max(cursor);
+                        }
+                    }
+                }
+                assert!(lo.x <= hi.x, "{case}: the pick box is nowhere near the ink");
+
+                // **Where the box sits, not how big it is.** Its size is shared
+                // by construction — one `Text::extent` feeds both the origin the
+                // glyphs hang off and the rectangle a pick opens — so a size
+                // that drifted would have to drift in the shaper, and it does:
+                // a run comes out a few percent wider than its own box on a
+                // display above 1, because `TextGlyphs::measure` scales one
+                // shaping linearly where `TextGlyphs::line` shapes again at the
+                // raster size and quantises there. Bounded, palantir's to
+                // settle, and not what this is asking about. What can drift here
+                // is placement, and that is what is measured.
+                assert!(
+                    lo.abs_diff_eq(ink_min, 8.0),
+                    "{case}: the ink starts at {ink_min:?} and the pick box at {lo:?}"
+                );
+                apart.push(lo - ink_min);
+            }
+
+            // **And how far the box sits off the ink does not depend on the
+            // display.** The sharp half. A run's box is its line box and its ink
+            // is the inked part of one, so the two start a little apart — by the
+            // bearing and the ascent, in logical pixels, the same at every scale.
+            // Anything that reaches only one of the two through the raster scale
+            // moves this and nothing else, which is exactly what a lift spent in
+            // the target's pixels and picked in logical ones did.
+            //
+            // Measured at the corner the box *starts* from rather than at its
+            // middle, and that is not a detail: the far end carries the width
+            // drift noted above, so a middle would move with the shaper and this
+            // does not.
+            let first = apart[0];
+            for (scale, off) in [1.0f32, 1.5, 2.0].into_iter().zip(&apart) {
+                assert!(
+                    off.abs_diff_eq(first, 1.5),
+                    "{plane}, anchor {anchor:?}, lift {lift:?}: the box starts {off:?} off the \
+                     ink at scale {scale} and {first:?} at scale 1"
+                );
+            }
+        }
+    }
 }
 
 /// One of every kind, through a real device, twice.

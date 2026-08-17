@@ -3,8 +3,10 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Camera, Extent, Highlight, Lit, Motion, Renderer, Tag, Tint, Viewport};
-use glam::{UVec2, Vec2, Vec3};
+use aperture::{
+    Aim, Camera, Extent, Highlight, Hit, Lit, Motion, Renderer, Scene, Tag, Tint, Viewport,
+};
+use glam::{Vec2, Vec3};
 use palantir::{
     ButtonPhase, Configure, Drag, GpuPaint, GpuView, PointerWake, Rect, ResponseState, Sense,
     Sizing, Ui, WidgetId,
@@ -137,6 +139,26 @@ struct Held {
     /// part that cannot be used is dropped where the travel becomes a number —
     /// see [`Movable::offset_at`](crate::timeline::Movable::offset_at).
     offset: Vec3,
+}
+
+/// What the pointer is over: the aim it was asked through, what the scene
+/// answered, and what the layout calls it.
+///
+/// **One question the hover, the click and the press all ask.** They asked it
+/// three times over in three spellings — build an aim through the document's
+/// camera, take the scene's nearest, look the tag up in the names — and the
+/// comment on [`SceneView::settle`] records the last time two of them came apart
+/// over which camera to aim through. Three callers reading one answer is what
+/// stops a fourth from inventing a second.
+///
+/// The aim rides along because a press wants it afterwards, to resolve where the
+/// grab landed on the motion. Taking it off the same value is what keeps the hit
+/// and the ray from coming from two viewpoints.
+#[derive(Debug, Clone, Copy)]
+struct Under {
+    aim: Aim,
+    hit: Hit,
+    part: Part,
 }
 
 /// What a drag took hold of, and so which change its travel is written as.
@@ -711,9 +733,7 @@ impl SceneView {
             });
         }
 
-        self.viewport = response
-            .layout_rect
-            .map(|rect| Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32)));
+        self.viewport = Aimed::viewport(&response);
 
         // Asking whether the pointer is actually over the view is what stops
         // the overlay's own controls — and the field open over a dimension —
@@ -912,11 +932,8 @@ impl SceneView {
         let pointed = self
             .aimed
             .filter(|_| held.is_none())
-            .and_then(|aimed| {
-                let aim = aimed.aim(&document.camera());
-                renderer.scene().nearest(aim).map(|hit| hit.tag)
-            })
-            .and_then(|tag| self.layout.names().get(tag));
+            .and_then(|aimed| self.under(renderer.scene(), aimed, &document.camera()))
+            .map(|under| under.part);
         // What is *named* is not what is lit, and a drag is the one moment they
         // part: the readout goes on saying what the pointer is working on, which
         // is the thing in hand rather than whatever it is passing over. Lighting
@@ -993,17 +1010,36 @@ impl SceneView {
         prompt::footprint(self.corners.iter().copied(), camera, viewport)
     }
 
+    /// What `aimed` is over in `scene`, or `None` where it is over nothing the
+    /// layout names.
+    ///
+    /// The scene by argument rather than taken from the view, and that is not
+    /// ceremony: the hover asks this while already holding the renderer open to
+    /// write the controls into, and a second borrow of the same cell would
+    /// panic. Handing it in is also what says this reads the scene and nothing
+    /// else about the view.
+    ///
+    /// Aimed through the **document's** camera, once, here. The renderer keeps a
+    /// copy that is written at the end of every frame, so a caller reaching for
+    /// that one answers through wherever the camera was before this frame's
+    /// orbit.
+    fn under(&self, scene: &Scene, aimed: Aimed, camera: &Camera) -> Option<Under> {
+        let aim = aimed.aim(camera);
+        let hit = scene.nearest(aim)?;
+        Some(Under {
+            aim,
+            hit,
+            part: self.layout.names().get(hit.tag)?,
+        })
+    }
+
     /// The part of the drawing under the cursor as the scene now stands, or
     /// `None` where the cursor is over nothing or off the view.
-    ///
-    /// What a click asks, where [`SceneView::grab`] asks the fuller question —
-    /// a press needs where on the primitive it landed and where that is in the
-    /// world, and a click needs only what the thing is.
     fn named_under(&self, response: &ResponseState, document: &Document) -> Option<Part> {
         let aimed = Aimed::of(response).filter(|_| response.hovered)?;
         let renderer = self.renderer.borrow();
-        let aim = aimed.aim(&document.camera());
-        self.layout.names().get(renderer.scene().nearest(aim)?.tag)
+        let under = self.under(renderer.scene(), aimed, &document.camera())?;
+        Some(under.part)
     }
 
     /// What a click here would build on: what it landed on and where.
@@ -1073,14 +1109,8 @@ impl SceneView {
             .filter(|_| response.hovered)
             .and_then(|aimed| {
                 let renderer = self.renderer.borrow();
-                let scene = renderer.scene();
-                // One aim for both halves of the offset below, so the hit and
-                // the ray cannot come from two viewpoints — which is what they
-                // did when the hit was picked through the scene's own camera
-                // and the ray cast through the document's.
-                let aim = aimed.aim(&document.camera());
-                let hit = scene.nearest(aim)?;
-                let part = self.layout.names().get(hit.tag)?;
+                let Under { aim, hit, part } =
+                    self.under(renderer.scene(), aimed, &document.camera())?;
                 let drawing = document.drawing_at(editing);
                 let grabbed = match part {
                     // A plane whatever sketch is open: what it moves is where

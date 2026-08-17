@@ -1,6 +1,7 @@
 use super::*;
 use crate::batch::Batch;
 use crate::camera::{Camera, Projection};
+use crate::text::turn::{Facing, Turn};
 use crate::viewport::Viewport;
 use glam::UVec2;
 use palantir::TextShaper;

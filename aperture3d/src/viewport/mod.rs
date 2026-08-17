@@ -1,7 +1,7 @@
 //! Pixels, and how they meet normalized device coordinates.
 
 use crate::aim::Inside;
-use glam::{UVec2, Vec2, Vec4, Vec4Swizzles};
+use glam::{Mat4, UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
 
 /// Screen length below which a projected stretch lands on a single pixel and
 /// has no direction to project a cursor onto.
@@ -130,6 +130,31 @@ impl Viewport {
     pub fn pixel_of(&self, clip: Vec4) -> Option<Vec2> {
         Inside::of(clip).drawn().then(|| self.pixel_from_clip(clip))
     }
+}
+
+/// How far a step along `world` carries on screen where a point of clip
+/// position `here` is drawn: pixels per world unit, with y running down.
+///
+/// The tangent of the projection itself, by the quotient rule on
+/// `ndc = clip.xy / clip.w`, rather than a step taken along the direction and
+/// projected. A step has a size, the size changes the answer under perspective,
+/// and every reader of the rule would then have to be handed the same one; this
+/// has no size to agree about.
+///
+/// A rate rather than only a bearing, because both are wanted and from one
+/// call: settling the signs of a run's axes reads the bearing, and picking one
+/// needs the two rates its box is built on to invert them.
+///
+/// Here rather than beside the one kind that reads it. Nothing about it is
+/// text: it is the tangent of the projection, and its twin in WGSL sits beside
+/// the other projection helpers for the same reason.
+pub(crate) fn screen_tangent(world: Vec3, here: Vec4, view_proj: Mat4, viewport: Viewport) -> Vec2 {
+    let there = view_proj * world.extend(0.0);
+    let ndc = (there.xy() * here.w - here.xy() * there.w) / (here.w * here.w);
+    // NDC counts y up from the middle and the framebuffer counts it down from
+    // the top, which for a difference is the flip and nothing else; and it spans
+    // two units across the whole target, which is the half.
+    ndc * Vec2::new(1.0, -1.0) * viewport.extent() * 0.5
 }
 
 #[cfg(test)]

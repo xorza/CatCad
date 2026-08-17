@@ -63,19 +63,27 @@ pub(super) struct Uniforms {
     raster_scale: f32,
     /// See [`Uniforms::probe_reach`].
     probe_reach: f32,
-    /// World units per *physical* pixel, per unit of clip `w` — what a vertex
+    /// World units per *logical* pixel, per unit of clip `w` — what a vertex
     /// sizing itself against the screen while standing in the world multiplies
     /// its own `w` by. See
     /// [`Camera::world_per_clip_w`](crate::Camera::world_per_clip_w).
     ///
-    /// Physical rather than logical because the pixels a shader lays a glyph
-    /// out in are the target's: a run's offsets and its lift alike arrive in
-    /// logical pixels and are scaled by `raster_scale` before this is applied,
-    /// so the two have to be counting the same pixel. Picking works the other
-    /// way round and in logical pixels throughout, and the two agree because
-    /// both factors move together — a length that reached here without the
-    /// scale would be drawn short by exactly it and clicked where it asked for.
-    world_per_clip_w: f32,
+    /// **Logical, so that the one shader branch which turns a length in pixels
+    /// into a length in the world has one scale to spend and no rule to
+    /// remember.** Every other use of [`Uniforms::raster_scale`] widens
+    /// something in *screen* space — a stroke's width, a marker's diameter, a
+    /// glyph quad square to the viewer — and ends in NDC, where the target's
+    /// pixels are physical and the scale belongs. A run laid in a plane is the
+    /// exception: its corners are world positions, and it was reaching them
+    /// through the scale *and* a per-physical-pixel step. Two quantities went
+    /// that way, the glyph offsets and the lift, and only one of them
+    /// remembered — so the standoff was drawn at two-thirds of what picking
+    /// measured on a display at 1.5.
+    ///
+    /// This is the number picking already divides by:
+    /// `Aim::world_per_pixel` is `Camera::world_per_clip_w` of the *logical*
+    /// viewport, and so is this.
+    world_per_logical_px: f32,
     /// Nothing, and it has to be here: WGSL rounds a uniform struct up to its
     /// own sixteen-byte alignment, so the five trailing scalars are read out of
     /// ninety-six bytes whether or not Rust ships that many.
@@ -137,7 +145,11 @@ impl Uniforms {
             // projection frames its field of view — a window is a crop at the
             // same pixel density, so what one of its pixels is worth in the
             // world is what one of the view's is.
-            world_per_clip_w: camera.world_per_clip_w(viewport),
+            // Times the scale, which turns the per-physical-pixel answer into
+            // the per-logical-pixel one — the same number `world_per_clip_w`
+            // gives for a viewport `raster_scale` smaller, and exactly what a
+            // pick asks the camera for.
+            world_per_logical_px: camera.world_per_clip_w(viewport) * raster_scale,
             _pad: [0.0; 3],
         }
     }

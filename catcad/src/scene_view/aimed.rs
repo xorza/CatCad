@@ -35,11 +35,31 @@ impl Aimed {
     /// well off the widget. A caller that cares asks `response.hovered`, and
     /// one mid-drag deliberately does not.
     pub(super) fn of(response: &ResponseState) -> Option<Self> {
-        let (cursor, rect) = response.pointer_local.zip(response.layout_rect)?;
         Some(Self {
-            cursor,
-            viewport: Viewport::new(UVec2::new(rect.size.w as u32, rect.size.h as u32)),
+            cursor: response.pointer_local?,
+            viewport: Self::viewport(response)?,
         })
+    }
+
+    /// The viewport the widget lays out at, whether or not the pointer is over
+    /// it.
+    ///
+    /// **The one place a response becomes a viewport.** Everything sized against
+    /// the screen reads one of these — a pick measures the cursor in it, and the
+    /// controls are cut in the world against what one of its pixels is worth —
+    /// so two spellings of it would be a gizmo built at one size and clicked at
+    /// another. It was spelt twice, four lines apart, and stayed harmless only
+    /// because both truncated the same way.
+    ///
+    /// Apart from [`Aimed::of`] because a viewport is not the pointer's: the
+    /// drawing is cut against one on every frame, including the frames where the
+    /// pointer is somewhere else entirely.
+    pub(super) fn viewport(response: &ResponseState) -> Option<Viewport> {
+        let rect = response.layout_rect?;
+        Some(Viewport::new(UVec2::new(
+            rect.size.w as u32,
+            rect.size.h as u32,
+        )))
     }
 
     /// The pick this cursor makes, seen through `camera`.

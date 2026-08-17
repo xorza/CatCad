@@ -11,10 +11,12 @@ struct Uniforms {
     // World distance per unit of clip w to step when probing the plane a curve
     // lies on. The projection sets it — see `Uniforms::probe_reach`.
     probe_reach: f32,
-    // World units per physical pixel, per unit of clip w — what a vertex
+    // World units per *logical* pixel, per unit of clip w — what a vertex
     // standing in the world multiplies its own w by to hold a size on screen.
-    // Only the text pass reads it. See `Camera::world_per_clip_w`.
-    world_per_clip_w: f32,
+    // Only the text pass reads it, and it is the whole of the scale there:
+    // a length arriving in logical pixels is spent through this and through
+    // nothing else. See `Camera::world_per_clip_w`.
+    world_per_logical_px: f32,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;

@@ -129,5 +129,6 @@ pub use ring::Ring;
 pub use scene::Scene;
 pub use styled::Styled;
 pub use tag::Tag;
-pub use text::{Axes, Facing, Text, Turn};
+pub use text::Text;
+pub use text::turn::{Axes, Facing, Turn};
 pub use viewport::Viewport;

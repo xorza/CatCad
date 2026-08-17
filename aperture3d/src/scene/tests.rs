@@ -4,9 +4,12 @@ use crate::camera::Projection;
 use crate::curve::Curve;
 use crate::hit::{HitAt, Precedence};
 use crate::mesh::{Mesh, Vertex};
+use crate::object::Object;
+use crate::point::Point;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::Text;
+use crate::text::turn::{Facing, Turn};
 use crate::viewport::Viewport;
 use glam::UVec2;
 use glam::Vec2;
@@ -51,19 +54,17 @@ fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
 /// about half of it.
 fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) -> Vec<Hit> {
     let aim = Aim::new(through, cursor, viewport(), radius);
-    let ground = scene.ground(&aim);
-    let grounded = ground.map_or(f32::INFINITY, |ground| ground.front);
-    let framed = scene.frame_front(&aim);
+    let occluders = scene.occluders(&aim);
     let mut hits: Vec<Hit> = scene
         .overlays(&aim)
-        .filter(|hit| shows(grounded, hit.distance) && shows(framed, hit.distance))
+        .filter(|hit| occluders.shows(hit.distance))
         .collect();
     hits.sort_by(Hit::aim_order);
     // The ground last, and put there rather than sorted there: a surviving
     // overlay always beats it, which `nearest` says with an `or` and nothing in
     // the ordering says at all. Sorting it in with the rest would be this
     // helper claiming an ordering the pick does not have.
-    hits.extend(ground.map(|ground| ground.hit));
+    hits.extend(occluders.ground);
     hits
 }
 
@@ -947,4 +948,176 @@ fn a_frame_keeps_the_click_against_what_is_behind_it_and_yields_to_what_is_level
         Some(Tag::new(2)),
         "a dormant sketch in front took the click meant for the one being edited"
     );
+}
+
+/// One of every kind, spread across the view and set at unlike depths.
+///
+/// Built for the two sweeps below rather than for either, because what they ask
+/// is the same question of the same five things — where a hit is reported, and
+/// what is allowed to answer at all — and a fixture apiece would be two chances
+/// to leave a kind out of one of them.
+fn one_of_each() -> Scene {
+    let mut scene = Scene::default();
+    scene
+        .points
+        .push(Point::new(Vec3::new(-1.5, 1.5, 0.5)).tagged(Tag::new(1)));
+    scene.curves.push(
+        Curve::new(vec![
+            Vec3::new(-2.0, -1.0, -0.5),
+            Vec3::new(0.0, -1.5, 0.5),
+            Vec3::new(2.0, -0.5, 1.0),
+        ])
+        .tagged(Tag::new(2)),
+    );
+    scene
+        .rings
+        .push(Ring::new(Vec3::new(1.2, 1.0, -0.5), 0.9, Vec3::Z).tagged(Tag::new(3)));
+    // Laid in a plane and lifted, which is the arrangement a drawing's marks
+    // use and the one that took three goes to get right.
+    scene.texts.push(
+        Text::new(Vec3::new(-0.5, 0.0, 0.0), "125.4", 12.0)
+            .anchored(Vec2::splat(0.5))
+            .facing(Facing::Turned(
+                Turn::new(Vec3::X, Vec3::Z).lifted(Vec2::new(0.0, -8.0)),
+            ))
+            .measured(Vec2::new(40.0, 12.0))
+            .tagged(Tag::new(4)),
+    );
+    scene.solids.push(
+        Object::new(Mesh::cube(1.2))
+            .at(Vec3::new(0.6, -0.2, -2.0))
+            .tagged(Tag::new(5)),
+    );
+    scene
+}
+
+/// Cursors across the whole view, coarse enough to be cheap and fine enough to
+/// land inside every box and beside every stroke.
+fn over_the_view() -> impl Iterator<Item = Vec2> {
+    (0..100).step_by(7).flat_map(|y| {
+        (0..100)
+            .step_by(7)
+            .map(move |x| Vec2::new(x as f32 + 0.5, y as f32 + 0.5))
+    })
+}
+
+/// **A hit is never further from the cursor than it claims to be.**
+///
+/// The rule [`Hit::world`] states, asked of all five kinds at once — and the one
+/// none of them said out loud while a run of text was quietly breaking it. What
+/// a hit's world position feeds is the depth it is ordered and occluded by, so a
+/// kind answering from somewhere the cursor is not is a kind that reads as
+/// hidden where it is plainly drawn, or the reverse.
+///
+/// Asked of each kind's own `pick` rather than through [`Scene::nearest`],
+/// because `nearest` answers with one hit and filters the rest: a kind that
+/// never survives the ground would be swept without being tested.
+///
+/// A quarter of a pixel of slack, which is float noise and the perspective
+/// correction a stroke's parameter goes through — not room for a kind to be a
+/// pixel out.
+#[test]
+fn a_hit_is_reported_no_further_from_the_cursor_than_it_claims() {
+    const SLACK: f32 = 0.25;
+    let scene = one_of_each();
+    let camera = head_on();
+    let mut asked = [0usize; 5];
+    for cursor in over_the_view() {
+        let aim = Aim::new(&camera, cursor, viewport(), 8.0);
+        let found = [
+            scene.points[0].pick(&aim),
+            scene.curves[0].pick(&aim),
+            scene.rings[0].pick(&aim),
+            scene.texts[0].pick(&aim),
+            scene.solids[0].pick(&aim, HitAt::Surface),
+        ];
+        for (nth, hit) in found.into_iter().enumerate() {
+            let Some(hit) = hit else { continue };
+            asked[nth] += 1;
+            let Some(back) = camera.screen_of(hit.world, viewport()) else {
+                panic!(
+                    "{:?} answered from {:?}, which is not drawn",
+                    hit.at, hit.world
+                );
+            };
+            assert!(
+                back.distance(cursor) <= hit.screen + SLACK,
+                "at {cursor:?} a {:?} answered from {:?}, drawn {} px away, claiming {}",
+                hit.at,
+                hit.world,
+                back.distance(cursor),
+                hit.screen,
+            );
+        }
+    }
+    // Every kind was actually reached. A sweep that quietly stopped hitting one
+    // of them would go on passing for the wrong reason.
+    for (nth, count) in asked.into_iter().enumerate() {
+        assert!(count > 0, "kind {nth} was never hit by the sweep");
+    }
+}
+
+/// **Nothing a pick answers with lies behind a surface the aim crosses.**
+///
+/// The other rule [`Scene::nearest`] states, and the one that was made
+/// conditional for a day: a surface set aside was let off hiding the drawing
+/// being worked in, and a number a whole plane back started taking the click
+/// from the sheet in front of it. Hiding is a fact about the eye — what is in
+/// front is what the cursor is over — and standing decides between what survives
+/// that, not what is visible.
+///
+/// Swept over every combination of standings the two can be in, because the
+/// exemption was expressible only as a difference between them and would have
+/// passed a sweep that held both alike.
+#[test]
+fn nothing_answers_from_behind_a_surface_the_aim_crosses() {
+    for overlay in [Precedence::Shaped, Precedence::Aside] {
+        for surface in [Precedence::Shaped, Precedence::Aside] {
+            let mut scene = one_of_each();
+            for text in scene.texts.iter_mut() {
+                text.precedence = overlay;
+            }
+            for point in scene.points.iter_mut() {
+                point.precedence = overlay;
+            }
+            for curve in scene.curves.iter_mut() {
+                curve.precedence = overlay;
+            }
+            for ring in scene.rings.iter_mut() {
+                ring.precedence = overlay;
+            }
+            // A sheet across the whole view, in front of everything above and
+            // behind the cube — so some cursors are covered by it and some are
+            // covered by something nearer still.
+            scene.faces.push(
+                Object::new(Mesh::cube(6.0))
+                    .at(Vec3::new(0.0, 0.0, 2.6))
+                    .tagged(Tag::new(9))
+                    .precedence(surface),
+            );
+            let camera = head_on();
+            for cursor in over_the_view() {
+                let aim = Aim::new(&camera, cursor, viewport(), 8.0);
+                let Some(hit) = scene.nearest(aim) else {
+                    continue;
+                };
+                if hit.at == HitAt::Surface {
+                    continue;
+                }
+                let front = scene
+                    .faces
+                    .iter()
+                    .chain(scene.solids.iter())
+                    .filter_map(|mesh| mesh.pick(&aim, HitAt::Surface))
+                    .fold(f32::INFINITY, |front, surface| front.min(surface.distance));
+                assert!(
+                    shows(front, hit.distance),
+                    "a {overlay:?} {:?} answered from {} along the ray with a {surface:?} \
+                     surface {front} away at {cursor:?}",
+                    hit.at,
+                    hit.distance,
+                );
+            }
+        }
+    }
 }

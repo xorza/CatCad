@@ -5,7 +5,7 @@ use crate::highlight::Highlight;
 use crate::point::Point;
 use crate::renderer::atlas::GlyphQuad;
 use crate::ring::Ring;
-use crate::text::Facing;
+use crate::text::turn::Facing;
 use glam::Vec3;
 
 /// What every overlay record ends with, whatever shape carries it.
@@ -22,12 +22,13 @@ use glam::Vec3;
 ///
 /// `half_extent` is here on the opposite reasoning, and the two are worth
 /// telling apart. A label has no use for it either — a glyph's size came from
-/// its shaping — so it ships four dead bytes in a seventy-six byte record. What
-/// buys them is that [`Instance::highlighted`] applies a highlight's `scale` to
-/// this field for every kind alike; pulling it out would put a per-kind hook in
-/// the one operation that is currently written once, to save five per cent of
-/// one record. The ring's twelve bytes were not worth that trade and the
-/// label's four are.
+/// its shaping — so it ships four dead bytes in a ninety-six byte record, and
+/// `text_vs` does not even declare the attribute. What buys them is that
+/// [`Instance::highlighted`] applies a highlight's `scale` to this field for
+/// every kind alike; pulling it out would put a per-kind hook in the one
+/// operation that is currently written once, to save four per cent of one
+/// record. The ring's twelve bytes were not worth that trade and the label's
+/// four are.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct Look {
@@ -199,11 +200,24 @@ impl Instance for PointInstance {
     }
 }
 
-/// One screen-space rectangle hung off a world anchor, shipped once. Its quad
-/// spans 0..1 either way — unlike a marker's, which is symmetric about its
-/// anchor — because a glyph hangs off the run's origin by a bearing rather than
-/// being centred on anything.
+/// One glyph's quad, hung off the run's world anchor and shipped once.
 ///
+/// Its corners span 0..1 either way — unlike a marker's, which is symmetric
+/// about its anchor — because a glyph hangs off the run's origin by a bearing
+/// rather than being centred on anything.
+///
+/// Where those corners *land* is the shader's, and it is one of two places: a
+/// rectangle in screen space for a run square to the viewer, or four world
+/// positions on a plane for one laid into it. [`GlyphInstance::right`] is what
+/// tells them apart, and it is why this carries a direction and a lift that a
+/// screen-facing run never reads.
+///
+/// **Sixteen of its ninety-six bytes are the glyph's.** The anchor, the colour,
+/// the plane, the advance and the lift are the *run's*, repeated once per glyph
+/// because a vertex buffer is the only thing an instance step reads. A run of
+/// four digits ships them four times over. It has never been worth a second
+/// buffer and an index — a drawing carries a few hundred glyphs — but it is the
+/// shape of this record and not an oversight.
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub(crate) struct GlyphInstance {

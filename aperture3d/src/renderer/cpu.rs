@@ -8,7 +8,8 @@ use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
 use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, Instance, PointInstance, RingInstance,
 };
-use crate::text::{self, Facing, Text};
+use crate::text::turn::Facing;
+use crate::text::{self, Text};
 use glam::{Mat3, Vec2, Vec3};
 use palantir::{PlacedGlyph, TextGlyphs};
 
@@ -61,7 +62,6 @@ pub(super) struct Cpu {
 /// know how many glyphs it is worth and the atlas to know where each one is
 /// read from, and neither is something a `Text` holds. So what the four kinds
 /// share is the buffers and not the way any of them is filled.
-///
 #[derive(Debug, Default)]
 pub(super) struct TextRecords {
     pub(super) records: Records<GlyphInstance>,
