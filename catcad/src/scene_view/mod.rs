@@ -515,7 +515,13 @@ impl SceneView {
             // is the wrong thing to answer with. Once, because both the anchor a
             // tool builds on and the entity a click picks out are this same
             // question, and asking the scene twice would be asking it twice.
-            let under = self.named_under(&response, document);
+            let under = Aimed::of(&response)
+                .filter(|_| response.hovered)
+                .and_then(|aimed| {
+                    let renderer = self.renderer.borrow();
+                    self.under(renderer.scene(), aimed, &document.camera())
+                })
+                .map(|under| under.part);
             // A second click on a dimension opens it for typing. Raised before
             // the arms below rather than instead of them, because the click is
             // still an ordinary click: it picks the dimension out, which is what
@@ -733,7 +739,7 @@ impl SceneView {
             });
         }
 
-        self.viewport = Aimed::viewport(&response);
+        self.viewport = aimed::viewport(&response);
 
         // Asking whether the pointer is actually over the view is what stops
         // the overlay's own controls — and the field open over a dimension —
@@ -1031,15 +1037,6 @@ impl SceneView {
             hit,
             part: self.layout.names().get(hit.tag)?,
         })
-    }
-
-    /// The part of the drawing under the cursor as the scene now stands, or
-    /// `None` where the cursor is over nothing or off the view.
-    fn named_under(&self, response: &ResponseState, document: &Document) -> Option<Part> {
-        let aimed = Aimed::of(response).filter(|_| response.hovered)?;
-        let renderer = self.renderer.borrow();
-        let under = self.under(renderer.scene(), aimed, &document.camera())?;
-        Some(under.part)
     }
 
     /// What a click here would build on: what it landed on and where.

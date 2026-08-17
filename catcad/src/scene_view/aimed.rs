@@ -37,29 +37,8 @@ impl Aimed {
     pub(super) fn of(response: &ResponseState) -> Option<Self> {
         Some(Self {
             cursor: response.pointer_local?,
-            viewport: Self::viewport(response)?,
+            viewport: viewport(response)?,
         })
-    }
-
-    /// The viewport the widget lays out at, whether or not the pointer is over
-    /// it.
-    ///
-    /// **The one place a response becomes a viewport.** Everything sized against
-    /// the screen reads one of these — a pick measures the cursor in it, and the
-    /// controls are cut in the world against what one of its pixels is worth —
-    /// so two spellings of it would be a gizmo built at one size and clicked at
-    /// another. It was spelt twice, four lines apart, and stayed harmless only
-    /// because both truncated the same way.
-    ///
-    /// Apart from [`Aimed::of`] because a viewport is not the pointer's: the
-    /// drawing is cut against one on every frame, including the frames where the
-    /// pointer is somewhere else entirely.
-    pub(super) fn viewport(response: &ResponseState) -> Option<Viewport> {
-        let rect = response.layout_rect?;
-        Some(Viewport::new(UVec2::new(
-            rect.size.w as u32,
-            rect.size.h as u32,
-        )))
     }
 
     /// The pick this cursor makes, seen through `camera`.
@@ -85,6 +64,27 @@ impl Aimed {
     pub(super) fn pan_step(self, camera: &Camera, screen: Vec2) -> Vec3 {
         camera.pan_step(screen, self.viewport)
     }
+}
+
+/// The viewport the view lays out at, or `None` where it has not arranged.
+///
+/// **The one place a response becomes a viewport.** Everything sized against the
+/// screen reads one of these — a pick measures the cursor in it, and the
+/// controls are cut in the world against what one of its pixels is worth — so
+/// two spellings of it would be a gizmo built at one size and clicked at
+/// another. It was spelt twice, four lines apart, and stayed harmless only
+/// because both truncated the same way.
+///
+/// A free fn beside [`landing`] rather than something read off an [`Aimed`], and
+/// for that one's reason: a viewport is not the pointer's. The drawing is cut
+/// against one on every frame, including the frames where the pointer is
+/// somewhere else entirely and there is no `Aimed` to ask.
+pub(super) fn viewport(response: &ResponseState) -> Option<Viewport> {
+    let rect = response.layout_rect?;
+    Some(Viewport::new(UVec2::new(
+        rect.size.w as u32,
+        rect.size.h as u32,
+    )))
 }
 
 /// Where the cursor lands on `motion`, or `None` if it cannot say.

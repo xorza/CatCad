@@ -950,28 +950,38 @@ fn a_frame_keeps_the_click_against_what_is_behind_it_and_yields_to_what_is_level
     );
 }
 
-/// One of every kind, spread across the view and set at unlike depths.
+/// One of every kind, spread across the view and set at unlike depths, with
+/// every overlay standing as `overlay` says.
 ///
 /// Built for the two sweeps below rather than for either, because what they ask
 /// is the same question of the same five things — where a hit is reported, and
 /// what is allowed to answer at all — and a fixture apiece would be two chances
 /// to leave a kind out of one of them.
-fn one_of_each() -> Scene {
+///
+/// The standing arrives here rather than being written over the batches
+/// afterwards, so that a kind added below is given one by the same line that
+/// gives it a tag.
+fn one_of_each(overlay: Precedence) -> Scene {
     let mut scene = Scene::default();
-    scene
-        .points
-        .push(Point::new(Vec3::new(-1.5, 1.5, 0.5)).tagged(Tag::new(1)));
+    scene.points.push(
+        Point::new(Vec3::new(-1.5, 1.5, 0.5))
+            .tagged(Tag::new(1))
+            .precedence(overlay),
+    );
     scene.curves.push(
         Curve::new(vec![
             Vec3::new(-2.0, -1.0, -0.5),
             Vec3::new(0.0, -1.5, 0.5),
             Vec3::new(2.0, -0.5, 1.0),
         ])
-        .tagged(Tag::new(2)),
+        .tagged(Tag::new(2))
+        .precedence(overlay),
     );
-    scene
-        .rings
-        .push(Ring::new(Vec3::new(1.2, 1.0, -0.5), 0.9, Vec3::Z).tagged(Tag::new(3)));
+    scene.rings.push(
+        Ring::new(Vec3::new(1.2, 1.0, -0.5), 0.9, Vec3::Z)
+            .tagged(Tag::new(3))
+            .precedence(overlay),
+    );
     // Laid in a plane and lifted, which is the arrangement a drawing's marks
     // use and the one that took three goes to get right.
     scene.texts.push(
@@ -981,7 +991,8 @@ fn one_of_each() -> Scene {
                 Turn::new(Vec3::X, Vec3::Z).lifted(Vec2::new(0.0, -8.0)),
             ))
             .measured(Vec2::new(40.0, 12.0))
-            .tagged(Tag::new(4)),
+            .tagged(Tag::new(4))
+            .precedence(overlay),
     );
     scene.solids.push(
         Object::new(Mesh::cube(1.2))
@@ -1019,7 +1030,7 @@ fn over_the_view() -> impl Iterator<Item = Vec2> {
 #[test]
 fn a_hit_is_reported_no_further_from_the_cursor_than_it_claims() {
     const SLACK: f32 = 0.25;
-    let scene = one_of_each();
+    let scene = one_of_each(Precedence::Shaped);
     let camera = head_on();
     let mut asked = [0usize; 5];
     for cursor in over_the_view() {
@@ -1073,19 +1084,7 @@ fn a_hit_is_reported_no_further_from_the_cursor_than_it_claims() {
 fn nothing_answers_from_behind_a_surface_the_aim_crosses() {
     for overlay in [Precedence::Shaped, Precedence::Aside] {
         for surface in [Precedence::Shaped, Precedence::Aside] {
-            let mut scene = one_of_each();
-            for text in scene.texts.iter_mut() {
-                text.precedence = overlay;
-            }
-            for point in scene.points.iter_mut() {
-                point.precedence = overlay;
-            }
-            for curve in scene.curves.iter_mut() {
-                curve.precedence = overlay;
-            }
-            for ring in scene.rings.iter_mut() {
-                ring.precedence = overlay;
-            }
+            let mut scene = one_of_each(overlay);
             // A sheet across the whole view, in front of everything above and
             // behind the cube — so some cursors are covered by it and some are
             // covered by something nearer still.

@@ -7,7 +7,6 @@ use crate::primitive::Primitive;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use crate::text::turn::Facing;
-use crate::viewport::{self};
 use glam::{Vec2, Vec3};
 use palantir::{GlyphFont, Rect, Size, TextGlyphs};
 use std::cell::Cell;
@@ -185,9 +184,12 @@ impl Text {
         // what was drawn would cost more than it bought.
         let axes = turn.axes(self.position, aim.view_proj, aim.viewport);
         let here = aim.view_proj * self.position.extend(1.0);
-        let across =
-            viewport::screen_tangent(axes.advance * step, here, aim.view_proj, aim.viewport);
-        let down = viewport::screen_tangent(axes.down * step, here, aim.view_proj, aim.viewport);
+        let across = aim
+            .viewport
+            .screen_tangent(axes.advance * step, here, aim.view_proj);
+        let down = aim
+            .viewport
+            .screen_tangent(axes.down * step, here, aim.view_proj);
         // How much screen the box covers against how much it would cover face
         // on, which for a plane merely tilted is the cosine of the tilt. Under
         // the floor there is nothing to have been clicked in — see [`EDGE_ON`],

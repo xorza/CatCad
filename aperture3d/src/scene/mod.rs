@@ -173,26 +173,14 @@ impl Scene {
     /// nearest(aim) is an overlay  ⟹  its depth ≤ the frontmost surface's, within BEHIND
     /// ```
     pub fn nearest(&self, aim: Aim) -> Option<Hit> {
-        // Three phases and not one list, because the question genuinely has
-        // three.
-        // A surface the aim lands on hides what is behind it, which the ordering
-        // cannot say and should not try to: it puts a backdrop last whatever the
-        // depth, so that a face never takes the click meant for its own
-        // boundary. A boundary is coplanar with its face; a sketch on some other
-        // plane is not, and had been answering through one.
-        //
-        // A filter rather than a rule inside [`Hit::aim_order`], because "behind
-        // *that* one" is a fact about a pair where an ordering has to be a fact
-        // about each. A comparator that asked it could rank three hits in a
-        // cycle, and `min_by` would then answer with whichever it happened to
-        // reach last.
-        //
-        // So the ground is settled first and by name, and nothing has to be kept
-        // to be looked at again — where gathering every hit meant holding a list
-        // of them, and holding it somewhere, only to take one. What is left is
-        // the fall-through: an overlay beats a backdrop by the ordering alone,
-        // so the ground answers exactly when nothing else survived being behind
-        // it.
+        // Two phases and not one list. What hides what is settled first and by
+        // name — see [`Occluders`], where both rules and the reason they are
+        // filters rather than orderings are written down — so nothing has to be
+        // kept to be looked at again, where gathering every hit meant holding a
+        // list of them, and holding it somewhere, only to take one. What is left
+        // is the fall-through: an overlay beats a backdrop by the ordering
+        // alone, so the ground answers exactly when nothing else survived being
+        // behind it.
         let occluders = self.occluders(&aim);
         self.overlays(&aim)
             .filter(|hit| occluders.shows(hit.distance))

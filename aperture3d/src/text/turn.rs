@@ -7,7 +7,7 @@
 //! run measures from it — and the vertex shader is a fourth that cannot call it
 //! and builds the same two rules instead.
 
-use crate::viewport::{self, Viewport};
+use crate::viewport::Viewport;
 use glam::{Mat4, Vec2, Vec3};
 
 /// What a run is set against: the screen, or a plane of the world.
@@ -224,8 +224,8 @@ impl Turn {
     pub fn axes(self, at: Vec3, view_proj: Mat4, viewport: Viewport) -> Axes {
         let here = view_proj * at.extend(1.0);
         let across = self.normal.cross(self.right);
-        let along = viewport::screen_tangent(self.right, here, view_proj, viewport);
-        let sideways = viewport::screen_tangent(across, here, view_proj, viewport);
+        let along = viewport.screen_tangent(self.right, here, view_proj);
+        let sideways = viewport.screen_tangent(across, here, view_proj);
         // Of the plane's two ways to run down, the one that winds the way the
         // screen does.
         let down = if along.perp_dot(sideways) >= 0.0 {
