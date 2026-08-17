@@ -12,6 +12,7 @@ use aperture::{Aim, HitAt, Motion, Scene, Viewport};
 use glam::{DVec2, UVec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{Modifiers, PointerButton};
+use silverpoint::Measurement;
 
 const SIZE: UVec2 = UVec2::new(800, 600);
 
@@ -707,6 +708,189 @@ fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
         open_markers(&raised),
         drawn,
         "carrying the solid moved the drawing it was grown from"
+    );
+}
+
+/// A press finds a number to move where there is one, and nothing else.
+///
+/// The half of the gesture that decides *what* was grabbed, asked directly for
+/// the reason the double-click below is: a mark is pickable only once a painted
+/// frame has measured how far it reaches — see [`Text::extent`](aperture::Text)
+/// — and this harness records without a GPU. What a press then does with the
+/// answer is the arm in [`SceneView::grab`], and what the answer *is* is here.
+///
+/// Every relation of the demo is asked, so the two halves are a sweep rather
+/// than a pair of examples: a dimension has a number and somewhere of its own to
+/// put it, and a symbol is worked out from the geometry it is about and has
+/// nothing to drag.
+#[test]
+fn a_press_takes_hold_of_a_number_and_of_no_other_relation() {
+    let raised = Raised::new();
+    let sketch = raised.session.editing();
+    let drawing = raised.document.drawing_at(sketch);
+
+    let (mut dimensions, mut relations) = (0, 0);
+    for (id, constraint) in drawing.sketch().constraints() {
+        let part = Part::Entity {
+            sketch,
+            entity: id.into(),
+        };
+        match constraint.value() {
+            Some(_) => {
+                dimensions += 1;
+                assert_eq!(
+                    label(part, drawing, sketch),
+                    Some(id),
+                    "a number could not be taken hold of"
+                );
+            }
+            None => {
+                relations += 1;
+                assert_eq!(
+                    label(part, drawing, sketch),
+                    None,
+                    "a symbol offered itself to be dragged"
+                );
+            }
+        }
+    }
+    assert!(
+        dimensions > 0 && relations > 0,
+        "the demo states only one kind, so this asked half a question"
+    );
+
+    // Nothing that is not a relation at all, and nothing of a sketch you are not
+    // in — an edit lands where you are, and a number is an edit like any other.
+    let (point, _) = drawing
+        .sketch()
+        .points()
+        .next()
+        .expect("the demo draws points");
+    assert_eq!(
+        label(
+            Part::Entity {
+                sketch,
+                entity: point.into()
+            },
+            drawing,
+            sketch
+        ),
+        None
+    );
+    let elsewhere = raised
+        .document
+        .models(&raised.build, sketch)
+        .iter()
+        .map(|model| model.of())
+        .find(|&at| at != sketch)
+        .expect("the demo draws two sketches");
+    let (borrowed, _) = drawing
+        .sketch()
+        .constraints()
+        .find(|(_, constraint)| constraint.value().is_some())
+        .expect("the demo states a dimension");
+    assert_eq!(
+        label(
+            Part::Entity {
+                sketch: elsewhere,
+                entity: borrowed.into()
+            },
+            drawing,
+            sketch
+        ),
+        None,
+        "a number of a sketch nobody is in offered itself to be dragged"
+    );
+}
+
+/// Placing a number moves it and leaves the drawing under it alone.
+///
+/// The one edit to a sketch that changes no geometry, so the whole of what it
+/// has to get right is the pair: the number goes where the gesture took it, and
+/// everything the constraints decided stays exactly where it was. A placement
+/// that reached the solver would show up here as the drawing settling somewhere
+/// else for a change that said nothing about it.
+///
+/// Where the number lands is checked against the place asked for rather than
+/// against a number worked out by hand, because that *is* the claim: a placement
+/// is stored in the dimension's own frame and read back through it, and a change
+/// that wrote one frame and read another would land somewhere plausible and
+/// wrong.
+#[test]
+fn placing_a_number_moves_it_and_settles_nothing() {
+    let mut raised = Raised::new();
+    let sketch = raised.session.editing();
+    let (constraint, _) = raised
+        .document
+        .drawing_at(sketch)
+        .sketch()
+        .constraints()
+        .find(|(_, constraint)| constraint.value().is_some())
+        .expect("the demo states a dimension");
+
+    let drawn = open_markers(&raised);
+    let stated: Vec<Option<f64>> = raised
+        .document
+        .drawing_at(sketch)
+        .sketch()
+        .constraints()
+        .map(|(_, constraint)| constraint.value())
+        .collect();
+    let solved = raised.build.settled(sketch).outcome().iterations();
+
+    // Somewhere the number is plainly not, and off both of the frame's axes so a
+    // placement that dropped a component would land short of it.
+    let plane = raised.document.drawing_at(sketch).plane();
+    let put = plane.point(DVec2::new(-3.25, 4.75)).as_vec3();
+    let mut intents = Intents::default();
+    intents.push(Change::Place {
+        sketch,
+        constraint,
+        at: put,
+    });
+    raised
+        .history
+        .apply(&mut raised.document, &mut raised.build, &intents);
+
+    // The number is where it was put, read back through the drawing rather than
+    // through anything this test worked out.
+    let drawing = raised.document.drawing_at(sketch);
+    let label = Measurement::of(drawing.sketch(), drawing.sketch().constraint(constraint))
+        .expect("a dimension has a measurement")
+        .label;
+    assert!(
+        drawing
+            .plane()
+            .point(label)
+            .as_vec3()
+            .abs_diff_eq(put, 1e-6),
+        "the number was placed at {put:?} and reads at {:?}",
+        drawing.plane().point(label)
+    );
+
+    // And nothing else moved: not the geometry, not what any dimension states,
+    // and not the solve — placing a number is not a question the constraints
+    // have anything to say about.
+    assert_eq!(
+        open_markers(&raised),
+        drawn,
+        "placing a number moved the drawing it is about"
+    );
+    assert_eq!(
+        raised
+            .document
+            .drawing_at(sketch)
+            .sketch()
+            .constraints()
+            .map(|(_, constraint)| constraint.value())
+            .collect::<Vec<_>>(),
+        stated,
+        "placing a number restated one"
+    );
+    assert_eq!(
+        raised.build.settled(sketch).outcome().iterations(),
+        solved,
+        "placing a number ran the solver"
     );
 }
 

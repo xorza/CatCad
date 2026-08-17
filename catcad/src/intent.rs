@@ -146,6 +146,28 @@ pub(crate) enum Change {
         constraint: ConstraintId,
         to: f64,
     },
+    /// Put a dimension's number where this drag has taken it.
+    ///
+    /// Names the place it wants rather than how far to move, like everything
+    /// here: a drag sends one of these a frame and a replayed pass puts the
+    /// number in the same place, where "a little further" would travel twice
+    /// over.
+    ///
+    /// A place in the *world*, which is then flattened onto the sketch and read
+    /// against the dimension's own frame — see
+    /// [`Sketch::place`](silverpoint::Sketch). An intent says where a gesture
+    /// landed; what that comes to in the frame a number is stored in is the
+    /// drawing's, and working it out here would be working it out without the
+    /// geometry to work it out from.
+    ///
+    /// The one change to a sketch that moves no geometry. What it edits is what
+    /// the drawing *shows* — and that is still the document's, because it is
+    /// written down and taken back like everything else the drawing says.
+    Place {
+        sketch: FeatureId,
+        constraint: ConstraintId,
+        at: Vec3,
+    },
     /// Take out geometry that duplicates other geometry and carries nothing.
     ///
     /// Names no geometry, unlike [`Change::Delete`] beside it, and needs to
@@ -230,6 +252,7 @@ impl Change {
         matches!(
             self,
             Change::Drag { .. }
+                | Change::Place { .. }
                 | Change::Resize { .. }
                 | Change::MovePlane { .. }
                 | Change::Carry { .. }
@@ -251,6 +274,7 @@ impl Change {
         match self {
             Change::Extrude { .. } => true,
             Change::Drag { .. }
+            | Change::Place { .. }
             | Change::AddPoint { .. }
             | Change::AddSegment { .. }
             | Change::AddCircle { .. }
@@ -283,6 +307,7 @@ impl Change {
     pub(crate) fn feature(self) -> Option<FeatureId> {
         match self {
             Change::Drag { sketch, .. }
+            | Change::Place { sketch, .. }
             | Change::AddPoint { sketch, .. }
             | Change::AddSegment { sketch, .. }
             | Change::AddCircle { sketch, .. }

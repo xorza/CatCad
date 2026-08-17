@@ -521,9 +521,26 @@ cannot empty it through the app — the capture puts it back. `painted` records
 through a bare pane instead, and the three tests that weigh what the drawing
 alone deposits go through it.
 
-**4 — placing and moving.** `Change::Place`, `Sketching::place`, coalescing, the
-fourth `Grabbed`, and the grip on the number. Tested by placing a label,
-dragging the geometry, and asserting the label followed.
+**4 — placing and moving.** *Built.* `Change::Place`, `Sketching::place`,
+coalescing, the fourth `Grabbed`, and the grab on the number.
+
+The round trip moved into silverpoint, which is the one thing that came out
+differently and the one worth having. A drag has a *place on the sketch* and the
+drawing holds a *placement*, and the map between them is per-dimension — a span
+is measured from the middle of its feet and a radius from its centre. Stated
+twice, once to write and once to read, the two would agree until the day one of
+them changed. So `Measurement` now carries the `Frame` it placed its label in,
+`Frame` holds both directions, and `Sketch::place` takes a place rather than a
+placement. `set_placement` went with it: a caller that had to work out the frame
+first was a caller that could work it out wrong.
+
+Tested at the two seams the harness has. A mark is pickable only once a painted
+frame has measured how far it reaches, so *what a press finds* is asked of
+`label` directly — a sweep over every relation the demo states, both ways — and
+*what placing does* is asked of the change: the number reads back where it was
+put, and the geometry, every stated value and the solve's own iteration count
+are all untouched. That last one is the sharp assertion: it is what a placement
+leaking into the solver would break.
 
 **5 — the tool.** `Tool::Dimension`, `Dimensioning`, `proposed`, the alignment
 rule, `Preview::Dimension`, the bar routing into placing, and `prune`. The
@@ -569,6 +586,9 @@ from where the label went.
   first dimension whose residual is not a length. `TOLERANCE` is documented as
   absolute over lengths *or their squares*; an angle wants reading against that
   before it is written.
+- **A default standoff** for a dimension the bar makes. One lands on its own
+  geometry today and has to be dragged clear, which the tool in phase 5 does for
+  free but the bar does not.
 - **`Along::Edge(SegmentId)`**, a distance measured parallel to a named edge.
   The enum was shaped to take a fourth reading without anything else moving.
 - **An extrude's depth**, which is the one dimension that is not a sketch's.

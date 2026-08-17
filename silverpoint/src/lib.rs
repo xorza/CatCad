@@ -54,7 +54,7 @@ pub use sketch::arrangement::face::Face;
 pub use sketch::arrangement::filler::Filler;
 pub use sketch::constraint::{Along, Constraint, ConstraintId, Dimension};
 pub use sketch::entity::Entity;
-pub use sketch::measurement::Measurement;
+pub use sketch::measurement::{Frame, Measurement};
 pub use sketch::snapshot::Snapshot;
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.

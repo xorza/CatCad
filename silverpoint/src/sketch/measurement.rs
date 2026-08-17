@@ -36,8 +36,51 @@ pub struct Measurement {
     pub along: DVec2,
     /// Where the number sits.
     pub label: DVec2,
+    /// The frame [`Self::label`] was placed in, and the one a drag has to work
+    /// back through to say where the number was put.
+    pub frame: Frame,
     /// What the dimension states, which is what the number reads.
     pub value: f64,
+}
+
+/// What a dimension's placement is read against: where it is measured from, and
+/// which way its `+x` runs.
+///
+/// **The whole of what a caller needs to move a number, and the reason it is
+/// stated rather than inferred.** Where a placement is read from is not the same
+/// for every dimension — one that spans two places is measured from the middle
+/// of them, and a radius from its circle's centre — so a drag that worked the
+/// frame out for itself would be a second statement of a rule
+/// [`Measurement::of`] already makes, and the two would agree until the day one
+/// of them was changed.
+///
+/// Which is also why both directions are here. A placement written by a drag and
+/// read by a drawing has to come back to the same place, and two functions in
+/// two crates is exactly how it stops doing that.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Frame {
+    /// Where a placement of nothing puts the number.
+    pub origin: DVec2,
+    /// The direction the placement's `+x` runs along. Unit length; its `+y` is
+    /// a quarter turn from it.
+    pub across: DVec2,
+}
+
+impl Frame {
+    /// Where `placement` puts the number.
+    pub fn at(self, placement: DVec2) -> DVec2 {
+        self.origin + self.across * placement.x + self.across.perp() * placement.y
+    }
+
+    /// The placement that would put the number at `at` — [`Self::at`] run
+    /// backwards.
+    ///
+    /// Exact, because the frame is orthonormal: a rotation is inverted by
+    /// reading the two components off it, and there is no scale to undo.
+    pub fn placing(self, at: DVec2) -> DVec2 {
+        let out = at - self.origin;
+        DVec2::new(out.dot(self.across), out.dot(self.across.perp()))
+    }
 }
 
 impl Measurement {
@@ -110,8 +153,18 @@ impl Measurement {
                 // on a corner is every mark that corner carries — so a placement
                 // of nothing cannot mean "at the centre" and is taken as "not
                 // yet placed" instead.
+                //
+                // Measured from the centre and along the sketch's own axes,
+                // where every other dimension is measured from the middle of
+                // what it spans and along the way it runs. A circle has no way
+                // it runs — that is the whole of what makes it the odd one — so
+                // the frame it is placed in is the drawing's.
+                let frame = Frame {
+                    origin: center,
+                    across: DVec2::X,
+                };
                 let (along, label) = if placed.known() {
-                    (placed.unit, center + dimension.placement)
+                    (placed.unit, frame.at(dimension.placement))
                 } else {
                     (DVec2::X, center + DVec2::X * ring.radius)
                 };
@@ -122,6 +175,7 @@ impl Measurement {
                     feet: [center, center + along * ring.radius],
                     along,
                     label,
+                    frame,
                     value: dimension.value,
                 })
             }
@@ -145,11 +199,15 @@ impl Measurement {
     /// middle of what is measured — which is what carries a number along with
     /// the geometry it names rather than leaving it behind.
     fn spanning(feet: [DVec2; 2], along: DVec2, dimension: Dimension) -> Self {
-        let placement = dimension.placement;
+        let frame = Frame {
+            origin: feet[0].midpoint(feet[1]),
+            across: along,
+        };
         Self {
             feet,
             along,
-            label: feet[0].midpoint(feet[1]) + along * placement.x + along.perp() * placement.y,
+            label: frame.at(dimension.placement),
+            frame,
             value: dimension.value,
         }
     }

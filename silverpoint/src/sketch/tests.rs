@@ -557,15 +557,20 @@ fn two_edges_are_parallel_only_where_both_have_a_direction_to_compare() {
     assert!(!sketch.parallel(collapsed, also));
 }
 
-/// Where a dimension's number sits is the sketch's to hold, and nothing else
-/// moves when it does.
+/// A number put somewhere comes back there, and nothing else moves when it
+/// does.
 ///
-/// The half of a dimension the solver never reads. What it has to be is
-/// durable — a number dragged clear stays clear across a save and an undo — and
-/// what it must not be is geometry: restating a placement moves no point, so a
-/// drawing already solved is still solved afterwards.
+/// The round trip is the whole of it: a drag has a place on the sketch and the
+/// drawing has a placement, and what is stored has to read back as what was
+/// asked for. Two statements of that frame — one to write and one to read —
+/// would agree until the day one of them changed, which is why both live on
+/// [`Frame`](crate::Frame).
+///
+/// The rest is what a placement must *not* be. It is not a measurement and not
+/// a position: restating one moves no point, so a drawing already solved is
+/// still solved afterwards.
 #[test]
-fn a_placement_is_kept_on_the_dimension_and_moves_no_geometry() {
+fn a_number_put_somewhere_comes_back_there_and_moves_no_geometry() {
     let mut sketch = Sketch::default();
     let a = sketch.add_point(DVec2::ZERO);
     let b = sketch.add_point(DVec2::new(3.0, 4.0));
@@ -575,38 +580,49 @@ fn a_placement_is_kept_on_the_dimension_and_moves_no_geometry() {
         along: Along::Shortest,
         dimension: Dimension::new(5.0),
     });
+    let label = |sketch: &Sketch| {
+        Measurement::of(sketch, sketch.constraint(id))
+            .expect("a distance is a dimension")
+            .label
+    };
     // On the geometry to begin with, which is where a dimension nobody has
     // dragged sits.
-    assert_eq!(
-        Measurement::of(&sketch, sketch.constraint(id)).map(|span| span.label),
-        Some(DVec2::new(1.5, 2.0))
+    assert_eq!(label(&sketch), DVec2::new(1.5, 2.0));
+
+    // Anywhere at all, including somewhere no frame lines up with: the round
+    // trip is about the arithmetic rather than about the place.
+    let put = DVec2::new(-2.5, 7.25);
+    sketch.place(id, put);
+    assert!(
+        label(&sketch).abs_diff_eq(put, 1e-12),
+        "{:?}",
+        label(&sketch)
     );
 
-    let placed = DVec2::new(1.0, 2.0);
-    sketch.set_placement(id, placed);
-    // Read in the measurement's own frame: one along the 3-4-5 and two across
-    // it, from the middle at (1.5, 2) — so (1.5 + 0.6 − 1.6, 2 + 0.8 + 1.2).
-    let label = Measurement::of(&sketch, sketch.constraint(id))
-        .expect("a distance is a dimension")
-        .label;
-    assert!(label.abs_diff_eq(DVec2::new(0.5, 4.0), 1e-12), "{label:?}");
-
-    // The number it states is untouched, and so is the geometry: a placement is
-    // not a measurement and not a position.
+    // The number it states is untouched, and so is the geometry.
     assert_eq!(sketch.constraint(id).value(), Some(5.0));
     assert_eq!(sketch.point(a).position, DVec2::ZERO);
     assert_eq!(sketch.point(b).position, DVec2::new(3.0, 4.0));
 
+    // And it is stored *relative*, which is what the frame buys: slide the
+    // geometry and the number goes with it rather than staying behind.
+    let slid = DVec2::new(10.0, -3.0);
+    sketch.set_point(a, slid);
+    sketch.set_point(b, DVec2::new(3.0, 4.0) + slid);
+    assert!(
+        label(&sketch).abs_diff_eq(put + slid, 1e-12),
+        "{:?}",
+        label(&sketch)
+    );
+
     // And it survives being put back, which is the whole reason it lives on the
     // constraint rather than beside the sketch.
+    let where_it_was = label(&sketch);
     let mut snapshot = Snapshot::default();
     sketch.snapshot_into(&mut snapshot);
-    sketch.set_placement(id, DVec2::ZERO);
+    sketch.place(id, DVec2::ZERO);
     sketch.restore(&snapshot);
     // The same label, to the bit — a restore puts a sketch back rather than
     // near where it was, and a placement is part of what it puts back.
-    assert_eq!(
-        Measurement::of(&sketch, sketch.constraint(id)).map(|span| span.label),
-        Some(label)
-    );
+    assert_eq!(label(&sketch), where_it_was);
 }

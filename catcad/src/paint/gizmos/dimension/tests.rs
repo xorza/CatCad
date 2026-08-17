@@ -1,4 +1,5 @@
 use super::*;
+use silverpoint::Frame;
 
 /// How near two places have to be to count as the same answer.
 ///
@@ -12,6 +13,27 @@ fn near(got: DVec2, want: DVec2) {
     assert!(got.abs_diff_eq(want, CLOSE), "{got:?} is not {want:?}");
 }
 
+/// A measurement spanning `feet` and read along `along`, with its number at
+/// `label`.
+///
+/// The two [`Measurement`] carries that nothing here reads are filled in
+/// truthfully rather than left at anything: what it *states* and the frame its
+/// placement was read against are a drag's business and a saved file's, and the
+/// strokes below are cut from the feet and the label alone. A fixture that put
+/// nonsense in either would still pass, and would stop reading as a measurement.
+fn measured(feet: [DVec2; 2], along: DVec2, label: DVec2) -> Measurement {
+    Measurement {
+        feet,
+        along,
+        label,
+        frame: Frame {
+            origin: feet[0].midpoint(feet[1]),
+            across: along,
+        },
+        value: (feet[1] - feet[0]).dot(along).abs(),
+    }
+}
+
 /// The strokes of one dimension, at `scale` world units per pixel.
 ///
 /// A horizontal distance six long with its number stood twenty clear, which is
@@ -20,12 +42,7 @@ fn near(got: DVec2, want: DVec2) {
 /// neither direction so a sign error cannot cancel.
 fn spanning(label: DVec2, scale: f64) -> [Option<Stroke>; 5] {
     strokes(
-        Measurement {
-            feet: [DVec2::ZERO, DVec2::new(6.0, 0.0)],
-            along: DVec2::X,
-            label,
-            value: 6.0,
-        },
+        measured([DVec2::ZERO, DVec2::new(6.0, 0.0)], DVec2::X, label),
         true,
         scale,
     )
@@ -159,12 +176,11 @@ fn a_radius_is_drawn_with_one_head_on_the_rim_and_no_extension_lines() {
     // What `Measurement` answers for a circle of five nobody has placed: the
     // leader runs out along +x and the number sits on the rim.
     let [first, second, rule, at_centre, at_rim] = strokes(
-        Measurement {
-            feet: [DVec2::ZERO, DVec2::new(5.0, 0.0)],
-            along: DVec2::X,
-            label: DVec2::new(5.0, 0.0),
-            value: 5.0,
-        },
+        measured(
+            [DVec2::ZERO, DVec2::new(5.0, 0.0)],
+            DVec2::X,
+            DVec2::new(5.0, 0.0),
+        ),
         false,
         1.0,
     );

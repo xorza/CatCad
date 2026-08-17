@@ -343,6 +343,11 @@ impl Document {
                 constraint,
                 to,
             } => self.sketching(sketch).resize(build, constraint, to),
+            Change::Place {
+                sketch,
+                constraint,
+                at,
+            } => self.sketching(sketch).place(build, constraint, at),
             Change::Delete { sketch, entity } => self.sketching(sketch).remove(build, entity),
             Change::Tidy { sketch } => self.sketching(sketch).remove_duplicates(build),
             // Nothing to solve. The sketches on this plane are in its own

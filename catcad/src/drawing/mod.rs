@@ -96,6 +96,13 @@ impl<'a> Drawing<'a> {
     /// whatever it is about — and dragging that is what the arms below are
     /// already for.
     ///
+    /// A dimension's *number* is the exception that proves it, and is not one of
+    /// these. It does have a place of its own, and dragging it moves that place
+    /// and no geometry at all — so there is nothing here for the solver to be
+    /// asked about, and it is taken hold of before this is reached. See
+    /// [`label`](crate::scene_view::label) and
+    /// [`Change::Place`](crate::intent::Change).
+    ///
     /// Nothing the drawing pins: `fix` is the user saying where a point goes,
     /// and a drag is not an argument. A segment needs both its ends free,
     /// because both of them travel. A rim asks for neither — it drives the

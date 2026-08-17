@@ -327,25 +327,31 @@ impl Sketch {
         *magnitude = value;
     }
 
-    /// Move where a dimension's number sits.
+    /// Put a dimension's number at `at`.
     ///
-    /// Read in the measurement's own frame — see
-    /// [`Dimension::placement`](crate::Dimension). Nothing about the geometry
-    /// changes, so unlike [`Sketch::set_value`] beside it there is nothing for
-    /// the next solve to move onto; what changes is only what the drawing shows
-    /// and where.
+    /// A place on the sketch rather than a placement, because that is what a
+    /// drag has: the pointer lands somewhere, and working out what to *store* so
+    /// the number comes back there is a question about the frame the dimension
+    /// is placed in — which is [`Measurement`]'s to answer and would otherwise
+    /// be answered a second time by every caller. See [`Frame`].
     ///
-    /// Panics on a relation that states no number, for
-    /// [`Sketch::set_value`]'s reason: a caller asking to place a parallel is
-    /// asking for something that does not exist rather than handing over data
-    /// that is wrong. [`Constraint::value`] is how a caller finds out which
-    /// those are.
-    pub fn set_placement(&mut self, id: ConstraintId, placement: DVec2) {
+    /// Nothing about the geometry changes, so unlike [`Sketch::set_value`] beside
+    /// it there is nothing for the next solve to move onto: what changes is only
+    /// what the drawing shows and where.
+    ///
+    /// Panics on a relation that states no number, for [`Sketch::set_value`]'s
+    /// reason: a caller asking to place a parallel is asking for something that
+    /// does not exist rather than handing over data that is wrong.
+    /// [`Constraint::value`] is how a caller finds out which those are.
+    pub fn place(&mut self, id: ConstraintId, at: DVec2) {
+        let frame = Measurement::of(self, self.constraint(id))
+            .expect("this relation states no number to place")
+            .frame;
         let constraint = self.constraints.get_mut(id).expect(REMOVED_CONSTRAINT);
         let dimension = constraint
             .dimension_mut()
-            .expect("this relation states no number to place");
-        dimension.placement = placement;
+            .expect("a dimension was measured, so it has a number");
+        dimension.placement = frame.placing(at);
     }
 
     /// `constraint` restated at what the drawing currently measures, or `None`

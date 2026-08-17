@@ -147,6 +147,25 @@ impl<'a> Sketching<'a> {
         build.solved(self.at, self.sketch);
     }
 
+    /// Put a dimension's number where `world` lands on the drawing.
+    ///
+    /// **Measured rather than solved**, which is the one thing that tells this
+    /// from every other edit here: a placement is not geometry, so there is
+    /// nothing for the constraints to be checked against and nothing for them to
+    /// move onto. What the drawing says is exactly what it said before; only
+    /// where it says it has changed.
+    ///
+    /// Not even measured, in fact — the report cannot have moved either, since
+    /// no parameter did. So this ends at [`Build::revised`], which is the same
+    /// answer [`Change::MovePlane`](crate::intent::Change) and
+    /// [`Change::Carry`](crate::intent::Change) reach for the same reason: the
+    /// picture has to be laid out again and nothing has to be worked out first.
+    pub(crate) fn place(&mut self, build: &mut Build, constraint: ConstraintId, world: Vec3) {
+        self.sketch
+            .place(constraint, self.plane.flatten(world.as_dvec3()));
+        build.revised();
+    }
+
     /// Take `entity` out of the drawing, with whatever was built on it.
     ///
     /// Solved rather than measured, for a reason that only shows on a drawing

@@ -13,8 +13,8 @@ use silverpoint::{ConstraintId, Entity, Grown};
 
 use crate::build::Build;
 use crate::document::Document;
-use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
+use crate::drawing::{Drawing, Grip};
 use crate::intent::{Change, Choice, Intent, Intents, Opening, Step};
 use crate::model::Models;
 use crate::paint::layout::Layout;
@@ -177,6 +177,14 @@ enum Grabbed {
     /// off. What differs is the change it comes out as, and that is what these
     /// two arms are for.
     Cap(Movable),
+    /// A dimension's number, which moves where the drawing *says* something and
+    /// no geometry at all.
+    ///
+    /// The one grab that is not a handle on a thing: what is taken hold of is
+    /// the figure itself, which is why it travels across the whole sketch plane
+    /// like geometry rather than along a line like the two above. What it leaves
+    /// behind is a placement — see [`Change::Place`].
+    Label(ConstraintId),
 }
 
 /// What the pointer is doing to the view, settled when the button goes down.
@@ -426,6 +434,12 @@ impl SceneView {
                         Grabbed::Cap(movable) => Change::Carry {
                             extrude: movable.at,
                             to: movable.along.offset_at(to),
+                        }
+                        .into(),
+                        Grabbed::Label(constraint) => Change::Place {
+                            sketch,
+                            constraint,
+                            at: to,
                         }
                         .into(),
                         Grabbed::Growing(along) => Choice::Set {
@@ -1005,6 +1019,13 @@ impl SceneView {
                     Part::Growing => {
                         Grabbed::Growing(Along::on(document.drawing_at(growing?.sketch).plane()))
                     }
+                    // A dimension's number, which is the one thing a press can
+                    // find that has a place of its own without being geometry.
+                    // Before the grip below, because a grip is about what the
+                    // *solver* would move and this moves nothing it knows about
+                    // — see [`Drawing::grip`], which goes on answering `None`
+                    // for every relation including this one.
+                    _ if let Some(id) = label(part, drawing, editing) => Grabbed::Label(id),
                     // Only the sketch being worked in can be taken hold of. A
                     // drag of geometry is an edit and an edit lands where you
                     // are — and the handles would not even tell the two apart:
@@ -1020,7 +1041,10 @@ impl SceneView {
                     _ => return None,
                 };
                 let motion = match grabbed {
-                    Grabbed::Sketch(_) => drawing.motion(),
+                    // A number travels across the drawing exactly as geometry
+                    // does: it is placed on the sketch's own plane, and where on
+                    // it is the whole of what a placement says.
+                    Grabbed::Sketch(_) | Grabbed::Label(_) => drawing.motion(),
                     Grabbed::Datum(movable) | Grabbed::Cap(movable) => {
                         movable.along.travel(hit.world)
                     }
@@ -1103,6 +1127,26 @@ pub(crate) mod internals {
             }
         }
     }
+}
+
+/// `part` as a number a press could take hold of, or `None` where it is not one.
+///
+/// A dimension, and one of the sketch being worked in. Every other relation has
+/// no number and so nowhere of its own to be — where a symbol goes is worked out
+/// from the geometry it is about, and dragging one would be arguing with that
+/// rather than saying anything. A part of another sketch is refused for the
+/// reason every press is: moving a number is an edit, and an edit lands where
+/// you are.
+///
+/// A free fn beside [`dimension`] rather than a method, and for that one's
+/// reason: nothing about it is the view's — it reads the drawing, and the view
+/// is only what happened to be holding the press.
+fn label(part: Part, drawing: Drawing<'_>, editing: FeatureId) -> Option<ConstraintId> {
+    let Some(Entity::Constraint(id)) = part.entity().filter(|_| part.sketch() == Some(editing))
+    else {
+        return None;
+    };
+    drawing.sketch().constraint(id).value().map(|_| id)
 }
 
 /// `part` as a dimension to open for typing, or `None` where it is not one.
