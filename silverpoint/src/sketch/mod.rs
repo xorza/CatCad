@@ -492,6 +492,50 @@ impl Sketch {
         Some(one[0] + run * ((other[0] - one[0]).perp_dot(across) / sweep))
     }
 
+    /// The point of `segment` nearest `at`, or `None` where its ends have met
+    /// and there is no line to drop a perpendicular onto.
+    ///
+    /// **The edge itself**: the foot of the perpendicular where that lands
+    /// between the ends, and whichever end it ran past where it does not. What
+    /// wants this is anything placing something *against* an edge — a mark set
+    /// beside the nearest part of a span belongs on the span rather than out in
+    /// the empty sketch where the span's line would have reached.
+    pub fn nearest_on(&self, segment: SegmentId, at: DVec2) -> Option<DVec2> {
+        self.dropped(segment, at, |along| along.clamp(0.0, 1.0))
+    }
+
+    /// Where `at` drops onto the *line* through `segment`, or `None` for the
+    /// same reason.
+    ///
+    /// **The infinite line**, which is what [`Constraint::PointOnSegment`]
+    /// states and all it states: a point held to an edge is held to where that
+    /// edge *runs*, and slides past its end without the relation being any less
+    /// true. What wants this is whatever *places* such a point, so that the
+    /// placing and the residual cannot come to differ about what the relation
+    /// means.
+    pub fn foot_on(&self, segment: SegmentId, at: DVec2) -> Option<DVec2> {
+        self.dropped(segment, at, |along| along)
+    }
+
+    /// The two above, which differ in what they make of the fraction.
+    ///
+    /// One projection and one guard, because that is all either of them is: how
+    /// far along the run the perpendicular from `at` falls, and then a point
+    /// made of it. Written twice they were the same three lines differing in a
+    /// `clamp`, which is the kind of pair that drifts by one of them growing a
+    /// tolerance.
+    ///
+    /// Any length at all, where [`Sketch::turn`] wants one clear of the
+    /// tolerance a direction is read against: that one compares two directions,
+    /// and one taken off a hair's length is noise. This divides by the length it
+    /// has just measured, and is exact for every length that is not zero.
+    fn dropped(&self, segment: SegmentId, at: DVec2, held: impl Fn(f64) -> f64) -> Option<DVec2> {
+        let [from, to] = self.ends(segment);
+        let run = to - from;
+        let reach = run.length_squared();
+        (reach > 0.0).then(|| from + run * held((at - from).dot(run) / reach))
+    }
+
     /// The sine of the angle between two edges, or `None` where either has no
     /// direction to compare.
     ///

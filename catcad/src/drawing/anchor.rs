@@ -79,20 +79,18 @@ impl Anchor {
         match self {
             Anchor::On(id) => sketch.point(id).position,
             Anchor::OnSegment { segment, at } => {
-                let edge = sketch.segment(segment);
-                let from = sketch.point(edge.a).position;
-                let along = sketch.point(edge.b).position - from;
                 let click = plane.flatten(at.as_dvec3());
-                // The foot of the perpendicular, on the edge's own infinite line
-                // — which is what `PointOnSegment` says and all it says. An edge
-                // whose ends have met has no line to speak of, and one of them
-                // will do.
-                let reach = along.length_squared();
-                if reach > 0.0 {
-                    from + along * ((click - from).dot(along) / reach)
-                } else {
-                    from
-                }
+                // The foot on the edge's own *infinite* line, which is what
+                // `PointOnSegment` says and all it says — so the placing and the
+                // residual cannot come to differ about what holding a point to
+                // an edge means. See [`Sketch::foot_on`], which is where that
+                // reading lives, beside the relation it belongs to.
+                //
+                // An edge whose ends have met has no line to speak of, and one
+                // of them will do.
+                sketch
+                    .foot_on(segment, click)
+                    .unwrap_or_else(|| sketch.point(sketch.segment(segment).a).position)
             }
             Anchor::OnCircle { circle, at } => {
                 let ring = sketch.circle(circle);

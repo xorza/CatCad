@@ -229,7 +229,7 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
                 // Momentarily parallel, which an unsolved sketch reaches: there
                 // is no corner to stand in, so stand between the two.
                 || (middle(this) + middle(that)) * 0.5,
-                |cross| nearer_span(cross, this, that),
+                |cross| nearer_span(sketch, cross, first, second),
             );
             // Along neither of them: the mark is about the corner the two make,
             // and picking one edge to run along would say it belonged to that
@@ -237,10 +237,12 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
             one(at, across)
         }
         Constraint::Tangent { segment, circle } => {
-            let line = span(sketch, segment);
             let centre = at_point(sketch, sketch.circle(circle).center);
-            // A segment with no length has no line to drop a foot onto.
-            one(nearest_on(centre, line).unwrap_or(centre), along(line))
+            // On the edge rather than on its line, which is what a mark set
+            // beside one wants — see [`Sketch::nearest_on`]. A segment with no
+            // length has neither, and the circle's own centre will do.
+            let touch = sketch.nearest_on(segment, centre).unwrap_or(centre);
+            one(touch, along(span(sketch, segment)))
         }
 
         // Beside, one per referent. On each edge's own middle and along it,
@@ -383,35 +385,23 @@ fn bearing(run: DVec2) -> DVec2 {
     run.try_normalize().unwrap_or(DVec2::X)
 }
 
-/// The point of the span nearest `at`, or `None` where the span is a point and
-/// has no line to drop a perpendicular onto.
+/// `cross` brought onto whichever of the two edges it is nearer.
 ///
-/// The foot of that perpendicular where it lands on the span, and the end it
-/// ran past where it does not — one projection, clamped where it is taken. The
-/// two as separate steps would take the parameter, build a point from it and
-/// then recover the same parameter from the point to clamp it.
-fn nearest_on(at: DVec2, span: [DVec2; 2]) -> Option<DVec2> {
-    let run = span[1] - span[0];
-    let squared = run.length_squared();
-    (squared > 0.0).then(|| span[0] + run * ((at - span[0]).dot(run) / squared).clamp(0.0, 1.0))
-}
-
-/// `cross` brought onto whichever of the two spans it is nearer.
-///
-/// Two segments that would meet a long way past both their ends are still
+/// Two edges that would meet a long way past both their ends are still
 /// perpendicular, and the mark saying so has to be somewhere a reader will
-/// look. Clamped, it sits at the end nearest where they *would* meet, which
-/// reads as "these two, out that way"; unclamped it sits in empty sketch,
-/// attached to nothing. A crossing that falls on both spans is on both already
-/// and neither clamp moves it.
-fn nearer_span(cross: DVec2, one: [DVec2; 2], other: [DVec2; 2]) -> DVec2 {
-    // Neither span can be a point here: a crossing is answered only where both
-    // edges have a direction to cross at — see
-    // [`Sketch::crossing`](silverpoint::Sketch) — so the foot is always there to
-    // drop. The `Option` is kept on the projection for the other caller, whose
-    // degenerate case is real and falls back to the circle's own centre.
-    let onto =
-        |span: [DVec2; 2]| nearest_on(cross, span).expect("two spans that cross both have length");
+/// look. On the edge, it sits at the end nearest where they *would* meet, which
+/// reads as "these two, out that way"; on the line, it sits in empty sketch,
+/// attached to nothing. A crossing that falls on both edges is on both already,
+/// and neither reading moves it.
+fn nearer_span(sketch: &Sketch, cross: DVec2, one: SegmentId, other: SegmentId) -> DVec2 {
+    // Neither edge can be a point here: a crossing is answered only where both
+    // have a direction to cross at — see [`Sketch::crossing`] — so the foot is
+    // always there to drop.
+    let onto = |edge| {
+        sketch
+            .nearest_on(edge, cross)
+            .expect("two edges that cross both have length")
+    };
     let (here, there) = (onto(one), onto(other));
     if cross.distance_squared(here) <= cross.distance_squared(there) {
         here

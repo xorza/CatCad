@@ -8,6 +8,7 @@ use crate::paint::cut::Cut;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::showing::Showing;
+use crate::preview::Preview;
 use crate::timeline::FeatureId;
 
 /// What one laying-out of the drawing leaves behind, and what it claims to
@@ -230,7 +231,8 @@ impl Made {
         // the band's, though the second is read off one — see
         // [`Showing::proposed`].
         if had.showing.typed != self.showing.typed
-            || had.showing.proposed() != self.showing.proposed()
+            || had.showing.band.and_then(Preview::dimension)
+                != self.showing.band.and_then(Preview::dimension)
         {
             return Some(Stage::Marks);
         }

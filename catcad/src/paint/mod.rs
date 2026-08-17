@@ -26,6 +26,7 @@ use silverpoint::{Constraint, Freedom};
 use crate::model::{Model, Models};
 use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
+use crate::preview::Preview;
 
 pub(crate) mod cut;
 pub(crate) mod gizmos;
@@ -313,7 +314,8 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         // for the figure written here and the rule written against the camera —
         // see [`Proposed`](marks::Proposed).
         *proposed = showing
-            .proposed()
+            .band
+            .and_then(Preview::dimension)
             .and_then(|constraint| marks::Proposed::of(models.open().sketch(), constraint));
         write::texts(
             models,
@@ -333,13 +335,13 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         write::curves(
             models,
             names,
-            write::Band::new(models, showing.line()),
+            write::Band::new(models, showing.band.and_then(Preview::line)),
             &mut into.curves,
         );
         write::rings(
             models,
             names,
-            write::Band::new(models, showing.ring()),
+            write::Band::new(models, showing.band.and_then(Preview::ring)),
             &mut into.rings,
         );
     }

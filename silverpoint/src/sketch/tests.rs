@@ -658,3 +658,52 @@ fn a_number_put_somewhere_comes_back_there_and_moves_no_geometry() {
     // near where it was, and a placement is part of what it puts back.
     assert_eq!(label(&sketch), where_it_was);
 }
+
+/// **A point drops onto an edge two ways, and the difference is the edge's own
+/// ends.**
+///
+/// [`Sketch::foot_on`] answers on the line the edge *runs* along, which is what
+/// [`Constraint::PointOnSegment`] states and all it states: a point held to an
+/// edge slides past the end of it without the relation being any less true, so
+/// whatever places one has to place it there or the placing and the residual
+/// would mean different things. [`Sketch::nearest_on`] answers on the edge
+/// itself, which is what anything set *beside* one wants — a mark out where the
+/// line would have reached is a mark attached to nothing.
+///
+/// The two agree wherever the foot lands between the ends, so the case that
+/// tells them apart is the one past an end, and it is checked at both.
+#[test]
+fn a_point_drops_onto_an_edges_line_or_onto_the_edge_itself() {
+    let mut sketch = Sketch::default();
+    let at = |sketch: &mut Sketch, x, y| sketch.add_point(DVec2::new(x, y));
+    // Four along the x axis from the origin, so the foot of anything is its own
+    // x and the ends are at 0 and 4.
+    let (a, b) = (at(&mut sketch, 0.0, 0.0), at(&mut sketch, 4.0, 0.0));
+    let edge = sketch.add_segment(a, b);
+
+    // Square onto the middle: both answers are the foot, and it is the point's
+    // own x with the y dropped.
+    let middle = DVec2::new(1.5, 9.0);
+    assert_eq!(sketch.foot_on(edge, middle), Some(DVec2::new(1.5, 0.0)));
+    assert_eq!(sketch.nearest_on(edge, middle), Some(DVec2::new(1.5, 0.0)));
+
+    // Past the far end: the line runs on and the edge stops. Six along is two
+    // past `b`, so one answers (6, 0) and the other (4, 0).
+    let beyond = DVec2::new(6.0, 3.0);
+    assert_eq!(sketch.foot_on(edge, beyond), Some(DVec2::new(6.0, 0.0)));
+    assert_eq!(sketch.nearest_on(edge, beyond), Some(DVec2::new(4.0, 0.0)));
+
+    // And past the near end, which is the same claim with the sign turned over
+    // — a clamp written one-sided would pass the case above and fail this.
+    let before = DVec2::new(-2.5, -1.0);
+    assert_eq!(sketch.foot_on(edge, before), Some(DVec2::new(-2.5, 0.0)));
+    assert_eq!(sketch.nearest_on(edge, before), Some(DVec2::new(0.0, 0.0)));
+
+    // An edge whose ends have met has no line to drop onto and no edge to land
+    // on, so neither answers — where dividing by the length it does not have
+    // would answer a NaN.
+    let (c, d) = (at(&mut sketch, 7.0, 7.0), at(&mut sketch, 7.0, 7.0));
+    let collapsed = sketch.add_segment(c, d);
+    assert_eq!(sketch.foot_on(collapsed, middle), None);
+    assert_eq!(sketch.nearest_on(collapsed, middle), None);
+}

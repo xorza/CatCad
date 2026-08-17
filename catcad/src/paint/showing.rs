@@ -1,10 +1,8 @@
 //! What a gesture is half-way through, which the document has not heard of.
 
-use silverpoint::Constraint;
-
 use crate::paint::growing::Growing;
 use crate::part::Part;
-use crate::preview::{Ends, Preview};
+use crate::preview::Preview;
 
 /// What the picture shows that the drawing does not hold.
 ///
@@ -28,8 +26,11 @@ use crate::preview::{Ends, Preview};
 /// looked at yet is drawn from, see [`scene`](crate::paint::scene).
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub(crate) struct Showing {
-    /// The shape a two-click tool is half-way through, if one is — see
-    /// [`Preview`].
+    /// The shape a two-click tool is half-way through, if one is.
+    ///
+    /// Which of the three kinds it is is [`Preview`]'s to answer, and is asked
+    /// of it directly: a reading here per kind would add nothing to that but the
+    /// `and_then` over this being absent.
     pub(crate) band: Option<Preview>,
     /// The dimension being retyped, whose mark is left out because the field
     /// standing in for it is drawn over the top — see
@@ -50,27 +51,4 @@ pub(crate) struct Showing {
     /// size on screen, so it is written against the camera on its own schedule
     /// — see [`write`](crate::paint::gizmos::write).
     pub(crate) growing: Option<Growing>,
-}
-
-impl Showing {
-    /// The band as a stroke, where that is what it is.
-    pub(crate) fn line(self) -> Option<Ends> {
-        self.band.and_then(Preview::line)
-    }
-
-    /// The band as a rim, where that is what it is.
-    pub(crate) fn ring(self) -> Option<Ends> {
-        self.band.and_then(Preview::ring)
-    }
-
-    /// The dimension the next click would state, where that is what the band is.
-    ///
-    /// Read by both halves of a frame — the mark by [`redraw`](crate::paint::redraw),
-    /// the lines under it by [`gizmos::write`](crate::paint::gizmos::write) — and
-    /// that is why it is a reading here rather than a derivation at each of them:
-    /// a figure and the line carrying it worked out from two answers could be
-    /// drawn about two different constraints.
-    pub(crate) fn proposed(self) -> Option<Constraint> {
-        self.band.and_then(Preview::dimension)
-    }
 }

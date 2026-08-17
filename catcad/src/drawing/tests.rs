@@ -812,3 +812,66 @@ fn every_dimension_the_bar_offers_is_placed_as_the_relation_it_offered() {
          and a radius between them"
     );
 }
+
+/// **A click held to an edge lands on the line that edge runs along, not on the
+/// edge.**
+///
+/// The one thing [`Sketch::foot_on`] is chosen over
+/// [`Sketch::nearest_on`](silverpoint::Sketch::nearest_on) for, and the two
+/// agree everywhere else — so the case that says which was used is a click past
+/// an end. It matters because
+/// [`PointOnSegment`](silverpoint::Constraint::PointOnSegment) is a statement
+/// about the *line*: the constraint the anchor states alongside the point holds
+/// just as well out there, so a point placed at the end instead would be placed
+/// somewhere the solve does not hold it and would be pulled off on the first
+/// step.
+///
+/// Which is also why the placing is asked of the sketch rather than worked out
+/// here — the residual and the placement are then one reading of what the
+/// relation means.
+#[test]
+fn a_point_held_to_an_edge_lands_on_the_line_it_runs_along() {
+    let mut sketch = Sketch::default();
+    // Four along the ground's own x, so a foot is the click's x with the y
+    // dropped and the far end sits at 4.
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(4.0, 0.0));
+    let edge = sketch.add_segment(a, b);
+    let plane = Plane::GROUND;
+
+    // Square onto the middle: on the edge, and both readings agree.
+    let middle = Anchor::OnSegment {
+        segment: edge,
+        at: on(plane, DVec2::new(1.5, 2.0)),
+    };
+    assert_eq!(middle.on_sketch(&sketch, plane), DVec2::new(1.5, 0.0));
+
+    // Two past the far end, which is where they part: the line runs on to 6,
+    // where the edge would have stopped at 4.
+    let beyond = Anchor::OnSegment {
+        segment: edge,
+        at: on(plane, DVec2::new(6.0, 2.0)),
+    };
+    assert_eq!(
+        beyond.on_sketch(&sketch, plane),
+        DVec2::new(6.0, 0.0),
+        "a click past the end was pulled back onto the edge"
+    );
+
+    // And the point it makes is held there by the relation, which is what the
+    // reading has to agree with: the constraint reads as satisfied where the
+    // anchor put it, so the solve that follows has nothing to move.
+    let mut placed = sketch.clone();
+    let held = beyond.point_in(&mut placed, plane);
+    assert_eq!(placed.point(held).position, DVec2::new(6.0, 0.0));
+    let mut build = Build::default();
+    let mut timeline = Timeline::of(placed);
+    let at = timeline.first_sketch();
+    timeline.edit(at).opened(&mut build);
+    let settled = timeline.drawing(at).sketch().point(held).position;
+    assert!(
+        settled.abs_diff_eq(DVec2::new(6.0, 0.0), 1e-9),
+        "the solve moved the point to {settled:?}, so the anchor and the \
+         relation disagree about where an edge holds one"
+    );
+}
