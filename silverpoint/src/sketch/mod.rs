@@ -377,16 +377,7 @@ impl Sketch {
     /// sketch: the constraint supplies only which geometry to ask about, and
     /// everything that decides the answer is this sketch's.
     pub fn fitted(&self, constraint: Constraint) -> Option<Constraint> {
-        let Some(measured) = Measurement::of(self, constraint).map(|span| span.spans()) else {
-            return Some(constraint);
-        };
-        (measured > TOUCHING).then(|| {
-            let mut fitted = constraint;
-            *fitted
-                .value_mut()
-                .expect("a constraint that measures something states a number") = measured;
-            fitted
-        })
+        self.fit(constraint, None)
     }
 
     /// `constraint` fitted to what the drawing measures, with its number put at
@@ -408,16 +399,39 @@ impl Sketch {
     /// A relation comes back fitted and unplaced, which is nothing at all: it
     /// has no number and so nowhere to put one.
     pub fn proposed(&self, constraint: Constraint, at: DVec2) -> Option<Constraint> {
-        let mut fitted = self.fitted(constraint)?;
-        // The frame is the same whatever the placement currently is — it is
-        // where the *geometry* puts a number and which way that reads — so one
-        // measurement answers, and the number it carries is the fitted one.
-        if let Some(measured) = Measurement::of(self, fitted)
-            && let Some(dimension) = fitted.dimension_mut()
-        {
-            dimension.placement = measured.frame.placing(at);
-        }
-        Some(fitted)
+        self.fit(constraint, Some(at))
+    }
+
+    /// `constraint` restated at what the drawing measures, with its number put
+    /// at `at` where one is given.
+    ///
+    /// Both of [`Sketch::fitted`] and [`Sketch::proposed`], written once because
+    /// one measurement answers both of them: what a dimension spans and the
+    /// frame its number is placed in are two readings of it, so taking it twice
+    /// would be asking the same geometry the same question to fill in two halves
+    /// of one answer.
+    fn fit(&self, constraint: Constraint, at: Option<DVec2>) -> Option<Constraint> {
+        let Some(measured) = Measurement::of(self, constraint) else {
+            // A relation: nothing to fit, and nowhere to put a number it has
+            // not got.
+            return Some(constraint);
+        };
+        let spans = measured.spans();
+        (spans > TOUCHING).then(|| {
+            let mut fitted = constraint;
+            let dimension = fitted
+                .dimension_mut()
+                .expect("a constraint that measures something states a number");
+            dimension.value = spans;
+            // The frame is the same whatever the number turned out to be — it
+            // is where the *geometry* puts a figure and which way that reads —
+            // so the measurement taken before the fit places what the fit
+            // wrote.
+            if let Some(at) = at {
+                dimension.placement = measured.frame.placing(at);
+            }
+            fitted
+        })
     }
 
     /// Whether two segments currently run parallel.
