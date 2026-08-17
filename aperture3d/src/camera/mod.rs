@@ -277,23 +277,6 @@ impl Camera {
         proj * view::look_at_mat4(self.eye(), self.target, Vec3::Y)
     }
 
-    /// The world-space ray through a point on the viewport. `cursor` counts
-    /// down from the top-left corner, in the units the [`Viewport`] was built
-    /// in.
-    ///
-    /// The origin sits on the near plane and the direction runs into the
-    /// scene, so everything drawn under that point lies at a non-negative
-    /// distance along the ray. Under a parallel projection the direction is
-    /// the same for every cursor position and the origin is what moves.
-    ///
-    /// Read out of the same matrix the vertex shaders are handed rather than
-    /// rebuilt from the camera's own parameters. A ray derived independently
-    /// agrees with the picture only until someone changes the projection, and
-    /// picking that disagrees with what is on screen is worse than none.
-    pub fn ray_through(&self, cursor: Vec2, viewport: Viewport) -> Ray {
-        self.ray_from(cursor, viewport, self.view_proj(viewport.aspect()))
-    }
-
     /// Where `world` lands on the viewport, in logical pixels down from its
     /// top-left corner, or `None` where the projection does not draw it.
     ///
@@ -314,12 +297,29 @@ impl Camera {
         viewport.pixel_of(self.view_proj(viewport.aspect()) * world.extend(1.0))
     }
 
+    /// The world-space ray through a point on the viewport. `cursor` counts
+    /// down from the top-left corner, in the units the [`Viewport`] was built
+    /// in.
+    ///
+    /// The origin sits on the near plane and the direction runs into the scene,
+    /// so everything drawn under that point lies at a non-negative distance
+    /// along it. Under a parallel projection the direction is the same for every
+    /// cursor position and the origin is what moves.
+    ///
+    /// Read out of the same matrix the vertex shaders are handed rather than
+    /// rebuilt from the camera's own parameters. A ray derived independently
+    /// agrees with the picture only until someone changes the projection, and
+    /// picking that disagrees with what is on screen is worse than none.
+    pub fn ray_through(&self, cursor: Vec2, viewport: Viewport) -> Ray {
+        self.ray_from(cursor, viewport, self.view_proj(viewport.aspect()))
+    }
+
     /// The same ray, read out of a view-projection the caller already built.
     ///
     /// For [`Aim`](crate::Aim), which needs the matrix itself as well and would
     /// otherwise build it twice. `view_proj` has to be this camera's own for
-    /// this viewport — the assert below is what catches one that is not, since
-    /// a foreign matrix aims the ray somewhere the picture is not.
+    /// this viewport — the assert below is what catches one that is not, since a
+    /// foreign matrix aims the ray somewhere the picture is not.
     pub(crate) fn ray_from(&self, cursor: Vec2, viewport: Viewport, view_proj: Mat4) -> Ray {
         let ndc = viewport.ndc_from_pixel(cursor);
         let inverse = view_proj.inverse();
@@ -346,8 +346,9 @@ impl Camera {
     /// [`Camera::orbit`] clamps the pitch it lands on, [`Camera::dolly`] the
     /// distance it lands at, and the fields are public so that a gesture can
     /// name one without a setter apiece. This is the one arrival that has no
-    /// such call to come through, and a camera outside its range would trip the
-    /// assertion in `z_near` rather than merely looking wrong.
+    /// such call to come through, so it is where a whole camera is brought into
+    /// range at once — where the near plane brings only its own ratio, and only
+    /// as it is spent.
     ///
     /// A number that is not one is replaced rather than refused, which is the
     /// difference between a viewpoint and the drawing it looks at: the drawing

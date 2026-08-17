@@ -97,7 +97,9 @@ impl Facing {
 /// A direction and a normal rather than the plane's two axes. Naming a second
 /// axis would read as though which way the *box* runs were the caller's too, and
 /// it is not: it is derived, deliberately, so that a run cannot come out
-/// mirrored or sheared. See [`Turn::axes`].
+/// mirrored or sheared — and derived inside this crate, because the deriving is
+/// what the renderer and a pick have to agree about and neither answer is one a
+/// caller could usefully hold.
 ///
 /// A direction and not just the plane, because a normal alone says which surface
 /// and not which way round on it: the same plane carries lettering at any angle,
@@ -121,8 +123,9 @@ pub struct Turn {
     /// which surface `right` is a direction *of*.
     ///
     /// Its sign is nobody's business. Depth reads a plane as a surface to take
-    /// a gradient over rather than as a side to be on, and which side the eye
-    /// is on decides nothing here — see [`Turn::axes`].
+    /// a gradient over rather than as a side to be on, and which side the eye is
+    /// on decides nothing: what settles the run's own frame reads the projected
+    /// pair, not where the eye stands.
     pub normal: Vec3,
     /// How far the run's box floats off the point it names, in logical pixels
     /// across and down the plane's axes **as authored** — along `right`, and
@@ -136,9 +139,9 @@ pub struct Turn {
     /// standing clear of. Stated here it is fixed in the plane, so a run that
     /// comes round to stay readable only changes direction.
     ///
-    /// Resolved in the world rather than against [`Turn::axes`], because those
-    /// carry *two* camera-dependent signs — the mirror and the half turn — and a
-    /// lift that went through them would pick up both.
+    /// Resolved in the world rather than against the run's own settled axes,
+    /// because those carry *two* camera-dependent signs — the mirror and the
+    /// half turn — and a lift that went through them would pick up both.
     ///
     /// Which leaves one thing for the caller: a box hung off a *centred* anchor
     /// is mapped onto itself by that half turn, so its place holds outright. One
@@ -241,7 +244,7 @@ impl Turn {
     /// projection answers deterministically, and a run whose plane covers no
     /// screen is one nobody can read or click either way. What refuses it is the
     /// area its box comes to, which is what a pick refuses on.
-    pub fn axes(self, at: Vec3, view_proj: Mat4, viewport: Viewport) -> Axes {
+    pub(crate) fn axes(self, at: Vec3, view_proj: Mat4, viewport: Viewport) -> Axes {
         let here = view_proj * at.extend(1.0);
         let across = self.normal.cross(self.right);
         let along = viewport.screen_tangent(self.right, here, view_proj);
@@ -289,9 +292,9 @@ impl Turn {
 /// other exactly when it matters and a box built on the wrong one hangs off the
 /// wrong side of its anchor.
 #[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Axes {
-    pub advance: Vec3,
-    pub down: Vec3,
+pub(crate) struct Axes {
+    pub(crate) advance: Vec3,
+    pub(crate) down: Vec3,
     /// Pixels per world unit along [`Axes::advance`], at the point the axes
     /// were settled at, with y running down the screen.
     ///
@@ -300,7 +303,7 @@ pub struct Axes {
     /// the signs above had to ask for it, and because the one reader that
     /// inverts the pair to bring a cursor into the run's frame would otherwise
     /// ask for it a second time.
-    pub advance_px: Vec2,
+    pub(crate) advance_px: Vec2,
     /// The same along [`Axes::down`].
-    pub down_px: Vec2,
+    pub(crate) down_px: Vec2,
 }

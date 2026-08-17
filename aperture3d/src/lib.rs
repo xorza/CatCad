@@ -142,5 +142,5 @@ pub use scene::Scene;
 pub use styled::Styled;
 pub use tag::Tag;
 pub use text::Text;
-pub use text::turn::{Axes, Facing, Turn};
+pub use text::turn::{Facing, Turn};
 pub use viewport::Viewport;

@@ -64,11 +64,12 @@ impl Aim {
 
     /// The ray the cursor casts into the world.
     ///
-    /// The same one every hit here was ordered along, which is what makes a
-    /// depth read off one comparable with a place resolved against the other —
-    /// see [`Hit::world`], and [`Motion`](crate::Motion), which resolves through
-    /// this aim rather than a viewpoint of its own.
-    pub fn ray(&self) -> Ray {
+    /// The same one every hit was ordered along, which is what lets a depth read
+    /// off one and a place resolved against the other be compared. Held rather
+    /// than published: an aim is built once and handed to every primitive, so
+    /// the ray is the crate's own working copy — a consumer that wants one casts
+    /// it with [`Camera::ray_through`](crate::Camera::ray_through).
+    pub(crate) fn ray(&self) -> Ray {
         self.ray
     }
 
