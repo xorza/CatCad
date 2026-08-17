@@ -558,11 +558,10 @@ impl Prompt {
     /// in the drawing, and a form that threw itself away when the pointer went
     /// to that arrow would be one you could never drag.
     ///
-    /// **Which is the same bit read the other way**, and the whole of what says
-    /// a form carries its own answers: one is dismissed by its buttons or by
-    /// clicking away, never by both and never by neither. It had a name apiece,
-    /// and the second was a negation of the first — so the pair could not
-    /// disagree and a test that asked both was asking once.
+    /// Read the other way round it is whether the form carries its own confirm
+    /// and cancel, which is the same bit and deliberately so: a form is
+    /// dismissed by its buttons or by clicking away, never by both and never by
+    /// neither.
     fn blurs(&self) -> bool {
         match self.about {
             Asking::Dimension { .. } => true,

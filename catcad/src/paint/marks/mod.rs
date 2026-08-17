@@ -386,9 +386,6 @@ fn bearing(run: DVec2) -> DVec2 {
 /// The point of the span nearest `at`, or `None` where the span is a point and
 /// has no line to drop a perpendicular onto.
 ///
-/// `at` brought onto the span itself, which for a point already on it is that
-/// point and otherwise is whichever end it ran past.
-///
 /// The foot of that perpendicular where it lands on the span, and the end it
 /// ran past where it does not — one projection, clamped where it is taken. The
 /// two as separate steps would take the parameter, build a point from it and

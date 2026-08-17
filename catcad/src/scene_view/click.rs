@@ -242,16 +242,16 @@ fn anchor(at: Option<Vec3>, editing: FeatureId, under: Option<Part>) -> Option<A
 pub(super) fn dimension(part: Part, document: &Document) -> Option<Opening> {
     // Both halves at once, because they are one question: whether this names a
     // relation of some sketch. A part that names an entity always names the
-    // sketch holding it — see [`Part`] — so the pair is `Some` together or not
-    // at all, and taking them apart left a fallback to a sketch that could not
-    // be reached.
+    // sketch holding it — see [`Part`] — so the two are `Some` together or not
+    // at all.
+    //
+    // The sketch the part names rather than the one open, which are the same
+    // wherever a click can find a mark: only the open sketch's are drawn — see
+    // [`texts`](crate::paint::write::texts) — and what a form opens over is
+    // what the part says it is.
     let (Some(sketch), Some(Entity::Constraint(id))) = (part.sketch(), part.entity()) else {
         return None;
     };
-    // The sketch the part names rather than the one open. They are the same
-    // wherever a click can find a mark, since only the open sketch's are drawn
-    // — see [`texts`](crate::paint::write::texts) — and what a form opens over
-    // is what the part says it is rather than what happens to be open.
     let from = document
         .drawing_at(sketch)
         .sketch()
