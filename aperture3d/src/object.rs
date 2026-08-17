@@ -4,6 +4,7 @@ use crate::aim::Aim;
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::mesh::Mesh;
 use crate::primitive::Primitive;
+use crate::ray::MIN_FACING;
 use crate::styled::Styled;
 use crate::tag::Tag;
 use glam::{Mat4, Vec3};
@@ -222,9 +223,10 @@ fn crossed(origin: Vec3, direction: Vec3, corners: [Vec3; 3]) -> Option<f32> {
     let (along, across) = (b - a, c - a);
     let sideways = direction.cross(across);
     let determinant = along.dot(sideways);
-    if determinant.abs() < f32::EPSILON {
-        return None;
-    }
+    // Divided by unchecked, which the range tests below are what makes safe: a
+    // determinant of nothing gives an infinite `inverse`, and `u` comes out
+    // infinite or `NaN`. Both fall outside `0..=1` — a `NaN` compares false to
+    // everything — so they are refused by the line that refuses an honest miss.
     let inverse = 1.0 / determinant;
     let offset = origin - a;
     let u = offset.dot(sideways) * inverse;
@@ -234,6 +236,21 @@ fn crossed(origin: Vec3, direction: Vec3, corners: [Vec3; 3]) -> Option<f32> {
     let upward = offset.cross(along);
     let v = direction.dot(upward) * inverse;
     if v < 0.0 || u + v > 1.0 {
+        return None;
+    }
+    // Whether the ray met the triangle squarely enough for the distance below to
+    // mean anything — see [`MIN_FACING`]. Weighed against the lengths the
+    // determinant came out of, because `sideways` is square to both the ray and
+    // one edge, so this ratio is the cosine between the other edge and it: it
+    // comes to nothing exactly as the ray comes to lie in the triangle's plane,
+    // and says so at any size the model is drawn at. Squared on both sides to
+    // keep a square root out.
+    //
+    // Asked *here* rather than before the divide because this is the only path
+    // it can change: a grazing ray that misses is refused above like any other,
+    // so only one that would otherwise report a hit pays for the two lengths.
+    let square = along.length_squared() * sideways.length_squared();
+    if determinant * determinant <= MIN_FACING * MIN_FACING * square {
         return None;
     }
     // Behind the near plane is not something the cursor is over. The ray starts
@@ -369,6 +386,58 @@ mod tests {
         // turned camera: still found, and still at a point of its own plane.
         let hit = pick(&looking(0.9), Vec2::new(50.0, 50.0)).expect("the sheet seen raked");
         assert!(hit.world.z.abs() < 1e-4, "{hit:?} is off the sheet's plane");
+    }
+
+    /// A grazing ray is refused at the same *angle* whatever size the model is.
+    ///
+    /// The determinant that decides it grows with the square of the geometry, so
+    /// a floor stated as a bare number answers a different question at every
+    /// scale — at a millimetre it refuses honest crossings and at a kilometre it
+    /// never fires at all, which is a face seen edge-on reporting a hit a
+    /// million units off and taking the pick from whatever was really there.
+    ///
+    /// Two scales six orders apart, and the same three angles asked of both. The
+    /// assertion is that the answers *match*, not what they happen to be: that
+    /// is the whole of the claim, and it is what a bare epsilon cannot hold.
+    #[test]
+    fn a_grazing_ray_is_refused_by_its_angle_and_not_by_the_size_of_the_model() {
+        // A right triangle in the z = 0 plane with the origin well inside it,
+        // grown or shrunk about that origin.
+        let triangle = |s: f32| {
+            [
+                Vec3::new(-s, -s, 0.0),
+                Vec3::new(3.0 * s, -s, 0.0),
+                Vec3::new(-s, 3.0 * s, 0.0),
+            ]
+        };
+        // Aimed at the origin from `s` away along −x, lifted by however much
+        // `sin` of the angle off the plane asks for.
+        let ray = |s: f32, sin: f32| {
+            let direction = Vec3::new(1.0, 0.0, -sin).normalize();
+            (Vec3::new(-s, 0.0, sin * s), direction)
+        };
+
+        for sin in [1e-3, 1e-7, 1e-9] {
+            let answers: Vec<bool> = [1e-3f32, 1e3]
+                .into_iter()
+                .map(|s| {
+                    let (origin, direction) = ray(s, sin);
+                    crossed(origin, direction, triangle(s)).is_some()
+                })
+                .collect();
+            assert_eq!(
+                answers[0], answers[1],
+                "sin {sin}: a millimetre and a kilometre disagreed — {answers:?}"
+            );
+        }
+
+        // And the angle is what it turns on: well clear of grazing is a hit,
+        // well under it is not. Without this the assertion above would hold for
+        // a test that always answered the same thing.
+        let (origin, direction) = ray(1.0, 1e-3);
+        assert!(crossed(origin, direction, triangle(1.0)).is_some());
+        let (origin, direction) = ray(1.0, 1e-9);
+        assert!(crossed(origin, direction, triangle(1.0)).is_none());
     }
 
     #[test]

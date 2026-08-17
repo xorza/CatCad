@@ -156,12 +156,19 @@ impl Text {
         }
         let origin = self.origin();
         let box_of = Rect::new(origin.x, origin.y, extent.x, extent.y);
-        let Facing::Turned(turn) = self.facing else {
-            let from_anchor = aim.cursor - aim.screen_of(self.position)?;
-            return Some(Reach {
-                screen: aim::reach_to_box(from_anchor, box_of),
-                at: self.touched(aim, self.position),
-            });
+        let turn = match self.facing {
+            Facing::Turned(turn) if turn.laid() => turn,
+            // Square to the viewer — and so is a run turned into a plane it has
+            // no direction in, because that is what the shader draws it as. See
+            // [`Turn::laid`], which both halves ask, so a run cannot be measured
+            // in a frame it was not laid out in.
+            _ => {
+                let from_anchor = aim.cursor - aim.screen_of(self.position)?;
+                return Some(Reach {
+                    screen: aim::reach_to_box(from_anchor, box_of),
+                    at: self.touched(aim, self.position),
+                });
+            }
         };
         // What one logical pixel of the run reaches on screen: it is sized
         // against the screen and built in the world, so this is the step between

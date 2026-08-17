@@ -600,3 +600,63 @@ fn a_run_the_projection_drops_is_not_picked() {
         .measured(Vec2::new(40.0, 12.0));
     assert!(behind.pick(&aim_at(CENTRE, 50.0)).is_none());
 }
+
+/// A direction that leans out of the plane is brought into it, and one the plane
+/// has no part of leaves the run where the shader draws it.
+///
+/// [`Turn::new`] used to check its argument and carry it through unchanged, so a
+/// caller whose arithmetic left `right` a rounding off the plane got a run whose
+/// own down axis leaned out of the surface it was lettering — and a debug build
+/// got an assertion about the caller's numbers rather than the crate's.
+///
+/// The second half is the one that had two answers. A `right` the plane has
+/// nothing of leaves nothing to lay a run along; the shader reads that off the
+/// record as a zero and draws the run across the screen, where picking took the
+/// laid path, built a box on axes that were all zero, and refused every cursor.
+/// Drawn one way and clicked another is the failure, so both now ask
+/// [`Turn::laid`].
+#[test]
+fn a_direction_that_is_not_in_the_plane_is_brought_into_it_or_gives_up_the_turn() {
+    // Forty-five degrees out of the z = 0 plane: the part along the normal goes
+    // and what is left is +x, renormalized.
+    let leaning = Turn::new(Vec3::new(1.0, 0.0, 1.0), Vec3::Z);
+    assert!(leaning.right.abs_diff_eq(Vec3::X, 1e-6), "{leaning:?}");
+    assert!(leaning.laid());
+    assert_eq!(Facing::Turned(leaning).right(), Some(Vec3::X));
+    // And the plane is unchanged by any of it.
+    assert!(leaning.normal.abs_diff_eq(Vec3::Z, 1e-6));
+
+    // Straight along the normal, which names no direction of the plane at all.
+    for right in [Vec3::Z, Vec3::ZERO] {
+        let hopeless = Turn::new(right, Vec3::Z);
+        assert_eq!(hopeless.right, Vec3::ZERO, "{right:?}");
+        assert!(!hopeless.laid(), "{right:?}");
+        // What the record carries, and so what the shader branches on.
+        assert_eq!(Facing::Turned(hopeless).right(), None, "{right:?}");
+
+        // And picking answers as the screen run it is drawn as — the same box,
+        // in the same place, as a run that never claimed a plane.
+        let (laid, flat) = (turned(hopeless), label());
+        let mut extents = Vec::new();
+        for text in [&laid, &flat] {
+            let texts = [text.clone()];
+            measure_all(&texts, &mut TextShaper::new().glyphs());
+            extents.push(texts[0].extent());
+        }
+        let laid = laid.measured(extents[0]).tagged(Tag::new(1));
+        let flat = flat.measured(extents[1]).tagged(Tag::new(1));
+        for cursor in [CENTRE, Vec2::new(70.0, 56.0), Vec2::new(95.0, 56.0)] {
+            let aim = aim_at(cursor, 10.0);
+            let (laid, flat) = (laid.pick(&aim), flat.pick(&aim));
+            assert_eq!(laid.is_some(), flat.is_some(), "{right:?} at {cursor:?}");
+            if let (Some(laid), Some(flat)) = (laid, flat) {
+                assert!(
+                    (laid.screen - flat.screen).abs() < 1e-4,
+                    "{right:?} at {cursor:?}: laid {} against flat {}",
+                    laid.screen,
+                    flat.screen
+                );
+            }
+        }
+    }
+}

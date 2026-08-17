@@ -76,14 +76,16 @@ pub struct Viewport {
 }
 
 impl Viewport {
-    /// A viewport covering `size` pixels.
+    /// A viewport covering `size` pixels, and never fewer than one either way.
+    ///
+    /// Floored rather than refused. Every mapping here divides by the extent, so
+    /// a zero would answer with infinities the whole crate would then carry — and
+    /// what a window is worth in pixels arrives from outside, which makes it a
+    /// number to bring into range rather than a contract for a caller to have
+    /// broken.
     pub fn new(size: UVec2) -> Self {
-        debug_assert!(
-            size.x > 0 && size.y > 0,
-            "a {size:?} viewport has no pixel to map"
-        );
         Self {
-            extent: size.as_vec2(),
+            extent: size.max(UVec2::ONE).as_vec2(),
         }
     }
 
@@ -115,7 +117,13 @@ impl Viewport {
     /// The perspective divide is the caller's to justify: past the near plane
     /// `w` runs down through zero and the answer means nothing, so only a
     /// position that survived clipping may be handed here.
-    pub fn pixel_from_clip(&self, clip: Vec4) -> Vec2 {
+    ///
+    /// Kept inside the crate for exactly that reason: the contract is between
+    /// this and the handful of places that clip before reaching it, so the
+    /// assert fires when one of them stopped — where a published one would be an
+    /// assert on whatever a caller happened to pass. [`Viewport::pixel_of`] is
+    /// the answer for anyone else, and asks the question safely.
+    pub(crate) fn pixel_from_clip(&self, clip: Vec4) -> Vec2 {
         debug_assert!(clip.w > 0.0, "{clip:?} is not in front of the near plane");
         self.pixel_from_ndc(clip.xy() / clip.w)
     }
@@ -123,10 +131,10 @@ impl Viewport {
     /// The same, for a clip position that may not have survived clipping —
     /// `None` where it did not, and so is not drawn.
     ///
-    /// What [`pixel_from_clip`](Self::pixel_from_clip) makes the caller justify,
-    /// asked and answered here: the two planes a position can fall outside are
-    /// the ones the hardware clips against, so what this admits is exactly what
-    /// was drawn.
+    /// What `pixel_from_clip` beside it makes its caller justify, asked and
+    /// answered here: the two planes a position can fall outside are the ones
+    /// the hardware clips against, so what this admits is exactly what was
+    /// drawn.
     pub fn pixel_of(&self, clip: Vec4) -> Option<Vec2> {
         Inside::of(clip).drawn().then(|| self.pixel_from_clip(clip))
     }

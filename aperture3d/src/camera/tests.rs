@@ -52,6 +52,24 @@ fn the_near_plane_rides_with_the_orbit_distance() {
     camera.frame(extent);
     assert!(camera.distance > 1.0, "{camera:?}");
     assert!((camera.z_near() - camera.distance / 5.0).abs() < 1e-6);
+
+    // And a ratio outside the range is brought into it where the plane is
+    // worked out, rather than asserted against: the fields are public and
+    // nothing routes a caller through `sane`, so a camera that never came
+    // through it still has to draw. At zero the plane would land on the eye and
+    // the projection would have nothing to divide by; at one it would land on
+    // what is being looked at and clip the whole scene away.
+    for bad in [0.0, -1.0, 1.0, 7.0] {
+        let wild = Camera {
+            near_ratio: bad,
+            ..unit_camera()
+        };
+        let near = wild.z_near();
+        assert!(
+            near > 0.0 && near < wild.distance,
+            "near_ratio {bad} -> {near}"
+        );
+    }
 }
 
 /// A 90° fov puts the near plane's half-height at exactly its distance,

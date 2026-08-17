@@ -1,20 +1,9 @@
 //! Where a drag is allowed to move, and where the cursor puts it.
 
 use crate::aim::Aim;
+use crate::ray::MIN_FACING;
 use crate::viewport::{self, MIN_RUN_PX2};
 use glam::Vec3;
-
-/// How squarely the ray must meet a plane for the crossing to mean anything,
-/// as the cosine of the angle away from grazing.
-///
-/// Below it the divisor vanishes and the answer runs off to infinity. A cosine
-/// this small is the angle itself to within a rounding, so it is also a
-/// millionth of a radian off grazing.
-///
-/// A cosine and not a projection, which is why `resolve` weighs it against the
-/// normal's length: `Motion::Plane` does not require a unit normal, and its
-/// tests say so.
-const MIN_FACING: f32 = 1e-6;
 
 /// How far in front of the eye a point has to be for its projection to mean
 /// anything, in world units.
@@ -88,11 +77,11 @@ impl Motion {
             Motion::Plane { origin, normal } => {
                 let ray = aim.ray();
                 let facing = ray.direction.dot(normal);
-                // Weighed against the normal's own length, so what is refused is
-                // an angle rather than a number that moves with how long the
-                // caller's normal happens to be — the answer below is scale-free
-                // in it either way, and the refusal has no business not being.
-                // Squared on both sides to keep a square root out of it.
+                // Weighed against the normal's own length — see [`MIN_FACING`],
+                // which is a cosine and not a projection — because
+                // `Motion::Plane` does not require a unit normal and its tests
+                // say so. The answer below is scale-free in it either way, and
+                // the refusal has no business not being.
                 if facing * facing <= MIN_FACING * MIN_FACING * normal.length_squared() {
                     return None;
                 }

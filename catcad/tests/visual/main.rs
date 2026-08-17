@@ -623,7 +623,8 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
 
     let viewport = Viewport::new(frame.size);
     let centre = viewport
-        .pixel_from_clip(frame.camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0));
+        .pixel_of(frame.camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0))
+        .expect("the camera is aimed at the origin");
 
     // Every pixel of the rim, by how far it sits from where the centre
     // projected. Picked out by its blue rather than by brightness, because the
@@ -891,7 +892,9 @@ fn the_gpu_draws_the_marker_where_the_projection_says_it_is() {
     // puts at the world origin — the near-left corner of the rectangle, and
     // the only corner the solver cannot move.
     let clip = frame.camera.view_proj(viewport.aspect()) * Vec3::ZERO.extend(1.0);
-    let expected = viewport.pixel_from_clip(clip);
+    let expected = viewport
+        .pixel_of(clip)
+        .expect("the anchor is in front of the camera");
     let found = frame.pinned_marker();
 
     assert!(

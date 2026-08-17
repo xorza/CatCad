@@ -73,7 +73,7 @@ impl Facing {
     pub fn right(self) -> Option<Vec3> {
         match self {
             Self::Screen { .. } => None,
-            Self::Turned(turn) => Some(turn.right),
+            Self::Turned(turn) => turn.laid().then_some(turn.right),
         }
     }
 
@@ -111,6 +111,12 @@ impl Facing {
 pub struct Turn {
     /// World direction the run advances along, which is the whole of what
     /// decides the angle it is set at.
+    ///
+    /// Unit and in the plane, which [`Turn::new`] is what makes true — or zero
+    /// where what it was handed named no direction the plane has. A run with
+    /// nothing to advance along is drawn across the screen *and picked there*:
+    /// [`Facing::right`] answers `None`, and the shader reads that same absence
+    /// off its record as a zero vector.
     pub right: Vec3,
     /// The plane's unit normal: what the run's depth follows, and what says
     /// which surface `right` is a direction *of*.
@@ -151,11 +157,17 @@ impl Turn {
     /// A run set along `right`, on the plane `normal` names — each normalized —
     /// and sitting on the point it names.
     pub fn new(right: Vec3, normal: Vec3) -> Self {
-        let (right, normal) = (right.normalize_or_zero(), normal.normalize_or_zero());
-        debug_assert!(
-            right.dot(normal).abs() < 1e-3,
-            "{right:?} does not lie in the plane {normal:?} names"
-        );
+        let normal = normal.normalize_or_zero();
+        // Brought *into* the plane rather than checked against it. What `right`
+        // says is which way round the run is set, and a direction a rounding off
+        // the plane says it as clearly as one exactly in it — where refusing the
+        // first would fire on a caller's arithmetic, and taking it as given
+        // would lean the run's own down axis out of the surface it letters.
+        //
+        // A direction the plane has no part of — one along the normal, or either
+        // of them zero — leaves nothing to lay a run along and comes back zero.
+        // See [`Turn::right`] for what is then drawn.
+        let right = (right - normal * right.dot(normal)).normalize_or_zero();
         Self {
             right,
             normal,
@@ -167,6 +179,17 @@ impl Turn {
     pub fn lifted(mut self, lift: Vec2) -> Self {
         self.lift = lift;
         self
+    }
+
+    /// Whether there is a direction here to lay a run along.
+    ///
+    /// **The one statement of it**, read by everything that has to agree with
+    /// the shader: [`Facing::right`] answers `None` through it, which is what
+    /// puts a zero in the record and sends the vertex stage down its
+    /// screen-facing branch, and picking asks it so that a run is measured in
+    /// the frame it was drawn in. See [`Turn::right`].
+    pub(super) fn laid(self) -> bool {
+        self.right != Vec3::ZERO
     }
 
     /// [`Turn::lift`] as a world displacement, per logical pixel of it.

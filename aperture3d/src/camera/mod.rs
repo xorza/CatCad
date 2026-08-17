@@ -15,6 +15,16 @@ const PITCH_LIMIT: f32 = std::f32::consts::FRAC_PI_2 - 1e-3;
 /// distance, so nothing else depends on how close the eye may come.
 const MIN_DISTANCE: f32 = 1e-3;
 
+/// How near the eye the near plane may be put, and how near the target, as a
+/// fraction of the orbit distance.
+///
+/// Open at both ends, because both are real failures rather than tight spots: at
+/// zero the plane lands on the eye and the projection has nothing to divide by,
+/// at one it lands on what is being looked at and the whole scene is clipped
+/// away. A millionth off each end is far outside anything a camera is given.
+const MIN_NEAR_RATIO: f32 = 1e-6;
+const MAX_NEAR_RATIO: f32 = 1.0 - 1e-6;
+
 /// How far, in orbit distances, the orthographic depth slab reaches either side
 /// of the eye.
 ///
@@ -89,7 +99,9 @@ pub struct Camera {
     /// you are looking at, so dollying in can never run the target through it
     /// and zoom has no floor.
     ///
-    /// Below 1, or the target sits behind the near plane.
+    /// Strictly between 0 and 1, and brought there where the near plane is
+    /// worked out rather than refused here. At zero the plane lands on the eye,
+    /// at one on what is being looked at.
     pub near_ratio: f32,
 }
 
@@ -132,13 +144,15 @@ impl Camera {
     /// Where the near plane currently sits, in world units. Perspective only:
     /// the orthographic slab is centred on the eye and clips nothing in front
     /// of it.
+    ///
+    /// Brought into range here rather than refused, which is the one place the
+    /// ratio is spent and so the one place it has to be a number. [`Camera::sane`]
+    /// applies the same bounds to a camera arriving from outside, and says why a
+    /// viewpoint is replaced where a drawing would be reported — but the fields
+    /// are public and nothing routes a caller through `sane`, so a ratio that
+    /// never came through it still has to draw something.
     pub(crate) fn z_near(&self) -> f32 {
-        debug_assert!(
-            self.near_ratio > 0.0 && self.near_ratio < 1.0,
-            "near_ratio {} puts the near plane on or past the orbit target",
-            self.near_ratio
-        );
-        self.distance * self.near_ratio
+        self.distance * self.near_ratio.clamp(MIN_NEAR_RATIO, MAX_NEAR_RATIO)
     }
 
     /// Half the world height the viewport covers at the orbit target, which is
@@ -360,9 +374,10 @@ impl Camera {
             // inside out, so the range is open at both ends and the bounds are
             // a degree off each.
             fov_y: finite(self.fov_y, default.fov_y).clamp(1f32.to_radians(), 179f32.to_radians()),
-            // Strictly inside (0, 1): at either end the near plane lands on the
-            // eye or on what is being looked at.
-            near_ratio: finite(self.near_ratio, default.near_ratio).clamp(1e-6, 1.0 - 1e-6),
+            // The same bounds [`Camera::z_near`] spends it through, so a camera
+            // that came this way and one that did not are drawn alike.
+            near_ratio: finite(self.near_ratio, default.near_ratio)
+                .clamp(MIN_NEAR_RATIO, MAX_NEAR_RATIO),
         }
     }
 
