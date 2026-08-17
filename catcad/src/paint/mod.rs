@@ -753,19 +753,15 @@ pub(crate) fn mark_centre(
 
 /// How far a mark's box stands off the point it names, in the world.
 ///
-/// **What a drag on a number has to give back, every frame.** The box floats
-/// clear of the geometry so the figure can be read, and a placement says where
-/// the *point* goes — so a press lands in the box while the change writes the
-/// anchor, and the two differ by exactly this.
+/// **What a press on a number records.** The box floats clear of the geometry so
+/// the figure can be read, and a placement says where the *point* goes — so a
+/// press lands in the box while the change writes the anchor, and the two differ
+/// by exactly this. Reading it here is what lets the grab keep the number under
+/// the cursor rather than snapping it.
 ///
-/// Read afresh rather than kept from the press, because it is not a constant.
-/// Two things move it mid-drag and they move it differently. A mark sharing its
-/// place with another rises a lane to clear it, and carrying it away leaves it
-/// nothing to clear — one step, once, on the first frame. And a *radius* stands
-/// off along its own leader, which runs out through wherever the number was put:
-/// drag the number and the frame it stands off in turns with it, continuously.
-/// A correction taken once at the press holds for the first and never for the
-/// second.
+/// Its inverse is [`mark_anchor`] and not a subtraction of this, which is the
+/// whole of what that one is for: taken at the press it is a constant, and a
+/// radius's clearance is not.
 pub(crate) fn mark_standoff(
     placed: Mark,
     drawing: Drawing<'_>,
@@ -775,11 +771,11 @@ pub(crate) fn mark_standoff(
     mark_centre(placed, drawing, camera, viewport) - placed.world(drawing)
 }
 
-/// Where a mark's point has to be for its box to land on `at`.
+/// Where a mark is anchored for its box to land on `at`.
 ///
 /// **The inverse of [`mark_centre`], and stated beside it because a drag needs
-/// both.** A number is grabbed by its box and placed by its point, so a gesture
-/// that says where the box goes has to answer where the point goes — and taking
+/// both.** A number is grabbed by its box and placed by its anchor, so a gesture
+/// that says where the box goes has to answer where the anchor goes — and taking
 /// the clearance off by subtraction is only right where the clearance does not
 /// depend on the answer.
 ///
@@ -797,7 +793,7 @@ pub(crate) fn mark_standoff(
 /// gives `|p|` outright, and reading `q` against the basis `p̂` makes gives the
 /// direction in one line more. No search, no lag, and nothing left to be
 /// unstable.
-pub(crate) fn mark_point(
+pub(crate) fn mark_anchor(
     placed: Mark,
     constraint: Constraint,
     drawing: Drawing<'_>,

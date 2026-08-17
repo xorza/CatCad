@@ -292,34 +292,27 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
         // middle of its own would leave the number behind the moment one was
         // moved.
         //
-        // What is still this file's is which way the mark is *set*: a
-        // measurement runs one way and a mark has to be settled either side of
-        // [`CUT`], or it would turn over as the drawing is dragged past it.
-        Constraint::Distance { .. } | Constraint::Standoff { .. } | Constraint::Spacing { .. } => {
+        // What is still this file's is which way the mark is *set*, and the
+        // rule has one exception. A span is a pair and nothing says which of
+        // them is first, so a measurement's direction has to be settled either
+        // side of [`CUT`] or the mark would turn over as the drawing is dragged
+        // past it. A **radius** has no span: its direction is its leader, which
+        // runs out through wherever the number was put, and there are not two
+        // ends to choose between. Settling it there is worse than pointless —
+        // the mark stands off square to the way it is set, so a sign flip sends
+        // the number to the other side of its own leader, which is a half turn
+        // in the middle of a drag.
+        Constraint::Distance { .. }
+        | Constraint::Standoff { .. }
+        | Constraint::Spacing { .. }
+        | Constraint::Radius { .. } => {
             let measured =
                 Measurement::of(sketch, constraint).expect("a dimension states a number");
-            one(measured.label, canonical(measured.along))
-        }
-        // **Not settled, because a radius has nothing to settle.**
-        //
-        // [`canonical`] answers which end of a *span* comes first, so that two
-        // identical segments drawn in opposite orders do not carry their marks
-        // on opposite sides of themselves. A radius has no span: its direction
-        // is its leader, and a leader runs out through wherever the number was
-        // put. There are not two ends to choose between.
-        //
-        // Which makes settling it worse than pointless. The mark stands off
-        // square to the direction it is set along, so a sign flip there is the
-        // number jumping to the other side of its own leader — and a drag reads
-        // that clearance back to say where the placement goes. Held still, the
-        // number swapped between two places a whole clearance apart, every
-        // frame. Inverting the clearance rather than subtracting it settles the
-        // drag either way — see [`mark_point`](super::mark_point) — but a mark
-        // that turns over as it is dragged is still not a mark anybody wants.
-        Constraint::Radius { .. } => {
-            let measured =
-                Measurement::of(sketch, constraint).expect("a dimension states a number");
-            one(measured.label, measured.along)
+            let set = match constraint {
+                Constraint::Radius { .. } => measured.along,
+                _ => canonical(measured.along),
+            };
+            one(measured.label, set)
         }
     }
 }

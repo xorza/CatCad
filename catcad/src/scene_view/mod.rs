@@ -498,7 +498,7 @@ impl SceneView {
                         //
                         // `to` is where the *box* should land and a placement
                         // names the point under it, so the clearance comes off
-                        // by [`paint::mark_point`] — which inverts it rather
+                        // by [`paint::mark_anchor`] — which inverts it rather
                         // than taking off the last frame's. A frame with no mark
                         // to invert says nothing at all: the number stays put,
                         // which is a stutter, where placing it against no
@@ -510,7 +510,7 @@ impl SceneView {
                                 Change::Place {
                                     sketch,
                                     constraint,
-                                    at: paint::mark_point(
+                                    at: paint::mark_anchor(
                                         placed.mark,
                                         drawing.sketch().constraint(constraint),
                                         drawing,

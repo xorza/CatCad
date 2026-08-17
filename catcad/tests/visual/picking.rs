@@ -448,7 +448,7 @@ fn a_number_dragged_by_its_box_travels_with_the_cursor() {
 /// Swept round the compass and at two reaches, because it is a question about
 /// angle *and* about how long the placement is: subtraction converges only while
 /// the placement is the longer of the two, so a number dragged in close is where
-/// it gives out. `paint::mark_point` inverts the clearance instead, so what is
+/// it gives out. `paint::mark_anchor` inverts the clearance instead, so what is
 /// asked here is not "settles down to" but "is right on the frame it lands".
 #[test]
 fn a_number_held_still_stops_moving() {
@@ -459,19 +459,13 @@ fn a_number_held_still_stops_moving() {
     host.frame_offscreen(&target, RASTER, &mut app);
     host.frame_offscreen(&target, RASTER, &mut app);
 
-    let radius = |app: &CatCad| -> Vec3 {
+    let radius = |app: &CatCad| -> Drawn {
         drawn(app)
             .into_iter()
             .find(|mark| mark.content.starts_with('R'))
             .expect("the demo states a radius")
-            .middle
     };
-    let start = app
-        .renderer()
-        .borrow()
-        .camera()
-        .screen_of(radius(&app), viewport())
-        .expect("a drawn mark is somewhere the projection draws");
+    let start = on_screen(&app, &radius(&app));
     host.ui().on_input(InputEvent::PointerMoved(start));
     host.frame_offscreen(&target, RASTER, &mut app);
     host.ui()
@@ -491,11 +485,11 @@ fn a_number_held_still_stops_moving() {
         // frame of catching up is the difference between a drag that converges
         // and a drag that is simply right.
         host.frame_offscreen(&target, RASTER, &mut app);
-        let settled = radius(&app);
+        let settled = radius(&app).middle;
         host.frame_offscreen(&target, RASTER, &mut app);
-        let then = radius(&app);
+        let then = radius(&app).middle;
         host.frame_offscreen(&target, RASTER, &mut app);
-        let still = radius(&app);
+        let still = radius(&app).middle;
         let jitter = (then - settled).length().max((still - then).length());
         assert!(
             jitter < 1e-4,
