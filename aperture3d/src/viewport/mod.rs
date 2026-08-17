@@ -1,6 +1,6 @@
-//! Pixels, and how they meet normalized device coordinates.
+//! Pixels, how they meet normalized device coordinates, and which clip
+//! positions are drawn at all.
 
-use crate::aim::Inside;
 use glam::{Mat4, UVec2, Vec2, Vec3, Vec4, Vec4Swizzles};
 
 /// Screen length below which a projected stretch lands on a single pixel and
@@ -48,6 +48,36 @@ const MIN_RECIP_W: f32 = 1e-6;
 pub(crate) fn unsqueezed(on_screen: f32, near_w: f32, far_w: f32) -> Option<f32> {
     let recip = (1.0 - on_screen) / near_w + on_screen / far_w;
     (recip.abs() > MIN_RECIP_W).then(|| (on_screen / far_w) / recip)
+}
+
+/// How far into the view volume a clip position sits, along each of the two
+/// planes that can cut it: the near plane, and the far end of an orthographic
+/// slab.
+///
+/// Reversed depth puts the near plane at `z == w` and the slab's far end at
+/// `z == 0`, so both read as "non-negative is inside". These are the
+/// half-spaces the hardware clips against, which is what makes what can be
+/// picked the same as what was drawn. Perspective writes a constant positive
+/// `clip.z` and has no far plane, so there the first is `w >= z_near` and the
+/// second never fires.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Inside {
+    pub(crate) near: f32,
+    pub(crate) far: f32,
+}
+
+impl Inside {
+    pub(crate) fn of(clip: Vec4) -> Self {
+        Self {
+            near: clip.w - clip.z,
+            far: clip.z,
+        }
+    }
+
+    /// Whether the position survived both planes, and so is drawn.
+    pub(crate) fn drawn(&self) -> bool {
+        self.near >= 0.0 && self.far >= 0.0
+    }
 }
 
 /// A render target's pixel extent, and the one statement of how a pixel

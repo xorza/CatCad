@@ -12,7 +12,7 @@
 //! evict — when the sheet fills, it is thrown away and started again at twice
 //! the side.
 
-use glam::Vec2;
+use glam::{UVec2, Vec2};
 use palantir::{GlyphImageKind, GlyphRasterKey, PlacedGlyph, TextGlyphs};
 use std::collections::HashMap;
 
@@ -47,7 +47,7 @@ pub(super) struct Slot {
 
 /// The sheet every glyph in the scene is drawn from.
 #[derive(Debug)]
-pub(super) struct GlyphAtlas {
+pub(crate) struct GlyphAtlas {
     /// Coverage, one byte per pixel, `side * side` of them.
     pixels: Vec<u8>,
     side: u32,
@@ -158,15 +158,15 @@ impl GlyphAtlas {
         if width == 0 || height == 0 {
             return None;
         }
-        let Some((x, y)) = self.pack(width, height) else {
+        let Some(at) = self.pack(width, height) else {
             self.full = true;
             return None;
         };
-        self.blit(x, y, width, height, &image.data);
+        self.blit(at.x, at.y, width, height, &image.data);
         self.dirty = true;
         Some(Slot {
-            x,
-            y,
+            x: at.x,
+            y: at.y,
             width,
             height,
             left: image.placement.left,
@@ -180,7 +180,7 @@ impl GlyphAtlas {
     /// Shelves rather than anything cleverer because the glyphs of one drawing
     /// are all much of a height — digits at one or two sizes — so a shelf
     /// wastes almost nothing, and there is nothing here to repack.
-    fn pack(&mut self, width: u32, height: u32) -> Option<(u32, u32)> {
+    fn pack(&mut self, width: u32, height: u32) -> Option<UVec2> {
         let (stride, rise) = (width + GUTTER, height + GUTTER);
         if stride > self.side || rise > self.side {
             return None;
@@ -193,7 +193,7 @@ impl GlyphAtlas {
         if self.shelf_y + rise > self.side {
             return None;
         }
-        let at = (self.pen_x, self.shelf_y);
+        let at = UVec2::new(self.pen_x, self.shelf_y);
         self.pen_x += stride;
         self.shelf_height = self.shelf_height.max(rise);
         Some(at)

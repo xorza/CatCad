@@ -1,7 +1,7 @@
 //! One pipeline, the buffers it draws from, and how one is built.
 
 use crate::renderer::band;
-use crate::renderer::cpu::Triangles;
+use crate::renderer::cpu::triangles::Triangles;
 use crate::renderer::record::Record;
 use crate::renderer::retained::Retained;
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
@@ -55,6 +55,7 @@ pub(super) fn translucent(opacity: f32) -> bool {
     opacity < OPAQUE
 }
 
+#[derive(Debug)]
 pub(super) struct PassSpec {
     /// Names the pipeline, both its entry points and all three of its buffers:
     /// `mesh` finds `mesh_vs` and `mesh_fs`, and labels `aperture.mesh.records`

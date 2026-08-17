@@ -119,14 +119,6 @@ struct Occluders {
     front: f32,
 }
 
-impl Occluders {
-    /// Whether something `distance` along the aim is still in the running —
-    /// level with what is in front of it as well as nearer. See [`shows`].
-    fn shows(&self, distance: f32) -> bool {
-        shows(self.front, distance)
-    }
-}
-
 impl Scene {
     /// What the scene occupies in world space, or `None` when there is
     /// nothing in it.
@@ -182,7 +174,7 @@ impl Scene {
         // behind it.
         let occluders = self.occluders(&aim);
         self.overlays(&aim, |_| true)
-            .filter(|hit| occluders.shows(hit.distance))
+            .filter(|hit| shows(occluders.front, hit.distance))
             .min_by(Hit::aim_order)
             .or(occluders.ground)
     }

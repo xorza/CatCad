@@ -66,9 +66,6 @@ impl Point {
         (screen <= aim.reach(self.size))
             .then(|| aim.hit(tag, HitAt::Point, self.precedence, self.position, screen))
     }
-}
-
-impl Point {
     /// Set the diameter in logical pixels.
     pub fn size(mut self, size: f32) -> Self {
         self.size = size;

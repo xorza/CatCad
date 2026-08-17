@@ -99,7 +99,7 @@ fn direction_of(world: Option<Vec3>) -> [f32; 3] {
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
-pub(super) struct GpuVertex {
+pub(crate) struct GpuVertex {
     pub(super) position: [f32; 3],
     pub(super) normal: [f32; 3],
     pub(super) color: [f32; 3],

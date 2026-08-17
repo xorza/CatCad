@@ -1,6 +1,6 @@
 //! A circle drawn as a circle, not as a great many short straight lines.
 
-use crate::aim::Aim;
+use crate::aim::{self, Aim};
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::RingInstance;
@@ -108,7 +108,7 @@ impl Ring {
         // see [`Ring::bound_on_screen`].
         if self
             .bound_on_screen(aim)
-            .is_some_and(|bound| aim.reach_to_box(bound) > reach)
+            .is_some_and(|bound| aim::reach_to_box(aim.cursor, bound) > reach)
         {
             return None;
         }
@@ -283,9 +283,6 @@ impl Ring {
             screen,
         })
     }
-}
-
-impl Ring {
     /// Set the stroke width in logical pixels.
     pub fn width(mut self, width: f32) -> Self {
         self.width = width;

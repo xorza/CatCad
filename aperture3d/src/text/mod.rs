@@ -11,6 +11,35 @@ use glam::{Vec2, Vec3};
 use palantir::{GlyphFont, Rect, Size, TextGlyphs};
 use std::cell::Cell;
 
+/// How little of its face-on area a laid run's box may cover before there is
+/// nothing on screen to have been clicked in.
+///
+/// Its box covers one screen pixel per logical pixel when the plane faces the
+/// viewer and less as the plane turns away — for a plain tilt, exactly the
+/// cosine of it. So this is a fraction rather than an area: a thousandth is
+/// within a twentieth of a degree of edge-on, where the whole run has collapsed
+/// to a line and no cursor is on it.
+///
+/// A policy rather than an arithmetic guard, though it serves as one. The
+/// arithmetic degrades gracefully: as the box thins, what comes back goes on
+/// being the distance to it, and only exactly edge-on is there a zero to divide
+/// by. What it would mean is a mark covering a hundredth of a pixel answering
+/// clicks along its whole length, which is a mark you cannot see and can grab.
+///
+/// A pick's floor and not the drawing's. Type laid in a plane goes on
+/// foreshortening all the way to nothing, which is what being in the plane means
+/// and what the drawing should show.
+const EDGE_ON: f32 = 1e-3;
+
+/// How square the surface a run's depth follows has to be to the cursor's ray
+/// before the depth is read off that surface rather than off the run's anchor.
+///
+/// The cosine between the two, so a thousandth is within a twentieth of a degree
+/// of the ray lying *in* the surface — where the intersection runs off to
+/// infinity and the anchor's own depth is the only honest answer left. See
+/// [`Text::touched`].
+const GRAZING: f32 = 1e-3;
+
 /// Something written in the scene: a label on a point, a dimension on a
 /// drawing.
 ///
@@ -260,6 +289,18 @@ impl Text {
         (reach.screen <= aim.radius)
             .then(|| aim.hit(tag, HitAt::Text, self.precedence, reach.at, reach.screen))
     }
+    /// Put `position` at this fraction of the run's own box — see
+    /// [`Text::anchor`].
+    pub fn anchored(mut self, anchor: Vec2) -> Self {
+        self.anchor = anchor;
+        self
+    }
+
+    /// Set which way the run is turned. See [`Facing`].
+    pub fn facing(mut self, facing: Facing) -> Self {
+        self.facing = facing;
+        self
+    }
 }
 
 /// Where a run stands in the world, and how far the cursor fell from the box it
@@ -300,50 +341,6 @@ impl Primitive for Text {
         include(self.position);
     }
 }
-
-impl Text {
-    /// Put `position` at this fraction of the run's own box — see
-    /// [`Text::anchor`].
-    pub fn anchored(mut self, anchor: Vec2) -> Self {
-        self.anchor = anchor;
-        self
-    }
-
-    /// Set which way the run is turned. See [`Facing`].
-    pub fn facing(mut self, facing: Facing) -> Self {
-        self.facing = facing;
-        self
-    }
-}
-
-/// How little of its face-on area a laid run's box may cover before there is
-/// nothing on screen to have been clicked in.
-///
-/// Its box covers one screen pixel per logical pixel when the plane faces the
-/// viewer and less as the plane turns away — for a plain tilt, exactly the
-/// cosine of it. So this is a fraction rather than an area: a thousandth is
-/// within a twentieth of a degree of edge-on, where the whole run has collapsed
-/// to a line and no cursor is on it.
-///
-/// A policy rather than an arithmetic guard, though it serves as one. The
-/// arithmetic degrades gracefully: as the box thins, what comes back goes on
-/// being the distance to it, and only exactly edge-on is there a zero to divide
-/// by. What it would mean is a mark covering a hundredth of a pixel answering
-/// clicks along its whole length, which is a mark you cannot see and can grab.
-///
-/// A pick's floor and not the drawing's. Type laid in a plane goes on
-/// foreshortening all the way to nothing, which is what being in the plane means
-/// and what the drawing should show.
-const EDGE_ON: f32 = 1e-3;
-
-/// How square the surface a run's depth follows has to be to the cursor's ray
-/// before the depth is read off that surface rather than off the run's anchor.
-///
-/// The cosine between the two, so a thousandth is within a twentieth of a degree
-/// of the ray lying *in* the surface — where the intersection runs off to
-/// infinity and the anchor's own depth is the only honest answer left. See
-/// [`Text::touched`].
-const GRAZING: f32 = 1e-3;
 
 impl Styled for Text {
     fn color_mut(&mut self) -> &mut Vec3 {

@@ -1,12 +1,12 @@
 //! Stroked polylines in world space.
 
-use crate::aim::{Aim, Inside};
+use crate::aim::Aim;
 use crate::hit::{Hit, HitAt, Precedence};
 use crate::primitive::{DEFAULT_STROKE_WIDTH, Flatten, Primitive};
 use crate::renderer::record::CurveInstance;
 use crate::styled::Styled;
 use crate::tag::Tag;
-use crate::viewport::{self, MIN_RUN_PX2};
+use crate::viewport::{self, Inside, MIN_RUN_PX2};
 use glam::Vec3;
 
 /// A polyline through world-space points, stroked at a constant width in
@@ -126,9 +126,6 @@ impl Curve {
     fn wraps(&self) -> bool {
         self.closed && self.points.len() > 2
     }
-}
-
-impl Curve {
     /// Join the last point back to the first.
     pub fn closed(mut self) -> Self {
         self.closed = true;

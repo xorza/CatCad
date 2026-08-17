@@ -25,7 +25,9 @@ pub(crate) mod retained;
 pub(crate) mod target;
 pub(crate) mod uniforms;
 
-use crate::renderer::cpu::{Cpu, Laying, Order};
+use crate::renderer::cpu::Cpu;
+use crate::renderer::cpu::records::Laying;
+use crate::renderer::cpu::triangles::Order;
 use crate::renderer::gpu::Gpu;
 use crate::renderer::uniforms::{Frame, Uniforms};
 

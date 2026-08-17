@@ -1,14 +1,20 @@
 //! Everything that cannot exist before the device does.
 
+pub(super) mod attachments;
+pub(super) mod sheet;
+
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::cpu::{Cpu, Order, Records};
+use crate::renderer::cpu::Cpu;
+use crate::renderer::cpu::records::Records;
+use crate::renderer::cpu::triangles::Order;
+use crate::renderer::gpu::attachments::Attachments;
+use crate::renderer::gpu::sheet::Sheet;
 use crate::renderer::pass;
 use crate::renderer::pass::{Pass, PassSpec, Pipelines};
 use crate::renderer::record::{
     CurveInstance, GlyphInstance, GpuVertex, PointInstance, Record, RingInstance,
 };
-use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
 use crate::renderer::uniforms::Uniforms;
 use glam::{UVec2, Vec3};
 
@@ -49,7 +55,7 @@ const FACE_BIAS: i32 = 2048;
 /// through it is already in the target to be mixed with — see `Renderer::paint`.
 /// And it writes no depth, so one face does not cull the next; they are sorted
 /// back to front instead, because blending is order-dependent whether or not
-/// anything is written — see [`Order`](super::cpu::Order).
+/// anything is written — see [`Order`](crate::renderer::cpu::triangles::Order).
 ///
 /// It still *tests* depth, which is what keeps the drawing's own layering: a
 /// stroke of the sketch this face belongs to is coplanar with it and a rung
@@ -104,115 +110,6 @@ const MARKER_BIAS: i32 = STROKE_BIAS * 2;
 /// the rungs above: a highlighted stroke should clear the stroke under it
 /// without climbing over the markers that terminate it.
 const HIGHLIGHT_BIAS: i32 = FACE_BIAS;
-
-/// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU
-/// encodes on write.
-const BACKGROUND: wgpu::Color = wgpu::Color {
-    r: 0.02,
-    g: 0.02,
-    b: 0.025,
-    a: 1.0,
-};
-
-/// The two textures a frame is drawn into, and the size they were built for.
-///
-/// Reached only through [`Gpu::resize`] and [`Gpu::draw`], which is what keeps
-/// building them and drawing into them from being two things a frame has to
-/// remember to pair.
-///
-/// Multisampled, both of them, and neither outlives the pass: the colour buffer
-/// is resolved into whatever palantir hands over and the depth buffer is read
-/// only by the pass that wrote it. Both are discarded rather than stored when it
-/// ends, and neither buffer's samples are read again.
-///
-/// The size travels with them because it is what decides they are still good —
-/// a frame compares it against the target's and rebuilds the pair when the view
-/// has been resized, which is the only thing that invalidates one.
-#[derive(Debug)]
-struct Attachments {
-    color: wgpu::TextureView,
-    depth: wgpu::TextureView,
-    size: UVec2,
-}
-
-impl Attachments {
-    fn new(device: &wgpu::Device, size: UVec2, target_format: wgpu::TextureFormat) -> Self {
-        Self {
-            color: Self::view(device, "aperture.msaa", size, target_format),
-            depth: Self::view(device, "aperture.depth", size, DEPTH_FORMAT),
-            size,
-        }
-    }
-
-    /// Open the one render pass a frame is drawn in, cleared and confined to
-    /// these two textures.
-    ///
-    /// Here rather than at the call site because everything it decides is about
-    /// them: that the resolve is all palantir composites, so the samples behind
-    /// it are discarded rather than stored, that reversed depth puts the far end
-    /// at zero, and that the pass covers the whole of what was built.
-    ///
-    /// The viewport and the scissor come off [`Attachments::size`], which is the
-    /// only place a frame's size is kept. A caller handing one in would be
-    /// stating a second time what these textures were built to, and the two are
-    /// only ever right together.
-    fn begin<'pass>(
-        &self,
-        encoder: &'pass mut wgpu::CommandEncoder,
-        target: &wgpu::TextureView,
-    ) -> wgpu::RenderPass<'pass> {
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("aperture.pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &self.color,
-                resolve_target: Some(target),
-                depth_slice: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(BACKGROUND),
-                    store: wgpu::StoreOp::Discard,
-                },
-            })],
-            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                view: &self.depth,
-                depth_ops: Some(wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(0.0),
-                    store: wgpu::StoreOp::Discard,
-                }),
-                stencil_ops: None,
-            }),
-            timestamp_writes: None,
-            occlusion_query_set: None,
-            multiview_mask: None,
-        });
-        let size = self.size.as_vec2();
-        pass.set_viewport(0.0, 0.0, size.x, size.y, 0.0, 1.0);
-        pass.set_scissor_rect(0, 0, self.size.x, self.size.y);
-        pass
-    }
-
-    fn view(
-        device: &wgpu::Device,
-        label: &str,
-        size: UVec2,
-        format: wgpu::TextureFormat,
-    ) -> wgpu::TextureView {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d {
-                width: size.x,
-                height: size.y,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: SAMPLES,
-            dimension: wgpu::TextureDimension::D2,
-            format,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        texture.create_view(&wgpu::TextureViewDescriptor::default())
-    }
-}
 
 /// The two passes one overlay kind is drawn through: its own, and the same
 /// pipeline again holding only what a caller has singled out.
@@ -329,12 +226,12 @@ impl Gpu {
     /// `common.wgsl` in the order below.
     fn shader_module(device: &wgpu::Device) -> wgpu::ShaderModule {
         let source = [
-            include_str!("shader/common.wgsl"),
-            include_str!("shader/mesh.wgsl"),
-            include_str!("shader/curve.wgsl"),
-            include_str!("shader/ring.wgsl"),
-            include_str!("shader/point.wgsl"),
-            include_str!("shader/text.wgsl"),
+            include_str!("../shader/common.wgsl"),
+            include_str!("../shader/mesh.wgsl"),
+            include_str!("../shader/curve.wgsl"),
+            include_str!("../shader/ring.wgsl"),
+            include_str!("../shader/point.wgsl"),
+            include_str!("../shader/text.wgsl"),
         ]
         .concat();
         device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -624,96 +521,5 @@ impl Gpu {
         if atlas.take_dirty() {
             self.sheet.write(queue, atlas.pixels());
         }
-    }
-}
-
-/// The glyph sheet as the GPU holds it.
-///
-/// Its side travels with it because that is what says whether it still matches
-/// the sheet being packed on the CPU — the one thing that can invalidate it, and
-/// the one thing a texture cannot be asked.
-#[derive(Debug)]
-pub(super) struct Sheet {
-    texture: wgpu::Texture,
-    view: wgpu::TextureView,
-    side: u32,
-}
-
-impl Sheet {
-    fn new(device: &wgpu::Device, side: u32) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("aperture.sheet"),
-            size: wgpu::Extent3d {
-                width: side,
-                height: side,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            // Coverage, one byte a pixel. Not sRGB: what is stored is how much
-            // of the pixel the glyph covers, which is a fraction of an area and
-            // not a colour to be decoded.
-            format: wgpu::TextureFormat::R8Unorm,
-            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-            view_formats: &[],
-        });
-        let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-        Self {
-            texture,
-            view,
-            side,
-        }
-    }
-
-    fn bind(
-        &self,
-        device: &wgpu::Device,
-        bgl: &wgpu::BindGroupLayout,
-        uniforms: &wgpu::Buffer,
-        sampler: &wgpu::Sampler,
-    ) -> wgpu::BindGroup {
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("aperture.bind_group"),
-            layout: bgl,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: uniforms.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(&self.view),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(sampler),
-                },
-            ],
-        })
-    }
-
-    /// Write the whole sheet.
-    ///
-    /// Whole rather than the rectangle that changed, because a side is a power
-    /// of two from 256 up and one row is therefore already a multiple of the 256
-    /// bytes a copy has to be aligned to — so the only thing tracking dirty
-    /// rectangles would buy is skipping rows, on a texture that is rewritten
-    /// when a glyph is *first* seen and never after.
-    fn write(&self, queue: &wgpu::Queue, pixels: &[u8]) {
-        queue.write_texture(
-            self.texture.as_image_copy(),
-            pixels,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(self.side),
-                rows_per_image: Some(self.side),
-            },
-            wgpu::Extent3d {
-                width: self.side,
-                height: self.side,
-                depth_or_array_layers: 1,
-            },
-        );
     }
 }
