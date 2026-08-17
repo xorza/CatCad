@@ -24,9 +24,10 @@ use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Constraint, Freedom};
 
 use crate::model::{Model, Models};
-use crate::paint::layout::{Layout, Made};
+use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
 
+pub(crate) mod cut;
 pub(crate) mod gizmos;
 pub(crate) mod growing;
 pub(crate) mod layout;
@@ -257,6 +258,18 @@ pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
 /// Does nothing where the layout already describes what it would draw, and says
 /// so on the layout when it has drawn — so a caller settles a frame by calling
 /// this and reading nothing back.
+///
+/// **How much it draws is [`Stage`]'s to decide.** A redraw is a suffix of the
+/// writers below: the layout says which stage what has moved reaches, the names
+/// are wound back to where that stage began, and everything from there is
+/// written afresh. So the band a tool is drawing rewrites the strokes it is
+/// among and nothing else, where it once put every region and every face of
+/// every solid through the filler again on each frame the pointer moved.
+///
+/// Which is what decides the order the writers stand in. It is not a drawing
+/// order — each fills its own batch and the renderer draws them in its own
+/// sequence — it is a *naming* order, and it runs from what a gesture cannot
+/// move to what it moves every frame.
 pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, into: &mut Scene) {
     // The check is here rather than at the call, so that what a layout claims
     // to describe and what was drawn into it are decided in one place. A caller
@@ -267,32 +280,48 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         editing: models.editing(),
         showing,
     };
-    if !layout.stale(made) {
+    let Some(from) = layout.resume(made) else {
         return;
-    }
+    };
     let Layout {
         names,
         sheets,
         placed,
         ..
     } = &mut *layout;
-    names.clear();
+    names.wind_back(from);
     // The writers below take what they draw and not the bundle: what a stroke
     // wants of a gesture is the band, and handing each of them the whole of it
     // would be handing every writer the two thirds that are not theirs.
-    write::curves(models, names, showing.line(), &mut into.curves);
-    write::rings(models, names, showing.ring(), &mut into.rings);
-    write::points(models, names, &mut into.points);
-    write::texts(
-        models,
-        names,
-        placed,
-        showing.typed,
-        showing.proposed(),
-        &mut into.texts,
-    );
-    write::faces(models, names, sheets, &mut into.faces);
-    write::solids(models, names, sheets, showing.growing, &mut into.solids);
+    //
+    // Every stage opens by saying where its names begin, including the one that
+    // was resumed at — whose start is where the wind-back has just left the
+    // list, so it says the same thing twice rather than being a case of its own.
+    if from <= Stage::Drawing {
+        names.opened(Stage::Drawing);
+        write::points(models, names, &mut into.points);
+        write::faces(models, names, sheets, &mut into.faces);
+    }
+    if from <= Stage::Solid {
+        names.opened(Stage::Solid);
+        write::solids(models, names, sheets, showing.growing, &mut into.solids);
+    }
+    if from <= Stage::Marks {
+        names.opened(Stage::Marks);
+        write::texts(
+            models,
+            names,
+            placed,
+            showing.typed,
+            showing.proposed(),
+            &mut into.texts,
+        );
+    }
+    if from <= Stage::Band {
+        names.opened(Stage::Band);
+        write::curves(models, names, showing.line(), &mut into.curves);
+        write::rings(models, names, showing.ring(), &mut into.rings);
+    }
     // Where the controls start naming from — see [`gizmos::write()`].
     names.drew();
     layout.drawn(made);

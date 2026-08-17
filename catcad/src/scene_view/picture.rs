@@ -14,7 +14,6 @@ use crate::paint;
 use crate::paint::layout::Layout;
 use crate::paint::marks::Placed;
 use crate::paint::showing::Showing;
-use crate::paint::write;
 use crate::part::Part;
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
@@ -93,9 +92,6 @@ pub(super) struct Picture {
     /// mean nothing to another. It says which revision it drew and is written
     /// only by the call that draws — see [`Layout`].
     layout: Layout,
-    /// Where a region's fill puts its corners, kept for its room rather than
-    /// its contents — see [`Picture::region_footprint`].
-    corners: Vec<Vec3>,
     /// What the renderer was last told to light: the hover and the selection,
     /// rebuilt every settle. Kept for its room rather than its contents, so a
     /// frame that lights the same set as the last asks the heap for nothing.
@@ -120,7 +116,6 @@ impl Picture {
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             layout,
-            corners: Vec::new(),
             lit: Vec::new(),
         }
     }
@@ -257,9 +252,9 @@ impl Picture {
     /// exactly what is drawn. The lens comes in from outside, being the caller's
     /// frame rather than the picture's.
     ///
-    /// `&mut self` for the filler's scratch, not to write anything drawn: the
-    /// corners are read into a buffer this keeps for its room rather than its
-    /// contents.
+    /// `&mut self` to cut the region where the layout has not already, not to
+    /// write anything drawn — see [`Cut`](crate::paint::cut::Cut), which is what
+    /// keeps that off every frame.
     pub(super) fn region_footprint(
         &mut self,
         models: Models<'_>,
@@ -267,14 +262,8 @@ impl Picture {
         region: usize,
         lens: Lens,
     ) -> Option<Rect> {
-        write::region_corners(
-            models,
-            self.layout.sheets(),
-            sketch,
-            region,
-            &mut self.corners,
-        );
-        lens.footprint(self.corners.iter().copied())
+        let cut = self.layout.region(models, sketch, region)?;
+        lens.footprint(cut.corners().iter().copied())
     }
 }
 

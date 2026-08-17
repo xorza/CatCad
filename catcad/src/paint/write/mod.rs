@@ -17,14 +17,9 @@
 //! Colour, width and standing are decided a module up, in
 //! [`paint`](crate::paint): what a drawing looks like is one set of choices, and
 //! these are the calls that spend them.
-//!
-//! [`region_corners`] is the one call here that fills a caller's buffer rather
-//! than a batch, and it is here because it cuts a region through the very
-//! [`Filler`](silverpoint::Filler) [`faces`] does: what a form stands clear of
-//! has to be the shape that was drawn, and two cuts would be two answers.
 
 use aperture::{Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Styled, Text, Vertex};
-use glam::{Mat4, Vec2, Vec3};
+use glam::{Mat4, Vec2};
 use silverpoint::{Circle, CircleId, Constraint, Segment, SegmentId, Sketch};
 use std::fmt::Write;
 
@@ -41,7 +36,6 @@ use crate::paint::{
 };
 use crate::part::Part;
 use crate::preview::Ends;
-use crate::timeline::FeatureId;
 
 /// The sketch's straight strokes, one edge per segment, biased clear of
 /// the solids in depth so the drawing reads over them. Circles are not
@@ -516,37 +510,6 @@ fn remesh(mesh: &mut Mesh, corners: impl Iterator<Item = Vertex>, triangles: &[[
     mesh.indices.clear();
     mesh.indices.reserve_exact(triangles.len() * 3);
     mesh.indices.extend(triangles.iter().flatten());
-}
-
-/// Where the region at `region` of `sketch` lies in the world, as the corners
-/// its fill was cut from.
-///
-/// What a form standing *beside* a region is placed against — see
-/// [`Stands`](crate::prompt::Stands). The fill rather than the boundary curves,
-/// because that is the shape the region actually covers: a crescent's bounding
-/// box taken off its two arcs' endpoints would sit half outside it.
-///
-/// Cut through the same [`Filler`](silverpoint::Filler) the sheets are, so what
-/// a form stands clear of is exactly what is drawn.
-pub(crate) fn region_corners(
-    models: Models<'_>,
-    sheets: &mut Sheets,
-    sketch: FeatureId,
-    region: usize,
-    into: &mut Vec<Vec3>,
-) {
-    into.clear();
-    let Sheets { filler, fill, .. } = sheets;
-    let Some(model) = models.at(sketch) else {
-        return;
-    };
-    let arrangement = model.arrangement();
-    let Some(face) = arrangement.faces().get(region) else {
-        return;
-    };
-    filler.fill(arrangement, face, FACE_SAGITTA, fill);
-    let plane = model.plane();
-    into.extend(fill.corners.iter().map(|&at| plane.point(at).as_vec3()));
 }
 
 #[cfg(test)]

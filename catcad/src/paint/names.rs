@@ -2,6 +2,7 @@
 
 use aperture::Tag;
 
+use crate::paint::layout::Stage;
 use crate::part::Part;
 
 /// Every part the drawing named, in the order it was drawn.
@@ -16,9 +17,23 @@ use crate::part::Part;
 /// drawing is rebuilt — which is the same moment what it names would have moved
 /// — and in exchange nothing has to agree about anything but the order things
 /// were pushed in.
+///
+/// **Which is also what lets part of a drawing be rebuilt.** The writers run in
+/// one order and each names a contiguous run, so winding back to where a run
+/// began and writing from there leaves every name before it exactly where it
+/// was. See [`Stage`], which is what decides where a redraw begins, and
+/// [`Names::drew`] beside it, which is the same trick one rung further out for
+/// the controls.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct Names {
     parts: Vec<Part>,
+    /// Where each stage of the drawing began naming.
+    ///
+    /// A stage's run is everything from its own start to the next one's, and a
+    /// redraw always makes a *suffix* of the stages — so this is the whole of
+    /// what winding back to one needs. Written by the pass that names, one entry
+    /// as each stage opens.
+    stages: [usize; Stage::COUNT],
     /// How many of them the *drawing* named.
     ///
     /// The controls are named after it and rewritten far more often — they hold
@@ -67,13 +82,23 @@ impl Names {
         self.parts.truncate(self.drawn);
     }
 
-    /// Forget every name, keeping the room they took.
+    /// Forget everything `stage` and the stages after it named, keeping the
+    /// room it took.
     ///
-    /// A drawing is renamed wholesale whenever it is rewritten, which during a
-    /// drag is every frame — so this empties rather than replaces, and the
-    /// tags come out the same because the order they are pushed in does.
-    pub(super) fn clear(&mut self) {
-        self.parts.clear();
-        self.drawn = 0;
+    /// What a redraw does before it writes: the stages it is about to run are
+    /// exactly the ones from here on, and they name the same parts in the same
+    /// order — so the tags they hand out come back the same, and the names of
+    /// every stage before this one are left untouched because they describe a
+    /// drawing that has not moved.
+    ///
+    /// Winding all the way back to [`Stage::Drawing`] empties the list, since
+    /// that stage begins at nothing and always has.
+    pub(super) fn wind_back(&mut self, stage: Stage) {
+        self.parts.truncate(self.stages[stage as usize]);
+    }
+
+    /// Note that `stage`'s writers begin naming here.
+    pub(super) fn opened(&mut self, stage: Stage) {
+        self.stages[stage as usize] = self.parts.len();
     }
 }

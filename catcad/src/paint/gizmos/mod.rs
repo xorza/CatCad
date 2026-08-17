@@ -98,15 +98,20 @@ pub(crate) fn write(
         names,
         sheets,
         placed,
+        cut,
         ..
     } = layout;
     // Back to what the drawing named, and no further. These are appended after
     // it and rewritten far more often, so without this the list would grow by a
     // gizmo's worth every frame the camera moved.
     names.truncate_to_drawn();
-    let carried = showing
-        .growing
-        .and_then(|growing| growing.carried(models, sheets, lens));
+    // The region is cut only where the last cut was of another one — see
+    // [`Cut`](crate::paint::cut::Cut), which is what keeps the filler off the
+    // camera's schedule.
+    let carried = showing.growing.and_then(|growing| {
+        let cut = cut.region(models, sheets, growing.sketch, growing.region)?;
+        growing.carried(models, cut, lens)
+    });
     into.refill(
         models
             .planes()

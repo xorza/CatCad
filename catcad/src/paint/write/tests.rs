@@ -2,7 +2,7 @@ use super::*;
 use crate::paint::marks::mark::STACK_STEP;
 use crate::paint::tests::drawn;
 use crate::paint::{DETERMINED, FREE, PARTLY};
-use glam::DVec2;
+use glam::{DVec2, Vec3};
 use silverpoint::{Along, Dimension, Entity};
 
 #[test]

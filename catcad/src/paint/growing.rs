@@ -1,13 +1,11 @@
 //! A solid the user is still deciding the depth of.
 
-use glam::DVec2;
 use silverpoint::Prism;
 
 use crate::lens::Lens;
 use crate::model::Models;
-use crate::paint::FACE_SAGITTA;
+use crate::paint::cut::Cut;
 use crate::paint::gizmos::Carried;
-use crate::paint::layout::Sheets;
 use crate::timeline::FeatureId;
 
 /// A solid being decided: a region, and how deep it currently reads.
@@ -32,41 +30,19 @@ impl Growing {
     /// travels with it as the depth is typed — a handle that stayed at the base
     /// would stop being on the thing it moves the moment it moved anything.
     ///
-    /// **Inside the region rather than at the average of its corners**, which
-    /// for a region with a hole in it is a point in the hole: the demo's frame
-    /// is a rectangle with the hub cut out, and its corners average to the
-    /// middle of the cut. The widest triangle the fill was cut into is inside
-    /// the region by construction, and being the widest is what keeps the
-    /// answer off a sliver at an edge.
-    pub(super) fn carried(
-        self,
-        models: Models<'_>,
-        sheets: &mut Sheets,
-        lens: Lens,
-    ) -> Option<Carried> {
+    /// Where *on* that cap is [`Cut`]'s, and `cut` is handed in already cut for
+    /// this region. It was worked out here, which meant putting the region
+    /// through the filler and scanning its triangles on every frame the camera
+    /// moved — a drawing's cost paid on the camera's clock, for an answer only
+    /// the drawing can move. What is left is the part that does move with the
+    /// camera: how far the depth carries the arrow, and which way it is laid to
+    /// face the viewer.
+    pub(super) fn carried(self, models: Models<'_>, cut: &Cut, lens: Lens) -> Option<Carried> {
         let model = models.at(self.sketch)?;
         let plane = model.plane();
-        let arrangement = model.arrangement();
-        let face = arrangement.faces().get(self.region)?;
-        let Sheets { filler, fill, .. } = sheets;
-        filler.fill(arrangement, face, FACE_SAGITTA, fill);
-        let widest = fill.triangles.iter().max_by(|&&a, &&b| {
-            let area = |[x, y, z]: [u32; 3]| {
-                let corner = |at: u32| fill.corners[at as usize];
-                (corner(y) - corner(x))
-                    .perp_dot(corner(z) - corner(x))
-                    .abs()
-            };
-            area(a).total_cmp(&area(b))
-        })?;
-        let middle: DVec2 = widest
-            .iter()
-            .map(|&at| fill.corners[at as usize])
-            .sum::<DVec2>()
-            / 3.0;
         let normal = plane.normal().as_vec3();
         Some(Carried::new(
-            plane.point(middle).as_vec3() + normal * self.distance as f32,
+            cut.inside() + normal * self.distance as f32,
             normal,
             // Square to the view rather than to the sketch: the outline is
             // flat, and one laid out in a plane of the sketch's own collapses

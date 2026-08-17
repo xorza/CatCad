@@ -3,6 +3,8 @@
 use silverpoint::{ConstraintId, Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
+use crate::model::Models;
+use crate::paint::cut::Cut;
 use crate::paint::marks::Placed;
 use crate::paint::names::Names;
 use crate::paint::showing::Showing;
@@ -11,8 +13,9 @@ use crate::timeline::FeatureId;
 /// What one laying-out of the drawing leaves behind, and what it claims to
 /// describe.
 ///
-/// Three things that are one thing: the names a pick reports through, the room
-/// the faces were cut in, and what the two were made from.
+/// Four things that are one thing: the names a pick reports through, the room
+/// the faces were cut in, where the marks stand, and what all of them were made
+/// from.
 /// They are written by exactly one call and read only to decide whether to make
 /// it again — see [`paint::redraw`](crate::paint::redraw), which is what writes
 /// every one of them.
@@ -46,6 +49,9 @@ pub(crate) struct Layout {
     /// one has to read the same answer the drawing used rather than recompute
     /// the pass and be free to differ.
     pub(super) placed: Vec<Placed>,
+    /// Where the one region anything asks about lies, cut when the drawing
+    /// moves and read on the camera's schedule — see [`Cut`].
+    pub(super) cut: Cut,
     /// What this was drawn from, or `None` where it describes nothing because
     /// nothing has been drawn into it yet.
     ///
@@ -61,15 +67,22 @@ pub(crate) struct Layout {
 }
 
 impl Layout {
-    /// The room a cut is worked in.
+    /// Where the region at `at` of `sketch` lies, cutting it unless it is the
+    /// one already cut.
     ///
-    /// Handed out because cutting a region is not only the drawing's business:
-    /// a form standing beside one has to know what shape it covers, and cutting
-    /// it through a second filler would be a second answer free to differ from
-    /// what was drawn. See
-    /// [`Picture::region_footprint`](crate::scene_view::picture::Picture).
-    pub(crate) fn sheets(&mut self) -> &mut Sheets {
-        &mut self.sheets
+    /// Handed out because a region's shape is not only the drawing's business:
+    /// a form standing beside one has to know what it covers, and the arrow
+    /// carrying a solid's depth has to stand inside it. Cut through the filler
+    /// the sheets are, so what either stands clear of is exactly what was drawn
+    /// — see [`Cut`], which is also where the keeping is argued.
+    pub(crate) fn region(
+        &mut self,
+        models: Models<'_>,
+        sketch: FeatureId,
+        at: usize,
+    ) -> Option<&Cut> {
+        let Self { sheets, cut, .. } = self;
+        cut.region(models, sheets, sketch, at)
     }
 
     /// What each tag stands for.
@@ -94,41 +107,130 @@ impl Layout {
         self.placed.iter().copied().find(|placed| placed.of == of)
     }
 
-    /// Whether what this describes has been overtaken.
+    /// Which stage a redraw has to start from, or `None` where nothing this
+    /// describes has moved.
     ///
-    /// One value rather than a field apiece, because a layout is written whole:
-    /// any of the three moving means every batch is rewritten, and comparing
-    /// against one thing is what stops the check and the stamp below from
-    /// disagreeing about which three they meant.
-    pub(crate) fn stale(&self, made: Made) -> bool {
-        self.made != Some(made)
+    /// The layout's half of the question is only whether it has drawn anything
+    /// at all. What moved between two stamps is [`Made::since`]'s, being a fact
+    /// about the stamps rather than about what was drawn from them — the same
+    /// split [`Change::about`](crate::intent::Change) makes.
+    pub(super) fn resume(&self, made: Made) -> Option<Stage> {
+        match self.made {
+            Some(had) => made.since(had),
+            // Nothing drawn yet, which is the one frame that must never be
+            // skipped — see the field this reads.
+            None => Some(Stage::Drawing),
+        }
     }
 
     /// Note what was just drawn, which is what makes the claim above true.
-    pub(crate) fn drawn(&mut self, made: Made) {
+    pub(super) fn drawn(&mut self, made: Made) {
         self.made = Some(made);
     }
 }
 
+/// How much of the drawing a redraw has to make again.
+///
+/// **The writers run in one order and each names a run of the tags**, so what a
+/// redraw makes again is always a *suffix* of that order: the names are wound
+/// back to where a stage began and everything from there is written afresh — see
+/// [`Names::wind_back`](crate::paint::names::Names::wind_back). That is what
+/// lets the gate be per stage rather than per picture, and a band that has moved
+/// a pixel rewrite the strokes it is drawn among while the faces and the solids
+/// stay where they are.
+///
+/// **Ordered by what moves them, rarest first.** The drawing moves when the
+/// document is solved again; a solid moves while the form deciding it is open;
+/// the marks move as a dimension is placed; the band moves on every pointer
+/// event there is. So the frames there are most of resume latest and cost least.
+///
+/// What makes it sound is that **a gesture changes what is drawn and never what
+/// is named**: a band, a proposed dimension and the prism a form is deciding are
+/// all written untagged, so nothing a later stage names shifts under one. The
+/// exception is a field opening over a mark, which the drawing answers by
+/// leaving that mark out — which is why `typed` resumes at [`Stage::Marks`]
+/// rather than standing outside the ladder, and why everything the marks name is
+/// renamed with them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum Stage {
+    /// Everything: the document has been solved again, or another sketch is
+    /// open.
+    Drawing,
+    /// The solid a form is deciding the depth of.
+    Solid,
+    /// The marks: which one has a field standing over it, and the one a tool is
+    /// half-way through placing.
+    Marks,
+    /// The band a two-click tool is drawing.
+    Band,
+}
+
+impl Stage {
+    /// How many there are, which is how many starts
+    /// [`Names`](crate::paint::names::Names) keeps.
+    ///
+    /// Off the last variant rather than written out, so a stage added anywhere
+    /// in the ladder is one this counts.
+    pub(super) const COUNT: usize = Stage::Band as usize + 1;
+}
+
 /// Everything a picture is made from that is not the geometry itself.
 ///
-/// What a [`Layout`] compares to decide whether it is still current. Three
-/// things rather than one, because each can move without the others: the
+/// What a [`Layout`] compares to decide how much of itself is still current.
+/// Three things rather than one, because each can move without the others: the
 /// document is solved again, the sketch being worked in changes, or a gesture
 /// half-way through moves — and the middle of those moves no geometry at all,
 /// which is exactly why it has to be named here. A picture that only watched
 /// the revision would go on drawing the sketch you just left as the live one.
 ///
-/// The third is a whole bundle and is compared as one, because it is drawn as
-/// one: everything a gesture is showing goes into the same rewrite, so a
-/// [`Showing`] that differs anywhere is a picture that has been overtaken —
-/// including in a field opening over a mark, which the drawing answers by
-/// leaving that mark out.
+/// The third is a whole bundle because it arrives as one and is stamped as one;
+/// it is *read* apart, because what a gesture is showing reaches three different
+/// writers on three different schedules. See [`Layout::resume`], which is the
+/// one place any of this is compared, and [`Stage`], which is what the
+/// comparison answers with.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Made {
     pub(crate) revision: Revision,
     pub(crate) editing: FeatureId,
     pub(crate) showing: Showing,
+}
+
+impl Made {
+    /// Which stage a picture made from `had` has to be made again from to
+    /// describe this, or `None` where nothing has moved.
+    ///
+    /// **Field by field, because the four move on wildly different schedules
+    /// and cost wildly different amounts to answer.** This was one comparison
+    /// of two whole stamps, which made a band travelling a pixel say the same
+    /// thing a solve does — and the answer to that is every region cut again and
+    /// every face of every solid skinned again, sixty times a second, which is
+    /// exactly the cost [`gizmos::write`](crate::paint::gizmos::write) is on its
+    /// own schedule to avoid.
+    ///
+    /// Still one stamp either side, so this and [`Layout::drawn`] cannot come to
+    /// disagree about what they were comparing. Which stage each field answers
+    /// with is [`Stage`]'s to explain.
+    fn since(self, had: Self) -> Option<Stage> {
+        if had.revision != self.revision || had.editing != self.editing {
+            return Some(Stage::Drawing);
+        }
+        if had.showing.growing != self.showing.growing {
+            return Some(Stage::Solid);
+        }
+        // A field opening leaves a mark out and a tool half-way through a
+        // dimension puts one up. Both are the marks' to answer and neither is
+        // the band's, though the second is read off one — see
+        // [`Showing::proposed`].
+        if had.showing.typed != self.showing.typed
+            || had.showing.proposed() != self.showing.proposed()
+        {
+            return Some(Stage::Marks);
+        }
+        if had.showing.band != self.showing.band {
+            return Some(Stage::Band);
+        }
+        None
+    }
 }
 
 /// The room turning a drawing's faces into sheets takes.
