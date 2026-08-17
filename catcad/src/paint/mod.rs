@@ -319,8 +319,22 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
     }
     if from <= Stage::Band {
         names.opened(Stage::Band);
-        write::curves(models, names, showing.line(), &mut into.curves);
-        write::rings(models, names, showing.ring(), &mut into.rings);
+        // One spelling of what a band is and where it lies, for the two writers
+        // that draw one — see [`write::Band`]. A band is a stroke or a rim and
+        // never both, so at most one of the calls below is handed anything and
+        // the other has read nothing by the time it answers `None`.
+        write::curves(
+            models,
+            names,
+            write::Band::new(models, showing.line()),
+            &mut into.curves,
+        );
+        write::rings(
+            models,
+            names,
+            write::Band::new(models, showing.ring()),
+            &mut into.rings,
+        );
     }
     // Where the controls start naming from — see [`gizmos::write()`].
     names.drew();

@@ -53,7 +53,26 @@ impl Timeline {
 
     /// Whether the timeline still has the step `id` names.
     pub(crate) fn holds(&self, id: FeatureId) -> bool {
-        self.steps.iter().any(|step| step.id == id)
+        self.held(id).is_some()
+    }
+
+    /// What the step at `id` holds, or `None` where the timeline no longer
+    /// holds one there.
+    ///
+    /// **The one place a handle becomes a step to read**, which every question
+    /// about one goes through: whether it is there, what it says, and what kind
+    /// of thing it is. A handle outlives its step whenever a creation is taken
+    /// back, so the three are one question asked three ways rather than three
+    /// searches free to disagree about what a missing step is.
+    ///
+    /// Reading only. [`Timeline::feature_mut`] searches on its own rather than
+    /// through a mutable twin of this, which would be a second name for one
+    /// line and one caller.
+    fn held(&self, id: FeatureId) -> Option<&Feature> {
+        self.steps
+            .iter()
+            .find(|step| step.id == id)
+            .map(|step| &step.feature)
     }
 
     /// Where the plane `at` names lies in the world.
@@ -207,11 +226,31 @@ impl Timeline {
     }
 
     /// The sketch `at` names, and the plane it lies on.
+    ///
+    /// Panics where `at` names anything else, which is what every caller of
+    /// this one wants: each of them names the sketch it is working *in*, so a
+    /// handle to something that is not one is a mistake in the caller rather
+    /// than a state to report. A caller that is asking rather than telling
+    /// wants [`Timeline::sketched`].
     pub(crate) fn drawing(&self, at: FeatureId) -> Drawing<'_> {
-        let feature = self.feature(at);
-        match feature {
-            Feature::Sketch { on, sketch } => Drawing::new(sketch, self.plane(*on)),
-            Feature::Plane(_) | Feature::Extrude { .. } => wrong_kind(at, "a sketch", feature),
+        self.sketched(at)
+            .unwrap_or_else(|| wrong_kind(at, "a sketch", self.feature(at)))
+    }
+
+    /// The same, where there may be nothing of the kind there to read.
+    ///
+    /// What [`Models::at`](crate::model::Models::at) asks, being the one caller
+    /// that does not already know: a name is kept across the edits that could
+    /// take what it names away — a form outlives several — so a handle that no
+    /// longer fits a sketch is a state rather than a mistake. Both ways it can
+    /// fail answer the same `None`: the step has gone, or it was never a sketch.
+    ///
+    /// The second scan of the steps this costs the panicking one above is on a
+    /// path that ends in a panic, so it is worth nothing to save.
+    pub(crate) fn sketched(&self, at: FeatureId) -> Option<Drawing<'_>> {
+        match self.held(at)? {
+            Feature::Sketch { on, sketch } => Some(Drawing::new(sketch, self.plane(*on))),
+            Feature::Plane(_) | Feature::Extrude { .. } => None,
         }
     }
 
@@ -282,12 +321,7 @@ impl Timeline {
 
     /// What the step at `id` holds.
     pub(crate) fn feature(&self, id: FeatureId) -> &Feature {
-        &self
-            .steps
-            .iter()
-            .find(|step| step.id == id)
-            .expect(REMOVED_STEP)
-            .feature
+        self.held(id).expect(REMOVED_STEP)
     }
 
     /// The same, to be written.

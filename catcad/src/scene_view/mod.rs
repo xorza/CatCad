@@ -221,10 +221,18 @@ impl SceneView {
                 // rather than worked out again, so the field lands on the lane
                 // the drawing gave the mark and not on the one an unstacked
                 // anchor would have.
-                let found = models.iter().find_map(|model| match model.entity(part) {
-                    Some(Entity::Constraint(id)) => Some((model.drawing(), id)),
-                    _ => None,
-                });
+                //
+                // Of the sketch the part names rather than of every sketch
+                // there is: a part says which drawing it belongs to, and
+                // [`Model::entity`] refuses another's outright — so the walk
+                // was only ever going to answer on one of them.
+                let found = part
+                    .sketch()
+                    .and_then(|sketch| models.at(sketch))
+                    .and_then(|model| match model.entity(part) {
+                        Some(Entity::Constraint(id)) => Some((model.drawing(), id)),
+                        _ => None,
+                    });
                 // Never missing, on the same terms `Session::prune` guarantees:
                 // a form open over a dimension an undo took away is closed
                 // before the frame that would draw it.

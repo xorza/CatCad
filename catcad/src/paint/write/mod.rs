@@ -19,7 +19,7 @@
 //! these are the calls that spend them.
 
 use aperture::{Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Styled, Text, Vertex};
-use glam::{Mat4, Vec2};
+use glam::{Mat4, Vec2, Vec3};
 use silverpoint::{Circle, CircleId, Constraint, Segment, SegmentId, Sketch};
 use std::fmt::Write;
 
@@ -37,19 +37,47 @@ use crate::paint::{
 use crate::part::Part;
 use crate::preview::Ends;
 
+/// The shape a two-click tool is half-way through, and the plane it lies in.
+///
+/// **The plane rides along rather than being asked for where the band is
+/// drawn.** It is the sketch being drawn in — the one plane a band could lie in,
+/// since a tool draws where you are and not where you are not — and a line goes
+/// among the strokes while a circle goes among the rims. Two writers, one fact:
+/// asked at each of them it was the same line of code twice, and each spelling
+/// paid its own walk to answer it.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Band {
+    pub(super) ends: Ends,
+    /// The normal of the plane it lies in, which is the depth a stroke of it is
+    /// widened at.
+    pub(super) normal: Vec3,
+}
+
+impl Band {
+    /// The band running between `ends` on the sketch `models` has open, or
+    /// `None` where no tool is half-way through one.
+    ///
+    /// The ends are read before the plane, which is what keeps the reading off
+    /// every frame that is not drawing a band — and off the writer that is not:
+    /// a band is a stroke or a rim and never both, so only one of the two calls
+    /// here ever reaches the sketch.
+    pub(super) fn new(models: Models<'_>, ends: Option<Ends>) -> Option<Self> {
+        Some(Self {
+            ends: ends?,
+            normal: models.open().plane().normal().as_vec3(),
+        })
+    }
+}
+
 /// The sketch's straight strokes, one edge per segment, biased clear of
 /// the solids in depth so the drawing reads over them. Circles are not
 /// strokes — see [`rings`].
 pub(super) fn curves(
     models: Models<'_>,
     names: &mut Names,
-    band: Option<Ends>,
+    band: Option<Band>,
     into: &mut Batch<Curve>,
 ) {
-    // The band belongs to the sketch being drawn in, which is the one plane it
-    // could lie in: a tool draws where you are, not where you are not. Worked
-    // out only where there is one, since most frames have none.
-    let banding = band.map(|_| models.open().plane().normal().as_vec3());
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
     // one that does not — see `Batch::refill`. The band is chained on rather
@@ -83,11 +111,11 @@ pub(super) fn curves(
                 // skips a primitive with no tag, so it cannot be hovered,
                 // grabbed or picked out, and the click that finishes the line
                 // resolves against the geometry behind it.
-                Stroke::Band(ends) => {
-                    curve.set_segment(ends.from, ends.to);
+                Stroke::Band(band) => {
+                    curve.set_segment(band.ends.from, band.ends.to);
                     curve.color = GHOST;
                     curve.precedence = Precedence::Shaped;
-                    curve.plane_normal = banding;
+                    curve.plane_normal = Some(band.normal);
                     curve.tag = None;
                 }
             }
@@ -100,7 +128,7 @@ pub(super) fn curves(
 #[derive(Debug)]
 enum Stroke<'a> {
     Edge(Model<'a>, SegmentId, Segment),
-    Band(Ends),
+    Band(Band),
 }
 
 /// The sketch's circles, one ring apiece.
@@ -115,11 +143,9 @@ enum Stroke<'a> {
 pub(super) fn rings(
     models: Models<'_>,
     names: &mut Names,
-    band: Option<Ends>,
+    band: Option<Band>,
     into: &mut Batch<Ring>,
 ) {
-    // The band's plane is the open sketch's, exactly as among the strokes.
-    let banding = band.map(|_| models.open().plane().normal().as_vec3());
     into.refill(
         models
             .iter()
@@ -148,10 +174,10 @@ pub(super) fn rings(
                 // Through the cursor rather than out to it: the second click
                 // says how big by naming somewhere on the rim. Untagged, like
                 // the band among the strokes.
-                Rim::Band(ends) => Ring::new(
-                    ends.from,
-                    ends.from.distance(ends.to),
-                    banding.expect("a band is drawn only where there is one"),
+                Rim::Band(band) => Ring::new(
+                    band.ends.from,
+                    band.ends.from.distance(band.ends.to),
+                    band.normal,
                 )
                 .colored(GHOST),
             }
@@ -165,7 +191,7 @@ pub(super) fn rings(
 #[derive(Debug)]
 enum Rim<'a> {
     Circle(Model<'a>, CircleId, Circle),
-    Band(Ends),
+    Band(Band),
 }
 
 /// The sketch's points, one marker apiece — larger and pinned-coloured

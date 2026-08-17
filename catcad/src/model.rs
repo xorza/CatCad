@@ -397,39 +397,48 @@ impl<'a> Models<'a> {
     }
 
     /// Each of them, in the order the timeline holds them.
+    ///
+    /// Through [`Models::at`] rather than beside it, so a walk and a lookup
+    /// cannot come to describe the same sketch differently. What it answers
+    /// with is never missing here — the two read the same steps and ask the same
+    /// question of them — so a `None` would be the timeline calling something a
+    /// sketch that is not one, and a picture quietly short of a drawing is not
+    /// something to carry on from.
     pub(crate) fn iter(self) -> impl Iterator<Item = Model<'a>> {
-        let Self {
-            timeline,
-            build,
-            editing,
-        } = self;
-        timeline.sketches().map(move |at| Model {
-            of: at,
-            live: at == editing,
-            drawing: timeline.drawing(at),
-            settled: build.settled(at),
+        self.timeline
+            .sketches()
+            .map(move |at| self.at(at).expect("the timeline called this a sketch"))
+    }
+
+    /// The reading of the sketch at `sketch`, or `None` where the timeline
+    /// holds no sketch there.
+    ///
+    /// **The one place a model is made.** The walk above and the open one below
+    /// both come through here, so whether a model is live is decided by one
+    /// line for all of them and there is no second way of building one to
+    /// drift from it.
+    ///
+    /// **Named outright rather than found among the rest**, which is what it
+    /// used to be — and what that cost was quadratic. Asking for one model
+    /// built every model before it, plane chain and settled report and all, and
+    /// threw them away; a frame asks [`Models::open`] eight times over, and at a
+    /// hundred sketches one of those answers took nine microseconds.
+    ///
+    /// Answers for a sketch named outright as well as the one being worked in,
+    /// which is why it is not folded into `open`: a form deciding over a region
+    /// names the sketch it came from, whichever is open.
+    pub(crate) fn at(self, sketch: FeatureId) -> Option<Model<'a>> {
+        Some(Model {
+            of: sketch,
+            live: sketch == self.editing,
+            drawing: self.timeline.sketched(sketch)?,
+            settled: self.build.settled(sketch),
         })
     }
 
     /// The one being edited.
-    ///
-    /// Found among the rest rather than built apart from them, so there is one
-    /// place a model is made and no second one to drift: whether a model is
-    /// live is decided by the same line for all of them.
-    /// The reading of the sketch at `at`, or `None` where the timeline holds no
-    /// sketch there.
-    ///
-    /// Beside [`Models::open`] rather than folded into it: that one answers for
-    /// the sketch being *worked in*, which is a fact about the session, and this
-    /// answers for one named outright — a region a form is deciding over names
-    /// the sketch it came from, whichever is open.
-    pub(crate) fn at(self, sketch: FeatureId) -> Option<Model<'a>> {
-        self.iter().find(|model| model.of() == sketch)
-    }
-
     pub(crate) fn open(self) -> Model<'a> {
-        self.iter()
-            .find(|model| model.of() == self.editing)
+        self.at(self.editing)
             .expect("the sketch being edited is one the document holds")
     }
 
@@ -479,10 +488,15 @@ impl<'a> Models<'a> {
 
     /// Whether the document still holds `part`.
     ///
-    /// Asked of every sketch rather than of the open one: what is picked out
-    /// may span them, and a part of one nobody is in is still there to be
-    /// picked. A plane belongs to no sketch, so it is the timeline that
-    /// answers for one.
+    /// Asked of the sketch the part *names* rather than of the open one: what
+    /// is picked out may span them, and a part of one nobody is in is still
+    /// there to be picked. A plane belongs to no sketch, so it is the timeline
+    /// that answers for one.
+    ///
+    /// The sketch it names rather than all of them, which is the same answer
+    /// arrived at without the walk — [`Model::holds`] refuses another sketch's
+    /// part outright, so every model but one was always going to say no. What
+    /// asks is a prune, once per thing picked out.
     pub(crate) fn holds(self, part: Part) -> bool {
         match part {
             Part::Plane(at) => self.timeline.holds(at),
@@ -494,7 +508,10 @@ impl<'a> Models<'a> {
             Part::Solid { of, face } => self
                 .solids()
                 .any(|(at, prism)| at == of && prism.holds(face)),
-            _ => self.iter().any(|model| model.holds(part)),
+            _ => part
+                .sketch()
+                .and_then(|sketch| self.at(sketch))
+                .is_some_and(|model| model.holds(part)),
         }
     }
 
@@ -575,6 +592,22 @@ mod tests {
             "a model answered for another sketch"
         );
         assert!(!b.holds(a.part(one)));
+
+        // The *document* holds both, whichever is open, and asks the sketch a
+        // part names rather than every sketch there is — which is the same
+        // answer by a shorter road, since a model refuses another's outright.
+        let models = Models::new(&timeline, &build, first);
+        assert!(models.holds(a.part(one)) && models.holds(b.part(other)));
+
+        // And a handle that is not a sketch's is not a model, rather than a
+        // model built out of whatever sits at that step. The ground is the case
+        // to ask with: it is a step the timeline holds and nothing has settled,
+        // so a reading that resolved it before checking would not answer `None`
+        // — it would panic looking for a report that was never filed.
+        assert!(
+            models.at(ground).is_none(),
+            "a plane came back as a model of a sketch"
+        );
 
         // And nothing can be stated across the two. The handles are the same,
         // so a pair read without their sketches would resolve entirely inside
