@@ -63,13 +63,13 @@ pub struct Frame {
     pub origin: DVec2,
     /// The direction the placement's `+x` runs along. Unit length; its `+y` is
     /// a quarter turn from it.
-    pub across: DVec2,
+    pub axis: DVec2,
 }
 
 impl Frame {
     /// Where `placement` puts the number.
     pub fn at(self, placement: DVec2) -> DVec2 {
-        self.origin + self.across * placement.x + self.across.perp() * placement.y
+        self.origin + self.axis * placement.x + self.axis.perp() * placement.y
     }
 
     /// The placement that would put the number at `at` — [`Self::at`] run
@@ -79,7 +79,7 @@ impl Frame {
     /// reading the two components off it, and there is no scale to undo.
     pub fn placing(self, at: DVec2) -> DVec2 {
         let out = at - self.origin;
-        DVec2::new(out.dot(self.across), out.dot(self.across.perp()))
+        DVec2::new(out.dot(self.axis), out.dot(self.axis.perp()))
     }
 }
 
@@ -161,7 +161,7 @@ impl Measurement {
                 // the frame it is placed in is the drawing's.
                 let frame = Frame {
                     origin: center,
-                    across: DVec2::X,
+                    axis: DVec2::X,
                 };
                 let (along, label) = if placed.known() {
                     (placed.unit, frame.at(dimension.placement))
@@ -201,7 +201,7 @@ impl Measurement {
     fn spanning(feet: [DVec2; 2], along: DVec2, dimension: Dimension) -> Self {
         let frame = Frame {
             origin: feet[0].midpoint(feet[1]),
-            across: along,
+            axis: along,
         };
         Self {
             feet,

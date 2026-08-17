@@ -16,11 +16,13 @@ fn near(got: DVec2, want: DVec2) {
 /// A measurement spanning `feet` and read along `along`, with its number at
 /// `label`.
 ///
-/// The two [`Measurement`] carries that nothing here reads are filled in
-/// truthfully rather than left at anything: what it *states* and the frame its
-/// placement was read against are a drag's business and a saved file's, and the
-/// strokes below are cut from the feet and the label alone. A fixture that put
-/// nonsense in either would still pass, and would stop reading as a measurement.
+/// The two [`Measurement`] carries that nothing here reads are stated anyway,
+/// because a fixture that is not a measurement stops reading as one: what a
+/// dimension *states* is a number the drawing was told and has nothing to do
+/// with where its strokes are cut, and the frame is what a drag reads a
+/// placement against. The value is a plain literal for that reason — working it
+/// out from the feet would be a second copy of [`Measurement::spans`] doing no
+/// work.
 fn measured(feet: [DVec2; 2], along: DVec2, label: DVec2) -> Measurement {
     Measurement {
         feet,
@@ -28,9 +30,9 @@ fn measured(feet: [DVec2; 2], along: DVec2, label: DVec2) -> Measurement {
         label,
         frame: Frame {
             origin: feet[0].midpoint(feet[1]),
-            across: along,
+            axis: along,
         },
-        value: (feet[1] - feet[0]).dot(along).abs(),
+        value: 0.0,
     }
 }
 

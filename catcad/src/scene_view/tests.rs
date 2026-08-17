@@ -711,98 +711,6 @@ fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
     );
 }
 
-/// A press finds a number to move where there is one, and nothing else.
-///
-/// The half of the gesture that decides *what* was grabbed, asked directly for
-/// the reason the double-click below is: a mark is pickable only once a painted
-/// frame has measured how far it reaches — see [`Text::extent`](aperture::Text)
-/// — and this harness records without a GPU. What a press then does with the
-/// answer is the arm in [`SceneView::grab`], and what the answer *is* is here.
-///
-/// Every relation of the demo is asked, so the two halves are a sweep rather
-/// than a pair of examples: a dimension has a number and somewhere of its own to
-/// put it, and a symbol is worked out from the geometry it is about and has
-/// nothing to drag.
-#[test]
-fn a_press_takes_hold_of_a_number_and_of_no_other_relation() {
-    let raised = Raised::new();
-    let sketch = raised.session.editing();
-    let drawing = raised.document.drawing_at(sketch);
-
-    let (mut dimensions, mut relations) = (0, 0);
-    for (id, constraint) in drawing.sketch().constraints() {
-        let part = Part::Entity {
-            sketch,
-            entity: id.into(),
-        };
-        match constraint.value() {
-            Some(_) => {
-                dimensions += 1;
-                assert_eq!(
-                    label(part, drawing, sketch),
-                    Some(id),
-                    "a number could not be taken hold of"
-                );
-            }
-            None => {
-                relations += 1;
-                assert_eq!(
-                    label(part, drawing, sketch),
-                    None,
-                    "a symbol offered itself to be dragged"
-                );
-            }
-        }
-    }
-    assert!(
-        dimensions > 0 && relations > 0,
-        "the demo states only one kind, so this asked half a question"
-    );
-
-    // Nothing that is not a relation at all, and nothing of a sketch you are not
-    // in — an edit lands where you are, and a number is an edit like any other.
-    let (point, _) = drawing
-        .sketch()
-        .points()
-        .next()
-        .expect("the demo draws points");
-    assert_eq!(
-        label(
-            Part::Entity {
-                sketch,
-                entity: point.into()
-            },
-            drawing,
-            sketch
-        ),
-        None
-    );
-    let elsewhere = raised
-        .document
-        .models(&raised.build, sketch)
-        .iter()
-        .map(|model| model.of())
-        .find(|&at| at != sketch)
-        .expect("the demo draws two sketches");
-    let (borrowed, _) = drawing
-        .sketch()
-        .constraints()
-        .find(|(_, constraint)| constraint.value().is_some())
-        .expect("the demo states a dimension");
-    assert_eq!(
-        label(
-            Part::Entity {
-                sketch: elsewhere,
-                entity: borrowed.into()
-            },
-            drawing,
-            sketch
-        ),
-        None,
-        "a number of a sketch nobody is in offered itself to be dragged"
-    );
-}
-
 /// Placing a number moves it and leaves the drawing under it alone.
 ///
 /// The one edit to a sketch that changes no geometry, so the whole of what it
@@ -1974,19 +1882,25 @@ fn a_drag_keeps_naming_what_it_holds_rather_than_what_it_passes_over() {
     );
 }
 
-/// **A double-click means something over a dimension and nothing over anything
-/// else.**
+/// **A double-click and a press mean something over a dimension and nothing
+/// over anything else.**
 ///
-/// What decides whether the gesture opens a field at all — the half of it that
-/// can be asked without a painted frame. A relation states no number —
-/// perpendicular, parallel, equal — so there is nothing to type into one, and
-/// neither is there for a point or an edge.
+/// What decides whether either gesture finds a number at all — the half of each
+/// that can be asked without a painted frame. A relation states no number —
+/// perpendicular, parallel, equal — so there is nothing to type into one and
+/// nothing to drag, and neither is there for a point or an edge.
 ///
-/// The other half, that a click on a mark reaches the mark, needs the mark
+/// Both in one sweep, because they are one question asked of one fixture: which
+/// of the demo's relations has a number, and does each gesture agree. Apart,
+/// they were the same walk of the same constraints written twice, and the way
+/// that goes wrong is one of them being taught about a new kind of dimension and
+/// the other not.
+///
+/// The other half of each, that the gesture reaches the mark, needs the mark
 /// measured, and only a paint measures one — see
 /// [`Text::extent`](aperture::Text).
 #[test]
-fn opening_a_dimension_is_the_only_double_click_that_means_anything() {
+fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
     let raised = Raised::new();
     let sketch = raised.session.editing();
     let drawing = raised.document.drawing_at(sketch);
@@ -1999,6 +1913,7 @@ fn opening_a_dimension_is_the_only_double_click_that_means_anything() {
             entity: id.into(),
         };
         let opened = dimension(part, &raised.document, sketch);
+        let held = label(part, drawing, sketch);
         match constraint.value() {
             Some(states) => {
                 dimensions += 1;
@@ -2007,10 +1922,12 @@ fn opening_a_dimension_is_the_only_double_click_that_means_anything() {
                     Opening::Dimension { part, from: states },
                     "the form would open on the wrong dimension or value"
                 );
+                assert_eq!(held, Some(id), "a number could not be taken hold of");
             }
             None => {
                 relations += 1;
                 assert!(opened.is_none(), "a relation offered a number to type");
+                assert_eq!(held, None, "a symbol offered itself to be dragged");
             }
         }
     }
@@ -2030,6 +1947,36 @@ fn opening_a_dimension_is_the_only_double_click_that_means_anything() {
         entity: point.into(),
     };
     assert!(dimension(marker, &raised.document, sketch).is_none());
+    assert_eq!(label(marker, drawing, sketch), None);
+
+    // A press refuses a number of a sketch you are not in, where the
+    // double-click above does not — and the difference is what each gesture
+    // *does*. Moving one is an edit, and an edit lands where you are; opening a
+    // form over one only reads it.
+    let elsewhere = raised
+        .document
+        .models(&raised.build, sketch)
+        .iter()
+        .map(|model| model.of())
+        .find(|&at| at != sketch)
+        .expect("the demo draws two sketches");
+    let (borrowed, _) = drawing
+        .sketch()
+        .constraints()
+        .find(|(_, constraint)| constraint.value().is_some())
+        .expect("the demo states a dimension");
+    assert_eq!(
+        label(
+            Part::Entity {
+                sketch: elsewhere,
+                entity: borrowed.into(),
+            },
+            drawing,
+            sketch,
+        ),
+        None,
+        "a number of a sketch nobody is in offered itself to be dragged"
+    );
 }
 
 /// Hovering one arrow of a datum's gizmo lights the whole gizmo, and lights it

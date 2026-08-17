@@ -333,7 +333,8 @@ impl Sketch {
     /// drag has: the pointer lands somewhere, and working out what to *store* so
     /// the number comes back there is a question about the frame the dimension
     /// is placed in — which is [`Measurement`]'s to answer and would otherwise
-    /// be answered a second time by every caller. See [`Frame`].
+    /// be answered a second time by every caller. See
+    /// [`Measurement::frame`](crate::Measurement).
     ///
     /// Nothing about the geometry changes, so unlike [`Sketch::set_value`] beside
     /// it there is nothing for the next solve to move onto: what changes is only
@@ -397,8 +398,8 @@ impl Sketch {
     /// parallel is as good as a pair a relation holds there.
     ///
     /// Asked here rather than by whoever offers, because the tolerance is this
-    /// crate's — [`PARALLEL`] is a sine, and comparing unit directions is what
-    /// makes the cross product one.
+    /// crate's — it is a sine, and comparing unit directions is what makes the
+    /// cross product one.
     ///
     /// An edge whose ends have met answers `false` however the other runs. It
     /// has no direction of its own, only the `+x` a fallback handed it, and

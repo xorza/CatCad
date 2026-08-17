@@ -251,7 +251,7 @@ impl Constraint {
     /// ten state a relation that has no magnitude — parallel is parallel, and
     /// there is nothing to type.
     ///
-    /// Read off the same list [`Self::dimension_mut`] matches on, so which
+    /// Read off the same list the sketch writes a dimension through, so which
     /// variants carry a magnitude is stated once rather than in two lists free
     /// to disagree.
     pub fn value(&self) -> Option<f64> {
