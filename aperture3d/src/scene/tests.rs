@@ -52,13 +52,11 @@ fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
 fn ranked_through(scene: &Scene, through: &Camera, cursor: Vec2, radius: f32) -> Vec<Hit> {
     let aim = Aim::new(through, cursor, viewport(), radius);
     let ground = scene.ground(&aim);
+    let grounded = ground.map_or(f32::INFINITY, |ground| ground.front);
     let framed = scene.frame_front(&aim);
     let mut hits: Vec<Hit> = scene
         .overlays(&aim)
-        .filter(|hit| {
-            let grounded = ground.map_or(f32::INFINITY, |ground| ground.hiding(hit.precedence));
-            shows(grounded, hit.distance) && shows(framed, hit.distance)
-        })
+        .filter(|hit| shows(grounded, hit.distance) && shows(framed, hit.distance))
         .collect();
     hits.sort_by(Hit::aim_order);
     // The ground last, and put there rather than sorted there: a surviving
@@ -800,44 +798,36 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
     // And the label behind stayed hidden throughout, whichever sheet answered.
     assert_ne!(scene.nearest(aim).map(|hit| hit.tag), Some(Tag::new(2)));
 
-    // **But a sheet set aside hides nothing of the drawing being worked in.**
-    // The half the standing had no say in, and the one a user meets: a dormant
-    // sketch's region floats over the open one, its number is drawn straight
-    // through the sheet and perfectly readable, and every click on it was going
-    // to the sheet. A sketch nobody is in is drawn to be read rather than aimed
-    // at, and that has to reach hiding as well as ranking.
-    scene.faces.clear();
-    scene.texts.clear();
-    scene
-        .faces
-        .push(sheet(0.0).tagged(Tag::new(1)).precedence(Precedence::Aside));
-    scene.texts.push(
-        Text::new(Vec3::new(0.0, 0.0, -1.0), "8.00", 12.0)
-            .measured(Vec2::new(40.0, 12.0))
-            .tagged(Tag::new(2)),
-    );
-    assert_eq!(
-        scene.nearest(aim).map(|hit| hit.tag),
-        Some(Tag::new(2)),
-        "a sheet set aside took the click meant for the drawing behind it"
-    );
-
-    // It cuts one way only, which is what keeps it a qualification of the rule
-    // above rather than a repeal of it. The same label set aside *is* hidden by
-    // the same sheet — the two are then one drawing, and a face you can see a
-    // drawing through is still not a face you can click one through.
-    scene.texts.clear();
-    scene.texts.push(
-        Text::new(Vec3::new(0.0, 0.0, -1.0), "8.00", 12.0)
-            .measured(Vec2::new(40.0, 12.0))
-            .tagged(Tag::new(2))
-            .precedence(Precedence::Aside),
-    );
-    assert_eq!(
-        scene.nearest(aim).map(|hit| hit.tag),
-        Some(Tag::new(1)),
-        "a sheet stopped hiding a label of its own standing"
-    );
+    // **And a sheet set aside hides as well as any other, both ways round.**
+    // The one thing standing has no say in. It was given one for a while —
+    // a dormant sketch's region floats over the open one and its numbers are
+    // readable straight through it, which looked like a reason to let the open
+    // sketch answer through it — and the exemption is what let a number a whole
+    // plane back take the click from the sheet in front of it. Hiding is a fact
+    // about the eye: what is in front is what the cursor is over, and standing
+    // decides between what survives rather than what is visible.
+    for (sheet_stands, label_stands) in [
+        (Precedence::Aside, Precedence::Shaped),
+        (Precedence::Shaped, Precedence::Aside),
+    ] {
+        scene.faces.clear();
+        scene.texts.clear();
+        scene
+            .faces
+            .push(sheet(0.0).tagged(Tag::new(1)).precedence(sheet_stands));
+        scene.texts.push(
+            Text::new(Vec3::new(0.0, 0.0, -1.0), "8.00", 12.0)
+                .measured(Vec2::new(40.0, 12.0))
+                .tagged(Tag::new(2))
+                .precedence(label_stands),
+        );
+        assert_eq!(
+            scene.nearest(aim).map(|hit| hit.tag),
+            Some(Tag::new(1)),
+            "a {sheet_stands:?} sheet let a {label_stands:?} label a plane behind it take \
+             the click"
+        );
+    }
 }
 
 /// A frame hides what is behind it and yields to what is level with it.

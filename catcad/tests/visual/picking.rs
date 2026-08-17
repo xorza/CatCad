@@ -247,15 +247,18 @@ fn every_mark_is_picked_where_it_is_drawn() {
                 let found = scene.nearest(Aim::new(&camera, cursor, viewport, 6.0));
                 let where_ = format!("{projection:?} at yaw {yaw} pitch {pitch} zoom {zoom}");
                 let beaten = found.map(|hit| (hit.at, hit.precedence));
-                // **Whatever takes the press must stand at least as far forward
-                // as the mark does.** True at every angle, hidden or not: a
-                // dormant sketch's region floating over the open one is drawn
-                // through, so the numbers behind it are readable and must stay
-                // reachable. This is the one that fails without it.
+                // **Whatever takes the press is at least as near the eye as the
+                // mark.** True at every angle, hidden or not, and the only thing
+                // that can honestly be said where something *is* in front: a
+                // mark loses to what covers it and to nothing else. Standing has
+                // no say — it decides between what survives being in front, not
+                // what is in front.
+                let ray = camera.ray_through(cursor, viewport);
+                let mine = (middle - ray.origin).dot(ray.direction);
                 assert!(
-                    found.is_some_and(|hit| hit.tag == tag || hit.precedence <= text.precedence),
-                    "{where_}: the mark {:?} is drawn with its box on {cursor:?} and a press \
-                     there was taken by {beaten:?}, which is set further aside than the mark",
+                    found.is_some_and(|hit| hit.tag == tag || hit.distance <= mine * 1.001),
+                    "{where_}: the mark {:?} is drawn with its box on {cursor:?} at {mine} \
+                     along the ray, and a press there was taken by {beaten:?} further off",
                     text.content,
                 );
                 // And where nothing the drawing draws is hidden, the mark

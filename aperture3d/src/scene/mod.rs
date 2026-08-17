@@ -89,45 +89,32 @@ fn shows(front: f32, distance: f32) -> bool {
 }
 
 /// What the meshes answer a pick: the surface it falls through to, and how far
-/// off the nearest surface lies that may hide anything from it.
+/// off the nearest surface lies.
 ///
 /// Two answers off one walk, and they are different questions asked of the same
 /// hits — which is the whole reason this is a value rather than a returned hit.
 /// A pick spends most of its arithmetic casting the ray at triangles, so asking
 /// the meshes twice to learn two things about one cast is the cost worth
 /// avoiding.
+///
+/// **What hides an overlay is [`Ground::front`] and not [`Ground::hit`]'s own
+/// depth**, though the two are level to within [`BEHIND`]. The distinction is
+/// free here and was a caveat where the hit stood in for both.
 #[derive(Debug, Clone, Copy)]
 struct Ground {
-    /// The surface a pick answers with once nothing else is in reach, and the
-    /// one everything else is held in front of.
+    /// The surface a pick answers with once nothing else is in reach.
     hit: Hit,
-    /// How far off the nearest surface of each standing lies, foremost standing
-    /// first, and infinity where the aim crosses none of that standing.
+    /// How far off the nearest surface lies, whatever its standing, and infinity
+    /// where the aim crosses none.
     ///
-    /// Run through a prefix minimum on the way out, so reading one entry is the
-    /// whole answer — see [`Ground::hiding`].
-    fronts: [f32; Precedence::COUNT],
-}
-
-impl Ground {
-    /// How far off the nearest surface lies that may hide an overlay of this
-    /// standing.
-    ///
-    /// **A surface set aside cannot hide the drawing being worked in.** That is
-    /// what [`Precedence`] says everywhere else — a sketch nobody is in is drawn
-    /// to be read rather than aimed at, so a click that lands on it and on the
-    /// open sketch at once was meant for the open one — and hiding is the one
-    /// place it was not being said. Left unsaid, a dormant sketch's region
-    /// floating in front of the open one swallowed every click meant for the
-    /// numbers behind it, which are drawn through it and perfectly readable.
-    ///
-    /// It cuts only that way. A surface at the *same* standing goes on hiding
-    /// what is behind it, which is the rule this is a qualification of: a face
-    /// you can see a drawing through is still not a face you can click a drawing
-    /// through, so long as the two are in the same drawing.
-    fn hiding(&self, standing: Precedence) -> f32 {
-        self.fronts[standing.nth()]
-    }
+    /// **Whatever its standing**, and that is worth saying because everything
+    /// else about a pick turns on standing. A surface hides what is behind it
+    /// because it is *in front*, which is a fact about the eye and not about
+    /// what anybody is working on — a sheet drawn at less than half opacity is
+    /// still the nearer thing under the cursor, and answering with what is
+    /// behind it hands back something the cursor was never over. Standing
+    /// decides between what survives; it does not decide what is visible.
+    front: f32,
 }
 
 impl Scene {
@@ -197,14 +184,9 @@ impl Scene {
         // A filter rather than a rule inside the ordering, for the reason given
         // above and unchanged by which of the two is asking.
         let framed = self.frame_front(&aim);
+        let grounded = ground.map_or(f32::INFINITY, |ground| ground.front);
         self.overlays(&aim)
-            .filter(|hit| {
-                // Per overlay rather than once for the walk: what hides it
-                // depends on how far forward *it* stands — see
-                // [`Ground::hiding`].
-                let grounded = ground.map_or(f32::INFINITY, |ground| ground.hiding(hit.precedence));
-                shows(grounded, hit.distance) && shows(framed, hit.distance)
-            })
+            .filter(|hit| shows(grounded, hit.distance) && shows(framed, hit.distance))
             .min_by(Hit::aim_order)
             .or(ground.map(|ground| ground.hit))
     }
@@ -310,24 +292,15 @@ impl Scene {
     /// 1.80 µs to 0.94 µs and the whole pick from 4.39 µs to 3.65 µs.
     fn ground(&self, aim: &Aim) -> Option<Ground> {
         let meshes = || self.faces.iter().chain(self.solids.iter());
-        let mut fronts = [f32::INFINITY; Precedence::COUNT];
+        let mut front = f32::INFINITY;
         let mut ranked: Option<Hit> = None;
         for hit in meshes().filter_map(|mesh| mesh.pick(aim, HitAt::Surface)) {
-            let front = &mut fronts[hit.precedence.nth()];
-            *front = front.min(hit.distance);
+            front = front.min(hit.distance);
             if ranked.is_none_or(|best| hit.aim_order(&best).is_lt()) {
                 ranked = Some(hit);
             }
         }
         let ranked = ranked?;
-        // Each standing takes the least of itself and everything forward of it,
-        // so what hides an overlay is one lookup rather than a scan — see
-        // [`Ground::hiding`]. Between surfaces there is no such qualification,
-        // and the front they are settled against is the whole of it.
-        for behind in 1..Precedence::COUNT {
-            fronts[behind] = fronts[behind].min(fronts[behind - 1]);
-        }
-        let front = fronts[Precedence::COUNT - 1];
         let hit = if shows(front, ranked.distance) {
             ranked
         } else {
@@ -339,7 +312,7 @@ impl Scene {
                 .filter(|hit| shows(front, hit.distance))
                 .min_by(Hit::aim_order)?
         };
-        Some(Ground { hit, fronts })
+        Some(Ground { hit, front })
     }
 
     /// A stroke of the *gizmo* batch, which counts as a control however it is
