@@ -31,9 +31,9 @@ pub(crate) mod mark;
 /// What [`anchors`] answers per relation, and the half of a [`Placed`] that is
 /// about the *geometry* rather than about the drawing's other marks.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Standing {
-    pub(super) at: DVec2,
-    pub(super) along: DVec2,
+struct Standing {
+    at: DVec2,
+    along: DVec2,
 }
 
 /// One mark of one relation: which relation, where it stands, which way it runs,
@@ -56,10 +56,10 @@ impl Standing {
     /// preview would shuffle the drawing every frame the pointer moved, so a
     /// proposal takes the ground lane and every other mark ignores it.
     ///
-    /// Here rather than at the two writers that draw one, which had a copy
-    /// apiece: what a preview's lane is is one decision, and two spellings of it
-    /// are two places to change it.
-    pub(super) fn grounded(self) -> Mark {
+    /// Named rather than written out where [`Proposed::of`] builds one, because
+    /// what a bare `lane: 0` would say is "the first of its stack" where what is
+    /// meant is "in no stack at all".
+    fn grounded(self) -> Mark {
         Mark {
             at: self.at,
             along: self.along,
@@ -88,20 +88,49 @@ pub(super) fn stacked(model: Model<'_>, into: &mut Vec<Placed>) {
     lanes(&mut into[from..]);
 }
 
-/// Where the mark for a relation the sketch does *not* hold would stand.
+/// The dimension a tool is half-way through placing, and where its mark stands.
 ///
-/// What a preview wants. A dimension being placed is not in the drawing — the
-/// click that would state it has not happened — so it has no lane: a lane counts
-/// how many marks share a place, and a stack that admitted one would shuffle
-/// every frame the pointer moved. It gets the anchoring half and nothing else.
+/// **One reading for the two halves of a frame.** The figure is written with the
+/// drawing and the line under it against the camera — see
+/// [`texts`](crate::paint::write::texts) and
+/// [`gizmos::write`](crate::paint::gizmos::write) — and each used to place the
+/// proposal for itself, which is the very drift [`Placed`] exists to keep the
+/// *stated* marks out of: a number and the rule carrying it worked out from two
+/// answers can be drawn about two different constraints.
 ///
-/// The constraint still has to be about geometry the sketch holds, which a
-/// proposal always is: what a tool picks is what the drawing has.
-///
-/// One where a relation would draw two, and that is right for the case: nothing
-/// previews a parallel, and a dimension is one mark anyway.
-pub(super) fn previewed(sketch: &Sketch, constraint: Constraint) -> Option<Standing> {
-    anchors(sketch, constraint).into_iter().flatten().next()
+/// Beside [`Placed`] rather than one of them, because what names the relation is
+/// exactly what differs: a stated mark is a handle the sketch holds, and this
+/// carries the whole constraint, there being nothing yet to hold it.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Proposed {
+    pub(super) constraint: Constraint,
+    pub(super) mark: Mark,
+}
+
+impl Proposed {
+    /// Where `constraint` would put its mark in `sketch`, or `None` where it
+    /// would put none.
+    ///
+    /// **The anchoring half of a placement and no more.** A dimension being
+    /// placed is not in the drawing — the click that would state it has not
+    /// happened — so it has no lane to rise in: a lane counts how many marks
+    /// share a place, and a stack that admitted one would shuffle the drawing
+    /// every frame the pointer moved. It takes the ground lane instead, which is
+    /// what [`Standing::grounded`] is.
+    ///
+    /// The constraint still has to be about geometry the sketch holds, which a
+    /// proposal always is: what a tool picks is what the drawing has.
+    ///
+    /// The first anchor where a relation would draw two, and that is right for
+    /// the case: nothing previews a parallel, and a dimension is one mark
+    /// anyway.
+    pub(super) fn of(sketch: &Sketch, constraint: Constraint) -> Option<Self> {
+        let standing = anchors(sketch, constraint).into_iter().flatten().next()?;
+        Some(Self {
+            constraint,
+            mark: standing.grounded(),
+        })
+    }
 }
 
 /// Give each mark the lane it rises in: how many marks already stand where it

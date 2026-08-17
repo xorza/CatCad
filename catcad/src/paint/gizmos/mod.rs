@@ -30,9 +30,9 @@ use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::layout::Layout;
-use crate::paint::marks::Placed;
+use crate::paint::marks::{Placed, Proposed};
 use crate::paint::showing::Showing;
-use crate::paint::{EDGE_WIDTH, GHOST, MARK, marks};
+use crate::paint::{EDGE_WIDTH, GHOST, MARK};
 use crate::part::Part;
 
 mod dimension;
@@ -98,6 +98,7 @@ pub(crate) fn write(
         names,
         sheets,
         placed,
+        proposed,
         cut,
         ..
     } = layout;
@@ -125,7 +126,7 @@ pub(crate) fn write(
                 .map(move |piece| (Some(Part::Plane(at)), piece))
             })
             .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))
-            .chain(ruled(models, placed, showing.proposed(), lens)),
+            .chain(ruled(models, placed, *proposed, lens)),
         |curve, (part, piece)| {
             piece.stroke(curve, lens);
             // The one thing left to the caller, because it is the only one that
@@ -158,21 +159,20 @@ pub(crate) fn write(
 fn ruled<'a>(
     models: Models<'a>,
     placed: &'a [Placed],
-    proposed: Option<Constraint>,
+    proposed: Option<Proposed>,
     lens: Lens,
 ) -> impl Iterator<Item = (Option<Part>, Piece)> + 'a {
     let model = models.open();
     let (sketch, plane) = (model.sketch(), model.plane());
-    // The dimension a tool is half-way through placing, which is drawn
-    // exactly as a stated one and stands in no stack — see
-    // [`marks::previewed`]. Its own mark rather than a `Placed`, because
-    // the sketch does not hold it and there is no handle to name it by.
-    let previewed =
-        proposed.and_then(|constraint| Some((constraint, marks::previewed(sketch, constraint)?)));
+    // The dimension a tool is half-way through placing, which is drawn exactly
+    // as a stated one and stands in no stack. Handed in rather than placed here:
+    // the figure above it is written by the other half of a frame, and the two
+    // working it out apart is a number and a rule drawn about two different
+    // constraints — see [`Proposed`].
     placed
         .iter()
         .map(move |placed| (sketch.constraint(placed.of), placed.mark, false))
-        .chain(previewed.map(|(constraint, standing)| (constraint, standing.grounded(), true)))
+        .chain(proposed.map(|proposed| (proposed.constraint, proposed.mark, true)))
         .filter_map(move |(constraint, placed, proposed)| {
             let measured = Measurement::of(sketch, constraint)?;
             // Where the *number* stands, which is what an extension line

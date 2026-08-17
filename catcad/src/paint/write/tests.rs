@@ -312,7 +312,7 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
         }
     };
     let laid = |names: &mut Names, placed: &mut Vec<_>, figures: &mut Batch<Text>, typed| {
-        texts(one.models(), names, placed, typed, None, figures);
+        texts(one.models(), names, placed, None, typed, figures);
         figures
             .iter()
             .map(|mark| (mark.content.clone(), mark.position, clearance(mark)))

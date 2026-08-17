@@ -5,7 +5,7 @@ use silverpoint::{ConstraintId, Fill, Filler, Patch, Skinner};
 use crate::build::Revision;
 use crate::model::Models;
 use crate::paint::cut::Cut;
-use crate::paint::marks::Placed;
+use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::showing::Showing;
 use crate::timeline::FeatureId;
@@ -49,6 +49,14 @@ pub(crate) struct Layout {
     /// one has to read the same answer the drawing used rather than recompute
     /// the pass and be free to differ.
     pub(super) placed: Vec<Placed>,
+    /// Where the mark of the dimension a tool is half-way through placing
+    /// stands, where one is being placed.
+    ///
+    /// Beside the stated marks and kept for the same reason: the figure and the
+    /// rule under it are written by two different halves of a frame, and a
+    /// proposal each of them placed for itself would be two answers free to
+    /// differ. See [`Proposed`].
+    pub(super) proposed: Option<Proposed>,
     /// Where the one region anything asks about lies, cut when the drawing
     /// moves and read on the camera's schedule — see [`Cut`].
     pub(super) cut: Cut,

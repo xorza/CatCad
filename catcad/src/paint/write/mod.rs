@@ -27,7 +27,7 @@ use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::layout::Sheets;
 use crate::paint::marks::mark::Mark;
-use crate::paint::marks::{Placed, Standing};
+use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::{
     DECIMALS, DORMANT_FACE, EDGE_WIDTH, FACE, FACE_SAGITTA, FIXED_MARKER, FREE_MARKER, GHOST, MARK,
@@ -252,8 +252,8 @@ pub(super) fn texts(
     models: Models<'_>,
     names: &mut Names,
     placed: &mut Vec<Placed>,
+    proposed: Option<Proposed>,
     typed: Option<Part>,
-    proposed: Option<Constraint>,
     into: &mut Batch<Text>,
 ) {
     // **The open sketch alone.** A constraint is a statement *about* a drawing,
@@ -282,12 +282,7 @@ pub(super) fn texts(
             // Last, so a dimension being placed is written over the drawing
             // rather than under it — and so the tags the drawing handed out
             // are the same whether or not a tool is half-way through one.
-            .chain(proposed.and_then(|constraint| {
-                Some(Marked::Proposed(
-                    constraint,
-                    marks::previewed(live.sketch(), constraint)?,
-                ))
-            })),
+            .chain(proposed.map(Marked::Proposed)),
         |mark, marked| {
             let placed = marked.mark();
             let constraint = marked.constraint(live.sketch());
@@ -367,11 +362,13 @@ pub(super) fn texts(
 #[derive(Debug, Clone, Copy)]
 enum Marked {
     Stated(Placed),
-    /// The constraint the next click would state, and where its mark would go.
+    /// The dimension the next click would state, and where its mark goes.
     ///
     /// Carried rather than looked up, because the sketch does not hold it: there
-    /// is no handle to ask with, which is exactly what makes it a proposal.
-    Proposed(Constraint, Standing),
+    /// is no handle to ask with, which is exactly what makes it a proposal. Laid
+    /// out by [`redraw`](crate::paint::redraw) rather than here, so the rule
+    /// drawn under it reads the same answer — see [`Proposed`].
+    Proposed(Proposed),
 }
 
 impl Marked {
@@ -380,7 +377,7 @@ impl Marked {
     fn constraint(self, sketch: &Sketch) -> Constraint {
         match self {
             Marked::Stated(placed) => sketch.constraint(placed.of),
-            Marked::Proposed(constraint, _) => constraint,
+            Marked::Proposed(proposed) => proposed.constraint,
         }
     }
 
@@ -388,7 +385,7 @@ impl Marked {
     fn mark(self) -> Mark {
         match self {
             Marked::Stated(placed) => placed.mark,
-            Marked::Proposed(_, standing) => standing.grounded(),
+            Marked::Proposed(proposed) => proposed.mark,
         }
     }
 }

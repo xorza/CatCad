@@ -2,8 +2,10 @@ use super::*;
 use crate::build::Build;
 use crate::demo;
 use crate::paint::growing::Growing;
-use crate::paint::redraw;
+use crate::paint::{mark_font, redraw};
+use crate::preview::Preview;
 use aperture::Scene;
+use silverpoint::{Along, Dimension, Sketch};
 
 /// A plane that can be moved is drawn as a gizmo at its origin, and one that
 /// cannot is not drawn at all.
@@ -294,5 +296,101 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
     assert!(
         scene.gizmos.iter().any(|gizmo| gizmo.tag.is_none()),
         "nothing in the batch was left unnamed, so the demo drew no dimension"
+    );
+}
+
+/// **A dimension being placed is drawn twice over, out of one placement.**
+///
+/// The figure goes among the marks and the rule carrying it among the controls
+/// — two halves of a frame on two schedules — so where the proposal stands is
+/// the one thing they both have to agree about. They each worked it out for
+/// themselves, which is the drift [`Placed`] keeps the *stated* marks out of and
+/// the proposal went round; now both read one [`Proposed`], and what this pins
+/// is that both still read it.
+///
+/// Ghost and untagged on both sides, which is the whole of what a proposal is:
+/// the constraints have not been asked about it, so it has no state to report,
+/// and nothing yet holds it, so there is nothing for a pick to land on. A number
+/// the click has not stated that could be hovered would be a number you could
+/// select and delete.
+#[test]
+fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
+    // Four apart along the sketch's own x, so the number reads `4.00` and the
+    // rule runs along that span.
+    let mut sketch = Sketch::default();
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(4.0, 0.0));
+    let placing = Constraint::Distance {
+        a,
+        b,
+        along: Along::Shortest,
+        dimension: Dimension::new(0.0),
+    };
+    let one = crate::paint::tests::drawn(sketch);
+    // Fitted by the drawing, which is what puts the measurement in it — a
+    // proposal is written with a placeholder and the sketch fills it in.
+    let placing = one
+        .models()
+        .open()
+        .sketch()
+        .fitted(placing)
+        .expect("four apart is a distance to state");
+
+    let lens = Lens::new(
+        aperture::Camera::default(),
+        aperture::Viewport::new(glam::UVec2::new(800, 600)),
+    );
+    let showing = Showing {
+        band: Some(Preview::Dimension(placing)),
+        ..Showing::default()
+    };
+    let mut layout = Layout::default();
+    let mut scene = Scene::default();
+    redraw(one.models(), &mut layout, showing, &mut scene);
+    write(one.models(), &mut layout, showing, lens, &mut scene.gizmos);
+
+    // The sketch states nothing, so every mark and every control on screen
+    // belongs to the proposal.
+    let [figure] = &scene.texts[..] else {
+        panic!("the proposal drew {} figures", scene.texts.len());
+    };
+    assert_eq!(figure.content, "4.00", "the figure is not the measurement");
+    assert_eq!(figure.color, GHOST, "a proposal reads as a rubber band");
+    assert_eq!(figure.tag, None, "a proposal can be picked out");
+
+    // The rule under it: an extension line from each foot, the dimension line
+    // itself, and a head at each end — see [`dimension::strokes`].
+    assert_eq!(
+        scene.gizmos.len(),
+        5,
+        "the rule under the figure is missing"
+    );
+    for stroke in scene.gizmos.iter() {
+        assert_eq!(stroke.color, GHOST, "the rule and the figure disagree");
+        assert_eq!(stroke.tag, None, "a proposal's rule can be picked out");
+    }
+
+    // And the two are placed from one answer: the figure is anchored on the span
+    // it measures, and the rule runs through that same anchor dropped by the
+    // clearance a number keeps off its own line. Half a line-height of it — the
+    // mark's own `MARK_CLEAR` of 1.1 less the `RULE_DROP` of 0.6 — written out
+    // rather than read off the constants, which is what makes this a test.
+    //
+    // The dimension line is the one stroke that spans the whole four, and its
+    // middle is that anchor: it runs the same overshoot past each foot, and the
+    // two feet sit either side of the number.
+    let rule = scene
+        .gizmos
+        .iter()
+        .find(|stroke| stroke.points[0].distance(stroke.points[1]) > 4.0)
+        .expect("the dimension line runs past both feet");
+    let apart = figure
+        .position
+        .distance(rule.points[0].midpoint(rule.points[1]));
+    let drop = 0.5 * mark_font().line_height_px * lens.world_per_pixel(figure.position);
+    assert!(
+        (apart - drop).abs() < 1e-5,
+        "the figure sits {apart} from its own rule rather than {drop}, so the \
+         two were placed apart"
     );
 }

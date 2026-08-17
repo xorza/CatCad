@@ -287,6 +287,7 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         names,
         sheets,
         placed,
+        proposed,
         ..
     } = &mut *layout;
     names.wind_back(from);
@@ -308,12 +309,18 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
     }
     if from <= Stage::Marks {
         names.opened(Stage::Marks);
+        // Where the dimension being placed would put its mark, worked out once
+        // for the figure written here and the rule written against the camera —
+        // see [`Proposed`](marks::Proposed).
+        *proposed = showing
+            .proposed()
+            .and_then(|constraint| marks::Proposed::of(models.open().sketch(), constraint));
         write::texts(
             models,
             names,
             placed,
+            *proposed,
             showing.typed,
-            showing.proposed(),
             &mut into.texts,
         );
     }
