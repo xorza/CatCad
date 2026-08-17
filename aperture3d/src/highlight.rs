@@ -109,10 +109,10 @@ pub struct Lit {
 /// was given without walking the lot.
 ///
 /// Every primitive of every kind asks that question on every flatten, so a walk
-/// makes flattening cost primitives × lit — and a caller lighting a whole
-/// selection is exactly what grows both at once. Measured before this held an
-/// index: 393 µs to relight a 2000-primitive drawing with all of it selected,
-/// on every frame the pointer moved.
+/// would make flattening cost primitives × lit — and a caller lighting a whole
+/// selection is exactly what grows both at once. On a 2000-primitive drawing
+/// with all of it selected that is 393 µs of every frame the pointer moves,
+/// which is what the index below is for.
 ///
 /// Two lists rather than one sorted one. The caller's own order is what decides
 /// ties and what a re-ask is compared against, and both would be lost by sorting
@@ -121,10 +121,26 @@ pub struct Lit {
 pub(crate) struct Highlights {
     /// In the order the caller named them.
     entries: Vec<Lit>,
-    /// Positions in `entries`, ordered by tag and then by position — so a
-    /// lookup is a binary search, and where two entries name one tag it finds
-    /// the earlier, which is the one the caller was promised.
-    by_tag: Vec<u32>,
+    /// The same entries as tag-and-position pairs, sorted — so a lookup is a
+    /// binary search, and where two entries name one tag it finds the earlier,
+    /// which is the one the caller was promised.
+    by_tag: Vec<Keyed>,
+}
+
+/// One entry's tag and where that entry sits.
+///
+/// The tag is copied out rather than reached through. An index of bare positions
+/// would make every probe of the search a dependent load into `entries` for
+/// eight bytes of key — and the search is the thing this type exists to be fast
+/// at, asked once per primitive on every flatten. Held together, the whole
+/// search walks one contiguous run and the entry is read once, at the end.
+#[derive(Debug, Clone, Copy)]
+struct Keyed {
+    tag: u64,
+    /// Where in `entries`, and the second half of the sort key: an unstable sort
+    /// is free to reorder equal tags, and this is what keeps the earlier of two
+    /// naming one tag in front.
+    at: u32,
 }
 
 impl Highlights {
@@ -146,12 +162,10 @@ impl Highlights {
     ///
     /// `None` for an untagged primitive, which is scenery and never lit.
     pub(crate) fn look_of(&self, tag: Option<Tag>) -> Option<Highlight> {
-        let tag = tag?;
-        let at = self
-            .by_tag
-            .partition_point(|&i| self.entries[i as usize].tag.get() < tag.get());
-        let lit = self.entries[*self.by_tag.get(at)? as usize];
-        (lit.tag == tag).then_some(lit.look)
+        let tag = tag?.get();
+        let at = self.by_tag.partition_point(|keyed| keyed.tag < tag);
+        let found = self.by_tag.get(at)?;
+        (found.tag == tag).then(|| self.entries[found.at as usize].look)
     }
 
     /// Rebuild the index over what `entries` now holds.
@@ -164,8 +178,12 @@ impl Highlights {
     fn reindex(&mut self) {
         let Self { entries, by_tag } = self;
         by_tag.clear();
-        by_tag.extend(0..entries.len() as u32);
-        by_tag.sort_unstable_by_key(|&i| (entries[i as usize].tag.get(), i));
+        by_tag.reserve_exact(entries.len());
+        by_tag.extend(entries.iter().enumerate().map(|(at, lit)| Keyed {
+            tag: lit.tag.get(),
+            at: at as u32,
+        }));
+        by_tag.sort_unstable_by_key(|keyed| (keyed.tag, keyed.at));
     }
 }
 

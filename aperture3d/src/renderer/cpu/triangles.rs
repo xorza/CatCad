@@ -34,8 +34,10 @@ pub(crate) struct Triangles {
     /// answer to *whether to flatten*: an order that came out the same as last
     /// frame's is a frame the triangle list already agrees with.
     order: Vec<u32>,
-    /// Scratch the next order is built in, so comparing it against the one in
-    /// force costs no allocation.
+    /// Scratch a *sorted* order is built in, so comparing it against the one in
+    /// force costs no allocation. An unsorted pass never reaches it — there the
+    /// batch's own order is the answer, and the count is the whole of what could
+    /// have changed it.
     next: Vec<u32>,
     /// Whether the vertices have been rewritten since the GPU was handed them.
     vertices_dirty: bool,
@@ -160,26 +162,43 @@ impl Triangles {
     /// answer is what decides whether the list is flattened again — and sorting
     /// in place would destroy the very thing being compared against.
     fn resort(&mut self, count: usize, order: Order) -> bool {
+        let Order::BackToFront(eye) = order else {
+            // The batch's own order, which is what `order` already holds unless
+            // the count itself has moved — so an opaque pass asks this every
+            // frame and answers without building a list to compare against.
+            debug_assert!(
+                self.order
+                    .iter()
+                    .enumerate()
+                    .all(|(at, &step)| at as u32 == step),
+                "an opaque pass inherited an order something else had sorted"
+            );
+            if self.order.len() == count {
+                return false;
+            }
+            self.order.clear();
+            self.order.reserve_exact(count);
+            self.order.extend(0..count as u32);
+            return true;
+        };
         self.next.clear();
         self.next.extend(0..count as u32);
-        if let Order::BackToFront(eye) = order {
-            // The other half of what `measure` decides in
-            // [`Triangles::write_vertices`]: a sorted pass measures on every
-            // move, so by the time one is asked for there is a centre per
-            // object. Stated here because the two are written apart.
-            debug_assert_eq!(
-                self.centres.len(),
-                count,
-                "a sorted pass reached its order with no centres to sort by"
-            );
-            let centres = &self.centres;
-            // Descending, so the farthest is drawn first. Squared distance,
-            // because a square root is monotonic and orders nothing it did not.
-            self.next.sort_unstable_by(|&a, &b| {
-                let far = |at: u32| centres[at as usize].distance_squared(eye);
-                far(b).total_cmp(&far(a))
-            });
-        }
+        // The other half of what `measure` decides in
+        // [`Triangles::write_vertices`]: a sorted pass measures on every
+        // move, so by the time one is asked for there is a centre per
+        // object. Stated here because the two are written apart.
+        debug_assert_eq!(
+            self.centres.len(),
+            count,
+            "a sorted pass reached its order with no centres to sort by"
+        );
+        let centres = &self.centres;
+        // Descending, so the farthest is drawn first. Squared distance,
+        // because a square root is monotonic and orders nothing it did not.
+        self.next.sort_unstable_by(|&a, &b| {
+            let far = |at: u32| centres[at as usize].distance_squared(eye);
+            far(b).total_cmp(&far(a))
+        });
         let moved = self.next != self.order;
         if moved {
             std::mem::swap(&mut self.next, &mut self.order);
