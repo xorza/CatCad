@@ -80,10 +80,8 @@ impl Anchor {
             Anchor::On(id) => sketch.point(id).position,
             Anchor::OnSegment { segment, at } => {
                 let edge = sketch.segment(segment);
-                let (from, along) = (
-                    sketch.point(edge.a).position,
-                    sketch.point(edge.b).position - sketch.point(edge.a).position,
-                );
+                let from = sketch.point(edge.a).position;
+                let along = sketch.point(edge.b).position - from;
                 let click = plane.flatten(at.as_dvec3());
                 // The foot of the perpendicular, on the edge's own infinite line
                 // — which is what `PointOnSegment` says and all it says. An edge

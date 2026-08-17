@@ -218,3 +218,67 @@ fn both_answers_have_a_glyph_to_draw_them() {
         );
     }
 }
+
+/// **What a form is about, and what it stands over, are the same answer but
+/// once.**
+///
+/// [`Prompt::holds`] is what a prune reads — a form open over geometry an undo
+/// took away has to close rather than commit onto a handle naming nothing — and
+/// [`Prompt::marks`] is what the drawing reads, leaving out the mark the field
+/// is drawn in place of. For every form they agree, and a **radius** is the one
+/// they do not: it is about a circle the document can lose, and it stands over
+/// no mark, because that circle has no radius to draw until this form gives it
+/// one.
+///
+/// The pair are one match and one arm now rather than two matches, so this is
+/// what says the arm is still there — both ways round, since collapsing them
+/// either way leaves every other form answering as it did.
+#[test]
+fn a_radius_form_is_about_a_circle_it_stands_over_no_mark_of() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::ZERO);
+    let hub = sketch.add_circle(middle, 2.0);
+    let at = timeline.add(Feature::Sketch { on: ground, sketch });
+
+    let radius = Prompt::on(
+        Asking::Radius {
+            sketch: at,
+            circle: hub,
+        },
+        &[("Radius", Seed::Stated(2.0))],
+    );
+    assert_eq!(
+        radius.holds(),
+        Some(Part::Entity {
+            sketch: at,
+            entity: hub.into(),
+        }),
+        "a radius form that is about nothing would outlive its own circle"
+    );
+    assert_eq!(
+        radius.marks(),
+        None,
+        "the drawing left out a mark for a radius the circle does not have yet"
+    );
+
+    // And the form they agree about, which is what says the difference above is
+    // the radius rather than the two questions being unrelated.
+    let part = dimension();
+    let typed = Prompt::on(Asking::Dimension { part }, &[("", Seed::Stated(1.0))]);
+    assert_eq!(typed.holds(), Some(part));
+    assert_eq!(typed.marks(), Some(part));
+
+    // A circle still being drawn names nothing the document holds at all, which
+    // is the point of it — there is no circle until the form commits.
+    let drawing = Prompt::on(
+        Asking::Circle {
+            sketch: at,
+            center: crate::drawing::anchor::Anchor::On(middle),
+        },
+        &[("Radius", Seed::Offered(0.0))],
+    );
+    assert_eq!(drawing.holds(), None);
+    assert_eq!(drawing.marks(), None);
+}

@@ -401,22 +401,30 @@ impl Prompt {
     /// document holds.
     ///
     /// What a session prunes on: a form open over geometry an undo took away
-    /// would commit onto a handle naming nothing. Apart from [`Prompt::marks`],
-    /// which answers a different question — a dimension's form *stands where its
-    /// mark would be* and the drawing leaves it out, and a radius form stands
-    /// beside a circle whose mark does not exist yet.
+    /// would commit onto a handle naming nothing.
+    ///
+    /// **[`Prompt::marks`] widened by one arm**, and the arm is the whole
+    /// difference between the two questions. Everything else a form is about, it
+    /// is about by standing where that thing's mark would be — so the narrower
+    /// question answers this one too, and saying so is what keeps the pair from
+    /// reading as one match written twice.
     pub(crate) fn holds(&self) -> Option<Part> {
         match &self.about {
-            Asking::Dimension { part } => Some(*part),
+            // The one part a form is about without standing over a mark: a
+            // radius names a circle the document can lose, and that circle has
+            // no radius to draw until this form gives it one.
             Asking::Radius { sketch, circle } => Some(Part::Entity {
                 sketch: *sketch,
                 entity: (*circle).into(),
             }),
-            // Named by a `Profile` rather than a `Part`, so what says it is
-            // still there is the name failing to resolve — see
-            // [`Prompt::growing`]. A circle being drawn names nothing the
-            // document holds at all, which is the point of it.
-            Asking::Extrude { .. } | Asking::Circle { .. } => None,
+            // An extrude is named by a `Profile` rather than a `Part`, so what
+            // says it is still there is the name failing to resolve — see
+            // [`Prompt::growing`]; and a circle being drawn names nothing the
+            // document holds at all, which is the point of it. Neither stands
+            // over a mark either, so both fall out of the answer below.
+            Asking::Dimension { .. } | Asking::Extrude { .. } | Asking::Circle { .. } => {
+                self.marks()
+            }
         }
     }
 
