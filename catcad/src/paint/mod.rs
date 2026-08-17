@@ -26,7 +26,7 @@ use crate::model::{Model, Models};
 use crate::names::Names;
 use crate::paint::growing::Growing;
 use crate::paint::layout::{Layout, Made, Sheets};
-use crate::paint::marks::Placed;
+use crate::paint::marks::{Mark, Placed, Standing};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
 use crate::timeline::FeatureId;
@@ -359,7 +359,14 @@ pub(crate) fn redraw(
     );
     write_rings(models, names, band.and_then(Preview::ring), &mut into.rings);
     write_points(models, names, &mut into.points);
-    write_marks(models, typed, names, placed, &mut into.texts);
+    write_marks(
+        models,
+        typed,
+        band.and_then(Preview::dimension),
+        names,
+        placed,
+        &mut into.texts,
+    );
     write_faces(models, names, sheets, &mut into.faces);
     write_solids(models, names, sheets, growing, &mut into.solids);
     // Where the controls start naming from — see [`gizmos::write()`].
@@ -502,6 +509,7 @@ pub(crate) fn region_corners(
 fn write_marks(
     models: Models<'_>,
     typed: Option<Part>,
+    proposed: Option<Constraint>,
     names: &mut Names,
     placed: &mut Vec<Placed>,
     marks: &mut Batch<Text>,
@@ -531,11 +539,21 @@ fn write_marks(
                 // under one would be a second copy of the number showing
                 // through wherever the field did not quite cover it.
                 .filter(move |placed| Some(model.part(placed.of)) != typed)
-                .map(move |placed| (model, placed))
+                .map(move |placed| Marked::Stated(model, *placed))
+                // Last, so a dimension being placed is written over the drawing
+                // rather than under it — and so the tags the drawing handed out
+                // are the same whether or not a tool is half-way through one.
+                .chain(proposed.and_then(|constraint| {
+                    Some(Marked::Proposed(
+                        model,
+                        constraint,
+                        marks::previewed(model.sketch(), constraint)?,
+                    ))
+                }))
         }),
-        |mark, (model, placed)| {
-            let (id, outcome) = (placed.of, model.outcome());
-            let constraint = model.sketch().constraint(id);
+        |mark, marked| {
+            let (model, placed) = (marked.model(), marked.mark());
+            let constraint = marked.constraint();
             // Rewritten in place rather than assigned, so a drawing whose marks are
             // laid out every frame keeps the string it already has — which is what
             // keeps a scrubbed dimension off the heap sixty times a second.
@@ -562,14 +580,17 @@ fn write_marks(
             // side of the very line it stands clear of. A centred box is mapped
             // onto itself by either, so it only ever changes direction.
             mark.anchor = Vec2::splat(0.5);
-            mark.color = ink(
-                model,
-                if outcome.is_redundant(id) {
-                    REDUNDANT
-                } else {
-                    MARK
-                },
-            );
+            mark.color = match marked {
+                // A proposal has no state to report: the constraints have not
+                // been asked about it, so it cannot be redundant and cannot be
+                // anything else either. The grey a rubber band wears, and for
+                // the same reason — it is not in the drawing yet.
+                Marked::Proposed(..) => GHOST,
+                Marked::Stated(_, stated) if model.outcome().is_redundant(stated.of) => {
+                    ink(model, REDUNDANT)
+                }
+                Marked::Stated(..) => ink(model, MARK),
+            };
             mark.precedence = standing(model);
             // Lettered on the drawing rather than pinned over it: set along the
             // geometry it is about — the span a dimension measures, the edge a
@@ -580,10 +601,69 @@ fn write_marks(
             // Clear of that geometry by the lift, which is stated in the plane's
             // own axes and so is the one thing about a mark the projection
             // cannot move.
-            mark.facing = Facing::Turned(mark_turn(model.drawing(), *placed));
-            mark.tag = Some(names.tag(model.part(id)));
+            mark.facing = Facing::Turned(mark_turn(model.drawing(), placed));
+            // Untagged where it is a proposal, which is what keeps it out of the
+            // way: a pick skips a primitive with no tag, so the click that
+            // *commits* the dimension resolves against the geometry behind it
+            // rather than against the picture of what it is about to make.
+            mark.tag = match marked {
+                Marked::Stated(_, stated) => Some(names.tag(model.part(stated.of))),
+                Marked::Proposed(..) => None,
+            };
         },
     );
+}
+
+/// One mark to write: a relation the drawing states, or the dimension a tool is
+/// half-way through placing.
+///
+/// One writer for both, because a preview that was drawn by other code would be
+/// a second opinion about what a dimension looks like — and the whole of what a
+/// preview is for is showing what the click will make. What they differ in is
+/// stated in the two places it is real: a proposal has no state to report and
+/// nothing to pick.
+#[derive(Debug, Clone, Copy)]
+enum Marked<'a> {
+    Stated(Model<'a>, Placed),
+    /// The constraint the next click would state, and where its mark would go.
+    ///
+    /// Carried rather than looked up, because the sketch does not hold it: there
+    /// is no handle to ask with, which is exactly what makes it a proposal.
+    Proposed(Model<'a>, Constraint, Standing),
+}
+
+impl<'a> Marked<'a> {
+    /// The drawing it belongs to.
+    fn model(self) -> Model<'a> {
+        match self {
+            Marked::Stated(model, _) | Marked::Proposed(model, ..) => model,
+        }
+    }
+
+    /// What it says.
+    fn constraint(self) -> Constraint {
+        match self {
+            Marked::Stated(model, placed) => model.sketch().constraint(placed.of),
+            Marked::Proposed(_, constraint, _) => constraint,
+        }
+    }
+
+    /// Where it stands and which way it runs.
+    ///
+    /// A proposal takes the ground lane, because it stands in no stack: a lane
+    /// counts how many marks share a place, and one that admitted a preview
+    /// would shuffle the drawing every frame the pointer moved. See
+    /// [`marks::previewed`].
+    fn mark(self) -> Mark {
+        match self {
+            Marked::Stated(_, placed) => placed.mark,
+            Marked::Proposed(_, _, standing) => Mark {
+                at: standing.at,
+                along: standing.along,
+                lane: 0,
+            },
+        }
+    }
 }
 
 /// How far a mark's own middle stands clear of the geometry it names, in
@@ -671,7 +751,7 @@ fn rule_rise(lane: u8) -> f32 {
 /// screen by the *shader* — so this is on the asking half's schedule, which is
 /// where the form that reads it already is.
 pub(crate) fn mark_centre(
-    placed: Placed,
+    placed: Mark,
     drawing: Drawing<'_>,
     camera: &Camera,
     viewport: Viewport,
@@ -686,7 +766,7 @@ pub(crate) fn mark_centre(
 /// run's place measures from it. The two coming to different answers is a field
 /// that misses its own number, and on a plane seen at an angle it would miss it
 /// in a different direction every frame.
-fn mark_turn(drawing: Drawing<'_>, placed: Placed) -> Turn {
+fn mark_turn(drawing: Drawing<'_>, placed: Mark) -> Turn {
     let plane = drawing.plane();
     let along = plane.x * placed.along.x + plane.y * placed.along.y;
     Turn::new(along.as_vec3(), plane.normal().as_vec3())

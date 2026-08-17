@@ -39,9 +39,9 @@ const NEARLY_PARALLEL: f64 = 1e-9;
 /// What [`anchors`] answers per relation, and the half of a [`Placed`] that is
 /// about the *geometry* rather than about the drawing's other marks.
 #[derive(Debug, Clone, Copy)]
-struct Standing {
-    at: DVec2,
-    along: DVec2,
+pub(super) struct Standing {
+    pub(super) at: DVec2,
+    pub(super) along: DVec2,
 }
 
 /// One mark of one relation: which relation, where it stands, which way it runs,
@@ -53,6 +53,18 @@ struct Standing {
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Placed {
     pub(crate) of: ConstraintId,
+    pub(crate) mark: Mark,
+}
+
+/// Where one mark goes, without saying whose it is.
+///
+/// Apart from the handle beside it because not every mark has one: a dimension a
+/// tool is half-way through placing is drawn exactly as a stated one and is not
+/// in the sketch, so there is no [`ConstraintId`] to name it by — see
+/// [`previewed`]. Everything that *draws* a mark wants this half and nothing
+/// makes it ask for the other.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Mark {
     pub(crate) at: DVec2,
     /// Which way the mark is set, as a unit direction in the sketch.
     ///
@@ -64,7 +76,7 @@ pub(crate) struct Placed {
     pub(crate) lane: u8,
 }
 
-impl Placed {
+impl Mark {
     /// Where the mark is anchored in the world.
     ///
     /// The sketch coordinate put on the plane it was measured in, which is all
@@ -90,12 +102,26 @@ pub(super) fn stacked(model: Model<'_>, into: &mut Vec<Placed>) {
             .flatten()
             .map(move |Standing { at, along }| Placed {
                 of,
-                at,
-                along,
-                lane: 0,
+                mark: Mark { at, along, lane: 0 },
             })
     }));
     lanes(&mut into[from..]);
+}
+
+/// Where the mark for a relation the sketch does *not* hold would stand.
+///
+/// What a preview wants. A dimension being placed is not in the drawing — the
+/// click that would state it has not happened — so it has no lane: a lane counts
+/// how many marks share a place, and a stack that admitted one would shuffle
+/// every frame the pointer moved. It gets the anchoring half and nothing else.
+///
+/// The constraint still has to be about geometry the sketch holds, which a
+/// proposal always is: what a tool picks is what the drawing has.
+///
+/// One where a relation would draw two, and that is right for the case: nothing
+/// previews a parallel, and a dimension is one mark anyway.
+pub(super) fn previewed(sketch: &Sketch, constraint: Constraint) -> Option<Standing> {
+    anchors(sketch, constraint).into_iter().flatten().next()
 }
 
 /// Give each mark the lane it rises in: how many marks already stand where it
@@ -114,17 +140,17 @@ pub(super) fn stacked(model: Model<'_>, into: &mut Vec<Placed>) {
 /// sort won, and none exists.
 fn lanes(marks: &mut [Placed]) {
     for at in 0..marks.len() {
-        let mine = marks[at].at;
+        let mine = marks[at].mark.at;
         let below = marks[..at]
             .iter()
-            .filter(|other| same_place(other.at, mine))
+            .filter(|other| same_place(other.mark.at, mine))
             .count();
         // A quarter of a thousand relations on one point is not a sketch
         // anybody draws, and the cost of saying so is nothing in release —
         // where the cost of not saying it is the 257th mark quietly landing
         // back on top of the first.
         debug_assert!(below < 256, "{below} marks stand at {mine:?}");
-        marks[at].lane = below as u8;
+        marks[at].mark.lane = below as u8;
     }
 }
 

@@ -711,6 +711,115 @@ fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
     );
 }
 
+/// The dimension tool picks two things, follows the pointer, and states what it
+/// was showing.
+///
+/// The whole gesture end to end, and the one claim worth making about it: what
+/// the preview showed is what the click stated. They are one value read twice —
+/// see [`Dimensioning::proposed`](crate::tool::dimensioning::Dimensioning) — and
+/// a tool where they were two is one that looks right until the number lands
+/// somewhere else.
+///
+/// Points rather than a dimension's own mark, which is what lets this be driven
+/// through the harness at all: a marker is picked from its anchor and a run of
+/// text from a box only a paint measures.
+#[test]
+fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
+    let mut raised = Raised::new();
+    raised.frame();
+    let sketch = raised.session.editing();
+    let relations = |raised: &Raised| {
+        raised
+            .document
+            .drawing_at(sketch)
+            .sketch()
+            .constraints()
+            .count()
+    };
+    let stated = relations(&raised);
+
+    // Two points of the open sketch, far enough apart that every reading of
+    // them measures something.
+    let places = {
+        let drawing = raised.document.drawing_at(sketch);
+        let mut points = drawing.sketch().points();
+        let (_, first) = points.next().expect("the demo draws points");
+        let (_, second) = points
+            .find(|&(_, point)| {
+                // Off the first in *both* axes, so no reading of the pair
+                // measures nothing and the tool has all three to choose between.
+                let apart = (point.position - first.position).abs();
+                apart.x > 1.0 && apart.y > 1.0
+            })
+            .expect("the demo draws two points apart in both axes");
+        [first, second].map(|point| drawing.plane().point(point.position).as_vec3())
+    };
+
+    raised.hold(Tool::Dimension(Dimensioning::Empty));
+    for at in places {
+        raised.harness.click_at(raised.cursor_on(at));
+        raised.frame();
+    }
+    assert_eq!(
+        relations(&raised),
+        stated,
+        "picking what to measure reached the document"
+    );
+
+    // Out to one side of the pair, which is where a vertical dimension is
+    // stood — so the reading the pointer asks for is the one the number lands
+    // as, rather than whichever the tool would have chosen anyway.
+    let midpoint = places[0].midpoint(places[1]);
+    let plane = raised.document.drawing_at(sketch).plane();
+    let out = midpoint + (plane.x * 6.0).as_vec3();
+    raised.harness.move_to(raised.cursor_on(out));
+    raised.frame();
+
+    // The preview is the constraint it would state, so it can simply be read.
+    let Some(Preview::Dimension(shown)) = raised.view.preview() else {
+        panic!("the tool showed no dimension once it had a pair");
+    };
+
+    raised.harness.click_at(raised.cursor_on(out));
+    raised.frame();
+    assert_eq!(
+        relations(&raised),
+        stated + 1,
+        "the click stated no dimension"
+    );
+
+    // The very constraint the preview was showing, down to which way it is read
+    // and where its number went.
+    let (_, landed) = raised
+        .document
+        .drawing_at(sketch)
+        .sketch()
+        .constraints()
+        .last()
+        .expect("a relation was just stated");
+    assert_eq!(landed, shown, "the click stated something else");
+    assert!(
+        matches!(
+            landed,
+            // Qualified, because `Along` in this module is the timeline's — the
+            // line a plane travels — and this one is the sketch's, which is the
+            // way a distance is read.
+            silverpoint::Constraint::Distance {
+                along: silverpoint::Along::Vertical,
+                ..
+            }
+        ),
+        "dragging out to the side read the pair the wrong way: {landed:?}"
+    );
+
+    // And the tool is ready for another rather than still holding the pair.
+    assert_eq!(
+        raised.session.tool(),
+        Tool::Dimension(Dimensioning::Empty),
+        "the tool kept what it had already stated"
+    );
+}
+
 /// Placing a number moves it and leaves the drawing under it alone.
 ///
 /// The one edit to a sketch that changes no geometry, so the whole of what it

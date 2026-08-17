@@ -1499,7 +1499,7 @@ fn a_dimension_set(app: &CatCad, wanted: impl Fn(DVec2) -> bool) -> Option<(Part
     let drawing = app.document.drawing_at(sketch);
     drawing.sketch().constraints().find_map(|(id, constraint)| {
         let value = constraint.value()?;
-        wanted(app.view.placed(id)?.along).then_some((
+        wanted(app.view.placed(id)?.mark.along).then_some((
             Part::Entity {
                 sketch,
                 entity: id.into(),

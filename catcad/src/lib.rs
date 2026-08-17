@@ -312,7 +312,7 @@ impl CatCad {
                         // it hangs off, and worked out by the drawing: the box
                         // rises up the *run's* frame, which is the sketch
                         // plane's — see [`paint::mark_centre`].
-                        let middle = paint::mark_centre(placed, drawing, &camera, viewport);
+                        let middle = paint::mark_centre(placed.mark, drawing, &camera, viewport);
                         camera.screen_of(middle, viewport)
                     })
                     .map(Stands::Over)

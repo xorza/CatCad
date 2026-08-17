@@ -37,6 +37,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         document.models(&build, document.opening()),
         &mut layout,
         None,
+        None,
         &document.camera(),
         aperture::Viewport::new(glam::UVec2::new(800, 600)),
         &mut scene.gizmos,
@@ -101,6 +102,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         write(
             models,
             &mut layout,
+            None,
             None,
             camera,
             viewport,
@@ -172,6 +174,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
             models,
             &mut layout,
             Some(growing),
+            None,
             &camera,
             viewport,
             &mut scene.gizmos,
@@ -255,6 +258,7 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
             write(
                 models,
                 &mut layout,
+                None,
                 None,
                 &camera,
                 viewport,

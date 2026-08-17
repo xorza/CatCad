@@ -342,17 +342,17 @@ fn the_world_anchor_is_the_sketch_anchor_on_the_drawings_plane() {
         dimension: Dimension::new(0.0),
     });
     let ground = on_ground(&sketch);
-    let placed = Placed {
+    let mark = Mark {
         along: DVec2::X,
-        of,
         at: sole(&sketch, sketch.constraint(of)),
         lane: 0,
     };
-    assert_eq!(placed.at, DVec2::new(5.0, 2.0));
+    let placed = Placed { of, mark };
+    assert_eq!(placed.mark.at, DVec2::new(5.0, 2.0));
     // The ground plane maps sketch (x, y) to world (x, 0, −y), so a mark at
     // (5, 2) stands five along and two back — not two *up*, which is what
     // taking the plane's axes in the wrong order would give.
-    assert_eq!(placed.world(ground), Vec3::new(5.0, 0.0, -2.0));
+    assert_eq!(placed.mark.world(ground), Vec3::new(5.0, 0.0, -2.0));
 }
 
 /// Marks wanting one place rise in a column, in the order they are held.
@@ -382,15 +382,17 @@ fn marks_wanting_one_place_rise_in_a_column_in_the_order_they_are_held() {
     let drifted = corner + DVec2::splat(SAME_PLACE * 0.4);
     let mut marks = [corner, DVec2::new(9.0, 9.0), drifted, corner].map(|at| Placed {
         of,
-        at,
-        along: DVec2::X,
-        lane: 0,
+        mark: Mark {
+            at,
+            along: DVec2::X,
+            lane: 0,
+        },
     });
     lanes(&mut marks);
 
     // The three at the corner rise 0, 1, 2 in the order they were held, and the
     // one elsewhere is a stack of its own — a first lane, not a fourth.
-    assert_eq!(marks.map(|placed| placed.lane), [0, 0, 1, 2]);
+    assert_eq!(marks.map(|placed| placed.mark.lane), [0, 0, 1, 2]);
 }
 
 /// A place a whole sketch unit away is a different place.

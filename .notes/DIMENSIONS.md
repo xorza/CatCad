@@ -542,11 +542,31 @@ put, and the geometry, every stated value and the solve's own iteration count
 are all untouched. That last one is the sharp assertion: it is what a placement
 leaking into the solver would break.
 
-**5 — the tool.** `Tool::Dimension`, `Dimensioning`, `proposed`, the alignment
-rule, `Preview::Dimension`, the bar routing into placing, and `prune`. The
-alignment rule is a pure function over feet and a pointer and gets a table-driven
-sweep: eight pointer positions round two fixtures, each asserting which reading
-came out.
+**5 — the tool.** *Built.* `Tool::Dimension`, `Dimensioning`, `proposed`, the
+alignment rule, `Preview::Dimension`, and `prune`.
+
+`Preview::Dimension` carries the whole constraint, which is the piece worth
+having: the preview is drawn by the very code that draws a stated dimension, so
+what is shown and what the click states are one value read twice. The end-to-end
+test simply reads the preview and compares it to what landed.
+
+Two things fell out of it. `Placed` split into a handle and a `Mark`, because a
+proposal has somewhere to be drawn and no `ConstraintId` to be named by — which
+is what let the mark writer and the gizmo writer take the preview without either
+learning a second way to draw a dimension. And `Sketch::proposed` joined
+`fitted` and `place` in silverpoint: a tool wants both at once, and doing it in
+catcad would have meant building the constraint twice to ask the drawing what it
+measures.
+
+The alignment rule is a pure function over two places and a pointer, swept round
+the compass. What the sweep found that three examples would not: dragging *along*
+the pair leaves every reading scoring alike, and the answer there is the
+tie-break — it has no good reading to give, and what it owes is to keep still
+while the pointer moves through it.
+
+The bar still commits its dimensions where the plan had it route into placing.
+That is the remaining half, and it is small now: a button would raise
+`Choice::Hold` with the reading it named rather than `Change::Constrain`.
 
 The `Emblem` primitive this note used to plan for is **dropped**. It was going to
 be a way to draw a flat shape sized in logical pixels, and `paint::gizmos` plus

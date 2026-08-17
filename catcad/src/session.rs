@@ -246,11 +246,19 @@ impl Session {
         // The tool draws in the open sketch and nowhere else, so what it is
         // half-way through hangs off that one — asking the rest would be asking
         // after a point they never held.
-        if self
+        let drawing = models.open().drawing();
+        let hanging = self
             .tool
             .started()
-            .is_some_and(|anchor| !models.open().drawing().holds_anchor(anchor))
-        {
+            .is_some_and(|anchor| !drawing.holds_anchor(anchor))
+            // And what it has *picked*, which is the other way a gesture hangs
+            // off geometry: the dimension tool names entities rather than
+            // places, and a handle to something an undo took away is not merely
+            // inert — the sketch is restored arenas and all, so the next entity
+            // created takes the very same handle and the tool would come back
+            // pointing at something nobody picked.
+            || self.tool.picking().any(|entity| !drawing.holds(entity));
+        if hanging {
             self.tool = self.tool.restarted();
         }
     }

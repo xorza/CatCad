@@ -745,7 +745,14 @@ fn a_relation_drawn_twice_is_named_once() {
     let mut names = Names::default();
     let mut marks = Batch::default();
     let mut placed = Vec::new();
-    write_marks(one.models(), None, &mut names, &mut placed, &mut marks);
+    write_marks(
+        one.models(),
+        None,
+        None,
+        &mut names,
+        &mut placed,
+        &mut marks,
+    );
     assert_eq!(marks.len(), 3, "a ∥ against each edge, and the one length");
 
     // Found by the symbol rather than by position, and through [`symbol`]
@@ -819,7 +826,7 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
         }
     };
     let laid = |names: &mut Names, placed: &mut Vec<_>, marks: &mut Batch<Text>, typed| {
-        write_marks(one.models(), typed, names, placed, marks);
+        write_marks(one.models(), typed, None, names, placed, marks);
         marks
             .iter()
             .map(|mark| (mark.content.clone(), mark.position, clearance(mark)))

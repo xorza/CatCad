@@ -30,8 +30,8 @@ use crate::model::Models;
 use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::growing::Growing;
 use crate::paint::layout::Layout;
-use crate::paint::marks::Placed;
-use crate::paint::{EDGE_WIDTH, MARK, rule_rise};
+use crate::paint::marks::{Mark, Placed};
+use crate::paint::{EDGE_WIDTH, GHOST, MARK, marks, rule_rise};
 use crate::part::Part;
 
 mod dimension;
@@ -90,6 +90,7 @@ pub(crate) fn write(
     models: Models<'_>,
     layout: &mut Layout,
     growing: Option<Growing>,
+    proposed: Option<Constraint>,
     camera: &Camera,
     viewport: Viewport,
     into: &mut Batch<Curve>,
@@ -118,7 +119,7 @@ pub(crate) fn write(
                 .map(move |piece| (Some(Part::Plane(at)), piece))
             })
             .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))
-            .chain(ruled(models, placed, camera, viewport)),
+            .chain(ruled(models, placed, proposed, camera, viewport)),
         |curve, (part, piece)| {
             curve.width = piece.width();
             curve.closed = piece.closes();
@@ -148,7 +149,7 @@ pub(crate) fn write(
                 Piece::Depth(carried) => curve
                     .points
                     .extend(shape::arrow(DVec2::X).map(|at| carried.at(at, scale))),
-                Piece::Ruled(plane, stroke) => curve
+                Piece::Ruled { plane, stroke, .. } => curve
                     .points
                     .extend(stroke.corners().map(|at| plane.point(at).as_vec3())),
             }
@@ -185,6 +186,7 @@ pub(crate) fn write(
 fn ruled<'a>(
     models: Models<'a>,
     placed: &'a [Placed],
+    proposed: Option<Constraint>,
     camera: &'a Camera,
     viewport: Viewport,
 ) -> impl Iterator<Item = (Option<Part>, Piece)> + 'a {
@@ -194,10 +196,27 @@ fn ruled<'a>(
         .into_iter()
         .flat_map(move |model| {
             let (sketch, plane) = (model.sketch(), model.plane());
+            // The dimension a tool is half-way through placing, which is drawn
+            // exactly as a stated one and stands in no stack — see
+            // [`marks::previewed`]. Its own mark rather than a `Placed`, because
+            // the sketch does not hold it and there is no handle to name it by.
+            let previewed = proposed
+                .and_then(|constraint| Some((constraint, marks::previewed(sketch, constraint)?)));
             placed
                 .iter()
-                .filter_map(move |placed| {
-                    let constraint = sketch.constraint(placed.of);
+                .map(|placed| (sketch.constraint(placed.of), placed.mark, false))
+                .chain(previewed.map(|(constraint, standing)| {
+                    (
+                        constraint,
+                        Mark {
+                            at: standing.at,
+                            along: standing.along,
+                            lane: 0,
+                        },
+                        true,
+                    )
+                }))
+                .filter_map(move |(constraint, placed, proposed)| {
                     let measured = Measurement::of(sketch, constraint)?;
                     // Where the *number* stands, which is what an extension line
                     // is reaching to and so what the gaps at either end of one
@@ -221,13 +240,19 @@ fn ruled<'a>(
                         !matches!(constraint, Constraint::Radius { .. }),
                         scale,
                     );
-                    Some(strokes)
+                    Some((strokes, proposed))
                 })
-                .flat_map(move |strokes| {
-                    strokes
-                        .into_iter()
-                        .flatten()
-                        .map(move |stroke| (None, Piece::Ruled(plane, stroke)))
+                .flat_map(move |(strokes, proposed)| {
+                    strokes.into_iter().flatten().map(move |stroke| {
+                        (
+                            None,
+                            Piece::Ruled {
+                                plane,
+                                stroke,
+                                proposed,
+                            },
+                        )
+                    })
                 })
         })
 }
@@ -252,7 +277,13 @@ enum Piece {
     Depth(Carried),
     /// One stroke of a dimension: an extension line, the dimension line itself,
     /// or an arrowhead. Already sized — see [`ruled`].
-    Ruled(Plane, Stroke),
+    Ruled {
+        plane: Plane,
+        stroke: Stroke,
+        /// Whether it belongs to the dimension a tool is half-way through
+        /// placing rather than to one the drawing states.
+        proposed: bool,
+    },
 }
 
 impl Piece {
@@ -262,7 +293,7 @@ impl Piece {
             Piece::Axis(plane, ..)
             | Piece::Hub(plane)
             | Piece::Corner(plane)
-            | Piece::Ruled(plane, _) => Some(plane),
+            | Piece::Ruled { plane, .. } => Some(plane),
             Piece::Depth(_) => None,
         }
     }
@@ -284,7 +315,7 @@ impl Piece {
                 Some(plane.origin.as_vec3())
             }
             Piece::Depth(carried) => Some(carried.tail),
-            Piece::Ruled(..) => None,
+            Piece::Ruled { .. } => None,
         }
     }
 
@@ -295,7 +326,7 @@ impl Piece {
     fn closes(self) -> bool {
         match self {
             Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Depth(_) => true,
-            Piece::Ruled(_, stroke) => stroke.closes(),
+            Piece::Ruled { stroke, .. } => stroke.closes(),
         }
     }
 
@@ -307,7 +338,7 @@ impl Piece {
     fn width(self) -> f32 {
         match self {
             Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Depth(_) => GIZMO_WIDTH,
-            Piece::Ruled(..) => EDGE_WIDTH,
+            Piece::Ruled { .. } => EDGE_WIDTH,
         }
     }
 
@@ -322,7 +353,13 @@ impl Piece {
             // Not the redundant red a spare relation wears — a dimension the
             // constraints could do without says so in its figure, and saying it
             // twice would double the ink on the one case that is already loud.
-            Piece::Ruled(..) => MARK,
+            Piece::Ruled {
+                proposed: false, ..
+            } => MARK,
+            // A proposal has no state to report — the constraints have not been
+            // asked about it — so it wears the grey a rubber band does, and for
+            // the reason that one does: it is not in the drawing yet.
+            Piece::Ruled { proposed: true, .. } => GHOST,
         }
     }
 
@@ -342,7 +379,7 @@ impl Piece {
             // reaches them. Stated all the same, because a stroke that later
             // earned a name would otherwise inherit whatever this happened to
             // say.
-            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Ruled(..) => {
+            Piece::Axis(..) | Piece::Hub(_) | Piece::Corner(_) | Piece::Ruled { .. } => {
                 Precedence::Frame
             }
             Piece::Depth(_) => Precedence::Shaped,

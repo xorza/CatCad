@@ -27,6 +27,7 @@ use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
 use crate::timeline::{Along, FeatureId, Movable};
 use crate::tool::Tool;
+use crate::tool::dimensioning::Dimensioning;
 
 mod aimed;
 
@@ -375,6 +376,12 @@ impl SceneView {
         // anywhere inside one, whether or not its widget has recorded yet.
         let response = ui.response_for(view_id());
 
+        // Where the pointer is aiming on the sketch's own plane, which the
+        // dimension tool wants on every frame — its preview follows the pointer
+        // — and its click wants again. One ray, asked once.
+        let drawing = document.drawing_at(sketch);
+        let landing = aimed::landing(&response, document, drawing.motion());
+
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
         if matches!(response.left.phase, ButtonPhase::Down { .. }) {
@@ -545,6 +552,41 @@ impl SceneView {
                     // has nothing left to ask.
                     intents.push(Choice::Ask(None));
                 }
+                // The one tool whose clicks name geometry rather than a place,
+                // so what it reads is what was *under* the cursor rather than
+                // what an anchor made of it. Before the catch-all below, which
+                // would otherwise take the click on a plane seen edge-on and
+                // pick something out with it.
+                (Tool::Dimension(dimensioning), _) => {
+                    // Placing takes the click outright: what it commits is what
+                    // the preview has been showing, wherever that click landed.
+                    // Clicking geometry to *finish* a dimension is how the gesture
+                    // ends everywhere else, and dropping the number on the thing
+                    // it measures is a fair place to want it.
+                    let placed = landing
+                        .map(|at| drawing.plane().flatten(at.as_dvec3()))
+                        .and_then(|at| dimensioning.proposed(drawing.sketch(), at));
+                    match placed {
+                        Some(constraint) => {
+                            intents.push(Change::Constrain { sketch, constraint });
+                            // Ready for another, which is what a modeller expects
+                            // of a tool it took a trip to the bar to pick up.
+                            intents.push(Choice::Hold(Tool::Dimension(Dimensioning::Empty)));
+                        }
+                        // Still picking. A click on nothing, or on something the
+                        // pair cannot be measured against, leaves what has been
+                        // picked where it is.
+                        None => {
+                            if let Some(entity) = under
+                                .filter(|part| part.sketch() == Some(sketch))
+                                .and_then(Part::entity)
+                                && let Some(next) = dimensioning.picked(drawing.sketch(), entity)
+                            {
+                                intents.push(Choice::Hold(Tool::Dimension(next)));
+                            }
+                        }
+                    }
+                }
                 // Nothing in hand — or a plane seen so nearly edge-on that a
                 // click names nowhere on it, where there is nothing to build
                 // from and picking out what was clicked is all that is left.
@@ -580,34 +622,45 @@ impl SceneView {
         // a different one from the form beside it.
         let asking = session.prompt();
         let typed = asking.and_then(|open| open.typed(0));
-        self.preview = tool
-            .started()
-            .zip(aimed::landing(
-                &response,
-                document,
-                document.drawing_at(sketch).motion(),
-            ))
-            .map(|(started, at)| {
-                let drawing = document.drawing_at(sketch);
-                let from = drawing.at(started);
-                let ends = Ends { from, to: at };
-                match tool {
-                    Tool::Circle { .. } => {
-                        let ends = match typed {
-                            // Along the plane's own x, which is where a typed
-                            // radius puts the rim when it commits — so the band
-                            // and what it becomes are the same circle.
-                            Some(radius) => Ends {
-                                from,
-                                to: from + drawing.plane().x.as_vec3() * radius as f32,
-                            },
-                            None => ends,
-                        };
-                        Preview::Circle(ends)
+        // The dimension being placed, which is a preview of a different kind:
+        // every other band is two world places, and this is the whole relation
+        // the next click states — see [`Preview::Dimension`].
+        let dimensioning = match tool {
+            Tool::Dimension(dimensioning) => landing
+                .map(|at| drawing.plane().flatten(at.as_dvec3()))
+                .and_then(|at| dimensioning.proposed(drawing.sketch(), at))
+                .map(Preview::Dimension),
+            _ => None,
+        };
+        self.preview = dimensioning.or_else(|| {
+            tool.started()
+                .zip(aimed::landing(
+                    &response,
+                    document,
+                    document.drawing_at(sketch).motion(),
+                ))
+                .map(|(started, at)| {
+                    let drawing = document.drawing_at(sketch);
+                    let from = drawing.at(started);
+                    let ends = Ends { from, to: at };
+                    match tool {
+                        Tool::Circle { .. } => {
+                            let ends = match typed {
+                                // Along the plane's own x, which is where a typed
+                                // radius puts the rim when it commits — so the band
+                                // and what it becomes are the same circle.
+                                Some(radius) => Ends {
+                                    from,
+                                    to: from + drawing.plane().x.as_vec3() * radius as f32,
+                                },
+                                None => ends,
+                            };
+                            Preview::Circle(ends)
+                        }
+                        _ => Preview::Line(ends),
                     }
-                    _ => Preview::Line(ends),
-                }
-            });
+                })
+        });
         // And the other way about while nobody has typed: what the band is
         // showing is what the field offers, so the number follows the pointer.
         if asking.is_some()
@@ -791,6 +844,7 @@ impl SceneView {
                 models,
                 &mut self.layout,
                 growing,
+                self.preview.and_then(Preview::dimension),
                 &document.camera(),
                 viewport,
                 &mut renderer.scene_mut().gizmos,
@@ -1109,10 +1163,23 @@ pub(crate) mod internals {
     #[cfg(test)]
     mod picking {
         use crate::part::Part;
+        use crate::preview::Preview;
         use crate::scene_view::SceneView;
         use aperture::Tag;
 
         impl SceneView {
+            /// The shape a tool is half-way through, for a test that wants to
+            /// read what a gesture is *showing* rather than what it drew.
+            ///
+            /// A preview is the one thing the view holds that is neither in the
+            /// document nor in the picture it can be measured out of: a
+            /// dimension's is the whole constraint the next click would state,
+            /// so reading it is how a test asks whether the preview and the
+            /// click agree without picking a mark no paint has measured.
+            pub(crate) fn preview(&self) -> Option<Preview> {
+                self.preview
+            }
+
             /// What `tag` stands for in the layout this view last made.
             ///
             /// For a test sweeping candidate cursors to find one that would

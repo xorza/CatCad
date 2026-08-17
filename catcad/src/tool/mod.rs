@@ -1,6 +1,11 @@
 //! What the pointer is holding, and so what a click in the viewport means.
 
+use silverpoint::Entity;
+
 use crate::drawing::anchor::Anchor;
+use crate::tool::dimensioning::Dimensioning;
+
+pub(crate) mod dimensioning;
 
 /// The tool in hand, and how far through it is.
 ///
@@ -42,6 +47,15 @@ pub(crate) enum Tool {
     /// Draw a circle: the first click is its centre, the second a point on its
     /// rim.
     Circle { center: Option<Anchor> },
+    /// Measure something and put the number where the next click lands.
+    ///
+    /// The one tool that picks rather than places. Every other draws geometry
+    /// where you click; this one says something *about* geometry already there,
+    /// so what its clicks name are entities and not [`Anchor`]s — which is why
+    /// [`Tool::started`] answers `None` for it however far through it is, and
+    /// why what a prune has to ask it is a different question. See
+    /// [`Tool::picking`].
+    Dimension(Dimensioning),
 }
 
 impl Tool {
@@ -66,12 +80,31 @@ impl Tool {
     }
 
     /// The click this tool is building from, if it has had one.
+    ///
+    /// A place on the drawing, which is what every tool that *draws* is
+    /// half-way through. The dimension tool is half-way through something else —
+    /// it has picked geometry rather than a place — so it answers `None` here
+    /// and [`Tool::picking`] instead.
     pub(crate) fn started(self) -> Option<Anchor> {
         match self {
-            Tool::Pointer | Tool::Point => None,
+            Tool::Pointer | Tool::Point | Tool::Dimension(_) => None,
             Tool::Line { from } => from,
             Tool::Circle { center } => center,
         }
+    }
+
+    /// The geometry this tool has picked out so far.
+    ///
+    /// The other half of what a prune asks, beside [`Tool::started`]: both are
+    /// "what is this gesture hanging off that an undo could take away", and they
+    /// differ only in whether the answer is a place or a handle.
+    pub(crate) fn picking(self) -> impl Iterator<Item = Entity> {
+        match self {
+            Tool::Dimension(dimensioning) => Some(dimensioning.picking()),
+            Tool::Pointer | Tool::Point | Tool::Line { .. } | Tool::Circle { .. } => None,
+        }
+        .into_iter()
+        .flatten()
     }
 
     /// The same tool with nothing started, ready for a first click again.
@@ -79,6 +112,7 @@ impl Tool {
         match self {
             Tool::Line { .. } => Tool::Line { from: None },
             Tool::Circle { .. } => Tool::Circle { center: None },
+            Tool::Dimension(_) => Tool::Dimension(Dimensioning::Empty),
             plain => plain,
         }
     }

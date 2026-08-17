@@ -14,6 +14,7 @@ use crate::part::Part;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
+use crate::tool::dimensioning::Dimensioning;
 use silverpoint::{Along, Constraint, ConstraintId, Entity};
 
 /// Logical pixels of breathing room inside a floating panel, and between the
@@ -221,6 +222,13 @@ impl Hud {
             self.tool(ui, tool, Tool::Point, "Point", intents);
             self.tool(ui, tool, Tool::Line { from: None }, "Line", intents);
             self.tool(ui, tool, Tool::Circle { center: None }, "Circle", intents);
+            self.tool(
+                ui,
+                tool,
+                Tool::Dimension(Dimensioning::Empty),
+                "Dimension",
+                intents,
+            );
         });
     }
 

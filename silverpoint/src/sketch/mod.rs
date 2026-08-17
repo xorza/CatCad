@@ -389,6 +389,37 @@ impl Sketch {
         })
     }
 
+    /// `constraint` fitted to what the drawing measures, with its number put at
+    /// `at`.
+    ///
+    /// What a tool placing one with the pointer wants, where [`Sketch::fitted`]
+    /// is what a bar offering one without a pointer wants: the same fit, and a
+    /// place for the figure rather than none.
+    ///
+    /// A value rather than an edit, because a proposal is not in the sketch yet
+    /// — it is what the *next* click would state, and what a preview is drawn
+    /// from in the meantime. [`Sketch::place`] is the other half: this puts a
+    /// number somewhere on a dimension nobody has stated, and that one moves the
+    /// number of a dimension the drawing holds. They are not one call because
+    /// they differ on the thing that matters most — this restates the value and
+    /// that one must not, since moving a figure is not an argument about what it
+    /// says.
+    ///
+    /// A relation comes back fitted and unplaced, which is nothing at all: it
+    /// has no number and so nowhere to put one.
+    pub fn proposed(&self, constraint: Constraint, at: DVec2) -> Option<Constraint> {
+        let mut fitted = self.fitted(constraint)?;
+        // The frame is the same whatever the placement currently is — it is
+        // where the *geometry* puts a number and which way that reads — so one
+        // measurement answers, and the number it carries is the fitted one.
+        if let Some(measured) = Measurement::of(self, fitted)
+            && let Some(dimension) = fitted.dimension_mut()
+        {
+            dimension.placement = measured.frame.placing(at);
+        }
+        Some(fitted)
+    }
+
     /// Whether two segments currently run parallel.
     ///
     /// A question about where the geometry *is* rather than about what the
