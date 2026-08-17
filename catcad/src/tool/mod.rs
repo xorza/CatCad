@@ -1,6 +1,6 @@
 //! What the pointer is holding, and so what a click in the viewport means.
 
-use silverpoint::Entity;
+use silverpoint::{Entity, Sketch};
 
 use crate::drawing::anchor::Anchor;
 use crate::tool::dimensioning::Dimensioning;
@@ -105,6 +105,30 @@ impl Tool {
         }
         .into_iter()
         .flatten()
+    }
+
+    /// Whether what this tool is half-way through still means anything.
+    ///
+    /// The third thing a prune asks, and the one that is not about *existence*.
+    /// The geometry can all still be there and the gesture still be dead: two
+    /// edges an undo has brought across each other have no distance between
+    /// them, and a dimension the drawing cannot state is one no click can
+    /// finish — so the tool would sit showing nothing and answering nothing
+    /// until it was put down by hand.
+    ///
+    /// **Asked only once the geometry is known to be there.** It reads what the
+    /// tool picked, and reading a handle the sketch no longer holds is a panic
+    /// rather than a `false` — see [`Sketch::point`](silverpoint::Sketch).
+    /// [`Session::prune`](crate::session::Session) asks
+    /// [`Tool::picking`] first for that reason.
+    pub(crate) fn stands(self, sketch: &Sketch) -> bool {
+        match self {
+            Tool::Dimension(dimensioning) => dimensioning.admits(sketch),
+            // Nothing else is half-way through anything a drawing can take back
+            // the *meaning* of: a place stays a place, and what is built on one
+            // is decided by the click that finishes it.
+            Tool::Pointer | Tool::Point | Tool::Line { .. } | Tool::Circle { .. } => true,
+        }
     }
 
     /// The same tool with nothing started, ready for a first click again.

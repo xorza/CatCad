@@ -110,28 +110,32 @@ impl Dimensioning {
         }
     }
 
-    /// Whether this pair admits a dimension at all.
+    /// Whether what has been picked still admits a dimension.
+    ///
+    /// Two callers, and they ask it at the two moments it can change. A pick
+    /// asks whether the pair it has just made means anything; a prune asks
+    /// whether the pair it made a moment ago still does, because an undo can
+    /// bring two edges across each other or two points together and leave a
+    /// gesture with nothing left to state.
     ///
     /// Asked by proposing one rather than by a table of which pairs admit what:
     /// the table is [`Self::proposed`]'s, and a second here would be a second
     /// chance to disagree with it.
     ///
-    /// With a reading already named, which is what makes the answer independent
-    /// of where the pointer is — and it has to be, because a pick happens before
-    /// the pointer has said anything about which reading was meant. `Shortest`
-    /// measures something exactly when the pair is not in one place, which is
-    /// the whole of what a pair of points has to clear.
-    fn admits(self, sketch: &Sketch) -> bool {
-        let named = match self {
-            Dimensioning::Placing { first, second, .. } => Dimensioning::Placing {
-                first,
-                second,
-                along: Some(Along::Shortest),
-            },
-            picking => picking,
-        };
-        // Anywhere at all: with the reading named, nothing below reads it.
-        named.proposed(sketch, DVec2::ZERO).is_some()
+    /// **Anywhere at all**, and that is exact rather than convenient: where the
+    /// pointer is decides *which* reading a pair of points is measured by and
+    /// never whether there is one — every reading of a pair measures nothing
+    /// only when the two are in one place — and nothing else here reads the
+    /// pointer for anything.
+    ///
+    /// `true` before there is a pair, because nothing has yet been decided that
+    /// could have stopped being true: a tool holding one thing is waiting for
+    /// the second, and what that will be is not its to know.
+    pub(crate) fn admits(self, sketch: &Sketch) -> bool {
+        match self {
+            Dimensioning::Placing { .. } => self.proposed(sketch, DVec2::ZERO).is_some(),
+            Dimensioning::Empty | Dimensioning::Picked(_) => true,
+        }
     }
 
     /// What the next click would state, with its number at `at`.

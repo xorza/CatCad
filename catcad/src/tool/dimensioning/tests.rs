@@ -137,3 +137,48 @@ fn how_far_the_pointer_went_decides_nothing() {
         }
     }
 }
+
+/// What a pair admits stops being true when the drawing moves under it, and is
+/// not yet a question before there is a pair.
+///
+/// The rule a prune leans on. A gesture can be left holding two handles that are
+/// both still good and still mean nothing between them — two points an undo has
+/// brought together have no distance to state, whichever way it is read — and a
+/// tool that went on holding them would show nothing and answer no click.
+///
+/// The `Empty` and `Picked` half is the other side of it: a tool waiting for its
+/// second pick has decided nothing that could have stopped being true, so a
+/// prune that asked this of one would put it down for no reason.
+#[test]
+fn a_pair_stops_admitting_a_dimension_when_the_drawing_moves_under_it() {
+    let mut sketch = Sketch::default();
+    let here = sketch.add_point(DVec2::ZERO);
+    let there = sketch.add_point(DVec2::new(3.0, 4.0));
+    let placing = |along| Dimensioning::Placing {
+        first: Entity::Point(here),
+        second: Some(Entity::Point(there)),
+        along,
+    };
+
+    // Three apart in x and four in y, so every reading measures something.
+    for along in [None, Some(Along::Shortest), Some(Along::Horizontal)] {
+        assert!(placing(along).admits(&sketch), "{along:?}");
+    }
+    // Nothing picked, or one thing: no pair, so nothing to be wrong yet.
+    assert!(Dimensioning::Empty.admits(&sketch));
+    assert!(Dimensioning::Picked(Entity::Point(here)).admits(&sketch));
+
+    // Brought level, and the reading the *bar* named stops meaning anything
+    // while the pointer-chosen one does not — which is why this is asked with
+    // the tool's own reading rather than one of its own choosing.
+    sketch.set_point(there, DVec2::new(3.0, 0.0));
+    assert!(!placing(Some(Along::Vertical)).admits(&sketch));
+    assert!(placing(Some(Along::Horizontal)).admits(&sketch));
+    assert!(placing(None).admits(&sketch));
+
+    // And brought together, where no reading of the pair measures anything.
+    sketch.set_point(there, DVec2::ZERO);
+    for along in [None, Some(Along::Shortest), Some(Along::Horizontal)] {
+        assert!(!placing(along).admits(&sketch), "{along:?}");
+    }
+}

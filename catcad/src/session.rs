@@ -257,7 +257,16 @@ impl Session {
             // inert — the sketch is restored arenas and all, so the next entity
             // created takes the very same handle and the tool would come back
             // pointing at something nobody picked.
-            || self.tool.picking().any(|entity| !drawing.holds(entity));
+            || self.tool.picking().any(|entity| !drawing.holds(entity))
+            // And whether what it is half-way through still *means* anything,
+            // which is not the same question: an undo can leave every handle
+            // good and the gesture dead all the same — see [`Tool::stands`].
+            //
+            // Last, and load-bearing that it is last. This reads the geometry
+            // the tool picked, and reading a handle the sketch no longer holds
+            // is a panic rather than a `false`; the test above has already
+            // answered for that, and `||` is what makes the order count.
+            || !self.tool.stands(drawing.sketch());
         if hanging {
             self.tool = self.tool.restarted();
         }
@@ -272,6 +281,7 @@ mod tests {
     use crate::model::Models;
     use crate::timeline::Timeline;
     use crate::timeline::feature::{Datum, Feature};
+    use crate::tool::dimensioning::Dimensioning;
     use glam::DVec2;
     use silverpoint::{Entity, Sketch};
 
@@ -337,6 +347,79 @@ mod tests {
         assert!(
             session.selection().contains(Part::Plane(ground)),
             "a plane the document still holds was pruned out of the selection"
+        );
+    }
+
+    /// A prune puts down a gesture whose geometry has stopped meaning anything,
+    /// not only one whose geometry has gone.
+    ///
+    /// The two are different failures and only one of them leaves a handle
+    /// dangling. A dimension half-placed over two points an undo has brought
+    /// together still names two points the sketch holds — nothing is dangling at
+    /// all — and there is no longer a distance between them to state, so every
+    /// click the tool took from then on would do nothing and say nothing about
+    /// why.
+    ///
+    /// The last part is the order, which is load-bearing: asking what a gesture
+    /// still *means* reads the geometry it picked, and reading a handle the
+    /// sketch no longer holds is a panic rather than an answer. So a pair that
+    /// has been deleted has to be answered by the test *before* it, and the way
+    /// to see that is that this does not panic.
+    #[test]
+    fn a_prune_puts_down_a_gesture_that_has_stopped_meaning_anything() {
+        // Two points `apart`, and the timeline holding them. Rebuilt rather than
+        // moved, which is exact where a solve would land near enough: two fresh
+        // arenas mint the same handles, so the gesture below names the same pair
+        // in either — see
+        // `two_sketches_mint_the_same_handles_and_are_told_apart_by_the_part`.
+        let raised = |apart: DVec2| {
+            let mut sketch = Sketch::default();
+            let here = sketch.add_point(DVec2::ZERO);
+            let there = sketch.add_point(apart);
+            let mut timeline = Timeline::default();
+            let ground = timeline.add(Feature::Plane(Datum::Ground));
+            let at = timeline.add(Feature::Sketch { on: ground, sketch });
+            let mut build = Build::default();
+            timeline.edit(at).opened(&mut build);
+            (timeline, build, at, [here, there])
+        };
+
+        let (timeline, build, at, [here, there]) = raised(DVec2::new(3.0, 4.0));
+        let placing = Tool::Dimension(Dimensioning::Placing {
+            first: Entity::Point(here),
+            second: Some(Entity::Point(there)),
+            along: None,
+        });
+        let mut session = Session::new(at);
+        let mut intents = Intents::default();
+        intents.push(Choice::Hold(placing));
+        session.apply(Models::new(&timeline, &build, at), &intents);
+
+        // Three-four-five apart, so the gesture still has a distance to state
+        // and the prune has nothing to say about it.
+        session.prune(Models::new(&timeline, &build, at));
+        assert_eq!(session.tool(), placing, "a live gesture was put down");
+
+        // In one place, with both handles still perfectly good.
+        let (together, build, at, _) = raised(DVec2::ZERO);
+        session.prune(Models::new(&together, &build, at));
+        assert_eq!(
+            session.tool(),
+            Tool::Dimension(Dimensioning::Empty),
+            "a gesture with nothing left to state stayed in hand"
+        );
+
+        // And a pair that has gone outright is answered without ever asking what
+        // it would have meant — which is a panic rather than a `false`, so the
+        // whole of the claim is that this line returns.
+        let (mut timeline, mut build, at, _) = raised(DVec2::new(3.0, 4.0));
+        session.apply(Models::new(&timeline, &build, at), &intents);
+        timeline.edit(at).remove(&mut build, Entity::Point(there));
+        session.prune(Models::new(&timeline, &build, at));
+        assert_eq!(
+            session.tool(),
+            Tool::Dimension(Dimensioning::Empty),
+            "a gesture hanging off geometry that has gone stayed in hand"
         );
     }
 }
