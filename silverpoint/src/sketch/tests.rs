@@ -519,15 +519,20 @@ fn a_dimension_is_fitted_to_what_the_drawing_measures_and_dropped_where_it_measu
     assert_eq!(standoff.and_then(|offered| offered.value()), Some(4.0));
 }
 
-/// Two edges run parallel or they do not, and a collapsed one does not run at
-/// all.
+/// Two edges run together, or cross somewhere, or do neither — and one whose
+/// ends have met does neither whatever it is asked against.
 ///
-/// The question a bar asks before offering a distance between two edges. The
-/// degenerate half is the sharp one: an edge whose ends have met has only the
-/// direction a fallback handed it, and reading two of those as parallel to each
-/// other would be reading agreement into two pieces of made-up data.
+/// Both questions on one fixture, because they are one reading: how near
+/// parallel a pair is decides whether a distance between them means anything
+/// *and* whether saying where they meet does, so a test that asked them apart
+/// would let the two drift to different answers at the boundary between them.
+///
+/// The degenerate half is the sharp one. An edge whose ends have met has only
+/// the direction a fallback handed it — reading two of those as parallel to each
+/// other would be reading agreement into made-up data, and dividing by the sweep
+/// they make would answer a NaN.
 #[test]
-fn two_edges_are_parallel_only_where_both_have_a_direction_to_compare() {
+fn two_edges_run_together_or_cross_and_a_collapsed_one_does_neither() {
     let mut sketch = Sketch::default();
     let at = |sketch: &mut Sketch, x, y| sketch.add_point(DVec2::new(x, y));
     let (a, b) = (at(&mut sketch, 0.0, 0.0), at(&mut sketch, 3.0, 4.0));
@@ -547,14 +552,41 @@ fn two_edges_are_parallel_only_where_both_have_a_direction_to_compare() {
     // measuring how big the sketch is.
     assert!(!sketch.parallel(first, across));
 
+    // Where they cross is the same reading answered the other way about, so a
+    // pair that runs together has nowhere to meet — including an edge against
+    // itself, which runs together everywhere and meets nowhere in particular.
+    assert_eq!(sketch.crossing(first, beside), None);
+    assert_eq!(sketch.crossing(first, first), None);
+
+    // And a pair at an angle meets where it meets. `first` runs (0,0)→(3,4) and
+    // this one (0,4)→(3,0), so they cross at half of each: (1.5, 2).
+    let (over, under) = (at(&mut sketch, 0.0, 4.0), at(&mut sketch, 3.0, 0.0));
+    let slanting = sketch.add_segment(over, under);
+    assert_eq!(sketch.crossing(first, slanting), Some(DVec2::new(1.5, 2.0)));
+    // Either way round names the same place, which is the whole of what a
+    // crossing is: the pair's, not the first-named edge's.
+    assert_eq!(sketch.crossing(slanting, first), Some(DVec2::new(1.5, 2.0)));
+
+    // Past both their ends and still a crossing, because it is the *lines* that
+    // are asked. `across` runs (0,0)→(4,3) and this one is well off the end of
+    // it — a crossing bounded to the edges would answer nothing here, and what
+    // a mark about the angle between them needs is somewhere to stand.
+    let (far, farther) = (at(&mut sketch, 8.0, 0.0), at(&mut sketch, 8.0, 2.0));
+    let beyond = sketch.add_segment(far, farther);
+    assert_eq!(sketch.crossing(across, beyond), Some(DVec2::new(8.0, 6.0)));
+
     // An edge whose ends have met has no direction of its own, so it is
-    // parallel to nothing — not even to another one that has also collapsed.
+    // parallel to nothing and crosses nothing — not even another that has also
+    // collapsed, which is the pair that would divide by nothing at all.
     let (here, there) = (at(&mut sketch, 2.0, 2.0), at(&mut sketch, 2.0, 2.0));
     let collapsed = sketch.add_segment(here, there);
     let also = sketch.add_segment(there, here);
     assert!(!sketch.parallel(collapsed, first));
     assert!(!sketch.parallel(first, collapsed));
     assert!(!sketch.parallel(collapsed, also));
+    assert_eq!(sketch.crossing(collapsed, first), None);
+    assert_eq!(sketch.crossing(first, collapsed), None);
+    assert_eq!(sketch.crossing(collapsed, also), None);
 }
 
 /// A number put somewhere comes back there, and nothing else moves when it

@@ -437,12 +437,63 @@ impl Sketch {
     /// reading two collapsed edges as parallel to each other would be reading
     /// agreement into two pieces of made-up data.
     pub fn parallel(&self, first: SegmentId, second: SegmentId) -> bool {
+        self.turn(first, second)
+            .is_some_and(|sine| sine.abs() <= PARALLEL)
+    }
+
+    /// Where two edges' *infinite* lines cross, or `None` where they do not
+    /// meaningfully meet.
+    ///
+    /// The lines rather than the edges, which is the whole difference from
+    /// [`intersect::spans`](crate::math::intersect): that one answers where two
+    /// edges *touch*, because an arrangement has to split them where they do,
+    /// and this answers where they would meet if they ran on. Two edges that
+    /// would meet a long way past both their ends are still at an angle to each
+    /// other, and something saying so has to be put somewhere.
+    ///
+    /// `None` covers both ways there is no answer, and they are the same two
+    /// [`Sketch::parallel`] answers `false` for: lines too near parallel to say
+    /// where they meet, and an edge whose ends have met and so has no line at
+    /// all. Both are read off the same [`Sketch::turn`] and against the same
+    /// tolerance, which is what keeps "these do not cross" and "these run
+    /// together" from being two opinions about one pair.
+    pub fn crossing(&self, first: SegmentId, second: SegmentId) -> Option<DVec2> {
+        let sine = self.turn(first, second)?;
+        if sine.abs() <= PARALLEL {
+            return None;
+        }
+        let (one, other) = (self.ends(first), self.ends(second));
+        let (run, across) = (one[1] - one[0], other[1] - other[0]);
+        // Safe to divide by exactly because the sine cleared the tolerance: the
+        // sweep is that sine times two lengths, and neither length is under
+        // `NO_DIRECTION` or the turn would have been `None`.
+        let sweep = run.perp_dot(across);
+        Some(one[0] + run * ((other[0] - one[0]).perp_dot(across) / sweep))
+    }
+
+    /// The sine of the angle between two edges, or `None` where either has no
+    /// direction to compare.
+    ///
+    /// The one reading both questions above are asked of, so that whether two
+    /// edges run together and whether they cross are two readings of one number
+    /// rather than two measurements free to disagree at the boundary.
+    ///
+    /// An edge whose ends have met has only the `+x` a fallback handed it, and
+    /// comparing that against anything would be reading agreement into made-up
+    /// data — so it answers nothing rather than an angle.
+    fn turn(&self, first: SegmentId, second: SegmentId) -> Option<f64> {
         let running = |id| {
             let edge = self.segment(id);
             Direction::of(self.point(edge.b).position - self.point(edge.a).position)
         };
         let (one, two) = (running(first), running(second));
-        one.known() && two.known() && one.unit.perp_dot(two.unit).abs() <= PARALLEL
+        (one.known() && two.known()).then(|| one.unit.perp_dot(two.unit))
+    }
+
+    /// An edge's two ends, as places.
+    fn ends(&self, id: SegmentId) -> [DVec2; 2] {
+        let edge = self.segment(id);
+        [self.point(edge.a).position, self.point(edge.b).position]
     }
 
     /// Take a constraint out of the sketch.

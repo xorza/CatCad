@@ -25,15 +25,6 @@ use silverpoint::{Constraint, ConstraintId, Measurement, PointId, SegmentId, Ske
 use crate::drawing::Drawing;
 use crate::model::Model;
 
-/// How square two lines have to be before they are taken to cross, as the sine
-/// of the angle between them.
-///
-/// Against the *sine* rather than against the cross product itself, because a
-/// cross is the two lengths times that sine — so an absolute floor would call
-/// two long segments crossed and two short ones parallel, which is a claim
-/// about how big the sketch is rather than about its angles.
-const NEARLY_PARALLEL: f64 = 1e-9;
-
 /// Where one mark stands and which way it runs, before the stack has had a say.
 ///
 /// What [`anchors`] answers per relation, and the half of a [`Placed`] that is
@@ -231,7 +222,12 @@ fn anchors(sketch: &Sketch, constraint: Constraint) -> [Option<Standing>; 2] {
         Constraint::PointOnCircle { point, .. } => one(at_point(sketch, point), across),
         Constraint::Perpendicular { first, second } => {
             let (this, that) = (span(sketch, first), span(sketch, second));
-            let at = crossing(this, that).map_or_else(
+            // Asked of the sketch rather than worked out here, which is what
+            // keeps one tolerance: how near parallel two edges have to be before
+            // a crossing stops meaning anything is the same question as whether
+            // they run together, and the sketch answers both off one reading —
+            // see [`Sketch::crossing`](silverpoint::Sketch).
+            let at = sketch.crossing(first, second).map_or_else(
                 // Momentarily parallel, which an unsolved sketch reaches: there
                 // is no corner to stand in, so stand between the two.
                 || (middle(this) + middle(that)) * 0.5,
@@ -376,18 +372,6 @@ fn middle(span: [DVec2; 2]) -> DVec2 {
 /// A unit vector along `run`, or `+x` where there is no direction to take.
 fn bearing(run: DVec2) -> DVec2 {
     run.try_normalize().unwrap_or(DVec2::X)
-}
-
-/// Where the two spans' *infinite* lines cross, or `None` where they are too
-/// near parallel to say — which includes either of them being a point.
-fn crossing(one: [DVec2; 2], other: [DVec2; 2]) -> Option<DVec2> {
-    let (run, across) = (one[1] - one[0], other[1] - other[0]);
-    let sweep = run.perp_dot(across);
-    // A zero-length span makes this a NaN, and a NaN fails the test — which is
-    // the answer wanted, so it needs no case of its own.
-    let turn = sweep / (run.length() * across.length());
-    (turn.abs() > NEARLY_PARALLEL)
-        .then(|| one[0] + run * ((other[0] - one[0]).perp_dot(across) / sweep))
 }
 
 /// The point of the span nearest `at`, or `None` where the span is a point and
