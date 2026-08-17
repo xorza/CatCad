@@ -15,6 +15,7 @@ mod filing;
 mod history;
 mod hud;
 mod intent;
+mod lens;
 mod model;
 mod paint;
 mod part;
@@ -271,10 +272,14 @@ impl CatCad {
         let Some(prompt) = self.session.prompt() else {
             return;
         };
-        let Some(viewport) = self.view.viewport() else {
+        // Where the drawing is being looked at from, which is the whole of what
+        // placing a form against it takes: every arm below either projects a
+        // point or measures a footprint, and both are answers in a viewport.
+        // `None` until the view has arranged, and then there is nowhere on
+        // screen for a form to stand yet.
+        let Some(lens) = self.view.lens(self.document.camera()) else {
             return;
         };
-        let camera = self.document.camera();
         let models = self.document.models(&self.build, self.session.editing());
         // Where each kind of form stands, worked out before the form is
         // borrowed *mutably* to be shown — the drawing is reached through the
@@ -311,8 +316,8 @@ impl CatCad {
                         // it hangs off, and worked out by the drawing: the box
                         // rises up the *run's* frame, which is the sketch
                         // plane's — see [`paint::mark_centre`].
-                        let middle = paint::mark_centre(placed.mark, drawing, &camera, viewport);
-                        camera.screen_of(middle, viewport)
+                        let middle = paint::mark_centre(placed.mark, drawing, lens);
+                        lens.screen_of(middle)
                     })
                     .map(Stands::Over)
             }
@@ -328,7 +333,7 @@ impl CatCad {
                     // clear of that quarter stands on the rest.
                     let middle = model.drawing().at(*center);
                     let radius = self.view.band_rim().map_or(0.0, |to| middle.distance(to));
-                    crate::prompt::footprint(model.rim_around(middle, radius), &camera, viewport)
+                    lens.footprint(model.rim_around(middle, radius))
                 })
                 .map(Stands::Beside),
             // Beside the circle it is about, which is the rim projected: a
@@ -336,8 +341,7 @@ impl CatCad {
             // geometry the number is describing.
             Asking::Radius { sketch, circle } => {
                 let rim = models.at(*sketch).map(|model| model.rim_of(*circle));
-                rim.and_then(|rim| crate::prompt::footprint(rim, &camera, viewport))
-                    .map(Stands::Beside)
+                rim.and_then(|rim| lens.footprint(rim)).map(Stands::Beside)
             }
             // Resolved here rather than remembered, for the reason the form
             // holds a name at all: the arrangement it was read from is not the
@@ -346,7 +350,7 @@ impl CatCad {
                 .face_of(models)
                 .and_then(|region| {
                     self.view
-                        .region_footprint(models, profile.sketch(), region, &camera, viewport)
+                        .region_footprint(models, profile.sketch(), region, lens)
                 })
                 .map(Stands::Beside),
         };

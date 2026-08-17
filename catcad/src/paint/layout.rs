@@ -3,11 +3,9 @@
 use silverpoint::{ConstraintId, Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
-use crate::paint::growing::Growing;
 use crate::paint::marks::Placed;
 use crate::paint::names::Names;
-use crate::part::Part;
-use crate::preview::Preview;
+use crate::paint::showing::Showing;
 use crate::timeline::FeatureId;
 
 /// What one laying-out of the drawing leaves behind, and what it claims to
@@ -116,34 +114,21 @@ impl Layout {
 ///
 /// What a [`Layout`] compares to decide whether it is still current. Three
 /// things rather than one, because each can move without the others: the
-/// document is solved again, a rubber band follows the cursor, or the sketch
-/// being worked in changes — and the last of those moves no geometry at all,
+/// document is solved again, the sketch being worked in changes, or a gesture
+/// half-way through moves — and the middle of those moves no geometry at all,
 /// which is exactly why it has to be named here. A picture that only watched
 /// the revision would go on drawing the sketch you just left as the live one.
+///
+/// The third is a whole bundle and is compared as one, because it is drawn as
+/// one: everything a gesture is showing goes into the same rewrite, so a
+/// [`Showing`] that differs anywhere is a picture that has been overtaken —
+/// including in a field opening over a mark, which the drawing answers by
+/// leaving that mark out.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Made {
     pub(crate) revision: Revision,
     pub(crate) editing: FeatureId,
-    pub(crate) band: Option<Preview>,
-    /// The dimension being retyped, whose mark is left out because the field
-    /// standing in for it is drawn over the top — see
-    /// [`Prompt::show`](crate::prompt::Prompt).
-    ///
-    /// A fact about the picture of the drawing, which is why it is here: opening
-    /// or closing a field adds or removes a mark, and that is a redraw. What the
-    /// field *says* moves nothing here at all — it is a palantir widget in
-    /// another layer, and the scene never hears about it.
-    pub(crate) typed: Option<Part>,
-    /// The solid being decided, if one is.
-    ///
-    /// A depth typed a digit at a time is a different picture each time, and
-    /// nothing else here would say so: the document is untouched while a form
-    /// is open, so its revision does not move.
-    ///
-    /// The *solid* only. The arrow that carries it is a control and holds its
-    /// size on screen, so it is written against the camera on its own schedule
-    /// — see [`write`](crate::paint::gizmos::write).
-    pub(crate) growing: Option<Growing>,
+    pub(crate) showing: Showing,
 }
 
 /// The room turning a drawing's faces into sheets takes.

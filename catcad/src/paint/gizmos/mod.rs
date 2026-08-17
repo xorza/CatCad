@@ -19,18 +19,19 @@
 //!
 //! **The schedule is what they have in common, and it is enough.** A control is
 //! grabbed and a dimension line is read, so they share no colour, no width and
-//! no standing; what they share is that neither can be written without a camera,
-//! and one batch written twice is a batch rewritten twice.
+//! no standing; what they share is that neither can be written without a
+//! [`Lens`], and one batch written twice is a batch rewritten twice.
 
-use aperture::{Batch, Camera, Curve, Precedence, Viewport};
+use aperture::{Batch, Curve, Precedence};
 use glam::{DVec2, Vec3};
 use silverpoint::{Constraint, Measurement, Plane};
 
+use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::gizmos::dimension::Stroke;
-use crate::paint::growing::Growing;
 use crate::paint::layout::Layout;
 use crate::paint::marks::Placed;
+use crate::paint::showing::Showing;
 use crate::paint::{EDGE_WIDTH, GHOST, MARK, marks, rule_rise};
 use crate::part::Part;
 
@@ -89,10 +90,8 @@ const AXIS_CORNER: Vec3 = Vec3::new(0.50, 0.52, 0.55);
 pub(crate) fn write(
     models: Models<'_>,
     layout: &mut Layout,
-    growing: Option<Growing>,
-    proposed: Option<Constraint>,
-    camera: &Camera,
-    viewport: Viewport,
+    showing: Showing,
+    lens: Lens,
     into: &mut Batch<Curve>,
 ) {
     let Layout {
@@ -105,7 +104,9 @@ pub(crate) fn write(
     // it and rewritten far more often, so without this the list would grow by a
     // gizmo's worth every frame the camera moved.
     names.truncate_to_drawn();
-    let carried = growing.and_then(|growing| growing.carried(models, sheets, camera));
+    let carried = showing
+        .growing
+        .and_then(|growing| growing.carried(models, sheets, lens));
     into.refill(
         models
             .planes()
@@ -119,7 +120,7 @@ pub(crate) fn write(
                 .map(move |piece| (Some(Part::Plane(at)), piece))
             })
             .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))
-            .chain(ruled(models, placed, proposed, camera, viewport)),
+            .chain(ruled(models, placed, showing.proposed(), lens)),
         |curve, (part, piece)| {
             curve.width = piece.width();
             curve.closed = piece.closes();
@@ -135,7 +136,7 @@ pub(crate) fn write(
             // all. Whatever this then answers for one is never read.
             let scale = piece
                 .stands_at()
-                .map_or(1.0, |at| f64::from(camera.world_per_pixel(at, viewport)));
+                .map_or(1.0, |at| f64::from(lens.world_per_pixel(at)));
             match piece {
                 Piece::Axis(plane, along, _) => curve
                     .points
@@ -187,8 +188,7 @@ fn ruled<'a>(
     models: Models<'a>,
     placed: &'a [Placed],
     proposed: Option<Constraint>,
-    camera: &'a Camera,
-    viewport: Viewport,
+    lens: Lens,
 ) -> impl Iterator<Item = (Option<Part>, Piece)> + 'a {
     let model = models.open();
     let (sketch, plane) = (model.sketch(), model.plane());
@@ -208,7 +208,7 @@ fn ruled<'a>(
             // is reaching to and so what the gaps at either end of one
             // dimension have to be sized against.
             let at = plane.point(placed.at).as_vec3();
-            let scale = f64::from(camera.world_per_pixel(at, viewport));
+            let scale = f64::from(lens.world_per_pixel(at));
             let strokes = dimension::strokes(
                 Measurement {
                     // The mark's own direction and height, so the line

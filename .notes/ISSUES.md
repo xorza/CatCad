@@ -11,6 +11,3 @@
   `Models::open`, which expects the sketch being edited to still be in the
   timeline. Nothing removes a sketch today; a change that deletes a named step
   would make it reachable.
-- The ray the cursor is resolved against the open sketch's plane with is
-  computed three times in one pass of `SceneView::poll`, beside a comment saying
-  it is computed once.

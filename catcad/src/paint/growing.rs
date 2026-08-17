@@ -1,9 +1,9 @@
 //! A solid the user is still deciding the depth of.
 
-use aperture::Camera;
 use glam::DVec2;
 use silverpoint::Prism;
 
+use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::FACE_SAGITTA;
 use crate::paint::gizmos::Carried;
@@ -42,7 +42,7 @@ impl Growing {
         self,
         models: Models<'_>,
         sheets: &mut Sheets,
-        camera: &Camera,
+        lens: Lens,
     ) -> Option<Carried> {
         let model = models.at(self.sketch)?;
         let plane = model.plane();
@@ -75,8 +75,7 @@ impl Growing {
             // fallback is the case where the camera looks straight down the
             // arrow, where there is no widest side to turn and the whole shape
             // is a dot whichever way it is laid out.
-            camera
-                .facing()
+            lens.facing()
                 .cross(normal)
                 .try_normalize()
                 .unwrap_or(plane.x.as_vec3()),

@@ -3,6 +3,7 @@ use crate::build::Build;
 use crate::model::{Model, Models};
 use crate::paint;
 use crate::paint::layout::Layout;
+use crate::paint::showing::Showing;
 use crate::part::Part;
 use crate::timeline::Timeline;
 use crate::tool::dimensioning::Dimensioning;
@@ -266,7 +267,12 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     let mut scene = Scene::default();
 
     let mut layout = Layout::default();
-    paint::redraw(linkage.models(), &mut layout, None, None, None, &mut scene);
+    paint::redraw(
+        linkage.models(),
+        &mut layout,
+        Showing::default(),
+        &mut scene,
+    );
     let before: Vec<Option<Part>> = scene
         .points
         .iter()
@@ -278,7 +284,12 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
     // Move something, so the rewrite has different geometry to emit.
     let plane = linkage.drawing().plane();
     linkage.drag_to(Grip::Point(linkage.grip), on(plane, DVec2::new(-3.0, 1.0)));
-    paint::redraw(linkage.models(), &mut layout, None, None, None, &mut scene);
+    paint::redraw(
+        linkage.models(),
+        &mut layout,
+        Showing::default(),
+        &mut scene,
+    );
 
     let after: Vec<Option<Part>> = scene
         .points

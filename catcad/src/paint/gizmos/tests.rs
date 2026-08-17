@@ -1,6 +1,7 @@
 use super::*;
 use crate::build::Build;
 use crate::demo;
+use crate::paint::growing::Growing;
 use crate::paint::redraw;
 use aperture::Scene;
 
@@ -28,18 +29,17 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     redraw(
         document.models(&build, document.opening()),
         &mut layout,
-        None,
-        None,
-        None,
+        Showing::default(),
         &mut scene,
     );
     write(
         document.models(&build, document.opening()),
         &mut layout,
-        None,
-        None,
-        &document.camera(),
-        aperture::Viewport::new(glam::UVec2::new(800, 600)),
+        Showing::default(),
+        Lens::new(
+            document.camera(),
+            aperture::Viewport::new(glam::UVec2::new(800, 600)),
+        ),
         &mut scene.gizmos,
     );
 
@@ -94,29 +94,27 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     // origin does not sit at the orbit target, so doubling the distance moves
     // it from `d + off` to `2d + off`.
     let viewport = aperture::Viewport::new(glam::UVec2::new(800, 600));
-    let spans = |camera: &aperture::Camera| {
+    let spans = |camera: aperture::Camera| {
+        let lens = Lens::new(camera, viewport);
         let mut scene = Scene::default();
         let mut layout = Layout::default();
         let models = document.models(&build, document.opening());
-        redraw(models, &mut layout, None, None, None, &mut scene);
+        redraw(models, &mut layout, Showing::default(), &mut scene);
         write(
             models,
             &mut layout,
-            None,
-            None,
-            camera,
-            viewport,
+            Showing::default(),
+            lens,
             &mut scene.gizmos,
         );
-        let middle = camera
-            .screen_of(origin, viewport)
+        let middle = lens
+            .screen_of(origin)
             .expect("the datum the gizmo stands on is behind the camera");
         scene.gizmos[0]
             .points
             .iter()
             .map(|&at| {
-                camera
-                    .screen_of(at, viewport)
+                lens.screen_of(at)
                     .expect("a corner of the gizmo is behind the camera")
                     .distance(middle)
             })
@@ -127,7 +125,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         distance: near.distance * 2.0,
         ..near
     };
-    let (near, far) = (spans(&near), spans(&far));
+    let (near, far) = (spans(near), spans(far));
     // To a pixel, against a span of about fifty. The shape is built in the
     // world from a scale taken at one point on it, and every corner is then
     // divided by its *own* depth — so a gizmo lying in a tilted plane comes out
@@ -156,10 +154,13 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
 fn the_depth_arrow_turns_its_face_to_the_camera() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
-    let growing = Growing {
-        sketch: document.opening(),
-        region: 0,
-        distance: 0.5,
+    let showing = Showing {
+        growing: Some(Growing {
+            sketch: document.opening(),
+            region: 0,
+            distance: 0.5,
+        }),
+        ..Showing::default()
     };
     let viewport = aperture::Viewport::new(glam::UVec2::new(800, 600));
     let widths = [0.0f32, 1.1].map(|yaw| {
@@ -173,10 +174,8 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
         write(
             models,
             &mut layout,
-            Some(growing),
-            None,
-            &camera,
-            viewport,
+            showing,
+            Lens::new(camera, viewport),
             &mut scene.gizmos,
         );
         let arrow = scene
@@ -245,7 +244,7 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
     let mut layout = Layout::default();
     let mut scene = Scene::default();
     let models = document.models(&build, document.opening());
-    redraw(models, &mut layout, None, None, None, &mut scene);
+    redraw(models, &mut layout, Showing::default(), &mut scene);
     let drawing = layout.names().iter().count();
 
     let viewport = aperture::Viewport::new(glam::UVec2::new(800, 600));
@@ -258,10 +257,8 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
             write(
                 models,
                 &mut layout,
-                None,
-                None,
-                &camera,
-                viewport,
+                Showing::default(),
+                Lens::new(camera, viewport),
                 &mut scene.gizmos,
             );
             layout.names().iter().count()

@@ -13,8 +13,7 @@
 //! rather than the document's.
 
 use aperture::{
-    Batch, Camera, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Turn,
-    Vertex, Viewport,
+    Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Scene, Styled, Text, Turn, Vertex,
 };
 use glam::{DVec2, Mat4, Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
@@ -22,13 +21,15 @@ use silverpoint::{Circle, CircleId, Constraint, Freedom, Segment, SegmentId, Ske
 use std::fmt::Write;
 
 use crate::drawing::Drawing;
+use crate::lens::Lens;
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::layout::{Layout, Made, Sheets};
 use crate::paint::marks::{Mark, Placed, Standing};
 use crate::paint::names::Names;
+use crate::paint::showing::Showing;
 use crate::part::Part;
-use crate::preview::{Ends, Preview};
+use crate::preview::Ends;
 use crate::timeline::FeatureId;
 
 pub(crate) mod gizmos;
@@ -36,6 +37,7 @@ pub(crate) mod growing;
 pub(crate) mod layout;
 pub(crate) mod marks;
 pub(crate) mod names;
+pub(crate) mod showing;
 
 /// Marker diameters in logical pixels. A pinned point reads larger because it
 /// is the one the drawing hangs off.
@@ -223,9 +225,9 @@ const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 /// [`gizmos::write()`].
 pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
-    // No band and nothing being retyped. Nothing can be half-drawn or half-typed
+    // Nothing half-done: no band, nothing being retyped and nothing being grown
     // in a document nobody has looked at yet.
-    redraw(models, layout, None, None, None, &mut scene);
+    redraw(models, layout, Showing::default(), &mut scene);
     scene
 }
 
@@ -323,14 +325,7 @@ fn write_solids(
 /// Does nothing where the layout already describes what it would draw, and says
 /// so on the layout when it has drawn — so a caller settles a frame by calling
 /// this and reading nothing back.
-pub(crate) fn redraw(
-    models: Models<'_>,
-    layout: &mut Layout,
-    band: Option<Preview>,
-    typed: Option<Part>,
-    growing: Option<Growing>,
-    into: &mut Scene,
-) {
+pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, into: &mut Scene) {
     // The check is here rather than at the call, so that what a layout claims
     // to describe and what was drawn into it are decided in one place. A caller
     // that skipped the call would leave a stale picture; one that made it and
@@ -338,9 +333,7 @@ pub(crate) fn redraw(
     let made = Made {
         revision: models.revision(),
         editing: models.editing(),
-        band,
-        typed,
-        growing,
+        showing,
     };
     if !layout.stale(made) {
         return;
@@ -352,24 +345,22 @@ pub(crate) fn redraw(
         ..
     } = &mut *layout;
     names.clear();
-    write_curves(
-        models,
-        names,
-        band.and_then(Preview::line),
-        &mut into.curves,
-    );
-    write_rings(models, names, band.and_then(Preview::ring), &mut into.rings);
+    // The writers below take what they draw and not the bundle: what a stroke
+    // wants of a gesture is the band, and handing each of them the whole of it
+    // would be handing every writer the two thirds that are not theirs.
+    write_curves(models, names, showing.line(), &mut into.curves);
+    write_rings(models, names, showing.ring(), &mut into.rings);
     write_points(models, names, &mut into.points);
     write_marks(
         models,
-        typed,
-        band.and_then(Preview::dimension),
         names,
         placed,
+        showing.typed,
+        showing.proposed(),
         &mut into.texts,
     );
     write_faces(models, names, sheets, &mut into.faces);
-    write_solids(models, names, sheets, growing, &mut into.solids);
+    write_solids(models, names, sheets, showing.growing, &mut into.solids);
     // Where the controls start naming from — see [`gizmos::write()`].
     names.drew();
     layout.drawn(made);
@@ -509,10 +500,10 @@ pub(crate) fn region_corners(
 /// sketch gets un-stuck.
 fn write_marks(
     models: Models<'_>,
-    typed: Option<Part>,
-    proposed: Option<Constraint>,
     names: &mut Names,
     placed: &mut Vec<Placed>,
+    typed: Option<Part>,
+    proposed: Option<Constraint>,
     marks: &mut Batch<Text>,
 ) {
     // **The open sketch alone.** A constraint is a statement *about* a drawing,
@@ -731,19 +722,15 @@ fn rule_rise(lane: u8) -> f32 {
 /// which on a plane seen at any angle are two different directions, and on the
 /// plane the camera happens to face are one.
 ///
-/// The camera comes into it twice and only here: for the frame, and for what a
-/// logical pixel is worth in the world at the mark. Neither reaches
-/// [`redraw`] — a mark is laid out against the document and sized against the
-/// screen by the *shader* — so this is on the asking half's schedule, which is
-/// where the form that reads it already is.
-pub(crate) fn mark_centre(
-    placed: Mark,
-    drawing: Drawing<'_>,
-    camera: &Camera,
-    viewport: Viewport,
-) -> Vec3 {
+/// The lens comes into it here and nowhere else in this file: what a logical
+/// pixel is worth in the world at the mark is the whole of what a viewpoint has
+/// to say about where a box stands, the frame being the plane's. It does not
+/// reach [`redraw`] — a mark is laid out against the document and sized against
+/// the screen by the *shader* — so this is on the asking half's schedule, which
+/// is where the form that reads it already is.
+pub(crate) fn mark_centre(placed: Mark, drawing: Drawing<'_>, lens: Lens) -> Vec3 {
     let anchor = placed.world(drawing);
-    anchor + mark_turn(drawing, placed).lift_world() * camera.world_per_pixel(anchor, viewport)
+    anchor + mark_turn(drawing, placed).lift_world() * lens.world_per_pixel(anchor)
 }
 
 /// How far a mark's box stands off the point it names, in the world.
@@ -757,13 +744,8 @@ pub(crate) fn mark_centre(
 /// Its inverse is [`mark_anchor`] and not a subtraction of this, which is the
 /// whole of what that one is for: taken at the press it is a constant, and a
 /// radius's clearance is not.
-pub(crate) fn mark_standoff(
-    placed: Mark,
-    drawing: Drawing<'_>,
-    camera: &Camera,
-    viewport: Viewport,
-) -> Vec3 {
-    mark_centre(placed, drawing, camera, viewport) - placed.world(drawing)
+pub(crate) fn mark_standoff(placed: Mark, drawing: Drawing<'_>, lens: Lens) -> Vec3 {
+    mark_centre(placed, drawing, lens) - placed.world(drawing)
 }
 
 /// Where a mark is anchored for its box to land on `at`.
@@ -792,15 +774,14 @@ pub(crate) fn mark_anchor(
     placed: Mark,
     constraint: Constraint,
     drawing: Drawing<'_>,
-    camera: &Camera,
-    viewport: Viewport,
+    lens: Lens,
     at: Vec3,
 ) -> Vec3 {
     // Taken at the box rather than at the point it is solving for, which is the
     // one approximation here and is a fraction of a pixel: the two are a
     // clearance apart, and what a pixel is worth changes over that distance only
     // as far as the perspective divide does.
-    let step = camera.world_per_pixel(at, viewport);
+    let step = lens.world_per_pixel(at);
     let Constraint::Radius { circle, .. } = constraint else {
         // Square to a direction the geometry decides, so taking it off is exact.
         return at - mark_turn(drawing, placed).lift_world() * step;

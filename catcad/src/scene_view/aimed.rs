@@ -1,20 +1,26 @@
 //! The pointer, resolved: where it is over the view, and what that names in the
 //! world.
 
-use aperture::{Aim, Camera, Motion, Viewport};
+use aperture::{Aim, Motion, Viewport};
 use glam::{UVec2, Vec2, Vec3};
 use palantir::ResponseState;
 
-use crate::document::Document;
+use crate::lens::Lens;
 use crate::scene_view::HOVER_REACH;
 
-/// Where the pointer is over the view, and the viewport that measures it.
+/// Where the pointer is over the view.
 ///
 /// `pointer_local` is already what [`Scene::nearest`](aperture::Scene::nearest)
 /// asks for — logical pixels from the widget's own top-left — so nothing is
 /// converted. It is measured against `layout_rect` rather than the visible
-/// `rect`, and the viewport is built from that same rect, or the two would
+/// `rect`, which is the rect a [`Lens`] is built from too, or the two would
 /// disagree the moment anything clipped the view.
+///
+/// The cursor alone, and everything it is asked *through* arrives as a lens. A
+/// pointer position outlives a viewpoint — this one is kept from the recorded
+/// half of a frame to the settled half, and the camera turns in between — so a
+/// viewport carried along here would be a second copy of one, free to answer a
+/// pick through a camera the frame had already moved.
 ///
 /// Its own file rather than a satellite of [`SceneView`](crate::scene_view),
 /// because nothing about it is the view's: it turns a pointer event into a place
@@ -23,12 +29,11 @@ use crate::scene_view::HOVER_REACH;
 #[derive(Debug, Clone, Copy)]
 pub(super) struct Aimed {
     cursor: Vec2,
-    viewport: Viewport,
 }
 
 impl Aimed {
     /// What the pointer is aiming at this frame, or `None` if it is off the
-    /// surface or the view has not arranged yet.
+    /// surface.
     ///
     /// Says nothing about whether the pointer is over *this* view: it is the
     /// offset from this widget's corner wherever the pointer is, including
@@ -37,50 +42,23 @@ impl Aimed {
     pub(super) fn of(response: &ResponseState) -> Option<Self> {
         Some(Self {
             cursor: response.pointer_local?,
-            viewport: viewport(response)?,
         })
     }
 
-    /// The viewport this aim measures in.
-    ///
-    /// The one it was built with, so anything the caller sizes against the
-    /// screen is sized against the very rect the cursor was measured in. Reading
-    /// it back off the view instead would be reading a second copy — set from
-    /// the same response a phase earlier, and one ordering change away from
-    /// being a different number.
-    pub(super) fn viewport(self) -> Viewport {
-        self.viewport
-    }
-
-    /// The pick this cursor makes, seen through `camera`.
+    /// The pick this cursor makes, seen through `lens`.
     ///
     /// Everything that asks the scene a question about the cursor goes through
     /// here — the hover, the press and the click alike — so all three reach the
-    /// same distance and none can be given a camera the others were not.
-    pub(super) fn aim(self, camera: &Camera) -> Aim {
-        Aim::new(camera, self.cursor, self.viewport, HOVER_REACH)
-    }
-
-    /// The world step that slides the picture by `screen` logical pixels, seen
-    /// through `camera`.
-    ///
-    /// Here rather than on the camera's own call because the viewport is here:
-    /// a caller reaching for the viewport to hand it back would be one more
-    /// place the widget's rect is turned into one, and the two would disagree
-    /// the first time either was measured differently.
-    ///
-    /// The cursor is not read at all — a scroll carries no position of its own.
-    /// It arrives through an `Aimed` all the same, because that is where a
-    /// `Response` becomes a viewport.
-    pub(super) fn pan_step(self, camera: &Camera, screen: Vec2) -> Vec3 {
-        camera.pan_step(screen, self.viewport)
+    /// same distance and none can be given a viewpoint the others were not.
+    pub(super) fn aim(self, lens: Lens) -> Aim {
+        lens.aim(self.cursor, HOVER_REACH)
     }
 }
 
 /// The viewport the view lays out at, or `None` where it has not arranged.
 ///
 /// **The one place a response becomes a viewport.** Everything sized against the
-/// screen reads one of these — a pick measures the cursor in it, and the
+/// screen is answered in one — a pick measures the cursor in it, and the
 /// controls are cut in the world against what one of its pixels is worth — so
 /// two spellings of it would be a gizmo built at one size and clicked at
 /// another. It was spelt twice, four lines apart, and stayed harmless only
@@ -98,12 +76,14 @@ pub(super) fn viewport(response: &ResponseState) -> Option<Viewport> {
     )))
 }
 
-/// Where the cursor lands on `motion`, or `None` if it cannot say.
+/// Where the cursor lands on `motion` seen through `lens`, or `None` if it
+/// cannot say.
 ///
 /// A motion the cursor cannot resolve against — a plane gone edge-on — answers
 /// with nothing rather than jumping, which is what makes turning the view
 /// mid-drag survivable and what keeps a click across an edge-on sketch from
-/// putting a point somewhere nobody asked for.
+/// putting a point somewhere nobody asked for. So is a view that has not
+/// arranged yet, which is what the lens being absent says.
 ///
 /// No `hovered` filter, unlike hovering and grabbing. A drag that outruns the
 /// view keeps hold of what it grabbed, and a click is already the view's by the
@@ -114,9 +94,9 @@ pub(super) fn viewport(response: &ResponseState) -> Option<Viewport> {
 /// threading the `Option` on by hand.
 pub(super) fn landing(
     response: &ResponseState,
-    document: &Document,
+    lens: Option<Lens>,
     motion: Motion,
 ) -> Option<Vec3> {
     let aimed = Aimed::of(response)?;
-    motion.resolve(&aimed.aim(&document.camera()))
+    motion.resolve(&aimed.aim(lens?))
 }

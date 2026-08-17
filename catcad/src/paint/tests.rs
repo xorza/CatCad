@@ -242,7 +242,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let one = drawn(demo::sketch());
     let mut scene = Scene::default();
     let mut layout = Layout::default();
-    redraw(one.models(), &mut layout, None, None, None, &mut scene);
+    redraw(one.models(), &mut layout, Showing::default(), &mut scene);
 
     // Seven segments — four sides, the rail, and the arm's two bars — two
     // circles, and a marker on each of the nine points.
@@ -267,9 +267,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     redraw(
         one.models(),
         &mut Layout::default(),
-        None,
-        None,
-        None,
+        Showing::default(),
         &mut scene,
     );
     assert_eq!(scene.curves.len(), 7);
@@ -528,6 +526,13 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
 /// Its own fixture rather than an extension of the test below, which needs
 /// geometry with its freedom intact to have a colour worth checking where this
 /// needs geometry a constraint has taken hold of.
+///
+/// **And a field opening over a mark is a redraw too**, which is the last thing
+/// asked here and the narrowest: the models do not move, the open sketch does
+/// not change, and the only difference is one field of the [`Showing`] that
+/// [`Made`] carries. A layout comparing anything less than the whole of that
+/// bundle would decline the redraw and leave the mark on screen under the field
+/// standing over it — two copies of one number, one of them stale.
 #[test]
 fn only_the_open_sketch_shows_its_constraints() {
     let mut timeline = Timeline::default();
@@ -568,9 +573,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     redraw(
         document.models(&build, here),
         &mut layout,
-        None,
-        None,
-        None,
+        Showing::default(),
         &mut scene,
     );
     assert_eq!(
@@ -586,9 +589,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     redraw(
         document.models(&build, there),
         &mut layout,
-        None,
-        None,
-        None,
+        Showing::default(),
         &mut scene,
     );
     assert_eq!(
@@ -645,6 +646,30 @@ fn only_the_open_sketch_shows_its_constraints() {
             .any(|curve| curve.plane_normal == facing.normal()),
         "the marks and the strokes disagree about the plane they are on"
     );
+
+    // The one mark on screen, as the part a field would open over.
+    let over = scene
+        .texts
+        .iter()
+        .find_map(|mark| mark.tag.and_then(|tag| layout.names().get(tag)))
+        .expect("the open sketch drew a mark to type into");
+    // The same models and the same layout again, differing in one field of the
+    // `Showing`: the picture is stale all the same, and the mark goes because
+    // the field standing over it is drawn in its place.
+    redraw(
+        document.models(&build, there),
+        &mut layout,
+        Showing {
+            typed: Some(over),
+            ..Showing::default()
+        },
+        &mut scene,
+    );
+    assert!(
+        scene.texts.is_empty(),
+        "the mark a field stands over was left on screen under it, so a picture \
+         that differs only in what is being typed into was taken for current"
+    );
 }
 
 #[test]
@@ -685,9 +710,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     redraw(
         document.models(&build, here),
         &mut layout,
-        None,
-        None,
-        None,
+        Showing::default(),
         &mut scene,
     );
     assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
@@ -701,9 +724,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     redraw(
         document.models(&build, there),
         &mut layout,
-        None,
-        None,
-        None,
+        Showing::default(),
         &mut scene,
     );
     assert_eq!(
@@ -747,10 +768,10 @@ fn a_relation_drawn_twice_is_named_once() {
     let mut placed = Vec::new();
     write_marks(
         one.models(),
-        None,
-        None,
         &mut names,
         &mut placed,
+        None,
+        None,
         &mut marks,
     );
     assert_eq!(marks.len(), 3, "a ∥ against each edge, and the one length");
@@ -826,7 +847,7 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
         }
     };
     let laid = |names: &mut Names, placed: &mut Vec<_>, marks: &mut Batch<Text>, typed| {
-        write_marks(one.models(), typed, None, names, placed, marks);
+        write_marks(one.models(), names, placed, typed, None, marks);
         marks
             .iter()
             .map(|mark| (mark.content.clone(), mark.position, clearance(mark)))

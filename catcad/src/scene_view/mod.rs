@@ -16,13 +16,15 @@ use crate::document::Document;
 use crate::drawing::anchor::Anchor;
 use crate::drawing::{Drawing, Grip};
 use crate::intent::{Change, Choice, Intent, Intents, Opening, Step};
+use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::layout::Layout;
 use crate::paint::marks::Placed;
+use crate::paint::showing::Showing;
 use crate::paint::{self};
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
-use crate::prompt::{self, Carrying, Prompt};
+use crate::prompt::Prompt;
 use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
 use crate::timeline::{Along, FeatureId, Movable};
@@ -275,6 +277,11 @@ pub(crate) struct SceneView {
     /// the field open over a dimension — is placed by projecting a world point,
     /// and a projection is answered in the viewport it was made for. The view is
     /// the only thing that knows how big it came out.
+    ///
+    /// Written at the top of [`SceneView::poll`], off the very response the
+    /// pointer is read from — so everything a frame measures against the screen,
+    /// whether it asks here or asks the response, is measured in one rect. See
+    /// [`SceneView::lens`], which is how the rest of the frame asks.
     viewport: Option<Viewport>,
     /// Where the pointer was aiming when the view was last shown, or `None` if
     /// it was not over the view at all.
@@ -326,10 +333,18 @@ impl SceneView {
         self.renderer.borrow().scene().extent()
     }
 
-    /// How big the view was when it was last shown — what a projection over it
-    /// is answered in. See [`SceneView::viewport`].
-    pub(crate) fn viewport(&self) -> Option<Viewport> {
-        self.viewport
+    /// How this view is looking at the drawing through `camera`, or `None`
+    /// before it has arranged.
+    ///
+    /// **The one place the two halves meet, and the only way out of the view.**
+    /// The room is the view's and the viewpoint is the document's, and every
+    /// question either could be asked alone is really a question about both — so
+    /// handing the viewport out on its own would be handing out one half for a
+    /// caller to pair with a camera it was never measured against. Answered by
+    /// value, so what a caller holds is a reading of this frame rather than a
+    /// claim on the view.
+    pub(crate) fn lens(&self, camera: Camera) -> Option<Lens> {
+        Some(Lens::new(camera, self.viewport?))
     }
 
     /// Where the drawing put the mark for the relation `of` names.
@@ -396,22 +411,41 @@ impl SceneView {
         // anywhere inside one, whether or not its widget has recorded yet.
         let response = ui.response_for(view_id());
 
-        // Where the pointer is aiming on the sketch's own plane, which the
-        // dimension tool wants on every frame — its preview follows the pointer
-        // — and its click wants again. One ray, asked once.
+        // How big the view came out, taken from this frame's own response
+        // rather than carried over from the last: a press measures against the
+        // rect the cursor beside it was measured in, and the two arriving from
+        // different frames is exactly what a control built at one size and
+        // clicked at another is made of.
+        self.viewport = aimed::viewport(&response);
+        // And how the drawing is being looked at, which is what everything
+        // below resolves the cursor through. The camera as it stands *before*
+        // this frame's edits, like everything else in the asking half — what an
+        // orbit asked for lands afterwards, and is answered for by the settle.
+        let lens = self.lens(document.camera());
+        // **The pointer over this view, asked once**, like the ray below: the
+        // press, the click and the settle all want the same answer, and asking
+        // three times in three places is what lets a fourth caller forget the
+        // `hovered` half — which is the half that keeps the overlay's own
+        // controls from lighting what is behind them.
+        //
+        // Filtered, where the ray below is not: a drag that outruns the view
+        // keeps hold of what it grabbed, and a press on something the pointer
+        // is not over is not a press on it.
+        let pointing = Aimed::of(&response).filter(|_| response.hovered);
+
+        // Where the pointer is aiming on the sketch's own plane. **One ray,
+        // asked once**, and read by everything a frame decides against it: what
+        // a click builds on, what the dimension tool is proposing, and where the
+        // band a two-click tool is drawing has got to. A second resolve of the
+        // same ray would be a second answer free to differ from the one that was
+        // drawn — see [`anchor`].
         let drawing = document.drawing_at(sketch);
-        let landing = aimed::landing(&response, document, drawing.motion());
+        let landing = aimed::landing(&response, lens, drawing.motion());
 
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
         if matches!(response.left.phase, ButtonPhase::Down { .. }) {
-            self.gesture = self.grab(
-                &response,
-                document,
-                sketch,
-                session.prompt().and_then(Prompt::carrying),
-                tool,
-            );
+            self.gesture = self.grab(pointing, document, session);
         }
         match (self.gesture, response.left.drag) {
             (Gesture::Orbit { travel: was }, Drag::Started { delta } | Drag::Active { delta }) => {
@@ -440,7 +474,7 @@ impl SceneView {
                 }
                 // Where what is held should end up, which is where the cursor
                 // lands plus however far off centre it was grabbed.
-                if let Some(to) = aimed::landing(&response, document, held.motion) {
+                if let Some(to) = aimed::landing(&response, lens, held.motion) {
                     let to = to + held.offset;
                     // A plane and a solid's far end name a distance where
                     // geometry names a place, because that is what each of them
@@ -487,10 +521,8 @@ impl SceneView {
                         // to invert says nothing at all: the number stays put,
                         // which is a stutter, where placing it against no
                         // clearance would move it by the whole of one.
-                        Grabbed::Label(constraint) => self
-                            .placed(constraint)
-                            .zip(self.viewport())
-                            .map(|(placed, viewport)| {
+                        Grabbed::Label(constraint) => {
+                            self.placed(constraint).zip(lens).map(|(placed, lens)| {
                                 Change::Place {
                                     sketch,
                                     constraint,
@@ -498,13 +530,13 @@ impl SceneView {
                                         placed.mark,
                                         drawing.sketch().constraint(constraint),
                                         drawing,
-                                        &document.camera(),
-                                        viewport,
+                                        lens,
                                         to,
                                     ),
                                 }
                                 .into()
-                            }),
+                            })
+                        }
                         Grabbed::Growing(along) => Some(
                             Choice::Set {
                                 nth: 0,
@@ -540,11 +572,11 @@ impl SceneView {
             // is the wrong thing to answer with. Once, because both the anchor a
             // tool builds on and the entity a click picks out are this same
             // question, and asking the scene twice would be asking it twice.
-            let under = Aimed::of(&response)
-                .filter(|_| response.hovered)
-                .and_then(|aimed| {
+            let under = pointing
+                .zip(lens)
+                .and_then(|(aimed, lens)| {
                     let renderer = self.renderer.borrow();
-                    self.under(renderer.scene(), aimed, &document.camera())
+                    self.under(renderer.scene(), aimed, lens)
                 })
                 .map(|under| under.part);
             // A second click on a dimension opens it for typing. Raised before
@@ -581,7 +613,7 @@ impl SceneView {
             // clicks *for*: its picks are the whole of what it has done until the
             // second one lands, so they are what a reader has to be shown. See
             // its arm below.
-            match (tool, self.anchor(&response, document, sketch, under)) {
+            match (tool, anchor(landing, sketch, under)) {
                 // One click. On a point already there it adds nothing, and the
                 // drawing comes out of it unchanged.
                 (Tool::Point, Some(at)) => {
@@ -724,33 +756,26 @@ impl SceneView {
             _ => None,
         };
         self.preview = dimensioning.or_else(|| {
-            tool.started()
-                .zip(aimed::landing(
-                    &response,
-                    document,
-                    document.drawing_at(sketch).motion(),
-                ))
-                .map(|(started, at)| {
-                    let drawing = document.drawing_at(sketch);
-                    let from = drawing.at(started);
-                    let ends = Ends { from, to: at };
-                    match tool {
-                        Tool::Circle { .. } => {
-                            let ends = match typed {
-                                // Along the plane's own x, which is where a typed
-                                // radius puts the rim when it commits — so the band
-                                // and what it becomes are the same circle.
-                                Some(radius) => Ends {
-                                    from,
-                                    to: from + drawing.plane().x.as_vec3() * radius as f32,
-                                },
-                                None => ends,
-                            };
-                            Preview::Circle(ends)
-                        }
-                        _ => Preview::Line(ends),
+            tool.started().zip(landing).map(|(started, at)| {
+                let from = drawing.at(started);
+                let ends = Ends { from, to: at };
+                match tool {
+                    Tool::Circle { .. } => {
+                        let ends = match typed {
+                            // Along the plane's own x, which is where a typed
+                            // radius puts the rim when it commits — so the band
+                            // and what it becomes are the same circle.
+                            Some(radius) => Ends {
+                                from,
+                                to: from + drawing.plane().x.as_vec3() * radius as f32,
+                            },
+                            None => ends,
+                        };
+                        Preview::Circle(ends)
                     }
-                })
+                    _ => Preview::Line(ends),
+                }
+            })
         });
         // And the other way about while nobody has typed: what the band is
         // showing is what the field offers, so the number follows the pointer.
@@ -764,14 +789,11 @@ impl SceneView {
             });
         }
 
-        self.viewport = aimed::viewport(&response);
+        // Kept for the settle, which asks what is under the pointer once the
+        // document has finished moving and has no response left to read.
+        self.aimed = pointing;
 
-        // Asking whether the pointer is actually over the view is what stops
-        // the overlay's own controls — and the field open over a dimension —
-        // from lighting what is behind them.
-        self.aimed = Aimed::of(&response).filter(|_| response.hovered);
-
-        self.navigate(&response, document, intents);
+        self.navigate(&response, lens, intents);
     }
 
     /// Record the viewport.
@@ -811,7 +833,7 @@ impl SceneView {
     /// undone by the other. Both come out as their own intent instead of one
     /// combined factor: a frame carrying both asked for both, and a product
     /// would say the same thing while hiding which gesture said it.
-    fn navigate(&mut self, response: &ResponseState, document: &Document, intents: &mut Intents) {
+    fn navigate(&mut self, response: &ResponseState, lens: Option<Lens>, intents: &mut Intents) {
         // The middle button slides the picture under the pointer. Taken from
         // the cumulative travel rather than a per-frame delta, because that is
         // what a drag reports — see [`SceneView::panned`].
@@ -833,7 +855,7 @@ impl SceneView {
             }
         };
         if step != Vec2::ZERO
-            && let Some(aimed) = Aimed::of(response)
+            && let Some(lens) = lens
         {
             // Negated, because the two say opposite things: `pan_step` is told
             // where the *viewport* goes, and a button dragging the picture
@@ -841,7 +863,7 @@ impl SceneView {
             // makes, and for the same reason — what the pointer moves is the
             // thing, and the camera answers by going the other way.
             intents.push(Change::Pan {
-                by: aimed.pan_step(&document.camera(), -step),
+                by: lens.pan_step(-step),
             });
         }
 
@@ -852,10 +874,10 @@ impl SceneView {
         // rate of its own and moves what is under the fingers exactly as far as
         // they went.
         if scroll.pixels != Vec2::ZERO
-            && let Some(aimed) = Aimed::of(response)
+            && let Some(lens) = lens
         {
             intents.push(Change::Pan {
-                by: aimed.pan_step(&document.camera(), scroll.pixels),
+                by: lens.pan_step(scroll.pixels),
             });
         }
 
@@ -899,6 +921,12 @@ impl SceneView {
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
     pub(crate) fn settle(&mut self, document: &Document, build: &Build, session: &Session) {
+        // How the drawing is looked at now this frame's edits have landed,
+        // which is what the controls are cut against and what the hover is
+        // resolved through — the document's own camera rather than the copy
+        // handed to the renderer below, which is still wherever this frame's
+        // orbit found it.
+        let lens = self.lens(document.camera());
         let mut renderer = self.renderer.borrow_mut();
         // Unconditionally, and cheap when nothing moved: the layout compares
         // what it describes against what it is handed and returns without
@@ -911,31 +939,30 @@ impl SceneView {
         // Into the batches the renderer already holds, so a drag rewrites the
         // drawing every frame without asking the heap for anything.
         let models = document.models(build, session.editing());
-        // Read once for the solid and the handle both, which are two halves of
-        // one picture: they are written on different schedules, and asked twice
-        // they could disagree about what is growing.
-        let growing = session.prompt().and_then(|open| open.growing(models));
-        paint::redraw(
-            models,
-            &mut self.layout,
-            self.preview,
-            session.prompt().and_then(Prompt::marks),
-            growing,
-            renderer.scene_mut(),
-        );
+        // **Derived once, for both halves of the picture.** They are written on
+        // different schedules — the drawing when the drawing moves, the controls
+        // whenever the camera does — and read apart they could disagree about
+        // what a gesture is showing: a solid and the arrow carrying it, or a
+        // dimension's figure and the line under it, drawn about two different
+        // answers.
+        let open = session.prompt();
+        let showing = Showing {
+            band: self.preview,
+            typed: open.and_then(Prompt::marks),
+            growing: open.and_then(|open| open.growing(models)),
+        };
+        paint::redraw(models, &mut self.layout, showing, renderer.scene_mut());
         // Every frame, where the drawing above is written only when the drawing
         // moves. A control holds its size on screen, so it is built against the
         // camera and the camera moving is what invalidates it — and gating the
         // two together would mean re-cutting every face and solid on every
         // frame of an orbit. See [`paint::gizmos::write`].
-        if let Some(viewport) = self.viewport() {
+        if let Some(lens) = lens {
             paint::gizmos::write(
                 models,
                 &mut self.layout,
-                growing,
-                self.preview.and_then(Preview::dimension),
-                &document.camera(),
-                viewport,
+                showing,
+                lens,
                 &mut renderer.scene_mut().gizmos,
             );
         }
@@ -963,7 +990,8 @@ impl SceneView {
         let pointed = self
             .aimed
             .filter(|_| held.is_none())
-            .and_then(|aimed| self.under(renderer.scene(), aimed, &document.camera()))
+            .zip(lens)
+            .and_then(|(aimed, lens)| self.under(renderer.scene(), aimed, lens))
             .map(|under| under.part);
         // What is *named* is not what is lit, and a drag is the one moment they
         // part: the readout goes on saying what the pointer is working on, which
@@ -1015,11 +1043,12 @@ impl SceneView {
     /// Where the region at `region` of `sketch` lands on screen, or `None` where
     /// the projection draws none of it.
     ///
-    /// Here rather than in [`prompt`](crate::prompt) because it needs three
-    /// things this owns and nothing else does: the camera's viewport, and the
-    /// [`Filler`](silverpoint::Filler) the layout keeps — a region's shape is
-    /// cut rather than read, and cutting it through the same filler the sheets
-    /// use is what makes a form stand clear of exactly what is drawn.
+    /// Here rather than in [`crate::prompt`] because of the one thing this owns
+    /// and nothing else does: the [`Filler`](silverpoint::Filler) the layout keeps.
+    /// A region's shape is cut rather than read, and cutting it through the same
+    /// filler the sheets use is what makes a form stand clear of exactly what is
+    /// drawn. The lens comes in from outside, being the caller's frame rather
+    /// than the view's.
     ///
     /// `&mut self` for the filler's scratch, not to write anything: the corners
     /// are read into a buffer this keeps for its room rather than its contents.
@@ -1028,8 +1057,7 @@ impl SceneView {
         models: Models<'_>,
         sketch: FeatureId,
         region: usize,
-        camera: &Camera,
-        viewport: Viewport,
+        lens: Lens,
     ) -> Option<Rect> {
         paint::region_corners(
             models,
@@ -1038,7 +1066,7 @@ impl SceneView {
             region,
             &mut self.corners,
         );
-        prompt::footprint(self.corners.iter().copied(), camera, viewport)
+        lens.footprint(self.corners.iter().copied())
     }
 
     /// What `aimed` is over in `scene`, or `None` where it is over nothing the
@@ -1050,12 +1078,12 @@ impl SceneView {
     /// panic. Handing it in is also what says this reads the scene and nothing
     /// else about the view.
     ///
-    /// Aimed through the **document's** camera, once, here. The renderer keeps a
-    /// copy that is written at the end of every frame, so a caller reaching for
-    /// that one answers through wherever the camera was before this frame's
-    /// orbit.
-    fn under(&self, scene: &Scene, aimed: Aimed, camera: &Camera) -> Option<Under> {
-        let aim = aimed.aim(camera);
+    /// Aimed through a lens built on the **document's** camera, which every
+    /// caller here does — see [`SceneView::lens`]. The renderer keeps a copy of
+    /// that camera, written at the end of every frame, so one built on *that*
+    /// would answer through wherever the camera was before this frame's orbit.
+    fn under(&self, scene: &Scene, aimed: Aimed, lens: Lens) -> Option<Under> {
+        let aim = aimed.aim(lens);
         let hit = scene.nearest(aim)?;
         Some(Under {
             aim,
@@ -1064,75 +1092,41 @@ impl SceneView {
         })
     }
 
-    /// What a click here would build on: what it landed on and where.
-    ///
-    /// The one rule the drawing tools share, and it is that a click on
-    /// something already drawn is worth *more* than one beside it. A point is
-    /// shared outright; an edge or a rim is something the new geometry is held
-    /// to by a constraint, so it stays there however either is dragged
-    /// afterwards; and bare plane is the only click that leaves anything free.
-    ///
-    /// A constraint is the one thing that can be under the cursor and offer
-    /// nothing to build on. It is a statement about geometry rather than a place
-    /// on the drawing, so a click that lands on one is a click on the plane
-    /// behind it — which is what leaves it free to be *selected* while a tool is
-    /// down without the tool treating it as somewhere to put a point.
-    ///
-    /// `None` only where the plane cannot be resolved at all — seen edge-on,
-    /// there is nowhere on it for a click to mean.
-    ///
-    /// `under` is handed in rather than asked for, because the caller has
-    /// already asked: what a click picks out and what it builds on are the same
-    /// question about the same pixel.
-    fn anchor(
-        &self,
-        response: &ResponseState,
-        document: &Document,
-        editing: FeatureId,
-        under: Option<Part>,
-    ) -> Option<Anchor> {
-        let at = aimed::landing(response, document, document.drawing_at(editing).motion());
-        // Only what the open sketch holds is something to build *on*: a point
-        // of another names a handle this sketch would read as one of its own,
-        // so anything else is a click on the bare plane behind it.
-        let under = under.filter(|part| part.sketch() == Some(editing));
-        match under.and_then(Part::entity) {
-            Some(Entity::Point(id)) => Some(Anchor::On(id)),
-            Some(Entity::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
-            Some(Entity::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
-            // A constraint is a statement rather than a place, and a face is
-            // what the curves enclose rather than one of them — so a click on
-            // either builds on the bare plane behind it.
-            Some(Entity::Constraint(_)) | None => at.map(Anchor::At),
-        }
-    }
-
     /// Decide what this press is the start of.
     ///
     /// Something that will move takes precedence, and everything else — empty
     /// space, a solid, a point the drawing pins — turns the camera. Grabbing
     /// nothing has to stay the way the view is orbited, or the pointer would
     /// lose its only way to look around.
-    fn grab(
-        &self,
-        response: &ResponseState,
-        document: &Document,
-        editing: FeatureId,
-        growing: Option<Carrying>,
-        tool: Tool,
-    ) -> Gesture {
-        if tool != Tool::Pointer {
+    ///
+    /// The whole session rather than the three facts of it a press reads. They
+    /// arrive together and are read together — what is in hand decides whether
+    /// a press grabs at all, which sketch is open decides what it may grab, and
+    /// a depth being decided is one of the things it can be — so a caller
+    /// picking them apart would be a caller free to hand over three that never
+    /// stood at one moment.
+    ///
+    /// `aimed` is the frame's own reading of the pointer rather than a second
+    /// one taken off the response, and it carries the `hovered` filter with it —
+    /// see [`SceneView::poll`]. `None` is a press with nothing under it, which
+    /// orbits like a press on empty space.
+    fn grab(&self, aimed: Option<Aimed>, document: &Document, session: &Session) -> Gesture {
+        let editing = session.editing();
+        // The depth the form says, read here rather than by the caller: what a
+        // press on the arrow needs is where that arrow *is*, which is the form's
+        // own reading and nobody else's.
+        let growing = session.prompt().and_then(Prompt::carrying);
+        if session.tool() != Tool::Pointer {
             // A tool with something to put down has no business picking up what
             // is already there. The view is still turned under it, so a point
             // can be aimed at from wherever it needs to be seen from.
             return Gesture::Orbit { travel: Vec2::ZERO };
         }
-        let Some(held) = Aimed::of(response)
-            .filter(|_| response.hovered)
-            .and_then(|aimed| {
+        let Some(held) = aimed
+            .zip(self.lens(document.camera()))
+            .and_then(|(aimed, lens)| {
                 let renderer = self.renderer.borrow();
-                let Under { aim, hit, part } =
-                    self.under(renderer.scene(), aimed, &document.camera())?;
+                let Under { aim, hit, part } = self.under(renderer.scene(), aimed, lens)?;
                 let drawing = document.drawing_at(editing);
                 let grabbed = match part {
                     // A plane whatever sketch is open: what it moves is where
@@ -1225,12 +1219,7 @@ impl SceneView {
                     // [`paint::mark_standoff`].
                     Grabbed::Label(id) => self.placed(id).map_or(Vec3::ZERO, |placed| {
                         placed.mark.world(drawing) - hit.world
-                            + paint::mark_standoff(
-                                placed.mark,
-                                drawing,
-                                &document.camera(),
-                                aimed.viewport(),
-                            )
+                            + paint::mark_standoff(placed.mark, drawing, lens)
                     }),
                     _ => Vec3::ZERO,
                 };
@@ -1330,6 +1319,47 @@ pub(crate) mod internals {
                 self.layout.names().get(tag)
             }
         }
+    }
+}
+
+/// What a click landing `at` would build on: what it landed on and where.
+///
+/// The one rule the drawing tools share, and it is that a click on something
+/// already drawn is worth *more* than one beside it. A point is shared
+/// outright; an edge or a rim is something the new geometry is held to by a
+/// constraint, so it stays there however either is dragged afterwards; and bare
+/// plane is the only click that leaves anything free.
+///
+/// A constraint is the one thing that can be under the cursor and offer nothing
+/// to build on. It is a statement about geometry rather than a place on the
+/// drawing, so a click that lands on one is a click on the plane behind it —
+/// which is what leaves it free to be *selected* while a tool is down without
+/// the tool treating it as somewhere to put a point.
+///
+/// `None` only where the plane cannot be resolved at all — seen edge-on, there
+/// is nowhere on it for a click to mean.
+///
+/// Both of its answers are handed in rather than asked for, because the caller
+/// has already asked both. What a click picks out and what it builds on are the
+/// same question about the same pixel; where it landed is the frame's one ray,
+/// resolved once at the top of [`SceneView::poll`].
+///
+/// A free fn beside [`label`] and [`dimension`], and for their reason: nothing
+/// about it is the view's — it reads a place and a part, and the view is only
+/// what happened to be holding the click.
+fn anchor(at: Option<Vec3>, editing: FeatureId, under: Option<Part>) -> Option<Anchor> {
+    // Only what the open sketch holds is something to build *on*: a point of
+    // another names a handle this sketch would read as one of its own, so
+    // anything else is a click on the bare plane behind it.
+    let under = under.filter(|part| part.sketch() == Some(editing));
+    match under.and_then(Part::entity) {
+        Some(Entity::Point(id)) => Some(Anchor::On(id)),
+        Some(Entity::Segment(segment)) => at.map(|at| Anchor::OnSegment { segment, at }),
+        Some(Entity::Circle(circle)) => at.map(|at| Anchor::OnCircle { circle, at }),
+        // A constraint is a statement rather than a place, and a face is what
+        // the curves enclose rather than one of them — so a click on either
+        // builds on the bare plane behind it.
+        Some(Entity::Constraint(_)) | None => at.map(Anchor::At),
     }
 }
 

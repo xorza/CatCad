@@ -14,8 +14,7 @@
 //! neither can know: where in the world the form is about, and what pressing
 //! Enter means.
 
-use aperture::{Camera, Viewport};
-use glam::{Vec2, Vec3};
+use glam::Vec2;
 use palantir::{
     Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Sizing, Text,
     TextEdit, TextEditTheme, TextRun, TextWrap, Ui, VAlign, WidgetId,
@@ -107,38 +106,14 @@ pub(crate) enum Stands {
     /// than the screen's. What is left for a form is to centre itself on a
     /// point.
     Over(Vec2),
-    /// Clear of a footprint, so what the form is about stays visible under it.
+    /// Clear of a footprint, so what the form is about stays visible under it —
+    /// see [`Lens::footprint`](crate::lens::Lens), which measures one.
+    ///
+    /// A shape the projection draws none of has no footprint, and that is a
+    /// frame the form is not shown for rather than a form that *closes*: a
+    /// camera turning back brings it round again, and geometry swinging out of
+    /// view is nobody asking to stop typing.
     Beside(Rect),
-}
-
-/// The screen rectangle `at` covers, or `None` where the projection draws none
-/// of it.
-///
-/// Points the projection drops are skipped and the rest still answer: a face
-/// half off screen still has somewhere to put a form. All of them dropped is
-/// `None`, and the form is not shown for the frame — not *closed*, because a
-/// camera turning back brings it round again and geometry swinging out of view
-/// is nobody asking to stop typing.
-///
-/// The projection is built once and every corner read through it, rather than
-/// asked of the camera apiece: [`Camera::screen_of`] builds a whole
-/// view-projection per call, which is what a caller placing one thing wants and
-/// what a region's whole boundary does not.
-pub(crate) fn footprint(
-    at: impl Iterator<Item = Vec3>,
-    camera: &Camera,
-    viewport: Viewport,
-) -> Option<Rect> {
-    let view_proj = camera.view_proj(viewport.aspect());
-    let mut low = Vec2::splat(f32::MAX);
-    let mut high = Vec2::splat(f32::MIN);
-    let mut drawn = false;
-    for corner in at.filter_map(|corner| viewport.pixel_of(view_proj * corner.extend(1.0))) {
-        low = low.min(corner);
-        high = high.max(corner);
-        drawn = true;
-    }
-    drawn.then(|| Rect::new(low.x, low.y, high.x - low.x, high.y - low.y))
 }
 
 /// How far a form standing beside something keeps off it, in logical pixels.

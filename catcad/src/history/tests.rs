@@ -5,6 +5,7 @@ use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
 use crate::paint;
 use crate::paint::layout::Layout;
+use crate::paint::showing::Showing;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};
 use aperture::Scene;
@@ -25,9 +26,7 @@ fn markers(document: &Document, build: &Build) -> Vec<Vec3> {
     paint::redraw(
         document.models(build, document.opening()),
         &mut Layout::default(),
-        None,
-        None,
-        None,
+        Showing::default(),
         &mut scene,
     );
     scene.points.iter().map(|point| point.position).collect()

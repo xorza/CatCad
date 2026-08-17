@@ -9,6 +9,7 @@ use silverpoint::{Drive, Entity, Freedom, Outcome, Plane, PointId, Removed, Solv
 use crate::build::Build;
 use crate::demo;
 use crate::intent::{Choice, Intents, Opening};
+use crate::lens::Lens;
 use crate::model::Models;
 use crate::part::Part;
 use crate::prompt::{Asking, Prompt};
@@ -867,16 +868,17 @@ struct DrawnMark {
 }
 
 impl DrawnMark {
-    /// Where the middle of the box sits in the world, seen through `camera`.
+    /// Where the middle of the box sits in the world, seen through `lens`.
     ///
-    /// Camera-dependent, and that is the constant-size property rather than an
-    /// awkwardness: the box is a fixed number of *pixels* clear of the geometry,
-    /// so how far clear it is in the world shrinks as the view closes in.
-    fn centre(self, camera: &Camera, viewport: Viewport) -> Vec3 {
+    /// Viewpoint-dependent, and that is the constant-size property rather than
+    /// an awkwardness: the box is a fixed number of *pixels* clear of the
+    /// geometry, so how far clear it is in the world shrinks as the view closes
+    /// in.
+    fn centre(self, lens: Lens) -> Vec3 {
         // Centred on its own box — asserted where the run is read — so the
         // middle of that box is wherever the lift carried the run to, and the
         // projection has no say in it beyond how big a pixel is.
-        self.anchor + self.turn.lift_world() * camera.world_per_pixel(self.anchor, viewport)
+        self.anchor + self.turn.lift_world() * lens.world_per_pixel(self.anchor)
     }
 }
 
@@ -1667,8 +1669,7 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     // dimension hangs it from: the mark's box floats clear of the line it
     // measures, and the field stands over the box.
     let mark = drawn_mark(&app, dimension);
-    let camera = *app.camera_mut();
-    let middle = mark.centre(&camera, Viewport::new(SIZE));
+    let middle = mark.centre(Lens::new(*app.camera_mut(), Viewport::new(SIZE)));
     open_field(&mut app, &mut harness, dimension, was);
     frame(&mut app, &mut harness);
     frame(&mut app, &mut harness);
@@ -1747,8 +1748,7 @@ fn the_open_field_is_placed_against_this_frames_camera() {
     frame(&mut app, &mut harness);
 
     // Where the number now lands, through the camera the wheel just moved.
-    let camera = *app.camera_mut();
-    let at = mark.centre(&camera, Viewport::new(SIZE));
+    let at = mark.centre(Lens::new(*app.camera_mut(), Viewport::new(SIZE)));
     let middle = cursor_on(&mut app, at);
     let rect = harness
         .layout_rect(crate::prompt::Prompt::nth_field_id(0))

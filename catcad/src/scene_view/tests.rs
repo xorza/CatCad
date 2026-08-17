@@ -5,6 +5,7 @@ use crate::history::History;
 use crate::intent::{Choice, Intent, Intents};
 use crate::paint;
 use crate::paint::layout::Layout;
+use crate::paint::showing::Showing;
 use crate::part::Part;
 use crate::session::Session;
 use crate::tool::Tool;
@@ -150,9 +151,7 @@ impl Raised {
         paint::redraw(
             self.document.models(&self.build, self.session.editing()),
             &mut Layout::default(),
-            None,
-            None,
-            None,
+            Showing::default(),
             &mut scene,
         );
         scene.points.iter().map(|point| point.position).collect()
