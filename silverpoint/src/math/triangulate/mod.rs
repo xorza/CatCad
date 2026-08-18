@@ -9,7 +9,7 @@
 //! weighed.
 //!
 //! Quadratic in the number of corners, and paid on every frame a solid is drawn:
-//! a 128-corner outline cuts in 14.6µs and a 256-corner one in 53.4µs. How many
+//! a 128-corner outline cuts in 5.6µs and a 256-corner one in 16.3µs. How many
 //! corners there are is the caller's to decide rather than the drawing's — a
 //! face bounded by lines has one per line, where one bounded by anything curved
 //! has as many as the flattening was asked for. The alternative is a sweep-line,
@@ -64,6 +64,13 @@ pub(crate) struct Cutter {
     punched: Loops<u32>,
     /// One hole's walk out along its bridge, round itself, and back.
     spliced: Vec<u32>,
+    /// Which corners a candidate ear has to be held against — see [`ear`].
+    ///
+    /// Here rather than in [`clip`], which is the only thing that touches it,
+    /// because a fresh one per call is a call on the heap: every face of a solid
+    /// is cut afresh whenever the document moves, and six of them a frame is
+    /// what the application's allocation gate found when this was a local.
+    standing: Vec<bool>,
 }
 
 impl Cutter {
@@ -113,6 +120,7 @@ impl Cutter {
             contour,
             punched,
             spliced,
+            standing,
         } = self;
         // Rightmost first. A hole bridges to something outside it, and once one
         // is spliced in it becomes part of the outline the next may bridge to —
@@ -126,7 +134,7 @@ impl Cutter {
             bridge(&into.corners, contour, hole, spliced);
         }
 
-        clip(&into.corners, contour, &mut into.triangles);
+        clip(&into.corners, contour, standing, &mut into.triangles);
     }
 }
 
@@ -235,14 +243,28 @@ fn visible(corners: &[DVec2], contour: &[u32], from: DVec2) -> Option<usize> {
 
     // Anything jutting into the triangle between the hole, the place the ray
     // landed, and that corner would have the bridge cross it. The one that juts
-    // at the shallowest angle is reachable in its place — and if several do,
-    // the nearest of those.
+    // at the shallowest angle is reachable in its place.
+    //
+    // **Only the corners standing *in* the loop are candidates.** A corner
+    // standing proud of it is one the boundary turns away at, so a bridge drawn
+    // to it crosses the very edges that meet there — the corner is in the way
+    // rather than reachable past it. Leaving that out tiled a notched outline
+    // with two holes in it wrongly: triangles came back wound backwards and
+    // overlapping, and the area came out exact all the same, the overlap making
+    // up for what was reversed. It takes both a second hole and a notch, the
+    // second hole being what bridges to a boundary the first has already been
+    // spliced into — see
+    // `two_holes_in_a_notched_outline_are_tiled_like_anything_else`.
     let landing = DVec2::new(nearest, from.y);
     let mut best = candidate;
     let mut shallowest = f64::INFINITY;
     for at in 0..contour.len() {
         let corner = corners[contour[at] as usize];
-        if at == candidate || corner.x < from.x || !inside(from, landing, toward, corner) {
+        if at == candidate
+            || corner.x < from.x
+            || turn(corners, contour, at) >= 0.0
+            || !inside(from, landing, toward, corner)
+        {
             continue;
         }
         let reach = corner - from;
@@ -276,10 +298,18 @@ fn inside(a: DVec2, b: DVec2, c: DVec2, at: DVec2) -> bool {
 ///
 /// Leaves `contour` emptied down to whatever it could not cut, because the
 /// clipping *is* the emptying: a caller wanting it again refills it.
-fn clip(corners: &[DVec2], contour: &mut Vec<u32>, into: &mut Vec<[u32; 3]>) {
+fn clip(
+    corners: &[DVec2],
+    contour: &mut Vec<u32>,
+    standing: &mut Vec<bool>,
+    into: &mut Vec<[u32; 3]>,
+) {
     into.reserve_exact(contour.len().saturating_sub(2));
+    standing.clear();
+    standing.reserve_exact(contour.len());
+    standing.extend((0..contour.len()).map(|at| turn(corners, contour, at) <= SLIVER));
     while contour.len() > 3 {
-        let Some(at) = (0..contour.len()).find(|&at| ear(corners, contour, at)) else {
+        let Some(at) = (0..contour.len()).find(|&at| ear(corners, contour, at, standing)) else {
             // No ear anywhere means the contour is not the simple loop this
             // takes it for — corners doubled back on themselves, most likely.
             // Cutting the sharpest corner anyway makes progress and keeps the
@@ -293,9 +323,11 @@ fn clip(corners: &[DVec2], contour: &mut Vec<u32>, into: &mut Vec<[u32; 3]>) {
                 })
                 .expect("a contour of four or more has a corner");
             into.extend(cut(contour, sharpest));
+            retest(corners, contour, standing, sharpest);
             continue;
         };
         into.extend(cut(contour, at));
+        retest(corners, contour, standing, at);
     }
     // On the same terms every ear was cut on. Nothing tests the last three the
     // way [`ear`] tests all the rest, so this is the one place a sliver could
@@ -304,6 +336,40 @@ fn clip(corners: &[DVec2], contour: &mut Vec<u32>, into: &mut Vec<[u32; 3]>) {
     // degenerate triangle.
     if contour.len() == 3 && turn(corners, contour, 0) > SLIVER {
         into.push([contour[0], contour[1], contour[2]]);
+    }
+}
+
+/// Cut `at` out of the standing set too, and ask the two it stood between
+/// afresh.
+///
+/// **Only those two**: every other corner turns exactly as it did, its
+/// neighbours being the ones it had. These two have lost one each and gained the
+/// other.
+///
+/// And it can only ever answer one way. Cutting an ear puts the edge
+/// `before → after` where the path `before → at → after` was, which is a corner
+/// taken off a loop rather than added to one — so the turn at each of the two
+/// can only close, never open. A corner standing in the loop may come to stand
+/// proud of it and never the reverse, which is what makes this an optimisation
+/// on [`ear`]'s walk rather than a thing it depends on: leaving it out would
+/// leave corners in the set that no longer need testing, and cost only the
+/// testing.
+///
+/// Written down as an assert because it cannot be seen from outside. A
+/// triangulation cut with this left out is the same triangulation, so no test
+/// of what comes back can tell the two apart — deleting the loop below passes
+/// every one of them.
+fn retest(corners: &[DVec2], contour: &[u32], standing: &mut Vec<bool>, at: usize) {
+    standing.remove(at);
+    // The two the cut joined: where `at` now points, and the place before it —
+    // a corner taken from the front leaves its predecessor at the back.
+    for beside in [(at + contour.len() - 1) % contour.len(), at % contour.len()] {
+        let now = turn(corners, contour, beside) <= SLIVER;
+        debug_assert!(
+            standing[beside] || !now,
+            "a corner standing proud of the loop was left standing in it"
+        );
+        standing[beside] = now;
     }
 }
 
@@ -318,38 +384,34 @@ fn cut(contour: &mut Vec<u32>, at: usize) -> Option<[u32; 3]> {
 
 /// Whether the corner at `at` can be cut off without crossing the loop.
 ///
-/// **Every other corner is asked, and the usual shortcut past that is wrong
-/// here.** Ear clipping normally tests a candidate only against the corners
-/// standing *in* the loop rather than proud of it, on the theorem that a proud
-/// corner cannot be inside a candidate ear unless one standing in it is too —
-/// worth another 53.4µs against 18.0µs on a 256-corner outline, on top of the
-/// ordering below, and more the rounder the outline is.
+/// **Only the corners standing *in* the loop are asked, not all of them.** A
+/// corner standing proud cannot be the one inside a candidate ear unless a
+/// corner standing in the loop is inside it too, so the proud ones are not worth
+/// asking after — and on an outline traced round anything round they are all of
+/// them, which leaves this walk with nothing to do. Worth 53.4µs against 16.3µs
+/// on a 256-corner outline, and 14.6µs against 5.6µs on a 128-corner one.
 ///
-/// The theorem is about polygons that do not touch themselves, and what reaches
-/// here is a loop with its holes bridged in. **That much is not the objection**:
-/// a bridge is walked out and back, so its two ends turn almost the whole way
-/// round and go on being asked about, and over four thousand bridged contours
-/// the shortcut cuts what this walk cuts.
+/// That is a theorem about polygons which do not touch themselves, and this one
+/// does: its holes are bridged in, and a bridge is walked out and back. It holds
+/// anyway, because a bridge's two ends turn almost the whole way round — they
+/// stand *in* the loop, so they go on being asked about.
 ///
-/// What stops it is the shapes where they part. On an outline with deep enough
-/// notches the two cut differently, and all that could be held against the
-/// difference is that both tile the same area with the same number of triangles
-/// — because on those same shapes *this* walk already winds triangles backwards
-/// and lays them over holes, so there is no valid answer to be measured against.
-/// The shortcut also needs a corner's convexity re-asked either side of every
-/// cut, and no shape yet found tells that bookkeeping apart from leaving it out
-/// altogether. A silent failure with no test that can see it is not worth 53.4µs
-/// against 18.0µs.
-fn ear(corners: &[DVec2], contour: &[u32], at: usize) -> bool {
+/// `a_notched_outline_is_tiled_whatever_is_punched_out_of_it` sweeps it over
+/// notched outlines with holes bridged in, and holds the claim itself rather
+/// than a likeness of it: every triangle wound the way the outline is, none
+/// over a hole, and the lot covering exactly what the outline encloses less
+/// what its holes take out.
+fn ear(corners: &[DVec2], contour: &[u32], at: usize, standing: &[bool]) -> bool {
     // Twice the area of that corner's triangle, so again half of [`SLIVER`].
     if turn(corners, contour, at) <= SLIVER {
         return false;
     }
     let [before, corner, after] = triangle(corners, contour, at);
     !(0..contour.len()).any(|other| {
+        if !standing[other] {
+            return false;
+        }
         let candidate = corners[contour[other] as usize];
-        // A corner sharing a place with one of the three is one of the three
-        // as far as the loop is concerned, whatever its index says.
         // Whether it falls inside first, and sharing a place only of the few
         // that do. Nearly every corner is outside a candidate ear and leaves
         // after three cross products, where asking after the place first pays

@@ -224,3 +224,148 @@ fn an_outline_with_no_area_fills_to_nothing() {
         );
     }
 }
+
+/// The outline and holes of the smallest shape found to tile wrongly.
+fn notched_with_two_holes() -> (Vec<DVec2>, Vec<Vec<DVec2>>) {
+    let outline = corners(&[
+        (43.97114719357511, 0.0),
+        (7.402488982271089, 22.782518474856925),
+        (-22.381680528676952, 16.26124275231332),
+        (-12.236256715578277, -8.890160887458812),
+        (4.494613153849542, -13.83299690957409),
+    ]);
+    let hole = |at: DVec2| -> Vec<DVec2> {
+        (0..6)
+            .map(|i| {
+                let round = -std::f64::consts::TAU * i as f64 / 6.0;
+                at + DVec2::new(1.1 * round.cos(), 1.1 * round.sin())
+            })
+            .collect()
+    };
+    let holes = vec![
+        hole(DVec2::new(2.3947585844075016, 1.0124876900024913)),
+        hole(DVec2::new(-2.3947585844075016, -1.0124876900024913)),
+    ];
+    (outline, holes)
+}
+
+/// **Two holes bridged into a notched outline tile it, like everything else.**
+///
+/// They did not. Triangles came out wound backwards and overlapping, and the
+/// area still came out exact — the overlap making up for what was reversed,
+/// which is why no area check saw it. Not slivers either: on this outline, of
+/// area about 1400, the worst was some eighty-five units of triangle.
+///
+/// It takes two holes *and* a notched outline. Neither alone does it, which is
+/// why [`two_holes_are_both_punched_out`] passes over a rectangle and this needs
+/// a shape of its own.
+#[test]
+fn two_holes_in_a_notched_outline_are_tiled_like_anything_else() {
+    let (outline, holes) = notched_with_two_holes();
+    let fill = polygon(&outline, &holes);
+    assert!(
+        all_wound_forward(&fill),
+        "a triangle came out wound backwards, so the tiling overlaps itself"
+    );
+    // The other two the sweep below asks of this class of shape, asked of the
+    // one shape named: the area is what the overlap kept exact while the
+    // winding went wrong, so on its own it says nothing, and it is here to
+    // catch the opposite mistake rather than this one.
+    let want =
+        sweep(&outline).abs() / 2.0 - holes.iter().map(|h| sweep(h).abs() / 2.0).sum::<f64>();
+    assert!(
+        (fill.covered() - want).abs() < 1e-9,
+        "tiled {} of the {want} it encloses",
+        fill.covered()
+    );
+    for at in 0..fill.triangles.len() {
+        let middle = fill.middle(at);
+        for hole in &holes {
+            assert!(!encloses(hole, middle), "a triangle was laid over a hole");
+        }
+    }
+}
+
+/// Whether `at` falls inside `loop_`, by crossings — which does not care which
+/// way round the loop is wound, unlike everything else here.
+fn encloses(loop_: &[DVec2], at: DVec2) -> bool {
+    let mut crossings = 0;
+    for i in 0..loop_.len() {
+        let (a, b) = (loop_[i], loop_[(i + 1) % loop_.len()]);
+        if (a.y > at.y) != (b.y > at.y) {
+            let x = a.x + (at.y - a.y) / (b.y - a.y) * (b.x - a.x);
+            if x > at.x {
+                crossings += 1;
+            }
+        }
+    }
+    crossings % 2 == 1
+}
+
+/// **A notched outline is tiled exactly however many holes are bridged into
+/// it.**
+///
+/// The sweep the shape above came out of. What it holds is the whole of what a
+/// tiling promises and what area alone cannot say: every triangle wound the way
+/// the outline is, none of them over a hole, and the lot covering exactly what
+/// the outline encloses less what the holes take out. The overlap this was
+/// written for kept the area exact while reversing triangles, so the area is the
+/// weakest of the three and is here to catch the opposite mistake.
+#[test]
+fn a_notched_outline_is_tiled_whatever_is_punched_out_of_it() {
+    let mut state = 0x9E37_79B9_7F4A_7C15u64;
+    let mut next = || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        (state >> 11) as f64 / (1u64 << 53) as f64
+    };
+    for seed in 0..600usize {
+        let sides = 5 + seed % 21;
+        // Radii swinging hard between neighbours, so the outline is notched
+        // rather than merely not round — a convex one has no reflex corner for
+        // a bridge to be drawn to, and reflex corners are the whole question.
+        let outline: Vec<DVec2> = (0..sides)
+            .map(|i| {
+                let turn = std::f64::consts::TAU * i as f64 / sides as f64;
+                let out = 7.0 + 43.0 * next();
+                DVec2::new(out * turn.cos(), out * turn.sin())
+            })
+            .collect();
+        let holes = seed % 4;
+        let punched: Vec<Vec<DVec2>> = (0..holes)
+            .map(|h| {
+                let turn = std::f64::consts::TAU * h as f64 / holes.max(1) as f64 + 0.4;
+                let at = DVec2::new(2.6 * turn.cos(), 2.6 * turn.sin());
+                (0..6)
+                    .map(|i| {
+                        let round = -std::f64::consts::TAU * i as f64 / 6.0;
+                        at + DVec2::new(1.1 * round.cos(), 1.1 * round.sin())
+                    })
+                    .collect()
+            })
+            .collect();
+
+        let fill = polygon(&outline, &punched);
+        assert!(
+            all_wound_forward(&fill),
+            "seed {seed}: {sides} sides and {holes} holes wound a triangle backwards"
+        );
+        let want =
+            sweep(&outline).abs() / 2.0 - punched.iter().map(|h| sweep(h).abs() / 2.0).sum::<f64>();
+        assert!(
+            (fill.covered() - want).abs() < 1e-9,
+            "seed {seed}: tiled {} of the {want} it encloses",
+            fill.covered()
+        );
+        for at in 0..fill.triangles.len() {
+            let middle = fill.middle(at);
+            for hole in &punched {
+                assert!(
+                    !encloses(hole, middle),
+                    "seed {seed}: a triangle was laid over a hole"
+                );
+            }
+        }
+    }
+}
