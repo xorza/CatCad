@@ -97,6 +97,10 @@ pub(super) struct Elimination {
     /// short array beside the matrix rather than of the matrix is the difference
     /// between a read straight through and a stride of a whole row into
     /// something far too large to sit in cache.
+    ///
+    /// Read once more after the walk is over, by the substitution that builds
+    /// the null space: what a pivot has to do to keep its own equation satisfied
+    /// is a sum over that row, and this is how far it runs.
     reach: Vec<Stretch>,
     /// The columns that took no pivot, which are the null space's own axes.
     /// Filled by [`Elimination::eliminate`] beside [`Elimination::pivots`], the
@@ -395,17 +399,16 @@ impl Elimination {
         }
     }
 
-    /// Reduce the Jacobian to row echelon form and then to *reduced* row echelon
-    /// form, and write out the null space that exposes — every way the sketch
-    /// can still move.
+    /// Reduce the Jacobian to row echelon form and write out the null space that
+    /// exposes — every way the sketch can still move.
     ///
     /// A row-echelon Jacobian says what each pivot parameter is in terms of the
-    /// columns to its right; reduced, it says so in terms of the columns that
-    /// took no pivot alone. Those columns are the sketch's remaining freedoms:
-    /// each one can be chosen at will, and choosing it fixes every pivot
-    /// parameter through the row that pivoted. So one null-space vector per such
-    /// column, carrying a one in its own and the negated coefficients everywhere
-    /// a pivot follows it.
+    /// columns to its right. The columns that took no pivot are the sketch's
+    /// remaining freedoms: each can be chosen at will, and choosing it settles
+    /// every pivot parameter through the row that pivoted on it. So one
+    /// null-space vector per such column, carrying a one in its own — and the
+    /// rest of it substituted back up the rows, which is where the two halves
+    /// below come from.
     ///
     /// Held as one row per *parameter* rather than one per vector, because what
     /// asks is always an entity asking about itself: how far its own handful of
@@ -418,75 +421,83 @@ impl Elimination {
     fn null_space(&mut self, system: &System) {
         let n = system.width();
         self.eliminate(system);
-        // How many rows the pass below has anything to do to — every one that
-        // pivoted, or none at all where no column was passed over.
-        //
-        // **None is the case a drawing is *finished* in**, and it was worth
-        // saying outright. The pass carries only the columns nothing pivoted on,
-        // so with none of those it writes nothing whatever — but what was left
-        // of it was still every pair of pivot rows reading a cell it then threw
-        // away, `rank²/2` scattered reads through a matrix far too large to sit
-        // in cache. Measured at 502 parameters, that was 70µs of a 242µs
-        // reduction to produce nothing at all.
-        //
-        // A count of rows rather than a test wrapped round the loop, because
-        // what comes *after* it still has to run: an empty null space is a thing
-        // to write, not last time's to leave standing.
-        let reducing = if self.free.is_empty() {
-            0
-        } else {
-            self.pivots.len()
-        };
-        let Self {
-            rows: a,
-            pivots,
-            free,
-            ..
-        } = self;
-        // Backwards, so each row is cleared of every pivot below it before it is
-        // used to clear itself from the rows above.
-        //
-        // **Only the columns that took no pivot are carried through it**, which
-        // is the whole of what the reduction is for: what gets read out below is
-        // `rows[row][col]` for `col` in `free` and nothing else. The rest would
-        // be written and then not looked at.
-        //
-        // And they are the only ones that *could* change. A pivot column left of
-        // this row's own is zero in it by echelon form; one to the right was
-        // cleared out of it by an earlier turn of this very loop, which runs
-        // descending for that reason; and a column nothing may move was zeroed by
-        // the assembly. Every one of those makes the subtraction below a no-op,
-        // so skipping them is exact rather than a shortcut with a tolerance on
-        // it.
-        //
-        // Which is also what makes the whole pass skippable where there are no
-        // such columns — see `reducing` above, where that case is argued.
-        for row in (0..reducing).rev() {
-            let pivot = pivots[row];
-            let diagonal = a[row * n + pivot];
-            for &col in free.iter() {
-                a[row * n + col] /= diagonal;
-            }
-            for above in 0..row {
-                let factor = a[above * n + pivot];
-                if factor == 0.0 {
-                    continue;
-                }
-                for &col in free.iter() {
-                    a[above * n + col] -= factor * a[row * n + col];
-                }
-            }
-        }
 
         let axes = self.free.len();
         self.null.clear();
         self.null.resize(n * axes, 0.0);
+        // One way to move per column nothing pivoted on: that column travels by
+        // one and every other freedom stays where it is, which is what makes the
+        // ways independent.
         for (axis, &col) in self.free.iter().enumerate() {
             self.null[col * axes + axis] = 1.0;
         }
-        for (row, &pivot) in self.pivots.iter().enumerate() {
-            for (axis, &col) in self.free.iter().enumerate() {
-                self.null[pivot * axes + axis] = -self.rows[row * n + col];
+        // Nothing more where the sketch has no freedoms: there is no direction
+        // for a pivot to have to answer, and the substitution below would walk
+        // every row to run two empty loops over it.
+        //
+        // *After* the null space is sized and seeded, not before. Returning
+        // ahead of that leaves the last reduction's answer standing, which is a
+        // different sketch's — an empty null space is a thing to write.
+        if axes == 0 {
+            return;
+        }
+
+        // And what every pivot must then do to keep its own equation satisfied,
+        // read back up the echelon form.
+        //
+        // A pivot row says `a[p]·d[p] + Σ a[c]·d[c] = 0` over the columns to its
+        // right, so `d[p]` follows from those — and taking the rows in reverse is
+        // what makes them known: a column right of `p` is either a freedom, set
+        // above, or a pivot of a later row, settled on an earlier turn.
+        //
+        // **Which is the whole of what the reduced form was for.** Reducing to
+        // it cleared every pivot out of every row above to leave these answers
+        // sitting in the free columns, ready to be read off; this takes them
+        // from the echelon form the elimination already left, in one pass up the
+        // rows, each touching only what its own stretch holds.
+        //
+        // Not faster, and worth saying so: the reduced form was never quadratic
+        // in practice, because a sketch's elimination barely fills and its
+        // `factor == 0.0` skipped very nearly every pair. What it cost was the
+        // `rank²` *reads* that found those zeros, and what this costs is a
+        // streaming pass over the null space, which measures the same. What is
+        // gained is a pass and a special case fewer, and a cost that follows the
+        // nonzeros rather than the square of the rank if that ever stops
+        // holding.
+        let Self {
+            rows: a,
+            pivots,
+            null,
+            reach,
+            ..
+        } = self;
+        for (row, &pivot) in pivots.iter().enumerate().rev() {
+            let diagonal = a[row * n + pivot];
+            // The whole stretch, not merely what lies right of the pivot.
+            //
+            // Echelon form says a row holds nothing left of its own pivot, and
+            // for the columns that *took* one that is exact — the elimination
+            // set those cells rather than subtracting its way to a rounding of
+            // them, so they drop out below and the `d` they would have needed,
+            // which this pass has not reached yet, is never asked for.
+            //
+            // A column that was *passed over* is the other case and is not
+            // exact: it was passed over for holding less than the tolerance,
+            // which is not nothing. What it holds is a real term of this
+            // equation, and the `d` it multiplies is known before the pass
+            // starts — a freedom is set, not solved for. Dropping those terms
+            // moved null-space entries by parts in 1e12.
+            for col in reach[row].low..=reach[row].high {
+                let coefficient = a[row * n + col];
+                if col == pivot || coefficient == 0.0 {
+                    continue;
+                }
+                for axis in 0..axes {
+                    null[pivot * axes + axis] -= coefficient * null[col * axes + axis];
+                }
+            }
+            for axis in 0..axes {
+                null[pivot * axes + axis] /= diagonal;
             }
         }
     }
