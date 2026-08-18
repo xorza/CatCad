@@ -10,6 +10,7 @@ use crate::drawing::Drawing;
 use crate::drawing::measurable::Measurable;
 use crate::part::Part;
 use crate::profile::Profile;
+use crate::timeline::feature::World;
 use crate::timeline::{FeatureId, Timeline};
 
 /// A sketch and what the last solve made of it, read together.
@@ -330,21 +331,18 @@ impl<'a> Model<'a> {
     }
 }
 
-/// A square in a plane's own coordinates: where its middle is, and how far it
-/// reaches from there along either axis.
+/// A plane as the drawing lays one out: which step it is, where it lies, and
+/// which of the three the world comes with it is.
 ///
-/// What a sheet is laid out as. Its own type rather than a pair, because the two
-/// halves are read together everywhere and a caller handed them apart is a
-/// caller free to widen one without moving the other.
-///
-/// [`Default`] is the plane's own origin and no reach at all — an empty sketch,
-/// which has nowhere else to be about and no size to ask for. What a *drawn*
-/// sheet then comes to is [`paint`](crate::paint)'s: how much room to leave
-/// round the drawing and how small a sheet may get are appearance.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub(crate) struct Spread {
-    pub(crate) middle: DVec2,
-    pub(crate) reach: f64,
+/// Its own type rather than three values, because a writer reads all of them
+/// about one plane and a caller handed them apart is a caller free to draw one
+/// plane in another's colours. The `world` is `None` for a datum somebody put
+/// there, which has neither a hue of its own nor a name.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Sheeted {
+    pub(crate) at: FeatureId,
+    pub(crate) plane: Plane,
+    pub(crate) world: Option<World>,
 }
 
 /// Every sketch a document holds, as it currently stands.
@@ -440,6 +438,70 @@ impl<'a> Models<'a> {
         self.at(self.editing?)
     }
 
+    /// Every plane the document holds, with where it lies and which of the
+    /// three the world comes with it is.
+    ///
+    /// What is drawn as a sheet — all of them, because a plane is somewhere a
+    /// drawing could be started whether or not one has been and whether or not
+    /// it goes anywhere. *When* each is drawn is
+    /// [`write::curves`](crate::paint::write::curves)'s.
+    pub(crate) fn planes(self) -> impl Iterator<Item = Sheeted> {
+        let timeline = self.timeline;
+        timeline.planes().map(move |at| Sheeted {
+            at,
+            plane: timeline.plane(at),
+            world: timeline.world_at(at),
+        })
+    }
+
+    /// Whether anything is drawn on the plane at `at`.
+    ///
+    /// What decides whether a plane is *filled* rather than merely outlined: a
+    /// fill says there is nothing here yet, and one under a drawing would be
+    /// saying it under the drawing — as well as putting a second translucent
+    /// surface in the very plane the first lies in.
+    pub(crate) fn carries(self, at: FeatureId) -> bool {
+        self.drawn_on(at).next().is_some()
+    }
+
+    /// Every drawing on the plane at `at`.
+    ///
+    /// **Off the timeline rather than through [`Models::iter`]**, which is the
+    /// same walk with a [`Model`] built at every step — a binary search for what
+    /// the last solve made of that sketch, and a second for the sketch itself.
+    /// Nothing that asks this wants the solve: what is drawn on a plane is a
+    /// question about where the geometry *lies*, and the three readings below
+    /// take only points off it.
+    fn drawn_on(self, at: FeatureId) -> impl Iterator<Item = Drawing<'a>> {
+        let timeline = self.timeline;
+        timeline
+            .sketches()
+            .filter(move |&sketch| timeline.drawn_on(sketch) == at)
+            .map(move |sketch| timeline.drawing(sketch))
+    }
+
+    /// The middle of what is drawn on the plane at `at`, in that plane's own
+    /// coordinates — or its origin, where nothing is.
+    ///
+    /// Half of where a sheet goes, and the half that is the *plane's*: how far
+    /// one reaches is one number for the whole document — see
+    /// [`Models::reach`] — so that four planes drawn at once come out the same
+    /// size rather than each sized to whatever happens to lie on it.
+    pub(crate) fn middle_on(self, at: FeatureId) -> DVec2 {
+        let mut low = DVec2::splat(f64::INFINITY);
+        let mut high = DVec2::splat(f64::NEG_INFINITY);
+        for drawing in self.drawn_on(at) {
+            for (_, point) in drawing.sketch().points() {
+                low = low.min(point.position);
+                high = high.max(point.position);
+            }
+        }
+        if low.x > high.x {
+            return DVec2::ZERO;
+        }
+        (low + high) * 0.5
+    }
+
     /// Every plane that can be moved, with where it lies.
     ///
     /// **What has handles drawn on it**, which is a narrower question than what
@@ -460,50 +522,45 @@ impl<'a> Models<'a> {
         Some(self.timeline.drawn_on(self.editing?))
     }
 
-    /// The square the open sketch stands in, in its plane's own coordinates.
+    /// How far the widest drawing reaches from its own middle, along either of
+    /// its plane's axes.
     ///
-    /// What a datum's sheet is laid out against. A square rather than the box
-    /// itself, because a sheet is one: what it has to do is *enclose* the
-    /// drawing standing on it, and a rectangle fitted to the drawing would be
-    /// claiming a shape the plane does not have.
+    /// **How far every sheet reaches**, and one number for the whole document
+    /// rather than one per plane: the planes are drawn together and read as a
+    /// set, and three squares at three sizes would be saying that one plane is
+    /// bigger than another, which is not a thing a plane is.
     ///
-    /// **Centred on the drawing rather than on the plane's origin**, which is
-    /// the difference between a sheet that reads as the ground under a model
-    /// and one that reads as a stray line across it. A drawing need not be
-    /// anywhere near the origin its plane counts from — the demo's is in one
-    /// quadrant of it — so a square centred there and grown until it held the
-    /// drawing would be four times the size it had to be and off to one side.
-    /// Where the origin *is* stays the gizmo's to say.
+    /// A half-width from a *middle* rather than from the origin, because a sheet
+    /// is centred on what is drawn on it — see [`Models::middle_on`]. A drawing
+    /// need not be anywhere near the origin its plane counts from, so a reach
+    /// measured from there would be as large as the drawing is far away, and the
+    /// sheet four times the size it had to be.
     ///
-    /// In the plane's own coordinates, so the answer is the same wherever the
-    /// plane is: a datum held clear of the ground carries its drawing along, and
-    /// a sheet worked out in the world would grow with the offset as though the
+    /// In the planes' own coordinates, so the answer is the same wherever they
+    /// are: a datum held clear of the ground carries its drawing along, and a
+    /// reach worked out in the world would grow with the offset as though the
     /// drawing had moved.
     ///
-    /// The open sketch alone, which is the only plane drawn as a sheet — see
-    /// [`Stroke::Sheet`](crate::paint::write). An empty one spreads about the
-    /// plane's own origin, having nothing else to be about.
-    ///
-    /// Not what a *camera* is aimed at, which is the scene's own extent:
-    /// [`Scene::extent`](aperture::Scene) leaves the sheets out for being
-    /// furniture, so a plane is never sized against a reach that counted it.
-    pub(crate) fn spread(self) -> Spread {
-        let Some(open) = self.open() else {
-            return Spread::default();
-        };
-        let mut low = DVec2::splat(f64::INFINITY);
-        let mut high = DVec2::splat(f64::NEG_INFINITY);
-        for (_, point) in open.sketch().points() {
-            low = low.min(point.position);
-            high = high.max(point.position);
+    /// Zero for a document with nothing drawn in it, which is a floor away from
+    /// what is drawn — see `paint::sheeted`. Not what a *camera* is aimed at
+    /// either: [`Scene::extent`](aperture::Scene) leaves the sheets out for
+    /// being furniture, so a plane is never sized against a reach that counted
+    /// it.
+    pub(crate) fn reach(self) -> f64 {
+        let mut reach = 0.0f64;
+        // Walked plane by plane rather than sketch by sketch, so a middle is
+        // worked out once for the drawings it is the middle *of*: asked inside
+        // a walk of the sketches it would be worked out afresh for each, and a
+        // middle is itself a walk of them.
+        for at in self.timeline.planes() {
+            let middle = self.middle_on(at);
+            for drawing in self.drawn_on(at) {
+                for (_, point) in drawing.sketch().points() {
+                    reach = reach.max((point.position - middle).abs().max_element());
+                }
+            }
         }
-        if low.x > high.x {
-            return Spread::default();
-        }
-        Spread {
-            middle: (low + high) * 0.5,
-            reach: ((high - low) * 0.5).max_element(),
-        }
+        reach
     }
 
     /// How many extrudes no longer know which region they are grown from.

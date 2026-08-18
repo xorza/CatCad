@@ -16,6 +16,7 @@ use glam::{UVec2, Vec3};
 fn a_second_paint_replaces_the_geometry_the_first_left() {
     let size = DEMO_FRAME;
     let mut app = CatCad::build();
+    app.enter_first_sketch();
     edge_on(1.4)(app.camera_mut());
     // The constraint marks go before anything is measured. This is about the
     // two batches the column is counted in, and a dimension set as a number is
@@ -83,7 +84,13 @@ fn a_second_paint_replaces_the_geometry_the_first_left() {
 /// here stays empty through the frame.
 fn bare(size: UVec2) -> Frame {
     let mut app = CatCad::build();
+    app.enter_first_sketch();
     edge_on(1.4)(app.camera_mut());
+    // Drawn once before it is emptied, which is what makes this the same frame
+    // the caller compares against: a layout that has drawn nothing declines
+    // nothing, so a capture straight after a clear would refill every batch and
+    // hand back the whole drawing rather than none of it.
+    capture(size, &mut app);
     {
         let mut view = app.renderer().borrow_mut();
         let scene = view.scene_mut();
@@ -103,7 +110,8 @@ fn bare(size: UVec2) -> Frame {
 #[test]
 fn a_highlighted_edge_is_drawn_over_its_ordinary_self() {
     let size = DEMO_FRAME;
-    let app = CatCad::build();
+    let mut app = CatCad::build();
+    app.enter_first_sketch();
     // The renderer's own camera rather than the document's, unlike everywhere
     // else: what paints below is a `ScenePane` borrowing this renderer, and the
     // app never records a frame — so nothing ever hands the document's camera

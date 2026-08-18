@@ -75,7 +75,7 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
     let picture = scene(
-        document.models(&build, document.opening()),
+        document.models(&build, Some(document.first_sketch())),
         &mut Layout::default(),
     );
 
@@ -185,7 +185,7 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
     let scene = scene(
-        document.models(&build, document.opening()),
+        document.models(&build, Some(document.first_sketch())),
         &mut Layout::default(),
     );
 
@@ -516,7 +516,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
 fn the_plane_being_drawn_on_is_outlined_round_its_drawing() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
-    let models = document.models(&build, document.opening());
+    let models = document.models(&build, Some(document.first_sketch()));
     let mut layout = Layout::default();
     let mut scene = Scene::default();
     redraw(models, &mut layout, Showing::default(), &mut scene);
@@ -583,5 +583,93 @@ fn the_plane_being_drawn_on_is_outlined_round_its_drawing() {
         low.x > -4.0 && low.y > -4.0,
         "the sheet starts at {low:?}, so it is centred on the origin rather than \
          on the drawing",
+    );
+}
+
+/// With no sketch open every plane shows itself, and with one open only the
+/// plane under it does.
+///
+/// **The whole of what phase the sheets follow**, and the two halves are one
+/// rule seen from either side: a plane is drawn where it is what you are working
+/// with. While a sketch is open the rest would be furniture standing in front of
+/// the model — the three the world comes with cross at the origin, which is
+/// where a model is built — and with none open there is no model to stand in
+/// front of and picking a plane is the whole of what there is to do.
+///
+/// The fill goes further still: it says there is nothing here *yet*, so it wants
+/// a plane nothing has been drawn on as well as no drawing to be in front of.
+/// The demo's ground and shelf both carry a sketch, so the two upright world
+/// planes are the two that fill.
+#[test]
+fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let named = |curve: &Curve, layout: &Layout| curve.tag.and_then(|tag| layout.names().get(tag));
+
+    // Nothing open: all four planes the demo holds, and the two empty ones
+    // filled. A name apiece for the three the world comes with; the shelf is one
+    // somebody put there and has none to carry.
+    let mut idle = Layout::default();
+    let mut looked = Scene::default();
+    redraw(
+        document.models(&build, None),
+        &mut idle,
+        Showing::default(),
+        &mut looked,
+    );
+    let planes = |scene: &Scene, layout: &Layout| {
+        scene
+            .curves
+            .iter()
+            .filter(|curve| matches!(named(curve, layout), Some(Part::Plane(_))))
+            .count()
+    };
+    assert_eq!(planes(&looked, &idle), 4, "a document shows all its planes");
+    assert_eq!(
+        looked
+            .faces
+            .iter()
+            .filter(|face| face.tag.is_none())
+            .count(),
+        2,
+        "only the planes nothing is drawn on are filled"
+    );
+    assert_eq!(
+        looked.texts.len(),
+        3,
+        "the three the world comes with name themselves"
+    );
+    // And no marks at all, which is the other half of that batch: a dimension is
+    // something a drawing states, and none of them is being worked in.
+    let said: Vec<&str> = looked
+        .texts
+        .iter()
+        .map(|text| text.content.as_str())
+        .collect();
+    assert_eq!(said, ["Ground", "Front", "Side"]);
+
+    // Opened on the first sketch: its plane alone, no fill anywhere, and the
+    // names give the batch back to the marks.
+    let mut drawn = Layout::default();
+    let mut worked = Scene::default();
+    let editing = Some(document.first_sketch());
+    redraw(
+        document.models(&build, editing),
+        &mut drawn,
+        Showing::default(),
+        &mut worked,
+    );
+    assert_eq!(
+        planes(&worked, &drawn),
+        1,
+        "a plane stood in front of the model"
+    );
+    assert!(
+        worked.faces.iter().all(|face| face.tag.is_some()),
+        "a plane was filled under a drawing"
+    );
+    assert!(
+        worked.texts.iter().all(|text| text.content != "Front"),
+        "a plane named itself over the drawing"
     );
 }

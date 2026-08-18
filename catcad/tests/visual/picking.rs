@@ -75,10 +75,12 @@ impl Raised {
 
     /// The same with `aim` applied to its camera before the first frame.
     fn new(gpu: &HeadlessTestGpuLease, aim: impl FnOnce(&mut Camera)) -> Self {
+        let mut app = CatCad::build();
+        app.enter_first_sketch();
         let mut raised = Self {
             host: OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build(),
             target: target(gpu),
-            app: CatCad::build(),
+            app,
         };
         aim(raised.app.camera_mut());
         raised.settle();

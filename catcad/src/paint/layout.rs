@@ -4,7 +4,7 @@ use silverpoint::{ConstraintId, Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
 use crate::lens::Lens;
-use crate::model::{Models, Spread};
+use crate::model::Models;
 use crate::paint::cut::Cut;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
@@ -70,15 +70,14 @@ pub(crate) struct Layout {
     /// Where the one region anything asks about lies, cut when the drawing
     /// moves and read on the camera's schedule — see [`Cut`].
     pub(super) cut: Cut,
-    /// Where the sheet of the plane being drawn on is laid out, in that plane's
-    /// own coordinates.
+    /// How far a plane's sheet reaches from its middle, in sketch units.
     ///
     /// Kept rather than worked out where it is spent, for the reason everything
-    /// here is kept: it is a walk of every point the open sketch holds, and the
-    /// stroke that spends it is written at [`Stage::Band`] — the stage a rubber
+    /// here is kept: it is a walk of every point the document holds, and the
+    /// strokes that spend it are written at [`Stage::Band`] — the stage a rubber
     /// band moving reaches. Worked out there, a drawing would be measured on
     /// every frame of a line being drawn.
-    pub(super) sheet: Spread,
+    pub(super) reach: f64,
     /// What this was drawn from, or `None` where it describes nothing because
     /// nothing has been drawn into it yet.
     ///

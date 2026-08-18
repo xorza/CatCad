@@ -157,6 +157,18 @@ pub(crate) enum Choice {
     /// drag says. The difference is deliberateness, and it decides whether the
     /// value may overwrite one somebody typed: a hover may not, a drag may.
     Suggest { nth: usize, to: f64 },
+    /// Close the sketch being worked in, leaving the document open on none.
+    ///
+    /// Names the state it wants like everything here, so a replayed pass closes
+    /// nothing twice. There is no `Open` beside it because nothing would raise
+    /// one: picking something out already opens the sketch it came from — see
+    /// [`Choice::Select`] — and that is the one gesture that says which sketch
+    /// you mean, because it is the one that says which *thing* you mean.
+    ///
+    /// Puts down the tool and the form as well, and that is not a second thing:
+    /// a tool draws in the sketch you are in and a form is open against it, so
+    /// neither has anything left to be about.
+    Close,
     /// Take up this tool, or put down whatever is in hand by naming
     /// [`Tool::Pointer`].
     ///

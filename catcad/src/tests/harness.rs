@@ -64,8 +64,15 @@ impl Raised {
             app: CatCad::build(),
             harness,
         };
+        raised.enter_first_sketch();
         raised.frame();
         raised
+    }
+
+    /// Open the demo's first sketch — see
+    /// [`CatCad::enter_first_sketch`](crate::CatCad).
+    pub(super) fn enter_first_sketch(&mut self) {
+        self.app.enter_first_sketch();
     }
 
     /// What the app is modelling — see [`CatCad::models`].
@@ -79,21 +86,9 @@ impl Raised {
         self.models().solids().count()
     }
 
-    /// Ask the session for `choice`, the way the bar or a gesture asks.
-    ///
-    /// Through the inbox rather than by writing the session, because that is
-    /// the only way the application ever changes one.
+    /// Ask the session for `choice` — see [`CatCad::choose`](crate::CatCad).
     pub(super) fn choose(&mut self, choice: impl Into<Intent>) {
-        let mut intents = Intents::default();
-        intents.push(choice);
-        // The fields are named one at a time rather than through
-        // [`CatCad::models`], which borrows the whole app and so cannot be
-        // handed to the session it belongs to.
-        let app = &mut self.app;
-        app.session.apply(
-            app.document.models(&app.build, app.session.editing()),
-            &intents,
-        );
+        self.app.choose(choice);
     }
 
     /// One frame, recorded exactly as a window records one.

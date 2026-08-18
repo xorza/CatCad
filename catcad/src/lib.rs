@@ -206,13 +206,21 @@ impl CatCad {
         if ui.key_pressed(OPEN) {
             self.intents.push(Errand::Open);
         }
-        // Escape puts down whatever is in hand wherever the pointer happens to
-        // be. The view answers for the right button over the drawing, which is
-        // the same cancel by the gesture a modeller reaches for first, and the
-        // bar for a second press of a tool's own button — three ways to ask for
-        // the same thing, and none of them does it.
+        // Escape backs out of one thing at a time, innermost first: whatever
+        // is in hand, and then the sketch it was drawing in. Two steps rather
+        // than one, because they are two things to be out of — a tool put down
+        // by a key that also closed the drawing would be a key you could not
+        // use without losing your place.
+        //
+        // The view answers for the right button over the drawing, which is the
+        // same cancel by the gesture a modeller reaches for first, and the bar
+        // for a second press of a tool's own button — three ways to ask for the
+        // first step, and none of them does it here.
         if ui.escape_pressed() {
-            self.intents.push(Choice::Hold(Tool::Pointer));
+            self.intents.push(match self.session.tool() {
+                Tool::Pointer => Intent::from(Choice::Close),
+                _ => Choice::Hold(Tool::Pointer).into(),
+            });
         }
         // Everything picked out, each named rather than "the selection": an
         // intent says where it wants to end up, and a replayed pass reading the
@@ -521,6 +529,8 @@ pub(crate) mod internals {
     use aperture::{Camera, Renderer};
 
     use crate::CatCad;
+    #[cfg(test)]
+    use crate::intent::{Intent, Intents};
 
     /// The window every harness in this crate lays its frames out in.
     ///
@@ -595,6 +605,39 @@ pub(crate) mod internals {
             self.session
                 .editing()
                 .expect("a raised document opens in a sketch")
+        }
+
+        /// Open the document's first sketch — see
+        /// [`Session::enter_first_sketch`](crate::session::Session).
+        ///
+        /// The session's, plus the one thing that is the *app's*: the picture
+        /// caught up with it, which a frame would do a phase later. A harness
+        /// that painted without recording would otherwise paint the document as
+        /// it stood before any of this — laid out on no sketch, every plane
+        /// showing.
+        pub fn enter_first_sketch(&mut self) {
+            self.session.enter_first_sketch(&self.document, &self.build);
+            self.view.settle(&self.document, &self.build, &self.session);
+        }
+
+        /// Ask the session for `choice`, the way the bar or a gesture asks.
+        ///
+        /// Through the inbox rather than by writing the session, because that is
+        /// the only way the application ever changes one.
+        #[cfg(test)]
+        pub(crate) fn choose(&mut self, choice: impl Into<Intent>) {
+            let mut intents = Intents::default();
+            intents.push(choice);
+            // The fields are named one at a time rather than through
+            // [`CatCad::models`], which borrows the whole app and so cannot be
+            // handed to the session it belongs to.
+            let Self {
+                session,
+                document,
+                build,
+                ..
+            } = self;
+            session.apply(document.models(build, session.editing()), &intents);
         }
 
         /// The far end of the demo's arm, which is the freest thing it draws

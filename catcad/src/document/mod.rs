@@ -189,19 +189,21 @@ impl Document {
         self.timeline.stretching(at)
     }
 
-    /// The sketch a session should start in, where it should start in one.
+    /// The sketch a session should start in: none.
     ///
-    /// The first one the timeline holds, which is where a document that has
-    /// just been raised puts you. Which sketch is open after that is the
-    /// session's — see [`Session::editing`](crate::session::Session) — because
-    /// nothing about what you have open is written down by saving.
+    /// **A document is opened, not entered.** What a drawing holds is on screen
+    /// the moment it is raised, and which of its sketches you then work in is a
+    /// thing you say by clicking one — the same gesture that says which *thing*
+    /// you mean, and the only one there is. Starting you in whichever sketch
+    /// happened to be first would be answering a question nobody asked, and
+    /// answering it differently for a document that holds none.
     ///
-    /// An `Option` ahead of ever answering `None`, which is the seam this is
-    /// here to be: a document that holds no sketch has none to open, and one
-    /// that holds several is arguably opened on none of them. Both are the same
-    /// answer, and everything that reads this already says what it makes of one.
+    /// Constant, and a method all the same: it is where the answer is argued,
+    /// and it is what raising a document reads. Which sketch is open after that
+    /// is the session's — see [`Session::editing`](crate::session::Session) —
+    /// because nothing about what you have open is written down by saving.
     pub(crate) fn opening(&self) -> Option<FeatureId> {
-        Some(self.timeline.first_sketch())
+        None
     }
 
     /// The sketch at `at`, open for editing.
@@ -449,10 +451,6 @@ pub(crate) mod internals {
     use aperture::Camera;
     use glam::Vec3;
 
-    /// Narrower than the mod around it, like [`Edits`] below: the visual suite
-    /// raises a session and asks *that* which sketch is open, where a unit test
-    /// standing a document up on its own has no session to ask.
-    #[cfg(test)]
     impl Document {
         /// The first sketch the timeline holds, which is the one every fixture
         /// here is about.

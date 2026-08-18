@@ -255,6 +255,31 @@ impl Timeline {
             .map(|(id, _)| id)
     }
 
+    /// Every plane the timeline holds, in the order they were put there.
+    ///
+    /// All of them, unlike [`Timeline::movable_planes`]: what is *drawn* is
+    /// every plane a document has, where what has a handle on it is only the
+    /// ones that go anywhere.
+    pub(crate) fn planes(&self) -> impl Iterator<Item = FeatureId> {
+        self.steps()
+            .filter(|(_, feature)| matches!(feature, Feature::Plane(_)))
+            .map(|(id, _)| id)
+    }
+
+    /// Which of the three the world comes with the plane at `at` is, or `None`
+    /// where it is one somebody put there.
+    ///
+    /// What decides the hue a plane is drawn in and the name it carries. `None`
+    /// is not a failure: a datum measured off another is a plane like any other
+    /// and simply has neither.
+    pub(crate) fn world_at(&self, at: FeatureId) -> Option<World> {
+        match self.feature(at) {
+            Feature::Plane(Datum::World(world)) => Some(*world),
+            Feature::Plane(Datum::Offset { .. }) => None,
+            other => wrong_kind(at, "a plane", other),
+        }
+    }
+
     /// Which step holds the world plane `world`, or `None` where the timeline
     /// holds none.
     ///
@@ -338,16 +363,6 @@ impl Timeline {
                 wrong_kind(at, "a sketch", other)
             }
         }
-    }
-
-    /// The first sketch it holds.
-    ///
-    /// Where a session opens, and nothing beyond that: which sketch is open
-    /// after that is the session's — see
-    /// [`Session::editing`](crate::session::Session::editing) — so this is
-    /// asked once, when a document is raised, and never to mean "the sketch".
-    pub(crate) fn first_sketch(&self) -> FeatureId {
-        self.sketches().next().expect("the document holds a sketch")
     }
 
     /// Where the sketch at `at` lies in the world.
@@ -498,12 +513,33 @@ pub(crate) struct FeatureId(u32);
 /// something else wants — a drag, a layout, a selection — and spelling out two
 /// steps and a handle at each of them would be spelling out the timeline's own
 /// shape in files that are not testing it.
-#[cfg(test)]
+#[cfg(any(test, feature = "internals"))]
 mod internals {
-    use crate::timeline::Timeline;
+    #[cfg(test)]
     use crate::timeline::feature::{Datum, Feature, World};
+    use crate::timeline::{FeatureId, Timeline};
+    #[cfg(test)]
     use silverpoint::Sketch;
 
+    impl Timeline {
+        /// The first sketch it holds.
+        ///
+        /// A fixture's reading and no longer the application's: a document is
+        /// opened on no sketch — see
+        /// [`Document::opening`](crate::document::Document) — so what was the
+        /// one caller has gone, and what is left is tests that stood a timeline
+        /// up around one drawing and want it back.
+        pub(crate) fn first_sketch(&self) -> FeatureId {
+            self.sketches()
+                .next()
+                .expect("a fixture stands a timeline up on a sketch")
+        }
+    }
+
+    /// Narrower than the mod around it: the bench reaches through it for the
+    /// first sketch of a *document* it raised, where standing a timeline up out
+    /// of one sketch is a unit test's shape and nothing a bench links.
+    #[cfg(test)]
     impl Timeline {
         /// `sketch` on the ground, which is the least a timeline can be and
         /// still hold a drawing — and so what every fixture about something

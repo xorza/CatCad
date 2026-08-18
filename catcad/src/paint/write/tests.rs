@@ -1,27 +1,18 @@
 use super::*;
-use crate::model::Spread;
 use crate::paint::marks::mark::STACK_STEP;
 use crate::paint::tests::fixtures::drawn;
-use crate::paint::{DETERMINED, FREE, PARTLY};
+use crate::paint::{DETERMINED, FREE, PARTLY, SHEET_GROUND};
 use glam::{DVec2, Vec3};
 use silverpoint::{Along, Dimension, Entity};
 
-/// Where a plane's sheet is laid out in these fixtures.
+/// How far a plane's sheet reaches in these fixtures.
 ///
-/// Its own square rather than what the drawing would ask for, and about the
-/// plane's origin rather than about anything drawn: what is under test here is
-/// what a writer does with a spread, where arriving at one is
-/// [`Models::spread`](crate::model::Models::spread)'s and widening it is
+/// Its own number rather than what the drawing would ask for: what is under
+/// test here is what a writer does with a reach, where arriving at one is
+/// [`Models::reach`](crate::model::Models::reach)'s and widening it is
 /// `paint::sheeted`'s. A fixture that read either would be asserting two things
 /// at once.
-///
-/// Not `SHEET`, which is the colour one is drawn in and arrives here through
-/// `use super::*`: a fixture wearing that name would shadow it, and the shadow
-/// is silent.
-const SPREAD: Spread = Spread {
-    middle: DVec2::ZERO,
-    reach: 5.0,
-};
+const REACH: f64 = 5.0;
 
 #[test]
 fn every_entity_becomes_a_curve() {
@@ -40,7 +31,7 @@ fn every_entity_becomes_a_curve() {
         one.models(),
         &mut Names::default(),
         None,
-        SPREAD,
+        REACH,
         &mut strokes,
     );
     assert_eq!(strokes.len(), 2);
@@ -66,21 +57,28 @@ fn every_entity_becomes_a_curve() {
     // outline running right round the geometry would otherwise take clicks meant
     // for the geometry — and because a frame is left out of how far the scene
     // reaches, so a plane cannot decide where the camera goes.
+    //
+    // **About the drawing rather than about the origin.** The two points above
+    // run from (0, 0) to (10, 0), so their middle is (5, 0) and a square of
+    // reach 5 about it runs 0 to 10 across and ±5 along — which is what puts
+    // the drawing inside it. Centred on the plane's own origin it would start
+    // at −5 and stop at 5, with half the drawing outside and one edge through
+    // the middle of it.
     let outline = &strokes[0];
     assert!(outline.closed, "a plane's outline does not close");
     assert_eq!(
         outline.points,
         [
-            Vec3::new(-5.0, 0.0, 5.0),
-            Vec3::new(5.0, 0.0, 5.0),
-            Vec3::new(5.0, 0.0, -5.0),
-            Vec3::new(-5.0, 0.0, -5.0),
+            Vec3::new(0.0, 0.0, 5.0),
+            Vec3::new(10.0, 0.0, 5.0),
+            Vec3::new(10.0, 0.0, -5.0),
+            Vec3::new(0.0, 0.0, -5.0),
         ]
     );
     assert_eq!(outline.precedence, Precedence::Frame);
     assert_eq!(outline.width, SHEET_WIDTH);
     assert_eq!(
-        outline.color, SHEET,
+        outline.color, SHEET_GROUND,
         "a plane is drawn in the drawing's ink"
     );
 
@@ -100,7 +98,7 @@ fn every_entity_becomes_a_curve() {
         two.models(),
         &mut Names::default(),
         None,
-        SPREAD,
+        REACH,
         &mut strokes,
     );
     assert_eq!(strokes.len(), 3, "the list did not grow to the new sketch");
@@ -118,7 +116,7 @@ fn every_entity_becomes_a_curve() {
         one.models(),
         &mut Names::default(),
         None,
-        SPREAD,
+        REACH,
         &mut strokes,
     );
     assert_eq!(strokes.len(), 2, "the list did not shrink back");
@@ -238,7 +236,7 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
         one.models(),
         &mut Names::default(),
         None,
-        SPREAD,
+        REACH,
         &mut strokes,
     );
     rings(one.models(), &mut Names::default(), None, &mut rims);
@@ -302,6 +300,7 @@ fn a_relation_drawn_twice_is_named_once() {
     let mut placed = Vec::new();
     texts(
         one.models(),
+        REACH,
         &mut names,
         &mut placed,
         None,
@@ -385,7 +384,7 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
         }
     };
     let laid = |names: &mut Names, placed: &mut Vec<_>, figures: &mut Batch<Text>, typed| {
-        texts(one.models(), names, placed, None, typed, figures);
+        texts(one.models(), REACH, names, placed, None, typed, figures);
         figures
             .iter()
             .map(|mark| (mark.content.clone(), mark.position, clearance(mark)))

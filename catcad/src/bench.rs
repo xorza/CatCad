@@ -99,6 +99,10 @@ impl Raised {
             app: CatCad::build(),
             harness: UiHarness::new(SURFACE),
         };
+        // Every step below measures a frame that is *drawing* something, and a
+        // document is opened on no sketch — see
+        // [`Document::opening`](crate::document::Document).
+        raised.app.enter_first_sketch();
         raised.frame();
         raised
     }

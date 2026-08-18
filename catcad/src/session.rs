@@ -117,7 +117,28 @@ impl Session {
                     if !self.tool.is(tool) {
                         self.prompt = None;
                     }
-                    self.tool = tool;
+                    // A tool draws, and drawing wants somewhere to draw. With
+                    // no sketch open the bar offers none of them — see
+                    // [`Hud::tools`](crate::hud::Hud) — and this is the other
+                    // half of that rule rather than a second one: the bar says
+                    // what can be asked for, and this says what is answered.
+                    self.tool = match self.editing {
+                        Some(_) => tool,
+                        None => Tool::Pointer,
+                    };
+                }
+                // Everything the session holds is about a sketch, so closing one
+                // puts all of it down: what is in hand draws in the sketch you
+                // are in, and a form stands against it.
+                //
+                // What is picked *out* stays. A selection may name parts of any
+                // sketch and of no sketch at all — a plane, a solid's face — and
+                // none of that stops meaning anything for your having left the
+                // drawing it was picked from.
+                Intent::Choice(Choice::Close) => {
+                    self.editing = None;
+                    self.tool = Tool::Pointer;
+                    self.prompt = None;
                 }
                 // Picking something out opens the sketch it came from. The
                 // one gesture that says which sketch you mean is the one that
@@ -239,6 +260,53 @@ impl Session {
             || !self.tool.stands(drawing.sketch());
         if hanging {
             self.tool = self.tool.restarted();
+        }
+    }
+}
+
+/// What a harness raising a document reaches for.
+///
+/// A document is opened on no sketch — see
+/// [`Document::opening`](crate::document::Document) — and every harness in this
+/// crate is about a drawing being *worked in*, which wants one open. So the way
+/// in is here, once, rather than spelled out by each of them.
+#[cfg(any(test, feature = "internals"))]
+mod internals {
+    use crate::build::Build;
+    use crate::document::Document;
+    use crate::intent::{Choice, Intents};
+    use crate::part::Part;
+    use crate::session::Session;
+
+    impl Session {
+        /// Open `document`'s first sketch, the way a user opens one: by
+        /// clicking something in it.
+        ///
+        /// What a user would do rather than a write of the field, and through
+        /// the inbox like every other change to a session — a harness that set
+        /// it would be testing against a session no gesture could produce.
+        ///
+        /// Two clicks and not one. The click that opens a sketch also picks out
+        /// what it landed on, and a harness that left that standing would hand
+        /// every test a selection it never asked for; the second lands on empty
+        /// space, which clears it and says nothing about which sketch — see
+        /// [`Choice::Select`].
+        pub(crate) fn enter_first_sketch(&mut self, document: &Document, build: &Build) {
+            let sketch = document.first_sketch();
+            let (entity, _) = document
+                .drawing_at(sketch)
+                .sketch()
+                .points()
+                .next()
+                .expect("a document is raised on a sketch with a point to click");
+            let part = Part::Entity {
+                sketch,
+                entity: entity.into(),
+            };
+            let mut intents = Intents::default();
+            intents.push(Choice::Select(Some(part)));
+            intents.push(Choice::Select(None));
+            self.apply(document.models(build, self.editing), &intents);
         }
     }
 }

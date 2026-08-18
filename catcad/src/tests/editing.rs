@@ -9,6 +9,7 @@ use palantir::Key;
 
 use crate::hud::internals::{EXTRUDE_BUTTON, TIDY_BUTTON};
 use crate::intent::Choice;
+use crate::tool::Tool;
 
 /// The clean-up button takes out geometry a deletion left behind, and leaves
 /// the drawing it was pressed on otherwise alone.
@@ -281,4 +282,63 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
     raised.ctrl_shift(Key::Char('Z'));
     raised.frame();
     assert_eq!(raised.solids(), 2, "redo did not put the step back");
+}
+
+/// Escape backs out of one thing at a time: the tool first, then the sketch it
+/// was drawing in.
+///
+/// Two steps rather than one, because they are two things to be out of. A key
+/// that put the tool down *and* closed the drawing would be a key you could not
+/// use without losing your place — and one that only ever did the first would
+/// leave no way back out at all.
+///
+/// What closing takes with it is everything the session holds *about* the
+/// drawing, and nothing else: the tool goes because it draws in the sketch you
+/// are in, and what is picked out stays because a selection may name parts of
+/// any sketch and of none.
+#[test]
+fn escape_puts_down_the_tool_before_it_closes_the_sketch() {
+    let mut raised = Raised::new();
+    let sketch = raised.app.editing();
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    assert_eq!(raised.app.session.tool(), Tool::Point);
+
+    // First press: the tool alone. The sketch is still open, which is the whole
+    // of the claim — a tool put down is not a drawing left.
+    raised.harness.key(Key::Escape);
+    raised.frame();
+    assert_eq!(raised.app.session.tool(), Tool::Pointer);
+    assert_eq!(
+        raised.app.session.editing(),
+        Some(sketch),
+        "putting the tool down closed the sketch under it"
+    );
+
+    // Second press: the sketch. And the readout says so rather than reporting a
+    // solve nobody asked for.
+    raised.harness.key(Key::Escape);
+    raised.frame();
+    assert_eq!(raised.app.session.editing(), None);
+    assert!(
+        raised
+            .app
+            .status()
+            .to_string()
+            .starts_with("no sketch open"),
+        "the readout still reports a solve: {}",
+        raised.app.status()
+    );
+
+    // Closing again closes nothing again — every intent names where it wants to
+    // end up, so a replayed pass lands on the same answer.
+    raised.harness.key(Key::Escape);
+    raised.frame();
+    assert_eq!(raised.app.session.editing(), None);
+
+    // And back in by clicking something, which is the one gesture that says
+    // which sketch you mean because it is the one that says which thing.
+    raised.enter_first_sketch();
+    raised.frame();
+    assert_eq!(raised.app.session.editing(), Some(sketch));
 }

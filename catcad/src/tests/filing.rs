@@ -74,16 +74,26 @@ fn a_document_written_out_comes_back_the_way_it_was_left() {
     raised.frame();
 
     assert_eq!(
-        raised.points(),
-        drawn,
-        "the reopened drawing is not the one saved"
-    );
-    assert_eq!(
         raised.app.session.tool(),
         Tool::Pointer,
         "opening a document left the last one's tool in hand"
     );
     assert_eq!(raised.app.session.selection().count(), 0);
+    assert_eq!(
+        raised.app.session.editing(),
+        None,
+        "opening a document left a sketch of the last one open"
+    );
+
+    // Back into the drawing to read it, which is what a user would do and the
+    // only way there is: a document is opened on no sketch — see
+    // [`Document::opening`](crate::document::Document).
+    raised.enter_first_sketch();
+    assert_eq!(
+        raised.points(),
+        drawn,
+        "the reopened drawing is not the one saved"
+    );
     assert!(!raised.app.status().to_string().contains(" · unsaved"));
     assert!(
         raised.app.status().to_string().contains("opened"),

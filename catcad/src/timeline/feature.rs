@@ -184,4 +184,17 @@ impl World {
             World::Side => Plane::SIDE,
         }
     }
+
+    /// What to call it where a person reads it.
+    ///
+    /// The words a modeller already knows, which is the whole of why they are
+    /// these three and not the axes they lie in: "Ground" says what you draw a
+    /// plan on where "XZ" says which numbers are free.
+    pub(crate) fn named(self) -> &'static str {
+        match self {
+            World::Ground => "Ground",
+            World::Front => "Front",
+            World::Side => "Side",
+        }
+    }
 }

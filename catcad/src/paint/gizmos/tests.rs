@@ -29,13 +29,13 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     let mut layout = Layout::default();
     let mut scene = Scene::default();
     redraw(
-        document.models(&build, document.opening()),
+        document.models(&build, Some(document.first_sketch())),
         &mut layout,
         Showing::default(),
         &mut scene,
     );
     write(
-        document.models(&build, document.opening()),
+        document.models(&build, Some(document.first_sketch())),
         &mut layout,
         Showing::default(),
         Lens::new(
@@ -72,7 +72,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     // drawn on: the demo sketches on the ground as well, and measuring against
     // that one would be asking whether the arrows lie in a plane they were
     // never on.
-    let models = document.models(&build, document.opening());
+    let models = document.models(&build, Some(document.first_sketch()));
     let (_, plane) = models
         .movable_planes()
         .find(|(id, _)| *id == at)
@@ -105,7 +105,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         let lens = Lens::new(camera, viewport);
         let mut scene = Scene::default();
         let mut layout = Layout::default();
-        let models = document.models(&build, document.opening());
+        let models = document.models(&build, Some(document.first_sketch()));
         redraw(models, &mut layout, Showing::default(), &mut scene);
         write(
             models,
@@ -177,7 +177,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
         };
         let mut scene = Scene::default();
         let mut layout = Layout::default();
-        let models = document.models(&build, document.opening());
+        let models = document.models(&build, Some(document.first_sketch()));
         write(
             models,
             &mut layout,
@@ -250,7 +250,7 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
     let document = demo::document(&mut build);
     let mut layout = Layout::default();
     let mut scene = Scene::default();
-    let models = document.models(&build, document.opening());
+    let models = document.models(&build, Some(document.first_sketch()));
     redraw(models, &mut layout, Showing::default(), &mut scene);
     let drawing = layout.names().iter().count();
 

@@ -18,12 +18,13 @@
 //! on screen is [`Mark`](marks::mark::Mark)'s, being the one part of a drawing
 //! measured in pixels after it has been laid out.
 
+use crate::timeline::feature::World;
 use aperture::{Precedence, Scene};
 use glam::Vec3;
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Constraint, Freedom};
 
-use crate::model::{Model, Models, Spread};
+use crate::model::{Model, Models};
 use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
 use crate::preview::Preview;
@@ -122,11 +123,46 @@ const FACE: Vec3 = Vec3::new(0.18, 0.32, 0.46);
 /// geometry yet, and the constraints have not been asked about it.
 const GHOST: Vec3 = Vec3::new(0.72, 0.74, 0.78);
 
-/// What the outline of the plane being drawn on is drawn in.
+/// What a plane's outline is drawn in, by which of the three the world comes
+/// with it is — and what one somebody put there gets instead.
 ///
-/// Cool and low, because it runs right round the geometry and has to read as
-/// the edge of the ground rather than as another stroke.
-const SHEET: Vec3 = Vec3::new(0.42, 0.46, 0.54);
+/// **Hued by the axis its normal runs along**: the ground faces +Y, the front
+/// +Z and the side +X, so green, blue and red. The convention every gizmo cube
+/// uses, and it already agrees with the [`AXIS_X`](gizmos) red and
+/// [`AXIS_Y`](gizmos) green a datum's arrows are drawn in. A plane measured off
+/// another has no world axis to claim, so it takes a neutral — which also tells
+/// a plane the world gave you from one you made, without a label doing it.
+///
+/// Cool and low, all of them, because an outline runs right round the geometry
+/// and has to read as the edge of the ground rather than as another stroke. The
+/// collision with the freedom ladder is the one the axis arrows already have:
+/// what keeps them apart is that these are long faint lines where a pinned point
+/// is a small saturated disc. A palette is where that gets settled properly.
+const SHEET_GROUND: Vec3 = Vec3::new(0.30, 0.46, 0.32);
+const SHEET_FRONT: Vec3 = Vec3::new(0.30, 0.40, 0.56);
+const SHEET_SIDE: Vec3 = Vec3::new(0.52, 0.34, 0.32);
+const SHEET_DATUM: Vec3 = Vec3::new(0.42, 0.46, 0.54);
+
+/// What a plane with nothing drawn on it is filled with.
+///
+/// Seen through `FACE_OPACITY` like every other sheet, so what lands is a
+/// fraction of this — and dimmer than [`FACE`] to begin with, because a region
+/// is something a drawing *made* and this is only where one could be made.
+///
+/// One colour for all of them where the outlines are hued, and that is the
+/// division: the outline says *which* plane, the fill says there is nothing on
+/// it yet. Hueing both would say the second thing twice and drown the first.
+const SHEET_FACE: Vec3 = Vec3::new(0.14, 0.16, 0.20);
+
+/// What a plane's outline is drawn in.
+fn sheet_ink(world: Option<World>) -> Vec3 {
+    match world {
+        Some(World::Ground) => SHEET_GROUND,
+        Some(World::Front) => SHEET_FRONT,
+        Some(World::Side) => SHEET_SIDE,
+        None => SHEET_DATUM,
+    }
+}
 
 /// How wide a plane's outline is, in logical pixels.
 ///
@@ -152,16 +188,13 @@ const SHEET_WIDTH: f32 = 1.0;
 const SHEET_MARGIN: f64 = 1.15;
 const SHEET_LEAST: f64 = 3.0;
 
-/// Where the sheet for a drawing spread over `spread` is laid out.
+/// How far a sheet reaches, for a document whose widest drawing reaches
+/// `reach` — see [`Models::reach`](crate::model::Models::reach).
 ///
-/// The middle is the drawing's and is carried across untouched; what is decided
-/// here is only how far past it the sheet goes, which is appearance and so this
-/// module's — see [`Spread`](crate::model::Spread).
-fn sheeted(spread: Spread) -> Spread {
-    Spread {
-        reach: (SHEET_MARGIN * spread.reach).max(SHEET_LEAST),
-        ..spread
-    }
+/// The whole of what this module decides about where a sheet goes: the middle
+/// is the plane's, and how far past the drawing to run is appearance.
+fn sheeted(reach: f64) -> f64 {
+    (SHEET_MARGIN * reach).max(SHEET_LEAST)
 }
 
 /// What geometry with this much freedom left is drawn in.
@@ -329,7 +362,7 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         sheets,
         placed,
         proposed,
-        sheet,
+        reach,
         ..
     } = &mut *layout;
     names.wind_back(from);
@@ -342,12 +375,12 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
     // list, so it says the same thing twice rather than being a case of its own.
     if from <= Stage::Drawing {
         names.opened(Stage::Drawing);
-        // Worked out with the drawing rather than with the stroke that spends
-        // it, because it is a walk of every point the open sketch holds and the
-        // stroke is written a stage later — see [`Layout::sheet`].
-        *sheet = sheeted(models.spread());
+        // Worked out with the drawing rather than with the strokes that spend
+        // it, because it is a walk of every point the document holds and they
+        // are written a stage later — see [`Layout::reach`].
+        *reach = sheeted(models.reach());
         write::points(models, names, &mut into.points);
-        write::faces(models, names, sheets, &mut into.faces);
+        write::faces(models, names, sheets, *reach, &mut into.faces);
     }
     if from <= Stage::Solid {
         names.opened(Stage::Solid);
@@ -367,6 +400,7 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
             .and_then(|(open, constraint)| marks::Proposed::of(open.sketch(), constraint));
         write::texts(
             models,
+            *reach,
             names,
             placed,
             *proposed,
@@ -384,7 +418,7 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
             models,
             names,
             write::Band::new(models, showing.band.and_then(Preview::line)),
-            *sheet,
+            *reach,
             &mut into.curves,
         );
         write::rings(

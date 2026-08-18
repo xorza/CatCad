@@ -46,7 +46,7 @@ fn once(intent: impl Into<Intent>) -> Intents {
 
 /// Where the drawing's markers stand — see [`paint::markers`].
 fn markers(document: &Document, build: &Build) -> Vec<Vec3> {
-    paint::markers(document.models(build, document.opening()))
+    paint::markers(document.models(build, Some(document.first_sketch())))
 }
 
 /// The demo's point at `index`, in the order it added them. The ninth is the

@@ -80,7 +80,7 @@ impl Hud {
         // The tools and the readout in one column rather than two panels at one
         // corner: left-aligned, they would otherwise be drawn over each other.
         floating(Panel::vstack(), "chrome", Align::TOP_LEFT).show(ui, |ui| {
-            self.tools(ui, shown.tool, intents);
+            self.tools(ui, shown, intents);
             self.readout(ui, shown, intents);
         });
         self.constraints(ui, shown, intents);
@@ -243,8 +243,19 @@ impl Hud {
         });
     }
 
-    /// The tools, in a bar across the top.
-    fn tools(&self, ui: &mut Ui, tool: Tool, intents: &mut Intents) {
+    /// The tools, in a bar across the top — and the way out of the sketch they
+    /// draw in.
+    ///
+    /// **Nothing but the way out where no sketch is open.** Every tool here
+    /// draws, and drawing wants somewhere to draw; palantir's button has no dark
+    /// state to wear, so a tool that could not be used would still take the
+    /// press. What stands in their place is nothing at all, which is also what
+    /// says the document is being looked at rather than worked in.
+    fn tools(&self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
+        let Shown { tool, models, .. } = shown;
+        if models.open().is_none() {
+            return;
+        }
         // A row inside the column rather than a panel floating on the view, so
         // it takes the column's padding rather than adding its own.
         stacked(Panel::hstack(), "tools").show(ui, |ui| {
@@ -258,6 +269,20 @@ impl Hud {
                 "Dimension",
                 intents,
             );
+            // Last, and apart from the tools it stands beside: the four above
+            // say what a click will *do*, and this says where clicking stops.
+            // Named for what it finishes rather than for closing, because that
+            // is the word a modeller reaches for and because "close" is what a
+            // document does.
+            if Button::new()
+                .id_salt("finish")
+                .label("Finish sketch")
+                .show(ui)
+                .left
+                .clicked()
+            {
+                intents.push(Choice::Close);
+            }
         });
     }
 

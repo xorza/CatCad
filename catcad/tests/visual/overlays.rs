@@ -94,6 +94,7 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
 
     let size = DEMO_FRAME;
     let mut app = CatCad::build();
+    app.enter_first_sketch();
     {
         let mut view = app.renderer().borrow_mut();
         // Nothing else in the frame, so every lit pixel is the rim. The faces

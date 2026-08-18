@@ -1,6 +1,6 @@
 //! This suite's golden directory and how far a frame may drift from one.
 
-use crate::harness::{DEMO_FRAME, edge_on, shown};
+use crate::harness::{DEMO_FRAME, edge_on, idle, shown};
 use image::RgbaImage;
 use palantir::golden::{Goldens, Tolerance};
 
@@ -55,4 +55,18 @@ fn the_demo_scene_looks_the_way_it_did() {
 fn the_demo_scene_grazing_looks_the_way_it_did() {
     let frame = shown(DEMO_FRAME, edge_on(0.22));
     assert_matches_golden("demo_scene_grazing", &frame.image);
+}
+
+/// The same document with nobody in a sketch, which is how one opens.
+///
+/// **What the two above cannot show.** A plane is drawn where it is what you are
+/// working with, so while a sketch is open only the plane under it appears —
+/// and the fills, the names and the hues that tell the three the world comes
+/// with apart are all on the other side of that rule. This is a third view for
+/// the reason there are only three: it is a different picture, not the same one
+/// from another angle.
+#[test]
+fn the_idle_document_shows_every_plane_it_holds() {
+    let frame = idle(DEMO_FRAME, edge_on(1.1));
+    assert_matches_golden("idle_document", &frame.image);
 }

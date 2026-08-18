@@ -122,7 +122,11 @@ impl App for ScenePane {
 /// The camera is the renderer's here rather than the document's, for the same
 /// reason: nothing records, so nothing copies one over to the other.
 pub(crate) fn painted(size: UVec2, prepare: impl FnOnce(&mut Renderer)) -> Frame {
-    let app = CatCad::build();
+    let mut app = CatCad::build();
+    // Opened in the demo's first sketch, which a document is not: what these
+    // frames are of is a drawing being *worked in*, marks and all — see
+    // [`CatCad::enter_first_sketch`].
+    app.enter_first_sketch();
     prepare(&mut app.renderer().borrow_mut());
     let mut pane = ScenePane {
         view: app.renderer().clone(),
@@ -146,6 +150,24 @@ pub(crate) fn painted(size: UVec2, prepare: impl FnOnce(&mut Renderer)) -> Frame
 /// leaves in the scene, and the second draws that scene with nothing over it.
 pub(crate) fn shown(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
     let mut app = CatCad::build();
+    app.enter_first_sketch();
+    framed(size, app, aim)
+}
+
+/// The same for a document nobody has clicked into — every plane showing, and
+/// no drawing being worked in.
+///
+/// The other half of what a document looks like, and the half that has no marks
+/// in it: a plane names itself and fills itself where there is nothing drawn on
+/// it, and none of that is on screen while a sketch is open. See
+/// [`Stroke::Sheet`](catcad) — the rule is one sentence and this is the side of
+/// it the goldens above cannot show.
+pub(crate) fn idle(size: UVec2, aim: impl FnOnce(&mut Camera)) -> Frame {
+    framed(size, CatCad::build(), aim)
+}
+
+/// One frame of `app`, aimed and then repainted with the chrome left off.
+fn framed(size: UVec2, mut app: CatCad, aim: impl FnOnce(&mut Camera)) -> Frame {
     aim(app.camera_mut());
     capture(size, &mut app);
     let mut pane = ScenePane {

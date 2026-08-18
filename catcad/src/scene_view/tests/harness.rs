@@ -5,7 +5,7 @@ use crate::demo;
 use crate::document::Document;
 use crate::drawing::{Drawing, Grip};
 use crate::history::History;
-use crate::intent::{Choice, Intents};
+use crate::intent::{Choice, Intent, Intents};
 use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
 use crate::paint;
@@ -65,6 +65,7 @@ impl RaisedView {
             harness: UiHarness::new(HARNESS_SIZE),
             session,
         };
+        raised.enter_first_sketch();
         // One frame nobody clicks in, because a view has no viewport until it
         // has been laid out once and the controls are built against one. The
         // application's first frame is a frame nobody has had time to click in
@@ -132,17 +133,32 @@ impl RaisedView {
     }
 
     /// Take up `tool`, as the toolbar would.
+    pub(super) fn hold(&mut self, tool: Tool) {
+        self.choose(Choice::Hold(tool));
+    }
+
+    /// Ask the session for `choice`, the way the bar or a gesture asks.
     ///
     /// Through the inbox rather than by reaching into the session, because that
-    /// is the only way the application arms one — a harness that set the field
-    /// would be testing the view against a session no gesture could produce.
-    pub(super) fn hold(&mut self, tool: Tool) {
+    /// is the only way the application ever changes one — a harness that set the
+    /// field would be testing the view against a session no gesture could
+    /// produce.
+    fn choose(&mut self, choice: impl Into<Intent>) {
         let mut intents = Intents::default();
-        intents.push(Choice::Hold(tool));
+        intents.push(choice);
         self.session.apply(
             self.document.models(&self.build, self.session.editing()),
             &intents,
         );
+    }
+
+    /// Open the demo's first sketch — see
+    /// [`Session::enter_first_sketch`](crate::session::Session).
+    ///
+    /// No settle beside it, unlike the application's: the view is laid out
+    /// again by the frame this harness records straight after.
+    fn enter_first_sketch(&mut self) {
+        self.session.enter_first_sketch(&self.document, &self.build);
     }
 
     /// One of the drawing's entities, as something that can be picked out.
