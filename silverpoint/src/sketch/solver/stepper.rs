@@ -4,9 +4,17 @@
 //! Each iteration assembles the residual vector and its Jacobian, forms the
 //! damped normal equations `(JᵀJ + λD) δ = -Jᵀr`, and takes the step if it
 //! reduces the residual norm — raising the damping toward gradient descent when
-//! it doesn't. Matrices are dense: a sketch has two parameters per point plus
-//! one per circle, so the cost of sparsity bookkeeping would exceed what it
-//! saves.
+//! it doesn't.
+//!
+//! The Jacobian arrives sparse and the normal equations are built dense, and the
+//! asymmetry is the shape of the problem rather than an oversight. `J` is nearly
+//! empty — an equation names at most two entities, so a row holds five numbers
+//! in a sketch of any width — and walking those five beats walking the width to
+//! find them. `JᵀJ` is not: it is as wide as the sketch either way, every cell a
+//! pair of parameters some equation names together, and the Cholesky it is
+//! handed reads it by index. What that matrix *is* sparse in is how far from the
+//! diagonal a row reaches, which is spent as an envelope rather than as a list —
+//! see [`solve_in_place`](crate::math::dense::solve_in_place).
 //!
 //! A drag adds `w·(p − t)` per driven parameter to that same objective — see
 //! [`Pull`]. One equation in one parameter apiece, so they need no rows of their
@@ -102,9 +110,6 @@ pub(super) struct Stepper {
     /// [`Stepper::iterate`] clears it to.
     normal: Vec<f64>,
     step: Vec<f64>,
-    /// Which columns the Jacobian row being folded in has anything in, gathered
-    /// once per row and read twice — once per pair of them.
-    touched: Vec<usize>,
     /// How far left each row of the normal equations reaches, which is what the
     /// factorisation is spared walking — see
     /// [`solve_in_place`](crate::math::dense::solve_in_place).
@@ -181,37 +186,32 @@ impl Stepper {
             for (col, reaches) in self.first.iter_mut().enumerate() {
                 *reaches = col;
             }
-            for (row, residual) in system.jacobian.chunks_exact(n).zip(&system.residuals) {
-                // A constraint names two entities at most, so a row is four
-                // cells of work in a sketch of any width — and every cell of
-                // `JᵀJ` this row reaches is a pair of them. Gathered once,
-                // because walking the row per nonzero costs the whole width
-                // again to find the same four.
+            for (at, residual) in system.residuals.iter().enumerate() {
+                // What the equation holds and where, taken off the assembly
+                // rather than found again. A row names at most five columns in a
+                // sketch of any width, and every cell of `JᵀJ` it reaches is a
+                // pair of them — so this walk is the pairs and nothing else.
                 //
-                // Gathered *here* rather than carried over from the assembly,
-                // which already decides it cell by cell to apply the mask. Every
-                // assembly would have to build the list and only the stepper's
-                // reads it, and a conditional push per nonzero turns a masking
-                // pass the compiler vectorizes into a scalar one — measured 5-21%
-                // slower across a solve, a drag and a bare measurement alike, at
-                // 22, 82 and 242 parameters. The scan below is a contiguous read
-                // of a row already in cache; carrying the answer costs more than
-                // finding it again.
-                self.touched.clear();
-                self.touched.extend((0..n).filter(|&col| row[col] != 0.0));
+                // Scanned for, this used to be the width of the sketch per row
+                // per iteration, to rediscover what the assembly had just been
+                // told. The assembly writes it down instead — see
+                // [`System::row`].
+                let row = system.row(at);
                 // The leftmost column this row reaches, which is as far left as
-                // any cell it writes can be — `touched` climbs, so it is the
+                // any cell it writes can be — a row runs ascending, so it is the
                 // first of them.
-                let Some(&leftmost) = self.touched.first() else {
+                let Some(&leftmost) = row.cols.first() else {
                     continue;
                 };
-                for (taken, &a) in self.touched.iter().enumerate() {
-                    self.first[a] = self.first[a].min(leftmost);
-                    self.step[a] -= row[a] * residual;
+                for (taken, (&a, &value)) in row.cols.iter().zip(row.values).enumerate() {
+                    let a = a as usize;
+                    self.first[a] = self.first[a].min(leftmost as usize);
+                    self.step[a] -= value * residual;
                     // The lower triangle alone, since that is all the Cholesky
-                    // reads. `touched` climbs, so `..=taken` is exactly `b <= a`.
-                    for &b in &self.touched[..=taken] {
-                        self.normal[a * n + b] += row[a] * row[b];
+                    // reads. A row climbs, so the pairs up to the one in hand are
+                    // exactly `b <= a`.
+                    for (&b, &met) in row.cols[..=taken].iter().zip(&row.values[..=taken]) {
+                        self.normal[a * n + b as usize] += value * met;
                     }
                 }
             }

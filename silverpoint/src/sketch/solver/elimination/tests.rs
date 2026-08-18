@@ -162,9 +162,7 @@ fn the_reduction_answers_what_the_unshortened_walk_answers() {
             }
         }
 
-        let mut system = System::default();
-        system.jacobian = jacobian.clone();
-        system.movable = movable.clone();
+        let system = System::of_dense(&jacobian, movable.clone());
 
         let mut elimination = Elimination::default();
         elimination.null_space(&system);

@@ -8,23 +8,53 @@ use crate::sketch::{PointId, Sketch};
 /// The residuals of a sketch as it stands, their Jacobian, the constraint each
 /// equation came from, and the mask all three were built under.
 ///
-/// One type rather than four buffers side by side, because the four are filled
-/// by one walk and are meaningless apart: a residual belongs to a row belongs to
-/// a constraint, all by position, and every row is zeroed wherever the mask
-/// refuses. A solve keeps two of these — where it is and where a step would take
-/// it — and swaps them when the step is worth keeping, which is one swap rather
-/// than one per buffer.
+/// One type rather than a handful of buffers side by side, because they are
+/// filled by one walk and are meaningless apart: a residual belongs to a row
+/// belongs to a constraint, all by position, and a row is the stretch of two
+/// more that a third points into. A solve keeps two of these — where it is and
+/// where a step would take it — and swaps them when the step is worth keeping,
+/// which is one swap rather than one per buffer.
 ///
 /// The mask belongs here rather than beside it because it is what the rows
-/// *mean*. An assembly and the freedom it was granted are one fact, and holding
-/// them apart is holding two things that can disagree about which sketch they
-/// describe — which is what everything reading the Jacobian afterwards, the
+/// *mean*: a column it refuses is not kept at all, so the rows cannot be read
+/// without it. An assembly and the freedom it was granted are one fact, and
+/// holding them apart is holding two things that can disagree about which sketch
+/// they describe — which is what everything reading the Jacobian afterwards, the
 /// damping and the rank alike, would then have to be trusted to keep in step.
 #[derive(Debug, Default)]
 pub(super) struct System {
     pub(super) residuals: Vec<f64>,
-    /// Row-major, one row of [`System::width`] per equation.
-    pub(super) jacobian: Vec<f64>,
+    /// What each equation's row holds, and nothing it does not.
+    ///
+    /// **Only the cells that are not zero**, which is nearly none of them: an
+    /// equation names at most two entities, so a row holds five numbers in a
+    /// sketch of any width. Held dense, a row of a five-hundred-parameter sketch
+    /// was four kilobytes to say twoscore bytes, and every reader paid for the
+    /// difference — the elimination copied it and then scanned it again to find
+    /// where the numbers were, and the step assembly scanned it afresh every
+    /// iteration to find the same thing.
+    ///
+    /// Flat, with the shape beside it: `cells` and `cols` run in step and
+    /// `starts` says where each row begins, with the total on the end. A row is
+    /// therefore `starts[at]..starts[at + 1]` of both, and there is one heap
+    /// block for the lot rather than one per equation.
+    ///
+    /// Ascending by column within a row, which every reader leans on: the
+    /// stepper takes the lower triangle of `JᵀJ` as the pairs up to the one in
+    /// hand, and the elimination reads the first and last as the stretch the row
+    /// can hold anything in.
+    cells: Vec<f64>,
+    /// The column each of `cells` sits in.
+    cols: Vec<u32>,
+    /// Where each row begins in the two above, with the total on the end.
+    starts: Vec<u32>,
+    /// The one row being written, dense, so that a partial can be *added* to a
+    /// column the equation names twice.
+    ///
+    /// Kept and emptied rather than stood up per row: it is the one place an
+    /// assembly still pays by the width of the sketch, and paying for it once a
+    /// row is what compacting out of it costs.
+    scratch: Vec<f64>,
     /// Which constraint wrote each equation, one entry per row.
     pub(super) equations: Vec<ConstraintId>,
     /// Whether the solve may move each parameter, one entry per parameter.
@@ -98,29 +128,71 @@ impl System {
             "this system was held for another sketch"
         );
         self.residuals.clear();
-        self.jacobian.clear();
+        self.cells.clear();
+        self.cols.clear();
+        self.starts.clear();
+        self.starts.push(0);
         self.equations.clear();
+        self.scratch.clear();
+        self.scratch.resize(n, 0.0);
         let mut largest = 0.0f64;
         let mut squares = 0.0;
         for (id, constraint) in sketch.constraints() {
             for equation in constraint.equations() {
-                let start = self.jacobian.len();
-                self.jacobian.resize(start + n, 0.0);
-                let mut row = JacobianRow::new(sketch.params(), &mut self.jacobian[start..]);
+                // Written dense and read out sparse. An equation adds to the
+                // columns it names rather than assigning them — see
+                // [`JacobianRow`] — so it wants somewhere it can reach any
+                // column, and only once it has finished is it known which few it
+                // touched.
+                let mut row = JacobianRow::new(sketch.params(), &mut self.scratch);
                 let residual = equation.evaluate(sketch, &mut row);
                 largest = largest.max(residual.abs());
                 squares += residual * residual;
                 self.residuals.push(residual);
                 self.equations.push(id);
-                for (partial, &may_move) in self.jacobian[start..].iter_mut().zip(&self.movable) {
-                    if !may_move {
-                        *partial = 0.0;
+                // One walk that empties the scratch and keeps what was in it, so
+                // the next equation starts on a clean row without a second pass
+                // to clear it. The mask is spent here too: a column the solve may
+                // not move is simply not kept, which is what zeroing it came to.
+                for (col, cell) in self.scratch.iter_mut().enumerate() {
+                    if *cell != 0.0 {
+                        if self.movable[col] {
+                            self.cols.push(col as u32);
+                            self.cells.push(*cell);
+                        }
+                        *cell = 0.0;
                     }
                 }
+                self.starts.push(self.cols.len() as u32);
             }
         }
         self.max_residual = largest;
         self.magnitude = squares.sqrt();
+    }
+
+    /// One equation's row: the columns it holds anything in, and what it holds
+    /// there, ascending by column.
+    ///
+    /// A named pair rather than two calls, because the two are read together
+    /// every time and indexing one by a position from the other is the only way
+    /// to use either.
+    pub(super) fn row(&self, at: usize) -> Row<'_> {
+        let (from, to) = (self.starts[at] as usize, self.starts[at + 1] as usize);
+        Row {
+            cols: &self.cols[from..to],
+            values: &self.cells[from..to],
+        }
+    }
+
+    /// How many equations the assembly came to.
+    ///
+    /// Off the row structure itself: `starts` carries one entry per row and the
+    /// total on the end, so it is one longer than the count. The lists beside it
+    /// are the same length by construction, and reading it here rather than off
+    /// one of those is what keeps a system that has never been assembled
+    /// answering nought rather than reaching past the end of an empty `starts`.
+    pub(super) fn height(&self) -> usize {
+        self.starts.len().saturating_sub(1)
     }
 
     /// Hold for `held` and assemble in one call.
@@ -154,5 +226,61 @@ impl System {
     /// and the sketch is solved when that leaves nothing over.
     pub(super) fn magnitude(&self) -> f64 {
         self.magnitude
+    }
+}
+
+/// One equation's row of the Jacobian: the columns it holds anything in, and
+/// what it holds there.
+///
+/// Borrowed and read together — see [`System::row`], which is the only place one
+/// comes from. The two slices are the same length by construction, and both run
+/// ascending by column.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Row<'a> {
+    pub(super) cols: &'a [u32],
+    pub(super) values: &'a [f64],
+}
+
+/// What a test that means to hand the reduction a *matrix* rather than a sketch
+/// reaches for.
+///
+/// Every other way a system comes about is an assembly of some sketch, which is
+/// what a caller wants and what the solver has. A sweep over generated matrices
+/// has no sketch behind it — that is the point of it, since which shapes a
+/// sketch can produce is exactly what such a sweep must not be limited to.
+#[cfg(test)]
+pub(crate) mod internals {
+    use crate::sketch::solver::system::System;
+
+    impl System {
+        /// A system holding `jacobian`, read as rows of `movable.len()` columns.
+        ///
+        /// Compacted the way an assembly compacts, since that is the shape every
+        /// reader expects — what is being stood in for is the *sketch*, not the
+        /// storage.
+        /// The constraints each row came from are left empty, there being none
+        /// — so this stands in for an assembly only as far as the *rows* go.
+        /// [`Elimination::measure`](crate::sketch::solver::elimination::Elimination)
+        /// names the redundant ones through that list and would reach past its
+        /// end; what a matrix can be handed to is the reduction underneath it.
+        pub(crate) fn of_dense(jacobian: &[f64], movable: Vec<bool>) -> Self {
+            let n = movable.len();
+            let mut system = Self {
+                movable,
+                ..Self::default()
+            };
+            system.starts.push(0);
+            for row in jacobian.chunks_exact(n) {
+                for (col, &cell) in row.iter().enumerate() {
+                    if cell != 0.0 && system.movable[col] {
+                        system.cols.push(col as u32);
+                        system.cells.push(cell);
+                    }
+                }
+                system.starts.push(system.cols.len() as u32);
+                system.residuals.push(0.0);
+            }
+            system
+        }
     }
 }

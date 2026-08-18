@@ -220,14 +220,13 @@ impl Elimination {
         self.origin.clear();
         self.free.clear();
         self.reach.clear();
-        if n == 0 || system.jacobian.is_empty() {
+        if n == 0 || system.height() == 0 {
             // Nothing to eliminate, so every column the sketch can move is one
             // it is still free to choose.
             self.free.extend((0..n).filter(|&col| system.movable[col]));
             return;
         }
-        self.rows.clear();
-        self.rows.extend_from_slice(&system.jacobian);
+        let m = system.height();
         let Self {
             rows: a,
             origin,
@@ -236,25 +235,36 @@ impl Elimination {
             reach,
             ..
         } = self;
-        let m = a.len() / n;
+        // Spread back out to a cell per column, because the elimination writes
+        // where the assembly held nothing: fill is the whole reason a reduction
+        // costs what it does, and a row that starts with five numbers in it does
+        // not end with five. Cleared rather than copied over — the assembly is
+        // mostly holes, and a run of zeros is quicker to write than to read from
+        // somewhere else.
+        a.clear();
+        a.resize(m * n, 0.0);
         // Every row starts as the equation it was assembled from, and follows
         // its row through every swap below.
         origin.extend(0..m);
         let mut scale = 0.0f64;
-        // Where each row actually holds anything. An equation names at most two
-        // entities, so a row of any sketch is a handful of cells however wide
-        // the sketch is — and everything outside the stretch between the first
-        // and the last is exactly zero, not nearly so.
+        // Where each row holds anything, which the assembly already knows: a row
+        // runs ascending by column, so its stretch is its first and its last.
+        // Scanning a dense row for this was the second-largest pass of the whole
+        // reduction, and it was rediscovering what had just been written down.
         reach.reserve_exact(m);
-        for row in a.chunks_exact(n) {
-            let mut span = None;
-            for (col, &cell) in row.iter().enumerate() {
-                if cell != 0.0 {
-                    scale = scale.max(cell.abs());
-                    span = Some(span.map_or((col, col), |(low, _)| (low, col)));
-                }
+        for at in 0..m {
+            let row = system.row(at);
+            for (&col, &value) in row.cols.iter().zip(row.values) {
+                a[at * n + col as usize] = value;
+                scale = scale.max(value.abs());
             }
-            reach.push(span.unwrap_or((0, 0)));
+            reach.push(match (row.cols.first(), row.cols.last()) {
+                (Some(&low), Some(&high)) => (low as usize, high as usize),
+                // An equation the mask left nothing of. It pivots on nothing and
+                // is named redundant, which is what an equation that cannot move
+                // anything is.
+                _ => (0, 0),
+            });
         }
         let scale = scale.max(1.0);
         let tolerance = RANK_TOLERANCE * scale;
