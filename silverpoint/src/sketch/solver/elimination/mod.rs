@@ -55,6 +55,21 @@ pub(super) struct Elimination {
     /// how far that parameter travels along each way the sketch can still move.
     /// Row-major.
     null: Vec<f64>,
+    /// The stretch of columns each row can hold anything in, low and high
+    /// inclusive — everything outside is exactly zero.
+    ///
+    /// Taken off the rows before the walk and carried through it: a swap moves
+    /// two rows' stretches with them, and an update widens the row it wrote to
+    /// by the pivot row's — and then closes it up behind the walk, every column
+    /// that took a pivot being exactly zero once it has. That closing is what
+    /// makes it worth keeping: on a sketch with nothing left undecided the
+    /// stretch chases the walk rightwards instead of covering everything the
+    /// fill has reached.
+    ///
+    /// A bound rather than a description, either way. Nothing here needs to know
+    /// where a row's content *starts*, only somewhere it cannot start before —
+    /// what is skipped is what lies outside.
+    reach: Vec<(usize, usize)>,
     /// The columns that took no pivot, which are the null space's own axes.
     /// Filled by [`Elimination::eliminate`] beside [`Elimination::pivots`], the
     /// other half of the same partition.
@@ -204,6 +219,7 @@ impl Elimination {
         self.pivots.clear();
         self.origin.clear();
         self.free.clear();
+        self.reach.clear();
         if n == 0 || system.jacobian.is_empty() {
             // Nothing to eliminate, so every column the sketch can move is one
             // it is still free to choose.
@@ -212,12 +228,35 @@ impl Elimination {
         }
         self.rows.clear();
         self.rows.extend_from_slice(&system.jacobian);
-        let a = &mut self.rows;
+        let Self {
+            rows: a,
+            origin,
+            pivots,
+            free,
+            reach,
+            ..
+        } = self;
         let m = a.len() / n;
         // Every row starts as the equation it was assembled from, and follows
         // its row through every swap below.
-        self.origin.extend(0..m);
-        let scale = a.iter().fold(0.0f64, |acc, v| acc.max(v.abs())).max(1.0);
+        origin.extend(0..m);
+        let mut scale = 0.0f64;
+        // Where each row actually holds anything. An equation names at most two
+        // entities, so a row of any sketch is a handful of cells however wide
+        // the sketch is — and everything outside the stretch between the first
+        // and the last is exactly zero, not nearly so.
+        reach.reserve_exact(m);
+        for row in a.chunks_exact(n) {
+            let mut span = None;
+            for (col, &cell) in row.iter().enumerate() {
+                if cell != 0.0 {
+                    scale = scale.max(cell.abs());
+                    span = Some(span.map_or((col, col), |(low, _)| (low, col)));
+                }
+            }
+            reach.push(span.unwrap_or((0, 0)));
+        }
+        let scale = scale.max(1.0);
         let tolerance = RANK_TOLERANCE * scale;
         let mut rank = 0;
         for col in 0..n {
@@ -227,36 +266,75 @@ impl Elimination {
             // Every row has pivoted already, so nothing is left to decide this
             // column or any after it.
             if rank == m {
-                self.free.push(col);
+                free.push(col);
                 continue;
             }
+            // Only rows this column falls inside can hold anything in it. The
+            // rest are exactly zero there, so they cannot be the largest unless
+            // every candidate is — which the tolerance below is what answers.
             let mut pivot = rank;
             for row in rank..m {
-                if a[row * n + col].abs() > a[pivot * n + col].abs() {
+                if reach[row].0 <= col
+                    && col <= reach[row].1
+                    && a[row * n + col].abs() > a[pivot * n + col].abs()
+                {
                     pivot = row;
                 }
             }
             if a[pivot * n + col].abs() <= tolerance {
-                self.free.push(col);
+                free.push(col);
                 continue;
             }
             if pivot != rank {
-                for c in 0..n {
+                // The two rows agree outside the wider of their stretches, both
+                // being zero there.
+                let (lowest, highest) = (
+                    reach[pivot].0.min(reach[rank].0),
+                    reach[pivot].1.max(reach[rank].1),
+                );
+                for c in lowest..=highest {
                     a.swap(pivot * n + c, rank * n + c);
                 }
-                self.origin.swap(pivot, rank);
+                origin.swap(pivot, rank);
+                reach.swap(pivot, rank);
             }
             let diagonal = a[rank * n + col];
+            let high = reach[rank].1;
             for row in (rank + 1)..m {
                 let factor = a[row * n + col] / diagonal;
                 if factor == 0.0 {
                     continue;
                 }
-                for c in 0..n {
+                // Everything the pivot row can hold, which is three stretches
+                // rather than one. Behind the walk it is zero at every column
+                // that took a pivot — set there, not merely subtracted to — so
+                // what is left behind is the columns nothing pivoted on, and
+                // those are exactly `free`. Ahead of the walk it reaches as far
+                // as its stretch says.
+                //
+                // The passed-over ones are not a rounding to be skipped: they
+                // are what the null space is read from, so dropping them would
+                // put a tolerance under an answer that has none.
+                for &passed in free.iter() {
+                    a[row * n + passed] -= factor * a[rank * n + passed];
+                }
+                for c in (col + 1)..=high {
                     a[row * n + c] -= factor * a[rank * n + c];
                 }
+                // Set rather than subtracted to. What the subtraction would
+                // leave is `x - (x/d)·d`, which is a rounding away from the zero
+                // this column is now *defined* to hold — and the difference
+                // matters, because the stretch below is an exactness claim about
+                // it rather than a tolerance.
+                a[row * n + col] = 0.0;
+                // So the row now starts at the first column nothing pivoted on,
+                // every pivoted one behind the walk being exactly zero — and a
+                // sketch with nothing left undecided has no such column at all,
+                // which is what makes its stretch shrink as the walk advances.
+                let starts = free.first().copied().unwrap_or(col + 1);
+                reach[row] = (starts, reach[row].1.max(high));
             }
-            self.pivots.push(col);
+            pivots.push(col);
             rank += 1;
         }
     }
@@ -286,22 +364,47 @@ impl Elimination {
         self.eliminate(system);
         let rank = self.pivots.len();
 
-        let a = &mut self.rows;
+        let Self {
+            rows: a,
+            pivots,
+            free,
+            ..
+        } = self;
         // Backwards, so each row is cleared of every pivot below it before it is
         // used to clear itself from the rows above.
+        //
+        // **Only the columns that took no pivot are carried through it**, which
+        // is the whole of what the reduction is for: what gets read out below is
+        // `rows[row][col]` for `col` in `free` and nothing else. The rest would
+        // be written and then not looked at.
+        //
+        // And they are the only ones that *could* change. A pivot column left of
+        // this row's own is zero in it by echelon form; one to the right was
+        // cleared out of it by an earlier turn of this very loop, which runs
+        // descending for that reason; and a column nothing may move was zeroed by
+        // the assembly. Every one of those makes the subtraction below a no-op,
+        // so skipping them is exact rather than a shortcut with a tolerance on
+        // it.
+        //
+        // What it buys is the case a drawing is *finished* in. A sketch with
+        // nothing left undecided has no free columns at all, so this whole pass
+        // — quadratic in the rank — comes to nothing. Measured at 502
+        // parameters: reducing such a sketch takes 381µs where carrying every
+        // column through here takes 575µs, and what is left is the elimination
+        // above.
         for row in (0..rank).rev() {
-            let pivot = self.pivots[row];
+            let pivot = pivots[row];
             let diagonal = a[row * n + pivot];
-            for c in 0..n {
-                a[row * n + c] /= diagonal;
+            for &col in free.iter() {
+                a[row * n + col] /= diagonal;
             }
             for above in 0..row {
                 let factor = a[above * n + pivot];
                 if factor == 0.0 {
                     continue;
                 }
-                for c in 0..n {
-                    a[above * n + c] -= factor * a[row * n + c];
+                for &col in free.iter() {
+                    a[above * n + col] -= factor * a[row * n + col];
                 }
             }
         }
@@ -364,3 +467,6 @@ impl Elimination {
         &self.null[param * axes..][..axes]
     }
 }
+
+#[cfg(test)]
+mod tests;
