@@ -4,13 +4,38 @@ use crate::demo;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
 use crate::paint;
-use crate::paint::layout::Layout;
-use crate::paint::showing::Showing;
-use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};
-use aperture::Scene;
+use crate::timeline::{FeatureId, Timeline};
 use glam::{DVec2, Vec3};
 use silverpoint::{CircleId, Plane, PointId};
+
+/// The demo raised with a history over it, which is what every step below is
+/// taken against.
+///
+/// Destructured by its callers rather than held, so a test names the four
+/// things by the names it uses them under and nothing reads through a field.
+#[derive(Debug)]
+struct Opened {
+    build: Build,
+    document: Document,
+    history: History,
+    /// The sketch the demo opens in, which every change below names.
+    at: FeatureId,
+}
+
+impl Opened {
+    fn new() -> Self {
+        let mut build = Build::default();
+        let document = demo::document(&mut build);
+        let at = document.opening();
+        Self {
+            build,
+            document,
+            history: History::default(),
+            at,
+        }
+    }
+}
 
 /// One intent, as a frame that asked for exactly that would deliver it.
 fn once(intent: impl Into<Intent>) -> Intents {
@@ -19,17 +44,9 @@ fn once(intent: impl Into<Intent>) -> Intents {
     intents
 }
 
-/// Where the drawing's markers stand, which is what a drag moves and an undo
-/// has to put back.
+/// Where the drawing's markers stand — see [`paint::markers`].
 fn markers(document: &Document, build: &Build) -> Vec<Vec3> {
-    let mut scene = Scene::default();
-    paint::redraw(
-        document.models(build, document.opening()),
-        &mut Layout::default(),
-        Showing::default(),
-        &mut scene,
-    );
-    scene.points.iter().map(|point| point.position).collect()
+    paint::markers(document.models(build, document.opening()))
 }
 
 /// The demo's point at `index`, in the order it added them. The ninth is the
@@ -132,10 +149,12 @@ fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
 /// the frames it was delivered in.
 #[test]
 fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
-    let mut build = Build::default();
-    let mut document = demo::document(&mut build);
-    let at = document.opening();
-    let mut history = History::default();
+    let Opened {
+        mut build,
+        mut document,
+        mut history,
+        at,
+    } = Opened::new();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
     let at_rest = markers(&document, &build);
@@ -201,10 +220,12 @@ fn a_drag_is_one_step_back_however_many_frames_it_lasted() {
 /// keep in step with the intents.
 #[test]
 fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
-    let mut build = Build::default();
-    let mut document = demo::document(&mut build);
-    let at = document.opening();
-    let mut history = History::default();
+    let Opened {
+        mut build,
+        mut document,
+        mut history,
+        at,
+    } = Opened::new();
     let at_rest = markers(&document, &build);
     let camera = document.camera();
 
@@ -271,10 +292,12 @@ fn only_what_moves_the_drawing_becomes_a_step_to_take_back() {
 /// release arriving twice is what makes closing have to be idempotent.
 #[test]
 fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
-    let mut build = Build::default();
-    let mut document = demo::document(&mut build);
-    let at = document.opening();
-    let mut history = History::default();
+    let Opened {
+        mut build,
+        mut document,
+        mut history,
+        at,
+    } = Opened::new();
     let arm = point(&document, 8);
     let grip = Grip::Point(arm);
     let at_rest = markers(&document, &build);
@@ -312,10 +335,12 @@ fn a_frame_applied_twice_leaves_one_step_rather_than_two() {
 /// put back — the alternative is a tree, and a tree is not what Ctrl+Y means.
 #[test]
 fn something_new_after_an_undo_throws_away_what_was_undone() {
-    let mut build = Build::default();
-    let mut document = demo::document(&mut build);
-    let at = document.opening();
-    let mut history = History::default();
+    let Opened {
+        mut build,
+        mut document,
+        mut history,
+        at,
+    } = Opened::new();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
 
@@ -377,10 +402,12 @@ fn something_new_after_an_undo_throws_away_what_was_undone() {
 /// The history is bounded, and forgets from the far end.
 #[test]
 fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() {
-    let mut build = Build::default();
-    let mut document = demo::document(&mut build);
-    let at = document.opening();
-    let mut history = History::default();
+    let Opened {
+        mut build,
+        mut document,
+        mut history,
+        at,
+    } = Opened::new();
     let circle = hole(&document);
     let grip = Grip::Rim(circle);
     let opened_at = radius(&document);

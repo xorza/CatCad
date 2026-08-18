@@ -649,6 +649,15 @@ pub(crate) mod internals {
 
     use crate::CatCad;
 
+    /// The window every harness in this crate lays its frames out in.
+    ///
+    /// Stated once because a screen coordinate only means anything against it:
+    /// the two harnesses sweep the view for a cursor and read what a projection
+    /// put where, and a size each would be two frames of reference wearing one
+    /// name. Wide enough for the whole demo at the angle it opens at.
+    #[cfg(test)]
+    pub(crate) const HARNESS_SIZE: glam::UVec2 = glam::UVec2::new(800, 600);
+
     impl CatCad {
         /// The width every sketch stroke is authored at, in logical pixels.
         ///
@@ -680,6 +689,18 @@ pub(crate) mod internals {
             self.document.camera_mut()
         }
 
+        /// What the app is modelling, as the drawing it is being worked in.
+        ///
+        /// The one reading the app takes of itself before it asks the session
+        /// or the history anything, and so the one a test setting either up has
+        /// to take too. Written out at the call site it is a three-part chain
+        /// over two private fields, which is a paragraph wherever a test wants
+        /// one line.
+        #[cfg(test)]
+        pub(crate) fn models(&self) -> crate::model::Models<'_> {
+            self.document.models(&self.build, self.session.editing())
+        }
+
         /// Whether the pointer is over the thing `tag` names.
         ///
         /// Published for the visual suite, which is the only place a mark can
@@ -692,27 +713,19 @@ pub(crate) mod internals {
         /// The far end of the demo's arm, which is the freest thing it draws
         /// and so the one worth taking hold of.
         ///
-        /// A fact about the *fixture* rather than about the app, and here all
-        /// the same, because what it reads is two private fields of one — the
-        /// document and which sketch the session has open. Every harness that
-        /// drives a drag wants it, and it was written out once per harness
-        /// until the copies disagreed.
-        ///
-        /// **The open sketch's last point, not the scene's last marker.** The
-        /// arm's points are added last of its own sketch, but the scene draws
-        /// every sketch, so its last marker belongs to whichever the document
-        /// drew last. A drag takes hold of the sketch being worked in and no
-        /// other: read off the scene, this named a point three sketches over,
-        /// and the bench's dragging step spent a release measuring a gesture
-        /// that never solved.
+        /// Forwarded rather than answered — the document is what knows, and its
+        /// own gated half is where the argument for this lives. Here because
+        /// what the answer reads is two private fields of one app: the
+        /// document, and which sketch the session has open.
         pub fn wrist(&self) -> glam::Vec3 {
-            let drawing = self.document.drawing_at(self.session.editing());
-            let (_, wrist) = drawing
-                .sketch()
-                .points()
-                .last()
-                .expect("the demo draws points");
-            drawing.plane().point(wrist.position).as_vec3()
+            self.document.wrist(self.session.editing())
+        }
+
+        /// Where a tool has room to put something down, forwarded the same way
+        /// as [`CatCad::wrist`].
+        #[cfg(test)]
+        pub fn empty_spot(&self) -> glam::Vec3 {
+            self.document.empty_spot(self.session.editing())
         }
     }
 }

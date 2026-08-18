@@ -4,9 +4,8 @@ use crate::demo;
 use crate::drawing::Grip;
 use crate::history::History;
 use crate::intent::{Change, Choice, Intent, Intents, Opening};
+use crate::internals::HARNESS_SIZE;
 use crate::paint;
-use crate::paint::layout::Layout;
-use crate::paint::showing::Showing;
 use crate::part::Part;
 use crate::preview::Preview;
 use crate::scene_view::aimed::Aimed;
@@ -16,13 +15,11 @@ use crate::scene_view::pointing::ZOOM_RATE;
 use crate::session::Session;
 use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
-use aperture::{HitAt, Motion, Scene};
-use glam::{DVec2, UVec2, Vec2, Vec3};
+use aperture::{HitAt, Motion};
+use glam::{DVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{Modifiers, PointerButton};
 use silverpoint::{Grown, Measurement};
-
-const SIZE: UVec2 = UVec2::new(800, 600);
 
 /// The demo, as the application raises it.
 #[derive(Debug)]
@@ -60,7 +57,7 @@ impl Raised {
             build,
             intents: Intents::default(),
             view,
-            harness: UiHarness::new(SIZE),
+            harness: UiHarness::new(HARNESS_SIZE),
             session,
         };
         // One frame nobody clicks in, because a view has no viewport until it
@@ -152,16 +149,10 @@ impl Raised {
     }
 
     /// Where the *document* says its markers are, which is not the same
-    /// question as where the scene the renderer holds still shows them.
+    /// question as where the scene the renderer holds still shows them — see
+    /// [`paint::markers`].
     fn asked_for(&self) -> Vec<Vec3> {
-        let mut scene = Scene::default();
-        paint::redraw(
-            self.document.models(&self.build, self.session.editing()),
-            &mut Layout::default(),
-            Showing::default(),
-            &mut scene,
-        );
-        scene.points.iter().map(|point| point.position).collect()
+        paint::markers(self.document.models(&self.build, self.session.editing()))
     }
 
     /// A cursor position that lands on something the drawing will let go of.
@@ -243,10 +234,10 @@ impl Raised {
     /// and what these sweeps are *for* is finding what a press would find.
     fn scan(&self, keep: impl Fn(Option<Part>, HitAt) -> bool) -> Option<Vec2> {
         let lens = self.lens();
-        (0..SIZE.y)
+        (0..HARNESS_SIZE.y)
             .step_by(4)
             .flat_map(|y| {
-                (0..SIZE.x)
+                (0..HARNESS_SIZE.x)
                     .step_by(4)
                     .map(move |x| Vec2::new(x as f32, y as f32))
             })
@@ -290,35 +281,15 @@ impl Raised {
             .expect("aimed at something the projection draws")
     }
 
-    /// The far end of the demo's arm, which is the freest thing it draws.
-    ///
-    /// The arm's points are added last of its *sketch's*, so the wrist is that
-    /// sketch's last point — not the scene's last marker, which belongs to
-    /// whichever sketch the document drew last.
+    /// The far end of the demo's arm — see [`Document::wrist`].
     fn wrist(&self) -> Vec3 {
-        let drawing = self.document.drawing_at(self.session.editing());
-        let (_, wrist) = drawing
-            .sketch()
-            .points()
-            .last()
-            .expect("the demo draws points");
-        drawing.plane().point(wrist.position).as_vec3()
+        self.document.wrist(self.session.editing())
     }
 
-    /// A spot on the sketch plane with nothing drawn near it — where a tool has
-    /// room to put something down.
-    ///
-    /// A sketch coordinate rather than a screen one, so what a click there
-    /// should produce is known by hand. The demo's rectangle starts at sketch
-    /// x = 0 and its slab reaches to x = −2, so a unit and a half to the left of
-    /// the frame is on the slab, on screen, and the better part of a hundred
-    /// pixels clear of the nearest stroke.
+    /// Where a tool has room to put something down — see
+    /// [`Document::empty_spot`].
     fn empty_spot(&self) -> Vec3 {
-        self.document
-            .drawing_at(self.session.editing())
-            .plane()
-            .point(DVec2::new(-1.5, 2.5))
-            .as_vec3()
+        self.document.empty_spot(self.session.editing())
     }
 
     /// How many strokes the scene holds — the drawing's edges, plus a rubber
@@ -327,16 +298,9 @@ impl Raised {
         self.view.renderer().borrow().scene().curves.len()
     }
 
-    /// Where every marker in the scene sits, in the order they are drawn.
+    /// Where every marker in the scene sits — see [`SceneView::markers`].
     fn markers(&self) -> Vec<Vec3> {
-        self.view
-            .renderer()
-            .borrow()
-            .scene()
-            .points
-            .iter()
-            .map(|point| point.position)
-            .collect()
+        self.view.markers()
     }
 }
 
@@ -377,9 +341,10 @@ fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
     );
 
     // Off the drawing entirely, nothing stays lit.
-    raised
-        .harness
-        .move_to(Vec2::new(SIZE.x as f32 - 1.0, SIZE.y as f32 - 1.0));
+    raised.harness.move_to(Vec2::new(
+        HARNESS_SIZE.x as f32 - 1.0,
+        HARNESS_SIZE.y as f32 - 1.0,
+    ));
     raised.frame();
     assert_eq!(raised.view.hovered(), None);
 }
@@ -558,7 +523,7 @@ fn the_middle_button_pans_the_view_and_grabs_nothing() {
     // From the middle of the view, which is over the drawing: the left button
     // on this very pixel takes hold of geometry, so a pan that reached the
     // grab would be caught here and nowhere else.
-    let centre = SIZE.as_vec2() * 0.5;
+    let centre = HARNESS_SIZE.as_vec2() * 0.5;
     let step = Vec2::new(60.0, -35.0);
     raised
         .harness

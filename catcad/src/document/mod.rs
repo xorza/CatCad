@@ -440,7 +440,9 @@ pub(crate) mod internals {
     use crate::document::Document;
     #[cfg(test)]
     use crate::document::Edits;
+    use crate::timeline::FeatureId;
     use aperture::Camera;
+    use glam::Vec3;
 
     /// Narrower than the mod around it, which the visual suite reaches through
     /// as well: this is wanted by one unit test and nothing a harness links.
@@ -459,6 +461,49 @@ pub(crate) mod internals {
     impl Document {
         pub(crate) fn camera_mut(&mut self) -> &mut Camera {
             &mut self.camera
+        }
+
+        /// The far end of the demo's arm, which is the freest thing it draws
+        /// and so the one worth taking hold of.
+        ///
+        /// A fact about the *fixture* rather than about a document, and here
+        /// because every harness that drives a drag wants it and each was
+        /// writing it out itself. **The named sketch's last point, not the
+        /// scene's last marker**: the arm's points are added last of its own
+        /// sketch, where the scene draws every sketch and its last marker
+        /// belongs to whichever the document drew last. Read off the scene, this
+        /// named a point three sketches over, and the bench's dragging step
+        /// spent a release measuring a gesture that never solved.
+        pub(crate) fn wrist(&self, sketch: FeatureId) -> Vec3 {
+            let drawing = self.drawing_at(sketch);
+            let (_, wrist) = drawing
+                .sketch()
+                .points()
+                .last()
+                .expect("the demo draws points");
+            drawing.plane().point(wrist.position).as_vec3()
+        }
+
+        /// A spot on `sketch`'s plane with nothing drawn near it — where a tool
+        /// has room to put something down.
+        ///
+        /// The other half of the same fixture, and narrower than [`wrist`]
+        /// beside it: what a *click on nothing* should produce is a question
+        /// only the unit tests ask.
+        ///
+        /// A sketch coordinate rather than a screen one, so the answer is known
+        /// by hand. The demo's rectangle starts at sketch x = 0 and its slab
+        /// reaches to x = −2, so a unit and a half to the left of the frame is
+        /// on the slab, on screen, and the better part of a hundred pixels clear
+        /// of the nearest stroke.
+        ///
+        /// [`wrist`]: Document::wrist
+        #[cfg(test)]
+        pub(crate) fn empty_spot(&self, sketch: FeatureId) -> Vec3 {
+            self.drawing_at(sketch)
+                .plane()
+                .point(glam::DVec2::new(-1.5, 2.5))
+                .as_vec3()
         }
     }
 }

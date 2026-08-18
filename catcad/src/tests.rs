@@ -1,7 +1,7 @@
 //! What the app decides, from the sketch it opens with to the frames it records.
 
 use aperture::{Camera, Facing, Turn, Viewport};
-use glam::{DVec2, UVec2, Vec2, Vec3};
+use glam::{DVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
 use palantir::{App, InputDelta, Key, Modifiers, WindowToken};
 use silverpoint::{Drive, Entity, Freedom, Outcome, Plane, PointId, Removed, Solver};
@@ -11,7 +11,8 @@ use crate::demo;
 use crate::hud::internals::{
     CIRCLE_BUTTON, EXTRUDE_BUTTON, LINE_BUTTON, POINT_BUTTON, TIDY_BUTTON,
 };
-use crate::intent::{Choice, Intents, Opening};
+use crate::intent::{Choice, Intent, Intents, Opening};
+use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
 use crate::model::Models;
 use crate::part::Part;
@@ -19,9 +20,6 @@ use crate::prompt::{Asking, Prompt};
 use crate::timeline::Timeline;
 use crate::tool::Tool;
 use crate::{CatCad, Status};
-
-/// The surface every test that records frames raises the app at.
-const SIZE: UVec2 = UVec2::new(800, 600);
 
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
@@ -303,9 +301,9 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     // And the app's own opening state agrees with the demo's solve. It reads
     // as unsaved from the first frame, which is the honest answer: the demo has
     // never been anywhere, so there is nowhere its contents are already safe.
-    let app = CatCad::build();
+    let raised = Raised::new();
     assert_eq!(
-        app.status().to_string(),
+        raised.app.status().to_string(),
         "solved · 5 dof · 0 redundant · 4 iterations · unsaved",
         "the demo opens with its arm free and its frame determined"
     );
@@ -321,47 +319,53 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
 /// drawn.
 #[test]
 fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
 
-    let at_rest = markers(&app);
-    let world = app.wrist();
-    let cursor = cursor_on(&mut app, world);
+    let at_rest = raised.markers();
+    let world = raised.app.wrist();
+    let cursor = raised.cursor_on(world);
 
     // Press, travel past palantir's four-pixel latch, release.
-    harness.move_to(cursor);
-    frame(&mut app, &mut harness);
-    harness.press_at(cursor);
-    frame(&mut app, &mut harness);
-    harness.drag_to(cursor + Vec2::new(40.0, 25.0));
-    frame(&mut app, &mut harness);
-    harness.release();
-    frame(&mut app, &mut harness);
-    let dragged = markers(&app);
+    raised.harness.move_to(cursor);
+    raised.frame();
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(40.0, 25.0));
+    raised.frame();
+    raised.harness.release();
+    raised.frame();
+    let dragged = raised.markers();
     assert_ne!(dragged, at_rest, "the pointer moved nothing");
 
     // Now the keyboard. The chord has to wake a frame of its own: nothing else
     // is happening, and an undo that waited for an unrelated event would sit
     // unapplied on screen.
-    let woken = ctrl(&mut harness, Key::Char('Z'));
+    let woken = raised.ctrl(Key::Char('Z'));
     assert!(
         woken.requests_repaint,
         "Ctrl+Z left the frame asleep, so the undo would not be drawn"
     );
-    frame(&mut app, &mut harness);
-    assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the drag back");
+    raised.frame();
+    assert_eq!(
+        raised.markers(),
+        at_rest,
+        "Ctrl+Z did not take the drag back"
+    );
 
     // And Ctrl+Shift+Z puts it back. The modifiers are matched exactly, so the
     // two chords cannot be confused for one another.
-    ctrl_shift(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
-    assert_eq!(markers(&app), dragged, "Ctrl+Shift+Z did not put it back");
+    raised.ctrl_shift(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(
+        raised.markers(),
+        dragged,
+        "Ctrl+Shift+Z did not put it back"
+    );
 
     // With nothing left to put back, the chord changes nothing.
-    ctrl_shift(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
-    assert_eq!(markers(&app), dragged);
+    raised.ctrl_shift(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(raised.markers(), dragged);
 }
 
 /// The whole of the point tool, through the real application: pressed on the
@@ -376,20 +380,18 @@ fn ctrl_z_takes_back_a_drag_made_with_the_pointer() {
 /// counted again over what is left, and the picture on screen is relaid out.
 #[test]
 fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
-    let at_rest = markers(&app);
+    let mut raised = Raised::new();
+    let at_rest = raised.markers();
     assert_eq!(
-        app.session.tool(),
+        raised.app.session.tool(),
         Tool::Pointer,
         "the app opened with a tool in hand"
     );
 
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
     assert_eq!(
-        app.session.tool(),
+        raised.app.session.tool(),
         Tool::Point,
         "the toolbar did not arm the point tool"
     );
@@ -399,12 +401,12 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     // the ray through the pixel showing it meets the plane exactly there, and
     // where the new point belongs is known rather than read back off the thing
     // that placed it.
-    let empty = empty_spot(&app);
-    let cursor = cursor_on(&mut app, empty);
+    let empty = raised.app.empty_spot();
+    let cursor = raised.cursor_on(empty);
 
-    harness.click_at(cursor);
-    frame(&mut app, &mut harness);
-    let placed = markers(&app);
+    raised.harness.click_at(cursor);
+    raised.frame();
+    let placed = raised.markers();
     assert_eq!(placed.len(), at_rest.len() + 1, "the click placed nothing");
     assert!(
         placed.iter().any(|at| at.abs_diff_eq(empty, 1e-3)),
@@ -414,76 +416,84 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     // line is where that shows — so the freedoms were measured again over the
     // sketch as it now stands rather than carried over from before.
     assert!(
-        app.status()
+        raised
+            .app
+            .status()
             .to_string()
             .starts_with("solved · 7 dof · 0 redundant"),
         "the demo's five degrees of freedom did not become seven: {}",
-        app.status()
+        raised.app.status()
     );
 
     // Taken back: the point is gone, and so are the freedoms it brought.
-    ctrl(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
-    assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the point back");
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(
+        raised.markers(),
+        at_rest,
+        "Ctrl+Z did not take the point back"
+    );
     assert!(
-        app.status()
+        raised
+            .app
+            .status()
             .to_string()
             .starts_with("solved · 5 dof · 0 redundant"),
         "the drawing kept the freedoms of a point it no longer holds: {}",
-        app.status()
+        raised.app.status()
     );
 
     // And put back, which is the harder direction: the redo has to widen a
     // sketch that has since been narrowed.
-    ctrl_shift(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
+    raised.ctrl_shift(Key::Char('Z'));
+    raised.frame();
     assert_eq!(
-        markers(&app),
+        raised.markers(),
         placed,
         "Ctrl+Shift+Z did not put the point back"
     );
 
     // Three ways to put a tool down, all landing on the same field through the
     // same inbox. Escape first, from wherever the pointer happens to be.
-    harness.key(Key::Escape);
-    frame(&mut app, &mut harness);
+    raised.harness.key(Key::Escape);
+    raised.frame();
     assert_eq!(
-        app.session.tool(),
+        raised.app.session.tool(),
         Tool::Pointer,
         "Escape did not put the tool down"
     );
 
     // The right button over the drawing, which is the gesture a modeller
     // reaches for first.
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
-    assert_eq!(app.session.tool(), Tool::Point);
-    let held = markers(&app);
-    harness.right_click_at(cursor);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    assert_eq!(raised.app.session.tool(), Tool::Point);
+    let held = raised.markers();
+    raised.harness.right_click_at(cursor);
+    raised.frame();
     assert_eq!(
-        app.session.tool(),
+        raised.app.session.tool(),
         Tool::Pointer,
         "the right button left it in hand"
     );
     // And it is really down, not merely drawn as down: the click that follows
     // places nothing.
-    harness.click_at(cursor);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(cursor);
+    raised.frame();
     assert_eq!(
-        markers(&app),
+        raised.markers(),
         held,
         "a cancelled tool went on placing points"
     );
 
     // And its own button again, because pressing the tool in hand puts it down.
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
-    assert_eq!(app.session.tool(), Tool::Point);
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    assert_eq!(raised.app.session.tool(), Tool::Point);
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
     assert_eq!(
-        app.session.tool(),
+        raised.app.session.tool(),
         Tool::Pointer,
         "pressing the armed tool re-armed it rather than putting it down"
     );
@@ -501,54 +511,57 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
 /// second, green and unasked for.
 #[test]
 fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
-    let at_rest = markers(&app);
+    let mut raised = Raised::new();
+    let at_rest = raised.markers();
 
     // Place a point on empty plane, put the tool down, and pick the point out.
-    let spot = empty_spot(&app);
-    let first = cursor_on(&mut app, spot);
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
-    harness.click_at(first);
-    frame(&mut app, &mut harness);
-    harness.key(Key::Escape);
-    frame(&mut app, &mut harness);
-    harness.click_at(first);
-    frame(&mut app, &mut harness);
-    assert_eq!(markers(&app).len(), at_rest.len() + 1);
+    let spot = raised.app.empty_spot();
+    let first = raised.cursor_on(spot);
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    raised.harness.click_at(first);
+    raised.frame();
+    raised.harness.key(Key::Escape);
+    raised.frame();
+    raised.harness.click_at(first);
+    raised.frame();
+    assert_eq!(raised.markers().len(), at_rest.len() + 1);
     assert_eq!(
-        app.session.selection().count(),
+        raised.app.session.selection().count(),
         1,
         "the new point was not picked out"
     );
 
     // Take the creation back. The point goes, and so does the handle to it.
-    ctrl(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
-    assert_eq!(markers(&app), at_rest, "Ctrl+Z did not take the point back");
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
     assert_eq!(
-        app.session.selection().count(),
+        raised.markers(),
+        at_rest,
+        "Ctrl+Z did not take the point back"
+    );
+    assert_eq!(
+        raised.app.session.selection().count(),
         0,
         "a handle to what the undo removed is still picked out"
     );
 
     // Now a different point, somewhere else — minted with the handle the undone
     // one had. Nobody picked it, so nothing is picked out.
-    let elsewhere = app
+    let elsewhere = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .plane()
         .point(DVec2::new(-1.5, 4.5))
         .as_vec3();
-    let second = cursor_on(&mut app, elsewhere);
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
-    harness.click_at(second);
-    frame(&mut app, &mut harness);
+    let second = raised.cursor_on(elsewhere);
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    raised.harness.click_at(second);
+    raised.frame();
 
-    let now = markers(&app);
+    let now = raised.markers();
     assert_eq!(
         now.len(),
         at_rest.len() + 1,
@@ -558,21 +571,18 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         now.iter().any(|at| at.abs_diff_eq(elsewhere, 1e-3)),
         "the second point did not land where it was asked for"
     );
-    let newest = app
+    let newest = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .sketch()
         .points()
         .last()
         .expect("the sketch holds points")
         .0;
-    let newest = app
-        .document
-        .models(&app.build, app.session.editing())
-        .open()
-        .part(newest);
+    let newest = raised.models().open().part(newest);
     assert!(
-        !app.session.selection().contains(newest),
+        !raised.app.session.selection().contains(newest),
         "a point nobody picked came up selected, on a handle left over from an undo"
     );
 }
@@ -594,39 +604,45 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
 /// one step to take back.
 #[test]
 fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
-    let at_rest = app
+    let mut raised = Raised::new();
+    let at_rest = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .sketch()
         .points()
         .count();
-    let edges = app
+    let edges = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .sketch()
         .segments()
         .count();
 
     // Three spots on bare plane, left of the demo's frame.
-    let plane = app.document.drawing_at(app.session.editing()).plane();
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
     let corner = [
         plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
         plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
         plane.point(DVec2::new(-4.0, 3.5)).as_vec3(),
     ];
-    let at = corner.map(|world| cursor_on(&mut app, world));
+    let at = corner.map(|world| raised.cursor_on(world));
 
     // One click starts the line and puts nothing in the document.
-    harness.click_at(LINE_BUTTON);
-    frame(&mut app, &mut harness);
-    harness.click_at(at[0]);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(LINE_BUTTON);
+    raised.frame();
+    raised.harness.click_at(at[0]);
+    raised.frame();
     assert_eq!(
-        app.document
-            .drawing_at(app.session.editing())
+        raised
+            .app
+            .document
+            .drawing_at(raised.app.session.editing())
             .sketch()
             .points()
             .count(),
@@ -634,40 +650,49 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
         "the first click of a line reached the document"
     );
     assert!(
-        app.session.tool().started().is_some(),
+        raised.app.session.tool().started().is_some(),
         "the first click was not remembered"
     );
 
     // The second finishes it: two points and the edge between them, and the
     // tool starts over ready for another.
-    harness.click_at(at[1]);
-    frame(&mut app, &mut harness);
-    let sketch = app.document.drawing_at(app.session.editing()).sketch();
+    raised.harness.click_at(at[1]);
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
     assert_eq!(sketch.points().count(), at_rest + 2);
     assert_eq!(sketch.segments().count(), edges + 1);
     assert!(
-        app.session.tool().started().is_none(),
+        raised.app.session.tool().started().is_none(),
         "the tool did not start over"
     );
     assert!(
-        app.session.tool().is(Tool::Line { from: None }),
+        raised.app.session.tool().is(Tool::Line { from: None }),
         "it left the hand"
     );
 
     // A second line begun on the first one's far end brings its own corner, so
     // this one costs two new points and a coincidence tying one of them to the
     // point it was started on.
-    let relations = app
+    let relations = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .sketch()
         .constraints()
         .count();
-    harness.click_at(at[1]);
-    frame(&mut app, &mut harness);
-    harness.click_at(at[2]);
-    frame(&mut app, &mut harness);
-    let sketch = app.document.drawing_at(app.session.editing()).sketch();
+    raised.harness.click_at(at[1]);
+    raised.frame();
+    raised.harness.click_at(at[2]);
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
     assert_eq!(
         sketch.points().count(),
         at_rest + 4,
@@ -697,9 +722,13 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     assert_eq!(distinct, 4, "the two edges share a point: {ends:?}");
 
     // Ctrl+Z takes back a whole edge, both its points with it.
-    ctrl(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
-    let sketch = app.document.drawing_at(app.session.editing()).sketch();
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
     assert_eq!(
         sketch.segments().count(),
         edges + 1,
@@ -716,35 +745,41 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
 /// nothing out there to drag.
 #[test]
 fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
-    let at_rest = app
+    let mut raised = Raised::new();
+    let at_rest = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .sketch()
         .points()
         .count();
-    let rings = app
+    let rings = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .sketch()
         .circles()
         .count();
 
     // Centre and rim two units apart on the plane, so the radius is known.
-    let plane = app.document.drawing_at(app.session.editing()).plane();
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
     let rim = plane.point(DVec2::new(-1.0, 2.5)).as_vec3();
-    let (at_middle, at_rim) = (cursor_on(&mut app, middle), cursor_on(&mut app, rim));
+    let (at_middle, at_rim) = (raised.cursor_on(middle), raised.cursor_on(rim));
 
-    harness.click_at(CIRCLE_BUTTON);
-    frame(&mut app, &mut harness);
-    harness.click_at(at_middle);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.frame();
+    raised.harness.click_at(at_middle);
+    raised.frame();
     assert_eq!(
-        app.document
-            .drawing_at(app.session.editing())
+        raised
+            .app
+            .document
+            .drawing_at(raised.app.session.editing())
             .sketch()
             .circles()
             .count(),
@@ -756,11 +791,15 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
     // *is*: the band follows the pointer, and the form asking for a radius
     // stands clear of the band rather than of the centre — so where it goes is
     // only settled once there is a circle for it to keep off.
-    harness.move_to(at_rim);
-    frame(&mut app, &mut harness);
-    harness.click_at(at_rim);
-    frame(&mut app, &mut harness);
-    let sketch = app.document.drawing_at(app.session.editing()).sketch();
+    raised.harness.move_to(at_rim);
+    raised.frame();
+    raised.harness.click_at(at_rim);
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
     assert_eq!(sketch.circles().count(), rings + 1);
     // One point, at the centre. Nothing was made out on the rim.
     assert_eq!(sketch.points().count(), at_rest + 1);
@@ -781,23 +820,264 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
 ///
 /// Both halves by argument rather than captured in a closure, so a caller can
 /// still read the app between frames.
-fn frame(app: &mut CatCad, harness: &mut UiHarness) {
-    harness.frame(|ui| app.record(WindowToken(0), ui));
+/// The application raised on a headless harness, which is what every test here
+/// drives.
+///
+/// The two travel together — a frame is the app recording into the harness's
+/// tree, and a cursor is a position in the window the harness lays out — so
+/// they were threaded through every helper and every test as a pair. Here the
+/// pair is the thing, and what a test says is what it asked the application to
+/// do.
+#[derive(Debug)]
+struct Raised {
+    app: CatCad,
+    harness: UiHarness,
 }
 
-/// A spot on the sketch plane with nothing drawn near it — where a tool has
-/// room to put something down.
-///
-/// A sketch coordinate rather than a screen one, so what a click there should
-/// produce is known by hand. The demo's rectangle starts at sketch x = 0 and
-/// its slab reaches to x = −2, so a unit and a half to the left of the frame is
-/// on the slab, on screen, and well clear of the nearest stroke.
-fn empty_spot(app: &CatCad) -> Vec3 {
-    app.document
-        .drawing_at(app.session.editing())
-        .plane()
-        .point(DVec2::new(-1.5, 2.5))
-        .as_vec3()
+impl Raised {
+    fn new() -> Self {
+        Self::over(UiHarness::new(HARNESS_SIZE))
+    }
+
+    /// The same with a harness that shapes text, which a field being typed
+    /// into needs and nothing else here does.
+    fn with_text() -> Self {
+        Self::over(UiHarness::with_text(HARNESS_SIZE))
+    }
+
+    /// The app raised on `harness`, and one frame recorded.
+    ///
+    /// The frame is part of raising it: a view has no viewport until it has
+    /// been laid out once, and the controls are built against one. The
+    /// application's first frame is a frame nobody has had time to click in
+    /// either; a test's is the one it clicks in, so it is handed a view a frame
+    /// old.
+    fn over(harness: UiHarness) -> Self {
+        let mut raised = Self {
+            app: CatCad::build(),
+            harness,
+        };
+        raised.frame();
+        raised
+    }
+
+    /// What the app is modelling — see [`CatCad::models`].
+    fn models(&self) -> Models<'_> {
+        self.app.models()
+    }
+
+    /// How many solids the document holds, which is what growing one and
+    /// taking it back are counted by.
+    fn solids(&self) -> usize {
+        self.models().solids().count()
+    }
+
+    /// Ask the session for `choice`, the way the bar or a gesture asks.
+    ///
+    /// Through the inbox rather than by writing the session, because that is
+    /// the only way the application ever changes one.
+    fn choose(&mut self, choice: impl Into<Intent>) {
+        let mut intents = Intents::default();
+        intents.push(choice);
+        // The fields are named one at a time rather than through
+        // [`CatCad::models`], which borrows the whole app and so cannot be
+        // handed to the session it belongs to.
+        let app = &mut self.app;
+        app.session.apply(
+            app.document.models(&app.build, app.session.editing()),
+            &intents,
+        );
+    }
+
+    /// One frame, recorded exactly as a window records one.
+    fn frame(&mut self) {
+        let Self { app, harness } = self;
+        harness.frame(|ui| app.record(WindowToken(0), ui));
+    }
+
+    /// The cursor that aims at `world` — where it lands on screen, through the
+    /// very camera the last frame was drawn with.
+    ///
+    /// `&mut self` for the camera alone, which caches the matrix it is asked
+    /// for.
+    fn cursor_on(&mut self, world: Vec3) -> Vec2 {
+        self.app
+            .camera_mut()
+            .screen_of(world, Viewport::new(HARNESS_SIZE))
+            .expect("aimed at something the projection draws")
+    }
+
+    /// Where every point of the open sketch is, in sketch coordinates — the whole
+    /// of what a document says, for a test comparing one against itself later.
+    fn points(&self) -> Vec<DVec2> {
+        self.app
+            .document
+            .drawing_at(self.app.session.editing())
+            .sketch()
+            .points()
+            .map(|(_, point)| point.position)
+            .collect()
+    }
+
+    /// Where every marker the app is drawing sits — see [`SceneView::markers`].
+    fn markers(&self) -> Vec<Vec3> {
+        self.app.view.markers()
+    }
+
+    /// Press `key` with the command modifier down, and let it up again.
+    ///
+    /// Named chords rather than a modifier set spelled out at each press, because
+    /// the modifiers are matched *exactly* — `Ctrl+Z` does not fire on
+    /// `Ctrl+Shift+Z` — so a press that left a modifier latched from the one before
+    /// it would be asking for a different command than it reads as. Letting go is
+    /// the half that is easy to forget and impossible to see.
+    ///
+    /// Hands back what the harness said about the press, which is how a test asks
+    /// whether the chord woke a frame of its own.
+    fn ctrl(&mut self, key: Key) -> InputDelta {
+        self.chord(
+            Modifiers {
+                ctrl: true,
+                ..Modifiers::NONE
+            },
+            key,
+        )
+    }
+
+    /// The same with Shift held too — the other half of every undo pair.
+    fn ctrl_shift(&mut self, key: Key) -> InputDelta {
+        self.chord(
+            Modifiers {
+                ctrl: true,
+                shift: true,
+                ..Modifiers::NONE
+            },
+            key,
+        )
+    }
+
+    fn chord(&mut self, modifiers: Modifiers, key: Key) -> InputDelta {
+        self.harness.set_modifiers(modifiers);
+        let pressed = self.harness.key(key);
+        self.harness.set_modifiers(Modifiers::NONE);
+        pressed
+    }
+
+    /// Take hold of the drawing at `from` and let go at `to`.
+    fn drag(&mut self, from: Vec3, to: Vec3) {
+        let start = self.cursor_on(from);
+        self.harness.move_to(start);
+        self.frame();
+        self.harness.press_at(start);
+        self.frame();
+        let end = self.cursor_on(to);
+        self.harness.drag_to(end);
+        self.frame();
+        self.harness.release();
+        self.frame();
+    }
+
+    /// The mark the drawing put on screen for `part`.
+    fn drawn_mark(&self, part: Part) -> DrawnMark {
+        let renderer = self.app.renderer().borrow();
+        let text = renderer
+            .scene()
+            .texts
+            .iter()
+            .find(|text| text.tag.and_then(|tag| self.app.view.part(tag)) == Some(part))
+            .expect("the mark was drawn");
+        let Facing::Turned(turn) = text.facing else {
+            panic!("a mark is laid in its sketch plane");
+        };
+        // Centred on its own box, which is what leaves the lift as the whole of
+        // where that box stands. Asserted rather than assumed, since the arithmetic
+        // in `centre` is only right for a run that is.
+        assert_eq!(
+            text.anchor,
+            Vec2::splat(0.5),
+            "the mark is not centred on its own box"
+        );
+        DrawnMark {
+            anchor: text.position,
+            turn,
+        }
+    }
+
+    /// The first dimension the demo states, and what it says.
+    fn a_dimension(&self) -> Stated {
+        self.a_dimension_set(|_| true)
+            .expect("the demo states at least one dimension")
+    }
+
+    /// A dimension the drawing sets at an angle, which is the harder case for
+    /// anything standing in its place.
+    ///
+    /// The demo's first dimension runs along the sketch's own +x, so a field weighed
+    /// against it would land right whether or not the mark's direction was read at
+    /// all. One set across the axes is what says the two agree about a mark that
+    /// leans — and leaning is now the ordinary case, since a dimension takes the
+    /// span it measures.
+    fn a_leaning_dimension(&self) -> Stated {
+        // Well off both axes, so neither coordinate of its direction is the residue
+        // a solve leaves behind.
+        self.a_dimension_set(|along| along.x.abs() > 0.2 && along.y.abs() > 0.2)
+            .expect("the demo states a dimension across the axes")
+    }
+
+    /// The first dimension of the open sketch whose mark is set a way `wanted`
+    /// accepts, or `None` where the drawing states none.
+    ///
+    /// The direction comes off the layout rather than the sketch, because it is the
+    /// *drawing's* answer about where a mark runs that a caller here is selecting
+    /// on — see [`Placed`](crate::paint::marks::Placed).
+    fn a_dimension_set(&self, wanted: impl Fn(DVec2) -> bool) -> Option<Stated> {
+        let sketch = self.app.session.editing();
+        let drawing = self.app.document.drawing_at(sketch);
+        drawing.sketch().constraints().find_map(|(id, constraint)| {
+            let value = constraint.value()?;
+            wanted(self.app.view.marked(id)?.along).then_some(Stated {
+                part: Part::Entity {
+                    sketch,
+                    entity: id.into(),
+                },
+                value,
+            })
+        })
+    }
+
+    /// Open a field the way a double-click does: a press on the view, and then the
+    /// intent that press would have raised.
+    ///
+    /// The press is what the gesture really begins with, and it is kept because it
+    /// is also what a *previous* focus would be taken away by — the field asks for
+    /// focus itself once it is drawn, and a helper that skipped the press would be
+    /// testing an application nobody had clicked in.
+    ///
+    /// The intent rather than a double-click on the mark itself, and *that* seam is
+    /// the harness's: a mark is pickable only once a painted frame has measured how
+    /// far it reaches — see [`Text::extent`](aperture::Text) — and this harness
+    /// records without a GPU. What the double-click decides is asked of
+    /// [`opening_a_dimension_is_the_only_double_click_that_means_anything`], which
+    /// needs no measurement.
+    fn open_field(&mut self, part: Part, from: f64) {
+        // Somewhere on the view with nothing to grab, so the press picks nothing out
+        // and starts no gesture — it is here to be a press on the viewport.
+        let spot = self.app.empty_spot();
+        let empty = self.cursor_on(spot);
+        self.harness.press_at(empty);
+        self.frame();
+        self.harness.release();
+        self.frame();
+
+        let mut intents = Intents::default();
+        intents.push(Choice::Ask(Some(Opening::Dimension { part, from })));
+        self.app.session.apply(
+            self.app
+                .document
+                .models(&self.app.build, self.app.session.editing()),
+            &intents,
+        );
+    }
 }
 
 /// The cursor that aims at `world` — where it lands on screen, through the very
@@ -843,49 +1123,6 @@ impl DrawnMark {
     }
 }
 
-/// The mark the drawing put on screen for `part`.
-fn drawn_mark(app: &CatCad, part: Part) -> DrawnMark {
-    let renderer = app.renderer().borrow();
-    let text = renderer
-        .scene()
-        .texts
-        .iter()
-        .find(|text| text.tag.and_then(|tag| app.view.part(tag)) == Some(part))
-        .expect("the mark was drawn");
-    let Facing::Turned(turn) = text.facing else {
-        panic!("a mark is laid in its sketch plane");
-    };
-    // Centred on its own box, which is what leaves the lift as the whole of
-    // where that box stands. Asserted rather than assumed, since the arithmetic
-    // in `centre` is only right for a run that is.
-    assert_eq!(
-        text.anchor,
-        Vec2::splat(0.5),
-        "the mark is not centred on its own box"
-    );
-    DrawnMark {
-        anchor: text.position,
-        turn,
-    }
-}
-
-fn cursor_on(app: &mut CatCad, world: Vec3) -> Vec2 {
-    app.camera_mut()
-        .screen_of(world, Viewport::new(SIZE))
-        .expect("aimed at something the projection draws")
-}
-
-/// Where every marker the app is drawing sits, in the order it draws them.
-fn markers(app: &CatCad) -> Vec<Vec3> {
-    app.renderer()
-        .borrow()
-        .scene()
-        .points
-        .iter()
-        .map(|point| point.position)
-        .collect()
-}
-
 /// The app opens looking at the whole of what it draws, rather than at wherever
 /// a default camera happened to point.
 ///
@@ -895,8 +1132,8 @@ fn markers(app: &CatCad) -> Vec<Vec3> {
 /// there leaves the demo off screen or half of it out of frame.
 #[test]
 fn the_app_opens_looking_at_the_whole_of_what_it_draws() {
-    let app = CatCad::build();
-    let renderer = app.renderer().borrow();
+    let raised = Raised::new();
+    let renderer = raised.app.renderer().borrow();
     let camera = *renderer.camera();
     let extent = renderer.scene().extent().expect("the demo draws something");
 
@@ -932,39 +1169,41 @@ fn the_app_opens_looking_at_the_whole_of_what_it_draws() {
 fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
     const AT_REST: &str = "solved · 5 dof · 0 redundant";
 
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
     assert!(
-        app.status().to_string().starts_with(AT_REST),
+        raised.app.status().to_string().starts_with(AT_REST),
         "opened at {}",
-        app.status()
+        raised.app.status()
     );
 
-    let world = app.wrist();
-    let cursor = cursor_on(&mut app, world);
+    let world = raised.app.wrist();
+    let cursor = raised.cursor_on(world);
 
-    harness.move_to(cursor);
-    frame(&mut app, &mut harness);
-    let before = markers(&app);
-    harness.press_at(cursor);
-    frame(&mut app, &mut harness);
-    harness.drag_to(cursor + Vec2::new(40.0, 25.0));
-    frame(&mut app, &mut harness);
+    raised.harness.move_to(cursor);
+    raised.frame();
+    let before = raised.markers();
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(40.0, 25.0));
+    raised.frame();
 
-    assert_ne!(markers(&app), before, "the drag moved nothing to report on");
+    assert_ne!(
+        raised.markers(),
+        before,
+        "the drag moved nothing to report on"
+    );
     assert!(
-        app.status().to_string().starts_with(AT_REST),
+        raised.app.status().to_string().starts_with(AT_REST),
         "mid-drag the sketch was reported as {}",
-        app.status()
+        raised.app.status()
     );
 
-    harness.release();
-    frame(&mut app, &mut harness);
+    raised.harness.release();
+    raised.frame();
     assert!(
-        app.status().to_string().starts_with(AT_REST),
+        raised.app.status().to_string().starts_with(AT_REST),
         "after the release the sketch was reported as {}",
-        app.status()
+        raised.app.status()
     );
 }
 
@@ -993,41 +1232,47 @@ fn the_demo_is_drawn_on_the_ground_plane() {
 /// exactly the litter the command exists for.
 #[test]
 fn the_clean_up_button_clears_what_a_deletion_left_behind() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
-    let at_rest = app
+    let mut raised = Raised::new();
+    let at_rest = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .sketch()
         .points()
         .count();
-    let edges = app
+    let edges = raised
+        .app
         .document
-        .drawing_at(app.session.editing())
+        .drawing_at(raised.app.session.editing())
         .sketch()
         .segments()
         .count();
 
-    let plane = app.document.drawing_at(app.session.editing()).plane();
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
     let corner = [
         plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
         plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
         plane.point(DVec2::new(-4.0, 3.5)).as_vec3(),
     ];
-    let at = corner.map(|world| cursor_on(&mut app, world));
+    let at = corner.map(|world| raised.cursor_on(world));
 
     // Two edges meeting at a corner: four points and the coincidence tying the
     // middle pair.
-    harness.click_at(LINE_BUTTON);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(LINE_BUTTON);
+    raised.frame();
     for spot in [at[0], at[1], at[1], at[2]] {
-        harness.click_at(spot);
-        frame(&mut app, &mut harness);
+        raised.harness.click_at(spot);
+        raised.frame();
     }
     assert_eq!(
-        app.document
-            .drawing_at(app.session.editing())
+        raised
+            .app
+            .document
+            .drawing_at(raised.app.session.editing())
             .sketch()
             .points()
             .count(),
@@ -1036,11 +1281,13 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
 
     // Pressed on that, the command finds nothing: every one of those points
     // ends an edge.
-    harness.click_at(TIDY_BUTTON);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(TIDY_BUTTON);
+    raised.frame();
     assert_eq!(
-        app.document
-            .drawing_at(app.session.editing())
+        raised
+            .app
+            .document
+            .drawing_at(raised.app.session.editing())
             .sketch()
             .points()
             .count(),
@@ -1049,24 +1296,32 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     );
     // And says so, rather than answering a press with nothing.
     assert!(
-        app.status().to_string().ends_with(" · nothing to clean up"),
+        raised
+            .app
+            .status()
+            .to_string()
+            .ends_with(" · nothing to clean up"),
         "the status line read {}",
-        app.status()
+        raised.app.status()
     );
 
     // Now take the second edge away. Its far end is left over but duplicates
     // nothing, and its corner end is left over *and* still tied to the first
     // edge's — so one of the two goes and the other does not.
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
-    let midpoint = cursor_on(&mut app, corner[1].midpoint(corner[2]));
-    harness.click_at(midpoint);
-    frame(&mut app, &mut harness);
-    harness.key(Key::Delete);
-    frame(&mut app, &mut harness);
-    let sketch = app.document.drawing_at(app.session.editing()).sketch();
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    let midpoint = raised.cursor_on(corner[1].midpoint(corner[2]));
+    raised.harness.click_at(midpoint);
+    raised.frame();
+    raised.harness.key(Key::Delete);
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
     assert_eq!(
         sketch.segments().count(),
         edges + 1,
@@ -1074,9 +1329,13 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     );
     assert_eq!(sketch.points().count(), at_rest + 4, "its ends stayed");
 
-    harness.click_at(TIDY_BUTTON);
-    frame(&mut app, &mut harness);
-    let sketch = app.document.drawing_at(app.session.editing()).sketch();
+    raised.harness.click_at(TIDY_BUTTON);
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
     assert_eq!(
         sketch.points().count(),
         at_rest + 3,
@@ -1088,33 +1347,45 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
         "the surviving edge went too"
     );
     assert!(
-        app.status().to_string().ends_with(" · removed 1 point"),
+        raised
+            .app
+            .status()
+            .to_string()
+            .ends_with(" · removed 1 point"),
         "the status line read {}",
-        app.status()
+        raised.app.status()
     );
 
     // And pressing it again finds nothing, which is what makes it safe to lean
     // on — and the line goes back to saying so.
-    harness.click_at(TIDY_BUTTON);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(TIDY_BUTTON);
+    raised.frame();
     assert_eq!(
-        app.document
-            .drawing_at(app.session.editing())
+        raised
+            .app
+            .document
+            .drawing_at(raised.app.session.editing())
             .sketch()
             .points()
             .count(),
         at_rest + 3
     );
-    assert!(app.status().to_string().ends_with(" · nothing to clean up"));
+    assert!(
+        raised
+            .app
+            .status()
+            .to_string()
+            .ends_with(" · nothing to clean up")
+    );
 
     // A later edit takes the note away: it described the last thing done, and
     // it no longer is.
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
-    let empty = cursor_on(&mut app, plane.point(DVec2::new(-6.0, 1.0)).as_vec3());
-    harness.click_at(empty);
-    frame(&mut app, &mut harness);
-    let line = app.status().to_string();
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    let empty = raised.cursor_on(plane.point(DVec2::new(-6.0, 1.0)).as_vec3());
+    raised.harness.click_at(empty);
+    raised.frame();
+    let line = raised.app.status().to_string();
     assert!(
         !line.contains("clean up") && !line.contains("removed"),
         "a stale cleanup note outlived the edit after it: {line}"
@@ -1137,9 +1408,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
 /// that branch which asked would hang this test rather than fail it.
 #[test]
 fn a_document_written_out_comes_back_the_way_it_was_left() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
 
     // Somewhere to put it, named for this process so two runs of the suite
     // cannot land on one file.
@@ -1148,87 +1417,72 @@ fn a_document_written_out_comes_back_the_way_it_was_left() {
 
     // Something to notice afterwards: the arm moved somewhere the demo does not
     // start, which is a thing only this document says.
-    let held = app.wrist();
-    drag(
-        &mut app,
-        &mut harness,
-        held,
-        held + Vec3::new(0.0, 0.0, 0.6),
-    );
-    assert!(app.status().to_string().contains(" · unsaved"));
+    let held = raised.app.wrist();
+    raised.drag(held, held + Vec3::new(0.0, 0.0, 0.6));
+    assert!(raised.app.status().to_string().contains(" · unsaved"));
 
     // As answering a Save As dialog would.
-    app.write(path.clone());
-    frame(&mut app, &mut harness);
+    raised.app.write(path.clone());
+    raised.frame();
     assert!(path.exists(), "the document was not written");
     assert!(
-        !app.status().to_string().contains(" · unsaved"),
+        !raised.app.status().to_string().contains(" · unsaved"),
         "a written document still reads as unsaved: {}",
-        app.status()
+        raised.app.status()
     );
 
     // Move it again, and this time let the keyboard write it. The document has
     // a name now, so Ctrl+S goes straight to the disk.
-    let held = app.wrist();
-    drag(
-        &mut app,
-        &mut harness,
-        held,
-        held + Vec3::new(0.0, 0.0, -1.2),
-    );
-    let drawn: Vec<DVec2> = points(&app);
-    assert!(app.status().to_string().contains(" · unsaved"));
-    ctrl(&mut harness, Key::Char('S'));
-    frame(&mut app, &mut harness);
+    let held = raised.app.wrist();
+    raised.drag(held, held + Vec3::new(0.0, 0.0, -1.2));
+    let drawn: Vec<DVec2> = raised.points();
+    assert!(raised.app.status().to_string().contains(" · unsaved"));
+    raised.ctrl(Key::Char('S'));
+    raised.frame();
     assert!(
-        !app.status().to_string().contains(" · unsaved"),
+        !raised.app.status().to_string().contains(" · unsaved"),
         "Ctrl+S on a named document did not write it: {}",
-        app.status()
+        raised.app.status()
     );
 
     // Now spoil it: a third drag, and a tool in hand.
-    let held = app.wrist();
-    drag(
-        &mut app,
-        &mut harness,
-        held,
-        held + Vec3::new(0.0, 0.0, 0.9),
-    );
-    harness.click_at(POINT_BUTTON);
-    frame(&mut app, &mut harness);
-    assert_eq!(app.session.tool(), Tool::Point);
-    assert_ne!(points(&app), drawn, "the third drag moved nothing");
+    let held = raised.app.wrist();
+    raised.drag(held, held + Vec3::new(0.0, 0.0, 0.9));
+    raised.harness.click_at(POINT_BUTTON);
+    raised.frame();
+    assert_eq!(raised.app.session.tool(), Tool::Point);
+    assert_ne!(raised.points(), drawn, "the third drag moved nothing");
 
     // Opening the file puts the drawing back where Ctrl+S left it, and takes
     // the session with it: nothing in hand, and nothing to take back.
-    app.read(path.clone());
-    frame(&mut app, &mut harness);
+    raised.app.read(path.clone());
+    raised.frame();
 
     assert_eq!(
-        points(&app),
+        raised.points(),
         drawn,
         "the reopened drawing is not the one saved"
     );
     assert_eq!(
-        app.session.tool(),
+        raised.app.session.tool(),
         Tool::Pointer,
         "opening a document left the last one's tool in hand"
     );
-    assert_eq!(app.session.selection().count(), 0);
-    assert!(!app.status().to_string().contains(" · unsaved"));
+    assert_eq!(raised.app.session.selection().count(), 0);
+    assert!(!raised.app.status().to_string().contains(" · unsaved"));
     assert!(
-        app.status().to_string().contains("opened"),
+        raised.app.status().to_string().contains("opened"),
         "the readout said nothing about the file: {}",
-        app.status()
+        raised.app.status()
     );
 
     // The undo that would have taken the third drag back finds a history that
     // never saw it — what was done to the document that was open cannot be
     // taken back off the one that replaced it.
-    ctrl(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
     assert_eq!(
-        points(&app),
+        raised.points(),
         drawn,
         "an undo reached past the document it opened"
     );
@@ -1245,98 +1499,34 @@ fn a_document_written_out_comes_back_the_way_it_was_left() {
 /// document's report with it, and every reader of it would panic.
 #[test]
 fn a_file_that_will_not_open_disturbs_nothing() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
-    let drawn = points(&app);
+    let mut raised = Raised::new();
+    let drawn = raised.points();
 
     let path = std::env::temp_dir().join(format!("catcad-bad-{}.cat", std::process::id()));
     std::fs::write(&path, "this is not a document").expect("the scratch file is writable");
 
-    app.read(path.clone());
+    raised.app.read(path.clone());
     // A whole frame afterwards, because the failure that would matter is the
     // one the *next* frame trips over: a build that had forgotten the open
     // document has nothing to draw it from.
-    frame(&mut app, &mut harness);
+    raised.frame();
 
-    assert_eq!(points(&app), drawn, "a refused file moved the drawing");
+    assert_eq!(raised.points(), drawn, "a refused file moved the drawing");
     assert!(
-        app.status().to_string().contains("is not a document"),
+        raised
+            .app
+            .status()
+            .to_string()
+            .contains("is not a document"),
         "the readout said nothing about the refusal: {}",
-        app.status()
+        raised.app.status()
     );
     // Still where it was, which is nowhere: a refused open does not name the
     // document after the file it would not read, so the next Ctrl+S asks rather
     // than writing over something that is not a document.
-    assert!(app.filing.path().is_none());
+    assert!(raised.app.filing.path().is_none());
 
     let _ = std::fs::remove_file(&path);
-}
-
-/// Where every point of the open sketch is, in sketch coordinates — the whole
-/// of what a document says, for a test comparing one against itself later.
-fn points(app: &CatCad) -> Vec<DVec2> {
-    app.document
-        .drawing_at(app.session.editing())
-        .sketch()
-        .points()
-        .map(|(_, point)| point.position)
-        .collect()
-}
-
-/// Press `key` with the command modifier down, and let it up again.
-///
-/// Named chords rather than a modifier set spelled out at each press, because
-/// the modifiers are matched *exactly* — `Ctrl+Z` does not fire on
-/// `Ctrl+Shift+Z` — so a press that left a modifier latched from the one before
-/// it would be asking for a different command than it reads as. Letting go is
-/// the half that is easy to forget and impossible to see.
-///
-/// Hands back what the harness said about the press, which is how a test asks
-/// whether the chord woke a frame of its own.
-fn ctrl(harness: &mut UiHarness, key: Key) -> InputDelta {
-    chord(
-        harness,
-        Modifiers {
-            ctrl: true,
-            ..Modifiers::NONE
-        },
-        key,
-    )
-}
-
-/// The same with Shift held too — the other half of every undo pair.
-fn ctrl_shift(harness: &mut UiHarness, key: Key) -> InputDelta {
-    chord(
-        harness,
-        Modifiers {
-            ctrl: true,
-            shift: true,
-            ..Modifiers::NONE
-        },
-        key,
-    )
-}
-
-fn chord(harness: &mut UiHarness, modifiers: Modifiers, key: Key) -> InputDelta {
-    harness.set_modifiers(modifiers);
-    let pressed = harness.key(key);
-    harness.set_modifiers(Modifiers::NONE);
-    pressed
-}
-
-/// Take hold of the drawing at `from` and let go at `to`.
-fn drag(app: &mut CatCad, harness: &mut UiHarness, from: Vec3, to: Vec3) {
-    let start = cursor_on(app, from);
-    harness.move_to(start);
-    frame(app, harness);
-    harness.press_at(start);
-    frame(app, harness);
-    let end = cursor_on(app, to);
-    harness.drag_to(end);
-    frame(app, harness);
-    harness.release();
-    frame(app, harness);
 }
 
 /// **A drag that outruns the view keeps hold of what it grabbed.**
@@ -1358,32 +1548,30 @@ fn drag(app: &mut CatCad, harness: &mut UiHarness, from: Vec3, to: Vec3) {
 /// one more frame and stopping.
 #[test]
 fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
 
-    let world = app.wrist();
-    let cursor = cursor_on(&mut app, world);
-    harness.move_to(cursor);
-    frame(&mut app, &mut harness);
-    let before = markers(&app);
-    harness.press_at(cursor);
-    frame(&mut app, &mut harness);
+    let world = raised.app.wrist();
+    let cursor = raised.cursor_on(world);
+    raised.harness.move_to(cursor);
+    raised.frame();
+    let before = raised.markers();
+    raised.harness.press_at(cursor);
+    raised.frame();
 
     // Inside the view, which is the leg that works either way.
-    harness.drag_to(cursor + Vec2::new(60.0, 0.0));
-    frame(&mut app, &mut harness);
-    let inside = markers(&app);
+    raised.harness.drag_to(cursor + Vec2::new(60.0, 0.0));
+    raised.frame();
+    let inside = raised.markers();
     assert_ne!(
         inside, before,
         "the drag moved nothing while still on the view"
     );
 
-    // Off the left edge by a clear margin — `SIZE` is 800 across, so a negative
+    // Off the left edge by a clear margin — `HARNESS_SIZE` is 800 across, so a negative
     // x is outside it however the view was arranged.
-    harness.drag_to(Vec2::new(-200.0, cursor.y));
-    frame(&mut app, &mut harness);
-    let outside = markers(&app);
+    raised.harness.drag_to(Vec2::new(-200.0, cursor.y));
+    raised.frame();
+    let outside = raised.markers();
     assert_ne!(
         outside, inside,
         "the drag stopped the moment the pointer left the view"
@@ -1406,8 +1594,8 @@ fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
         travelled(&inside),
     );
 
-    harness.release();
-    frame(&mut app, &mut harness);
+    raised.harness.release();
+    raised.frame();
 }
 
 /// **A region picked out grows a solid, and Ctrl+Z takes the whole step back.**
@@ -1424,82 +1612,68 @@ fn a_drag_that_leaves_the_view_goes_on_moving_what_it_holds() {
 /// nothing.
 #[test]
 fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
 
-    let solids = |app: &CatCad| {
-        app.document
-            .models(&app.build, app.session.editing())
-            .solids()
-            .count()
-    };
     // The demo opens with one, grown off the hub.
-    assert_eq!(solids(&app), 1);
+    assert_eq!(raised.solids(), 1);
 
     // The frame is region 0 of the open sketch — the rectangle with the hub cut
     // out of it, which is not the region the demo already grew from.
-    let frame_region = app
-        .document
-        .models(&app.build, app.session.editing())
-        .open()
-        .region(0);
-    let mut intents = Intents::default();
-    intents.push(Choice::Select(Some(frame_region)));
-    app.session.apply(
-        app.document.models(&app.build, app.session.editing()),
-        &intents,
-    );
-    frame(&mut app, &mut harness);
+    let frame_region = raised.models().open().region(0);
+    raised.choose(Choice::Select(Some(frame_region)));
+    raised.frame();
 
     // The bar shows the button only while a region is picked, so where it lands
     // is found rather than guessed: it is the leftmost thing on the bottom bar.
-    harness.click_at(EXTRUDE_BUTTON);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.frame();
     // The button *asks* rather than builds: the solid is on screen at no depth
     // at all, drawn from the form's own reading, and the timeline has not heard
     // of it. A cancel here would leave nothing behind to take back.
     assert!(
         matches!(
-            app.session.prompt().map(Prompt::about),
+            raised.app.session.prompt().map(Prompt::about),
             Some(Asking::Extrude { .. })
         ),
         "pressing Extrude opened no form: {}",
-        app.status()
+        raised.app.status()
     );
     assert_eq!(
-        solids(&app),
+        raised.solids(),
         1,
         "pressing Extrude reached the document before the depth was settled"
     );
 
     // The depth typed, and Enter to settle it. One step, carrying the depth it
     // was given rather than a zero that was then carried.
-    harness.type_text("2");
-    frame(&mut app, &mut harness);
-    harness.key(Key::Enter);
-    frame(&mut app, &mut harness);
-    assert!(app.session.prompt().is_none(), "Enter left the form open");
+    raised.harness.type_text("2");
+    raised.frame();
+    raised.harness.key(Key::Enter);
+    raised.frame();
+    assert!(
+        raised.app.session.prompt().is_none(),
+        "Enter left the form open"
+    );
     assert_eq!(
-        solids(&app),
+        raised.solids(),
         2,
         "committing the form did not grow a solid: {}",
-        app.status()
+        raised.app.status()
     );
 
-    ctrl(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
     assert_eq!(
-        solids(&app),
+        raised.solids(),
         1,
         "Ctrl+Z left the solid behind, so the creation went unrecorded"
     );
 
     // And back again, which is the half that says the step returns rather than
     // a fresh one taking its place.
-    ctrl_shift(&mut harness, Key::Char('Z'));
-    frame(&mut app, &mut harness);
-    assert_eq!(solids(&app), 2, "redo did not put the step back");
+    raised.ctrl_shift(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(raised.solids(), 2, "redo did not put the step back");
 }
 
 /// One dimension the demo states, and the number it states.
@@ -1507,78 +1681,6 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
 struct Stated {
     part: Part,
     value: f64,
-}
-
-/// The first dimension the demo states, and what it says.
-fn a_dimension(app: &CatCad) -> Stated {
-    a_dimension_set(app, |_| true).expect("the demo states at least one dimension")
-}
-
-/// A dimension the drawing sets at an angle, which is the harder case for
-/// anything standing in its place.
-///
-/// The demo's first dimension runs along the sketch's own +x, so a field weighed
-/// against it would land right whether or not the mark's direction was read at
-/// all. One set across the axes is what says the two agree about a mark that
-/// leans — and leaning is now the ordinary case, since a dimension takes the
-/// span it measures.
-fn a_leaning_dimension(app: &CatCad) -> Stated {
-    // Well off both axes, so neither coordinate of its direction is the residue
-    // a solve leaves behind.
-    a_dimension_set(app, |along| along.x.abs() > 0.2 && along.y.abs() > 0.2)
-        .expect("the demo states a dimension across the axes")
-}
-
-/// The first dimension of the open sketch whose mark is set a way `wanted`
-/// accepts, or `None` where the drawing states none.
-///
-/// The direction comes off the layout rather than the sketch, because it is the
-/// *drawing's* answer about where a mark runs that a caller here is selecting
-/// on — see [`Placed`](crate::paint::marks::Placed).
-fn a_dimension_set(app: &CatCad, wanted: impl Fn(DVec2) -> bool) -> Option<Stated> {
-    let sketch = app.session.editing();
-    let drawing = app.document.drawing_at(sketch);
-    drawing.sketch().constraints().find_map(|(id, constraint)| {
-        let value = constraint.value()?;
-        wanted(app.view.marked(id)?.along).then_some(Stated {
-            part: Part::Entity {
-                sketch,
-                entity: id.into(),
-            },
-            value,
-        })
-    })
-}
-
-/// Open a field the way a double-click does: a press on the view, and then the
-/// intent that press would have raised.
-///
-/// The press is what the gesture really begins with, and it is kept because it
-/// is also what a *previous* focus would be taken away by — the field asks for
-/// focus itself once it is drawn, and a helper that skipped the press would be
-/// testing an application nobody had clicked in.
-///
-/// The intent rather than a double-click on the mark itself, and *that* seam is
-/// the harness's: a mark is pickable only once a painted frame has measured how
-/// far it reaches — see [`Text::extent`](aperture::Text) — and this harness
-/// records without a GPU. What the double-click decides is asked of
-/// [`opening_a_dimension_is_the_only_double_click_that_means_anything`], which
-/// needs no measurement.
-fn open_field(app: &mut CatCad, harness: &mut UiHarness, part: Part, from: f64) {
-    // Somewhere on the view with nothing to grab, so the press picks nothing out
-    // and starts no gesture — it is here to be a press on the viewport.
-    let empty = cursor_on(app, empty_spot(app));
-    harness.press_at(empty);
-    frame(app, harness);
-    harness.release();
-    frame(app, harness);
-
-    let mut intents = Intents::default();
-    intents.push(Choice::Ask(Some(Opening::Dimension { part, from })));
-    app.session.apply(
-        app.document.models(&app.build, app.session.editing()),
-        &intents,
-    );
 }
 
 /// **A field opens over the dimension's own mark, takes what is typed, and
@@ -1590,14 +1692,12 @@ fn open_field(app: &mut CatCad, harness: &mut UiHarness, part: Part, from: f64) 
 /// and one that costs a keystroke's worth of undo apiece.
 #[test]
 fn typing_a_dimension_restates_it_as_one_step() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::with_text(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::with_text();
 
     let Stated {
         part: dimension,
         value: was,
-    } = a_dimension(&app);
+    } = raised.a_dimension();
     let sketch = dimension.sketch().expect("a dimension is in a sketch");
     let Some(Entity::Constraint(id)) = dimension.entity() else {
         panic!("not a constraint");
@@ -1611,9 +1711,9 @@ fn typing_a_dimension_restates_it_as_one_step() {
             .expect("a dimension states a value")
     };
 
-    open_field(&mut app, &mut harness, dimension, was);
-    frame(&mut app, &mut harness);
-    let prompt = app.session.prompt().expect("the field never opened");
+    raised.open_field(dimension, was);
+    raised.frame();
+    let prompt = raised.app.session.prompt().expect("the field never opened");
     assert_eq!(prompt.marks(), Some(dimension));
     assert_eq!(prompt.value(0), Some(was), "opened on some other value");
 
@@ -1621,12 +1721,14 @@ fn typing_a_dimension_restates_it_as_one_step() {
     // number drawn twice, once editable and once not, is the mistake this
     // leaves no room for.
     assert!(
-        !app.renderer()
+        !raised
+            .app
+            .renderer()
             .borrow()
             .scene()
             .texts
             .iter()
-            .any(|text| text.tag.and_then(|tag| app.view.part(tag)) == Some(dimension)),
+            .any(|text| text.tag.and_then(|tag| raised.app.view.part(tag)) == Some(dimension)),
         "the mark was left under the field"
     );
 
@@ -1634,52 +1736,56 @@ fn typing_a_dimension_restates_it_as_one_step() {
     // appears and palantir lands a focus request on the next — so this is the
     // frame it is typed into, and the frame `select_all_on_focus` picks the
     // value out whole on.
-    frame(&mut app, &mut harness);
-    harness.type_text("40");
-    frame(&mut app, &mut harness);
+    raised.frame();
+    raised.harness.type_text("40");
+    raised.frame();
     assert_eq!(
-        app.session.prompt().expect("still open").value(0),
+        raised.app.session.prompt().expect("still open").value(0),
         Some(40.0)
     );
     assert_eq!(
-        stated(&app),
+        stated(&raised.app),
         was,
         "typing reached the document before Enter"
     );
 
-    harness.key(Key::Enter);
-    frame(&mut app, &mut harness);
-    assert!(app.session.prompt().is_none(), "Enter left the field open");
+    raised.harness.key(Key::Enter);
+    raised.frame();
     assert!(
-        (stated(&app) - 40.0).abs() < 1e-6,
+        raised.app.session.prompt().is_none(),
+        "Enter left the field open"
+    );
+    assert!(
+        (stated(&raised.app) - 40.0).abs() < 1e-6,
         "landed on {}",
-        stated(&app)
+        stated(&raised.app)
     );
     // And the mark is back, saying the new number.
     assert!(
-        app.renderer()
+        raised
+            .app
+            .renderer()
             .borrow()
             .scene()
             .texts
             .iter()
-            .any(|text| text.tag.and_then(|tag| app.view.part(tag)) == Some(dimension)),
+            .any(|text| text.tag.and_then(|tag| raised.app.view.part(tag)) == Some(dimension)),
         "the mark never came back"
     );
 
     // One step to take back, not one per keystroke.
-    chord(
-        &mut harness,
+    raised.chord(
         Modifiers {
             ctrl: true,
             ..Modifiers::NONE
         },
         Key::Char('z'),
     );
-    frame(&mut app, &mut harness);
+    raised.frame();
     assert!(
-        (stated(&app) - was).abs() < 1e-6,
+        (stated(&raised.app) - was).abs() < 1e-6,
         "undo left {}",
-        stated(&app)
+        stated(&raised.app)
     );
 }
 
@@ -1701,49 +1807,50 @@ fn typing_a_dimension_restates_it_as_one_step() {
 /// this is what watches for both.
 #[test]
 fn a_press_inside_the_open_field_never_reaches_the_drawing() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::with_text(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::with_text();
 
     let Stated {
         part: dimension,
         value: was,
-    } = a_dimension(&app);
+    } = raised.a_dimension();
     // Taken before the field opens, since a field standing over a mark takes it
     // out of the drawing. Aiming at the *number* rather than at the point the
     // dimension hangs it from: the mark's box floats clear of the line it
     // measures, and the field stands over the box.
-    let mark = drawn_mark(&app, dimension);
-    let middle = mark.centre(Lens::new(*app.camera_mut(), Viewport::new(SIZE)));
-    open_field(&mut app, &mut harness, dimension, was);
-    frame(&mut app, &mut harness);
-    frame(&mut app, &mut harness);
+    let mark = raised.drawn_mark(dimension);
+    let middle = mark.centre(Lens::new(
+        *raised.app.camera_mut(),
+        Viewport::new(HARNESS_SIZE),
+    ));
+    raised.open_field(dimension, was);
+    raised.frame();
+    raised.frame();
 
-    let cursor = cursor_on(&mut app, middle);
+    let cursor = raised.cursor_on(middle);
 
-    let camera = *app.camera_mut();
-    let picked = app.session.selection().picked().to_vec();
+    let camera = *raised.app.camera_mut();
+    let picked = raised.app.session.selection().picked().to_vec();
 
     // A press and a drag well past palantir's latch — which reached the view as
     // an orbit before the field was a widget.
-    harness.press_at(cursor);
-    frame(&mut app, &mut harness);
-    harness.drag_to(cursor + Vec2::new(30.0, 0.0));
-    frame(&mut app, &mut harness);
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(30.0, 0.0));
+    raised.frame();
     assert_eq!(
-        *app.camera_mut(),
+        *raised.app.camera_mut(),
         camera,
         "a drag inside the field turned the view"
     );
-    harness.release();
-    frame(&mut app, &mut harness);
+    raised.harness.release();
+    raised.frame();
 
     assert!(
-        app.session.prompt().is_some(),
+        raised.app.session.prompt().is_some(),
         "the gesture closed the field"
     );
     assert_eq!(
-        app.session.selection().picked(),
+        raised.app.session.selection().picked(),
         picked,
         "the gesture picked out what the field was covering"
     );
@@ -1751,12 +1858,12 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     // And a click beside it still puts it away, or there would be no way out of
     // one — the same blur, reaching the drawing because nothing is over it
     // there.
-    let spot = empty_spot(&app);
-    let elsewhere = cursor_on(&mut app, spot);
-    harness.click_at(elsewhere);
-    frame(&mut app, &mut harness);
+    let spot = raised.app.empty_spot();
+    let elsewhere = raised.cursor_on(spot);
+    raised.harness.click_at(elsewhere);
+    raised.frame();
     assert!(
-        app.session.prompt().is_none(),
+        raised.app.session.prompt().is_none(),
         "a click beside the field left it open"
     );
 }
@@ -1774,31 +1881,33 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
 /// question could be asked.
 #[test]
 fn the_open_field_is_placed_against_this_frames_camera() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::with_text(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::with_text();
 
     let Stated {
         part: dimension,
         value: was,
-    } = a_leaning_dimension(&app);
+    } = raised.a_leaning_dimension();
     // Read before the field takes the mark out of the drawing. The *anchor*
     // is what the wheel below leaves alone; where the box hangs off it is a
     // number of pixels, so that much of it moves with the zoom.
-    let mark = drawn_mark(&app, dimension);
-    open_field(&mut app, &mut harness, dimension, was);
-    frame(&mut app, &mut harness);
-    frame(&mut app, &mut harness);
+    let mark = raised.drawn_mark(dimension);
+    raised.open_field(dimension, was);
+    raised.frame();
+    raised.frame();
 
     // Enough notches that a frame's worth of lag is unmistakable rather than a
     // rounding difference.
-    harness.scroll_lines(Vec2::new(0.0, -3.0));
-    frame(&mut app, &mut harness);
+    raised.harness.scroll_lines(Vec2::new(0.0, -3.0));
+    raised.frame();
 
     // Where the number now lands, through the camera the wheel just moved.
-    let at = mark.centre(Lens::new(*app.camera_mut(), Viewport::new(SIZE)));
-    let middle = cursor_on(&mut app, at);
-    let rect = harness
+    let at = mark.centre(Lens::new(
+        *raised.app.camera_mut(),
+        Viewport::new(HARNESS_SIZE),
+    ));
+    let middle = raised.cursor_on(at);
+    let rect = raised
+        .harness
         .layout_rect(crate::prompt::Prompt::nth_field_id(0))
         .expect("the field was arranged on the frame that scrolled");
     let centre = rect.min + Vec2::new(rect.size.w, rect.size.h) * 0.5;
@@ -1817,14 +1926,12 @@ fn the_open_field_is_placed_against_this_frames_camera() {
 /// field away" while one is open and "put the tool down" when none is.
 #[test]
 fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::with_text(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::with_text();
 
     let Stated {
         part: dimension,
         value: was,
-    } = a_dimension(&app);
+    } = raised.a_dimension();
     let sketch = dimension.sketch().expect("a dimension is in a sketch");
     let relations = |app: &CatCad| {
         app.document
@@ -1833,7 +1940,7 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
             .constraints()
             .count()
     };
-    let stated = relations(&app);
+    let stated = relations(&raised.app);
 
     // Picked out as well as opened, which is what the double-click leaves — the
     // press that opens a field is the press that picks the dimension out — and
@@ -1842,34 +1949,33 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     // In that order, because the press inside [`open_field`] lands on empty
     // space and so picks nothing out; selecting first would be selecting
     // something the press then dropped.
-    open_field(&mut app, &mut harness, dimension, was);
-    let mut intents = Intents::default();
-    intents.push(Choice::Select(Some(dimension)));
-    app.session.apply(
-        app.document.models(&app.build, app.session.editing()),
-        &intents,
-    );
-    frame(&mut app, &mut harness);
+    raised.open_field(dimension, was);
+    raised.choose(Choice::Select(Some(dimension)));
+    raised.frame();
     // Twice, so the field has taken the focus it asks for on the frame it first
     // appears — until it has, the keys below would be nobody's.
-    frame(&mut app, &mut harness);
-    assert!(app.session.selection().contains(dimension));
+    raised.frame();
+    assert!(raised.app.session.selection().contains(dimension));
 
     // Delete takes a character out of the field and no constraint out of the
     // drawing, though the dimension it names is picked out.
-    harness.type_text("7");
-    frame(&mut app, &mut harness);
-    harness.key(Key::Delete);
-    frame(&mut app, &mut harness);
-    harness.key(Key::Backspace);
-    frame(&mut app, &mut harness);
+    raised.harness.type_text("7");
+    raised.frame();
+    raised.harness.key(Key::Delete);
+    raised.frame();
+    raised.harness.key(Key::Backspace);
+    raised.frame();
     assert_eq!(
-        app.session.prompt().expect("still open").value(0),
+        raised.app.session.prompt().expect("still open").value(0),
         None,
         "the keys reached the application instead of the field"
     );
-    assert_eq!(relations(&app), stated, "Delete took a constraint out");
-    assert!(app.session.selection().contains(dimension));
+    assert_eq!(
+        relations(&raised.app),
+        stated,
+        "Delete took a constraint out"
+    );
+    assert!(raised.app.session.selection().contains(dimension));
 
     // An undo is an *edit* chord, so it goes to the field and not to the
     // document — where it would take back whatever step preceded the typing,
@@ -1879,15 +1985,18 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
         ctrl: true,
         ..Modifiers::NONE
     };
-    let edits = app.document.edits();
-    chord(&mut harness, ctrl, Key::Char('z'));
-    frame(&mut app, &mut harness);
+    let edits = raised.app.document.edits();
+    raised.chord(ctrl, Key::Char('z'));
+    raised.frame();
     assert_eq!(
-        app.document.edits(),
+        raised.app.document.edits(),
         edits,
         "Ctrl+Z reached the document while a field was open"
     );
-    assert!(app.session.prompt().is_some(), "Ctrl+Z closed the field");
+    assert!(
+        raised.app.session.prompt().is_some(),
+        "Ctrl+Z closed the field"
+    );
 
     // An accelerator is nobody's but the application's, and goes on working
     // while a field is open — which is the whole reason a focused field
@@ -1902,13 +2011,13 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     // and a document with a path is one where landing writes a file.
     let path = std::env::temp_dir().join(format!("catcad-typing-{}.cat", std::process::id()));
     let _ = std::fs::remove_file(&path);
-    app.write(path.clone());
+    raised.app.write(path.clone());
     assert!(path.exists(), "the document was never written");
     let written = std::fs::metadata(&path).expect("just written").len();
     std::fs::remove_file(&path).expect("written, so removable");
 
-    chord(&mut harness, ctrl, Key::Char('s'));
-    frame(&mut app, &mut harness);
+    raised.chord(ctrl, Key::Char('s'));
+    raised.frame();
     assert!(
         path.exists(),
         "Ctrl+S was swallowed by the open field instead of saving"
@@ -1917,16 +2026,22 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
         std::fs::metadata(&path).expect("saved again").len(),
         written
     );
-    assert!(app.session.prompt().is_some(), "saving closed the field");
+    assert!(
+        raised.app.session.prompt().is_some(),
+        "saving closed the field"
+    );
     let _ = std::fs::remove_file(&path);
 
     // Escape closes the field and puts nothing else down.
-    harness.key(Key::Escape);
-    frame(&mut app, &mut harness);
-    assert!(app.session.prompt().is_none(), "Escape left the field open");
-    assert_eq!(relations(&app), stated);
+    raised.harness.key(Key::Escape);
+    raised.frame();
+    assert!(
+        raised.app.session.prompt().is_none(),
+        "Escape left the field open"
+    );
+    assert_eq!(relations(&raised.app), stated);
     // The dimension is exactly as it was: a draft abandoned never happened.
-    let after = app.document.drawing_at(sketch).sketch();
+    let after = raised.app.document.drawing_at(sketch).sketch();
     let Some(Entity::Constraint(id)) = dimension.entity() else {
         panic!("not a constraint");
     };
@@ -1942,34 +2057,17 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
 /// two numbers for Enter to choose between.
 #[test]
 fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
 
-    let solids = |app: &CatCad| {
-        app.document
-            .models(&app.build, app.session.editing())
-            .solids()
-            .count()
-    };
-    let region = app
-        .document
-        .models(&app.build, app.session.editing())
-        .open()
-        .region(0);
-    let mut intents = Intents::default();
-    intents.push(Choice::Select(Some(region)));
-    app.session.apply(
-        app.document.models(&app.build, app.session.editing()),
-        &intents,
-    );
-    frame(&mut app, &mut harness);
-    harness.click_at(EXTRUDE_BUTTON);
-    frame(&mut app, &mut harness);
+    let region = raised.models().open().region(0);
+    raised.choose(Choice::Select(Some(region)));
+    raised.frame();
+    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.frame();
     // Offered rather than stated: the form *means* no depth without anybody
     // having typed one, so the solid is on screen and the field is still the
     // pointer's to write.
-    let open = app.session.prompt().expect("the form is open");
+    let open = raised.app.session.prompt().expect("the form is open");
     assert_eq!(open.says(0), Some(0.0));
     assert_eq!(
         open.typed(0),
@@ -1980,13 +2078,14 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
     // The arrow is the one gizmo naming a depth — found rather than guessed,
     // because where it lands is the region's own middle and the camera's.
     let at = {
-        let renderer = app.view.renderer().borrow();
+        let renderer = raised.app.view.renderer().borrow();
         let arrow = renderer
             .scene()
             .gizmos
             .iter()
             .find(|gizmo| {
-                gizmo.tag.and_then(|tag| app.view.part(tag)) == Some(crate::part::Part::Growing)
+                gizmo.tag.and_then(|tag| raised.app.view.part(tag))
+                    == Some(crate::part::Part::Growing)
             })
             .expect("the growing solid has no arrow to carry it");
         // The tip rather than anywhere else on the arrow. A control is a
@@ -2001,15 +2100,20 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
     // Carried a unit along the plane's own normal, which is the line the arrow
     // runs on — aimed in the world rather than in pixels, so what the drag
     // should come to is known by hand.
-    let plane = app.document.drawing_at(app.session.editing()).plane();
-    let start = cursor_on(&mut app, at);
-    harness.press_at(start);
-    frame(&mut app, &mut harness);
-    let end = cursor_on(&mut app, at + plane.normal().as_vec3());
-    harness.drag_to(end);
-    frame(&mut app, &mut harness);
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
+    let start = raised.cursor_on(at);
+    raised.harness.press_at(start);
+    raised.frame();
+    let end = raised.cursor_on(at + plane.normal().as_vec3());
+    raised.harness.drag_to(end);
+    raised.frame();
 
-    let deepened = app
+    let deepened = raised
+        .app
         .session
         .prompt()
         .and_then(|open| open.value(0))
@@ -2025,7 +2129,7 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
         "one unit of pointer carried the solid to {deepened}"
     );
     assert_eq!(
-        solids(&app),
+        raised.solids(),
         1,
         "the drag reached the document, which has no step to carry yet"
     );
@@ -2034,14 +2138,14 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
     // A press in the drawing takes focus off the field — it has to, the arrow
     // being in the drawing — so what closes the form afterwards is its own
     // buttons rather than Enter.
-    harness.release();
-    frame(&mut app, &mut harness);
+    raised.harness.release();
+    raised.frame();
     assert_eq!(
-        app.session.prompt().and_then(|open| open.value(0)),
+        raised.app.session.prompt().and_then(|open| open.value(0)),
         Some(deepened),
         "letting go of the arrow changed what the form says"
     );
-    assert_eq!(solids(&app), 1);
+    assert_eq!(raised.solids(), 1);
 }
 
 /// **A form outlives the arrangement it was opened against, and says so when
@@ -2060,29 +2164,20 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
 /// draw, which is the honest answer.
 #[test]
 fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
 
-    let sketch = app.session.editing();
-    let region = app
-        .document
-        .models(&app.build, app.session.editing())
-        .open()
-        .region(0);
-    let mut intents = Intents::default();
-    intents.push(Choice::Select(Some(region)));
-    app.session.apply(
-        app.document.models(&app.build, app.session.editing()),
-        &intents,
-    );
-    frame(&mut app, &mut harness);
-    harness.click_at(EXTRUDE_BUTTON);
-    frame(&mut app, &mut harness);
+    let sketch = raised.app.session.editing();
+    let region = raised.models().open().region(0);
+    raised.choose(Choice::Select(Some(region)));
+    raised.frame();
+    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.frame();
 
-    let models = app.document.models(&app.build, sketch);
+    let models = raised.app.document.models(&raised.app.build, sketch);
     assert!(
-        app.session
+        raised
+            .app
+            .session
             .prompt()
             .and_then(|open| open.growing(models))
             .is_some(),
@@ -2091,7 +2186,8 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
 
     // One edge of the frame taken away, which merges the region the form was
     // opened on into what lay beyond it. Something still sits at position 0.
-    let edge = app
+    let edge = raised
+        .app
         .document
         .drawing_at(sketch)
         .sketch()
@@ -2104,15 +2200,20 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
         sketch,
         entity: edge.into(),
     });
-    app.history.apply(&mut app.document, &mut app.build, &edits);
+    raised
+        .app
+        .history
+        .apply(&mut raised.app.document, &mut raised.app.build, &edits);
 
-    let models = app.document.models(&app.build, sketch);
+    let models = raised.app.document.models(&raised.app.build, sketch);
     assert!(
         !models.open().arrangement().faces().is_empty(),
         "the sketch lost every region, so position 0 names nothing either way"
     );
     assert!(
-        app.session
+        raised
+            .app
+            .session
             .prompt()
             .and_then(|open| open.growing(models))
             .is_none(),
@@ -2133,14 +2234,12 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
 /// and a handle rather than a `Profile` for what it is about.
 #[test]
 fn asking_for_a_radius_states_it_rather_than_locking_what_is_there() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
 
-    let sketch = app.session.editing();
+    let sketch = raised.app.session.editing();
     // One the drawing does not already hold to a size — the offer is for a
     // circle that has none, and the demo draws one of each.
-    let drawing = app.document.drawing_at(sketch);
+    let drawing = raised.app.document.drawing_at(sketch);
     let held_to = |circle| {
         drawing.sketch().constraints().any(|(_, held)| {
             matches!(held, silverpoint::Constraint::Radius { circle: at, .. } if at == circle)
@@ -2152,16 +2251,11 @@ fn asking_for_a_radius_states_it_rather_than_locking_what_is_there() {
         .find(|&(id, _)| !held_to(id))
         .map(|(id, held)| (id, held.radius))
         .expect("the demo draws a circle with no radius stated");
-    let mut intents = Intents::default();
-    intents.push(Choice::Select(Some(Part::Entity {
+    raised.choose(Choice::Select(Some(Part::Entity {
         sketch,
         entity: circle.into(),
     })));
-    app.session.apply(
-        app.document.models(&app.build, app.session.editing()),
-        &intents,
-    );
-    frame(&mut app, &mut harness);
+    raised.frame();
 
     let radii = |app: &CatCad| {
         app.document
@@ -2171,33 +2265,41 @@ fn asking_for_a_radius_states_it_rather_than_locking_what_is_there() {
             .filter(|(_, held)| matches!(held, silverpoint::Constraint::Radius { .. }))
             .count()
     };
-    let before = radii(&app);
+    let before = radii(&raised.app);
 
     // The Radius offer is the only thing a single circle admits, so it is the
     // leftmost button on the bottom bar — the same place Extrude sits when a
     // region is what is picked out.
-    harness.click_at(EXTRUDE_BUTTON);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.frame();
     assert_eq!(
-        app.session.prompt().and_then(|open| open.value(0)),
+        raised.app.session.prompt().and_then(|open| open.value(0)),
         Some(was),
         "the form opened on some size other than the one the circle is"
     );
     assert_eq!(
-        radii(&app),
+        radii(&raised.app),
         before,
         "pressing Radius stated one before it was typed"
     );
 
     // Typed to something the circle is not, and settled. What lands is a
     // relation holding it there, which is what the offer could never say.
-    harness.type_text("3");
-    frame(&mut app, &mut harness);
-    harness.key(Key::Enter);
-    frame(&mut app, &mut harness);
-    assert!(app.session.prompt().is_none(), "Enter left the form open");
-    assert_eq!(radii(&app), before + 1, "committing stated no radius");
-    let now = app
+    raised.harness.type_text("3");
+    raised.frame();
+    raised.harness.key(Key::Enter);
+    raised.frame();
+    assert!(
+        raised.app.session.prompt().is_none(),
+        "Enter left the form open"
+    );
+    assert_eq!(
+        radii(&raised.app),
+        before + 1,
+        "committing stated no radius"
+    );
+    let now = raised
+        .app
         .document
         .drawing_at(sketch)
         .sketch()
@@ -2218,9 +2320,7 @@ fn asking_for_a_radius_states_it_rather_than_locking_what_is_there() {
 /// until the change lands, and the session applies before the history does.
 #[test]
 fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
     let rings = |app: &CatCad| {
         app.document
             .drawing_at(app.session.editing())
@@ -2228,41 +2328,56 @@ fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
             .circles()
             .count()
     };
-    let before = rings(&app);
+    let before = rings(&raised.app);
 
-    let plane = app.document.drawing_at(app.session.editing()).plane();
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
-    let at_middle = cursor_on(&mut app, middle);
+    let at_middle = raised.cursor_on(middle);
 
-    harness.click_at(CIRCLE_BUTTON);
-    frame(&mut app, &mut harness);
-    harness.click_at(at_middle);
-    frame(&mut app, &mut harness);
+    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.frame();
+    raised.harness.click_at(at_middle);
+    raised.frame();
     assert!(
         matches!(
-            app.session.prompt().map(Prompt::about),
+            raised.app.session.prompt().map(Prompt::about),
             Some(Asking::Circle { .. })
         ),
         "putting the centre down opened no form"
     );
-    assert_eq!(before, rings(&app), "the centre click reached the document");
+    assert_eq!(
+        before,
+        rings(&raised.app),
+        "the centre click reached the document"
+    );
 
     // Typed rather than clicked, and settled. The tool goes back to its first
     // click, which is where a second one would have left it.
-    harness.type_text("2");
-    frame(&mut app, &mut harness);
-    harness.key(Key::Enter);
-    frame(&mut app, &mut harness);
-    assert!(app.session.prompt().is_none(), "Enter left the form open");
-    assert_eq!(rings(&app), before + 1, "the typed radius drew no circle");
+    raised.harness.type_text("2");
+    raised.frame();
+    raised.harness.key(Key::Enter);
+    raised.frame();
+    assert!(
+        raised.app.session.prompt().is_none(),
+        "Enter left the form open"
+    );
     assert_eq!(
-        app.session.tool(),
+        rings(&raised.app),
+        before + 1,
+        "the typed radius drew no circle"
+    );
+    assert_eq!(
+        raised.app.session.tool(),
         Tool::Circle { center: None },
         "the tool did not go back to its first click"
     );
 
     // At the size that was typed, measured off the centre it was struck from.
-    let drawing = app.document.drawing_at(app.session.editing());
+    let drawing = raised.app.document.drawing_at(raised.app.session.editing());
     let (_, drawn) = drawing
         .sketch()
         .circles()
@@ -2289,29 +2404,31 @@ fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
 /// be told to do.
 #[test]
 fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
-    let mut app = CatCad::build();
-    let mut harness = UiHarness::new(SIZE);
-    frame(&mut app, &mut harness);
+    let mut raised = Raised::new();
 
-    let plane = app.document.drawing_at(app.session.editing()).plane();
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
-    let at_middle = cursor_on(&mut app, middle);
-    harness.click_at(CIRCLE_BUTTON);
-    frame(&mut app, &mut harness);
-    harness.click_at(at_middle);
-    frame(&mut app, &mut harness);
+    let at_middle = raised.cursor_on(middle);
+    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.frame();
+    raised.harness.click_at(at_middle);
+    raised.frame();
 
     // Two units out, so what the band measures is known by hand.
-    let out = cursor_on(&mut app, plane.point(DVec2::new(-1.0, 2.5)).as_vec3());
-    harness.move_to(out);
-    frame(&mut app, &mut harness);
+    let out = raised.cursor_on(plane.point(DVec2::new(-1.0, 2.5)).as_vec3());
+    raised.harness.move_to(out);
+    raised.frame();
     let banded = |app: &CatCad| app.view.banded().map(|to| middle.distance(to));
     assert!(
-        (banded(&app).expect("the band follows the pointer") - 2.0).abs() < 1e-3,
+        (banded(&raised.app).expect("the band follows the pointer") - 2.0).abs() < 1e-3,
         "the band measured {:?} rather than the two units it was carried",
-        banded(&app)
+        banded(&raised.app)
     );
-    let open = app.session.prompt().expect("the form is open");
+    let open = raised.app.session.prompt().expect("the form is open");
     assert_eq!(
         open.typed(0),
         None,
@@ -2324,20 +2441,18 @@ fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
 
     // Typed, and the band lets go of the pointer: it holds the typed radius
     // even as the cursor carries on somewhere else entirely.
-    harness.type_text("5");
-    frame(&mut app, &mut harness);
+    raised.harness.type_text("5");
+    raised.frame();
     assert_eq!(
-        app.session.prompt().and_then(|open| open.typed(0)),
+        raised.app.session.prompt().and_then(|open| open.typed(0)),
         Some(5.0)
     );
-    harness.move_to(cursor_on(
-        &mut app,
-        plane.point(DVec2::new(3.0, 2.5)).as_vec3(),
-    ));
-    frame(&mut app, &mut harness);
+    let elsewhere = raised.cursor_on(plane.point(DVec2::new(3.0, 2.5)).as_vec3());
+    raised.harness.move_to(elsewhere);
+    raised.frame();
     assert!(
-        (banded(&app).expect("the band is still drawn") - 5.0).abs() < 1e-3,
+        (banded(&raised.app).expect("the band is still drawn") - 5.0).abs() < 1e-3,
         "the band went back to following the cursor at {:?}",
-        banded(&app)
+        banded(&raised.app)
     );
 }

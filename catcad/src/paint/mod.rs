@@ -411,5 +411,27 @@ fn symbol(constraint: Constraint) -> &'static str {
     }
 }
 
+/// Where `models` says its markers stand, drawn into a scene of its own.
+///
+/// The question a drag moves and an undo has to put back, and the one thing
+/// that answers it without a view: the document is redrawn from nothing rather
+/// than read off whatever scene a renderer is still holding, so what comes back
+/// is what the drawing *is* rather than what was last painted.
+///
+/// Here rather than in either harness that wants it, which is both of them —
+/// the history's tests and the view's, one asking the opening sketch and the
+/// other the open one, and neither able to see the other's copy.
+#[cfg(test)]
+pub(crate) fn markers(models: crate::model::Models<'_>) -> Vec<glam::Vec3> {
+    let mut scene = Scene::default();
+    redraw(
+        models,
+        &mut Layout::default(),
+        Showing::default(),
+        &mut scene,
+    );
+    scene.points.iter().map(|point| point.position).collect()
+}
+
 #[cfg(test)]
 mod tests;

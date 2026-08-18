@@ -378,6 +378,22 @@ pub(crate) mod internals {
                 self.picture.placed(of).map(|placed| placed.mark)
             }
 
+            /// Where every marker in the scene sits, in the order they are
+            /// drawn.
+            ///
+            /// What the *renderer* is still showing, which is not the same
+            /// question as where the document says its points are — a frame
+            /// nothing has redrawn shows the drawing as it stood.
+            pub(crate) fn markers(&self) -> Vec<Vec3> {
+                self.renderer()
+                    .borrow()
+                    .scene()
+                    .points
+                    .iter()
+                    .map(|point| point.position)
+                    .collect()
+            }
+
             /// Where the band has carried the rim of the circle being drawn.
             ///
             /// The same kind of reach-in as the rest of this module: what a form
