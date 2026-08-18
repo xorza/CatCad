@@ -255,7 +255,7 @@ impl Triangles {
         // only reliable where there is no way to do one without the other.
         self.vertices_dirty = true;
         self.vertices
-            .reserve_exact(objects.iter().map(|o| o.mesh.vertices.len()).sum());
+            .reserve_exact(objects.iter().map(|o| o.mesh.vertices().len()).sum());
         self.bases.clear();
         self.bases.reserve_exact(objects.len());
         if measure {
@@ -282,7 +282,7 @@ impl Triangles {
                 .map_or(object.color, |look| look.tint.over(object.color))
                 .to_array();
             self.vertices
-                .extend(object.mesh.vertices.iter().map(|vertex| {
+                .extend(object.mesh.vertices().iter().map(|vertex| {
                     GpuVertex {
                         position: object
                             .transform
@@ -320,11 +320,11 @@ impl Triangles {
             bases,
             ..
         } = self;
-        indices.reserve_exact(objects.iter().map(|o| o.mesh.indices.len()).sum());
+        indices.reserve_exact(objects.iter().map(|o| o.mesh.indices().len()).sum());
         for &step in order.iter() {
             let object = &objects[step as usize];
             let base = bases[step as usize];
-            indices.extend(object.mesh.indices.iter().map(|index| index + base));
+            indices.extend(object.mesh.indices().iter().map(|index| index + base));
         }
     }
 }

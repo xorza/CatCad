@@ -523,16 +523,20 @@ pub(super) fn solids(
 /// Written over what is already there rather than assigned, which is what keeps
 /// a drag off the heap: every face of a drawing and every face of every solid is
 /// cut afresh whenever the document moves, and they come back the same size.
+/// Through [`Mesh::rewrite`], which is what hands the buffers over and brings
+/// the box the mesh is picked by up to date with what went into them.
 ///
 /// The indices are reserved for exactly and the corners are not, and the
 /// asymmetry is the iterators': flattening triangles hides the count, where an
 /// `extend` over corners carries its own.
 fn remesh(mesh: &mut Mesh, corners: impl Iterator<Item = Vertex>, triangles: &[[u32; 3]]) {
-    mesh.vertices.clear();
-    mesh.vertices.extend(corners);
-    mesh.indices.clear();
-    mesh.indices.reserve_exact(triangles.len() * 3);
-    mesh.indices.extend(triangles.iter().flatten());
+    mesh.rewrite(|vertices, indices| {
+        vertices.clear();
+        vertices.extend(corners);
+        indices.clear();
+        indices.reserve_exact(triangles.len() * 3);
+        indices.extend(triangles.iter().flatten());
+    });
 }
 
 #[cfg(test)]

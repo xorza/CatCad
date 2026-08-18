@@ -57,16 +57,16 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
     // One triangle whose normal points diagonally, so a non-uniform scale
     // tells the two candidate transforms apart.
     let diagonal = Vec3::new(1.0, 1.0, 0.0).normalize();
-    let mesh = Mesh {
-        vertices: vec![
+    let mesh = Mesh::new(
+        vec![
             Vertex {
                 position: Vec3::ZERO,
                 normal: diagonal,
             };
             3
         ],
-        indices: vec![0, 1, 2],
-    };
+        vec![0, 1, 2],
+    );
     let mut scene = Scene::default();
     scene.solids.push(Object {
         transform: Mat4::from_scale(Vec3::new(2.0, 1.0, 1.0)),

@@ -37,19 +37,20 @@ fn a_surface_is_picked_anywhere_over_it_and_loses_to_what_is_drawn_on_it() {
 
     let mut scene = Scene::default();
     let sheet = Tag::new(7);
-    let mut mesh = Mesh::default();
-    for corner in [
-        Vec3::new(-1.0, -1.0, 0.0),
-        Vec3::new(1.0, -1.0, 0.0),
-        Vec3::new(1.0, 1.0, 0.0),
-        Vec3::new(-1.0, 1.0, 0.0),
-    ] {
-        mesh.vertices.push(Vertex {
+    let mesh = Mesh::new(
+        [
+            Vec3::new(-1.0, -1.0, 0.0),
+            Vec3::new(1.0, -1.0, 0.0),
+            Vec3::new(1.0, 1.0, 0.0),
+            Vec3::new(-1.0, 1.0, 0.0),
+        ]
+        .map(|corner| Vertex {
             position: corner,
             normal: Vec3::Z,
-        });
-    }
-    mesh.indices.extend([0, 1, 2, 0, 2, 3]);
+        })
+        .to_vec(),
+        vec![0, 1, 2, 0, 2, 3],
+    );
     scene.faces.push(Object {
         mesh,
         tag: Some(sheet),
@@ -135,18 +136,19 @@ fn a_surface_is_picked_from_behind_as_well_as_in_front() {
     let middle = Vec2::new(100.0, 100.0);
     let mut scene = Scene::default();
     let sheet = Tag::new(3);
-    let mut mesh = Mesh::default();
-    for corner in [
-        Vec3::new(-1.0, -1.0, 0.0),
-        Vec3::new(1.0, -1.0, 0.0),
-        Vec3::new(0.0, 1.0, 0.0),
-    ] {
-        mesh.vertices.push(Vertex {
+    let mesh = Mesh::new(
+        [
+            Vec3::new(-1.0, -1.0, 0.0),
+            Vec3::new(1.0, -1.0, 0.0),
+            Vec3::new(0.0, 1.0, 0.0),
+        ]
+        .map(|corner| Vertex {
             position: corner,
             normal: Vec3::Z,
-        });
-    }
-    mesh.indices.extend([0, 1, 2]);
+        })
+        .to_vec(),
+        vec![0, 1, 2],
+    );
     scene.faces.push(Object {
         mesh,
         tag: Some(sheet),
@@ -191,10 +193,10 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
             position: Vec3::new(x, y, z),
             normal: Vec3::Z,
         };
-        Object::new(Mesh {
-            vertices: vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
-            indices: vec![0, 1, 2, 0, 2, 3],
-        })
+        Object::new(Mesh::new(
+            vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
+            vec![0, 1, 2, 0, 2, 3],
+        ))
     }
 
     let mut scene = Scene::default();

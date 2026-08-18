@@ -119,6 +119,7 @@ pub use curve::Curve;
 pub use extent::Extent;
 pub use highlight::{Highlight, Lit, Tint};
 pub use hit::{Hit, HitAt, Precedence};
+pub use mesh::bounds::Bounds;
 pub use mesh::{Mesh, Vertex};
 pub use motion::Motion;
 pub use object::Object;

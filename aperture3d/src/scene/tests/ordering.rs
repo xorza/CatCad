@@ -129,10 +129,10 @@ fn only_what_survived_the_near_plane_can_be_picked() {
             position: Vec3::new(x, y, z),
             normal: Vec3::Z,
         };
-        Object::new(Mesh {
-            vertices: vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
-            indices: vec![0, 1, 2, 0, 2, 3],
-        })
+        Object::new(Mesh::new(
+            vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
+            vec![0, 1, 2, 0, 2, 3],
+        ))
     };
     scene.faces.push(sheet(4.5).tagged(Tag::new(4)));
     scene.faces.push(sheet(0.0).tagged(Tag::new(5)));

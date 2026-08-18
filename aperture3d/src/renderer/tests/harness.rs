@@ -225,15 +225,15 @@ impl<'a> Framed<'a> {
 /// and small enough to stay inside it.
 pub(super) fn facing_quad() -> Mesh {
     let corners = [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)];
-    Mesh {
-        vertices: corners
+    Mesh::new(
+        corners
             .map(|(x, y)| Vertex {
                 position: Vec3::new(x, y, 0.0),
                 normal: Vec3::Z,
             })
             .to_vec(),
-        indices: vec![0, 1, 2, 0, 2, 3],
-    }
+        vec![0, 1, 2, 0, 2, 3],
+    )
 }
 
 /// Squared to the view, which every laid-run test below looks through.
