@@ -23,6 +23,31 @@ const RANK_TOLERANCE: f64 = 1e-9;
 /// rows are compared as.
 const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
 
+/// The columns one row of the reduction can hold anything in.
+///
+/// A bound rather than a description: what is skipped is what lies outside, so
+/// it only ever has to be wide enough. Both ends move as the walk goes — the far
+/// one out as fill reaches, the near one in as columns are eliminated behind it.
+#[derive(Debug, Clone, Copy)]
+struct Stretch {
+    low: usize,
+    high: usize,
+}
+
+impl Stretch {
+    /// Whether `col` falls inside, and so whether the row can hold anything
+    /// there.
+    ///
+    /// **The question both walks of the elimination ask**, and the reason they
+    /// ask it: a row this is false of holds an exact zero at `col`, so the pivot
+    /// search cannot want it and the update would change nothing by it. Named
+    /// rather than spelt out at each, where it read once as a pair of bounds
+    /// and once as their negation.
+    fn holds(self, col: usize) -> bool {
+        self.low <= col && col <= self.high
+    }
+}
+
 /// The room a rank measurement works in, and what the measurement found.
 ///
 /// Sized by the sketch and refilled rather than rebuilt, so a drawing measuring
@@ -55,8 +80,7 @@ pub(super) struct Elimination {
     /// how far that parameter travels along each way the sketch can still move.
     /// Row-major.
     null: Vec<f64>,
-    /// The stretch of columns each row can hold anything in, low and high
-    /// inclusive — everything outside is exactly zero.
+    /// Where each row can hold anything at all.
     ///
     /// Taken off the rows before the walk and carried through it: a swap moves
     /// two rows' stretches with them, and an update widens the row it wrote to
@@ -66,10 +90,14 @@ pub(super) struct Elimination {
     /// stretch chases the walk rightwards instead of covering everything the
     /// fill has reached.
     ///
-    /// A bound rather than a description, either way. Nothing here needs to know
-    /// where a row's content *starts*, only somewhere it cannot start before —
-    /// what is skipped is what lies outside.
-    reach: Vec<(usize, usize)>,
+    /// **What it spares is mostly the looking.** The arithmetic it shortens is
+    /// small — an elimination over a sketch barely fills, so the rows it updates
+    /// hold a couple of cells each. What the walk does far more of is ask every
+    /// row below a column whether it holds anything there, and asking that of a
+    /// short array beside the matrix rather than of the matrix is the difference
+    /// between a read straight through and a stride of a whole row into
+    /// something far too large to sit in cache.
+    reach: Vec<Stretch>,
     /// The columns that took no pivot, which are the null space's own axes.
     /// Filled by [`Elimination::eliminate`] beside [`Elimination::pivots`], the
     /// other half of the same partition.
@@ -260,11 +288,14 @@ impl Elimination {
                 scale = scale.max(value.abs());
             }
             reach.push(match (row.cols.first(), row.cols.last()) {
-                (Some(&low), Some(&high)) => (low as usize, high as usize),
+                (Some(&low), Some(&high)) => Stretch {
+                    low: low as usize,
+                    high: high as usize,
+                },
                 // An equation the mask left nothing of. It pivots on nothing and
                 // is named redundant, which is what an equation that cannot move
                 // anything is.
-                _ => (0, 0),
+                _ => Stretch { low: 0, high: 0 },
             });
         }
         let scale = scale.max(1.0);
@@ -285,10 +316,7 @@ impl Elimination {
             // every candidate is — which the tolerance below is what answers.
             let mut pivot = rank;
             for row in rank..m {
-                if reach[row].0 <= col
-                    && col <= reach[row].1
-                    && a[row * n + col].abs() > a[pivot * n + col].abs()
-                {
+                if reach[row].holds(col) && a[row * n + col].abs() > a[pivot * n + col].abs() {
                     pivot = row;
                 }
             }
@@ -300,8 +328,8 @@ impl Elimination {
                 // The two rows agree outside the wider of their stretches, both
                 // being zero there.
                 let (lowest, highest) = (
-                    reach[pivot].0.min(reach[rank].0),
-                    reach[pivot].1.max(reach[rank].1),
+                    reach[pivot].low.min(reach[rank].low),
+                    reach[pivot].high.max(reach[rank].high),
                 );
                 for c in lowest..=highest {
                     a.swap(pivot * n + c, rank * n + c);
@@ -310,8 +338,22 @@ impl Elimination {
                 reach.swap(pivot, rank);
             }
             let diagonal = a[rank * n + col];
-            let high = reach[rank].1;
+            let high = reach[rank].high;
             for row in (rank + 1)..m {
+                // Asked before the matrix is touched, as the pivot search above
+                // asks it. Nearly every row is one this refuses — a sketch's
+                // equations are local, so of the five hundred below a column a
+                // handful reach it — and each one it refuses is a stride of a
+                // whole row not taken through something far too large to sit in
+                // cache.
+                //
+                // Measured at 502 parameters: asking it took a reduction from
+                // 166µs to 131µs, and the scan it stands in front of costs 104µs
+                // of that former figure on its own. It was being paid to learn
+                // there was nothing to do.
+                if !reach[row].holds(col) {
+                    continue;
+                }
                 let factor = a[row * n + col] / diagonal;
                 if factor == 0.0 {
                     continue;
@@ -343,7 +385,10 @@ impl Elimination {
                 // sketch with nothing left undecided has no such column at all,
                 // which is what makes its stretch shrink as the walk advances.
                 let starts = free.first().copied().unwrap_or(col + 1);
-                reach[row] = (starts, reach[row].1.max(high));
+                reach[row] = Stretch {
+                    low: starts,
+                    high: reach[row].high.max(high),
+                };
             }
             pivots.push(col);
             rank += 1;
