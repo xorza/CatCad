@@ -279,7 +279,25 @@ impl Elimination {
         let params = sketch.params();
         for (id, _) in sketch.points() {
             let [x, y] = params.of_point(id);
-            into.points[id.slot()] = self.spread(x, y);
+            // A column the solve may not move — a pinned point, or one a drag is
+            // holding — took no pivot and is no freedom, so its row of the null
+            // space is zero along its whole length. The spread of two such rows
+            // is what [`Elimination::spread`] answers `Determined` to, and it
+            // walks both of them to do it: on a drawing that pins half its
+            // geometry that was half of this loop, spent to be told what the
+            // mask already said.
+            //
+            // Either axis moving is enough to go and measure, rather than asking
+            // one and taking it for the point. Both are pinned together today,
+            // a point being fixed as a whole — but a pair with one axis loose
+            // is `Partly` rather than `Determined`, so testing one axis would be
+            // the wrong answer rather than a slower route to the right one if
+            // that ever stopped holding.
+            into.points[id.slot()] = if system.movable[x] || system.movable[y] {
+                self.spread(x, y)
+            } else {
+                Freedom::Determined
+            };
         }
         // An edge is only as settled as its looser end, and a circle only as
         // settled as the looser of its centre and its radius. Rolled up here
@@ -543,7 +561,12 @@ impl Elimination {
     ///
     /// A column that could never move — a pinned point, or the hole a removal
     /// left — has a row of zeros, which is the honest answer for something with
-    /// no freedom to have.
+    /// no freedom to have. Written rather than read: [`Elimination::read`]
+    /// answers those from the mask instead, so the row is the shape being kept
+    /// honest rather than anything consulted. Dropping it would mean indexing
+    /// the null space by movable column instead of by parameter, and that
+    /// indirection lands in the substitution below — which is the bulk of a
+    /// reduction on the drawings that would gain nothing from it.
     fn null_space(&mut self, system: &System) {
         let n = system.width();
         self.eliminate(system);
