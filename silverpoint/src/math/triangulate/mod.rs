@@ -1,9 +1,18 @@
 //! Cutting a filled outline into triangles.
 //!
-//! Ear clipping, with holes bridged into the outline first so that what is
-//! actually clipped is always one simple loop. Quadratic in the number of
-//! corners and none the worse for it: a sketch face has tens of them, not
-//! thousands, and the alternative is a sweep-line that is harder to be sure of.
+//! Ear clipping, with holes bridged into the outline first, so that what is
+//! clipped is one loop rather than a loop and its islands. One loop, but not a
+//! *simple* one: a bridge is walked out and back again, so the contour touches
+//! itself at both ends of every one of them. That is not a detail — it is what
+//! rules out the usual shortcut past the quadratic below, and [`ear`] is where
+//! that is written down.
+//!
+//! Quadratic in the number of corners, and paid on every frame a solid is drawn:
+//! a 128-corner outline cuts in 14.6µs and a 256-corner one in 53.4µs. How many
+//! corners there are is the caller's to decide rather than the drawing's — a
+//! face bounded by lines has one per line, where one bounded by anything curved
+//! has as many as the flattening was asked for. The alternative is a sweep-line,
+//! which is harder to be sure of.
 //!
 //! Corners rather than curves. An arc reaches here already flattened, because
 //! how finely to flatten it depends on how large it lands on screen and that is
@@ -307,6 +316,21 @@ fn cut(contour: &mut Vec<u32>, at: usize) -> Option<[u32; 3]> {
 }
 
 /// Whether the corner at `at` can be cut off without crossing the loop.
+///
+/// **Every other corner is asked, and the usual shortcut past that is wrong
+/// here.** Ear clipping normally tests a candidate only against the corners
+/// standing *in* the loop rather than proud of it, on the theorem that a proud
+/// corner cannot be inside a candidate ear unless one standing in it is too —
+/// worth another 53.4µs against 18.0µs on a 256-corner outline, on top of the
+/// ordering below, and more the rounder the outline is.
+///
+/// The theorem is about polygons that do not touch themselves, and what reaches
+/// here is a loop with its holes bridged in — which touches itself at both ends
+/// of every bridge. Held against this walk over a sweep of shapes, the shortcut
+/// cuts different triangles on the first contour carrying a doubled corner, and
+/// on contours folded over themselves, which is what the fallback in [`clip`]
+/// exists for. It agrees on every simple loop and nowhere else, so it stays out
+/// until something proves the bridged case.
 fn ear(corners: &[DVec2], contour: &[u32], at: usize) -> bool {
     // Twice the area of that corner's triangle, so again half of [`SLIVER`].
     if turn(corners, contour, at) <= SLIVER {
@@ -317,10 +341,16 @@ fn ear(corners: &[DVec2], contour: &[u32], at: usize) -> bool {
         let candidate = corners[contour[other] as usize];
         // A corner sharing a place with one of the three is one of the three
         // as far as the loop is concerned, whatever its index says.
-        let doubled = [before, corner, after]
-            .iter()
-            .any(|&of| candidate.approx_eq(of, TOUCHING));
-        !doubled && inside(before, corner, after, candidate)
+        // Whether it falls inside first, and sharing a place only of the few
+        // that do. Nearly every corner is outside a candidate ear and leaves
+        // after three cross products, where asking after the place first pays
+        // three [`ApproxEq`] comparisons on every one of them to find out the
+        // same thing later. Measured on a 256-corner outline at 83.6µs against
+        // 53.5µs for the same walk asked the other way round.
+        inside(before, corner, after, candidate)
+            && ![before, corner, after]
+                .iter()
+                .any(|&of| candidate.approx_eq(of, TOUCHING))
     })
 }
 
