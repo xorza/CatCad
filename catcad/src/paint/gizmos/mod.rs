@@ -29,7 +29,7 @@ use silverpoint::{Constraint, Measurement, Plane};
 use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::gizmos::dimension::Stroke;
-use crate::paint::layout::Layout;
+use crate::paint::layout::{Framed, Layout, Made};
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::showing::Showing;
 use crate::paint::{EDGE_WIDTH, GHOST, MARK};
@@ -94,6 +94,19 @@ pub(crate) fn write(
     lens: Lens,
     into: &mut Batch<Curve>,
 ) {
+    // The same shape the drawing's own gate has, and here for the same reason:
+    // what the controls claim to describe and what was written into them are
+    // decided in one place. Without it these ran on every frame there was —
+    // every axis, hub, corner and dimension rule rebuilt while the view sat
+    // still, which on a sketch of two hundred dimensions was the entire cost of
+    // a frame that had nothing to draw.
+    let framed = Framed {
+        made: Made::of(models, showing),
+        lens,
+    };
+    if !layout.recontrol(framed) {
+        return;
+    }
     let Layout {
         names,
         sheets,
@@ -135,6 +148,7 @@ pub(crate) fn write(
             curve.tag = part.map(|part| names.tag(part));
         },
     );
+    layout.controlled(framed);
 }
 
 /// Every stroke the open sketch's dimensions are drawn from, already sized

@@ -142,9 +142,11 @@ impl Picture {
     /// drawing moves — the layout compares what it describes against what it is
     /// handed and returns without writing a batch — where a control holds its
     /// size on screen, so it is built against the lens and the lens moving is
-    /// what invalidates it. Gating the two together would mean re-cutting every
-    /// face and solid on every frame of an orbit; splitting them across two
-    /// calls would let a caller run one and forget the other. See
+    /// what invalidates it. Both are gated, each against what actually moves it,
+    /// so a frame where neither the drawing nor the camera moved writes nothing
+    /// at all. Gating the two *together* would mean re-cutting every face and
+    /// solid on every frame of an orbit; splitting them across two calls would
+    /// let a caller run one and forget the other. See
     /// [`paint::gizmos::write`].
     ///
     /// Into the batches the renderer already holds, so a drag rewrites the

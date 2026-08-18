@@ -24,7 +24,11 @@ use palantir::Rect;
 /// Made where the two are known and never held: the camera is the document's and
 /// the viewport is the view's, so a lens kept across frames would be a third copy
 /// of both, free to fall behind either.
-#[derive(Debug, Clone, Copy)]
+///
+/// Compared, though: the controls' stamp keeps one to say what they were last
+/// built against. That is a record of what was drawn rather than somewhere the
+/// camera is read from, which is the distinction the paragraph above draws.
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Lens {
     camera: Camera,
     viewport: Viewport,

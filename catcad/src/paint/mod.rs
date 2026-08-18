@@ -278,11 +278,7 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
     // to describe and what was drawn into it are decided in one place. A caller
     // that skipped the call would leave a stale picture; one that made it and
     // forgot to stamp would redraw for ever.
-    let made = Made {
-        revision: models.revision(),
-        editing: models.editing(),
-        showing,
-    };
+    let made = Made::of(models, showing);
     let Some(from) = layout.resume(made) else {
         return;
     };

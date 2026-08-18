@@ -116,6 +116,27 @@ pub(super) fn every_statable() -> Vec<silverpoint::Constraint> {
 /// still carries it afterwards is what was skipped.
 const UNWRITTEN: Vec3 = Vec3::splat(-1.0);
 
+/// Stamp the controls, so the next write of them can be asked whether it ran.
+///
+/// Apart from [`stamp`] below, and deliberately: the controls are written by
+/// their own call on their own schedule, and a redraw never touches them — so
+/// folding them in would put "gizmos" in the answer to every assertion about
+/// the drawing's ladder, where it says nothing.
+///
+/// That they were *missing* from the sweep below is how nothing noticed they
+/// were being rebuilt on every frame: the helper that exists to catch exactly
+/// that had the same blind spot the code did.
+pub(super) fn stamp_controls(scene: &mut Scene) {
+    for curve in scene.gizmos.iter_mut() {
+        curve.color = UNWRITTEN;
+    }
+}
+
+/// Whether the controls still carry it, which is whether they were left alone.
+pub(super) fn controls_untouched(scene: &Scene) -> bool {
+    scene.gizmos.iter().all(|curve| curve.color == UNWRITTEN)
+}
+
 /// Stamp every batch, so the next redraw can be asked which of them it wrote
 /// over.
 pub(super) fn stamp(scene: &mut Scene) {
@@ -145,6 +166,12 @@ pub(super) fn stamp(scene: &mut Scene) {
 /// Named rather than counted, so a failure says which writer ran when it should
 /// not have. Every batch of the fixture is checked to be non-empty first — an
 /// empty one would report itself skipped whatever happened to it.
+///
+/// **The controls are not among them**, being written by their own call on their
+/// own schedule — see [`controls_untouched`]. That they were simply *missing*
+/// here is how nothing noticed they were rebuilt on every frame there was: a
+/// sweep meant to catch a writer running when it should not have could not see
+/// the one that always did.
 pub(super) fn untouched(scene: &Scene) -> Vec<&'static str> {
     let held = |name, kept: bool| kept.then_some(name);
     [

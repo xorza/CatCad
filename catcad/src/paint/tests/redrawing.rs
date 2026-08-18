@@ -3,12 +3,15 @@
 use crate::build::Build;
 use crate::demo;
 use crate::intent::change::Change;
+use crate::lens::Lens;
 use crate::paint::growing::Growing;
-use crate::paint::tests::fixtures::{stamp, untouched};
+use crate::paint::tests::fixtures::{controls_untouched, stamp, stamp_controls, untouched};
 use crate::paint::*;
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
+use aperture::{Camera, Viewport};
 use aperture::{Scene, Tag};
+use glam::UVec2;
 use glam::Vec3;
 use silverpoint::Entity;
 
@@ -261,5 +264,95 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
         !named(&layout).iter().any(|(_, part)| *part == over),
         "the mark a field stands over is still named, so the field and the \
          number are both on screen"
+    );
+}
+
+/// **The controls are written again when the picture under them or the lens over
+/// them moves, and on no other frame.**
+///
+/// They sit off the stage ladder above, and have to: a control holds its size on
+/// screen, so an orbit moves every one of them and moves nothing else in the
+/// picture. Putting the camera in [`Made`] would make that orbit say
+/// [`Stage::Drawing`] and cut every region again, which is the cost the ladder
+/// exists to refuse.
+///
+/// Being off the ladder had meant being off any gate at all, and the call ran on
+/// every frame there was — every axis, hub, corner and dimension rule rebuilt
+/// while nothing moved, measured at 37µs a frame on a sketch of two hundred
+/// dimensions. So the two halves are asked separately here: a frame where
+/// neither moved must write nothing, and each of them moving on its own must
+/// write everything.
+#[test]
+fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let editing = document.opening();
+    let mut layout = Layout::default();
+    let mut scene = Scene::default();
+    let seen = |wide: u32| Lens::new(Camera::default(), Viewport::new(UVec2::new(wide, 1080)));
+    let models = document.models(&build, editing);
+
+    redraw(models, &mut layout, Showing::default(), &mut scene);
+    gizmos::write(
+        models,
+        &mut layout,
+        Showing::default(),
+        seen(1920),
+        &mut scene.gizmos,
+    );
+    assert!(
+        !scene.gizmos.is_empty(),
+        "the fixture drew no controls, so nothing below is being asked"
+    );
+
+    stamp_controls(&mut scene);
+    gizmos::write(
+        models,
+        &mut layout,
+        Showing::default(),
+        seen(1920),
+        &mut scene.gizmos,
+    );
+    assert!(
+        controls_untouched(&scene),
+        "the controls were written again on a frame where neither the drawing \
+         nor the camera had moved"
+    );
+
+    // The lens alone. A window resized is the smallest thing that moves one and
+    // nothing else — the drawing is where it was, and every control is sized
+    // against a viewport that is not.
+    gizmos::write(
+        models,
+        &mut layout,
+        Showing::default(),
+        seen(1280),
+        &mut scene.gizmos,
+    );
+    assert!(
+        !controls_untouched(&scene),
+        "the controls kept a size measured against a viewport that had gone"
+    );
+
+    // The picture alone, through the same `Showing` the ladder above is driven
+    // by: a proposed dimension moves the marks, and a dimension's rule is drawn
+    // from where its mark stands.
+    stamp_controls(&mut scene);
+    gizmos::write(
+        models,
+        &mut layout,
+        Showing {
+            band: Some(Preview::Line(Ends {
+                from: Vec3::ZERO,
+                to: Vec3::X,
+            })),
+            ..Showing::default()
+        },
+        seen(1280),
+        &mut scene.gizmos,
+    );
+    assert!(
+        !controls_untouched(&scene),
+        "the controls stood on a picture that had moved under them"
     );
 }

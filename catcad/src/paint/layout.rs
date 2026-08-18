@@ -3,6 +3,7 @@
 use silverpoint::{ConstraintId, Fill, Filler, Patch, Skinner};
 
 use crate::build::Revision;
+use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::cut::Cut;
 use crate::paint::marks::{Placed, Proposed};
@@ -14,12 +15,20 @@ use crate::timeline::FeatureId;
 /// What one laying-out of the drawing leaves behind, and what it claims to
 /// describe.
 ///
-/// Four things that are one thing: the names a pick reports through, the room
-/// the faces were cut in, where the marks stand, and what all of them were made
-/// from.
-/// They are written by exactly one call and read only to decide whether to make
-/// it again — see [`paint::redraw`](crate::paint::redraw), which is what writes
-/// every one of them.
+/// The picture: the names a pick reports through, the room the faces were cut
+/// in, and where the marks stand — and beside them two stamps saying what all of
+/// that was made from, one for the drawing and one for the controls.
+///
+/// Two rather than one because the two move on wholly different schedules: the
+/// drawing moves when the document does, and a control moves when the camera
+/// does, holding its size on screen. A single stamp would have to name the
+/// camera, and then an orbit would say the document had moved.
+///
+/// Each is written by exactly one call and read only to decide whether to make
+/// that call again — [`paint::redraw`](crate::paint::redraw) writes the
+/// drawing's, [`gizmos::write`](crate::paint::gizmos::write) the controls'. The
+/// two share the names, which is why the second winds them back to what the
+/// first left rather than appending to whatever it finds.
 ///
 /// Gathered so the claim cannot outrun the work. What was drawn from is stamped
 /// by the same call that draws it, so a view cannot say it has drawn something
@@ -73,6 +82,22 @@ pub(crate) struct Layout {
     /// layout and an unsolved document would then agree, and the one frame that
     /// must never be skipped — the first — is exactly the one that would be.
     made: Option<Made>,
+    /// What the controls were last written from, or `None` where none have been.
+    ///
+    /// Its own stamp beside `made`, and this is the whole reason there are two:
+    /// the controls hold their size **on screen**, so they are built against the
+    /// camera and move when it does, where everything above moves only when the
+    /// drawing does. Putting the lens in [`Made`] would make an orbit say
+    /// [`Stage::Drawing`] and cut every region again on every frame of it —
+    /// which is the cost that whole ladder exists to refuse.
+    ///
+    /// So the controls are off the ladder, and were off any gate at all: the
+    /// call that writes them ran on every frame, including the frames where
+    /// neither the drawing nor the camera had moved. Measured at 37µs a frame on
+    /// a sketch carrying two hundred dimensions, against the 0.01µs a redraw
+    /// that resumes at no stage costs — the controls *were* the whole price of a
+    /// still frame.
+    controls: Option<Framed>,
 }
 
 impl Layout {
@@ -136,6 +161,32 @@ impl Layout {
     pub(super) fn drawn(&mut self, made: Made) {
         self.made = Some(made);
     }
+
+    /// Whether the controls have to be written again.
+    ///
+    /// The pair to [`Layout::resume`] and answering less: the controls are
+    /// written whole or not at all, having no ladder to resume part-way up.
+    pub(super) fn recontrol(&self, framed: Framed) -> bool {
+        self.controls != Some(framed)
+    }
+
+    /// Note what the controls were just written from.
+    pub(super) fn controlled(&mut self, framed: Framed) {
+        self.controls = Some(framed);
+    }
+}
+
+/// What the controls are made from: the picture they stand on, and the camera
+/// they are sized against.
+///
+/// Both, because either moving moves them. A datum's axes are drawn where the
+/// document says and as wide as the screen says, so a solve moves them and so
+/// does an orbit — and a dimension's rule is placed by the marks and gapped in
+/// pixels, which is the same pair again.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Framed {
+    pub(super) made: Made,
+    pub(super) lens: Lens,
 }
 
 /// How much of the drawing a redraw has to make again.
@@ -204,6 +255,19 @@ pub(crate) struct Made {
 }
 
 impl Made {
+    /// What a picture of `models` showing `showing` would be made from.
+    ///
+    /// One place rather than at each of the two calls that stamp one — the
+    /// drawing's and the controls' — so that the two cannot come to disagree
+    /// about what a picture is made from and gate on different things.
+    pub(super) fn of(models: Models<'_>, showing: Showing) -> Self {
+        Self {
+            revision: models.revision(),
+            editing: models.editing(),
+            showing,
+        }
+    }
+
     /// Which stage a picture made from `had` has to be made again from to
     /// describe this, or `None` where nothing has moved.
     ///
