@@ -146,6 +146,28 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     };
     assert_eq!(dimension.value, 2.5);
 
+    // And one edge takes its own length, the same way. Stated between the ends
+    // it runs between, because that is what pins how long a segment is — so
+    // what comes back is an ordinary distance and reads as one.
+    model.offers(&[model.part(first)], &mut offers);
+    assert_eq!(kinds(&offers), ["distance"]);
+    let Constraint::Distance {
+        a: from,
+        b: to,
+        dimension,
+        ..
+    } = offers[0]
+    else {
+        panic!("{offers:?}");
+    };
+    let Entity::Segment(edge) = first else {
+        panic!("the fixture's `first` stopped being an edge");
+    };
+    let edge = model.drawing().sketch().segment(edge);
+    assert_eq!((from, to), (edge.a, edge.b), "the length named other ends");
+    // `first` runs (0,0) to (3,4), so it is the 5 of the 3-4-5.
+    assert_eq!(dimension.value, 5.0);
+
     // And the selections that bear nothing, which are now only the wrong
     // *size*: every pair of geometry kinds above admits something, so a pair
     // that admits nothing would have to be one holding a constraint — and a
@@ -158,7 +180,6 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     for picked in [
         &[][..],
         &[model.part(a)][..],
-        &[model.part(first)][..],
         &[model.part(a), model.part(b), model.part(circle)][..],
         &[face][..],
         &[face, model.part(a)][..],
@@ -391,6 +412,9 @@ fn every_dimension_the_bar_offers_is_placed_as_the_relation_it_offered() {
         vec![a, second],
         vec![first, alongside],
         vec![circle],
+        // One edge on its own, whose length is a dimension like any other —
+        // and so has to survive the same round trip out to the tool.
+        vec![first],
     ] {
         let picked: Vec<Part> = picked
             .into_iter()
@@ -446,9 +470,9 @@ fn every_dimension_the_bar_offers_is_placed_as_the_relation_it_offered() {
         }
     }
     assert_eq!(
-        dimensions, 6,
-        "the four selections above state three distances, a standoff, a spacing \
-         and a radius between them"
+        dimensions, 7,
+        "the five selections above state three distances between a pair of \
+         points, a standoff, a spacing, a radius and one edge's own length"
     );
 }
 

@@ -205,18 +205,48 @@ impl<'a> Model<'a> {
                     self.between(one, two, into);
                 }
             }
-            // The one relation a single pick admits.
-            [only] => {
-                if let Some(Entity::Circle(circle)) = self.entity(only) {
+            // What one entity measures about itself, which is the whole of what
+            // a single pick can admit: a relation needs two things to hold
+            // between, so everything offered here carries a number.
+            [only] => match self.entity(only) {
+                Some(Entity::Circle(circle)) => self.admits(
+                    [Constraint::Radius {
+                        circle,
+                        dimension: Dimension::new(0.0),
+                    }],
+                    into,
+                ),
+                // A segment's length, stated between the ends it runs between.
+                // There is no `Length` constraint and there need not be: what
+                // pins how long a segment is *is* the distance between its
+                // endpoints, so saying it that way is one residual for the
+                // solver rather than two spellings of one thing — and the
+                // dimension that comes back is an ordinary distance, which the
+                // drawing already knows how to draw, place and retype.
+                //
+                // [`Along::Shortest`] because a segment's length is how far it
+                // runs, whichever way that is. The axis-aligned readings exist
+                // for a *pair* of points, where a selection cannot say which
+                // span was meant; a segment names its own direction.
+                //
+                // Offered to a selection but not to the dimension tool's first
+                // click, which is not an oversight: a segment is half of a
+                // standoff and half of a spacing, so a tool that finished on
+                // one could never pick it as the first of either.
+                Some(Entity::Segment(segment)) => {
+                    let segment = self.sketch().segment(segment);
                     self.admits(
-                        [Constraint::Radius {
-                            circle,
+                        [Constraint::Distance {
+                            a: segment.a,
+                            b: segment.b,
+                            along: Along::Shortest,
                             dimension: Dimension::new(0.0),
                         }],
                         into,
                     );
                 }
-            }
+                _ => {}
+            },
             _ => {}
         }
     }
