@@ -178,12 +178,13 @@ impl Params<'_> {
     ///
     /// Reads zero at a hole, which is a value nothing will move: its column is
     /// zeroed and its step is pinned to zero, so the number is never used.
+    /// Through [`Params::value_at`], so that rule is stated once — the two have
+    /// to agree about what a hole reads as, and the cheapest way to agree is to
+    /// be the same code.
     pub(super) fn write(self, out: &mut Vec<f64>) {
         let count = self.count();
         out.reserve_exact(count);
-        out.extend(
-            (0..count).map(|index| self.at(index).map_or(0.0, |param| param.value(self.sketch))),
-        );
+        out.extend((0..count).map(|index| self.value_at(index)));
     }
 }
 

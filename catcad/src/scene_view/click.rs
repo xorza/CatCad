@@ -214,6 +214,11 @@ pub(super) fn clicked(click: Click, document: &Document, session: &Session, inte
 /// same question about the same pixel; where it landed is the frame's one ray,
 /// resolved once at the top of
 /// [`SceneView::poll`](crate::scene_view::SceneView).
+///
+/// [`Anchor::built_on`](crate::drawing::anchor::Anchor::built_on) is the way
+/// back, and not an inverse of this: what it hands back is the entity alone,
+/// where this needs a place as well and answers [`Anchor::At`] for a click that
+/// landed on none.
 fn anchor(at: Option<Vec3>, editing: FeatureId, under: Option<Part>) -> Option<Anchor> {
     // Only what the open sketch holds is something to build *on*: a point of
     // another names a handle this sketch would read as one of its own, so

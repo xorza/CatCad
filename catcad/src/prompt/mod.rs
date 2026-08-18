@@ -484,8 +484,14 @@ impl Prompt {
     /// draft: a form showing a number and refusing to accept it because the
     /// number came from the pointer would be a form arguing with what it says.
     pub(crate) fn says(&self, nth: usize) -> Option<f64> {
-        self.typed(nth)
-            .or_else(|| self.fields.get(nth)?.suggested.trim().parse().ok())
+        self.typed(nth).or_else(|| {
+            // Read straight rather than through [`Prompt::value`], which reads a
+            // *draft*. The two look alike today and are not the same question:
+            // a draft is what somebody typed and is where a formula will one day
+            // be evaluated, where a suggestion is what [`Prompt::suggest`] wrote
+            // with `{:.*}` and is a literal by construction.
+            self.fields.get(nth)?.suggested.trim().parse().ok()
+        })
     }
 
     /// Show the form, and put what it asked for in `intents`.

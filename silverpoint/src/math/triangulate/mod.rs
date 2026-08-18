@@ -3,9 +3,10 @@
 //! Ear clipping, with holes bridged into the outline first, so that what is
 //! clipped is one loop rather than a loop and its islands. One loop, but not a
 //! *simple* one: a bridge is walked out and back again, so the contour touches
-//! itself at both ends of every one of them. That is not a detail — it is what
-//! rules out the usual shortcut past the quadratic below, and [`ear`] is where
-//! that is written down.
+//! itself at both ends of every one of them — which matters less than it looks
+//! like it should, a bridge's ends turning almost the whole way round. See
+//! [`ear`], which is where what the quadratic below could be traded for is
+//! weighed.
 //!
 //! Quadratic in the number of corners, and paid on every frame a solid is drawn:
 //! a 128-corner outline cuts in 14.6µs and a 256-corner one in 53.4µs. How many
