@@ -91,22 +91,49 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
     assert!(picture.gizmos.is_empty());
 }
 
-/// Every symbol a mark is drawn as has a glyph in the faces the shaper falls
-/// back through.
+/// Every relation is named both ways, and every mark it is named by has a glyph
+/// in the faces the shaper falls back through.
 ///
-/// The failure this guards is silent and total: a symbol the fonts lack
+/// The failure the second half guards is silent and total: a mark the fonts lack
 /// rasterizes to nothing, so the relation is simply not drawn and the drawing
 /// says a constraint is absent when it is not. Nothing else notices — the
 /// records are built, the quads are laid out, and the sheet has no ink to give
 /// them.
 ///
+/// The first half guards the table itself. [`wording::named`] states a
+/// relation's word and its mark on one line and a dimension's word alone, and
+/// which of the two a constraint is has to be the same answer
+/// [`Constraint::value`] gives — a dimension written as a relation would be
+/// drawn as a mark *and* as its number, and a relation written as a dimension
+/// would be drawn as neither.
+///
 /// Every variant, driven off `offers` rather than a list written twice, so a
-/// tenth relation is covered the moment the drawing can state it.
+/// fifteenth is covered the moment the drawing can state it.
 #[test]
-fn every_mark_has_a_glyph_to_draw_it() {
+fn every_relation_is_named_both_ways_and_every_mark_has_a_glyph() {
     let shaper = palantir::TextShaper::new();
     let mut glyphs = shaper.glyphs();
     let mut placed = Vec::new();
+
+    // Which of the two each is, against the one thing that decides it.
+    for constraint in every_statable() {
+        let named = crate::wording::named(constraint);
+        assert!(
+            !named.word.is_empty(),
+            "{constraint:?} has no word to caption a control with"
+        );
+        assert_eq!(
+            named.glyph.is_none(),
+            constraint.value().is_some(),
+            "{constraint:?} is named as a {} and states {:?}",
+            if named.glyph.is_none() {
+                "dimension"
+            } else {
+                "relation"
+            },
+            constraint.value(),
+        );
+    }
 
     // The relations alone. A dimension is drawn as its number, so it never
     // reaches `symbol` and asking it for one panics — see the arm there.

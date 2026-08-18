@@ -1,7 +1,6 @@
 //! The widgets the bar is built out of, and what each of them asks for.
 
 use palantir::{Align, Background, Button, Configure, Panel, Sizing, Ui};
-use silverpoint::{Along, Constraint};
 
 use crate::hud::{GAP, PADDING};
 use crate::intent::change::Change;
@@ -32,55 +31,6 @@ pub(super) fn stacked(panel: Panel, salt: &str) -> Panel {
         .gap(GAP)
 }
 
-/// What the button that states a relation is captioned.
-///
-/// The user's word rather than the solver's: a `PointOnSegment` is "on edge" to
-/// whoever is drawing. A caption rather than a noun — which is why this is not
-/// [`noun`](crate::noun), whose answers are lowercase because they are read
-/// inside a sentence in the status line.
-pub(super) fn label(constraint: Constraint) -> &'static str {
-    match constraint {
-        Constraint::Coincident { .. } => "Coincident",
-        // Which way a distance is read is part of what the button asks for, so
-        // it is part of what the button says. "Distance" alone for the aligned
-        // one, because that is the plain case and the other two are the ones
-        // that need naming.
-        Constraint::Distance {
-            along: Along::Shortest,
-            ..
-        } => "Distance",
-        Constraint::Distance {
-            along: Along::Horizontal,
-            ..
-        } => "Horizontal distance",
-        Constraint::Distance {
-            along: Along::Vertical,
-            ..
-        } => "Vertical distance",
-        // Both are a distance to whoever is drawing, and which one is meant is
-        // plain from what is picked out — a point and an edge, or two edges.
-        // The same argument "Equal" is one word for two relations below.
-        Constraint::Standoff { .. } | Constraint::Spacing { .. } => "Distance",
-        Constraint::Horizontal { .. } => "Horizontal",
-        Constraint::Vertical { .. } => "Vertical",
-        Constraint::Parallel { .. } => "Parallel",
-        Constraint::Perpendicular { .. } => "Perpendicular",
-        Constraint::PointOnSegment { .. } => "On edge",
-        Constraint::Radius { .. } => "Radius",
-        Constraint::PointOnCircle { .. } => "On circle",
-        // One word for both, the way a modeller offers it: which of the two a
-        // press means is settled by what is picked out, and a selection admits
-        // only ever one of them — see [`Model::offers`].
-        Constraint::EqualLength { .. } | Constraint::EqualRadius { .. } => "Equal",
-        Constraint::Tangent { .. } => "Tangent",
-    }
-}
-
-/// Flips the camera between the two projections.
-///
-/// Labelled with the projection it is on rather than the one it would switch
-/// to: the button has to answer "which am I looking at?" every frame, and only
-/// answers "what happens if I press this?" once.
 pub(super) fn projection_toggle(ui: &mut Ui, projection: Projection, intents: &mut Intents) {
     let label = match projection {
         Projection::Perspective => "Perspective",

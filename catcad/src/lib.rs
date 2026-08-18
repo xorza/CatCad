@@ -28,6 +28,7 @@ mod session;
 mod status;
 mod timeline;
 mod tool;
+mod wording;
 
 /// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
 /// where it can reach what it measures.

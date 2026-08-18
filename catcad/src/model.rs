@@ -2,13 +2,12 @@
 //! solve made of it.
 
 use glam::Vec3;
-use silverpoint::{
-    Along, Arrangement, Constraint, Dimension, Entity, Outcome, Plane, Prism, Sketch,
-};
+use silverpoint::{Arrangement, Constraint, Entity, Outcome, Plane, Prism, Sketch};
 
 use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
 use crate::drawing::Drawing;
+use crate::drawing::measurable::Measurable;
 use crate::part::Part;
 use crate::profile::Profile;
 use crate::timeline::{FeatureId, Timeline};
@@ -169,9 +168,15 @@ impl<'a> Model<'a> {
 
     /// Every constraint `picked` admits, written into `into`.
     ///
-    /// What the bar offers, and so the one statement of which selections mean
-    /// what. Order matters where the constraint is not symmetric, and the
-    /// selection keeps the order things were picked in for exactly this.
+    /// What the bar offers. Order matters where the constraint is not
+    /// symmetric, and the selection keeps the order things were picked in for
+    /// exactly this.
+    ///
+    /// Two halves, and the split is which of them the bar decides alone: a
+    /// relation is offered here and nowhere else, where a *dimension* is also
+    /// what the dimension tool places — so which dimension a selection admits is
+    /// [`Measurable`]'s to say, and both sides read it. See
+    /// [`Model::relations`] and [`Model::dimensions`].
     ///
     /// A constraint carrying a number takes the one the drawing already has, so
     /// asking for a distance *locks* what is there rather than demanding a value
@@ -184,70 +189,59 @@ impl<'a> Model<'a> {
     /// record pass allocates nothing.
     pub(crate) fn offers(self, picked: &[Part], into: &mut Vec<Constraint>) {
         into.clear();
-        match *picked {
-            // Entities of *this* sketch only. A region is what the curves
-            // enclose rather than something a sketch holds, so there is nothing
-            // to state a relation about — and neither is a part of another
-            // sketch, which is a different system entirely. A pair with either
-            // in it admits nothing at all, rather than admitting whatever the
-            // other half would on its own.
-            [one, two] => {
-                if let (Some(one), Some(two)) = (self.entity(one), self.entity(two)) {
-                    self.between(one, two, into);
-                }
-            }
-            // What one entity measures about itself, which is the whole of what
-            // a single pick can admit: a relation needs two things to hold
-            // between, so everything offered here carries a number.
-            [only] => match self.entity(only) {
-                Some(Entity::Circle(circle)) => self.admits(
-                    [Constraint::Radius {
-                        circle,
-                        dimension: Dimension::new(0.0),
-                    }],
-                    into,
-                ),
-                // A segment's length, stated between the ends it runs between.
-                // There is no `Length` constraint and there need not be: what
-                // pins how long a segment is *is* the distance between its
-                // endpoints, so saying it that way is one residual for the
-                // solver rather than two spellings of one thing — and the
-                // dimension that comes back is an ordinary distance, which the
-                // drawing already knows how to draw, place and retype.
-                //
-                // [`Along::Shortest`] because a segment's length is how far it
-                // runs, whichever way that is. The axis-aligned readings exist
-                // for a *pair* of points, where a selection cannot say which
-                // span was meant; a segment names its own direction.
-                //
-                // Offered to a selection but not to the dimension tool's first
-                // click, which is not an oversight: a segment is half of a
-                // standoff and half of a spacing, so a tool that finished on
-                // one could never pick it as the first of either.
-                Some(Entity::Segment(segment)) => {
-                    let segment = self.sketch().segment(segment);
-                    self.admits(
-                        [Constraint::Distance {
-                            a: segment.a,
-                            b: segment.b,
-                            along: Along::Shortest,
-                            dimension: Dimension::new(0.0),
-                        }],
-                        into,
-                    );
-                }
-                _ => {}
-            },
-            _ => {}
+        // Entities of *this* sketch only. A region is what the curves enclose
+        // rather than something a sketch holds, so there is nothing to state a
+        // relation about — and neither is a part of another sketch, which is a
+        // different system entirely. A pair with either in it admits nothing at
+        // all, rather than admitting whatever the other half would on its own.
+        let named = match *picked {
+            [one, two] => self
+                .entity(one)
+                .zip(self.entity(two))
+                .map(|(one, two)| (one, Some(two))),
+            // A relation needs two things to hold between, so a single pick
+            // admits nothing but what that one thing measures about itself.
+            [only] => self.entity(only).map(|one| (one, None)),
+            _ => None,
+        };
+        let Some((one, two)) = named else {
+            return;
+        };
+        // What the pair *is* before what it measures: a relation says something
+        // that holds without a number, and a dimension is the number. Stated
+        // here rather than inside either, so the bar's order is one line.
+        if let Some(two) = two {
+            self.relations(one, two, into);
         }
+        self.dimensions(one, two, into);
+    }
+
+    /// Every dimension the selection admits, in the order they are offered.
+    ///
+    /// Read off [`Measurable`], which is the one table of which dimension goes
+    /// with which selection — the dimension tool places what this offers, and a
+    /// table apiece is a table that can drift. What is decided *here* is only
+    /// that the bar offers every reading a selection leaves open, since a
+    /// selection has no pointer to say which of them was meant.
+    fn dimensions(self, one: Entity, two: Option<Entity>, into: &mut Vec<Constraint>) {
+        let Some(measurable) = Measurable::of(self.sketch(), one, two) else {
+            return;
+        };
+        self.admits(
+            measurable
+                .readings()
+                .iter()
+                .map(|&along| measurable.stated(along)),
+            into,
+        );
     }
 
     /// Whatever of `candidates` the drawing can actually state, appended to
     /// `into`.
     ///
     /// Every offer goes through here, which is what makes "a dimension holds
-    /// what the drawing measures" one rule rather than one per row of the table
-    /// below: a candidate is written with the geometry it is about and a
+    /// what the drawing measures" one rule rather than one per row of the two
+    /// tables above: a candidate is written with the geometry it is about and a
     /// placeholder number, and the sketch fills the number in — or refuses the
     /// candidate outright where there is nothing to measure. A relation has no
     /// number and passes straight through.
@@ -260,87 +254,40 @@ impl<'a> Model<'a> {
         );
     }
 
-    /// What a pair of entities admits, in the order they were picked.
+    /// What a pair of entities states about each other, in the order they were
+    /// picked.
+    ///
+    /// The relations alone — everything here holds without saying how much.
+    /// What a pair can be given a *number* for is [`Model::dimensions`] beside
+    /// it, and the split is what keeps the bar and the dimension tool reading
+    /// one table: a relation is the bar's alone, where a dimension is placed by
+    /// a tool as well as offered here.
     ///
     /// Order matters only where the relation is not symmetric, and none of
     /// these is: every pair below reads the same whichever way round it was
     /// reached, which is why each mixed one is matched both ways.
-    fn between(self, one: Entity, two: Entity, into: &mut Vec<Constraint>) {
-        // The number every dimension below is written with, and none of them
-        // keeps: what it measures is the drawing's answer, and [`Model::admits`]
-        // is where the drawing gives it. Named so a reader is not left wondering
-        // what a zero here would mean.
-        let unmeasured = Dimension::new(0.0);
+    fn relations(self, one: Entity, two: Entity, into: &mut Vec<Constraint>) {
         match (one, two) {
             (Entity::Point(a), Entity::Point(b)) => self.admits(
                 [
                     Constraint::Coincident { a, b },
-                    // The three readings of one pair, offered together because a
-                    // selection cannot say which was meant — see
-                    // [`Along`]. Each drops itself where it measures nothing, so
-                    // a level pair offers no vertical distance and says
-                    // [`Constraint::Horizontal`] instead.
-                    Constraint::Distance {
-                        a,
-                        b,
-                        along: Along::Shortest,
-                        dimension: unmeasured,
-                    },
-                    Constraint::Distance {
-                        a,
-                        b,
-                        along: Along::Horizontal,
-                        dimension: unmeasured,
-                    },
-                    Constraint::Distance {
-                        a,
-                        b,
-                        along: Along::Vertical,
-                        dimension: unmeasured,
-                    },
                     Constraint::Horizontal { a, b },
                     Constraint::Vertical { a, b },
                 ],
                 into,
             ),
-            (Entity::Segment(first), Entity::Segment(second)) => {
-                self.admits(
-                    [
-                        Constraint::Parallel { first, second },
-                        Constraint::Perpendicular { first, second },
-                        Constraint::EqualLength { first, second },
-                    ],
-                    into,
-                );
-                // **Only where the two already run parallel.** A distance
-                // between two lines is one number only while they run together;
-                // where they cross, the gap depends on where along them it is
-                // measured, and there is nothing honest for a dimension to hold.
-                // What a non-parallel pair should be offered is an angle, which
-                // the drawing cannot state yet.
-                if self.sketch().parallel(first, second) {
-                    self.admits(
-                        [Constraint::Spacing {
-                            first,
-                            second,
-                            dimension: unmeasured,
-                        }],
-                        into,
-                    );
-                }
-            }
-            (Entity::Point(point), Entity::Segment(segment))
-            | (Entity::Segment(segment), Entity::Point(point)) => self.admits(
+            (Entity::Segment(first), Entity::Segment(second)) => self.admits(
                 [
-                    Constraint::PointOnSegment { point, segment },
-                    Constraint::Standoff {
-                        point,
-                        segment,
-                        dimension: unmeasured,
-                    },
+                    Constraint::Parallel { first, second },
+                    Constraint::Perpendicular { first, second },
+                    Constraint::EqualLength { first, second },
                 ],
                 into,
             ),
+            (Entity::Point(point), Entity::Segment(segment))
+            | (Entity::Segment(segment), Entity::Point(point)) => {
+                self.admits([Constraint::PointOnSegment { point, segment }], into);
+            }
             (Entity::Point(point), Entity::Circle(circle))
             | (Entity::Circle(circle), Entity::Point(point)) => {
                 self.admits([Constraint::PointOnCircle { point, circle }], into);

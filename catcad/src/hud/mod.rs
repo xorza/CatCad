@@ -16,11 +16,12 @@ use crate::selection::Selection;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
+use crate::wording;
 use silverpoint::{Constraint, ConstraintId, Entity};
 
 mod bar;
 
-use crate::hud::bar::{filing_buttons, floating, label, projection_toggle, stacked, tidy_button};
+use crate::hud::bar::{filing_buttons, floating, projection_toggle, stacked, tidy_button};
 
 /// Logical pixels of breathing room inside a floating panel, and between the
 /// things standing on one.
@@ -156,7 +157,7 @@ impl Hud {
                 }
             }
             for &constraint in &self.offers {
-                let label = label(constraint);
+                let label = wording::named(constraint).word;
                 let pressed = Button::new()
                     .id_salt(label)
                     .label(label)

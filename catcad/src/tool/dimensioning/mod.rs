@@ -1,7 +1,9 @@
 //! How far through a dimension the pointer is, and what the next click states.
 
 use glam::DVec2;
-use silverpoint::{Along, Constraint, Dimension, Entity, Sketch};
+use silverpoint::{Along, Constraint, Entity, Sketch};
+
+use crate::drawing::measurable::Measurable;
 
 /// How much a reading has to measure to be on offer, in sketch units.
 ///
@@ -157,55 +159,25 @@ impl Dimensioning {
         else {
             return None;
         };
-        // Stated with no number and no placement, because both are the
-        // drawing's: what it measures and where the frame it is placed in puts
-        // that number are worked out by the sketch — see
-        // [`Sketch::proposed`](silverpoint::Sketch).
-        let bare = Dimension::new(0.0);
-        let candidate = match (first, second) {
-            (Entity::Circle(circle), None) => Constraint::Radius {
-                circle,
-                dimension: bare,
-            },
-            (Entity::Point(a), Some(Entity::Point(b))) => Constraint::Distance {
-                a,
-                b,
-                along: along.or_else(|| {
-                    reading([sketch.point(a).position, sketch.point(b).position], at)
-                })?,
-                dimension: bare,
-            },
-            (Entity::Point(point), Some(Entity::Segment(segment)))
-            | (Entity::Segment(segment), Some(Entity::Point(point))) => Constraint::Standoff {
-                point,
-                segment,
-                dimension: bare,
-            },
-            // Only where the two already run together, for the reason the bar
-            // offers it only there: the gap between two crossing lines depends
-            // on where along them it is measured, so there is nothing for one
-            // number to hold.
-            (Entity::Segment(first), Some(Entity::Segment(second)))
-                if sketch.parallel(first, second) =>
-            {
-                Constraint::Spacing {
-                    first,
-                    second,
-                    dimension: bare,
-                }
-            }
-            _ => return None,
+        // Which dimension this pair admits at all, read off the one table of
+        // that — the same one the bar offers from, so a selection the bar
+        // offers a dimension for is one this can place. See [`Measurable`].
+        let measurable = Measurable::of(sketch, first, second)?;
+        // And which way it is read, where the geometry leaves that open. A tool
+        // has a pointer and the pointer says; a selection has none, which is
+        // why the bar offers every reading instead.
+        let along = match measurable {
+            Measurable::Apart { a, b } => along
+                .or_else(|| reading([sketch.point(a).position, sketch.point(b).position], at))?,
+            // The other four read one way, and the geometry fixes which.
+            Measurable::Radius(_)
+            | Measurable::Long { .. }
+            | Measurable::Standoff { .. }
+            | Measurable::Spacing { .. } => Along::Shortest,
         };
-        sketch.proposed(candidate, at)
+        sketch.proposed(measurable.stated(along), at)
     }
 
-    /// Everything picked so far, so a prune can ask whether the drawing still
-    /// holds it.
-    ///
-    /// An undo can take away geometry a half-finished gesture is hanging off,
-    /// and a handle left over is not merely inert: the sketch is restored arenas
-    /// and all, so the next entity created takes the very same handle and the
-    /// tool would come back pointing at something nobody picked.
     pub(crate) fn picking(self) -> impl Iterator<Item = Entity> {
         let named = match self {
             Dimensioning::Empty => [None, None],

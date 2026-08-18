@@ -104,8 +104,21 @@ impl Measurement {
 
     /// `constraint` as a dimension to draw, or `None` where it states no
     /// number and so is a relation with a symbol rather than a figure.
+    ///
+    /// Which constraints those are is asked of [`Constraint::value`] rather
+    /// than answered again here. The list behind it is written out over every
+    /// variant so a new dimension has to declare itself, and restating it here
+    /// as ten arms answering `None` would be a second list — one whose way of
+    /// breaking is silent: a dimension left out of it draws no figure, no line
+    /// and no arrowheads, and says nothing about why.
+    ///
+    /// So a variant that states a number and is not measured below is a
+    /// contradiction rather than a case, and it is loud.
     pub fn of(sketch: &Sketch, constraint: Constraint) -> Option<Self> {
-        match constraint {
+        // A relation states no number, so there is nothing to measure and
+        // nowhere to put a figure.
+        constraint.value()?;
+        Some(match constraint {
             Constraint::Distance {
                 a,
                 b,
@@ -118,18 +131,13 @@ impl Measurement {
                     Along::Horizontal => DVec2::X,
                     Along::Vertical => DVec2::Y,
                 };
-                Some(Self::spanning(feet, along, dimension))
+                Self::spanning(feet, along, dimension)
             }
             Constraint::Standoff {
                 point,
                 segment,
                 dimension,
-            } => Some(Self::standing(
-                sketch,
-                sketch.point(point).position,
-                segment,
-                dimension,
-            )),
+            } => Self::standing(sketch, sketch.point(point).position, segment, dimension),
             Constraint::Spacing {
                 first,
                 second,
@@ -137,7 +145,7 @@ impl Measurement {
             } => {
                 let edge = sketch.segment(second);
                 let (a, b) = (sketch.point(edge.a).position, sketch.point(edge.b).position);
-                Some(Self::standing(sketch, a.midpoint(b), first, dimension))
+                Self::standing(sketch, a.midpoint(b), first, dimension)
             }
             Constraint::Radius { circle, dimension } => {
                 let ring = sketch.circle(circle);
@@ -168,7 +176,7 @@ impl Measurement {
                 } else {
                     (DVec2::X, center + DVec2::X * ring.radius)
                 };
-                Some(Self {
+                Self {
                     // The rim as drawn rather than as stated, so the leader
                     // touches the circle even where a solve has not yet brought
                     // the two together.
@@ -177,19 +185,10 @@ impl Measurement {
                     label,
                     frame,
                     value: dimension.value,
-                })
+                }
             }
-            Constraint::Coincident { .. }
-            | Constraint::Horizontal { .. }
-            | Constraint::Vertical { .. }
-            | Constraint::Parallel { .. }
-            | Constraint::Perpendicular { .. }
-            | Constraint::EqualLength { .. }
-            | Constraint::PointOnSegment { .. }
-            | Constraint::PointOnCircle { .. }
-            | Constraint::Tangent { .. }
-            | Constraint::EqualRadius { .. } => None,
-        }
+            stated => unreachable!("{stated:?} states a number but measures nothing"),
+        })
     }
 
     /// A dimension spanning `feet`, measured along `along`.

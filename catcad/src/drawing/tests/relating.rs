@@ -73,20 +73,23 @@ fn a_selection_admits_exactly_the_relations_it_can_bear() {
     };
 
     model.offers(&[model.part(a), model.part(b)], &mut offers);
+    // Relations first, then dimensions: what the pair *is* before what it
+    // measures. Within the dimensions, the three readings in `Along`'s own
+    // order.
     assert_eq!(
         kinds(&offers),
         [
             "coincident",
+            "horizontal",
+            "vertical",
             "distance",
             "distance across",
             "distance up",
-            "horizontal",
-            "vertical",
         ]
     );
     // Each is offered holding what the drawing already measures — the three
     // sides of the 3-4-5 the fixture draws, one per reading.
-    for (at, want) in [(1, 5.0), (2, 3.0), (3, 4.0)] {
+    for (at, want) in [(3, 5.0), (4, 3.0), (5, 4.0)] {
         let Constraint::Distance { dimension, .. } = offers[at] else {
             panic!("{offers:?}");
         };
@@ -537,4 +540,96 @@ fn a_point_held_to_an_edge_lands_on_the_line_it_runs_along() {
         "the solve moved the point to {settled:?}, so the anchor and the \
          relation disagree about where an edge holds one"
     );
+}
+
+/// Every dimension the bar offers is one the dimension tool can place, and
+/// every dimension the tool places is one the bar would have offered.
+///
+/// **The one thing [`Measurable`] exists for.** The two sides had a table
+/// apiece and agreed only by inspection, so a fifth dimension added to one was
+/// a dimension the bar offered and the tool could not place — or a shape the
+/// tool would place that the bar never mentioned. Neither side would have said
+/// so, and neither would any test that asked only one of them.
+///
+/// Asked over every shape of selection the fixture can make, in both
+/// directions: what the bar answers, put to the tool, and what the tool
+/// answers, looked for among the bar's.
+#[test]
+fn the_bar_and_the_dimension_tool_agree_about_what_a_selection_measures() {
+    let assorted = Assorted::new();
+    let model = assorted.model();
+    let sketch = model.sketch();
+    let Assorted {
+        a,
+        b,
+        first,
+        second,
+        alongside,
+        circle,
+        other,
+        ..
+    } = assorted;
+
+    // Which variant a constraint is, since a dimension the two sides agree on
+    // still carries different numbers — the bar fits it to the drawing and the
+    // tool fits it to the pointer.
+    let shape = |constraint: &Constraint| match constraint {
+        Constraint::Distance { .. } => "distance",
+        Constraint::Standoff { .. } => "standoff",
+        Constraint::Spacing { .. } => "spacing",
+        Constraint::Radius { .. } => "radius",
+        other => panic!("{other:?} is not a dimension"),
+    };
+
+    // Every selection the fixture can make: the pairs, and the two singles.
+    // A crossing pair of edges and a point-and-circle are in here to say what
+    // *no* dimension looks like — both sides have to answer nothing.
+    let selections: [(&[Entity], &str); 8] = [
+        (&[a, b], "a pair of points"),
+        (&[first, alongside], "two edges running together"),
+        (&[first, second], "two edges that cross"),
+        (&[a, first], "a point and an edge"),
+        (&[a, circle], "a point and a circle"),
+        (&[circle, other], "two circles"),
+        (&[circle], "one circle"),
+        (&[first], "one edge"),
+    ];
+
+    let mut offers = Vec::new();
+    for (picked, what) in selections {
+        let parts: Vec<Part> = picked.iter().map(|&entity| model.part(entity)).collect();
+        model.offers(&parts, &mut offers);
+        // What the bar offers that carries a number. The relations beside them
+        // are no part of this — the tool places dimensions and nothing else.
+        let offered: Vec<&str> = offers
+            .iter()
+            .filter(|constraint| constraint.value().is_some())
+            .map(shape)
+            .collect();
+
+        // The same selection put to the tool, which places one of them. The
+        // pointer is at the origin, which is somewhere for every fixture here —
+        // where a reading is open the placement decides it, and which reading
+        // it lands on is not what this is about.
+        let placing = Dimensioning::Placing {
+            first: picked[0],
+            second: picked.get(1).copied(),
+            along: None,
+        };
+        let placed = placing.proposed(sketch, DVec2::ZERO);
+
+        match placed {
+            Some(constraint) => assert!(
+                offered.contains(&shape(&constraint)),
+                "{what}: the tool places a {} the bar never offered — it \
+                 offered {offered:?}",
+                shape(&constraint),
+            ),
+            None => assert!(
+                offered.is_empty(),
+                "{what}: the bar offers {offered:?} and the tool can place none \
+                 of them",
+            ),
+        }
+    }
 }

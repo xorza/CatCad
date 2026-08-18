@@ -7,6 +7,7 @@ use silverpoint::{CircleId, Entity, Plane, PointId, SegmentId, Sketch};
 use crate::drawing::anchor::Anchor;
 
 pub(crate) mod anchor;
+pub(crate) mod measurable;
 pub(crate) mod sketching;
 
 /// A sketch, and the plane its coordinates are in.

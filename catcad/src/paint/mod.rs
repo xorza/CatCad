@@ -27,6 +27,7 @@ use crate::model::{Model, Models};
 use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
 use crate::preview::Preview;
+use crate::wording;
 
 pub(crate) mod cut;
 pub(crate) mod gizmos;
@@ -175,7 +176,7 @@ const MARK_SIZE: f32 = 13.0;
 /// want.
 ///
 /// Named rather than written where it is used, so that
-/// `every_mark_has_a_glyph_to_draw_it` asks about the faces the drawing
+/// `every_relation_is_named_both_ways_and_every_mark_has_a_glyph` asks about the faces the drawing
 /// actually sets marks in. A coverage check against a font nobody uses would
 /// pass while the drawing showed nothing.
 ///
@@ -371,44 +372,21 @@ fn radius_prefix(constraint: Constraint) -> &'static str {
     }
 }
 
-/// The symbol a relation is drawn as.
+/// The mark a relation is drawn as.
 ///
-/// The draughtsman's marks where there is one, because a drawing is read at a
-/// glance and a word is not: ⊥ and ∥ say what they mean to anyone who has seen
-/// a technical drawing, and are what every modeller uses. Every symbol here was
-/// checked to have a glyph in the faces the shaper falls back through — see
-/// `every_mark_has_a_glyph_to_draw_it`.
+/// Read off [`wording`](crate::wording), which is where a relation's word and
+/// its mark are stated together — the bar captions what this draws, and the two
+/// were a table apiece.
+///
+/// The four that carry a number never reach here: a dimension is drawn as its
+/// measurement, which is the arm above the call. A mark for one would be a
+/// second thing the drawing could show for the same relation, and nothing would
+/// say which was meant — so there is not one, and asking for it is a caller that
+/// failed to read [`Constraint::value`] first.
 fn symbol(constraint: Constraint) -> &'static str {
-    match constraint {
-        // A coincidence makes two points one, so it is drawn as the one.
-        Constraint::Coincident { .. } => "\u{2022}",
-        Constraint::Horizontal { .. } => "\u{2015}",
-        Constraint::Vertical { .. } => "\u{2502}",
-        Constraint::Parallel { .. } => "\u{2225}",
-        Constraint::Perpendicular { .. } => "\u{22A5}",
-        // "is on", which is the same relation whether what it is on is straight
-        // or curved.
-        Constraint::PointOnSegment { .. } | Constraint::PointOnCircle { .. } => "\u{2208}",
-        // Equal length and equal radius are one mark for the same reason: what
-        // the drawing has to say is that two things match, and which two is
-        // plain from what the mark sits between.
-        Constraint::EqualLength { .. } | Constraint::EqualRadius { .. } => "=",
-        // A letter, like the radius above it. Tangency has no draughtsman's
-        // mark that carries into a font — the drawings that need one letter it
-        // too.
-        Constraint::Tangent { .. } => "T",
-        // The four that carry a number never reach here: a dimension is drawn
-        // as its measurement, which is the arm above the call. A symbol for one
-        // would be a second thing the drawing could show for the same relation,
-        // and nothing would say which was meant — so there is not one, and
-        // asking for it is a caller that failed to read `value` first.
-        Constraint::Distance { .. }
-        | Constraint::Standoff { .. }
-        | Constraint::Spacing { .. }
-        | Constraint::Radius { .. } => {
-            unreachable!("a dimension is drawn as its number, not as a symbol")
-        }
-    }
+    wording::named(constraint)
+        .glyph
+        .expect("a dimension is drawn as its number, not as a mark")
 }
 
 /// Where `models` says its markers stand, drawn into a scene of its own.
