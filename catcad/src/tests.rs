@@ -1502,8 +1502,15 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
     assert_eq!(solids(&app), 2, "redo did not put the step back");
 }
 
+/// One dimension the demo states, and the number it states.
+#[derive(Debug, Clone, Copy)]
+struct Stated {
+    part: Part,
+    value: f64,
+}
+
 /// The first dimension the demo states, and what it says.
-fn a_dimension(app: &CatCad) -> (Part, f64) {
+fn a_dimension(app: &CatCad) -> Stated {
     a_dimension_set(app, |_| true).expect("the demo states at least one dimension")
 }
 
@@ -1515,7 +1522,7 @@ fn a_dimension(app: &CatCad) -> (Part, f64) {
 /// all. One set across the axes is what says the two agree about a mark that
 /// leans — and leaning is now the ordinary case, since a dimension takes the
 /// span it measures.
-fn a_leaning_dimension(app: &CatCad) -> (Part, f64) {
+fn a_leaning_dimension(app: &CatCad) -> Stated {
     // Well off both axes, so neither coordinate of its direction is the residue
     // a solve leaves behind.
     a_dimension_set(app, |along| along.x.abs() > 0.2 && along.y.abs() > 0.2)
@@ -1528,18 +1535,18 @@ fn a_leaning_dimension(app: &CatCad) -> (Part, f64) {
 /// The direction comes off the layout rather than the sketch, because it is the
 /// *drawing's* answer about where a mark runs that a caller here is selecting
 /// on — see [`Placed`](crate::paint::marks::Placed).
-fn a_dimension_set(app: &CatCad, wanted: impl Fn(DVec2) -> bool) -> Option<(Part, f64)> {
+fn a_dimension_set(app: &CatCad, wanted: impl Fn(DVec2) -> bool) -> Option<Stated> {
     let sketch = app.session.editing();
     let drawing = app.document.drawing_at(sketch);
     drawing.sketch().constraints().find_map(|(id, constraint)| {
         let value = constraint.value()?;
-        wanted(app.view.marked(id)?.along).then_some((
-            Part::Entity {
+        wanted(app.view.marked(id)?.along).then_some(Stated {
+            part: Part::Entity {
                 sketch,
                 entity: id.into(),
             },
             value,
-        ))
+        })
     })
 }
 
@@ -1587,7 +1594,10 @@ fn typing_a_dimension_restates_it_as_one_step() {
     let mut harness = UiHarness::with_text(SIZE);
     frame(&mut app, &mut harness);
 
-    let (dimension, was) = a_dimension(&app);
+    let Stated {
+        part: dimension,
+        value: was,
+    } = a_dimension(&app);
     let sketch = dimension.sketch().expect("a dimension is in a sketch");
     let Some(Entity::Constraint(id)) = dimension.entity() else {
         panic!("not a constraint");
@@ -1695,7 +1705,10 @@ fn a_press_inside_the_open_field_never_reaches_the_drawing() {
     let mut harness = UiHarness::with_text(SIZE);
     frame(&mut app, &mut harness);
 
-    let (dimension, was) = a_dimension(&app);
+    let Stated {
+        part: dimension,
+        value: was,
+    } = a_dimension(&app);
     // Taken before the field opens, since a field standing over a mark takes it
     // out of the drawing. Aiming at the *number* rather than at the point the
     // dimension hangs it from: the mark's box floats clear of the line it
@@ -1765,7 +1778,10 @@ fn the_open_field_is_placed_against_this_frames_camera() {
     let mut harness = UiHarness::with_text(SIZE);
     frame(&mut app, &mut harness);
 
-    let (dimension, was) = a_leaning_dimension(&app);
+    let Stated {
+        part: dimension,
+        value: was,
+    } = a_leaning_dimension(&app);
     // Read before the field takes the mark out of the drawing. The *anchor*
     // is what the wheel below leaves alone; where the box hangs off it is a
     // number of pixels, so that much of it moves with the zoom.
@@ -1805,7 +1821,10 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     let mut harness = UiHarness::with_text(SIZE);
     frame(&mut app, &mut harness);
 
-    let (dimension, was) = a_dimension(&app);
+    let Stated {
+        part: dimension,
+        value: was,
+    } = a_dimension(&app);
     let sketch = dimension.sketch().expect("a dimension is in a sketch");
     let relations = |app: &CatCad| {
         app.document

@@ -11,7 +11,7 @@
 use aperture::{Aim, Camera, Facing, Scene, Tag, Viewport};
 use catcad::CatCad;
 use glam::{UVec2, Vec2, Vec3};
-use palantir::internals::headless_test_gpu;
+use palantir::internals::{HeadlessTestGpuLease, headless_test_gpu};
 use palantir::{InputEvent, OffscreenHost, PointerButton, wgpu};
 
 /// The target every frame below is drawn into, in *physical* pixels.
@@ -26,7 +26,7 @@ const PHYSICAL: UVec2 = UVec2::new(1200, 900);
 const RASTER: f32 = 1.5;
 
 /// A target of [`PHYSICAL`] for a headless host to draw the app into.
-fn target(gpu: &palantir::internals::HeadlessTestGpuLease) -> wgpu::Texture {
+fn target(gpu: &HeadlessTestGpuLease) -> wgpu::Texture {
     gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("catcad.picking.target"),
         size: wgpu::Extent3d {
@@ -52,6 +52,56 @@ fn viewport() -> Viewport {
         (PHYSICAL.x as f32 / RASTER) as u32,
         (PHYSICAL.y as f32 / RASTER) as u32,
     ))
+}
+
+/// The app raised on a headless host, with a target to paint into.
+///
+/// All four tests below want the same three things and the same opening: an
+/// offscreen host, a target of [`PHYSICAL`], and an app painted twice — the
+/// first frame lays the runs out and the second is the steady one, which is the
+/// frame a user is ever looking at. A run has no extent until a device has
+/// drawn it, so nothing here can be asked before that.
+struct Raised {
+    host: OffscreenHost,
+    target: wgpu::Texture,
+    app: CatCad,
+}
+
+impl Raised {
+    /// The app as the demo opens it, painted into a steady frame.
+    fn opened(gpu: &HeadlessTestGpuLease) -> Self {
+        Self::new(gpu, |_| {})
+    }
+
+    /// The same with `aim` applied to its camera before the first frame.
+    fn new(gpu: &HeadlessTestGpuLease, aim: impl FnOnce(&mut Camera)) -> Self {
+        let mut raised = Self {
+            host: OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build(),
+            target: target(gpu),
+            app: CatCad::build(),
+        };
+        aim(raised.app.camera_mut());
+        raised.settle();
+        raised
+    }
+
+    /// Paint one frame.
+    fn frame(&mut self) {
+        self.host
+            .frame_offscreen(&self.target, RASTER, &mut self.app);
+    }
+
+    /// Paint until what the runs measure has reached the frame being read.
+    fn settle(&mut self) {
+        self.frame();
+        self.frame();
+    }
+
+    /// Hand the app one event, and paint the frame that answers it.
+    fn sent(&mut self, event: InputEvent) {
+        self.host.ui().on_input(event);
+        self.frame();
+    }
 }
 
 /// One mark the app drew, read off the scene it last painted.
@@ -128,19 +178,15 @@ fn on_screen(app: &CatCad, mark: &Drawn) -> Vec2 {
 #[test]
 fn a_mark_answers_a_hover_over_all_of_its_box() {
     let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let target = target(&gpu);
-    let mut app = CatCad::build();
     // Closer than the demo opens, which is where a drawing fills the view and
     // its own region lies under every number on it.
-    app.camera_mut().distance *= 0.6;
-    host.frame_offscreen(&target, RASTER, &mut app);
-    host.frame_offscreen(&target, RASTER, &mut app);
+    let mut raised = Raised::new(&gpu, |camera| camera.distance *= 0.6);
+    let app = &raised.app;
 
-    let marks: Vec<(Drawn, Vec2)> = drawn(&app)
+    let marks: Vec<(Drawn, Vec2)> = drawn(app)
         .into_iter()
         .map(|mark| {
-            let at = on_screen(&app, &mark);
+            let at = on_screen(app, &mark);
             (mark, at)
         })
         .collect();
@@ -153,9 +199,8 @@ fn a_mark_answers_a_hover_over_all_of_its_box() {
         // about two marks and not about either one\'s reach. What the sweep is
         // watching for is the press falling through the drawing altogether.
         let mut hover = |at: Vec2, of: &[Tag]| {
-            host.ui().on_input(InputEvent::PointerMoved(at));
-            host.frame_offscreen(&target, RASTER, &mut app);
-            of.iter().any(|tag| app.hovering(*tag))
+            raised.sent(InputEvent::PointerMoved(at));
+            of.iter().any(|tag| raised.app.hovering(*tag))
         };
         let (middle, content) = (*middle, &mark.content);
         if !hover(middle, &[mark.tag]) {
@@ -209,30 +254,9 @@ fn a_mark_answers_a_hover_over_all_of_its_box() {
 #[test]
 fn every_mark_is_picked_where_it_is_drawn() {
     let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let target = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("catcad.picking.target"),
-        size: wgpu::Extent3d {
-            width: PHYSICAL.x,
-            height: PHYSICAL.y,
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: wgpu::TextureFormat::Rgba8UnormSrgb,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-            | wgpu::TextureUsages::COPY_DST
-            | wgpu::TextureUsages::COPY_SRC,
-        view_formats: &[],
-    });
-    let viewport = Viewport::new(UVec2::new(
-        (PHYSICAL.x as f32 / RASTER) as u32,
-        (PHYSICAL.y as f32 / RASTER) as u32,
-    ));
-
-    let mut app = CatCad::build();
-    let opened = *app.camera_mut();
+    let viewport = viewport();
+    let mut raised = Raised::opened(&gpu);
+    let opened = *raised.app.camera_mut();
     for projection in [
         aperture::Projection::Orthographic,
         aperture::Projection::Perspective,
@@ -246,18 +270,15 @@ fn every_mark_is_picked_where_it_is_drawn() {
             (opened.yaw, opened.pitch, 0.5, false),
         ] {
             {
-                let camera = app.camera_mut();
+                let camera = raised.app.camera_mut();
                 camera.yaw = yaw;
                 camera.pitch = pitch;
                 camera.distance = opened.distance * zoom;
                 camera.projection = projection;
             }
-            // Twice: the first frame lays the runs out and the second is the
-            // steady one, which is the frame a user is ever looking at.
-            host.frame_offscreen(&target, RASTER, &mut app);
-            host.frame_offscreen(&target, RASTER, &mut app);
+            raised.settle();
 
-            let renderer = app.renderer().borrow();
+            let renderer = raised.app.renderer().borrow();
             let camera = *renderer.camera();
             let scene: &Scene = renderer.scene();
             let mut marks = 0;
@@ -353,57 +374,45 @@ fn a_number_dragged_by_its_box_travels_with_the_cursor() {
         // One app and one host for the whole camera. A drag leaves the number it
         // moved where it put it, which is nothing to the next one — and building
         // a fresh app per mark is what made this the slowest test in the suite.
-        let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-        let target = target(&gpu);
-        let mut app = CatCad::build();
-        {
-            let camera = app.camera_mut();
+        let mut raised = Raised::new(&gpu, |camera| {
             camera.yaw = yaw;
             camera.pitch = pitch;
             camera.distance = opened.distance * zoom;
-        }
-        host.frame_offscreen(&target, RASTER, &mut app);
-        host.frame_offscreen(&target, RASTER, &mut app);
+        });
 
         let mut carried = 0;
-        for nth in 0..drawn(&app).len() {
+        for nth in 0..drawn(&raised.app).len() {
             let Drawn {
                 tag,
                 content,
                 middle: was,
                 normal,
-            } = drawn(&app)[nth].clone();
+            } = drawn(&raised.app)[nth].clone();
             // Relations carry no placement and rightly do not move; a radius is
             // the gap named above.
             if !content.chars().any(|c| c.is_ascii_digit()) {
                 continue;
             }
-            let camera = *app.renderer().borrow().camera();
+            let camera = *raised.app.renderer().borrow().camera();
             let Some(cursor) = camera.screen_of(was, viewport()) else {
                 continue;
             };
 
-            host.ui().on_input(InputEvent::PointerMoved(cursor));
-            host.frame_offscreen(&target, RASTER, &mut app);
+            raised.sent(InputEvent::PointerMoved(cursor));
             // Only where the press would take the number. Elsewhere it turns the
             // view, and a number that stayed put is right rather than stuck.
-            if !app.hovering(tag) {
+            if !raised.app.hovering(tag) {
                 continue;
             }
-            host.ui()
-                .on_input(InputEvent::PointerPressed(PointerButton::Left));
-            host.frame_offscreen(&target, RASTER, &mut app);
+            raised.sent(InputEvent::PointerPressed(PointerButton::Left));
             // Well past palantir's drag latch, so this is a drag and not a click
             // — and along both axes, since a placement is a pair.
             let moved = cursor + Vec2::new(21.0, -13.0);
-            host.ui().on_input(InputEvent::PointerMoved(moved));
-            host.frame_offscreen(&target, RASTER, &mut app);
-            host.frame_offscreen(&target, RASTER, &mut app);
-            host.ui()
-                .on_input(InputEvent::PointerReleased(PointerButton::Left));
-            host.frame_offscreen(&target, RASTER, &mut app);
+            raised.sent(InputEvent::PointerMoved(moved));
+            raised.frame();
+            raised.sent(InputEvent::PointerReleased(PointerButton::Left));
 
-            let now = drawn(&app)
+            let now = drawn(&raised.app)
                 .into_iter()
                 .find(|mark| mark.tag == tag)
                 .expect("the mark survived its own drag")
@@ -453,11 +462,7 @@ fn a_number_dragged_by_its_box_travels_with_the_cursor() {
 #[test]
 fn a_number_held_still_stops_moving() {
     let gpu = headless_test_gpu();
-    let target = target(&gpu);
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let mut app = CatCad::build();
-    host.frame_offscreen(&target, RASTER, &mut app);
-    host.frame_offscreen(&target, RASTER, &mut app);
+    let mut raised = Raised::opened(&gpu);
 
     let radius = |app: &CatCad| -> Drawn {
         drawn(app)
@@ -465,12 +470,9 @@ fn a_number_held_still_stops_moving() {
             .find(|mark| mark.content.starts_with('R'))
             .expect("the demo states a radius")
     };
-    let start = on_screen(&app, &radius(&app));
-    host.ui().on_input(InputEvent::PointerMoved(start));
-    host.frame_offscreen(&target, RASTER, &mut app);
-    host.ui()
-        .on_input(InputEvent::PointerPressed(PointerButton::Left));
-    host.frame_offscreen(&target, RASTER, &mut app);
+    let start = on_screen(&raised.app, &radius(&raised.app));
+    raised.sent(InputEvent::PointerMoved(start));
+    raised.sent(InputEvent::PointerPressed(PointerButton::Left));
 
     for step in 0..24 {
         let turn = step as f32 * std::f32::consts::TAU / 24.0;
@@ -479,17 +481,16 @@ fn a_number_held_still_stops_moving() {
         // subtracting the clearance stops converging at all.
         let reach = if step % 2 == 0 { 60.0 } else { 22.0 };
         let at = start + Vec2::new(turn.cos(), turn.sin()) * reach;
-        host.ui().on_input(InputEvent::PointerMoved(at));
         // Three frames at one cursor. The first carries the move; the other two
         // have to agree with it *exactly*. Not "settle down to" — allowing a
         // frame of catching up is the difference between a drag that converges
         // and a drag that is simply right.
-        host.frame_offscreen(&target, RASTER, &mut app);
-        let settled = radius(&app).middle;
-        host.frame_offscreen(&target, RASTER, &mut app);
-        let then = radius(&app).middle;
-        host.frame_offscreen(&target, RASTER, &mut app);
-        let still = radius(&app).middle;
+        raised.sent(InputEvent::PointerMoved(at));
+        let settled = radius(&raised.app).middle;
+        raised.frame();
+        let then = radius(&raised.app).middle;
+        raised.frame();
+        let still = radius(&raised.app).middle;
         let jitter = (then - settled).length().max((still - then).length());
         assert!(
             jitter < 1e-4,
@@ -498,6 +499,5 @@ fn a_number_held_still_stops_moving() {
             turn.to_degrees()
         );
     }
-    host.ui()
-        .on_input(InputEvent::PointerReleased(PointerButton::Left));
+    raised.sent(InputEvent::PointerReleased(PointerButton::Left));
 }
