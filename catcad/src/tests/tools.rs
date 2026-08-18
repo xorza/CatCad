@@ -6,11 +6,15 @@ use crate::prompt::Prompt;
 use crate::tests::harness::Raised;
 use glam::DVec2;
 use palantir::Key;
+use silverpoint::Entity;
 use silverpoint::PointId;
 
-use crate::hud::internals::{CIRCLE_BUTTON, LINE_BUTTON};
+use crate::hud::internals::{CIRCLE_BUTTON, EXTRUDE_BUTTON, LINE_BUTTON};
+use crate::intent::Choice;
+use crate::part::Part;
 use crate::prompt::Asking;
 use crate::tool::Tool;
+use crate::tool::dimensioning::Dimensioning;
 
 /// The line and circle tools take two clicks, reach the document only on the
 /// second, and tie themselves to a point the first click landed on.
@@ -384,5 +388,121 @@ fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
         (banded(&raised.app).expect("the band is still drawn") - 5.0).abs() < 1e-3,
         "the band went back to following the cursor at {:?}",
         banded(&raised.app)
+    );
+}
+
+/// **The bar's Radius offer puts a dimension in hand rather than a form.**
+///
+/// It used to open a field instead, on the grounds that a radius was a number
+/// the drawing could not work out for itself. That is true of every dimension
+/// on the bar and so singles out none of them — a distance the drawing already
+/// measures is no more what you meant than a radius is — and they are all
+/// placed the same way now: stated at what the drawing measures, retyped
+/// afterwards by the field that opens on any dimension's mark.
+///
+/// The two halves are what this pins. Pressing the offer reaches the document
+/// with nothing, and hands the tool a circle already picked; the click that
+/// puts the number down is the click that states it, at the size the circle was
+/// — a radius that *moved* the circle would be the offer locking a number
+/// nobody chose, which is the failure the form existed to avoid.
+#[test]
+fn the_radius_offer_hands_the_dimension_tool_a_circle_to_place() {
+    let mut raised = Raised::new();
+
+    let sketch = raised.app.session.editing();
+    // One the drawing does not already hold to a size — a circle whose radius
+    // is stated admits no second one, and the demo draws one of each.
+    let drawing = raised.app.document.drawing_at(sketch);
+    let held_to = |circle| {
+        drawing.sketch().constraints().any(|(_, held)| {
+            matches!(held, silverpoint::Constraint::Radius { circle: at, .. } if at == circle)
+        })
+    };
+    let (circle, was) = drawing
+        .sketch()
+        .circles()
+        .find(|&(id, _)| !held_to(id))
+        .map(|(id, held)| (id, held.radius))
+        .expect("the demo draws a circle with no radius stated");
+    raised.choose(Choice::Select(Some(Part::Entity {
+        sketch,
+        entity: circle.into(),
+    })));
+    raised.frame();
+
+    let radii = |app: &CatCad| {
+        app.document
+            .drawing_at(sketch)
+            .sketch()
+            .constraints()
+            .filter(|(_, held)| matches!(held, silverpoint::Constraint::Radius { .. }))
+            .count()
+    };
+    let before = radii(&raised.app);
+
+    // The Radius offer is the only thing a single circle admits, so it is the
+    // leftmost button on the bottom bar — the same place Extrude sits when a
+    // region is what is picked out.
+    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.frame();
+    assert!(
+        raised.app.session.prompt().is_none(),
+        "the Radius offer opened a form rather than handing the tool a circle"
+    );
+    assert_eq!(
+        raised.app.session.tool(),
+        Tool::Dimension(Dimensioning::Placing {
+            first: Entity::Circle(circle),
+            second: None,
+            // A radius is read one way, so there is nothing for the button to
+            // name and nothing left for the pointer to decide but where the
+            // number goes.
+            along: None,
+        }),
+        "the offer put something other than this circle's radius in hand"
+    );
+    assert_eq!(
+        radii(&raised.app),
+        before,
+        "pressing Radius stated one before it was placed"
+    );
+
+    // Clear of the circle, which for a radius says only where the number sits.
+    let plane = raised.app.document.drawing_at(sketch).plane();
+    let out = raised.cursor_on(plane.point(DVec2::new(8.0, 8.0)).as_vec3());
+    raised.harness.move_to(out);
+    raised.frame();
+    raised.harness.click_at(out);
+    raised.frame();
+    assert_eq!(radii(&raised.app), before + 1, "the click stated no radius");
+    assert_eq!(
+        raised.app.session.tool(),
+        Tool::Dimension(Dimensioning::Empty),
+        "the tool kept the circle it had already stated"
+    );
+
+    // At the size it already was, asked of both ends: what the relation states
+    // and where the circle settled. The circle alone would pass for a radius
+    // stated at zero that never converged, and the number alone for one the
+    // solver ignored.
+    let drawn = raised.app.document.drawing_at(sketch);
+    // Exactly one, because this circle is the one the demo left unheld and the
+    // count above says a single radius was added.
+    let (_, stated) = drawn
+        .sketch()
+        .constraints()
+        .find(|(_, held)| {
+            matches!(held, silverpoint::Constraint::Radius { circle: at, .. } if *at == circle)
+        })
+        .expect("a radius was just stated about this circle");
+    let says = stated.value().expect("a radius carries a number");
+    let now = drawn.sketch().circle(circle).radius;
+    assert!(
+        (says.abs() - was.abs()).abs() < 1e-6,
+        "the offer stated {says} for a circle measuring {was}"
+    );
+    assert!(
+        (now.abs() - was.abs()).abs() < 1e-6,
+        "stating the radius moved the circle from {was} to {now}"
     );
 }

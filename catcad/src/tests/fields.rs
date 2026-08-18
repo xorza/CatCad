@@ -15,7 +15,6 @@ use silverpoint::Entity;
 use crate::CatCad;
 use crate::hud::internals::EXTRUDE_BUTTON;
 use crate::intent::Choice;
-use crate::part::Part;
 
 /// **A field opens over the dimension's own mark, takes what is typed, and
 /// Enter restates the dimension — as one step to take back.**
@@ -553,94 +552,5 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
             .is_none(),
         "the form went on growing a region at the position its own one used to \
          hold, which is a different region"
-    );
-}
-
-/// **A circle's radius is asked for rather than taken.**
-///
-/// The bar's other offers state something the drawing can work out for itself;
-/// a radius is a *number*, and until there was somewhere to type one the offer
-/// could only lock whatever size the circle happened to be — which `Model::offers`
-/// says outright.
-///
-/// The second kind of form to stand `Beside` something, and the one that proves
-/// the shape generalised: a different `Asking`, a different `Change` on commit,
-/// and a handle rather than a `Profile` for what it is about.
-#[test]
-fn asking_for_a_radius_states_it_rather_than_locking_what_is_there() {
-    let mut raised = Raised::new();
-
-    let sketch = raised.app.session.editing();
-    // One the drawing does not already hold to a size — the offer is for a
-    // circle that has none, and the demo draws one of each.
-    let drawing = raised.app.document.drawing_at(sketch);
-    let held_to = |circle| {
-        drawing.sketch().constraints().any(|(_, held)| {
-            matches!(held, silverpoint::Constraint::Radius { circle: at, .. } if at == circle)
-        })
-    };
-    let (circle, was) = drawing
-        .sketch()
-        .circles()
-        .find(|&(id, _)| !held_to(id))
-        .map(|(id, held)| (id, held.radius))
-        .expect("the demo draws a circle with no radius stated");
-    raised.choose(Choice::Select(Some(Part::Entity {
-        sketch,
-        entity: circle.into(),
-    })));
-    raised.frame();
-
-    let radii = |app: &CatCad| {
-        app.document
-            .drawing_at(sketch)
-            .sketch()
-            .constraints()
-            .filter(|(_, held)| matches!(held, silverpoint::Constraint::Radius { .. }))
-            .count()
-    };
-    let before = radii(&raised.app);
-
-    // The Radius offer is the only thing a single circle admits, so it is the
-    // leftmost button on the bottom bar — the same place Extrude sits when a
-    // region is what is picked out.
-    raised.harness.click_at(EXTRUDE_BUTTON);
-    raised.frame();
-    assert_eq!(
-        raised.app.session.prompt().and_then(|open| open.value(0)),
-        Some(was),
-        "the form opened on some size other than the one the circle is"
-    );
-    assert_eq!(
-        radii(&raised.app),
-        before,
-        "pressing Radius stated one before it was typed"
-    );
-
-    // Typed to something the circle is not, and settled. What lands is a
-    // relation holding it there, which is what the offer could never say.
-    raised.harness.type_text("3");
-    raised.frame();
-    raised.harness.key(Key::Enter);
-    raised.frame();
-    assert!(
-        raised.app.session.prompt().is_none(),
-        "Enter left the form open"
-    );
-    assert_eq!(
-        radii(&raised.app),
-        before + 1,
-        "committing stated no radius"
-    );
-    let now = raised
-        .app
-        .document
-        .drawing_at(sketch)
-        .sketch()
-        .circle(circle)
-        .radius;
-    assert!(
-        (now.abs() - 3.0).abs() < 1e-6,
-        "the circle settled at {now} rather than the 3 that was typed"
     );
 }

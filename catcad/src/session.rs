@@ -202,7 +202,7 @@ impl Session {
         if self
             .prompt
             .as_ref()
-            .and_then(Prompt::holds)
+            .and_then(Prompt::marks)
             .is_some_and(|part| !models.holds(part))
         {
             self.prompt = None;

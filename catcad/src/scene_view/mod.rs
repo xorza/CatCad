@@ -266,13 +266,6 @@ impl SceneView {
                     lens.footprint(model.rim_around(middle, radius))
                 })
                 .map(Stands::Beside),
-            // Beside the circle it is about, which is the rim projected: a
-            // form standing over the middle of one would cover the very
-            // geometry the number is describing.
-            Asking::Radius { sketch, circle } => models
-                .at(*sketch)
-                .and_then(|model| lens.footprint(model.rim_of(*circle)))
-                .map(Stands::Beside),
             // Resolved here rather than remembered, for the reason the form
             // holds a name at all: the arrangement it was read from is not the
             // one it is being drawn against.

@@ -20,7 +20,7 @@ use palantir::{
     Align, Button, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing, Text,
     TextEdit, TextRun, TextWrap, Ui, VAlign, WidgetId,
 };
-use silverpoint::{CircleId, Constraint, Dimension, Entity};
+use silverpoint::Entity;
 use std::fmt::Write;
 
 use crate::drawing::anchor::Anchor;
@@ -56,13 +56,6 @@ pub(crate) enum Asking {
     /// circle, where every other arm here restates something already drawn, and
     /// cancelling puts the tool back to its first click.
     Circle { sketch: FeatureId, center: Anchor },
-    /// A circle being held to a radius it does not yet have.
-    ///
-    /// A [`CircleId`] and not a [`Profile`], unlike the arm below, and the
-    /// difference is what each of them names: a circle is one of the sketch's
-    /// own handles, which survives its geometry moving and being cut into
-    /// pieces, where a region is a face of an arrangement and survives nothing.
-    Radius { sketch: FeatureId, circle: CircleId },
     /// A solid being grown off a region, *before* it reaches the timeline.
     ///
     /// Held here rather than created at zero and carried, because a
@@ -97,7 +90,7 @@ impl Asking {
     fn extruding(&self) -> Option<&Profile> {
         match self {
             Asking::Extrude { profile } => Some(profile),
-            Asking::Dimension { .. } | Asking::Radius { .. } | Asking::Circle { .. } => None,
+            Asking::Dimension { .. } | Asking::Circle { .. } => None,
         }
     }
 }
@@ -310,14 +303,6 @@ impl Prompt {
                 Asking::Circle { sketch, center },
                 &[("Radius", Seed::Offered(0.0))],
             ),
-            Opening::Radius {
-                sketch,
-                circle,
-                from,
-            } => Self::on(
-                Asking::Radius { sketch, circle },
-                &[("Radius", Seed::Stated(from))],
-            ),
             // At no depth at all, which is where the ask starts: the solid is on
             // screen from the moment the form opens, and a zero-depth prism is a
             // well-formed one.
@@ -391,46 +376,22 @@ impl Prompt {
         })
     }
 
-    /// The part of the drawing this form is about, where it is about one the
-    /// document holds.
-    ///
-    /// What a session prunes on: a form open over geometry an undo took away
-    /// would commit onto a handle naming nothing.
-    ///
-    /// **[`Prompt::marks`] widened by one arm**, and the arm is the whole
-    /// difference between the two questions. Everything else a form is about, it
-    /// is about by standing where that thing's mark would be — so the narrower
-    /// question answers this one too, and saying so is what keeps the pair from
-    /// reading as one match written twice.
-    pub(crate) fn holds(&self) -> Option<Part> {
-        match &self.about {
-            // The one part a form is about without standing over a mark: a
-            // radius names a circle the document can lose, and that circle has
-            // no radius to draw until this form gives it one.
-            Asking::Radius { sketch, circle } => Some(Part::Entity {
-                sketch: *sketch,
-                entity: (*circle).into(),
-            }),
-            // An extrude is named by a `Profile` rather than a `Part`, so what
-            // says it is still there is the name failing to resolve — see
-            // [`Prompt::growing`]; and a circle being drawn names nothing the
-            // document holds at all, which is the point of it. Neither stands
-            // over a mark either, so both fall out of the answer below.
-            Asking::Dimension { .. } | Asking::Extrude { .. } | Asking::Circle { .. } => {
-                self.marks()
-            }
-        }
-    }
-
     /// The dimension being restated, where that is what this is about.
     ///
-    /// What the drawing skips when it lays its marks out — the field is drawn
-    /// where the mark would be, and both at once would be one on top of the
-    /// other.
+    /// Read by the drawing and by a prune, which want one answer for the two
+    /// halves of a single reason: the field is drawn where the mark would be,
+    /// so the drawing leaves that mark out rather than stacking two numbers on
+    /// each other, and a form standing where a mark *was* is a form over
+    /// geometry an undo can take away.
+    ///
+    /// They stay one question only while no form is about a part it does not
+    /// also mark — a form naming something the document holds names it by
+    /// standing over it, and one standing over nothing is about nothing the
+    /// document can lose.
     pub(crate) fn marks(&self) -> Option<Part> {
         match &self.about {
             Asking::Dimension { part } => Some(*part),
-            Asking::Radius { .. } | Asking::Extrude { .. } | Asking::Circle { .. } => None,
+            Asking::Extrude { .. } | Asking::Circle { .. } => None,
         }
     }
 
@@ -573,7 +534,7 @@ impl Prompt {
     fn blurs(&self) -> bool {
         match self.about {
             Asking::Dimension { .. } => true,
-            Asking::Radius { .. } | Asking::Extrude { .. } | Asking::Circle { .. } => false,
+            Asking::Extrude { .. } | Asking::Circle { .. } => false,
         }
     }
 
@@ -638,21 +599,6 @@ impl Prompt {
                 // after a second one. A form is the other way of giving the
                 // same answer, so it leaves the tool in the same place.
                 intents.push(Choice::Hold(Tool::Circle { center: None }));
-            }
-            Asking::Radius { sketch, circle } => {
-                let Some(radius) = self.says(0) else {
-                    return;
-                };
-                // A relation rather than a restatement: the circle has no
-                // radius to restate until this puts one on it, which is the
-                // whole of what the offer was short of.
-                intents.push(Change::Constrain {
-                    sketch: *sketch,
-                    constraint: Constraint::Radius {
-                        circle: *circle,
-                        dimension: Dimension::new(radius),
-                    },
-                });
             }
             Asking::Extrude { profile } => {
                 let Some(distance) = self.says(0) else {

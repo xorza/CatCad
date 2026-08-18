@@ -3,7 +3,7 @@
 
 use glam::Vec3;
 use silverpoint::{
-    Along, Arrangement, CircleId, Constraint, Dimension, Entity, Outcome, Plane, Prism, Sketch,
+    Along, Arrangement, Constraint, Dimension, Entity, Outcome, Plane, Prism, Sketch,
 };
 
 use crate::build::settled::Settled;
@@ -127,32 +127,23 @@ impl<'a> Model<'a> {
         Profile::new(self.of, self.arrangement().faces()[at].named().to_vec())
     }
 
-    /// Where the rim of `circle` runs in the world, as points around it.
+    /// Where a circle's rim runs in the world, as points around it.
     ///
-    /// What a form standing beside a circle is placed against. The rim rather
-    /// than the middle and a radius, because what a placement wants is a *box*
-    /// on screen and a circle seen at an angle is an ellipse — the middle plus
-    /// a radius either way would be the box it would have had face-on.
+    /// What a form standing beside a circle is placed against — and it is asked
+    /// for a middle and a radius rather than a handle because the circle is
+    /// still being *drawn*: there is nothing for the sketch to hold yet, only a
+    /// centre already clicked and however far the pointer has carried the band.
+    /// A radius of nothing collapses to the centre, which is all of the circle
+    /// there is before the pointer has moved.
+    ///
+    /// Points around the rim rather than the middle and radius handed back for
+    /// the caller to square off, because what a placement wants is a *box on
+    /// screen* and a circle seen at an angle is an ellipse — squaring off the
+    /// pair would give the box it would have had face-on.
     ///
     /// Eight, which is enough for a box: the widest a regular polygon's own box
     /// falls short of its circle's is at the halfway points between corners, and
     /// at eight that is under 4% — smaller than the gap a form is placed with.
-    pub(crate) fn rim_of(self, circle: CircleId) -> impl Iterator<Item = Vec3> {
-        let held = self.sketch().circle(circle);
-        let middle = self
-            .plane()
-            .point(self.sketch().point(held.center).position)
-            .as_vec3();
-        self.rim_around(middle, held.radius.abs() as f32)
-    }
-
-    /// The same, about a middle and a radius rather than a circle the sketch
-    /// holds.
-    ///
-    /// What a circle still being *drawn* is placed against: there is no handle
-    /// to ask, only a centre already clicked and however far the pointer has
-    /// carried the band. A radius of nothing collapses to the centre, which is
-    /// all of the circle there is before the pointer has moved.
     pub(crate) fn rim_around(self, middle: Vec3, radius: f32) -> impl Iterator<Item = Vec3> {
         const AROUND: usize = 8;
         let plane = self.plane();
