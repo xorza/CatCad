@@ -82,10 +82,10 @@ impl Elimination {
     /// What a drag asks *before* running, because finding it out by running is
     /// what costs. A pull the geometry is pinned against is not refused in a
     /// step or two: the objective creeps by less than the drag is judged by, so
-    /// step after step is taken and kept until the reduction stalls, and the run
-    /// arrives back where it started having factorised the normal equations a
-    /// dozen times over. Measured at fourteen kept steps and 18ms on a rigid bar
-    /// of 244 parameters, against 0.2ms to ask this.
+    /// step after step is taken until the damping gives out, and the run arrives
+    /// back where it started having factorised the normal equations each time.
+    /// Measured on a rigid chain of 242 parameters, a drag refused by *asking*
+    /// costs 69µs against 470µs for one refused by running.
     ///
     /// Exact rather than a guess, and the same reading the run itself works
     /// from: a parameter with nothing in its row of the null space cannot move
@@ -138,9 +138,10 @@ impl Elimination {
     /// very system and found the answer no: a drag the constraints refuse moves
     /// nothing, so the sketch it describes afterwards is the sketch it asked
     /// about, and reducing again is the same arithmetic reaching the same
-    /// answer. On that path there is no run to dwarf the two — measured at 174µs
-    /// against 90µs on a chain of 242 parameters, where a drag that *moves*
-    /// something spends 4.8ms and would not notice either.
+    /// answer. On that path there is no run to dwarf the two — measured at 139µs
+    /// against 69µs on a rigid chain of 242 parameters. A drag that *moves*
+    /// something spends the bulk of its frame in the run and would not notice
+    /// either way.
     ///
     /// Apart from [`Elimination::measure`] rather than folded into it, because
     /// nothing here can tell whether the rows below still describe `system`:
@@ -372,8 +373,25 @@ impl Elimination {
     fn null_space(&mut self, system: &System) {
         let n = system.width();
         self.eliminate(system);
-        let rank = self.pivots.len();
-
+        // How many rows the pass below has anything to do to — every one that
+        // pivoted, or none at all where no column was passed over.
+        //
+        // **None is the case a drawing is *finished* in**, and it was worth
+        // saying outright. The pass carries only the columns nothing pivoted on,
+        // so with none of those it writes nothing whatever — but what was left
+        // of it was still every pair of pivot rows reading a cell it then threw
+        // away, `rank²/2` scattered reads through a matrix far too large to sit
+        // in cache. Measured at 502 parameters, that was 70µs of a 242µs
+        // reduction to produce nothing at all.
+        //
+        // A count of rows rather than a test wrapped round the loop, because
+        // what comes *after* it still has to run: an empty null space is a thing
+        // to write, not last time's to leave standing.
+        let reducing = if self.free.is_empty() {
+            0
+        } else {
+            self.pivots.len()
+        };
         let Self {
             rows: a,
             pivots,
@@ -396,13 +414,9 @@ impl Elimination {
         // so skipping them is exact rather than a shortcut with a tolerance on
         // it.
         //
-        // What it buys is the case a drawing is *finished* in. A sketch with
-        // nothing left undecided has no free columns at all, so this whole pass
-        // — quadratic in the rank — comes to nothing. Measured at 502
-        // parameters: reducing such a sketch takes 381µs where carrying every
-        // column through here takes 575µs, and what is left is the elimination
-        // above.
-        for row in (0..rank).rev() {
+        // Which is also what makes the whole pass skippable where there are no
+        // such columns — see `reducing` above, where that case is argued.
+        for row in (0..reducing).rev() {
             let pivot = pivots[row];
             let diagonal = a[row * n + pivot];
             for &col in free.iter() {
