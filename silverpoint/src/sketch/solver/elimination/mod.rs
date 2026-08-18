@@ -23,11 +23,20 @@ const RANK_TOLERANCE: f64 = 1e-9;
 /// rows are compared as.
 const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
 
-/// The columns one row of the reduction can hold anything in.
+/// Where one row of the reduction holds anything, the columns the walk passed
+/// over aside.
 ///
 /// A bound rather than a description: what is skipped is what lies outside, so
 /// it only ever has to be wide enough. Both ends move as the walk goes — the far
 /// one out as fill reaches, the near one in as columns are eliminated behind it.
+///
+/// That the passed-over columns are excluded is the whole reason the near end
+/// can move. They lie behind the walk and are never cleared, so counting them
+/// would hold every stretch open across the sketch's entire width the moment it
+/// had one freedom anywhere — measured at 41394 columns of summed stretch
+/// against 998, on a sketch with ten freedoms left. [`Stretch::spans`] carries
+/// them beside the stretch instead, and is how every reader that needs a row
+/// whole gets one.
 #[derive(Debug, Clone, Copy)]
 struct Stretch {
     low: usize,
@@ -39,12 +48,31 @@ impl Stretch {
     /// there.
     ///
     /// **The question both walks of the elimination ask**, and the reason they
-    /// ask it: a row this is false of holds an exact zero at `col`, so the pivot
-    /// search cannot want it and the update would change nothing by it. Named
-    /// rather than spelt out at each, where it read once as a pair of bounds
-    /// and once as their negation.
+    /// ask it: outside the stretch a row is exactly zero at every column but the
+    /// ones passed over, so the pivot search cannot want it and the update would
+    /// change nothing by it. Both ask it only of the column being pivoted on,
+    /// which is never one of those — every passed-over column lies behind the
+    /// walk. Named rather than spelt out at each, where it read once as a pair
+    /// of bounds and once as their negation.
     fn holds(self, col: usize) -> bool {
         self.low <= col && col <= self.high
+    }
+
+    /// Every column from `low` rightwards that a row with this stretch can hold
+    /// anything in: the stretch, and the passed-over columns short of it.
+    ///
+    /// **The one place the exclusion above is made good.** Three walks need a
+    /// row whole — the swap, the update, and the substitution that reads the
+    /// null space — over three different spans, and each was spelling out the
+    /// same rule against its own bound. Stated once because getting it wrong is
+    /// silent: an overlap between the two halves swapped a column twice and
+    /// landed it back where it started, which showed up only as a null-space
+    /// entry parts-in-1e12 adrift.
+    fn spans<'a>(self, free: &'a [usize]) -> impl Iterator<Item = usize> + 'a {
+        free.iter()
+            .copied()
+            .take_while(move |&passed| passed < self.low)
+            .chain(self.low..=self.high)
     }
 }
 
@@ -80,7 +108,7 @@ pub(super) struct Elimination {
     /// how far that parameter travels along each way the sketch can still move.
     /// Row-major.
     null: Vec<f64>,
-    /// Where each row can hold anything at all.
+    /// Where each row holds anything, the passed-over columns aside.
     ///
     /// Taken off the rows before the walk and carried through it: a swap moves
     /// two rows' stretches with them, and an update widens the row it wrote to
@@ -329,20 +357,27 @@ impl Elimination {
                 continue;
             }
             if pivot != rank {
-                // The two rows agree outside the wider of their stretches, both
-                // being zero there.
-                let (lowest, highest) = (
-                    reach[pivot].low.min(reach[rank].low),
-                    reach[pivot].high.max(reach[rank].high),
-                );
-                for c in lowest..=highest {
+                // Both rows are zero outside the wider of their two stretches,
+                // so what the wider one spans is everything the swap has to
+                // move.
+                let merged = Stretch {
+                    low: reach[pivot].low.min(reach[rank].low),
+                    high: reach[pivot].high.max(reach[rank].high),
+                };
+                for c in merged.spans(free) {
                     a.swap(pivot * n + c, rank * n + c);
                 }
                 origin.swap(pivot, rank);
                 reach.swap(pivot, rank);
             }
             let diagonal = a[rank * n + col];
-            let high = reach[rank].high;
+            // What the pivot row can hold from here on. Everything behind this
+            // column it holds is a column that was passed over: the ones that
+            // took a pivot were set to zero, not subtracted towards it.
+            let pivoting = Stretch {
+                low: col + 1,
+                high: reach[rank].high,
+            };
             for row in (rank + 1)..m {
                 // Asked before the matrix is touched, as the pivot search above
                 // asks it. Nearly every row is one this refuses — a sketch's
@@ -362,20 +397,11 @@ impl Elimination {
                 if factor == 0.0 {
                     continue;
                 }
-                // Everything the pivot row can hold, which is three stretches
-                // rather than one. Behind the walk it is zero at every column
-                // that took a pivot — set there, not merely subtracted to — so
-                // what is left behind is the columns nothing pivoted on, and
-                // those are exactly `free`. Ahead of the walk it reaches as far
-                // as its stretch says.
-                //
-                // The passed-over ones are not a rounding to be skipped: they
-                // are what the null space is read from, so dropping them would
-                // put a tolerance under an answer that has none.
-                for &passed in free.iter() {
-                    a[row * n + passed] -= factor * a[rank * n + passed];
-                }
-                for c in (col + 1)..=high {
+                // The passed-over columns are not a rounding to be skipped:
+                // they are what the null space is read from, so dropping them
+                // would put a tolerance under an answer that has none. Measured
+                // at parts in 1e12 on the null space when they were.
+                for c in pivoting.spans(free) {
                     a[row * n + c] -= factor * a[rank * n + c];
                 }
                 // Set rather than subtracted to. What the subtraction would
@@ -384,14 +410,9 @@ impl Elimination {
                 // matters, because the stretch below is an exactness claim about
                 // it rather than a tolerance.
                 a[row * n + col] = 0.0;
-                // So the row now starts at the first column nothing pivoted on,
-                // every pivoted one behind the walk being exactly zero — and a
-                // sketch with nothing left undecided has no such column at all,
-                // which is what makes its stretch shrink as the walk advances.
-                let starts = free.first().copied().unwrap_or(col + 1);
                 reach[row] = Stretch {
-                    low: starts,
-                    high: reach[row].high.max(high),
+                    low: pivoting.low,
+                    high: reach[row].high.max(pivoting.high),
                 };
             }
             pivots.push(col);
@@ -467,29 +488,31 @@ impl Elimination {
         let Self {
             rows: a,
             pivots,
+            free,
             null,
             reach,
             ..
         } = self;
         for (row, &pivot) in pivots.iter().enumerate().rev() {
             let diagonal = a[row * n + pivot];
-            // The whole stretch, not merely what lies right of the pivot.
-            //
             // Echelon form says a row holds nothing left of its own pivot, and
-            // for the columns that *took* one that is exact — the elimination
-            // set those cells rather than subtracting its way to a rounding of
-            // them, so they drop out below and the `d` they would have needed,
-            // which this pass has not reached yet, is never asked for.
+            // for the columns that *took* one that is exact: the elimination set
+            // those cells rather than subtracting its way to a rounding of them,
+            // so they never arise here and the `d` they would have needed —
+            // which this pass has not reached yet — is never asked for.
             //
             // A column that was *passed over* is the other case and is not
             // exact: it was passed over for holding less than the tolerance,
             // which is not nothing. What it holds is a real term of this
             // equation, and the `d` it multiplies is known before the pass
-            // starts — a freedom is set, not solved for. Dropping those terms
-            // moved null-space entries by parts in 1e12.
-            for col in reach[row].low..=reach[row].high {
+            // starts, a freedom being set rather than solved for.
+            let span = Stretch {
+                low: pivot + 1,
+                high: reach[row].high,
+            };
+            for col in span.spans(free) {
                 let coefficient = a[row * n + col];
-                if col == pivot || coefficient == 0.0 {
+                if coefficient == 0.0 {
                     continue;
                 }
                 for axis in 0..axes {
