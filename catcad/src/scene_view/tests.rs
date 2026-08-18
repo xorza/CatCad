@@ -21,9 +21,15 @@ use palantir::internals::UiHarness;
 use palantir::{Modifiers, PointerButton};
 use silverpoint::{Grown, Measurement};
 
-/// The demo, as the application raises it.
+/// The demo with the *view* raised over it and no application around it.
+///
+/// Everything a [`SceneView`] needs to be driven, which is the application
+/// minus the application: the same document, history, build and session, and a
+/// harness to record frames into. Named apart from the crate root's `Raised`
+/// for that reason — that one raises the app, and a tool there is taken up off
+/// the bar rather than reached in for.
 #[derive(Debug)]
-struct Raised {
+struct RaisedView {
     document: Document,
     history: History,
     /// What the last solve made of the drawing, which in the application
@@ -40,7 +46,7 @@ struct Raised {
     session: Session,
 }
 
-impl Raised {
+impl RaisedView {
     fn new() -> Self {
         let mut build = Build::default();
         let mut document = demo::document(&mut build);
@@ -74,7 +80,7 @@ impl Raised {
     /// what it left is laid out and aimed at.
     ///
     /// All of it inside the record closure, because that closure is the unit
-    /// palantir replays — see [`Raised::ask`].
+    /// palantir replays — see [`RaisedView::ask`].
     fn frame(&mut self) {
         let Self {
             document,
@@ -314,7 +320,7 @@ impl Raised {
 /// pins: the move inside, not the one that enters.
 #[test]
 fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     // Arranges the view, so there is something for the pointer to be over.
     raised.frame();
 
@@ -359,7 +365,7 @@ fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
 /// determined geometry is refused outright.
 #[test]
 fn dragging_a_point_moves_it_and_not_the_camera() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let cursor = raised.cursor_on(raised.wrist());
 
@@ -404,7 +410,7 @@ fn dragging_a_point_moves_it_and_not_the_camera() {
 /// halves are checked here, in the order that produced them.
 #[test]
 fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let at_rest = raised.markers();
     assert!(
@@ -482,7 +488,7 @@ fn unmoved(now: &[Vec3], was: &[Vec3]) -> bool {
 /// those by hand, so this is what says the two agree.
 #[test]
 fn the_view_can_take_hold_of_a_point_an_edge_and_a_rim() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
 
     assert!(
@@ -515,7 +521,7 @@ fn the_view_can_take_hold_of_a_point_an_edge_and_a_rim() {
 /// wanting to start over the drawing is the whole point of having one.
 #[test]
 fn the_middle_button_pans_the_view_and_grabs_nothing() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let before = raised.camera();
     let drawn = open_markers(&raised);
@@ -571,7 +577,7 @@ fn the_middle_button_pans_the_view_and_grabs_nothing() {
 #[test]
 fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
     for yaw in [-0.7f32, 0.7] {
-        let mut raised = Raised::new();
+        let mut raised = RaisedView::new();
         raised.document.camera_mut().yaw = yaw;
         raised.frame();
         let cursor = raised
@@ -639,14 +645,14 @@ fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
 /// said it had changed.
 #[test]
 fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let cursor = raised
         .over_cap()
         .expect("no cursor found the far end of the demo's solid");
 
     let drawn = open_markers(&raised);
-    let reach = |raised: &Raised| {
+    let reach = |raised: &RaisedView| {
         raised
             .document
             .models(&raised.build, raised.session.editing())
@@ -698,10 +704,10 @@ fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
 /// text from a box only a paint measures.
 #[test]
 fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let sketch = raised.session.editing();
-    let relations = |raised: &Raised| {
+    let relations = |raised: &RaisedView| {
         raised
             .document
             .drawing_at(sketch)
@@ -824,7 +830,7 @@ fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
 /// wrong.
 #[test]
 fn placing_a_number_moves_it_and_settles_nothing() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     let sketch = raised.session.editing();
     let (constraint, _) = raised
         .document
@@ -908,7 +914,7 @@ fn placing_a_number_moves_it_and_settles_nothing() {
 /// than a place, which is the only thing a plane has to say.
 #[test]
 fn dragging_a_datum_slides_it_and_leaves_the_open_sketch_alone() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let cursor = raised
         .over_datum()
@@ -977,7 +983,7 @@ fn dragging_a_datum_slides_it_and_leaves_the_open_sketch_alone() {
 ///
 /// The scene's markers would not do: they are every sketch's, and the whole
 /// point of the drag above is that the *other* sketch moves.
-fn open_markers(raised: &Raised) -> Vec<Vec3> {
+fn open_markers(raised: &RaisedView) -> Vec<Vec3> {
     let drawing = raised.document.drawing_at(raised.session.editing());
     drawing
         .sketch()
@@ -999,7 +1005,7 @@ fn open_markers(raised: &Raised) -> Vec<Vec3> {
 /// dragging is and cannot be allowed to happen inside the view.
 #[test]
 fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let cursor = raised.cursor_on(raised.wrist());
     raised.harness.move_to(cursor);
@@ -1083,7 +1089,7 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
 /// a camera step.
 #[test]
 fn two_fingers_travelling_pan_the_view_by_what_they_travelled() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let centre = Vec2::new(400.0, 300.0);
     raised.harness.move_to(centre);
@@ -1139,7 +1145,7 @@ fn two_fingers_travelling_pan_the_view_by_what_they_travelled() {
 /// grew would pass a test that watched one end of one of them.
 #[test]
 fn the_wheel_and_the_pinch_zoom_the_same_way_round() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let centre = Vec2::new(400.0, 300.0);
     raised.harness.move_to(centre);
@@ -1209,7 +1215,7 @@ fn the_wheel_and_the_pinch_zoom_the_same_way_round() {
 /// than swallow the gesture.
 #[test]
 fn dragging_off_the_drawing_orbits_and_edits_nothing() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
 
     // A corner the demo's geometry comes nowhere near.
@@ -1232,7 +1238,7 @@ fn dragging_off_the_drawing_orbits_and_edits_nothing() {
 /// other miss.
 #[test]
 fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let cursor = raised
         .over_pinned()
@@ -1266,7 +1272,7 @@ fn pressing_a_pinned_point_orbits_rather_than_dragging_it() {
 /// would still find nothing, only to travel across the drawing.
 #[test]
 fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     // Empty plane, because a click on something already drawn puts the tool
     // down instead of drawing over it — which is its own test. The spot lies on
@@ -1358,7 +1364,7 @@ fn the_point_tool_places_where_it_is_clicked_and_takes_hold_of_nothing() {
 /// click that does *not* select is the one spent putting something down.
 #[test]
 fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let empty = raised.cursor_on(raised.empty_spot());
     let over_point = raised
@@ -1450,7 +1456,7 @@ fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
 /// the picker's.
 #[test]
 fn a_point_clicked_onto_an_edge_is_held_to_it() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let free = raised
         .document
@@ -1567,7 +1573,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
 /// move whatever the solve wanted — it would pass this while the bug stood.
 #[test]
 fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
 
     // The far bar of the arm, which is free at both ends.
@@ -1643,7 +1649,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
 /// is put down — with the sketch untouched throughout.
 #[test]
 fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let edges = raised
         .document
@@ -1748,7 +1754,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
 /// loop — a copy refreshed only on change is what would leave it open.
 #[test]
 fn settling_aims_the_renderer_through_the_documents_own_camera() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     assert_eq!(*raised.view.renderer().borrow().camera(), raised.camera());
 
@@ -1791,10 +1797,10 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
 /// be named that was written without a tag.
 #[test]
 fn a_region_and_a_solids_face_are_hovered_and_picked_out_like_any_other_part() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
 
-    let on_ground = |raised: &Raised, x: f64, y: f64| {
+    let on_ground = |raised: &RaisedView, x: f64, y: f64| {
         raised.cursor_on(
             raised
                 .document
@@ -1880,7 +1886,7 @@ fn a_region_and_a_solids_face_are_hovered_and_picked_out_like_any_other_part() {
 /// click meant for its own boundary.
 #[test]
 fn what_is_drawn_on_a_face_takes_the_click_over_it() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
 
     // A point of the demo's frame, which sits on the rectangle's corner — so
@@ -1921,7 +1927,7 @@ fn what_is_drawn_on_a_face_takes_the_click_over_it() {
 /// that is exactly what it found.
 #[test]
 fn a_drag_keeps_naming_what_it_holds_rather_than_what_it_passes_over() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
     let wrist = raised.cursor_on(raised.wrist());
     raised.harness.move_to(wrist);
@@ -1999,7 +2005,7 @@ fn a_drag_keeps_naming_what_it_holds_rather_than_what_it_passes_over() {
 /// [`Text::extent`](aperture::Text).
 #[test]
 fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
-    let raised = Raised::new();
+    let raised = RaisedView::new();
     let sketch = raised.session.editing();
     let drawing = raised.document.drawing_at(sketch);
 
@@ -2088,7 +2094,7 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
 /// it is saying: which axis it is.
 #[test]
 fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
-    let mut raised = Raised::new();
+    let mut raised = RaisedView::new();
     raised.frame();
 
     // Aimed at geometry that was actually drawn rather than at coordinates

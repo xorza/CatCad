@@ -1,0 +1,388 @@
+//! Drawing with the tools on the bar: where a click puts geometry and what it
+//! ties itself to.
+
+use crate::CatCad;
+use crate::prompt::Prompt;
+use crate::tests::harness::Raised;
+use glam::DVec2;
+use palantir::Key;
+use silverpoint::PointId;
+
+use crate::hud::internals::{CIRCLE_BUTTON, LINE_BUTTON};
+use crate::prompt::Asking;
+use crate::tool::Tool;
+
+/// The line and circle tools take two clicks, reach the document only on the
+/// second, and tie themselves to a point the first click landed on.
+///
+/// The tie is the half that matters. An edge drawn onto a point already there
+/// is what makes a sketch a sketch rather than a heap of unrelated coordinates
+/// — drag that point and both edges follow — and it is *stated* rather than
+/// shared, so the second line brings its own corner point and a coincidence
+/// saying the two are one. That is what this pins: four new points across two
+/// edges, no handle held in common, and a relation to show for it. Taking one
+/// apart again is `an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied`,
+/// which drives the drawing directly and can drag.
+///
+/// And that nothing lands until the shape is finished: a line abandoned after
+/// one click leaves no stray point behind, which is what lets the whole edge be
+/// one step to take back.
+#[test]
+fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
+    let mut raised = Raised::new();
+    let at_rest = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch()
+        .points()
+        .count();
+    let edges = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch()
+        .segments()
+        .count();
+
+    // Three spots on bare plane, left of the demo's frame.
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
+    let corner = [
+        plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
+        plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
+        plane.point(DVec2::new(-4.0, 3.5)).as_vec3(),
+    ];
+    let at = corner.map(|world| raised.cursor_on(world));
+
+    // One click starts the line and puts nothing in the document.
+    raised.harness.click_at(LINE_BUTTON);
+    raised.frame();
+    raised.harness.click_at(at[0]);
+    raised.frame();
+    assert_eq!(
+        raised
+            .app
+            .document
+            .drawing_at(raised.app.session.editing())
+            .sketch()
+            .points()
+            .count(),
+        at_rest,
+        "the first click of a line reached the document"
+    );
+    assert!(
+        raised.app.session.tool().started().is_some(),
+        "the first click was not remembered"
+    );
+
+    // The second finishes it: two points and the edge between them, and the
+    // tool starts over ready for another.
+    raised.harness.click_at(at[1]);
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
+    assert_eq!(sketch.points().count(), at_rest + 2);
+    assert_eq!(sketch.segments().count(), edges + 1);
+    assert!(
+        raised.app.session.tool().started().is_none(),
+        "the tool did not start over"
+    );
+    assert!(
+        raised.app.session.tool().is(Tool::Line { from: None }),
+        "it left the hand"
+    );
+
+    // A second line begun on the first one's far end brings its own corner, so
+    // this one costs two new points and a coincidence tying one of them to the
+    // point it was started on.
+    let relations = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch()
+        .constraints()
+        .count();
+    raised.harness.click_at(at[1]);
+    raised.frame();
+    raised.harness.click_at(at[2]);
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
+    assert_eq!(
+        sketch.points().count(),
+        at_rest + 4,
+        "the second line took the point it started on instead of tying to it"
+    );
+    assert_eq!(sketch.segments().count(), edges + 2);
+    assert_eq!(
+        sketch.constraints().count(),
+        relations + 1,
+        "the join was not written down"
+    );
+
+    // The two edges name four points between them and hold none in common:
+    // what joins them is the relation, not the handle. Counted rather than
+    // sorted, because a handle carries no order — only whether it is the same
+    // handle, which is the whole of the question here.
+    let ends: Vec<PointId> = sketch
+        .segments()
+        .skip(edges)
+        .flat_map(|(_, edge)| [edge.a, edge.b])
+        .collect();
+    let distinct = ends
+        .iter()
+        .enumerate()
+        .filter(|(seen, id)| !ends[..*seen].contains(id))
+        .count();
+    assert_eq!(distinct, 4, "the two edges share a point: {ends:?}");
+
+    // Ctrl+Z takes back a whole edge, both its points with it.
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
+    assert_eq!(
+        sketch.segments().count(),
+        edges + 1,
+        "half an edge came back"
+    );
+    assert_eq!(sketch.points().count(), at_rest + 2);
+}
+
+/// The circle tool takes its centre from the first click and its size from the
+/// second, and makes a point only at the centre.
+///
+/// A radius is a number rather than a place, which is the whole of why this is
+/// not two points: the second click says how far, and the sketch is left with
+/// nothing out there to drag.
+#[test]
+fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
+    let mut raised = Raised::new();
+    let at_rest = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch()
+        .points()
+        .count();
+    let rings = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch()
+        .circles()
+        .count();
+
+    // Centre and rim two units apart on the plane, so the radius is known.
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
+    let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
+    let rim = plane.point(DVec2::new(-1.0, 2.5)).as_vec3();
+    let (at_middle, at_rim) = (raised.cursor_on(middle), raised.cursor_on(rim));
+
+    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.frame();
+    raised.harness.click_at(at_middle);
+    raised.frame();
+    assert_eq!(
+        raised
+            .app
+            .document
+            .drawing_at(raised.app.session.editing())
+            .sketch()
+            .circles()
+            .count(),
+        rings,
+        "the first click of a circle reached the document"
+    );
+
+    // Out to the rim before clicking there, which is what drawing a circle
+    // *is*: the band follows the pointer, and the form asking for a radius
+    // stands clear of the band rather than of the centre — so where it goes is
+    // only settled once there is a circle for it to keep off.
+    raised.harness.move_to(at_rim);
+    raised.frame();
+    raised.harness.click_at(at_rim);
+    raised.frame();
+    let sketch = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .sketch();
+    assert_eq!(sketch.circles().count(), rings + 1);
+    // One point, at the centre. Nothing was made out on the rim.
+    assert_eq!(sketch.points().count(), at_rest + 1);
+
+    let (_, circle) = sketch.circles().last().expect("a circle was just added");
+    assert!(
+        (circle.radius - 2.0).abs() < 1e-2,
+        "two units apart on the plane made a radius of {}",
+        circle.radius
+    );
+    assert!(
+        (sketch.point(circle.center).position - DVec2::new(-3.0, 2.5)).length() < 1e-2,
+        "the centre did not land where it was clicked"
+    );
+}
+
+/// **A circle's radius can be typed instead of clicked, and the form asking for
+/// it stands from the moment there is a centre.**
+///
+/// The one form that stands where there is nothing yet to name. Every other
+/// restates something already drawn; this one *makes* the circle, which is the
+/// only way a tool can offer a form at all — what a change makes has no handle
+/// until the change lands, and the session applies before the history does.
+#[test]
+fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
+    let mut raised = Raised::new();
+    let rings = |app: &CatCad| {
+        app.document
+            .drawing_at(app.session.editing())
+            .sketch()
+            .circles()
+            .count()
+    };
+    let before = rings(&raised.app);
+
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
+    let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
+    let at_middle = raised.cursor_on(middle);
+
+    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.frame();
+    raised.harness.click_at(at_middle);
+    raised.frame();
+    assert!(
+        matches!(
+            raised.app.session.prompt().map(Prompt::about),
+            Some(Asking::Circle { .. })
+        ),
+        "putting the centre down opened no form"
+    );
+    assert_eq!(
+        before,
+        rings(&raised.app),
+        "the centre click reached the document"
+    );
+
+    // Typed rather than clicked, and settled. The tool goes back to its first
+    // click, which is where a second one would have left it.
+    raised.harness.type_text("2");
+    raised.frame();
+    raised.harness.key(Key::Enter);
+    raised.frame();
+    assert!(
+        raised.app.session.prompt().is_none(),
+        "Enter left the form open"
+    );
+    assert_eq!(
+        rings(&raised.app),
+        before + 1,
+        "the typed radius drew no circle"
+    );
+    assert_eq!(
+        raised.app.session.tool(),
+        Tool::Circle { center: None },
+        "the tool did not go back to its first click"
+    );
+
+    // At the size that was typed, measured off the centre it was struck from.
+    let drawing = raised.app.document.drawing_at(raised.app.session.editing());
+    let (_, drawn) = drawing
+        .sketch()
+        .circles()
+        .last()
+        .expect("the circle that was just drawn");
+    assert!(
+        (drawn.radius.abs() - 2.0).abs() < 1e-6,
+        "the circle came out at {} rather than the 2 that was typed",
+        drawn.radius
+    );
+}
+
+/// **The pointer offers a radius until somebody types one, and then it stops.**
+///
+/// Two views of one number, and the rule for which of them is speaking. The
+/// pointer *suggests* — the field shows what the band is measuring, and the
+/// draft stays empty so the first keystroke lands in a field with nothing to
+/// fight. From that keystroke the keyboard has it: the band snaps to what was
+/// typed and stops following the cursor.
+///
+/// Which is driving needs no flag to say so. **The draft being non-empty is the
+/// keyboard having it**, so backspacing the last character hands the pointer
+/// back — which is what anyone would expect and what a flag would have had to
+/// be told to do.
+#[test]
+fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
+    let mut raised = Raised::new();
+
+    let plane = raised
+        .app
+        .document
+        .drawing_at(raised.app.session.editing())
+        .plane();
+    let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
+    let at_middle = raised.cursor_on(middle);
+    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.frame();
+    raised.harness.click_at(at_middle);
+    raised.frame();
+
+    // Two units out, so what the band measures is known by hand.
+    let out = raised.cursor_on(plane.point(DVec2::new(-1.0, 2.5)).as_vec3());
+    raised.harness.move_to(out);
+    raised.frame();
+    let banded = |app: &CatCad| app.view.banded().map(|to| middle.distance(to));
+    assert!(
+        (banded(&raised.app).expect("the band follows the pointer") - 2.0).abs() < 1e-3,
+        "the band measured {:?} rather than the two units it was carried",
+        banded(&raised.app)
+    );
+    let open = raised.app.session.prompt().expect("the form is open");
+    assert_eq!(
+        open.typed(0),
+        None,
+        "nobody has typed, so nobody is driving"
+    );
+    assert!(
+        (open.says(0).expect("the pointer offers one") - 2.0).abs() < 1e-3,
+        "the field is not showing what the band is measuring"
+    );
+
+    // Typed, and the band lets go of the pointer: it holds the typed radius
+    // even as the cursor carries on somewhere else entirely.
+    raised.harness.type_text("5");
+    raised.frame();
+    assert_eq!(
+        raised.app.session.prompt().and_then(|open| open.typed(0)),
+        Some(5.0)
+    );
+    let elsewhere = raised.cursor_on(plane.point(DVec2::new(3.0, 2.5)).as_vec3());
+    raised.harness.move_to(elsewhere);
+    raised.frame();
+    assert!(
+        (banded(&raised.app).expect("the band is still drawn") - 5.0).abs() < 1e-3,
+        "the band went back to following the cursor at {:?}",
+        banded(&raised.app)
+    );
+}
