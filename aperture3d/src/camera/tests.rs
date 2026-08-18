@@ -1,25 +1,9 @@
 use super::*;
 use glam::UVec2;
 
-/// A camera whose projection has hand-checkable numbers: 90° vertical fov
-/// gives `1/tan(45°) == 1`, and a fifth of the 5-unit orbit distance puts
-/// the near plane on 1 — which makes reversed depth read straight off as
-/// `1 / distance`.
-fn unit_camera() -> Camera {
-    Camera {
-        projection: Projection::Perspective,
-        target: Vec3::ZERO,
-        distance: 5.0,
-        yaw: 0.0,
-        pitch: 0.0,
-        fov_y: std::f32::consts::FRAC_PI_2,
-        near_ratio: 1.0 / 5.0,
-    }
-}
-
 #[test]
 fn the_near_plane_rides_with_the_orbit_distance() {
-    let mut camera = unit_camera();
+    let mut camera = Camera::head_on();
     assert_eq!(camera.z_near(), 1.0);
 
     // Halving the distance halves the near plane, so the target stays the
@@ -62,7 +46,7 @@ fn the_near_plane_rides_with_the_orbit_distance() {
     for bad in [0.0, -1.0, 1.0, 7.0] {
         let wild = Camera {
             near_ratio: bad,
-            ..unit_camera()
+            ..Camera::head_on()
         };
         let near = wild.z_near();
         assert!(
@@ -77,7 +61,7 @@ fn the_near_plane_rides_with_the_orbit_distance() {
 /// is readable off the geometry.
 #[test]
 fn a_ray_leaves_the_near_plane_through_the_pixel_it_was_asked_for() {
-    let camera = unit_camera();
+    let camera = Camera::head_on();
     let viewport = Viewport::new(UVec2::new(100, 100));
 
     // Dead centre: the eye is at z = 5 looking down −Z, and the near plane
@@ -118,7 +102,7 @@ fn a_ray_leaves_the_near_plane_through_the_pixel_it_was_asked_for() {
 fn a_wider_viewport_spreads_rays_further_across_than_up() {
     // Twice as wide for the same fov, which is vertical, so the horizontal
     // edge reaches twice as far and the vertical edge does not move.
-    let camera = unit_camera();
+    let camera = Camera::head_on();
     let wide = Viewport::new(UVec2::new(200, 100));
     let right = camera.ray_through(Vec2::new(200.0, 50.0), wide);
     assert!(right.origin.abs_diff_eq(Vec3::new(2.0, 0.0, 4.0), 1e-5));
@@ -128,7 +112,7 @@ fn a_wider_viewport_spreads_rays_further_across_than_up() {
 
 #[test]
 fn parallel_rays_move_their_origin_instead_of_their_direction() {
-    let mut camera = unit_camera();
+    let mut camera = Camera::head_on();
     camera.projection = Projection::Orthographic;
     let viewport = Viewport::new(UVec2::new(100, 100));
 
@@ -156,7 +140,7 @@ fn parallel_rays_move_their_origin_instead_of_their_direction() {
 
 #[test]
 fn eye_follows_the_angles() {
-    let mut camera = unit_camera();
+    let mut camera = Camera::head_on();
     assert_eq!(camera.eye(), Vec3::new(0.0, 0.0, 5.0));
 
     camera.yaw = std::f32::consts::FRAC_PI_2;
@@ -174,7 +158,7 @@ fn eye_follows_the_angles() {
 
 #[test]
 fn view_proj_maps_the_frustum_to_ndc() {
-    let camera = unit_camera();
+    let camera = Camera::head_on();
     let view_proj = camera.view_proj(1.0);
 
     // Reversed depth with the far plane at infinity is just near/depth.
@@ -219,7 +203,7 @@ fn view_proj_maps_the_frustum_to_ndc() {
 fn orthographic_drops_the_foreshortening_and_keeps_the_target_plane() {
     let camera = Camera {
         projection: Projection::Orthographic,
-        ..unit_camera()
+        ..Camera::head_on()
     };
     let view_proj = camera.view_proj(1.0);
 
@@ -238,7 +222,7 @@ fn orthographic_drops_the_foreshortening_and_keeps_the_target_plane() {
     let deeper = Vec3::new(5.0, 0.0, -10.0);
     let parallel = view_proj.project_point3(deeper);
     assert!((parallel.x - 1.0).abs() < 1e-5, "{parallel:?}");
-    let foreshortened = unit_camera().view_proj(1.0).project_point3(deeper);
+    let foreshortened = Camera::head_on().view_proj(1.0).project_point3(deeper);
     assert!(
         (foreshortened.x - 1.0 / 3.0).abs() < 1e-5,
         "{foreshortened:?}"
@@ -274,7 +258,7 @@ fn orthographic_drops_the_foreshortening_and_keeps_the_target_plane() {
 
 #[test]
 fn orbit_accumulates_yaw_and_clamps_pitch() {
-    let mut camera = unit_camera();
+    let mut camera = Camera::head_on();
     camera.orbit(0.25, 0.1);
     camera.orbit(0.25, 0.1);
     assert!((camera.yaw - 0.5).abs() < 1e-6);
@@ -307,11 +291,11 @@ fn orbit_accumulates_yaw_and_clamps_pitch() {
 fn a_camera_from_outside_is_brought_back_inside_its_limits() {
     // Already legal, so nothing moves. Field for field, because a `sane` that
     // dropped one would still pass a comparison against a rebuilt default.
-    let sound = unit_camera();
+    let sound = Camera::head_on();
     assert_eq!(sound.sane(), sound);
 
     // Past the pole either way, and short of the eye.
-    let mut wild = unit_camera();
+    let mut wild = Camera::head_on();
     wild.pitch = 4.0;
     assert_eq!(wild.sane().pitch, PITCH_LIMIT);
     wild.pitch = -4.0;
@@ -349,24 +333,24 @@ fn a_camera_from_outside_is_brought_back_inside_its_limits() {
     // through every bound above.
     let default = Camera::default();
     for poison in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
-        let mut sick = unit_camera();
+        let mut sick = Camera::head_on();
         sick.yaw = poison;
         assert_eq!(sick.sane().yaw, default.yaw);
 
-        let mut sick = unit_camera();
+        let mut sick = Camera::head_on();
         sick.distance = poison;
         assert_eq!(sick.sane().distance, default.distance);
 
         // The target is three numbers and goes as one: half a position is not
         // a position, so a single bad axis takes the whole point with it.
-        let mut sick = unit_camera();
+        let mut sick = Camera::head_on();
         sick.target = Vec3::new(1.0, poison, 3.0);
         assert_eq!(sick.sane().target, default.target);
     }
 
     // The projection is not a number and has no range to fall outside of, so it
     // comes through whatever else did not.
-    let mut ortho = unit_camera();
+    let mut ortho = Camera::head_on();
     ortho.projection = Projection::Orthographic;
     ortho.pitch = 9.0;
     assert_eq!(ortho.sane().projection, Projection::Orthographic);
@@ -374,7 +358,7 @@ fn a_camera_from_outside_is_brought_back_inside_its_limits() {
 
 #[test]
 fn frame_pulls_back_until_the_bounds_fit() {
-    let mut camera = unit_camera();
+    let mut camera = Camera::head_on();
     camera.orbit(0.7, 0.3);
     let (yaw, pitch) = (camera.yaw, camera.pitch);
 
@@ -468,7 +452,7 @@ fn a_pan_moves_the_picture_by_the_pixels_it_was_given() {
                     projection,
                     yaw,
                     pitch,
-                    ..unit_camera()
+                    ..Camera::head_on()
                 };
                 assert!(
                     (pixel_of_origin(&camera) - centre).length() < 1e-3,
@@ -498,7 +482,7 @@ fn a_pan_moves_the_picture_by_the_pixels_it_was_given() {
 fn a_pan_of_one_viewport_covers_the_height_it_frames() {
     // 90° fov at 5 units puts the half-extent at `5 * tan(45°) == 5`, so the
     // viewport spans 10 world units and each of its 600 rows is worth 1/60.
-    let camera = unit_camera();
+    let camera = Camera::head_on();
     let viewport = Viewport::new(UVec2::new(800, 600));
     assert!(
         (camera.pan_step(Vec2::new(0.0, 600.0), viewport) - Vec3::new(0.0, -10.0, 0.0)).length()
@@ -521,7 +505,7 @@ fn a_pan_of_one_viewport_covers_the_height_it_frames() {
 
 #[test]
 fn dolly_scales_distance_down_to_the_floor() {
-    let mut camera = unit_camera();
+    let mut camera = Camera::head_on();
     camera.dolly(0.5);
     assert!((camera.distance - 2.5).abs() < 1e-6);
     camera.dolly(2.0);

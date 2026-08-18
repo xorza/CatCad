@@ -196,4 +196,19 @@ impl Viewport {
 }
 
 #[cfg(test)]
+mod framing {
+    use crate::viewport::Viewport;
+    use glam::UVec2;
+
+    impl Viewport {
+        /// The hundred-pixel square [`Camera::head_on`](crate::Camera::head_on)
+        /// is read against, where the origin lands dead centre and ten pixels
+        /// are one world unit.
+        pub(crate) fn hundred() -> Self {
+            Self::new(UVec2::new(100, 100))
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests;

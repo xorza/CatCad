@@ -11,7 +11,11 @@ fn viewport() -> Viewport {
 
 /// Straight down −Z under parallel rays, so a cursor names a world position
 /// outright and every number below can be read off by hand.
-fn head_on() -> Camera {
+///
+/// Not [`Camera::head_on`], which the picking tests view through: that one
+/// foreshortens and stands five off, where what these want is the projection
+/// that makes a cursor a world position and nothing else.
+fn overhead() -> Camera {
     Camera {
         projection: Projection::Orthographic,
         target: Vec3::ZERO,
@@ -44,7 +48,7 @@ fn a_plane_answers_where_the_cursor_crosses_it() {
         origin: Vec3::ZERO,
         normal: Vec3::Z,
     };
-    let camera = head_on();
+    let camera = overhead();
 
     // Dead centre is the origin, and every pixel off it is a tenth of a unit —
     // right and *up*, since a viewport counts y down and the world counts it up.
@@ -79,7 +83,7 @@ fn a_plane_answer_always_lies_on_the_plane() {
     let origin = Vec3::new(1.0, -2.0, 0.5);
     let normal = Vec3::new(0.3, -0.5, 0.8);
     let plane = Motion::Plane { origin, normal };
-    let camera = head_on();
+    let camera = overhead();
     for cursor in [
         CENTRE,
         CENTRE + Vec2::new(40.0, 0.0),
@@ -94,7 +98,7 @@ fn a_plane_answer_always_lies_on_the_plane() {
 
 #[test]
 fn a_plane_the_cursor_cannot_reach_answers_nothing() {
-    let camera = head_on();
+    let camera = overhead();
 
     // Edge-on: the rays run along the plane and never cross it.
     let edge_on = Motion::Plane {
@@ -126,7 +130,7 @@ fn a_line_answers_the_point_of_itself_that_looks_nearest() {
         origin: Vec3::ZERO,
         along: Vec3::X,
     };
-    let camera = head_on();
+    let camera = overhead();
 
     // The axis projects along the middle row. A cursor on it lands where it
     // points; fifty pixels right is five units along.
@@ -176,7 +180,7 @@ fn a_line_travels_by_what_the_pointer_travelled_along_it() {
 
     // Parallel rays first, where the travel can be read off by hand: thirty
     // pixels along the axis is three units, and thirty across it is nothing.
-    let flat = head_on();
+    let flat = overhead();
     let step =
         |from: Vec2, by: Vec2| resolved(&axis, &flat, from + by) - resolved(&axis, &flat, from);
     let along = step(CENTRE, Vec2::new(30.0, 0.0));
@@ -246,14 +250,14 @@ fn a_line_the_cursor_cannot_place_answers_nothing() {
     // leaves the cursor nothing to slide along.
     let down_the_axis = Camera {
         yaw: std::f32::consts::FRAC_PI_2,
-        ..head_on()
+        ..overhead()
     };
     assert_eq!(axis.resolve(&aiming(&down_the_axis, CENTRE)), None);
     // The other way along it is the same refusal — the test is on the angle,
     // not on which end.
     let and_back = Camera {
         yaw: -std::f32::consts::FRAC_PI_2,
-        ..head_on()
+        ..overhead()
     };
     assert_eq!(axis.resolve(&aiming(&and_back, CENTRE)), None);
 
@@ -262,5 +266,5 @@ fn a_line_the_cursor_cannot_place_answers_nothing() {
         origin: Vec3::ZERO,
         along: Vec3::ZERO,
     };
-    assert_eq!(nowhere.resolve(&aiming(&head_on(), CENTRE)), None);
+    assert_eq!(nowhere.resolve(&aiming(&overhead(), CENTRE)), None);
 }

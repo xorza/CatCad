@@ -1,6 +1,5 @@
 use super::*;
 use crate::camera::Camera;
-use crate::camera::Projection;
 use crate::curve::Curve;
 use crate::hit::{HitAt, Precedence};
 use crate::mesh::{Mesh, Vertex};
@@ -15,25 +14,10 @@ use glam::UVec2;
 use glam::Vec2;
 use glam::Vec3;
 
-/// Looking straight down −Z from 5 away with a 90° fov, so a 100×100
-/// viewport puts the origin dead centre and the world spans ±5 across it
-/// at the target's depth: 10 pixels to the world unit.
-fn head_on() -> Camera {
-    Camera {
-        target: Vec3::ZERO,
-        distance: 5.0,
-        yaw: 0.0,
-        pitch: 0.0,
-        fov_y: std::f32::consts::FRAC_PI_2,
-        near_ratio: 1.0 / 5.0,
-        projection: Projection::Perspective,
-    }
-}
-
 const CENTRE: Vec2 = Vec2::new(50.0, 50.0);
 
 fn viewport() -> Viewport {
-    Viewport::new(UVec2::new(100, 100))
+    Viewport::hundred()
 }
 
 /// Everything within `radius` of `cursor`, in the order the aim ranks them.
@@ -43,7 +27,7 @@ fn viewport() -> Viewport {
 /// the cursor and how it orders, which is the pair `nearest` is built from, so
 /// they ask those two directly.
 fn ranked(scene: &Scene, cursor: Vec2, radius: f32) -> Vec<Hit> {
-    ranked_through(scene, &head_on(), cursor, radius)
+    ranked_through(scene, &Camera::head_on(), cursor, radius)
 }
 
 /// The same, seen from somewhere else.
@@ -84,7 +68,7 @@ fn the_rim_search_converges_on_a_rim_drawn_thousands_of_pixels_across() {
     let mut scene = Scene::default();
     scene.rings.push(ring);
 
-    let camera = head_on();
+    let camera = Camera::head_on();
     let view_proj = camera.view_proj(viewport().aspect());
     // A handful of angles, none of them a probe of the coarse pass — landing
     // on one would let a search that never refined at all still pass.
@@ -133,7 +117,7 @@ fn a_ring_is_picked_where_it_is_drawn_however_far_the_plane_leans() {
     };
 
     for lean in [0.0, 0.6, 1.2, std::f32::consts::FRAC_PI_2 - 0.05] {
-        let mut camera = head_on();
+        let mut camera = Camera::head_on();
         camera.pitch = lean;
         let mut scene = Scene::default();
         // Radius 2 in the XY plane, so the rim reaches ±2 along world x —
@@ -367,7 +351,7 @@ fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
     for cursor in cursors {
         let hits = ranked(&scene, cursor, 4.0);
         assert_eq!(
-            scene.nearest(Aim::new(&head_on(), cursor, viewport(), 4.0)),
+            scene.nearest(Aim::new(&Camera::head_on(), cursor, viewport(), 4.0)),
             hits.first().copied(),
             "at {cursor:?}, over {hits:?}"
         );
@@ -377,7 +361,12 @@ fn nearest_answers_with_exactly_what_the_aim_ranks_first() {
     assert!(found >= 3, "only {found} of the cursors landed on anything");
     assert!(
         scene
-            .nearest(Aim::new(&head_on(), Vec2::new(2.0, 2.0), viewport(), 4.0))
+            .nearest(Aim::new(
+                &Camera::head_on(),
+                Vec2::new(2.0, 2.0),
+                viewport(),
+                4.0
+            ))
             .is_none(),
         "a cursor off the drawing finds nothing"
     );
@@ -445,7 +434,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
     scene
         .points
         .push(Point::new(Vec3::ZERO).tagged(Tag::new(6)));
-    let aim = Aim::new(&head_on(), CENTRE, viewport(), 1.0);
+    let aim = Aim::new(&Camera::head_on(), CENTRE, viewport(), 1.0);
     assert_eq!(
         scene.nearest(aim).map(|hit| hit.tag),
         Some(Tag::new(6)),
@@ -726,7 +715,7 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
             .measured(Vec2::new(40.0, 12.0))
             .tagged(Tag::new(2)),
     );
-    let aim = Aim::new(&head_on(), CENTRE, viewport(), 1.0);
+    let aim = Aim::new(&Camera::head_on(), CENTRE, viewport(), 1.0);
     assert_eq!(
         scene.nearest(aim).map(|hit| hit.tag),
         Some(Tag::new(1)),
@@ -877,7 +866,7 @@ fn a_frame_keeps_the_click_against_what_is_behind_it_and_yields_to_what_is_level
     // Ten pixels, which is what `nearer_the_cursor_beats_nearer_the_eye` asks
     // for: the stroke set four pixels off the cursor below has to be in reach,
     // or the case that turns on it would be testing an empty scene.
-    let aim = || Aim::new(&head_on(), CENTRE, viewport(), 10.0);
+    let aim = || Aim::new(&Camera::head_on(), CENTRE, viewport(), 10.0);
     assert_eq!(
         scene.nearest(aim()).map(|hit| hit.tag),
         Some(Tag::new(1)),
@@ -1031,7 +1020,7 @@ fn over_the_view() -> impl Iterator<Item = Vec2> {
 fn a_hit_is_reported_no_further_from_the_cursor_than_it_claims() {
     const SLACK: f32 = 0.25;
     let scene = one_of_each(Precedence::Shaped);
-    let camera = head_on();
+    let camera = Camera::head_on();
     let mut asked = [0usize; 5];
     for cursor in over_the_view() {
         let aim = Aim::new(&camera, cursor, viewport(), 8.0);
@@ -1094,7 +1083,7 @@ fn nothing_answers_from_behind_a_surface_the_aim_crosses() {
                     .tagged(Tag::new(9))
                     .precedence(surface),
             );
-            let camera = head_on();
+            let camera = Camera::head_on();
             for cursor in over_the_view() {
                 let aim = Aim::new(&camera, cursor, viewport(), 8.0);
                 let Some(hit) = scene.nearest(aim) else {

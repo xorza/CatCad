@@ -382,14 +382,22 @@ pub(crate) fn measure_all(texts: &[Text], glyphs: &mut TextGlyphs<'_>) {
 
 /// Standing in for the renderer, which is the only thing that lays a run out.
 ///
-/// `cfg(test)` rather than the `internals` feature: a caller outside the crate
-/// gets its extents the honest way, by having the run drawn. What this is for is
-/// asking what a *pick* does about a box, which wants a box and no GPU.
 #[cfg(test)]
-impl Text {
-    pub(crate) fn measured(self, extent: Vec2) -> Self {
-        self.extent.set(extent);
-        self
+mod measuring {
+    use crate::text::Text;
+    use glam::Vec2;
+
+    impl Text {
+        /// A run whose box is already known, without a shaper having filled it.
+        ///
+        /// `cfg(test)` rather than the `internals` feature: a caller outside the
+        /// crate gets its extents the honest way, by having the run drawn. What
+        /// this is for is asking what a *pick* does about a box, which wants a
+        /// box and no GPU.
+        pub(crate) fn measured(self, extent: Vec2) -> Self {
+            self.extent.set(extent);
+            self
+        }
     }
 }
 

@@ -1,43 +1,18 @@
 use super::*;
 use crate::batch::Batch;
-use crate::camera::{Camera, Projection};
+use crate::camera::Camera;
 use crate::text::turn::{Facing, Turn};
 use crate::viewport::Viewport;
-use glam::UVec2;
 use palantir::TextShaper;
-
-/// Looking straight down −Z from 5 away with a 90° fov, so a 100×100 viewport
-/// puts the origin dead centre — the same fixture the scene's own picking tests
-/// aim through.
-fn head_on() -> Camera {
-    Camera {
-        target: Vec3::ZERO,
-        distance: 5.0,
-        yaw: 0.0,
-        pitch: 0.0,
-        fov_y: std::f32::consts::FRAC_PI_2,
-        near_ratio: 1.0 / 5.0,
-        projection: Projection::Perspective,
-    }
-}
-
-/// The same camera from the other side of the plane below, which is what both
-/// rules that settle a run's frame read: the mirror, and the half turn.
-fn from_behind() -> Camera {
-    Camera {
-        yaw: std::f32::consts::PI,
-        ..head_on()
-    }
-}
 
 const CENTRE: Vec2 = Vec2::new(50.0, 50.0);
 
 fn aim_through(camera: &Camera, cursor: Vec2, radius: f32) -> Aim {
-    Aim::new(camera, cursor, Viewport::new(UVec2::new(100, 100)), radius)
+    Aim::new(camera, cursor, Viewport::hundred(), radius)
 }
 
 fn aim_at(cursor: Vec2, radius: f32) -> Aim {
-    aim_through(&head_on(), cursor, radius)
+    aim_through(&Camera::head_on(), cursor, radius)
 }
 
 /// A run set the way `turn` says.
@@ -303,8 +278,8 @@ fn a_raked_run_foreshortens_and_is_still_reached_in_screen_pixels() {
     // away, which is what halves the box.
     let axes = raked.axes(
         Vec3::ZERO,
-        head_on().view_proj(1.0),
-        Viewport::new(UVec2::new(100, 100)),
+        Camera::head_on().view_proj(1.0),
+        Viewport::hundred(),
     );
     assert_eq!(axes.advance, Vec3::X);
     assert!(
@@ -352,8 +327,8 @@ fn a_turn_the_screen_runs_up_is_picked_along_its_own_axes() {
     // the run advances up and its own box runs to the right.
     let axes = turn.axes(
         Vec3::ZERO,
-        head_on().view_proj(1.0),
-        Viewport::new(UVec2::new(100, 100)),
+        Camera::head_on().view_proj(1.0),
+        Viewport::hundred(),
     );
     assert_eq!(axes.advance, Vec3::Y);
     assert_eq!(axes.down, Vec3::X);
@@ -388,7 +363,7 @@ fn a_turn_the_screen_runs_up_is_picked_along_its_own_axes() {
 #[test]
 fn a_run_seen_from_behind_is_set_the_way_round_it_reads() {
     let turned = turned(ACROSS);
-    let behind = from_behind();
+    let behind = Camera::from_behind();
 
     // Anchored at its top-left, so the box still runs right and down from
     // centre — which is the whole claim.
@@ -419,8 +394,8 @@ fn a_run_seen_from_behind_is_set_the_way_round_it_reads() {
 /// which side of zero it is on.
 #[test]
 fn a_run_past_the_upright_comes_round_rather_than_reading_upside_down() {
-    let projection = head_on().view_proj(1.0);
-    let viewport = Viewport::new(UVec2::new(100, 100));
+    let projection = Camera::head_on().view_proj(1.0);
+    let viewport = Viewport::hundred();
     let advance = |lean: f32| {
         let turn = Turn::new(Vec3::new(lean, 1.0, 0.0), Vec3::Z);
         turn.axes(Vec3::ZERO, projection, viewport).advance
@@ -493,7 +468,7 @@ fn a_lift_floats_the_box_off_the_point_the_run_names() {
     // plane, and it lies under the cursor. Swept across the box rather than taken
     // at one point, since a single point is exactly what the old answer got
     // right.
-    let viewport = Viewport::new(UVec2::new(100, 100));
+    let viewport = Viewport::hundred();
     for cursor in [carried, Vec2::new(52.0, 63.0), Vec2::new(88.0, 73.0)] {
         let hit = lifted.pick(&aim_at(cursor, 0.0)).expect("in the lift");
         assert!(
@@ -501,7 +476,7 @@ fn a_lift_floats_the_box_off_the_point_the_run_names() {
             "at {cursor:?} the run answered from {:?}, off the plane it is set in",
             hit.world
         );
-        let back = head_on()
+        let back = Camera::head_on()
             .screen_of(hit.world, viewport)
             .expect("a point of the run is drawn");
         assert!(
@@ -515,7 +490,7 @@ fn a_lift_floats_the_box_off_the_point_the_run_names() {
     // it is what says the sweep above is measuring a plane rather than a mistake:
     // twelve pixels down the plane's own down — world −y for this turn — from the
     // point the run names, times what a pixel is worth there.
-    let step = head_on().world_per_pixel(Vec3::ZERO, viewport);
+    let step = Camera::head_on().world_per_pixel(Vec3::ZERO, viewport);
     let hangs = Vec3::new(0.0, -12.0 * step, 0.0);
     let at_corner = lifted
         .pick(&aim_at(Vec2::new(50.0, 62.0), 0.0))
@@ -542,7 +517,7 @@ fn a_lift_floats_the_box_off_the_point_the_run_names() {
 /// moved because of the re-setting and nothing else.
 #[test]
 fn a_centred_box_holds_its_place_when_the_run_comes_round() {
-    let viewport = Viewport::new(UVec2::new(100, 100));
+    let viewport = Viewport::hundred();
     let turn = ACROSS.lifted(Vec2::new(0.0, -12.0));
     // Where the middle of a run's box sits in the world, given how its anchor
     // hangs it: the lift carries the point it hangs from, and the anchor then
@@ -558,7 +533,7 @@ fn a_centred_box_holds_its_place_when_the_run_comes_round() {
     // plane, and its box still runs down the same way — which is a mirror of the
     // world frame rather than a turn of it, and is what keeps the lettering
     // reading from both sides.
-    let (front, back) = (head_on(), from_behind());
+    let (front, back) = (Camera::head_on(), Camera::from_behind());
     let facing = turn.axes(Vec3::ZERO, front.view_proj(1.0), viewport);
     let behind = turn.axes(Vec3::ZERO, back.view_proj(1.0), viewport);
     assert_eq!(facing.advance, -behind.advance, "the run was not re-set");

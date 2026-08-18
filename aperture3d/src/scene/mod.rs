@@ -343,4 +343,40 @@ impl Scene {
 }
 
 #[cfg(test)]
+mod emptying {
+    use crate::scene::Scene;
+
+    impl Scene {
+        /// Throw away every kind in it, leaving each batch the room it had.
+        ///
+        /// For a harness painting several drawings through one pane, which is
+        /// what it has to do: the host initialises the view it is first given,
+        /// so a second [`Renderer`](crate::Renderer) handed to the same host has
+        /// never been through that and the scene is rewritten in place instead.
+        ///
+        /// Destructured rather than written as a list of fields, so a kind added
+        /// to the scene has to be emptied here before this compiles — the hand
+        /// written list this replaced had missed one.
+        pub(crate) fn clear(&mut self) {
+            let Self {
+                solids,
+                faces,
+                curves,
+                rings,
+                points,
+                texts,
+                gizmos,
+            } = self;
+            solids.clear();
+            faces.clear();
+            curves.clear();
+            rings.clear();
+            points.clear();
+            texts.clear();
+            gizmos.clear();
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests;

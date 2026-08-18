@@ -439,5 +439,63 @@ impl Camera {
     }
 }
 
+#[cfg(any(test, feature = "bench"))]
+mod looking {
+    use crate::camera::{Camera, Projection};
+    use glam::Vec3;
+
+    impl Camera {
+        /// Straight down −Z from five away with a 90° fov, so every number read
+        /// off it can be worked out by hand.
+        ///
+        /// The projection is half of what that buys: `1/tan(45°)` is one, and a
+        /// fifth of the five-unit orbit puts the near plane on one, so reversed
+        /// depth reads straight off as `1 / distance`. The framing is the other
+        /// half — over a hundred-pixel square it puts the origin dead centre
+        /// with the world spanning ±5 across it at the target's depth, which is
+        /// ten pixels to the world unit.
+        ///
+        /// Every field is stated because none of [`Camera::default`] survives
+        /// here: that one is angled, further off, narrower and clipped far
+        /// nearer, and a fixture wanting arithmetic can borrow none of it.
+        pub(crate) fn head_on() -> Self {
+            Self {
+                projection: Projection::Perspective,
+                target: Vec3::ZERO,
+                distance: 5.0,
+                yaw: 0.0,
+                pitch: 0.0,
+                fov_y: std::f32::consts::FRAC_PI_2,
+                near_ratio: 1.0 / 5.0,
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod turning {
+    use crate::camera::Camera;
+
+    impl Camera {
+        /// [`Camera::head_on`] from the other side of the z = 0 plane.
+        ///
+        /// The pair a rule about which way round something reads is asked of:
+        /// half a turn is the one move that mirrors what is drawn on that plane
+        /// without foreshortening it, so what comes back has to be settled by
+        /// the rule rather than by the projection.
+        ///
+        /// Its own mod rather than sitting beside the camera it turns: the
+        /// allocation bench shares that one and has nothing to view from behind,
+        /// and a `pub(crate)` fixture compiled for a feature nothing under it
+        /// calls is dead code.
+        pub(crate) fn from_behind() -> Self {
+            Self {
+                yaw: std::f32::consts::PI,
+                ..Self::head_on()
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests;

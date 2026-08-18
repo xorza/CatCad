@@ -37,7 +37,7 @@
 //! duration measured under it says nothing.
 
 use crate::aim::Aim;
-use crate::camera::{Camera, Projection};
+use crate::camera::Camera;
 use crate::curve::Curve;
 use crate::highlight::{Highlight, Lit};
 use crate::mesh::Mesh;
@@ -80,21 +80,6 @@ const PAINT_STILL_MAX: f64 = 102.0;
 /// aperture allocating per frame would widen it, and this step against the
 /// one above is what would show that.
 const PAINT_HOVERING_MAX: f64 = 106.0;
-
-/// Where the fixture is viewed from: straight down −Z from 5 away with a 90°
-/// fov, so the origin lands dead centre and a marker there is what the centre
-/// pixel picks.
-fn camera() -> Camera {
-    Camera {
-        projection: Projection::Perspective,
-        target: Vec3::ZERO,
-        distance: 5.0,
-        yaw: 0.0,
-        pitch: 0.0,
-        fov_y: std::f32::consts::FRAC_PI_2,
-        near_ratio: 1.0 / 5.0,
-    }
-}
 
 const SURFACE: UVec2 = UVec2::new(800, 600);
 
@@ -215,7 +200,7 @@ pub fn alloc_bench() {
 
     let scene = scene();
     bench.step("nearest-hit", 0.0, || {
-        black_box(scene.nearest(Aim::new(&camera(), ON_THE_DRAWING, viewport, 6.0)));
+        black_box(scene.nearest(Aim::new(&Camera::head_on(), ON_THE_DRAWING, viewport, 6.0)));
     });
 
     // What a hover costs the renderer: the lit set changes, so the `lit` records

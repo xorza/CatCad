@@ -266,7 +266,7 @@ mod tests {
     use crate::camera::Camera;
     use crate::mesh::Vertex;
     use crate::viewport::Viewport;
-    use glam::{UVec2, Vec2};
+    use glam::Vec2;
 
     /// A unit quad in the z = 0 plane, two triangles and no thickness — which is
     /// what a sketch face is, and so what the box in front of one has to survive
@@ -334,15 +334,10 @@ mod tests {
     #[test]
     fn a_flat_sheet_is_picked_where_it_is_drawn() {
         let sheet = sheet();
-        let viewport = Viewport::new(UVec2::new(100, 100));
+        let viewport = Viewport::hundred();
         let looking = |pitch: f32| Camera {
-            target: Vec3::ZERO,
-            distance: 5.0,
-            yaw: 0.0,
             pitch,
-            fov_y: std::f32::consts::FRAC_PI_2,
-            near_ratio: 1.0 / 5.0,
-            ..Camera::default()
+            ..Camera::head_on()
         };
         let pick = |camera: &Camera, cursor: Vec2| {
             sheet.pick(&Aim::new(camera, cursor, viewport, 6.0), HitAt::Surface)

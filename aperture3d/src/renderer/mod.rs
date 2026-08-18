@@ -265,12 +265,17 @@ impl GpuPaint for Renderer {
     }
 }
 
-/// The shaper [`GpuPaint::init`] would hand over, for a test laying text out
-/// without a device to hand one over.
 #[cfg(test)]
-impl Renderer {
-    pub(crate) fn shape_with(&mut self, shaper: TextShaper) {
-        self.shaper = Some(shaper);
+mod shaping {
+    use crate::renderer::Renderer;
+    use palantir::TextShaper;
+
+    impl Renderer {
+        /// The shaper [`GpuPaint::init`](palantir::GpuPaint::init) would hand
+        /// over, for a test laying text out without a device to hand one over.
+        pub(crate) fn shape_with(&mut self, shaper: TextShaper) {
+            self.shaper = Some(shaper);
+        }
     }
 }
 

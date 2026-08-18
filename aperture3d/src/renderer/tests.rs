@@ -975,16 +975,12 @@ struct Staged {
 #[test]
 fn every_kind_reaches_the_frame() {
     let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let target = frame_target(&gpu.device);
-    let mut pane = ScenePane {
-        view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
-    };
+    let mut view = Framed::new(&gpu, Camera::default());
 
     // The baseline the rest is measured against: with nothing in the scene the
     // frame is background, so a kind that draws has to move this off zero.
-    host.frame_offscreen(&target, 1.0, &mut pane);
-    let empty = drawn_pixels(&gpu, &target);
+    view.paint(1.0);
+    let empty = view.drawn();
     assert_eq!(
         empty, 0,
         "an empty scene lit {empty} pixels, so nothing below proves anything"
@@ -1032,19 +1028,12 @@ fn every_kind_reaches_the_frame() {
         },
     ];
     for Staged { batch, stage } in kinds {
-        {
-            let mut view = pane.view.borrow_mut();
-            let scene = view.scene_mut();
-            scene.solids.clear();
-            scene.curves.clear();
-            scene.rings.clear();
-            scene.points.clear();
-            scene.gizmos.clear();
-            scene.texts.clear();
+        view.edit(|scene| {
+            scene.clear();
             stage(scene);
-        }
-        host.frame_offscreen(&target, 1.0, &mut pane);
-        let drawn = drawn_pixels(&gpu, &target);
+        });
+        view.paint(1.0);
+        let drawn = view.drawn();
         assert!(
             drawn > 0,
             "nothing of the {batch} batch reached the frame — it flattened, it \
@@ -1053,26 +1042,26 @@ fn every_kind_reaches_the_frame() {
     }
 }
 
-/// A headless view with one run of type in it, and what that run inks.
+/// A headless view a frame is painted into, and what that frame inked.
 ///
-/// The three tests below differ only in the camera they look through and the
-/// run they put in front of it; the device, the host, the target and the pane
-/// were the same fourteen lines in each. A run rather than a facing, because
-/// between them they vary the facing, the turn and the anchor, and the whole
-/// `Text` is the one thing that covers all three.
+/// Every test here that asks the *picture* rather than the buffers wants the
+/// same four things — a device, a host, a target and a pane — and they were the
+/// same fourteen lines in each. What varies is the camera it is set up with and
+/// what is put in front of it.
 ///
-/// Squared to the view by every caller so far, which is what makes their boxes
-/// arithmetic: world +x then runs across the screen and +y up it, and the world
-/// origin lands on the middle pixel.
+/// One pane for the life of it, which is not a saving but a requirement: the
+/// host initialises the view it is first given, and a second [`Renderer`] handed
+/// to the same host has never been through that. So a drawing is changed by
+/// rewriting the scene rather than by standing up another view over it.
 #[derive(Debug)]
-struct Lettering<'a> {
+struct Framed<'a> {
     gpu: &'a HeadlessTestGpuLease,
     host: OffscreenHost,
     target: wgpu::Texture,
     pane: ScenePane,
 }
 
-impl<'a> Lettering<'a> {
+impl<'a> Framed<'a> {
     fn new(gpu: &'a HeadlessTestGpuLease, camera: Camera) -> Self {
         let pane = ScenePane {
             view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
@@ -1086,24 +1075,48 @@ impl<'a> Lettering<'a> {
         }
     }
 
-    /// What `text` inks, as the only thing in the scene, on a display of one
-    /// physical pixel to the logical one.
+    /// Rewrite what stands in front of the camera.
+    fn edit(&mut self, staging: impl FnOnce(&mut Scene)) {
+        let mut view = self.pane.view.borrow_mut();
+        staging(view.scene_mut());
+    }
+
+    /// Paint one frame, on a display of `scale` physical pixels to the logical
+    /// one — which leaves the target and the framing alone and changes only what
+    /// a logical pixel is worth.
+    fn paint(&mut self, scale: f32) {
+        self.host
+            .frame_offscreen(&self.target, scale, &mut self.pane);
+    }
+
+    /// How much of the frame it last painted is something other than the
+    /// background.
+    fn drawn(&self) -> usize {
+        drawn_pixels(self.gpu, &self.target)
+    }
+
+    /// What colour the middle of that frame came out.
+    fn middle(&self) -> [i32; 3] {
+        middle_pixel(self.gpu, &self.target)
+    }
+
+    /// What `text` inks, as the only thing in the scene, at one physical pixel
+    /// to the logical one.
+    ///
+    /// A whole run rather than a facing, because the lettering tests vary the
+    /// facing, the turn and the anchor between them, and a [`Text`] is the one
+    /// thing that carries all three.
     fn ink(&mut self, text: Text) -> Ink {
         self.ink_at(text, 1.0)
     }
 
-    /// The same, seen on a display of `scale` physical pixels to the logical
-    /// one — which leaves the target and the framing alone and changes only what
-    /// a logical pixel of the run is worth.
+    /// The same, seen at `scale` physical pixels to the logical one.
     fn ink_at(&mut self, text: Text, scale: f32) -> Ink {
-        {
-            let mut view = self.pane.view.borrow_mut();
-            let texts = &mut view.scene_mut().texts;
-            texts.clear();
-            texts.push(text);
-        }
-        self.host
-            .frame_offscreen(&self.target, scale, &mut self.pane);
+        self.edit(|scene| {
+            scene.texts.clear();
+            scene.texts.push(text);
+        });
+        self.paint(scale);
         drawn_ink(self.gpu, &self.target)
     }
 }
@@ -1141,7 +1154,7 @@ fn run() -> Text {
 #[test]
 fn a_run_laid_in_the_plane_it_faces_is_the_screen_run_turned() {
     let gpu = headless_test_gpu();
-    let mut view = Lettering::new(&gpu, square_on());
+    let mut view = Framed::new(&gpu, square_on());
     let mut ink_of = |facing| view.ink(run().facing(facing));
 
     let flat = ink_of(Facing::Screen { on: None });
@@ -1203,7 +1216,7 @@ fn a_run_laid_in_the_plane_it_faces_is_the_screen_run_turned() {
 #[test]
 fn a_run_laid_in_a_raked_plane_foreshortens_with_it() {
     let gpu = headless_test_gpu();
-    let mut view = Lettering::new(
+    let mut view = Framed::new(
         &gpu,
         Camera {
             projection: Projection::Orthographic,
@@ -1259,7 +1272,7 @@ fn a_run_laid_in_a_raked_plane_foreshortens_with_it() {
 #[test]
 fn a_lifted_run_only_changes_direction_when_it_comes_round() {
     let gpu = headless_test_gpu();
-    let mut view = Lettering::new(&gpu, square_on());
+    let mut view = Framed::new(&gpu, square_on());
     let mut ink_of = |turn| {
         view.ink(
             run()
@@ -1376,7 +1389,7 @@ fn a_run_is_picked_over_the_pixels_it_was_drawn_on() {
             },
         ),
     ] {
-        let mut view = Lettering::new(&gpu, camera);
+        let mut view = Framed::new(&gpu, camera);
         // Centred and lifted is what a drawing's marks are; hung off a corner
         // with no lift is the other end of what `Text::origin` decides, and the
         // two fold in opposite directions.
@@ -1475,33 +1488,29 @@ fn a_run_is_picked_over_the_pixels_it_was_drawn_on() {
 #[test]
 fn a_frame_uploads_every_kind() {
     let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let target = frame_target(&gpu.device);
+    let mut view = Framed::new(&gpu, Camera::default());
 
     // One tag over four of the five, so a single highlight has to reach every
     // overlay pass and leave the solids alone.
     let lit = Tag::new(1);
-    let mut scene = Scene::default();
-    scene.solids.push(Object::new(Mesh::cube(1.0)));
-    scene
-        .curves
-        .push(Curve::segment(Vec3::ZERO, Vec3::X).tagged(lit));
-    scene
-        .rings
-        .push(Ring::new(Vec3::ZERO, 1.0, Vec3::Z).tagged(lit));
-    scene.points.push(Point::new(Vec3::ZERO).tagged(lit));
-    scene
-        .texts
-        .push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(lit));
-
-    let mut pane = ScenePane {
-        view: Rc::new(RefCell::new(Renderer::new(scene))),
-    };
-    host.frame_offscreen(&target, 1.0, &mut pane);
+    view.edit(|scene| {
+        scene.solids.push(Object::new(Mesh::cube(1.0)));
+        scene
+            .curves
+            .push(Curve::segment(Vec3::ZERO, Vec3::X).tagged(lit));
+        scene
+            .rings
+            .push(Ring::new(Vec3::ZERO, 1.0, Vec3::Z).tagged(lit));
+        scene.points.push(Point::new(Vec3::ZERO).tagged(lit));
+        scene
+            .texts
+            .push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(lit));
+    });
+    view.paint(1.0);
 
     {
-        let view = pane.view.borrow();
-        let built = view.gpu.as_ref().expect("init runs before paint");
+        let renderer = view.pane.view.borrow();
+        let built = renderer.gpu.as_ref().expect("init runs before paint");
 
         // A cube is 24 corners and 36 indices, drawn as one instance of one
         // triangle list.
@@ -1528,14 +1537,14 @@ fn a_frame_uploads_every_kind() {
 
     // Lit between the frames, which is the only edit — so the second frame
     // rebuilds the highlights and re-uploads nothing else.
-    pane.view.borrow_mut().highlight_only(Lit {
+    view.pane.view.borrow_mut().highlight_only(Lit {
         tag: lit,
         look: Highlight::new(Vec3::Y),
     });
-    host.frame_offscreen(&target, 1.0, &mut pane);
+    view.paint(1.0);
 
-    let view = pane.view.borrow();
-    let built = view.gpu.as_ref().expect("init runs before paint");
+    let renderer = view.pane.view.borrow();
+    let built = renderer.gpu.as_ref().expect("init runs before paint");
     assert_eq!(built.curves.lit.instances, 1);
     assert_eq!(built.rings.lit.instances, 1);
     assert_eq!(built.points.lit.instances, 1);
@@ -1671,31 +1680,16 @@ fn a_gizmo_sorts_against_a_face_by_which_is_nearer_rather_than_by_pass_order() {
     const FAR: f32 = -1.0;
 
     let gpu = headless_test_gpu();
-    let mut host = OffscreenHost::builder(gpu.device.clone(), gpu.queue.clone()).build();
-    let target = frame_target(&gpu.device);
-    let mut pane = ScenePane {
-        view: Rc::new(RefCell::new(Renderer::new(Scene::default()))),
-    };
-    {
-        // Straight down the axis, so a point on it lands dead centre whatever
-        // its depth — which is what lets one pixel answer for both sheets. The
-        // stock camera is pitched, and there a nearer point projects clear of a
-        // further one rather than onto it, so the stroke misses the pixel the
-        // face is read at and the test reads a face that won nothing.
-        let mut view = pane.view.borrow_mut();
-        let camera = view.camera_mut();
-        camera.yaw = 0.0;
-        camera.pitch = 0.0;
-    }
+    // Straight down the axis, so a point on it lands dead centre whatever its
+    // depth — which is what lets one pixel answer for both sheets. The stock
+    // camera is pitched, and there a nearer point projects clear of a further
+    // one rather than onto it, so the stroke misses the pixel the face is read
+    // at and the test reads a face that won nothing.
+    let mut view = Framed::new(&gpu, square_on());
 
-    // One pane throughout: the host initialises the view it is first given, and
-    // a second `Renderer` handed to the same host has never been through that.
     let mut sheets_at = |gizmo_at: f32, face_at: f32| {
-        {
-            let mut view = pane.view.borrow_mut();
-            let scene = view.scene_mut();
-            scene.gizmos.clear();
-            scene.faces.clear();
+        view.edit(|scene| {
+            scene.clear();
             scene.gizmos.push(
                 Curve::segment(
                     Vec3::new(-1.0, 0.0, gizmo_at),
@@ -1709,9 +1703,9 @@ fn a_gizmo_sorts_against_a_face_by_which_is_nearer_rather_than_by_pass_order() {
                     .colored(REGION)
                     .at(Vec3::Z * face_at),
             );
-        }
-        host.frame_offscreen(&target, 1.0, &mut pane);
-        middle_pixel(&gpu, &target)
+        });
+        view.paint(1.0);
+        view.middle()
     };
 
     // In front: the face loses the depth test where the control covers it, so
