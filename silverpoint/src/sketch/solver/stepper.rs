@@ -105,6 +105,16 @@ pub(super) struct Stepper {
     /// Which columns the Jacobian row being folded in has anything in, gathered
     /// once per row and read twice — once per pair of them.
     touched: Vec<usize>,
+    /// How far left each row of the normal equations reaches, which is what the
+    /// factorisation is spared walking — see
+    /// [`solve_in_place`](crate::math::dense::solve_in_place).
+    ///
+    /// Taken off the rows as they are folded in rather than found by scanning
+    /// the matrix afterwards: the walk that fills a cell is the walk that knows
+    /// which column it was. Rebuilt every iteration beside the matrix it
+    /// describes, so a partial that happens to come out at zero narrows it for
+    /// that step rather than being remembered as structure.
+    first: Vec<usize>,
     /// Where the run stands, and where a step would put it — the two points the
     /// system it was handed and [`Stepper::trial`] are the assemblies of.
     params: Vec<f64>,
@@ -165,6 +175,12 @@ impl Stepper {
             iterations += 1;
             self.normal.fill(0.0);
             self.step.fill(0.0);
+            // Every row starts reaching no further than its own diagonal, which
+            // is where a cell nothing writes to belongs: the damping below puts
+            // something there whatever the equations did.
+            for (col, reaches) in self.first.iter_mut().enumerate() {
+                *reaches = col;
+            }
             for (row, residual) in system.jacobian.chunks_exact(n).zip(&system.residuals) {
                 // A constraint names two entities at most, so a row is four
                 // cells of work in a sketch of any width — and every cell of
@@ -183,7 +199,14 @@ impl Stepper {
                 // finding it again.
                 self.touched.clear();
                 self.touched.extend((0..n).filter(|&col| row[col] != 0.0));
+                // The leftmost column this row reaches, which is as far left as
+                // any cell it writes can be — `touched` climbs, so it is the
+                // first of them.
+                let Some(&leftmost) = self.touched.first() else {
+                    continue;
+                };
                 for (taken, &a) in self.touched.iter().enumerate() {
+                    self.first[a] = self.first[a].min(leftmost);
                     self.step[a] -= row[a] * residual;
                     // The lower triangle alone, since that is all the Cholesky
                     // reads. `touched` climbs, so `..=taken` is exactly `b <= a`.
@@ -227,7 +250,7 @@ impl Stepper {
                 }
             }
 
-            if !solve_in_place(&mut self.normal, n, &mut self.step) {
+            if !solve_in_place(&mut self.normal, n, &self.first, &mut self.step) {
                 damping *= DAMPING_GROWTH;
                 if damping > MAX_DAMPING {
                     break;
@@ -275,6 +298,8 @@ impl Stepper {
         let n = system.width();
         self.normal.clear();
         self.normal.resize(n * n, 0.0);
+        self.first.clear();
+        self.first.resize(n, 0);
         self.step.clear();
         self.step.resize(n, 0.0);
         self.params.clear();
