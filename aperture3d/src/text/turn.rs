@@ -62,6 +62,20 @@ impl Facing {
         }
     }
 
+    /// The turn this run is laid along, where there is one to lay it along.
+    ///
+    /// `None` for a run square to the viewer *and* for one turned into a plane
+    /// it has no direction in — see [`Turn::laid`] — because the shader draws
+    /// the second as the first. Asking it once is what keeps a run from being
+    /// measured in a frame it was not laid out in: everything that has to
+    /// agree with the vertex stage takes its turn from here.
+    pub(crate) fn laid_turn(self) -> Option<Turn> {
+        match self {
+            Self::Screen { .. } => None,
+            Self::Turned(turn) => turn.laid().then_some(turn),
+        }
+    }
+
     /// The direction the run advances along, where it is turned into a plane,
     /// and `None` where it runs across the screen.
     ///
@@ -70,10 +84,7 @@ impl Facing {
     /// unpacking both, and it should not have to know which state it is looking
     /// at to do either.
     pub fn right(self) -> Option<Vec3> {
-        match self {
-            Self::Screen { .. } => None,
-            Self::Turned(turn) => turn.laid().then_some(turn.right),
-        }
+        self.laid_turn().map(|turn| turn.right)
     }
 
     /// How far the run's box floats off the point it names, as a world

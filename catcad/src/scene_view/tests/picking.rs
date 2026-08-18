@@ -6,9 +6,10 @@ use crate::intent::Opening;
 use crate::internals::HARNESS_SIZE;
 use crate::part::Part;
 use crate::scene_view::click::dimension;
-use crate::scene_view::gesture::label;
+use crate::scene_view::gesture::{Gesture, label};
 use crate::scene_view::tests::harness::RaisedView;
 use crate::tool::Tool;
+use crate::tool::dimensioning::Dimensioning;
 use glam::{DVec2, Vec2, Vec3};
 use palantir::Modifiers;
 use silverpoint::Entity;
@@ -438,4 +439,119 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
             entry.look.tint,
         );
     }
+}
+
+/// A click leaves nothing in hand, so the pointer goes on lighting what it
+/// crosses afterwards.
+///
+/// The gesture a press settles is read for as long as the button is down, and
+/// what it holds is what gets lit — deliberately, so a drag lights the thing in
+/// hand rather than whatever it passes over. But a press that never travels is
+/// a *click*, and a click latches no drag, so the `Drag::Stopped` that ends a
+/// gesture never arrives for one. Left unended, the first click on anything
+/// grabbable pinned the highlight to it and every later hover answered with the
+/// part still notionally in hand.
+#[test]
+fn a_click_ends_the_gesture_so_hover_goes_on_working_after_it() {
+    let mut raised = RaisedView::new();
+    raised.frame();
+    let over_point = raised
+        .over(|grip| matches!(grip, Grip::Point(_)))
+        .expect("the demo draws a point that can be grabbed");
+    let over_rim = raised
+        .over(|grip| matches!(grip, Grip::Rim(_)))
+        .expect("the demo draws a circle");
+
+    // Pressed and released across two frames, the way a pointer does it.
+    // `click_at` queues both into one, where the press edge and the release
+    // collapse and no gesture is ever settled — so it cannot see this.
+    raised.harness.press_at(over_point);
+    raised.frame();
+    raised.harness.release();
+    raised.frame();
+    let point = raised.named_at(over_point).expect("a point is there");
+    assert_eq!(
+        raised.view.hovered(),
+        Some(raised.part(point)),
+        "the click left the pointer over what it landed on",
+    );
+
+    // Moving off it and onto something else lights the something else.
+    raised.harness.move_to(over_rim);
+    raised.frame();
+    let rim = raised.named_at(over_rim).expect("a circle is there");
+    assert_eq!(
+        raised.view.hovered(),
+        Some(raised.part(rim)),
+        "the clicked part stayed lit, so the click never let go of it",
+    );
+
+    // And moving off the drawing lights nothing, rather than the part the
+    // gesture is still holding.
+    raised.harness.move_to(Vec2::new(
+        HARNESS_SIZE.x as f32 - 1.0,
+        HARNESS_SIZE.y as f32 - 1.0,
+    ));
+    raised.frame();
+    assert_eq!(
+        raised.view.hovered(),
+        None,
+        "something stayed lit off the drawing"
+    );
+}
+
+/// A tool still in hand refuses every grab, dimensions included — which is why
+/// stating one leaves no number on the drawing movable until it is put down.
+///
+/// Placing a dimension re-arms the tool rather than putting it away, so the
+/// press that would take hold of a *number* — the one thing a press can find
+/// that is not geometry — settles as an orbit like every other press does while
+/// a tool is up. Pinned because the two rules are written apart: the re-arm is
+/// the dimension click's and the refusal is [`Gesture::grab`]'s, and neither
+/// mentions the other.
+#[test]
+fn a_tool_in_hand_refuses_to_take_hold_of_a_dimension() {
+    let mut raised = RaisedView::new();
+    raised.frame();
+    let sketch = raised.session.editing();
+    let (id, _) = raised
+        .document
+        .drawing_at(sketch)
+        .sketch()
+        .constraints()
+        .find(|(_, c)| c.value().is_some())
+        .expect("the demo states a dimension");
+    let part = Part::Entity {
+        sketch,
+        entity: id.into(),
+    };
+    let drawing = raised.document.drawing_at(sketch);
+
+    // With the pointer, that number is a handle.
+    assert_eq!(
+        label(part, drawing, sketch),
+        Some(id),
+        "a dimension the demo stated is not a handle at all",
+    );
+
+    // Stating one leaves the tool up, and a tool that is up grabs nothing.
+    raised.hold(Tool::Dimension(Dimensioning::Empty));
+    assert_ne!(
+        raised.session.tool(),
+        Tool::Pointer,
+        "the fixture put the tool down, so this asks nothing",
+    );
+    assert!(
+        !matches!(
+            Gesture::grab(
+                Some(crate::scene_view::aimed::Aimed::at(glam::Vec2::ZERO)),
+                Some(raised.lens()),
+                &raised.view.picture,
+                &raised.document,
+                &raised.session,
+            ),
+            Gesture::Move(_)
+        ),
+        "a tool in hand took hold of something, so the refusal has moved",
+    );
 }

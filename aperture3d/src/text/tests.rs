@@ -44,6 +44,13 @@ fn label() -> Text {
 /// The two corners are the sharp cases: out on one axis the answer is the gap
 /// to that edge, and out on both it is the diagonal to the corner — which is
 /// what says the box is being measured rather than its centre.
+/// Measure a whole batch, the way `flatten_texts` does one run at a time.
+fn measure_each(texts: &[Text], glyphs: &mut palantir::TextGlyphs<'_>) {
+    for text in texts {
+        text.measure(glyphs);
+    }
+}
+
 #[test]
 fn a_label_is_hit_anywhere_inside_and_by_its_edge_outside() {
     // Anchored at its top-left, so the box spans x 50..90, y 50..62.
@@ -135,7 +142,7 @@ fn measuring_a_batch_fills_extents_without_marking_it() {
     assert!(texts.take_dirty());
 
     let shaper = TextShaper::new();
-    measure_all(&texts, &mut shaper.glyphs());
+    measure_each(&texts, &mut shaper.glyphs());
 
     assert!(!texts.take_dirty(), "measuring asked to be measured again");
     let measured = texts[0].extent();
@@ -157,7 +164,7 @@ fn a_measured_run_is_picked_across_the_width_it_measured() {
     let mut texts = Batch::default();
     texts.push(Text::new(Vec3::ZERO, "125.4", 16.0).tagged(Tag::new(7)));
     let shaper = TextShaper::new();
-    measure_all(&texts, &mut shaper.glyphs());
+    measure_each(&texts, &mut shaper.glyphs());
     let extent = texts[0].extent();
 
     // Anchored at its top-left, so the box runs right and down from centre.
@@ -615,7 +622,7 @@ fn a_direction_that_is_not_in_the_plane_is_brought_into_it_or_gives_up_the_turn(
         let mut extents = Vec::new();
         for text in [&laid, &flat] {
             let texts = [text.clone()];
-            measure_all(&texts, &mut TextShaper::new().glyphs());
+            measure_each(&texts, &mut TextShaper::new().glyphs());
             extents.push(texts[0].extent());
         }
         let laid = laid.measured(extents[0]).tagged(Tag::new(1));

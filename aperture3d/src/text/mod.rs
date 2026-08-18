@@ -34,10 +34,10 @@ const EDGE_ON: f32 = 1e-3;
 /// How square the surface a run's depth follows has to be to the cursor's ray
 /// before the depth is read off that surface rather than off the run's anchor.
 ///
-/// The cosine between the two, so a thousandth is within a twentieth of a degree
-/// of the ray lying *in* the surface — where the intersection runs off to
-/// infinity and the anchor's own depth is the only honest answer left. See
-/// [`Text::touched`].
+/// The same angular tolerance [`EDGE_ON`] states, read off a cosine rather than
+/// an area fraction — and a numerical guard rather than a policy. Below it the
+/// ray lies *in* the surface, the intersection runs off to infinity, and the
+/// anchor's own depth is the only honest answer left. See [`Text::touched`].
 const GRAZING: f32 = 1e-3;
 
 /// Something written in the scene: a label on a point, a dimension on a
@@ -186,19 +186,10 @@ impl Text {
         }
         let origin = self.origin();
         let box_of = Rect::new(origin.x, origin.y, extent.x, extent.y);
-        let turn = match self.facing {
-            Facing::Turned(turn) if turn.laid() => turn,
-            // Square to the viewer — and so is a run turned into a plane it has
-            // no direction in, because that is what the shader draws it as. See
-            // [`Turn::laid`], which both halves ask, so a run cannot be measured
-            // in a frame it was not laid out in.
-            _ => {
-                let from_anchor = aim.cursor - aim.screen_of(self.position)?;
-                return Some(Reach {
-                    screen: aim::reach_to_box(from_anchor, box_of),
-                    at: self.touched(aim, self.position),
-                });
-            }
+        // Square to the viewer — and so is a run turned into a plane it has no
+        // direction in, because that is what the shader draws it as.
+        let Some(turn) = self.facing.laid_turn() else {
+            return self.screen_reach(aim, box_of);
         };
         // What one logical pixel of the run reaches on screen: it is sized
         // against the screen and built in the world, so this is the step between
@@ -241,6 +232,17 @@ impl Text {
         Some(Reach {
             screen: (across * past.x + down * past.y).length(),
             at: self.touched(aim, hangs),
+        })
+    }
+
+    /// [`Text::reach_from`] for a run drawn square to the viewer: its box hangs
+    /// on the anchor itself, so the cursor is measured against it in screen
+    /// space and there are no plane axes to bring it onto.
+    fn screen_reach(&self, aim: &Aim, box_of: Rect) -> Option<Reach> {
+        let from_anchor = aim.cursor - aim.screen_of(self.position)?;
+        Some(Reach {
+            screen: aim::reach_to_box(from_anchor, box_of),
+            at: self.touched(aim, self.position),
         })
     }
 
@@ -302,6 +304,29 @@ impl Text {
         self.facing = facing;
         self
     }
+
+    /// Take this run's extent from `glyphs`, so that what has been laid out
+    /// knows how far it reaches.
+    ///
+    /// Reads the run and writes only its memo, which is why it takes `&self`
+    /// — see [`Text::extent`]. A measuring pass that needed `&mut` would be a
+    /// pass that marked the batch it measured, and a marked batch is one the
+    /// renderer lays out again.
+    ///
+    /// The answer is in logical pixels like every other overlay's size — a
+    /// label's extent is what it will be drawn at, and how many device pixels
+    /// that is belongs to whoever rasterizes it. `TextGlyphs::measure` answers
+    /// in those units and takes no raster scale, so there is nothing to undo
+    /// here.
+    ///
+    /// Takes the caller's lease rather than the shaper, because measuring is
+    /// half of laying a run out and the other half needs the same one: a lease
+    /// is the shaper's exclusive borrow, so a caller that opened one to place
+    /// glyphs cannot hand over a shaper for this to open another from.
+    pub(crate) fn measure(&self, glyphs: &mut TextGlyphs<'_>) {
+        let Size { w, h } = glyphs.measure(&self.content, self.font);
+        self.extent.set(Vec2::new(w, h));
+    }
 }
 
 /// Where a run stands in the world, and how far the cursor fell from the box it
@@ -354,31 +379,6 @@ impl Styled for Text {
 
     fn precedence_mut(&mut self) -> &mut Precedence {
         &mut self.precedence
-    }
-}
-
-/// Take every run's extent from `shaper`, so that what has been laid out knows
-/// how far it reaches.
-///
-/// Reads the runs and writes only their memo, which is why it takes them shared
-/// — see [`Text::extent`]. A measuring pass that needed `&mut` would be a pass
-/// that marked the batch it measured, and a marked batch is one the renderer
-/// lays out again.
-///
-/// The answer is in logical pixels like every other overlay's size — a
-/// label's extent is what it will be drawn at, and how many device pixels
-/// that is belongs to whoever rasterizes it. `TextGlyphs::measure` answers
-/// in those units and takes no raster scale, so there is nothing to undo
-/// here.
-///
-/// Takes the caller's lease rather than the shaper, because measuring is half
-/// of laying a run out and the other half needs the same one: a lease is the
-/// shaper's exclusive borrow, so a caller that opened one to place glyphs cannot
-/// hand over a shaper for this to open another from.
-pub(crate) fn measure_all(texts: &[Text], glyphs: &mut TextGlyphs<'_>) {
-    for text in texts {
-        let Size { w, h } = glyphs.measure(&text.content, text.font);
-        text.extent.set(Vec2::new(w, h));
     }
 }
 

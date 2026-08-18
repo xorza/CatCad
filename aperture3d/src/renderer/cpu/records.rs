@@ -10,8 +10,8 @@ use crate::highlight::Highlights;
 use crate::primitive::{Flatten, Primitive};
 use crate::renderer::atlas::{GlyphAtlas, GlyphQuad};
 use crate::renderer::record::{GlyphInstance, Instance};
+use crate::text::Text;
 use crate::text::turn::Facing;
-use crate::text::{self, Text};
 use glam::{Vec2, Vec3};
 use palantir::{PlacedGlyph, TextGlyphs};
 
@@ -206,16 +206,19 @@ impl TextRecords {
             records, placed, ..
         } = self;
         if relaid {
-            // Measured before anything is laid out, because where a run's glyphs
-            // sit depends on where its box hangs, and that is what the extent
-            // says. Only when they are being laid out again: a frame that merely
-            // relit a label reads what it measured last time.
-            text::measure_all(texts, laying.glyphs);
             // No count to reserve, unlike every other kind: how many glyphs a
             // run comes to is the shaper's answer, and asking would be laying
             // it out twice.
             let ordinary = records.ordinary_to_fill();
             for text in texts.iter() {
+                // Measured immediately before it is laid out, because where a
+                // run's glyphs sit depends on where its box hangs and that is
+                // what the extent says — but only its own box, so this needs no
+                // pass of its own, and one run measured and flattened together
+                // keeps its shaped buffer hot across both. Only when they are
+                // being laid out again: a frame that merely relit a label reads
+                // what it measured last time.
+                text.measure(laying.glyphs);
                 flatten(text, laying, placed, ordinary);
             }
         }

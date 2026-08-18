@@ -205,13 +205,29 @@ impl Pointing {
                 }
             }
             (_, Drag::Stopped) => {
-                self.gesture = Gesture::None;
                 // Whatever the gesture was. An orbit has nothing open for this
                 // to close, and saying so costs less than remembering which
                 // kind of gesture it was in order not to.
                 intents.push(Step::Release);
             }
             _ => {}
+        }
+        // **A gesture ends with the press that settled it, and a click is a
+        // press.** Said here rather than in the `Drag::Stopped` arm because
+        // that arm is the *latched* drag ending and a press that never
+        // travelled latches none — so a click reached the release with the
+        // gesture it had settled still in hand. What that cost was not the
+        // gesture but the highlight: [`Pointing::settled`] lights what is held
+        // in preference to what is under the pointer, deliberately, so a drag
+        // lights the thing in hand — and a click left the first grabbable
+        // thing lit for good, with every later hover answering with it.
+        //
+        // A superset of that arm rather than a second rule beside it: both
+        // readings come off the one release palantir captured, so a stopped
+        // drag arrives here too. What stays there is the `Step::Release` that
+        // closes what a drag opened, which a click never opened.
+        if matches!(response.left.phase, ButtonPhase::Up { .. }) {
+            self.gesture = Gesture::None;
         }
 
         // A click rather than a press: what it means is settled where the
