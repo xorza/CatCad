@@ -11,6 +11,7 @@ use crate::sketch::Sketch;
 use crate::sketch::solver::freedom::Freedom;
 use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::solver::system::System;
+use std::ops::RangeInclusive;
 
 /// Relative threshold below which a pivot counts as zero when measuring the
 /// rank of the Jacobian, and below which a parameter counts as standing still
@@ -54,6 +55,17 @@ impl Stretch {
     /// pivoting still moved rows, a third walk spelt it out too and let the two
     /// halves overlap, swapping a column twice so that it landed back where it
     /// started. It showed up only as a null-space entry parts-in-1e12 adrift.
+    /// Where this stretch sits in row `row` of a matrix `n` columns wide.
+    ///
+    /// A stretch is a pair of columns, and every use of one as a slice has to
+    /// put it in a row first. Named so that arithmetic is in one place rather
+    /// than spelt out at each — including where the stretch is a passing one,
+    /// like the gap fill opens between where a row reached and where the pivot
+    /// row does.
+    fn within(self, row: usize, n: usize) -> RangeInclusive<usize> {
+        row * n + self.low..=row * n + self.high
+    }
+
     fn spans<'a>(self, free: &'a [usize]) -> impl Iterator<Item = usize> + 'a {
         free.iter()
             .copied()
@@ -76,6 +88,21 @@ impl Stretch {
 pub(super) struct Elimination {
     /// Measuring rank destroys what it eliminates, so it runs on a copy of the
     /// Jacobian rather than on the Jacobian.
+    ///
+    /// **Grown, but never wholly cleared — so it is not zero where nothing put a
+    /// number.** Clearing two megabytes of it to have 998 numbers written in was
+    /// the largest single cost of a reduction on a finished drawing, and nearly
+    /// all of it went on cells no reader reaches. What is cleared instead is
+    /// exactly what is read, which [`Elimination::eliminate`] knows in the three
+    /// places it can tell and nothing outside it knows at all: a cell outside
+    /// its row's [`Elimination::reach`], and outside the columns already passed
+    /// over when that row joined the walk, holds whatever the last reduction
+    /// left there.
+    ///
+    /// Debug builds fill it with NaN before any of that, so reading such a cell
+    /// is loud rather than plausible — a stale number is indistinguishable from
+    /// the zero that belonged there, and the tests reuse one reduction across
+    /// every shape they try so that there is a stale number to find.
     rows: Vec<f64>,
     /// Which column each row of the reduction took its pivot in, one per rank.
     /// What tells a parameter the constraints resolve from one they leave to be
@@ -323,11 +350,26 @@ impl Elimination {
         // Spread back out to a cell per column, because the elimination writes
         // where the assembly held nothing: fill is the whole reason a reduction
         // costs what it does, and a row that starts with five numbers in it does
-        // not end with five. Cleared rather than copied over — the assembly is
-        // mostly holes, and a run of zeros is quicker to write than to read from
-        // somewhere else.
-        a.clear();
-        a.resize(m * n, 0.0);
+        // not end with five.
+        //
+        // Grown but never wholly cleared. Clearing it was the largest single
+        // cost of a reduction on a finished drawing — 25.7µs of 34.1µs at 502
+        // parameters, two megabytes zeroed to have 998 numbers written into it —
+        // and nearly all of that was cells no reader ever reaches. What is
+        // cleared instead is exactly what is read, in the three places that can
+        // tell: the stretch each row starts with, below; the columns already
+        // passed over when a row joins the walk; and the far end of a row when
+        // fill pushes it out.
+        if a.len() < m * n {
+            a.resize(m * n, 0.0);
+        }
+        // Which leaves the last reduction's numbers lying in the cells between,
+        // and a mistake about which those are would be silent — a stale number
+        // reads exactly like the zero that belonged there. Debug builds put a
+        // NaN in every cell first, so that it is not: anything read without
+        // having been cleared poisons the answer it reaches.
+        #[cfg(debug_assertions)]
+        a.fill(f64::NAN);
         used.clear();
         used.resize(m, false);
         let mut scale = 0.0f64;
@@ -338,11 +380,7 @@ impl Elimination {
         reach.reserve_exact(m);
         for at in 0..m {
             let row = system.row(at);
-            for (&col, &value) in row.cols.iter().zip(row.values) {
-                a[at * n + col as usize] = value;
-                scale = scale.max(value.abs());
-            }
-            reach.push(match (row.cols.first(), row.cols.last()) {
+            let stretch = match (row.cols.first(), row.cols.last()) {
                 (Some(&low), Some(&high)) => Stretch {
                     low: low as usize,
                     high: high as usize,
@@ -351,7 +389,16 @@ impl Elimination {
                 // is named redundant, which is what an equation that cannot move
                 // anything is.
                 _ => Stretch { low: 0, high: 0 },
-            });
+            };
+            // The holes inside the stretch as much as the numbers: a row runs
+            // from its first column to its last, but need not hold anything at
+            // every one between, and the elimination reads all of them.
+            a[stretch.within(at, n)].fill(0.0);
+            for (&col, &value) in row.cols.iter().zip(row.values) {
+                a[at * n + col as usize] = value;
+                scale = scale.max(value.abs());
+            }
+            reach.push(stretch);
         }
         // Group the rows by the column each joins the walk at, which is the
         // first one it holds anything in. A counting sort over what the loop
@@ -383,7 +430,16 @@ impl Elimination {
         let tolerance = RANK_TOLERANCE * scale;
         for col in 0..n {
             for &row in &entrants[joining[col] as usize..joining[col + 1] as usize] {
-                active.push(row as usize);
+                let row = row as usize;
+                // Every column passed over so far lies left of where this row
+                // starts — the walk runs left to right — so its cells there are
+                // outside the stretch cleared above and hold whatever the last
+                // reduction left. An update will read them the moment this row
+                // takes one.
+                for &passed in free.iter() {
+                    a[row * n + passed] = 0.0;
+                }
+                active.push(row);
             }
             // And out again once the walk is past everything they hold. Order is
             // kept rather than swap-removed, so that a row which joined earlier
@@ -427,6 +483,17 @@ impl Elimination {
                 let factor = a[row * n + col] / diagonal;
                 if factor == 0.0 {
                     continue;
+                }
+                // Where the pivot row reaches further than this one does, the
+                // cells between are ones this row has never held anything in and
+                // so has never had cleared. Fill is about to make them its own.
+                let reached = reach[row].high;
+                if pivoting.high > reached {
+                    let opening = Stretch {
+                        low: reached + 1,
+                        high: pivoting.high,
+                    };
+                    a[opening.within(row, n)].fill(0.0);
                 }
                 // The passed-over columns are not a rounding to be skipped:
                 // they are what the null space is read from, so dropping them

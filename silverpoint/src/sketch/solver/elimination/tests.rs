@@ -125,6 +125,11 @@ const CLOSE: f64 = 1e-13;
 #[test]
 fn the_reduction_answers_what_the_unshortened_walk_answers() {
     let (mut seen_free, mut seen_redundant, mut seen_faint) = (false, false, false);
+    // One reduction reused across every shape, as a solver reuses it: the dense
+    // scratch is no longer wholly cleared, so what a seed leaves behind is what
+    // the next one would read if it cleared too little. A fresh reduction per
+    // seed would start on a buffer that had only ever been zeroed.
+    let mut elimination = Elimination::default();
     for seed in 0..300u64 {
         let n = 6 + (seed % 6) as usize;
         let m = 5 + (seed % 8) as usize;
@@ -170,7 +175,6 @@ fn the_reduction_answers_what_the_unshortened_walk_answers() {
 
         let system = System::of_dense(&jacobian, movable.clone());
 
-        let mut elimination = Elimination::default();
         elimination.null_space(&system);
         let (pivots, free, origin, null) = reference(&jacobian, &movable, n);
 
