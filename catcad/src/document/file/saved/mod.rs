@@ -6,6 +6,7 @@
 
 mod camera;
 mod handles;
+mod numbering;
 mod relation;
 mod sketch;
 mod step;
@@ -16,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use crate::document::file::error::{Fault, LoadError, SaveError};
 use crate::document::file::saved::camera::Camera;
 use crate::document::file::saved::handles::{Handles, SKETCH_DEPTH};
+use crate::document::file::saved::numbering::Numbering;
 use crate::document::file::saved::step::Step;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Timeline};
@@ -62,7 +64,7 @@ impl Saved {
     pub(crate) fn of(timeline: &Timeline, camera: aperture::Camera) -> Self {
         // The order steps are written in is the order they are numbered in, so
         // a step's position in this is the number every reference to it uses.
-        let steps: Vec<FeatureId> = timeline.steps().map(|(id, _)| id).collect();
+        let steps: Numbering<FeatureId> = timeline.steps().map(|(id, _)| id).collect();
         // What each step's geometry is numbered as, gathered before any step is
         // written: an extrude names the curves bounding its region, those belong
         // to a sketch that may be any earlier step, and a file says "edge 3"

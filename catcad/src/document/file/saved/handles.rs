@@ -3,6 +3,7 @@
 use silverpoint::{CircleId, PointId, SegmentId};
 
 use crate::document::file::error::{Fault, Missing};
+use crate::document::file::saved::numbering::Numbering;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Timeline};
 
@@ -10,18 +11,22 @@ use crate::timeline::{FeatureId, Timeline};
 ///
 /// The crossing point between the two ways of naming a thing, and the only one:
 /// a file says "point 3" and a sketch says [`PointId`], so everything that
-/// refers to anything goes through here. Both directions want the same three
-/// lists, which is why writing and reading share one type rather than each
-/// keeping its own.
+/// refers to anything goes through here.
 ///
-/// Filled by walking a sketch when writing, and by building one when reading —
-/// and it is the same list either way, because a sketch built by inserting in
-/// file order hands its handles back in file order.
+/// Three [`Numbering`]s and not three lists, each answering in both directions
+/// — a file's number from a handle when writing, a handle from a file's number
+/// when reading. One type for both directions rather than one per direction,
+/// because a numbering only stays true if the two halves are filled together;
+/// see [`Numbering`], which is where that is kept.
+///
+/// Filled by walking a sketch when writing, and by building one when reading,
+/// and it comes out the same either way: a sketch built by inserting in file
+/// order hands its handles back in file order.
 #[derive(Debug, Default)]
 pub(super) struct Handles {
-    pub(super) points: Vec<PointId>,
-    pub(super) segments: Vec<SegmentId>,
-    pub(super) circles: Vec<CircleId>,
+    pub(super) points: Numbering<PointId>,
+    pub(super) segments: Numbering<SegmentId>,
+    pub(super) circles: Numbering<CircleId>,
 }
 
 impl Handles {
@@ -35,68 +40,28 @@ impl Handles {
     }
 
     pub(super) fn of_point(&self, id: PointId) -> usize {
-        filed(&self.points, id)
+        self.points.of(id)
     }
 
     pub(super) fn of_segment(&self, id: SegmentId) -> usize {
-        filed(&self.segments, id)
+        self.segments.of(id)
     }
 
     pub(super) fn of_circle(&self, id: CircleId) -> usize {
-        filed(&self.circles, id)
+        self.circles.of(id)
     }
 
     pub(super) fn point(&self, at: usize, names: usize) -> Result<PointId, Fault> {
-        held(&self.points, at, names, Missing::Point)
+        self.points.held(at, names, Missing::Point)
     }
 
     pub(super) fn segment(&self, at: usize, names: usize) -> Result<SegmentId, Fault> {
-        held(&self.segments, at, names, Missing::Segment)
+        self.segments.held(at, names, Missing::Segment)
     }
 
     pub(super) fn circle(&self, at: usize, names: usize) -> Result<CircleId, Fault> {
-        held(&self.circles, at, names, Missing::Circle)
+        self.circles.held(at, names, Missing::Circle)
     }
-}
-
-/// The handle filed under `names`, or which kind of thing was missing.
-///
-/// `missing` is the [`Missing`] variant for whichever list this is, which is
-/// what the three callers above differ by and the whole of what they differ by.
-/// It is passed rather than inferred because the list cannot say what it is: a
-/// `Vec<Id<T>>` knows its `T`, and `Missing` is about what a *reader* should be
-/// told, which is a noun rather than a type.
-pub(super) fn held<T: Copy>(
-    ids: &[T],
-    at: usize,
-    names: usize,
-    missing: fn(usize) -> Missing,
-) -> Result<T, Fault> {
-    ids.get(names).copied().ok_or(Fault::Unknown {
-        at,
-        what: missing(names),
-    })
-}
-
-/// Which number `id` is filed under.
-///
-/// A walk rather than a lookup, because the list *is* the numbering — there is
-/// nothing to look it up in. Quadratic in the count over a whole sketch, and
-/// cold either way: saving happens when someone asks for it, not sixty times a
-/// second.
-///
-/// One function for a sketch's handles and a timeline's alike, because the
-/// question is the same one twice: both lists were built by walking what is
-/// being written down, so a name that is not in one could not have been written.
-///
-/// Panics where the handle is not in the list, which is a logic error and never
-/// a file's doing: what is being written is what the sketch or the timeline just
-/// handed over, and geometry naming geometry the same sketch does not hold could
-/// not have been added in the first place.
-pub(super) fn filed<T: PartialEq>(ids: &[T], id: T) -> usize {
-    ids.iter()
-        .position(|had| *had == id)
-        .expect("what is being written names only what it holds")
 }
 
 /// The plane step `names` refers to, checked both ways a reference can be wrong.

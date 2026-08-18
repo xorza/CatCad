@@ -1,11 +1,11 @@
 //! One step of the timeline as it is written down.
 
-use crate::document::file::saved::handles::filed;
 use crate::document::file::saved::{Bounded, Loaded};
 use serde::{Deserialize, Serialize};
 
 use crate::document::file::error::Fault;
 use crate::document::file::saved::handles::{Handles, finite, plane_at, sketch_at};
+use crate::document::file::saved::numbering::Numbering;
 use crate::document::file::saved::sketch::Sketch;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, Feature};
@@ -53,10 +53,10 @@ pub(super) struct Profiled {
 
 impl Profiled {
     /// `profile` as a file would hold it.
-    pub(super) fn of(profile: &Profile, steps: &[FeatureId], handles: &[Handles]) -> Self {
+    pub(super) fn of(profile: &Profile, steps: &Numbering<FeatureId>, handles: &[Handles]) -> Self {
         // The sketch's own numbering, which is what the bounds are written in —
         // so it is found first and every bound read through it.
-        let sketch = filed(steps, profile.sketch());
+        let sketch = steps.of(profile.sketch());
         Self {
             sketch,
             bounds: profile
@@ -92,15 +92,15 @@ impl Step {
     /// `feature` as a file would hold it, with `steps` saying what number each
     /// of the timeline's handles is written as and `handles` what number each
     /// step's own geometry is.
-    pub(super) fn of(feature: &Feature, steps: &[FeatureId], handles: &[Handles]) -> Self {
+    pub(super) fn of(feature: &Feature, steps: &Numbering<FeatureId>, handles: &[Handles]) -> Self {
         match feature {
             Feature::Plane(Datum::Ground) => Step::Ground,
             Feature::Plane(Datum::Offset { from, by }) => Step::Plane {
-                from: filed(steps, *from),
+                from: steps.of(*from),
                 by: *by,
             },
             Feature::Sketch { on, sketch } => Step::Sketch {
-                on: filed(steps, *on),
+                on: steps.of(*on),
                 sketch: Sketch::of(sketch),
             },
             Feature::Extrude { profile, distance } => Step::Extrude {

@@ -452,7 +452,10 @@ struct Step {
 /// numbers. It is what lets the three lists keyed by one be *sorted* by one, and
 /// so halved rather than walked: the timeline's own steps, and both of the
 /// things a [`Build`](crate::build::Build) works out from them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+///
+/// Hashed as well, which says nothing about when: it is what lets a save number
+/// the steps by looking each one up rather than by scanning for it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct FeatureId(u32);
 
 /// What a fixture reaches past the timeline for.
