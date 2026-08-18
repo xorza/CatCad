@@ -221,7 +221,7 @@ impl RaisedView {
 
     /// The first cursor of a coarse sweep whose hit resolves to a grip
     /// satisfying `keep`.
-    pub(super) fn sweep(&self, keep: impl Fn(Option<Grip>) -> bool) -> Option<Vec2> {
+    fn sweep(&self, keep: impl Fn(Option<Grip>) -> bool) -> Option<Vec2> {
         self.scan(|part, at| {
             keep(part.and_then(Part::entity).and_then(|entity| {
                 self.document
@@ -237,7 +237,7 @@ impl RaisedView {
     /// The view's own call rather than an aim built here, which is what it was:
     /// a hand-rolled pick agrees with the real one until one of them is changed,
     /// and what these sweeps are *for* is finding what a press would find.
-    pub(super) fn scan(&self, keep: impl Fn(Option<Part>, HitAt) -> bool) -> Option<Vec2> {
+    fn scan(&self, keep: impl Fn(Option<Part>, HitAt) -> bool) -> Option<Vec2> {
         let lens = self.lens();
         (0..HARNESS_SIZE.y)
             .step_by(4)

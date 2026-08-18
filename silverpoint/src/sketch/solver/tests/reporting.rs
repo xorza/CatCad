@@ -3,7 +3,9 @@
 
 use crate::sketch::constraint::Constraint;
 use crate::sketch::solver::freedom::Freedom;
-use crate::sketch::solver::tests::fixtures::*;
+use crate::sketch::solver::tests::fixtures::{
+    Apart, Conflicting, Doubled, EPSILON, Orbit, Rectangle, determined_pair,
+};
 use crate::sketch::solver::*;
 use glam::DVec2;
 

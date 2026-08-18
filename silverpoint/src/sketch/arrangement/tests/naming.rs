@@ -3,7 +3,9 @@
 
 use crate::math::triangulate::Fill;
 use crate::sketch::arrangement::filler::Filler;
-use crate::sketch::arrangement::tests::drawings::*;
+use crate::sketch::arrangement::tests::drawings::{
+    CLOSE, Halved, areas, bowtie, covering, follows, nested, open, square,
+};
 use crate::sketch::arrangement::*;
 use crate::sketch::entity::Entity;
 use std::f64::consts::PI;

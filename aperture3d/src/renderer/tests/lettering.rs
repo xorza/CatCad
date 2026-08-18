@@ -1,7 +1,7 @@
 //! Where a run of type lands on the frame, and what a pick makes of it.
 
 use crate::camera::Projection;
-use crate::renderer::tests::harness::*;
+use crate::renderer::tests::harness::{FRAME, Framed, Ink, run, square_on};
 use crate::renderer::*;
 use crate::tag::Tag;
 use crate::text::turn::{Facing, Turn};

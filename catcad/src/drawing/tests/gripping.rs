@@ -1,7 +1,7 @@
 //! Taking hold of a drawing: what a grip reads, and what a drag moves.
 
 use crate::build::Build;
-use crate::drawing::tests::fixtures::*;
+use crate::drawing::tests::fixtures::{Linkage, on};
 use crate::drawing::*;
 use crate::paint;
 use crate::paint::layout::Layout;

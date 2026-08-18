@@ -6,7 +6,7 @@ use crate::hit::{HitAt, Precedence};
 use crate::mesh::{Mesh, Vertex};
 use crate::object::Object;
 use crate::point::Point;
-use crate::scene::tests::fixtures::*;
+use crate::scene::tests::fixtures::{CENTRE, one_of_each, over_the_view, ranked};
 use crate::scene::*;
 use crate::styled::Styled;
 use crate::tag::Tag;

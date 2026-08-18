@@ -6,7 +6,7 @@ use crate::hit::HitAt;
 use crate::mesh::Mesh;
 use crate::object::Object;
 use crate::point::Point;
-use crate::scene::tests::fixtures::*;
+use crate::scene::tests::fixtures::{CENTRE, ranked, ranked_through};
 use crate::scene::*;
 use crate::styled::Styled;
 use crate::tag::Tag;

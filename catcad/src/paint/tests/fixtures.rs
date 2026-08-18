@@ -114,7 +114,7 @@ pub(super) fn every_statable() -> Vec<silverpoint::Constraint> {
 /// touched, and the whole point of the stages is the work *not* done — so every
 /// primitive is stamped with something no drawing could arrive at, and what
 /// still carries it afterwards is what was skipped.
-pub(super) const UNWRITTEN: Vec3 = Vec3::splat(-1.0);
+const UNWRITTEN: Vec3 = Vec3::splat(-1.0);
 
 /// Stamp every batch, so the next redraw can be asked which of them it wrote
 /// over.

@@ -5,7 +5,7 @@ use crate::highlight::Highlight;
 use crate::mesh::Mesh;
 use crate::object::Object;
 use crate::point::Point;
-use crate::renderer::tests::harness::*;
+use crate::renderer::tests::harness::facing_quad;
 use crate::renderer::*;
 use crate::ring::Ring;
 use crate::styled::Styled;

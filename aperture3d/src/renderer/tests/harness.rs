@@ -19,7 +19,7 @@ pub(super) const TARGET_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8
 pub(super) const FRAME: UVec2 = UVec2::new(320, 240);
 
 /// What the offscreen host composites a frame into.
-pub(super) fn frame_target(device: &wgpu::Device) -> wgpu::Texture {
+fn frame_target(device: &wgpu::Device) -> wgpu::Texture {
     device.create_texture(&wgpu::TextureDescriptor {
         label: Some("aperture.test.target"),
         size: wgpu::Extent3d {
@@ -54,7 +54,7 @@ pub(super) struct Ink {
 /// Its own function because two questions are asked of it: how much was drawn,
 /// and what colour a given pixel came out. Both are one readback, and neither
 /// wants the other's answer.
-pub(super) fn frame_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Vec<u8> {
+fn frame_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Vec<u8> {
     let readback = gpu.device.create_buffer(&wgpu::BufferDescriptor {
         label: Some("aperture.test.readback"),
         size: u64::from(FRAME.x * FRAME.y * 4),
@@ -116,9 +116,9 @@ pub(super) fn frame_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -
 /// rewriting the scene rather than by standing up another view over it.
 #[derive(Debug)]
 pub(super) struct Framed<'a> {
-    pub(super) gpu: &'a HeadlessTestGpuLease,
-    pub(super) host: OffscreenHost,
-    pub(super) target: wgpu::Texture,
+    gpu: &'a HeadlessTestGpuLease,
+    host: OffscreenHost,
+    target: wgpu::Texture,
     pub(super) pane: ScenePane,
 }
 
@@ -155,7 +155,7 @@ impl<'a> Framed<'a> {
     /// The clear is near black — 0.02 linear, which the sRGB target encodes to
     /// about 40 — and everything this crate draws is lit well clear of it, so
     /// the threshold is a wide gap rather than a tuned one.
-    pub(super) fn inked(&self) -> Ink {
+    fn inked(&self) -> Ink {
         /// Above the background and far below anything drawn.
         const LIT: u8 = 80;
 

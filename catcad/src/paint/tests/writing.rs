@@ -3,7 +3,7 @@
 use crate::build::Build;
 use crate::demo;
 use crate::document::Document;
-use crate::paint::tests::fixtures::*;
+use crate::paint::tests::fixtures::{drawn, every_statable};
 use crate::paint::*;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};

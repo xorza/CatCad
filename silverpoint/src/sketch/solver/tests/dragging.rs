@@ -3,7 +3,7 @@
 
 use crate::Snapshot;
 use crate::sketch::constraint::Constraint;
-use crate::sketch::solver::tests::fixtures::*;
+use crate::sketch::solver::tests::fixtures::{Apart, DRAGGED, EPSILON, Pegged, determined_pair};
 use crate::sketch::solver::*;
 use glam::DVec2;
 

@@ -1,7 +1,7 @@
 //! Stating relations over what is picked out, and what they settle to.
 
 use crate::build::Build;
-use crate::drawing::tests::fixtures::*;
+use crate::drawing::tests::fixtures::{Assorted, on};
 use crate::drawing::*;
 use crate::model::Models;
 use crate::part::Part;

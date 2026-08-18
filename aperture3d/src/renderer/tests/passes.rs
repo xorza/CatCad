@@ -4,7 +4,7 @@ use crate::curve::Curve;
 use crate::object::Object;
 use crate::renderer::atlas::GlyphAtlas;
 use crate::renderer::band::{QUAD_INDICES, RING_INDICES};
-use crate::renderer::tests::harness::*;
+use crate::renderer::tests::harness::{Framed, TARGET_FORMAT, facing_quad, square_on};
 use crate::renderer::*;
 use crate::styled::Styled;
 use glam::Vec3;

@@ -227,7 +227,7 @@ impl Raised {
     /// The direction comes off the layout rather than the sketch, because it is the
     /// *drawing's* answer about where a mark runs that a caller here is selecting
     /// on — see [`Placed`](crate::paint::marks::Placed).
-    pub(super) fn a_dimension_set(&self, wanted: impl Fn(DVec2) -> bool) -> Option<Stated> {
+    fn a_dimension_set(&self, wanted: impl Fn(DVec2) -> bool) -> Option<Stated> {
         let sketch = self.app.session.editing();
         let drawing = self.app.document.drawing_at(sketch);
         drawing.sketch().constraints().find_map(|(id, constraint)| {

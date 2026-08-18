@@ -1,7 +1,7 @@
 //! What a solve lands on: where the constraints put the geometry.
 
 use crate::sketch::constraint::{Constraint, Dimension};
-use crate::sketch::solver::tests::fixtures::*;
+use crate::sketch::solver::tests::fixtures::{Apart, EPSILON};
 use crate::sketch::solver::*;
 use glam::DVec2;
 

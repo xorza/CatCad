@@ -4,7 +4,7 @@ use crate::build::Build;
 use crate::demo;
 use crate::intent::change::Change;
 use crate::paint::growing::Growing;
-use crate::paint::tests::fixtures::*;
+use crate::paint::tests::fixtures::{stamp, untouched};
 use crate::paint::*;
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
