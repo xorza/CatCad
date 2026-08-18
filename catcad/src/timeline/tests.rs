@@ -2,6 +2,7 @@ use super::*;
 use crate::build::Build;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
+use aperture::Motion;
 use glam::{DVec2, Vec3};
 use silverpoint::{Plane, Sketch};
 

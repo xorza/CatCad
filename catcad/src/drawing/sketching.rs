@@ -157,8 +157,8 @@ impl<'a> Sketching<'a> {
     ///
     /// Not even measured, in fact — the report cannot have moved either, since
     /// no parameter did. So this ends at [`Build::revised`], which is the same
-    /// answer [`Change::MovePlane`](crate::intent::Change) and
-    /// [`Change::Carry`](crate::intent::Change) reach for the same reason: the
+    /// answer [`Change::MovePlane`](crate::intent::change::Change) and
+    /// [`Change::Carry`](crate::intent::change::Change) reach for the same reason: the
     /// picture has to be laid out again and nothing has to be worked out first.
     pub(crate) fn place(&mut self, build: &mut Build, constraint: ConstraintId, world: Vec3) {
         self.sketch

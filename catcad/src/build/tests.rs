@@ -2,7 +2,7 @@ use super::*;
 use crate::document::Document;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
-use crate::intent::Change;
+use crate::intent::change::Change;
 use crate::model::Models;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};

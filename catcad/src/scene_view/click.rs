@@ -12,7 +12,8 @@ use silverpoint::Entity;
 
 use crate::document::Document;
 use crate::drawing::anchor::Anchor;
-use crate::intent::{Change, Choice, Intents, Opening};
+use crate::intent::change::Change;
+use crate::intent::{Choice, Intents, Opening};
 use crate::part::Part;
 use crate::session::Session;
 use crate::timeline::FeatureId;

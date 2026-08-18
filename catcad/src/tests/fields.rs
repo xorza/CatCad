@@ -530,7 +530,7 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
         .next()
         .expect("the demo's frame is drawn with edges");
     let mut edits = Intents::default();
-    edits.push(crate::intent::Change::Delete {
+    edits.push(crate::intent::change::Change::Delete {
         sketch,
         entity: edge.into(),
     });

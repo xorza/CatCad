@@ -1,0 +1,441 @@
+//! What a press finds, what a move lights, and what one part takes from
+//! another.
+
+use crate::drawing::Grip;
+use crate::intent::Opening;
+use crate::internals::HARNESS_SIZE;
+use crate::part::Part;
+use crate::scene_view::click::dimension;
+use crate::scene_view::gesture::label;
+use crate::scene_view::tests::harness::RaisedView;
+use crate::tool::Tool;
+use glam::{DVec2, Vec2, Vec3};
+use palantir::Modifiers;
+use silverpoint::Entity;
+
+/// The pointer moving *within* the view has to wake a frame, and what it lands
+/// on has to reach `hovered`.
+///
+/// Palantir drops a `PointerMoved` that crosses no widget boundary and latches
+/// no press, so a view filling the window sees none of them unless it watches
+/// for them — and a highlight computed on the way in then sits stale on screen
+/// until an unrelated event forces a frame. That is the whole of what this
+/// pins: the move inside, not the one that enters.
+#[test]
+fn a_move_inside_the_view_wakes_a_frame_and_lights_what_it_lands_on() {
+    let mut raised = RaisedView::new();
+    // Arranges the view, so there is something for the pointer to be over.
+    raised.frame();
+
+    let cursor = raised
+        .over_draggable()
+        .expect("the demo draws something to grab");
+
+    // Entering the view changes the hover target, which wakes a frame by
+    // itself — so the one that proves anything is the next, wholly inside.
+    raised.harness.move_to(cursor);
+    raised.frame();
+    let delta = raised.harness.move_to(cursor + Vec2::splat(2.0));
+    assert!(
+        delta.requests_repaint,
+        "a move inside the view left the frame asleep, so the highlight would go stale"
+    );
+
+    // And the frame that move asks for is the one that lights the primitive.
+    raised.harness.move_to(cursor);
+    raised.frame();
+    assert!(
+        raised.view.hovered().is_some(),
+        "aimed at the drawing and lit nothing"
+    );
+
+    // Off the drawing entirely, nothing stays lit.
+    raised.harness.move_to(Vec2::new(
+        HARNESS_SIZE.x as f32 - 1.0,
+        HARNESS_SIZE.y as f32 - 1.0,
+    ));
+    raised.frame();
+    assert_eq!(raised.view.hovered(), None);
+}
+
+/// A click picks out exactly what it landed on, a shift-click adds to what is
+/// picked out, and a tool in hand puts itself down rather than drawing over
+/// something already there.
+///
+/// One rule and its two qualifiers, which is why they are one test: what a
+/// click selects is whatever is under it, so a click on empty space selects
+/// nothing and clears — and shift changes "instead of" to "as well as" without
+/// changing what was found. The tool is the exception that proves it: the only
+/// click that does *not* select is the one spent putting something down.
+#[test]
+fn a_click_picks_out_what_it_landed_on_and_shift_adds_to_it() {
+    let mut raised = RaisedView::new();
+    raised.frame();
+    let empty = raised.cursor_on(raised.empty_spot());
+    let over_point = raised
+        .over(|grip| matches!(grip, Grip::Point(_)))
+        .expect("the demo draws a point that can be grabbed");
+    let over_rim = raised
+        .over(|grip| matches!(grip, Grip::Rim(_)))
+        .expect("the demo draws a circle");
+
+    // Nothing is picked out until something is clicked.
+    raised.harness.click_at(empty);
+    raised.frame();
+    assert_eq!(raised.session.selection().count(), 0);
+
+    raised.harness.click_at(over_point);
+    raised.frame();
+    let point = raised.named_at(over_point).expect("a point is there");
+    assert!(raised.session.selection().contains(raised.part(point)));
+    assert_eq!(raised.session.selection().count(), 1);
+
+    // Shift adds, leaving what was already picked out where it was.
+    raised.harness.set_modifiers(Modifiers {
+        shift: true,
+        ..Modifiers::NONE
+    });
+    raised.harness.click_at(over_rim);
+    raised.frame();
+    let rim = raised.named_at(over_rim).expect("a circle is there");
+    assert!(
+        raised.session.selection().contains(raised.part(point)),
+        "shift dropped the first"
+    );
+    assert!(raised.session.selection().contains(raised.part(rim)));
+    assert_eq!(raised.session.selection().count(), 2);
+
+    // A shift-click on empty space adds nothing and clears nothing.
+    raised.harness.click_at(empty);
+    raised.frame();
+    assert_eq!(
+        raised.session.selection().count(),
+        2,
+        "shift on nothing changed it"
+    );
+
+    // A plain click starts over with what it landed on.
+    raised.harness.set_modifiers(Modifiers::NONE);
+    raised.harness.click_at(over_rim);
+    raised.frame();
+    assert!(raised.session.selection().contains(raised.part(rim)));
+    assert!(
+        !raised.session.selection().contains(raised.part(point)),
+        "the first survived"
+    );
+    assert_eq!(raised.session.selection().count(), 1);
+
+    // And on nothing, it clears.
+    raised.harness.click_at(empty);
+    raised.frame();
+    assert_eq!(raised.session.selection().count(), 0);
+
+    // A tool in hand takes the click instead: nothing is picked out by it, and
+    // the tool stays in hand. A point already there is the one click that
+    // builds nothing — there is a point there.
+    raised.hold(Tool::Point);
+    let before = raised.markers();
+    raised.harness.click_at(over_point);
+    raised.frame();
+    assert_eq!(
+        raised.session.tool(),
+        Tool::Point,
+        "the tool went out of hand"
+    );
+    assert_eq!(raised.markers(), before, "it laid a point over a point");
+    assert_eq!(
+        raised.session.selection().count(),
+        0,
+        "a click the tool took picked something out"
+    );
+}
+
+/// A region is hovered and picked out like anything else, and so is a face of
+/// the solid grown off one.
+///
+/// The three things "selectable like the rest" has to mean: the cursor over one
+/// reports it, a click picks it out, and it is named by something that survives
+/// the drawing being laid out again — which for a region is where it falls among
+/// the faces, since it has no handle of its own.
+///
+/// A solid's face is checked with it because the two are the same claim about
+/// the two ends of one feature: the region an extrude was grown *from* and the
+/// faces it grew. It is also the whole of what says a solid is drawn at all —
+/// nothing can be hovered that was never written into the scene, and nothing can
+/// be named that was written without a tag.
+#[test]
+fn a_region_and_a_solids_face_are_hovered_and_picked_out_like_any_other_part() {
+    let mut raised = RaisedView::new();
+    raised.frame();
+
+    let on_ground = |raised: &RaisedView, x: f64, y: f64| {
+        raised.cursor_on(
+            raised
+                .document
+                .drawing_at(raised.session.editing())
+                .plane()
+                .point(DVec2::new(x, y))
+                .as_vec3(),
+        )
+    };
+
+    // Inside the demo's rectangle and clear of everything: the frame runs to
+    // 8 by 5, the hub's cylinder stands in the middle of it out to a radius of
+    // 1.5 about (4, 2.5), and the arm is off below zero. This leaves better than
+    // a unit to the nearest of them.
+    let inside = on_ground(&raised, 1.4, 2.5);
+    raised.harness.move_to(inside);
+    raised.frame();
+    let hovered = raised.view.hovered();
+    assert!(
+        matches!(hovered, Some(Part::Region { .. })),
+        "the cursor over a region reported {hovered:?}"
+    );
+
+    // And over the solid grown off the hub, which stands proud of the plane —
+    // so the cursor finds its far end rather than the region it was grown from.
+    let solid = on_ground(&raised, 1.2, 4.2);
+    raised.harness.move_to(solid);
+    raised.frame();
+    let over = raised.view.hovered();
+    assert!(
+        matches!(over, Some(Part::Solid { .. })),
+        "the cursor over the extruded hub reported {over:?}"
+    );
+    raised.harness.click_at(solid);
+    raised.frame();
+    assert_eq!(
+        raised.session.selection().picked(),
+        [over.expect("the hover found one")],
+        "clicking the solid picked out something else"
+    );
+
+    raised.harness.move_to(inside);
+    raised.frame();
+
+    // A click picks it out, and what is picked is the same face the hover was.
+    raised.harness.click_at(inside);
+    raised.frame();
+    assert_eq!(
+        raised.session.selection().picked(),
+        [hovered.expect("the hover found one")],
+        "the click picked out something else"
+    );
+
+    // And its name survives the drawing being laid out again. Dragging the arm
+    // moves geometry without changing what crosses what, so the face is still
+    // the face it was — a name that did not survive would be one dropped by the
+    // prune every frame of a drag.
+    //
+    // Asked of the hover rather than of the selection, because taking hold of
+    // the arm picks the arm out: what is checked here is that the *name* still
+    // resolves to the same face, which is what a position-in-the-walk has to do
+    // and a handle would get for free.
+    let wrist = raised.cursor_on(raised.wrist());
+    raised.harness.press_at(wrist);
+    raised.frame();
+    raised.harness.drag_to(wrist + Vec2::new(20.0, 12.0));
+    raised.frame();
+    raised.harness.release();
+    raised.frame();
+    raised.harness.move_to(inside);
+    raised.frame();
+    assert_eq!(
+        raised.view.hovered(),
+        hovered,
+        "the face came back as a different face after the drawing moved"
+    );
+}
+
+/// A click on the drawing over a face takes the drawing, not the face.
+///
+/// The rule the surface rank exists for: every stroke and marker bounding a
+/// face lies *within* it, so a face that ranked with them would swallow every
+/// click meant for its own boundary.
+#[test]
+fn what_is_drawn_on_a_face_takes_the_click_over_it() {
+    let mut raised = RaisedView::new();
+    raised.frame();
+
+    // A point of the demo's frame, which sits on the rectangle's corner — so
+    // the face and the marker are both under this cursor.
+    let corner = raised.cursor_on(
+        raised
+            .document
+            .drawing_at(raised.session.editing())
+            .plane()
+            .point(DVec2::new(8.0, 5.0))
+            .as_vec3(),
+    );
+    raised.harness.move_to(corner);
+    raised.frame();
+    assert!(
+        matches!(
+            raised.view.hovered(),
+            Some(Part::Entity {
+                entity: Entity::Point(_) | Entity::Segment(_),
+                ..
+            })
+        ),
+        "a face took a cursor over the drawing: {:?}",
+        raised.view.hovered()
+    );
+}
+
+/// **A double-click and a press mean something over a dimension and nothing
+/// over anything else.**
+///
+/// What decides whether either gesture finds a number at all — the half of each
+/// that can be asked without a painted frame. A relation states no number —
+/// perpendicular, parallel, equal — so there is nothing to type into one and
+/// nothing to drag, and neither is there for a point or an edge.
+///
+/// Both in one sweep, because they are one question asked of one fixture: which
+/// of the demo's relations has a number, and does each gesture agree. Apart,
+/// they were the same walk of the same constraints written twice, and the way
+/// that goes wrong is one of them being taught about a new kind of dimension and
+/// the other not.
+///
+/// The other half of each, that the gesture reaches the mark, needs the mark
+/// measured, and only a paint measures one — see
+/// [`Text::extent`](aperture::Text).
+#[test]
+fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
+    let raised = RaisedView::new();
+    let sketch = raised.session.editing();
+    let drawing = raised.document.drawing_at(sketch);
+
+    let mut dimensions = 0;
+    let mut relations = 0;
+    for (id, constraint) in drawing.sketch().constraints() {
+        let part = Part::Entity {
+            sketch,
+            entity: id.into(),
+        };
+        let opened = dimension(part, &raised.document);
+        let held = label(part, drawing, sketch);
+        match constraint.value() {
+            Some(states) => {
+                dimensions += 1;
+                assert_eq!(
+                    opened.expect("a dimension has a number to type into"),
+                    Opening::Dimension { part, from: states },
+                    "the form would open on the wrong dimension or value"
+                );
+                assert_eq!(held, Some(id), "a number could not be taken hold of");
+            }
+            None => {
+                relations += 1;
+                assert!(opened.is_none(), "a relation offered a number to type");
+                assert_eq!(held, None, "a symbol offered itself to be dragged");
+            }
+        }
+    }
+    assert!(
+        dimensions > 0 && relations > 0,
+        "the demo states only one kind, so this asked half a question"
+    );
+
+    // And nothing that is not a constraint at all.
+    let (point, _) = drawing
+        .sketch()
+        .points()
+        .next()
+        .expect("the demo draws points");
+    let marker = Part::Entity {
+        sketch,
+        entity: point.into(),
+    };
+    assert!(dimension(marker, &raised.document).is_none());
+    assert_eq!(label(marker, drawing, sketch), None);
+
+    // A press refuses a number of a sketch you are not in, where the
+    // double-click above does not — and the difference is what each gesture
+    // *does*. Moving one is an edit, and an edit lands where you are; opening a
+    // form over one only reads it.
+    let elsewhere = raised
+        .document
+        .models(&raised.build, sketch)
+        .iter()
+        .map(|model| model.of())
+        .find(|&at| at != sketch)
+        .expect("the demo draws two sketches");
+    let (borrowed, _) = drawing
+        .sketch()
+        .constraints()
+        .find(|(_, constraint)| constraint.value().is_some())
+        .expect("the demo states a dimension");
+    assert_eq!(
+        label(
+            Part::Entity {
+                sketch: elsewhere,
+                entity: borrowed.into(),
+            },
+            drawing,
+            sketch,
+        ),
+        None,
+        "a number of a sketch nobody is in offered itself to be dragged"
+    );
+}
+
+/// Hovering one arrow of a datum's gizmo lights the whole gizmo, and lights it
+/// without taking its colours away.
+///
+/// Two failures, both of which looked like working code. A hover lights what
+/// the *tag* under the cursor named, and a datum is drawn as two arrows with a
+/// tag apiece — so pointing at one lit one, and the gizmo came apart under the
+/// cursor into a thing that was half highlighted. And the look every other part
+/// takes replaces the colour outright, which for an axis erases the one thing
+/// it is saying: which axis it is.
+#[test]
+fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
+    let mut raised = RaisedView::new();
+    raised.frame();
+
+    // Aimed at geometry that was actually drawn rather than at coordinates
+    // worked out here: the middle of the first arrow's shaft quad, which is its
+    // four corners averaged and therefore inside it whatever the shape's
+    // proportions become.
+    let (on_shaft, drawn) = {
+        let renderer = raised.view.renderer().borrow();
+        let gizmos = &renderer.scene().gizmos;
+        let corners = &gizmos[0].points;
+        let middle = corners.iter().fold(Vec3::ZERO, |sum, &at| sum + at) / corners.len() as f32;
+        let tags: Vec<_> = gizmos.iter().filter_map(|gizmo| gizmo.tag).collect();
+        (middle, tags)
+    };
+    assert_eq!(
+        drawn.len(),
+        4,
+        "the demo's one datum is two arrows, a hub and a corner"
+    );
+
+    raised.harness.move_to(raised.cursor_on(on_shaft));
+    raised.frame();
+    let hovered = raised.view.hovered();
+    assert!(
+        matches!(hovered, Some(Part::Plane(_))),
+        "the cursor on a datum's axis reported {hovered:?}"
+    );
+
+    // The whole gizmo, not the one piece that answered the pick.
+    let lit: Vec<_> = raised.view.lit().iter().map(|lit| lit.tag).collect();
+    assert_eq!(
+        lit,
+        drawn,
+        "hovering one axis lit {} of the gizmo's {} pieces",
+        lit.len(),
+        drawn.len(),
+    );
+    // And each keeps its own colour, brightened. `Tint::Ink` here would be the
+    // hover's yellow on both, which is also how it would look if the two arrows
+    // had stopped being told apart.
+    for entry in raised.view.lit() {
+        assert!(
+            matches!(entry.look.tint, aperture::Tint::Lift(by) if by > 1.0),
+            "an axis was lit with {:?}, which spends the colour it is made of",
+            entry.look.tint,
+        );
+    }
+}

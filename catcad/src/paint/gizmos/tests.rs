@@ -326,7 +326,7 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
         along: Along::Shortest,
         dimension: Dimension::new(0.0),
     };
-    let one = crate::paint::tests::drawn(sketch);
+    let one = crate::paint::tests::fixtures::drawn(sketch);
     // Fitted by the drawing, which is what puts the measurement in it — a
     // proposal is written with a placeholder and the sketch fills it in.
     let placing = one

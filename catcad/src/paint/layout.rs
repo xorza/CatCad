@@ -122,7 +122,7 @@ impl Layout {
     /// The layout's half of the question is only whether it has drawn anything
     /// at all. What moved between two stamps is [`Made::since`]'s, being a fact
     /// about the stamps rather than about what was drawn from them — the same
-    /// split [`Change::about`](crate::intent::Change) makes.
+    /// split [`Change::about`](crate::intent::change::Change) makes.
     pub(super) fn resume(&self, made: Made) -> Option<Stage> {
         match self.made {
             Some(had) => made.since(had),

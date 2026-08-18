@@ -2,7 +2,8 @@
 
 use crate::build::Build;
 use crate::document::Document;
-use crate::intent::{About, Change, Intent, Intents, Step};
+use crate::intent::change::{About, Change};
+use crate::intent::{Intent, Intents, Step};
 use crate::timeline::FeatureId;
 use crate::timeline::feature::Feature;
 

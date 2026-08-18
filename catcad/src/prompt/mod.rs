@@ -24,7 +24,8 @@ use silverpoint::{CircleId, Constraint, Dimension, Entity};
 use std::fmt::Write;
 
 use crate::drawing::anchor::Anchor;
-use crate::intent::{Change, Choice, Intents, Opening, Step};
+use crate::intent::change::Change;
+use crate::intent::{Choice, Intents, Opening, Step};
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::{DECIMALS, MARK_FONT};

@@ -182,7 +182,7 @@ mod tests {
     use crate::demo;
     use crate::document::Document;
     use crate::drawing::Grip;
-    use crate::intent::Change;
+    use crate::intent::change::Change;
     use crate::timeline::Timeline;
     use crate::timeline::feature::{Datum, Feature};
     use silverpoint::{Plane, Sketch};

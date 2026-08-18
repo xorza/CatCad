@@ -12,7 +12,7 @@ use crate::document::file::error::{LoadError, SaveError};
 use crate::document::file::saved::Saved;
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
-use crate::intent::{About, Change};
+use crate::intent::change::{About, Change};
 use crate::model::Models;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Movable, Timeline};

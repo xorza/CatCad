@@ -7,14 +7,16 @@ use silverpoint::{ConstraintId, Entity, Grown};
 
 use crate::document::Document;
 use crate::drawing::{Drawing, Grip};
-use crate::intent::{Change, Choice, Intent};
+use crate::intent::change::Change;
+use crate::intent::{Choice, Intent};
 use crate::lens::Lens;
 use crate::part::Part;
 use crate::prompt::Prompt;
 use crate::scene_view::aimed::Aimed;
 use crate::scene_view::picture::{Picture, Under};
 use crate::session::Session;
-use crate::timeline::{Along, FeatureId, Movable};
+use crate::timeline::along::Along;
+use crate::timeline::{FeatureId, Movable};
 use crate::tool::Tool;
 
 /// What the pointer is doing to the view, settled when the button goes down.
@@ -111,7 +113,7 @@ pub(super) struct Held {
     ///
     /// Three pixels either way. Geometry is grabbed by the very thing that
     /// moves, and a datum by an outline whose travel line is taken through the
-    /// grab — see [`Along::travel`](crate::timeline::Along::travel) — so
+    /// grab — see [`Along::travel`](crate::timeline::along::Along::travel) — so
     /// what is left over in both cases is only how far the pick landed from the
     /// cursor, which is the width of a stroke and no more.
     ///
@@ -119,7 +121,7 @@ pub(super) struct Held {
     /// carries a little of *across*: a pick on an outline answers with the
     /// nearest point of the stroke rather than the one under the cursor. The
     /// part that cannot be used is dropped where the travel becomes a number —
-    /// see [`Along::offset_at`](crate::timeline::Along::offset_at).
+    /// see [`Along::offset_at`](crate::timeline::along::Along::offset_at).
     offset: Vec3,
 }
 
@@ -315,7 +317,7 @@ impl Grabbed {
     /// Where the pointer may take what this has hold of.
     ///
     /// Taken through the grab rather than through what is being moved — see
-    /// [`Along::travel`](crate::timeline::Along::travel), which is where that
+    /// [`Along::travel`](crate::timeline::along::Along::travel), which is where that
     /// matters and why.
     fn motion(self, drawing: Drawing<'_>, at: Vec3) -> Motion {
         match self {

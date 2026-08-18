@@ -6,7 +6,8 @@ use palantir::{ButtonPhase, Drag, PointerWake, ResponseState, Ui};
 
 use crate::document::Document;
 use crate::drawing::Drawing;
-use crate::intent::{Change, Choice, Intents, Step};
+use crate::intent::change::Change;
+use crate::intent::{Choice, Intents, Step};
 use crate::lens::Lens;
 use crate::part::Part;
 use crate::preview::{Ends, Preview};

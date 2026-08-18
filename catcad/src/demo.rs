@@ -10,7 +10,7 @@ use silverpoint::{Along, Constraint, Dimension, Sketch};
 
 use crate::build::Build;
 use crate::document::Document;
-use crate::intent::Change;
+use crate::intent::change::Change;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature};
 
@@ -255,7 +255,7 @@ pub(crate) fn sketch() -> Sketch {
 mod tests {
     use super::*;
     use crate::drawing::Grip;
-    use crate::intent::Change;
+    use crate::intent::change::Change;
     use silverpoint::Plane;
     use std::f64::consts::PI;
 
