@@ -325,12 +325,20 @@ fn cut(contour: &mut Vec<u32>, at: usize) -> Option<[u32; 3]> {
 /// ordering below, and more the rounder the outline is.
 ///
 /// The theorem is about polygons that do not touch themselves, and what reaches
-/// here is a loop with its holes bridged in — which touches itself at both ends
-/// of every bridge. Held against this walk over a sweep of shapes, the shortcut
-/// cuts different triangles on the first contour carrying a doubled corner, and
-/// on contours folded over themselves, which is what the fallback in [`clip`]
-/// exists for. It agrees on every simple loop and nowhere else, so it stays out
-/// until something proves the bridged case.
+/// here is a loop with its holes bridged in. **That much is not the objection**:
+/// a bridge is walked out and back, so its two ends turn almost the whole way
+/// round and go on being asked about, and over four thousand bridged contours
+/// the shortcut cuts what this walk cuts.
+///
+/// What stops it is the shapes where they part. On an outline with deep enough
+/// notches the two cut differently, and all that could be held against the
+/// difference is that both tile the same area with the same number of triangles
+/// — because on those same shapes *this* walk already winds triangles backwards
+/// and lays them over holes, so there is no valid answer to be measured against.
+/// The shortcut also needs a corner's convexity re-asked either side of every
+/// cut, and no shape yet found tells that bookkeeping apart from leaving it out
+/// altogether. A silent failure with no test that can see it is not worth 53.4µs
+/// against 18.0µs.
 fn ear(corners: &[DVec2], contour: &[u32], at: usize) -> bool {
     // Twice the area of that corner's triangle, so again half of [`SLIVER`].
     if turn(corners, contour, at) <= SLIVER {
