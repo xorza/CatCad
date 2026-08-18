@@ -55,8 +55,6 @@ pub(super) struct Click {
 /// *for*: its picks are the whole of what it has done until the second one
 /// lands, so they are what a reader has to be shown. See its arm below.
 pub(super) fn clicked(click: Click, document: &Document, session: &Session, intents: &mut Intents) {
-    let sketch = session.editing();
-    let drawing = document.drawing_at(sketch);
     let Click {
         double,
         adding,
@@ -82,6 +80,14 @@ pub(super) fn clicked(click: Click, document: &Document, session: &Session, inte
         // written to the document by a gesture that never mentioned it.
         intents.push(Choice::Ask(None));
     }
+    // A tool draws in the sketch you are in, so with none open there is no
+    // sketch for a click to build in and every click is the pointer's — which
+    // is [`picking`], the same answer the last arm below reaches. See
+    // [`Session::editing`](crate::session::Session).
+    let Some(sketch) = session.editing() else {
+        return picking(adding, under, intents);
+    };
+    let drawing = document.drawing_at(sketch);
     match (session.tool(), anchor(at, sketch, under)) {
         // One click. On a point already there it adds nothing, and the drawing
         // comes out of it unchanged.
@@ -177,18 +183,26 @@ pub(super) fn clicked(click: Click, document: &Document, session: &Session, inte
         // Nothing in hand — or a plane seen so nearly edge-on that a click names
         // nowhere on it, where there is nothing to build from and picking out
         // what was clicked is all that is left.
-        (Tool::Pointer, _) | (_, None) => {
-            match under {
-                // Shift adds to what is picked out.
-                Some(entity) if adding => intents.push(Choice::Include(entity)),
-                // A shift-click on empty space adds nothing, and clearing is the
-                // plain click's business.
-                None if adding => {}
-                // A plain click starts over with whatever is under the cursor —
-                // which is nothing, when it is over nothing.
-                _ => intents.push(Choice::Select(under)),
-            }
-        }
+        (Tool::Pointer, _) | (_, None) => picking(adding, under, intents),
+    }
+}
+
+/// What a click that builds nothing asks for: whatever it landed on, picked out.
+///
+/// Its own call because two paths reach it. A click with the pointer in hand
+/// builds nothing by choice; a click with no sketch open builds nothing because
+/// there is nowhere to build — and what either comes to is the same, which is
+/// the whole of why they share this rather than saying it twice.
+fn picking(adding: bool, under: Option<Part>, intents: &mut Intents) {
+    match under {
+        // Shift adds to what is picked out.
+        Some(entity) if adding => intents.push(Choice::Include(entity)),
+        // A shift-click on empty space adds nothing, and clearing is the plain
+        // click's business.
+        None if adding => {}
+        // A plain click starts over with whatever is under the cursor — which is
+        // nothing, when it is over nothing.
+        _ => intents.push(Choice::Select(under)),
     }
 }
 

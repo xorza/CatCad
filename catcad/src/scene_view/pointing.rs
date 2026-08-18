@@ -162,8 +162,13 @@ impl Pointing {
         // band a two-click tool is drawing has got to. A second resolve of the
         // same ray would be a second answer free to differ from the one that was
         // drawn — see [`anchor`].
-        let drawing = document.drawing_at(sketch);
-        let landing = aimed::landing(aimed, lens, drawing.motion());
+        //
+        // Nowhere to land where no sketch is open, which is the same `None` a
+        // plane seen edge-on already answers: there is no plane for a click to
+        // mean a place on. What can still be done without one — orbiting,
+        // picking out, dragging a datum — asks the picture rather than the ray.
+        let drawing = sketch.map(|at| document.drawing_at(at));
+        let landing = drawing.and_then(|drawing| aimed::landing(aimed, lens, drawing.motion()));
 
         // The press settles which gesture this is, before any travel has
         // happened — so a drag that outruns what it grabbed keeps hold of it.
@@ -461,10 +466,14 @@ impl Pointing {
 /// not in the document and never will be.
 fn previewing(
     session: &Session,
-    drawing: Drawing<'_>,
+    drawing: Option<Drawing<'_>>,
     at: Option<Vec3>,
     intents: &mut Intents,
 ) -> Option<Preview> {
+    // No sketch open is no band, and the `?` is the whole of what says so: a
+    // preview is what a *tool* is half-way through, and a tool draws in the
+    // sketch you are in.
+    let drawing = drawing?;
     let tool = session.tool();
     let asking = session.prompt();
     let typed = asking.and_then(|open| open.typed(0));

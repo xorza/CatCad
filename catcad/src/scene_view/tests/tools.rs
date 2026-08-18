@@ -120,6 +120,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
         .document
         .models(&raised.build, raised.session.editing())
         .open()
+        .expect("a fixture opens the sketch it names")
         .outcome()
         .degrees_of_freedom();
 
@@ -134,10 +135,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     raised.harness.click_at(over_edge);
     raised.frame();
 
-    let sketch = raised
-        .document
-        .drawing_at(raised.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     let (placed, at) = sketch.points().last().expect("a point was just added");
     let at = at.position;
     // On the edge's infinite line, which is what `PointOnSegment` says: the
@@ -158,6 +156,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
             .document
             .models(&raised.build, raised.session.editing())
             .open()
+            .expect("a fixture opens the sketch it names")
             .outcome()
             .degrees_of_freedom(),
         free + 1,
@@ -168,6 +167,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
             .document
             .models(&raised.build, raised.session.editing())
             .open()
+            .expect("a fixture opens the sketch it names")
             .outcome()
             .converged(),
         "the solve that puts the point on the edge did not converge"
@@ -178,7 +178,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     // all — what makes this work is the pull `Solver::drag` reaches with,
     // which lets the point settle back onto the edge as near the cursor as it
     // can get.
-    let plane = raised.document.drawing_at(raised.session.editing()).plane();
+    let plane = raised.drawing().plane();
     // Along the edge on screen, so the drag unarguably asks the point to travel
     // rather than nudging it across a line it is already on.
     let ends = [a, b].map(|end| raised.cursor_on(plane.point(end).as_vec3()));
@@ -199,10 +199,7 @@ fn a_point_clicked_onto_an_edge_is_held_to_it() {
     raised.harness.release();
     raised.frame();
 
-    let sketch = raised
-        .document
-        .drawing_at(raised.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     let now = sketch.point(placed).position;
     assert!(
         (now - at).length() > 1e-3,
@@ -236,24 +233,15 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
 
     // The far bar of the arm, which is free at both ends.
     let (edge, bar) = raised
-        .document
-        .drawing_at(raised.session.editing())
+        .drawing()
         .sketch()
         .segments()
         .last()
         .expect("the demo draws edges");
-    let plane = raised.document.drawing_at(raised.session.editing()).plane();
-    let ends = [bar.a, bar.b].map(|id| {
-        raised
-            .document
-            .drawing_at(raised.session.editing())
-            .sketch()
-            .point(id)
-            .position
-    });
+    let plane = raised.drawing().plane();
+    let ends = [bar.a, bar.b].map(|id| raised.drawing().sketch().point(id).position);
     let was: Vec<DVec2> = raised
-        .document
-        .drawing_at(raised.session.editing())
+        .drawing()
         .sketch()
         .points()
         .map(|(_, at)| at.position)
@@ -275,10 +263,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
     raised.frame();
 
     // The bar has not budged — nor has anything else that was already drawn.
-    let sketch = raised
-        .document
-        .drawing_at(raised.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     let now: Vec<DVec2> = sketch.points().map(|(_, at)| at.position).collect();
     for (index, (before, after)) in was.iter().zip(&now).enumerate() {
         assert!(
@@ -309,12 +294,7 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
 fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     let mut raised = RaisedView::new();
     raised.frame();
-    let edges = raised
-        .document
-        .drawing_at(raised.session.editing())
-        .sketch()
-        .segments()
-        .count();
+    let edges = raised.drawing().sketch().segments().count();
     let strokes = raised.strokes();
 
     let from = raised.empty_spot();
@@ -323,20 +303,14 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     raised.harness.click_at(start);
     raised.frame();
     assert_eq!(
-        raised
-            .document
-            .drawing_at(raised.session.editing())
-            .sketch()
-            .segments()
-            .count(),
+        raised.drawing().sketch().segments().count(),
         edges,
         "the first click of a line reached the document"
     );
 
     // Away from where it started, so the band has somewhere to reach.
     let to = raised
-        .document
-        .drawing_at(raised.session.editing())
+        .drawing()
         .plane()
         .point(DVec2::new(-4.0, 0.5))
         .as_vec3();
@@ -367,15 +341,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     raised.frame();
     assert_eq!(raised.session.tool(), Tool::Pointer);
     assert_eq!(raised.strokes(), strokes, "the band outlived the tool");
-    assert_eq!(
-        raised
-            .document
-            .drawing_at(raised.session.editing())
-            .sketch()
-            .segments()
-            .count(),
-        edges
-    );
+    assert_eq!(raised.drawing().sketch().segments().count(), edges);
 
     // A circle bands the same way, as a rim rather than a stroke: its size is
     // how far the cursor is from where the first click landed, so a cursor two
@@ -385,8 +351,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
     raised.harness.click_at(raised.cursor_on(from));
     raised.frame();
     let out = raised
-        .document
-        .drawing_at(raised.session.editing())
+        .drawing()
         .plane()
         .point(DVec2::new(-1.5 + 2.5, 2.5))
         .as_vec3();
@@ -420,7 +385,7 @@ fn a_half_drawn_line_hangs_from_its_start_to_the_cursor() {
 fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
     let mut raised = RaisedView::new();
     raised.frame();
-    let sketch = raised.session.editing();
+    let sketch = raised.editing();
     let relations = |raised: &RaisedView| {
         raised
             .document
@@ -545,7 +510,7 @@ fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
 #[test]
 fn placing_a_number_moves_it_and_settles_nothing() {
     let mut raised = RaisedView::new();
-    let sketch = raised.session.editing();
+    let sketch = raised.editing();
     let (constraint, _) = raised
         .document
         .drawing_at(sketch)

@@ -180,61 +180,69 @@ pub(crate) fn write(
 /// The list is [`redraw`](crate::paint::redraw)'s, and current whenever this
 /// runs: it is rewritten whenever the drawing moves, and skipped only on the
 /// frames where the drawing has not.
+///
+/// Nothing at all where no sketch is open, which is one of the two ways this
+/// answers with nothing and the less interesting: a document being looked at
+/// rather than drawn in shows no dimensions, so there are no rules to draw
+/// under them. Walked through the `Option` rather than returned early, because
+/// an early return would have to name a second iterator type for the empty
+/// case.
 fn ruled<'a>(
     models: Models<'a>,
     placed: &'a [Placed],
     proposed: Option<Proposed>,
     lens: Lens,
 ) -> impl Iterator<Item = (Option<Part>, Piece)> + 'a {
-    let model = models.open();
-    let (sketch, plane) = (model.sketch(), model.plane());
-    // The dimension a tool is half-way through placing, which is drawn exactly
-    // as a stated one and stands in no stack. Handed in rather than placed here:
-    // the figure above it is written by the other half of a frame, and the two
-    // working it out apart is a number and a rule drawn about two different
-    // constraints — see [`Proposed`].
-    placed
-        .iter()
-        .map(move |placed| (sketch.constraint(placed.of), placed.mark, false))
-        .chain(proposed.map(|proposed| (proposed.constraint, proposed.mark, true)))
-        .filter_map(move |(constraint, placed, proposed)| {
-            let measured = Measurement::of(sketch, constraint)?;
-            // Where the *number* stands, which is what an extension line
-            // is reaching to and so what the gaps at either end of one
-            // dimension have to be sized against.
-            let at = plane.point(placed.at).as_vec3();
-            let scale = f64::from(lens.world_per_pixel(at));
-            let strokes = dimension::strokes(
-                Measurement {
-                    // The mark's own direction and height, so the line
-                    // lands under the figure it carries: the first is
-                    // settled either side of a cut and the second is
-                    // where the stack left it, and neither is anything
-                    // the measurement knows.
-                    along: placed.along,
-                    label: placed.at
-                        + placed.along.perp() * (f64::from(placed.rule_rise()) * scale),
-                    ..measured
-                },
-                // A radius points at its rim and not at its own centre —
-                // see [`dimension::strokes`].
-                !matches!(constraint, Constraint::Radius { .. }),
-                scale,
-            );
-            Some((strokes, proposed))
-        })
-        .flat_map(move |(strokes, proposed)| {
-            strokes.into_iter().flatten().map(move |stroke| {
-                (
-                    None,
-                    Piece::Ruled {
-                        plane,
-                        stroke,
-                        proposed,
+    models.open().into_iter().flat_map(move |model| {
+        let (sketch, plane) = (model.sketch(), model.plane());
+        // The dimension a tool is half-way through placing, which is drawn exactly
+        // as a stated one and stands in no stack. Handed in rather than placed here:
+        // the figure above it is written by the other half of a frame, and the two
+        // working it out apart is a number and a rule drawn about two different
+        // constraints — see [`Proposed`].
+        placed
+            .iter()
+            .map(move |placed| (sketch.constraint(placed.of), placed.mark, false))
+            .chain(proposed.map(|proposed| (proposed.constraint, proposed.mark, true)))
+            .filter_map(move |(constraint, placed, proposed)| {
+                let measured = Measurement::of(sketch, constraint)?;
+                // Where the *number* stands, which is what an extension line
+                // is reaching to and so what the gaps at either end of one
+                // dimension have to be sized against.
+                let at = plane.point(placed.at).as_vec3();
+                let scale = f64::from(lens.world_per_pixel(at));
+                let strokes = dimension::strokes(
+                    Measurement {
+                        // The mark's own direction and height, so the line
+                        // lands under the figure it carries: the first is
+                        // settled either side of a cut and the second is
+                        // where the stack left it, and neither is anything
+                        // the measurement knows.
+                        along: placed.along,
+                        label: placed.at
+                            + placed.along.perp() * (f64::from(placed.rule_rise()) * scale),
+                        ..measured
                     },
-                )
+                    // A radius points at its rim and not at its own centre —
+                    // see [`dimension::strokes`].
+                    !matches!(constraint, Constraint::Radius { .. }),
+                    scale,
+                );
+                Some((strokes, proposed))
             })
-        })
+            .flat_map(move |(strokes, proposed)| {
+                strokes.into_iter().flatten().map(move |stroke| {
+                    (
+                        None,
+                        Piece::Ruled {
+                            plane,
+                            stroke,
+                            proposed,
+                        },
+                    )
+                })
+            })
+    })
 }
 
 /// How wide a control is stroked, in logical pixels.

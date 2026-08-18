@@ -26,7 +26,11 @@ impl Drawn {
     /// Every sketch it holds, which for a fixture of one is that one — open,
     /// so it is drawn in the colours of what it has left to decide.
     pub(crate) fn models(&self) -> Models<'_> {
-        Models::new(&self.timeline, &self.build, self.timeline.first_sketch())
+        Models::new(
+            &self.timeline,
+            &self.build,
+            Some(self.timeline.first_sketch()),
+        )
     }
 }
 
@@ -71,7 +75,9 @@ pub(super) fn every_statable() -> Vec<silverpoint::Constraint> {
     let mut timeline = Timeline::of(sketch);
     let at = timeline.first_sketch();
     timeline.edit(at).opened(&mut build);
-    let model = Models::new(&timeline, &build, at).open();
+    let model = Models::new(&timeline, &build, Some(at))
+        .open()
+        .expect("a fixture opens the sketch it names");
 
     let mut every = Vec::new();
     let mut offers = Vec::new();

@@ -199,7 +199,7 @@ mod tests {
         build: &Build,
         sketch: FeatureId,
     ) -> Vec<Vec3> {
-        cut.region(document.models(build, sketch), sheets, sketch, 0)
+        cut.region(document.models(build, Some(sketch)), sheets, sketch, 0)
             .map(|cut| cut.corners().to_vec())
             .expect("the sketch encloses a region")
     }
@@ -311,13 +311,25 @@ mod tests {
     fn a_punched_region_puts_its_inside_point_in_the_region() {
         let mut build = Build::default();
         let document = demo::document(&mut build);
-        let drawn = document.opening();
-        let models = document.models(&build, drawn);
+        let drawn = document.first_sketch();
+        let models = document.models(&build, Some(drawn));
         // The frame around the hub is the widest thing the demo encloses, so it
         // is the region with the largest area — and the one with the hole.
-        let framed = (0..models.open().arrangement().faces().len())
+        let framed = (0..models
+            .open()
+            .expect("a fixture opens the sketch it names")
+            .arrangement()
+            .faces()
+            .len())
             .max_by(|&a, &b| {
-                let area = |at: usize| models.open().arrangement().faces()[at].area();
+                let area = |at: usize| {
+                    models
+                        .open()
+                        .expect("a fixture opens the sketch it names")
+                        .arrangement()
+                        .faces()[at]
+                        .area()
+                };
                 area(a).total_cmp(&area(b))
             })
             .expect("the demo encloses something");
@@ -334,10 +346,27 @@ mod tests {
         // way is a radius deep inside the hole. Measured against the circle the
         // demo draws rather than a number written here, and on the plane the cut
         // answers in, where a rigid map leaves the distance what it was.
-        let hub = models.open().sketch().circles().next().expect("the hub").1;
-        let plane = models.open().plane();
+        let hub = models
+            .open()
+            .expect("a fixture opens the sketch it names")
+            .sketch()
+            .circles()
+            .next()
+            .expect("the hub")
+            .1;
+        let plane = models
+            .open()
+            .expect("a fixture opens the sketch it names")
+            .plane();
         let middle = plane
-            .point(models.open().sketch().point(hub.center).position)
+            .point(
+                models
+                    .open()
+                    .expect("a fixture opens the sketch it names")
+                    .sketch()
+                    .point(hub.center)
+                    .position,
+            )
             .as_vec3();
         assert!(
             f64::from(inside.distance(middle)) > hub.radius,

@@ -189,14 +189,19 @@ impl Document {
         self.timeline.stretching(at)
     }
 
-    /// The sketch a session should start in.
+    /// The sketch a session should start in, where it should start in one.
     ///
     /// The first one the timeline holds, which is where a document that has
     /// just been raised puts you. Which sketch is open after that is the
     /// session's — see [`Session::editing`](crate::session::Session) — because
     /// nothing about what you have open is written down by saving.
-    pub(crate) fn opening(&self) -> FeatureId {
-        self.timeline.first_sketch()
+    ///
+    /// An `Option` ahead of ever answering `None`, which is the seam this is
+    /// here to be: a document that holds no sketch has none to open, and one
+    /// that holds several is arguably opened on none of them. Both are the same
+    /// answer, and everything that reads this already says what it makes of one.
+    pub(crate) fn opening(&self) -> Option<FeatureId> {
+        Some(self.timeline.first_sketch())
     }
 
     /// The sketch at `at`, open for editing.
@@ -222,7 +227,7 @@ impl Document {
     /// [`Models`]. Here because a caller holding a document and a build is
     /// holding both halves already, and naming the type to put them together
     /// would be ceremony.
-    pub(crate) fn models<'a>(&'a self, build: &'a Build, editing: FeatureId) -> Models<'a> {
+    pub(crate) fn models<'a>(&'a self, build: &'a Build, editing: Option<FeatureId>) -> Models<'a> {
         Models::new(&self.timeline, build, editing)
     }
 
@@ -377,7 +382,7 @@ impl Document {
                 // the same model here: which sketch is being *worked in* is the
                 // session's, and an edit names its own.
                 let profile = self
-                    .models(build, sketch)
+                    .models(build, Some(sketch))
                     .at(sketch)
                     .expect("a change names a sketch the timeline holds")
                     .profile(region);
@@ -443,6 +448,24 @@ pub(crate) mod internals {
     use crate::timeline::FeatureId;
     use aperture::Camera;
     use glam::Vec3;
+
+    /// Narrower than the mod around it, like [`Edits`] below: the visual suite
+    /// raises a session and asks *that* which sketch is open, where a unit test
+    /// standing a document up on its own has no session to ask.
+    #[cfg(test)]
+    impl Document {
+        /// The first sketch the timeline holds, which is the one every fixture
+        /// here is about.
+        ///
+        /// Not [`Document::opening`], though today they answer the same step:
+        /// that one says where a *session* starts and is an `Option` because a
+        /// document may be opened on no sketch at all. What a fixture wants is
+        /// the sketch, and a fixture that unwrapped the other would be writing
+        /// down an assumption about the session in a test that is not about one.
+        pub(crate) fn first_sketch(&self) -> FeatureId {
+            self.timeline.first_sketch()
+        }
+    }
 
     /// Narrower than the mod around it, which the visual suite reaches through
     /// as well: this is wanted by one unit test and nothing a harness links.

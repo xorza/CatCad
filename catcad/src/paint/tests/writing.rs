@@ -328,7 +328,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     };
 
     redraw(
-        document.models(&build, here),
+        document.models(&build, Some(here)),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -345,7 +345,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     // The same layout, so the only thing that has changed is which sketch is
     // open — and the marks have to follow it.
     redraw(
-        document.models(&build, there),
+        document.models(&build, Some(there)),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -367,7 +367,11 @@ fn only_the_open_sketch_shows_its_constraints() {
     // [`Datum`] — so a basis hard-coded to the ground would pass. What it does
     // catch is the pair handed over the wrong way round, since the ground's +x
     // and its normal are different axes.
-    let plane = document.models(&build, there).open().plane();
+    let plane = document
+        .models(&build, Some(there))
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .plane();
     let normal = plane.normal().as_vec3();
     // The fixture's one dimension spans (0,0) to (4,3), so it runs three-fifths
     // and four-fifths across the sketch's own axes — and not along either of
@@ -415,7 +419,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     // `Showing`: the picture is stale all the same, and the mark goes because
     // the field standing over it is drawn in its place.
     redraw(
-        document.models(&build, there),
+        document.models(&build, Some(there)),
         &mut layout,
         Showing {
             typed: Some(over),
@@ -466,7 +470,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     };
 
     redraw(
-        document.models(&build, here),
+        document.models(&build, Some(here)),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -481,7 +485,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     // The same layout, so the only thing that has changed is which sketch is
     // open — and it is enough to make the picture stale.
     redraw(
-        document.models(&build, there),
+        document.models(&build, Some(there)),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -528,12 +532,15 @@ fn the_plane_being_drawn_on_is_outlined_round_its_drawing() {
     let [outline] = outlines[..] else {
         panic!("{} planes were outlined, not one", outlines.len());
     };
-    assert_eq!(named(outline), Some(Part::Plane(models.open_plane())));
+    assert_eq!(named(outline), models.open_plane().map(Part::Plane));
     assert!(outline.closed, "a sheet's outline does not close");
 
     // Its corners in the plane's own coordinates, which is where the drawing's
     // are.
-    let plane = models.open().plane();
+    let plane = models
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .plane();
     let corners: Vec<DVec2> = outline
         .points
         .iter()
@@ -556,7 +563,12 @@ fn the_plane_being_drawn_on_is_outlined_round_its_drawing() {
     // Every point of the drawing inside it, and none of them on the edge: the
     // margin is what keeps the outline off the geometry.
     let clear = side.x * 0.01;
-    for (_, point) in models.open().sketch().points() {
+    for (_, point) in models
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .sketch()
+        .points()
+    {
         let at = point.position;
         assert!(
             at.cmpgt(low + clear).all() && at.cmplt(high - clear).all(),

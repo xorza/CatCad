@@ -21,26 +21,10 @@ use crate::intent::Choice;
 #[test]
 fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     let mut raised = Raised::new();
-    let at_rest = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch()
-        .points()
-        .count();
-    let edges = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch()
-        .segments()
-        .count();
+    let at_rest = raised.drawing().sketch().points().count();
+    let edges = raised.drawing().sketch().segments().count();
 
-    let plane = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .plane();
+    let plane = raised.drawing().plane();
     let corner = [
         plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
         plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
@@ -56,29 +40,14 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
         raised.harness.click_at(spot);
         raised.frame();
     }
-    assert_eq!(
-        raised
-            .app
-            .document
-            .drawing_at(raised.app.session.editing())
-            .sketch()
-            .points()
-            .count(),
-        at_rest + 4
-    );
+    assert_eq!(raised.drawing().sketch().points().count(), at_rest + 4);
 
     // Pressed on that, the command finds nothing: every one of those points
     // ends an edge.
     raised.harness.click_at(TIDY_BUTTON);
     raised.frame();
     assert_eq!(
-        raised
-            .app
-            .document
-            .drawing_at(raised.app.session.editing())
-            .sketch()
-            .points()
-            .count(),
+        raised.drawing().sketch().points().count(),
         at_rest + 4,
         "a cleanup ate a corner that was holding an edge up"
     );
@@ -105,11 +74,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     raised.frame();
     raised.harness.key(Key::Delete);
     raised.frame();
-    let sketch = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     assert_eq!(
         sketch.segments().count(),
         edges + 1,
@@ -119,11 +84,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
 
     raised.harness.click_at(TIDY_BUTTON);
     raised.frame();
-    let sketch = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     assert_eq!(
         sketch.points().count(),
         at_rest + 3,
@@ -148,16 +109,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     // on — and the line goes back to saying so.
     raised.harness.click_at(TIDY_BUTTON);
     raised.frame();
-    assert_eq!(
-        raised
-            .app
-            .document
-            .drawing_at(raised.app.session.editing())
-            .sketch()
-            .points()
-            .count(),
-        at_rest + 3
-    );
+    assert_eq!(raised.drawing().sketch().points().count(), at_rest + 3);
     assert!(
         raised
             .app
@@ -270,7 +222,11 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
 
     // The frame is region 0 of the open sketch — the rectangle with the hub cut
     // out of it, which is not the region the demo already grew from.
-    let frame_region = raised.models().open().region(0);
+    let frame_region = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .region(0);
     raised.choose(Choice::Select(Some(frame_region)));
     raised.frame();
 

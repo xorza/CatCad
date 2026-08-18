@@ -27,7 +27,7 @@ impl Opened {
     fn new() -> Self {
         let mut build = Build::default();
         let document = demo::document(&mut build);
-        let at = document.opening();
+        let at = document.first_sketch();
         Self {
             build,
             document,
@@ -54,7 +54,7 @@ fn markers(document: &Document, build: &Build) -> Vec<Vec3> {
 /// point a drag can take anywhere.
 fn point(document: &Document, index: usize) -> PointId {
     document
-        .drawing_at(document.opening())
+        .drawing_at(document.first_sketch())
         .sketch()
         .points()
         .nth(index)
@@ -66,7 +66,7 @@ fn point(document: &Document, index: usize) -> PointId {
 /// by whatever a drag gives it and nothing pulls back.
 fn hole(document: &Document) -> CircleId {
     document
-        .drawing_at(document.opening())
+        .drawing_at(document.first_sketch())
         .sketch()
         .circles()
         .next()
@@ -81,7 +81,7 @@ fn hole(document: &Document) -> CircleId {
 /// drag, so this is the one edit in the demo that moves a single parameter and
 /// leaves everything else exactly where it stands.
 fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
-    let sketch = document.drawing_at(document.opening()).sketch();
+    let sketch = document.drawing_at(document.first_sketch()).sketch();
     let centre = sketch.point(sketch.circle(circle).center).position;
     Plane::GROUND
         .point(centre + DVec2::new(radius, 0.0))
@@ -89,7 +89,7 @@ fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
 }
 
 fn radius(document: &Document) -> f64 {
-    let sketch = document.drawing_at(document.opening()).sketch();
+    let sketch = document.drawing_at(document.first_sketch()).sketch();
     sketch.circle(hole(document)).radius
 }
 
@@ -131,7 +131,7 @@ fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
     Plane::GROUND
         .point(
             document
-                .drawing_at(document.opening())
+                .drawing_at(document.first_sketch())
                 .sketch()
                 .point(id)
                 .position

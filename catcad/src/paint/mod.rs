@@ -358,10 +358,13 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         // Where the dimension being placed would put its mark, worked out once
         // for the figure written here and the rule written against the camera —
         // see [`Proposed`](marks::Proposed).
-        *proposed = showing
-            .band
-            .and_then(Preview::dimension)
-            .and_then(|constraint| marks::Proposed::of(models.open().sketch(), constraint));
+        // Nothing proposed where nothing is open: a dimension being placed is
+        // one a *tool* is half-way through, and a tool draws in the sketch you
+        // are in.
+        *proposed = models
+            .open()
+            .zip(showing.band.and_then(Preview::dimension))
+            .and_then(|(open, constraint)| marks::Proposed::of(open.sketch(), constraint));
         write::texts(
             models,
             names,

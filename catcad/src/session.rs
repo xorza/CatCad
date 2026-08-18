@@ -1,7 +1,7 @@
 //! What the user is working *with*, as against what they are working *on*.
 
 use crate::intent::{Choice, Intent, Intents};
-use crate::model::Models;
+use crate::model::{Model, Models};
 use crate::part::Part;
 use crate::prompt::Prompt;
 use crate::selection::Selection;
@@ -26,19 +26,20 @@ use crate::tool::Tool;
 pub(crate) struct Session {
     tool: Tool,
     selection: Selection,
-    /// The sketch open for editing.
+    /// The sketch open for editing, where one is.
     ///
     /// What every edit names, and so what decides which sketch a click builds
     /// in. Session state like the rest of this: nothing about what you happen
     /// to have open is written down by saving, and an undo should not close the
     /// sketch you were working in.
     ///
-    /// Never absent, because a session is always *in* something: a document is
-    /// raised with its first sketch open and nothing here closes one. When
-    /// looking at a document without a sketch open becomes a thing a user can
-    /// do, this becomes an `Option` and the compiler will point at every place
-    /// that then has to answer for it.
-    editing: FeatureId,
+    /// **`None` is a document being looked at rather than drawn in**, which is
+    /// a state in its own right and not a mistake to guard against: a document
+    /// may hold no sketch at all, and one that holds several is opened on none
+    /// of them. Every reader below answers for it — what a click means, what
+    /// the tool bar offers, what the readout says and what a prune has to
+    /// let go of.
+    editing: Option<FeatureId>,
     /// The form open against the drawing, where one is.
     ///
     /// Session state on the same terms as the rest: a draft is not in the
@@ -50,7 +51,7 @@ pub(crate) struct Session {
 impl Session {
     /// A session in `editing`, holding nothing and with nothing picked out —
     /// which is what raising a document leaves.
-    pub(crate) fn new(editing: FeatureId) -> Self {
+    pub(crate) fn new(editing: Option<FeatureId>) -> Self {
         Self {
             tool: Tool::default(),
             selection: Selection::default(),
@@ -64,8 +65,8 @@ impl Session {
         self.tool
     }
 
-    /// The sketch open for editing.
-    pub(crate) fn editing(&self) -> FeatureId {
+    /// The sketch open for editing, where one is.
+    pub(crate) fn editing(&self) -> Option<FeatureId> {
         self.editing
     }
 
@@ -126,11 +127,11 @@ impl Session {
                 // such click; a datum plane is the other, being what sketches
                 // are drawn on rather than anything drawn.
                 Intent::Choice(Choice::Select(what)) => {
-                    self.editing = what.and_then(Part::sketch).unwrap_or(self.editing);
+                    self.editing = what.and_then(Part::sketch).or(self.editing);
                     self.selection.select(what);
                 }
                 Intent::Choice(Choice::Include(what)) => {
-                    self.editing = what.sketch().unwrap_or(self.editing);
+                    self.editing = what.sketch().or(self.editing);
                     self.selection.include(what);
                 }
                 Intent::Choice(Choice::Ask(Some(opening))) => {
@@ -209,8 +210,13 @@ impl Session {
         }
         // The tool draws in the open sketch and nowhere else, so what it is
         // half-way through hangs off that one — asking the rest would be asking
-        // after a point they never held.
-        let drawing = models.open().drawing();
+        // after a point they never held. And with no sketch open there is
+        // nothing for a gesture to hang *from*: what a tool is half-way through
+        // is a place or a handle in a drawing, and there is no drawing.
+        let Some(drawing) = models.open().map(Model::drawing) else {
+            self.tool = self.tool.restarted();
+            return;
+        };
         let hanging = self
             .tool
             .started()
@@ -272,22 +278,34 @@ mod tests {
         let mut build = Build::default();
         timeline.edit(here).opened(&mut build);
         timeline.edit(there).opened(&mut build);
-        let first = Models::new(&timeline, &build, here).open();
-        let second = Models::new(&timeline, &build, there).open();
+        let first = Models::new(&timeline, &build, Some(here))
+            .open()
+            .expect("a fixture opens the sketch it names");
+        let second = Models::new(&timeline, &build, Some(there))
+            .open()
+            .expect("a fixture opens the sketch it names");
 
-        let mut session = Session::new(here);
+        let mut session = Session::new(Some(here));
 
         let mut intents = Intents::default();
         intents.push(Choice::Select(Some(second.part(other))));
         session.apply(Models::new(&timeline, &build, session.editing()), &intents);
-        assert_eq!(session.editing(), there, "the pick did not open its sketch");
+        assert_eq!(
+            session.editing(),
+            Some(there),
+            "the pick did not open its sketch"
+        );
 
         // A click on empty space picks nothing out and says nothing about which
         // sketch, so the one that was open stays open.
         intents.clear();
         intents.push(Choice::Select(None));
         session.apply(Models::new(&timeline, &build, session.editing()), &intents);
-        assert_eq!(session.editing(), there, "an empty click closed the sketch");
+        assert_eq!(
+            session.editing(),
+            Some(there),
+            "an empty click closed the sketch"
+        );
         assert_eq!(session.selection().count(), 0);
 
         // Shift-adding does the same as a plain pick, because it too names a
@@ -295,7 +313,7 @@ mod tests {
         intents.clear();
         intents.push(Choice::Include(first.part(Entity::Point(one))));
         session.apply(Models::new(&timeline, &build, session.editing()), &intents);
-        assert_eq!(session.editing(), here);
+        assert_eq!(session.editing(), Some(here));
 
         // A datum plane is the other click that names no sketch: it is what
         // sketches are drawn *on*, so picking one leaves open whatever was —
@@ -303,10 +321,14 @@ mod tests {
         intents.clear();
         intents.push(Choice::Select(Some(Part::Plane(ground))));
         session.apply(Models::new(&timeline, &build, session.editing()), &intents);
-        assert_eq!(session.editing(), here, "picking a plane closed the sketch");
+        assert_eq!(
+            session.editing(),
+            Some(here),
+            "picking a plane closed the sketch"
+        );
         assert!(session.selection().contains(Part::Plane(ground)));
 
-        let models = Models::new(&timeline, &build, here);
+        let models = Models::new(&timeline, &build, Some(here));
         session.prune(models);
         assert!(
             session.selection().contains(Part::Plane(ground)),
@@ -354,19 +376,19 @@ mod tests {
             second: Some(Entity::Point(there)),
             along: None,
         });
-        let mut session = Session::new(at);
+        let mut session = Session::new(Some(at));
         let mut intents = Intents::default();
         intents.push(Choice::Hold(placing));
-        session.apply(Models::new(&timeline, &build, at), &intents);
+        session.apply(Models::new(&timeline, &build, Some(at)), &intents);
 
         // Three-four-five apart, so the gesture still has a distance to state
         // and the prune has nothing to say about it.
-        session.prune(Models::new(&timeline, &build, at));
+        session.prune(Models::new(&timeline, &build, Some(at)));
         assert_eq!(session.tool(), placing, "a live gesture was put down");
 
         // In one place, with both handles still perfectly good.
         let (together, build, at, _) = raised(DVec2::ZERO);
-        session.prune(Models::new(&together, &build, at));
+        session.prune(Models::new(&together, &build, Some(at)));
         assert_eq!(
             session.tool(),
             Tool::Dimension(Dimensioning::Empty),
@@ -377,9 +399,9 @@ mod tests {
         // it would have meant — which is a panic rather than a `false`, so the
         // whole of the claim is that this line returns.
         let (mut timeline, mut build, at, _) = raised(DVec2::new(3.0, 4.0));
-        session.apply(Models::new(&timeline, &build, at), &intents);
+        session.apply(Models::new(&timeline, &build, Some(at)), &intents);
         timeline.edit(at).remove(&mut build, Entity::Point(there));
-        session.prune(Models::new(&timeline, &build, at));
+        session.prune(Models::new(&timeline, &build, Some(at)));
         assert_eq!(
             session.tool(),
             Tool::Dimension(Dimensioning::Empty),

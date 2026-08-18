@@ -115,7 +115,9 @@ mod tests {
         let mut timeline = Timeline::of(sketch);
         let at = timeline.first_sketch();
         timeline.edit(at).opened(&mut build);
-        let model = Models::new(&timeline, &build, at).open();
+        let model = Models::new(&timeline, &build, Some(at))
+            .open()
+            .expect("a fixture opens the sketch it names");
         let (a, b) = (model.part(start), model.part(end));
         let c = model.part(segment);
 

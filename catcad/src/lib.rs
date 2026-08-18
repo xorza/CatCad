@@ -50,7 +50,7 @@ use crate::intent::change::Change;
 use crate::intent::{Choice, Errand, Intent, Intents, Step};
 use crate::scene_view::SceneView;
 use crate::session::Session;
-use crate::status::Status;
+use crate::status::{Solved, Status};
 use crate::tool::Tool;
 
 /// Take back the last step, and put it back.
@@ -419,13 +419,16 @@ impl CatCad {
     /// over the drawing rather than into a log.
     fn status(&self) -> Status<'_> {
         let models = self.document.models(&self.build, self.session.editing());
-        let model = models.open();
-        let outcome = model.outcome();
         Status {
-            converged: outcome.converged(),
-            iterations: outcome.iterations(),
-            degrees_of_freedom: outcome.degrees_of_freedom(),
-            redundant_constraints: outcome.redundant_constraints(),
+            solved: models.open().map(|model| {
+                let outcome = model.outcome();
+                Solved {
+                    converged: outcome.converged(),
+                    iterations: outcome.iterations(),
+                    degrees_of_freedom: outcome.degrees_of_freedom(),
+                    redundant_constraints: outcome.redundant_constraints(),
+                }
+            }),
             lost: models.lost(),
             hovered: self.view.hovered(),
             cleaned: self.build.cleaned(),
@@ -580,6 +583,20 @@ pub(crate) mod internals {
             self.view.hovering(tag)
         }
 
+        /// The sketch the session has open, which every fixture below builds
+        /// on.
+        ///
+        /// An `expect` rather than an answer, because a fixture that has raised
+        /// the demo *is* in a sketch: this is a harness saying what it has set
+        /// up, not code guarding against a state. See
+        /// [`Session::editing`](crate::session::Session), which is where the
+        /// state itself is answered for.
+        pub(crate) fn editing(&self) -> crate::timeline::FeatureId {
+            self.session
+                .editing()
+                .expect("a raised document opens in a sketch")
+        }
+
         /// The far end of the demo's arm, which is the freest thing it draws
         /// and so the one worth taking hold of.
         ///
@@ -588,14 +605,14 @@ pub(crate) mod internals {
         /// what the answer reads is two private fields of one app: the
         /// document, and which sketch the session has open.
         pub fn wrist(&self) -> glam::Vec3 {
-            self.document.wrist(self.session.editing())
+            self.document.wrist(self.editing())
         }
 
         /// Where a tool has room to put something down, forwarded the same way
         /// as [`CatCad::wrist`].
         #[cfg(test)]
         pub fn empty_spot(&self) -> glam::Vec3 {
-            self.document.empty_spot(self.session.editing())
+            self.document.empty_spot(self.editing())
         }
     }
 }

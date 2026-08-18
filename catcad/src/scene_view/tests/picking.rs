@@ -170,14 +170,7 @@ fn a_region_and_a_solids_face_are_hovered_and_picked_out_like_any_other_part() {
     raised.frame();
 
     let on_ground = |raised: &RaisedView, x: f64, y: f64| {
-        raised.cursor_on(
-            raised
-                .document
-                .drawing_at(raised.session.editing())
-                .plane()
-                .point(DVec2::new(x, y))
-                .as_vec3(),
-        )
+        raised.cursor_on(raised.drawing().plane().point(DVec2::new(x, y)).as_vec3())
     };
 
     // Inside the demo's rectangle and clear of everything: the frame runs to
@@ -262,8 +255,7 @@ fn what_is_drawn_on_a_face_takes_the_click_over_it() {
     // the face and the marker are both under this cursor.
     let corner = raised.cursor_on(
         raised
-            .document
-            .drawing_at(raised.session.editing())
+            .drawing()
             .plane()
             .point(DVec2::new(8.0, 5.0))
             .as_vec3(),
@@ -303,7 +295,7 @@ fn what_is_drawn_on_a_face_takes_the_click_over_it() {
 #[test]
 fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
     let raised = RaisedView::new();
-    let sketch = raised.session.editing();
+    let sketch = raised.editing();
     let drawing = raised.document.drawing_at(sketch);
 
     let mut dimensions = 0;
@@ -314,7 +306,7 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
             entity: id.into(),
         };
         let opened = dimension(part, &raised.document);
-        let held = label(part, drawing, sketch);
+        let held = label(part, Some(drawing), Some(sketch));
         match constraint.value() {
             Some(states) => {
                 dimensions += 1;
@@ -348,7 +340,7 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
         entity: point.into(),
     };
     assert!(dimension(marker, &raised.document).is_none());
-    assert_eq!(label(marker, drawing, sketch), None);
+    assert_eq!(label(marker, Some(drawing), Some(sketch)), None);
 
     // A press refuses a number of a sketch you are not in, where the
     // double-click above does not — and the difference is what each gesture
@@ -356,7 +348,7 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
     // form over one only reads it.
     let elsewhere = raised
         .document
-        .models(&raised.build, sketch)
+        .models(&raised.build, Some(sketch))
         .iter()
         .map(|model| model.of())
         .find(|&at| at != sketch)
@@ -372,8 +364,8 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
                 sketch: elsewhere,
                 entity: borrowed.into(),
             },
-            drawing,
-            sketch,
+            Some(drawing),
+            Some(sketch),
         ),
         None,
         "a number of a sketch nobody is in offered itself to be dragged"
@@ -516,7 +508,7 @@ fn a_click_ends_the_gesture_so_hover_goes_on_working_after_it() {
 fn a_tool_in_hand_refuses_to_take_hold_of_a_dimension() {
     let mut raised = RaisedView::new();
     raised.frame();
-    let sketch = raised.session.editing();
+    let sketch = raised.editing();
     let (id, _) = raised
         .document
         .drawing_at(sketch)
@@ -532,7 +524,7 @@ fn a_tool_in_hand_refuses_to_take_hold_of_a_dimension() {
 
     // With the pointer, that number is a handle.
     assert_eq!(
-        label(part, drawing, sketch),
+        label(part, Some(drawing), Some(sketch)),
         Some(id),
         "a dimension the demo stated is not a handle at all",
     );

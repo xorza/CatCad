@@ -33,11 +33,11 @@ use silverpoint::Entity;
 fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     let mut build = Build::default();
     let mut document = demo::document(&mut build);
-    let editing = document.opening();
+    let editing = document.first_sketch();
     let mut layout = Layout::default();
     let mut scene = Scene::default();
     redraw(
-        document.models(&build, editing),
+        document.models(&build, Some(editing)),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -67,7 +67,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
 
     stamp(&mut scene);
     redraw(
-        document.models(&build, editing),
+        document.models(&build, Some(editing)),
         &mut layout,
         banding(1.0),
         &mut scene,
@@ -80,7 +80,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
 
     stamp(&mut scene);
     redraw(
-        document.models(&build, editing),
+        document.models(&build, Some(editing)),
         &mut layout,
         banding(2.0),
         &mut scene,
@@ -95,7 +95,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     // stamp survives.
     stamp(&mut scene);
     redraw(
-        document.models(&build, editing),
+        document.models(&build, Some(editing)),
         &mut layout,
         banding(2.0),
         &mut scene,
@@ -112,7 +112,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     // drawing's own points and faces, which no gesture can reach.
     stamp(&mut scene);
     redraw(
-        document.models(&build, editing),
+        document.models(&build, Some(editing)),
         &mut layout,
         Showing {
             growing: Some(Growing {
@@ -136,7 +136,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     document.apply(&mut build, Change::Tidy { sketch: editing });
     redraw(
-        document.models(&build, editing),
+        document.models(&build, Some(editing)),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -164,13 +164,13 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
 fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
-    let editing = document.opening();
+    let editing = document.first_sketch();
     let mut layout = Layout::default();
     let mut scene = Scene::default();
     let named = |layout: &Layout| layout.names().iter().collect::<Vec<(Tag, Part)>>();
 
     redraw(
-        document.models(&build, editing),
+        document.models(&build, Some(editing)),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -201,7 +201,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
         },
     ] {
         redraw(
-            document.models(&build, editing),
+            document.models(&build, Some(editing)),
             &mut layout,
             showing,
             &mut scene,
@@ -247,7 +247,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
         "the run before the marks holds no solid, so this asks nothing"
     );
     redraw(
-        document.models(&build, editing),
+        document.models(&build, Some(editing)),
         &mut layout,
         Showing {
             typed: Some(over),
@@ -286,11 +286,11 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
 fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
-    let editing = document.opening();
+    let editing = document.first_sketch();
     let mut layout = Layout::default();
     let mut scene = Scene::default();
     let seen = |wide: u32| Lens::new(Camera::default(), Viewport::new(UVec2::new(wide, 1080)));
-    let models = document.models(&build, editing);
+    let models = document.models(&build, Some(editing));
 
     redraw(models, &mut layout, Showing::default(), &mut scene);
     gizmos::write(

@@ -9,9 +9,9 @@ use glam::{DVec2, Vec2};
 use silverpoint::{Drive, Freedom, Outcome, Plane, Solver};
 use silverpoint::{PointId, Removed};
 
-use crate::Status;
 use crate::build::Build;
 use crate::demo;
+use crate::status::{Solved, Status};
 
 /// The demo is a fixture, so what it solves to is a fact the rest of the suite
 /// leans on — the frames below all draw this drawing — and the report has to
@@ -171,10 +171,12 @@ fn the_demo_shows_every_state_a_drawing_can_be_painted_in() {
 fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     assert_eq!(
         Status {
-            converged: true,
-            iterations: 4,
-            degrees_of_freedom: 0,
-            redundant_constraints: 0,
+            solved: Some(Solved {
+                converged: true,
+                iterations: 4,
+                degrees_of_freedom: 0,
+                redundant_constraints: 0,
+            }),
             lost: 0,
             hovered: None,
             cleaned: None,
@@ -200,7 +202,9 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     let mut timeline = Timeline::of(sketch);
     let at = timeline.first_sketch();
     timeline.edit(at).opened(&mut build);
-    let model = Models::new(&timeline, &build, at).open();
+    let model = Models::new(&timeline, &build, Some(at))
+        .open()
+        .expect("a fixture opens the sketch it names");
     for (hovered, tail) in [
         (model.part(point), " · point"),
         (model.part(segment), " · edge"),
@@ -210,10 +214,12 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     ] {
         assert_eq!(
             Status {
-                converged: true,
-                iterations: 4,
-                degrees_of_freedom: 0,
-                redundant_constraints: 0,
+                solved: Some(Solved {
+                    converged: true,
+                    iterations: 4,
+                    degrees_of_freedom: 0,
+                    redundant_constraints: 0,
+                }),
                 lost: 0,
                 hovered: Some(hovered),
                 cleaned: None,
@@ -228,10 +234,12 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     // An unsolved sketch says so, and says what it left free.
     assert_eq!(
         Status {
-            converged: false,
-            iterations: 100,
-            degrees_of_freedom: 3,
-            redundant_constraints: 2,
+            solved: Some(Solved {
+                converged: false,
+                iterations: 100,
+                degrees_of_freedom: 3,
+                redundant_constraints: 2,
+            }),
             lost: 0,
             hovered: None,
             cleaned: None,
@@ -247,10 +255,12 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     // reads as a command that did not run.
     let after = |cleaned| {
         Status {
-            converged: true,
-            iterations: 4,
-            degrees_of_freedom: 0,
-            redundant_constraints: 0,
+            solved: Some(Solved {
+                converged: true,
+                iterations: 4,
+                degrees_of_freedom: 0,
+                redundant_constraints: 0,
+            }),
             lost: 0,
             hovered: None,
             cleaned: Some(cleaned),
@@ -395,7 +405,7 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
 fn the_demo_is_drawn_on_the_ground_plane() {
     let document = demo::document(&mut Build::default());
     assert_eq!(
-        document.drawing_at(document.opening()).plane(),
+        document.drawing_at(document.first_sketch()).plane(),
         Plane::GROUND
     );
 }

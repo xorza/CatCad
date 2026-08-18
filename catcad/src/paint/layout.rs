@@ -259,7 +259,7 @@ impl Stage {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Made {
     pub(crate) revision: Revision,
-    pub(crate) editing: FeatureId,
+    pub(crate) editing: Option<FeatureId>,
     pub(crate) showing: Showing,
 }
 

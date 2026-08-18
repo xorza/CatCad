@@ -63,10 +63,14 @@ impl Band {
     /// every frame that is not drawing a band — and off the writer that is not:
     /// a band is a stroke or a rim and never both, so only one of the two calls
     /// here ever reaches the sketch.
+    ///
+    /// No sketch open is no band either, and the `?` says so rather than a
+    /// guard: a band is what a *tool* is half-way through, and a tool draws in
+    /// the sketch you are in.
     pub(super) fn new(models: Models<'_>, ends: Option<Ends>) -> Option<Self> {
         Some(Self {
             ends: ends?,
-            normal: models.open().plane().normal().as_vec3(),
+            normal: models.open()?.plane().normal().as_vec3(),
         })
     }
 }
@@ -85,7 +89,17 @@ pub(super) fn curves(
     // written here: the step its plane is, for the tag, and where that plane
     // lies. The second is the model's own — a drawing lies in the plane it is
     // drawn on — so there is no second lookup to disagree with it.
-    let open = models.open();
+    // The two halves of the one sheet written here, and they are `Some`
+    // together: which plane a sketch is drawn on is a question only while a
+    // sketch is open. Asked apart because a model names the sketch it is of
+    // rather than the step its plane is.
+    let outline = models
+        .open()
+        .zip(models.open_plane())
+        .map(|(open, at)| Stroke::Sheet {
+            at,
+            plane: open.plane(),
+        });
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
     // one that does not — see `Batch::refill`. That is also why all three kinds
@@ -97,17 +111,15 @@ pub(super) fn curves(
     // Back to front, so the order reads the way the picture does: the plane a
     // drawing is done on, then the drawing, then what is being drawn now.
     into.refill(
-        std::iter::once(Stroke::Sheet {
-            at: models.open_plane(),
-            plane: open.plane(),
-        })
-        .chain(models.iter().flat_map(|model| {
-            model
-                .sketch()
-                .segments()
-                .map(move |(id, edge)| Stroke::Edge(model, id, edge))
-        }))
-        .chain(band.map(Stroke::Band)),
+        outline
+            .into_iter()
+            .chain(models.iter().flat_map(|model| {
+                model
+                    .sketch()
+                    .segments()
+                    .map(move |(id, edge)| Stroke::Edge(model, id, edge))
+            }))
+            .chain(band.map(Stroke::Band)),
         |curve, stroke| {
             curve.width = EDGE_WIDTH;
             match stroke {
@@ -334,7 +346,18 @@ pub(super) fn texts(
     // crowd the sketch you are working in — and a dimension is the densest
     // thing the drawing puts on screen. The geometry of a dormant sketch still
     // shows, dimmed, because where it *is* is something you build against.
-    let live = models.open();
+    //
+    // No sketch open is no marks at all, and both lists have to be *emptied*
+    // rather than left alone: the batch is what the renderer still holds, and
+    // the placements are kept across frames for the rules drawn under them a
+    // phase later — see [`gizmos::ruled`](crate::paint::gizmos). Refilled with
+    // nothing rather than cleared, because refilling is the one way a batch is
+    // rewritten — see [`Batch`](aperture::Batch).
+    let Some(live) = models.open() else {
+        placed.clear();
+        into.refill(std::iter::empty(), |_: &mut Text, _: Marked| {});
+        return;
+    };
     // Laid out whole, before anything is left out. What lane a mark rises in
     // depends on how many share its place, so a stack that was worked out from
     // what is *shown* would close ranks the moment a field opened over one of

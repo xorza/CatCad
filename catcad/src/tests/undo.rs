@@ -247,9 +247,7 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
     // Now a different point, somewhere else — minted with the handle the undone
     // one had. Nobody picked it, so nothing is picked out.
     let elsewhere = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
+        .drawing()
         .plane()
         .point(DVec2::new(-1.5, 4.5))
         .as_vec3();
@@ -270,15 +268,17 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         "the second point did not land where it was asked for"
     );
     let newest = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
+        .drawing()
         .sketch()
         .points()
         .last()
         .expect("the sketch holds points")
         .0;
-    let newest = raised.models().open().part(newest);
+    let newest = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .part(newest);
     assert!(
         !raised.app.session.selection().contains(newest),
         "a point nobody picked came up selected, on a handle left over from an undo"

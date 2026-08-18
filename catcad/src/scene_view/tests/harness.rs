@@ -3,7 +3,7 @@
 use crate::build::Build;
 use crate::demo;
 use crate::document::Document;
-use crate::drawing::Grip;
+use crate::drawing::{Drawing, Grip};
 use crate::history::History;
 use crate::intent::{Choice, Intents};
 use crate::internals::HARNESS_SIZE;
@@ -150,6 +150,7 @@ impl RaisedView {
         self.document
             .models(&self.build, self.session.editing())
             .open()
+            .expect("a fixture opens the sketch it names")
             .part(entity)
     }
 
@@ -175,7 +176,7 @@ impl RaisedView {
     /// reached first — and a press on a solid's far end is now a drag rather
     /// than a miss, which is the opposite of what the test below asks about.
     pub(super) fn over_pinned(&self) -> Option<Vec2> {
-        let editing = self.session.editing();
+        let editing = self.editing();
         let drawing = self.document.drawing_at(editing);
         self.scan(move |part, _| {
             part.filter(|part| part.sketch() == Some(editing))
@@ -206,6 +207,28 @@ impl RaisedView {
                 })
             )
         })
+    }
+
+    /// The sketch the session has open, which every fixture below builds on.
+    ///
+    /// An `expect` rather than an answer, because a fixture that has raised the
+    /// demo *is* in a sketch: this is a harness saying what it has set up, not
+    /// code guarding against a state. See
+    /// [`Session::editing`](crate::session::Session), which is where the state
+    /// itself is answered for.
+    pub(super) fn editing(&self) -> FeatureId {
+        self.session
+            .editing()
+            .expect("a raised document opens in a sketch")
+    }
+
+    /// The sketch the session has open, and the plane it lies on.
+    ///
+    /// The one reading nearly every test here starts from — what was drawn, and
+    /// where. Its own call because reaching it is two fields and a handle, and
+    /// spelling that out is a paragraph wherever a test wants a line.
+    pub(super) fn drawing(&self) -> Drawing<'_> {
+        self.document.drawing_at(self.editing())
     }
 
     /// The demo's one plane that can be moved.
@@ -254,11 +277,10 @@ impl RaisedView {
     /// satisfying `keep`.
     fn sweep(&self, keep: impl Fn(Option<Grip>) -> bool) -> Option<Vec2> {
         self.scan(|part, at| {
-            keep(part.and_then(Part::entity).and_then(|entity| {
-                self.document
-                    .drawing_at(self.session.editing())
-                    .grip(entity, at)
-            }))
+            keep(
+                part.and_then(Part::entity)
+                    .and_then(|entity| self.drawing().grip(entity, at)),
+            )
         })
     }
 
@@ -319,13 +341,13 @@ impl RaisedView {
 
     /// The far end of the demo's arm — see [`Document::wrist`].
     pub(super) fn wrist(&self) -> Vec3 {
-        self.document.wrist(self.session.editing())
+        self.document.wrist(self.editing())
     }
 
     /// Where a tool has room to put something down — see
     /// [`Document::empty_spot`].
     pub(super) fn empty_spot(&self) -> Vec3 {
-        self.document.empty_spot(self.session.editing())
+        self.document.empty_spot(self.editing())
     }
 
     /// How many strokes the scene holds — the drawing's edges, plus a rubber
@@ -350,7 +372,7 @@ pub(super) fn unmoved(now: &[Vec3], was: &[Vec3]) -> bool {
 /// The scene's markers would not do: they are every sketch's, and the whole
 /// point of the drag above is that the *other* sketch moves.
 pub(super) fn open_markers(raised: &RaisedView) -> Vec<Vec3> {
-    let drawing = raised.document.drawing_at(raised.session.editing());
+    let drawing = raised.drawing();
     drawing
         .sketch()
         .points()

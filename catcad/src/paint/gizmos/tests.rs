@@ -163,7 +163,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
     let document = demo::document(&mut build);
     let showing = Showing {
         growing: Some(Growing {
-            sketch: document.opening(),
+            sketch: document.first_sketch(),
             region: 0,
             distance: 0.5,
         }),
@@ -337,6 +337,7 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     let placing = one
         .models()
         .open()
+        .expect("a fixture opens the sketch it names")
         .sketch()
         .fitted(placing)
         .expect("four apart is a distance to state");

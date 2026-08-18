@@ -61,7 +61,7 @@ impl SceneView {
     /// what the app above holds and the view is what it holds one for. Laying
     /// out is [`Picture::new`]'s and argued there; a pointer that has
     /// established nothing yet is the whole of the other half.
-    pub(crate) fn new(document: &Document, build: &Build, editing: FeatureId) -> Self {
+    pub(crate) fn new(document: &Document, build: &Build, editing: Option<FeatureId>) -> Self {
         Self {
             picture: Picture::new(document.models(build, editing)),
             pointing: Pointing::default(),

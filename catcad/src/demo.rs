@@ -279,28 +279,35 @@ mod tests {
     fn the_demo_grows_its_solid_from_the_hub_and_keeps_it_through_a_drag() {
         let mut build = Build::default();
         let mut document = document(&mut build);
-        let drawn = document.opening();
+        let drawn = document.first_sketch();
 
         // The hub is drawn at radius 1.5, and its centre is pinned to the middle
         // of the frame by two half-diagonals — so the disc it shuts in covers
         // π·1.5², and neither the frame around it nor the eye on the arm is
         // anywhere near that.
         let covered = |document: &Document, build: &Build| {
-            document.models(build, drawn).open().arrangement().faces()[HUB].area()
+            document
+                .models(build, Some(drawn))
+                .open()
+                .expect("a fixture opens the sketch it names")
+                .arrangement()
+                .faces()[HUB]
+                .area()
         };
         assert!(
             (covered(&document, &build) - PI * 1.5 * 1.5).abs() < 1e-9,
             "face {HUB} covers {} rather than the hub's disc",
             covered(&document, &build)
         );
-        assert_eq!(document.models(&build, drawn).lost(), 0);
+        assert_eq!(document.models(&build, Some(drawn)).lost(), 0);
 
         // The rim pulled out to radius 2, which is still clear of the frame's
         // top and bottom edges two and a half away — so the drawing keeps its
         // shape and only the disc grows.
         let hub = document
-            .models(&build, drawn)
+            .models(&build, Some(drawn))
             .open()
+            .expect("a fixture opens the sketch it names")
             .sketch()
             .circles()
             .next()
@@ -315,7 +322,7 @@ mod tests {
             },
         );
         assert_eq!(
-            document.models(&build, drawn).lost(),
+            document.models(&build, Some(drawn)).lost(),
             0,
             "growing the circle lost the region inside it"
         );

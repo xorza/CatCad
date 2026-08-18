@@ -34,27 +34,11 @@ use crate::tool::dimensioning::Dimensioning;
 #[test]
 fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     let mut raised = Raised::new();
-    let at_rest = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch()
-        .points()
-        .count();
-    let edges = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch()
-        .segments()
-        .count();
+    let at_rest = raised.drawing().sketch().points().count();
+    let edges = raised.drawing().sketch().segments().count();
 
     // Three spots on bare plane, left of the demo's frame.
-    let plane = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .plane();
+    let plane = raised.drawing().plane();
     let corner = [
         plane.point(DVec2::new(-1.5, 1.0)).as_vec3(),
         plane.point(DVec2::new(-1.5, 3.5)).as_vec3(),
@@ -68,13 +52,7 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     raised.harness.click_at(at[0]);
     raised.frame();
     assert_eq!(
-        raised
-            .app
-            .document
-            .drawing_at(raised.app.session.editing())
-            .sketch()
-            .points()
-            .count(),
+        raised.drawing().sketch().points().count(),
         at_rest,
         "the first click of a line reached the document"
     );
@@ -87,11 +65,7 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     // tool starts over ready for another.
     raised.harness.click_at(at[1]);
     raised.frame();
-    let sketch = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     assert_eq!(sketch.points().count(), at_rest + 2);
     assert_eq!(sketch.segments().count(), edges + 1);
     assert!(
@@ -106,22 +80,12 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     // A second line begun on the first one's far end brings its own corner, so
     // this one costs two new points and a coincidence tying one of them to the
     // point it was started on.
-    let relations = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch()
-        .constraints()
-        .count();
+    let relations = raised.drawing().sketch().constraints().count();
     raised.harness.click_at(at[1]);
     raised.frame();
     raised.harness.click_at(at[2]);
     raised.frame();
-    let sketch = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     assert_eq!(
         sketch.points().count(),
         at_rest + 4,
@@ -153,11 +117,7 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     // Ctrl+Z takes back a whole edge, both its points with it.
     raised.ctrl(Key::Char('Z'));
     raised.frame();
-    let sketch = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     assert_eq!(
         sketch.segments().count(),
         edges + 1,
@@ -175,27 +135,11 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
 #[test]
 fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
     let mut raised = Raised::new();
-    let at_rest = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch()
-        .points()
-        .count();
-    let rings = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch()
-        .circles()
-        .count();
+    let at_rest = raised.drawing().sketch().points().count();
+    let rings = raised.drawing().sketch().circles().count();
 
     // Centre and rim two units apart on the plane, so the radius is known.
-    let plane = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .plane();
+    let plane = raised.drawing().plane();
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
     let rim = plane.point(DVec2::new(-1.0, 2.5)).as_vec3();
     let (at_middle, at_rim) = (raised.cursor_on(middle), raised.cursor_on(rim));
@@ -205,13 +149,7 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
     raised.harness.click_at(at_middle);
     raised.frame();
     assert_eq!(
-        raised
-            .app
-            .document
-            .drawing_at(raised.app.session.editing())
-            .sketch()
-            .circles()
-            .count(),
+        raised.drawing().sketch().circles().count(),
         rings,
         "the first click of a circle reached the document"
     );
@@ -224,11 +162,7 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
     raised.frame();
     raised.harness.click_at(at_rim);
     raised.frame();
-    let sketch = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .sketch();
+    let sketch = raised.drawing().sketch();
     assert_eq!(sketch.circles().count(), rings + 1);
     // One point, at the centre. Nothing was made out on the rim.
     assert_eq!(sketch.points().count(), at_rest + 1);
@@ -257,18 +191,14 @@ fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
     let mut raised = Raised::new();
     let rings = |app: &CatCad| {
         app.document
-            .drawing_at(app.session.editing())
+            .drawing_at(app.editing())
             .sketch()
             .circles()
             .count()
     };
     let before = rings(&raised.app);
 
-    let plane = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .plane();
+    let plane = raised.drawing().plane();
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
     let at_middle = raised.cursor_on(middle);
 
@@ -311,7 +241,7 @@ fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
     );
 
     // At the size that was typed, measured off the centre it was struck from.
-    let drawing = raised.app.document.drawing_at(raised.app.session.editing());
+    let drawing = raised.drawing();
     let (_, drawn) = drawing
         .sketch()
         .circles()
@@ -340,11 +270,7 @@ fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
 fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
     let mut raised = Raised::new();
 
-    let plane = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .plane();
+    let plane = raised.drawing().plane();
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
     let at_middle = raised.cursor_on(middle);
     raised.harness.click_at(CIRCLE_BUTTON);
@@ -409,7 +335,7 @@ fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
 fn the_radius_offer_hands_the_dimension_tool_a_circle_to_place() {
     let mut raised = Raised::new();
 
-    let sketch = raised.app.session.editing();
+    let sketch = raised.app.editing();
     // One the drawing does not already hold to a size — a circle whose radius
     // is stated admits no second one, and the demo draws one of each.
     let drawing = raised.app.document.drawing_at(sketch);

@@ -71,6 +71,7 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
             .document
             .models(&raised.build, raised.session.editing())
             .open()
+            .expect("a fixture opens the sketch it names")
             .outcome()
             .converged(),
         "the demo has to open solved for this to mean anything"
@@ -97,6 +98,7 @@ fn a_drag_the_constraints_forbid_moves_nothing_and_leaves_nothing_behind() {
             .document
             .models(&raised.build, raised.session.editing())
             .open()
+            .expect("a fixture opens the sketch it names")
             .outcome()
             .converged(),
         "a refused drag left the drawing unsolved"
@@ -361,8 +363,7 @@ fn a_drag_keeps_naming_what_it_holds_rather_than_what_it_passes_over() {
     // a hover that followed the cursor would have latched onto.
     let corner = raised.cursor_on(
         raised
-            .document
-            .drawing_at(raised.session.editing())
+            .drawing()
             .plane()
             .point(DVec2::new(8.0, 5.0))
             .as_vec3(),

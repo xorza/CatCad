@@ -363,7 +363,7 @@ pub(crate) struct Spread {
 pub(crate) struct Models<'a> {
     timeline: &'a Timeline,
     build: &'a Build,
-    editing: FeatureId,
+    editing: Option<FeatureId>,
 }
 
 impl<'a> Models<'a> {
@@ -373,7 +373,11 @@ impl<'a> Models<'a> {
     /// The timeline rather than the document, because that is where the
     /// sketches are: a picture of them wants nothing the document adds — not
     /// the camera looking at them, and not the solids standing beside them.
-    pub(crate) fn new(timeline: &'a Timeline, build: &'a Build, editing: FeatureId) -> Self {
+    pub(crate) fn new(
+        timeline: &'a Timeline,
+        build: &'a Build,
+        editing: Option<FeatureId>,
+    ) -> Self {
         Self {
             timeline,
             build,
@@ -415,16 +419,25 @@ impl<'a> Models<'a> {
     pub(crate) fn at(self, sketch: FeatureId) -> Option<Model<'a>> {
         Some(Model {
             of: sketch,
-            live: sketch == self.editing,
+            live: Some(sketch) == self.editing,
             drawing: self.timeline.sketched(sketch)?,
             settled: self.build.settled(sketch),
         })
     }
 
-    /// The one being edited.
-    pub(crate) fn open(self) -> Model<'a> {
-        self.at(self.editing)
-            .expect("the sketch being edited is one the document holds")
+    /// The one being edited, where one is.
+    ///
+    /// `None` is a document being looked at rather than drawn in — see
+    /// [`Session::editing`](crate::session::Session) — and every reader answers
+    /// for it the same way: there is nothing to offer, place, mark or prune
+    /// about a sketch nobody is in.
+    ///
+    /// Two ways to be absent and one answer for both, deliberately. A session in
+    /// no sketch and a handle to one the timeline no longer holds are the same
+    /// thing to every caller here, and telling them apart would be telling them
+    /// apart at eight sites for the sake of a distinction none of them acts on.
+    pub(crate) fn open(self) -> Option<Model<'a>> {
+        self.at(self.editing?)
     }
 
     /// Every plane that can be moved, with where it lies.
@@ -442,9 +455,9 @@ impl<'a> Models<'a> {
             .map(move |at| (at, timeline.plane(at)))
     }
 
-    /// Which plane the open sketch is drawn on.
-    pub(crate) fn open_plane(self) -> FeatureId {
-        self.timeline.drawn_on(self.editing)
+    /// Which plane the open sketch is drawn on, where one is open.
+    pub(crate) fn open_plane(self) -> Option<FeatureId> {
+        Some(self.timeline.drawn_on(self.editing?))
     }
 
     /// The square the open sketch stands in, in its plane's own coordinates.
@@ -475,9 +488,12 @@ impl<'a> Models<'a> {
     /// [`Scene::extent`](aperture::Scene) leaves the sheets out for being
     /// furniture, so a plane is never sized against a reach that counted it.
     pub(crate) fn spread(self) -> Spread {
+        let Some(open) = self.open() else {
+            return Spread::default();
+        };
         let mut low = DVec2::splat(f64::INFINITY);
         let mut high = DVec2::splat(f64::NEG_INFINITY);
-        for (_, point) in self.open().sketch().points() {
+        for (_, point) in open.sketch().points() {
             low = low.min(point.position);
             high = high.max(point.position);
         }
@@ -518,8 +534,8 @@ impl<'a> Models<'a> {
         self.build.revision()
     }
 
-    /// Which sketch is being edited.
-    pub(crate) fn editing(self) -> FeatureId {
+    /// Which sketch is being edited, where one is.
+    pub(crate) fn editing(self) -> Option<FeatureId> {
         self.editing
     }
 
@@ -615,8 +631,12 @@ mod tests {
         timeline.edit(second).opened(&mut build);
         // Each through its own `Models`, because that is the only way to one:
         // whether a model is the live one is not a caller's to assert.
-        let a = Models::new(&timeline, &build, first).open();
-        let b = Models::new(&timeline, &build, second).open();
+        let a = Models::new(&timeline, &build, Some(first))
+            .open()
+            .expect("a fixture opens the sketch it names");
+        let b = Models::new(&timeline, &build, Some(second))
+            .open()
+            .expect("a fixture opens the sketch it names");
 
         // The same entity, named twice, comes out as two different parts.
         assert_ne!(a.part(one), b.part(other), "one name for two points");
@@ -633,7 +653,7 @@ mod tests {
         // The *document* holds both, whichever is open, and asks the sketch a
         // part names rather than every sketch there is — which is the same
         // answer by a shorter road, since a model refuses another's outright.
-        let models = Models::new(&timeline, &build, first);
+        let models = Models::new(&timeline, &build, Some(first));
         assert!(models.holds(a.part(one)) && models.holds(b.part(other)));
 
         // And a handle that is not a sketch's is not a model, rather than a

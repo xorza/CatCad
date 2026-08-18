@@ -392,7 +392,11 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
 fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
     let mut raised = Raised::new();
 
-    let region = raised.models().open().region(0);
+    let region = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .region(0);
     raised.choose(Choice::Select(Some(region)));
     raised.frame();
     raised.harness.click_at(EXTRUDE_BUTTON);
@@ -433,11 +437,7 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
     // Carried a unit along the plane's own normal, which is the line the arrow
     // runs on — aimed in the world rather than in pixels, so what the drag
     // should come to is known by hand.
-    let plane = raised
-        .app
-        .document
-        .drawing_at(raised.app.session.editing())
-        .plane();
+    let plane = raised.drawing().plane();
     let start = raised.cursor_on(at);
     raised.harness.press_at(start);
     raised.frame();
@@ -499,14 +499,18 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
 fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position() {
     let mut raised = Raised::new();
 
-    let sketch = raised.app.session.editing();
-    let region = raised.models().open().region(0);
+    let sketch = raised.app.editing();
+    let region = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .region(0);
     raised.choose(Choice::Select(Some(region)));
     raised.frame();
     raised.harness.click_at(EXTRUDE_BUTTON);
     raised.frame();
 
-    let models = raised.app.document.models(&raised.app.build, sketch);
+    let models = raised.app.document.models(&raised.app.build, Some(sketch));
     assert!(
         raised
             .app
@@ -538,9 +542,14 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
         .history
         .apply(&mut raised.app.document, &mut raised.app.build, &edits);
 
-    let models = raised.app.document.models(&raised.app.build, sketch);
+    let models = raised.app.document.models(&raised.app.build, Some(sketch));
     assert!(
-        !models.open().arrangement().faces().is_empty(),
+        !models
+            .open()
+            .expect("a fixture opens the sketch it names")
+            .arrangement()
+            .faces()
+            .is_empty(),
         "the sketch lost every region, so position 0 names nothing either way"
     );
     assert!(

@@ -213,7 +213,9 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
 
     // The two points sit 4 apart in y; asked to be level, they meet.
     let mut offers = Vec::new();
-    let model = Models::new(&timeline, &build, at).open();
+    let model = Models::new(&timeline, &build, Some(at))
+        .open()
+        .expect("a fixture opens the sketch it names");
     model.offers(&[model.part(a), model.part(b)], &mut offers);
     // Found rather than indexed: what the table offers is the drawing's to
     // decide and has grown once already, and a test that named a position would

@@ -415,7 +415,12 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
         &mut names,
         &mut placed,
         &mut figures,
-        Some(one.models().open().part(welding)),
+        Some(
+            one.models()
+                .open()
+                .expect("a fixture opens the sketch it names")
+                .part(welding),
+        ),
     );
     assert_eq!(left.len(), 1);
     assert_eq!(

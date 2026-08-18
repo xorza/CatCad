@@ -77,7 +77,10 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         .next()
         .expect("the square draws four corners")
         .0;
-    let profile = Models::new(&timeline, &build, drawn).open().profile(0);
+    let profile = Models::new(&timeline, &build, Some(drawn))
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .profile(0);
     let solid = timeline.add(Feature::Extrude {
         profile,
         distance: 1.0,
@@ -90,7 +93,12 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     // captured, so the closure holds no borrow across the edits between calls.
     let covered = |document: &Document, build: &Build| {
         let at = build.modelled(solid)?;
-        let faces = document.models(build, drawn).open().arrangement().faces();
+        let faces = document
+            .models(build, Some(drawn))
+            .open()
+            .expect("a fixture opens the sketch it names")
+            .arrangement()
+            .faces();
         Some(faces[at].area())
     };
     // Two by two, and the one region the square shuts in.
@@ -118,7 +126,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         "the region covers {after} rather than 6, so the drag did something else"
     );
     assert_eq!(
-        document.models(&build, drawn).lost(),
+        document.models(&build, Some(drawn)).lost(),
         0,
         "moving the geometry lost the region"
     );
@@ -136,8 +144,9 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     );
     assert_eq!(
         document
-            .models(&build, drawn)
+            .models(&build, Some(drawn))
             .open()
+            .expect("a fixture opens the sketch it names")
             .arrangement()
             .faces()
             .len(),
@@ -145,7 +154,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         "the line did not cut the region in two"
     );
     assert_eq!(build.modelled(solid), None);
-    assert_eq!(document.models(&build, drawn).lost(), 1);
+    assert_eq!(document.models(&build, Some(drawn)).lost(), 1);
 }
 
 /// What a closed document modelled is gone too.
@@ -167,7 +176,10 @@ fn reopening_forgets_what_the_last_document_modelled() {
 
     let mut build = Build::default();
     timeline.edit(drawn).opened(&mut build);
-    let profile = Models::new(&timeline, &build, drawn).open().profile(0);
+    let profile = Models::new(&timeline, &build, Some(drawn))
+        .open()
+        .expect("a fixture opens the sketch it names")
+        .profile(0);
     let solid = timeline.add(Feature::Extrude {
         profile,
         distance: 1.0,

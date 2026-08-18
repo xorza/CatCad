@@ -149,7 +149,11 @@ impl Held {
         session: &Session,
     ) -> Option<Self> {
         let Under { aim, hit, part } = picture.under(aimed, lens)?;
-        let drawing = document.drawing_at(session.editing());
+        // `None` where no sketch is open, which is a press that can still grab:
+        // a datum, a solid's far end and a depth being decided are none of them
+        // the open sketch's — see [`Grabbed`]. Only the two arms that *are* read
+        // a drawing, and neither is reachable without one.
+        let drawing = session.editing().map(|at| document.drawing_at(at));
         let grabbed = Grabbed::under(part, hit.at, drawing, document, session)?;
         let motion = grabbed.motion(drawing, hit.world);
         let carried = grabbed.carried(hit.world, drawing, picture, lens);
@@ -174,8 +178,8 @@ impl Held {
     pub(super) fn writes(
         self,
         at: Vec3,
-        sketch: FeatureId,
-        drawing: Drawing<'_>,
+        sketch: Option<FeatureId>,
+        drawing: Option<Drawing<'_>>,
         picture: &Picture,
         lens: Option<Lens>,
     ) -> Option<Intent> {
@@ -258,7 +262,7 @@ impl Grabbed {
     fn under(
         part: Part,
         on: HitAt,
-        drawing: Drawing<'_>,
+        drawing: Option<Drawing<'_>>,
         document: &Document,
         session: &Session,
     ) -> Option<Self> {
@@ -305,8 +309,8 @@ impl Grabbed {
             // arenas and mint the same ones, so a grip that read the entity
             // alone would take hold of whatever sat at that slot in the open
             // sketch. See [`Part`](crate::part::Part).
-            _ if part.sketch() == Some(editing) => {
-                Grabbed::Sketch(drawing.grip(part.entity()?, on)?)
+            _ if editing.is_some_and(|editing| part.sketch() == Some(editing)) => {
+                Grabbed::Sketch(drawing?.grip(part.entity()?, on)?)
             }
             // Anything else is a press on a sketch nobody is in, which turns the
             // view like a press on empty space.
@@ -319,12 +323,18 @@ impl Grabbed {
     /// Taken through the grab rather than through what is being moved — see
     /// [`Along::travel`](crate::timeline::along::Along::travel), which is where that
     /// matters and why.
-    fn motion(self, drawing: Drawing<'_>, at: Vec3) -> Motion {
+    fn motion(self, drawing: Option<Drawing<'_>>, at: Vec3) -> Motion {
         match self {
             // A number travels across the drawing exactly as geometry does: it
             // is placed on the sketch's own plane, and where on it is the whole
             // of what a placement says.
-            Grabbed::Sketch(_) | Grabbed::Label(_) => drawing.motion(),
+            //
+            // The one place here that insists on a drawing, and it may: these
+            // two are the only arms [`Grabbed::under`] builds *through* one, so
+            // holding either is holding a sketch open.
+            Grabbed::Sketch(_) | Grabbed::Label(_) => drawing
+                .expect("a grip and a label are found through the open sketch")
+                .motion(),
             Grabbed::Datum(movable) | Grabbed::Cap(movable) => movable.along.travel(at),
             Grabbed::Growing { along, .. } => along.travel(at),
         }
@@ -346,14 +356,28 @@ impl Grabbed {
     /// frame of the drag puts the box back there. Given back as it stands then
     /// rather than as it stood here, because it moves: see
     /// [`Mark::standoff`](crate::paint::marks::mark::Mark).
-    fn carried(self, at: Vec3, drawing: Drawing<'_>, picture: &Picture, lens: Lens) -> Vec3 {
+    fn carried(
+        self,
+        at: Vec3,
+        drawing: Option<Drawing<'_>>,
+        picture: &Picture,
+        lens: Lens,
+    ) -> Vec3 {
         match self {
             Grabbed::Growing { along, depth } => {
                 along.normal() * (depth - along.offset_at(at)) as f32
             }
-            Grabbed::Label(id) => picture.placed(id).map_or(Vec3::ZERO, |placed| {
-                placed.mark.world(drawing) - at + placed.mark.standoff(drawing, lens)
-            }),
+            // Nothing to carry where the mark has not been placed — and the
+            // same answer where no sketch is open, which the drawing being
+            // absent says. Neither is reachable holding a label; both are
+            // spelled as the zero this already had rather than as a claim.
+            Grabbed::Label(id) => {
+                drawing
+                    .zip(picture.placed(id))
+                    .map_or(Vec3::ZERO, |(drawing, placed)| {
+                        placed.mark.world(drawing) - at + placed.mark.standoff(drawing, lens)
+                    })
+            }
             Grabbed::Sketch(_) | Grabbed::Datum(_) | Grabbed::Cap(_) => Vec3::ZERO,
         }
     }
@@ -375,13 +399,20 @@ impl Grabbed {
     fn writes(
         self,
         to: Vec3,
-        sketch: FeatureId,
-        drawing: Drawing<'_>,
+        sketch: Option<FeatureId>,
+        drawing: Option<Drawing<'_>>,
         picture: &Picture,
         lens: Option<Lens>,
     ) -> Option<Intent> {
         match self {
-            Grabbed::Sketch(grip) => Some(Intent::from(Change::Drag { sketch, grip, to })),
+            // The two arms that name the open sketch, and the only two that can
+            // fail to find one — which they never do, being the two a press
+            // only ever grabs *through* a drawing. See [`Grabbed::under`].
+            Grabbed::Sketch(grip) => Some(Intent::from(Change::Drag {
+                sketch: sketch?,
+                grip,
+                to,
+            })),
             Grabbed::Datum(movable) => Some(
                 Change::MovePlane {
                     plane: movable.at,
@@ -411,6 +442,7 @@ impl Grabbed {
             // stutter, where placing it against no clearance would move it by
             // the whole of one.
             Grabbed::Label(constraint) => {
+                let (sketch, drawing) = (sketch?, drawing?);
                 picture.placed(constraint).zip(lens).map(|(placed, lens)| {
                     Change::Place {
                         sketch,
@@ -447,10 +479,13 @@ impl Grabbed {
 ///
 /// A free fn rather than a method, because nothing about it is a gesture's: it
 /// reads the drawing, and the press is only what happened to be asking.
-pub(super) fn label(part: Part, drawing: Drawing<'_>, editing: FeatureId) -> Option<ConstraintId> {
-    let Some(Entity::Constraint(id)) = part.entity().filter(|_| part.sketch() == Some(editing))
-    else {
+pub(super) fn label(
+    part: Part,
+    drawing: Option<Drawing<'_>>,
+    editing: Option<FeatureId>,
+) -> Option<ConstraintId> {
+    let Some(Entity::Constraint(id)) = part.entity().filter(|_| part.sketch() == editing) else {
         return None;
     };
-    drawing.sketch().constraint(id).value().map(|_| id)
+    drawing?.sketch().constraint(id).value().map(|_| id)
 }

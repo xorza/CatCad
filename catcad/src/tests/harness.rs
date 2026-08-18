@@ -7,6 +7,7 @@ use palantir::internals::UiHarness;
 use palantir::{App, InputDelta, Key, Modifiers, WindowToken};
 
 use crate::CatCad;
+use crate::drawing::Drawing;
 use crate::intent::{Choice, Intent, Intents, Opening};
 use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
@@ -32,6 +33,15 @@ pub(super) struct Raised {
 }
 
 impl Raised {
+    /// The sketch the session has open, and the plane it lies on.
+    ///
+    /// The one reading nearly every test here starts from — what was drawn, and
+    /// where. Its own call because reaching it is three fields and a handle, and
+    /// spelling that out is a paragraph wherever a test wants a line.
+    pub(super) fn drawing(&self) -> Drawing<'_> {
+        self.app.document.drawing_at(self.app.editing())
+    }
+
     pub(super) fn new() -> Self {
         Self::over(UiHarness::new(HARNESS_SIZE))
     }
@@ -107,9 +117,7 @@ impl Raised {
     /// Where every point of the open sketch is, in sketch coordinates — the whole
     /// of what a document says, for a test comparing one against itself later.
     pub(super) fn points(&self) -> Vec<DVec2> {
-        self.app
-            .document
-            .drawing_at(self.app.session.editing())
+        self.drawing()
             .sketch()
             .points()
             .map(|(_, point)| point.position)
@@ -228,7 +236,7 @@ impl Raised {
     /// *drawing's* answer about where a mark runs that a caller here is selecting
     /// on — see [`Placed`](crate::paint::marks::Placed).
     fn a_dimension_set(&self, wanted: impl Fn(DVec2) -> bool) -> Option<Stated> {
-        let sketch = self.app.session.editing();
+        let sketch = self.app.editing();
         let drawing = self.app.document.drawing_at(sketch);
         drawing.sketch().constraints().find_map(|(id, constraint)| {
             let value = constraint.value()?;

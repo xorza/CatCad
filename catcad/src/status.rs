@@ -20,12 +20,14 @@ use silverpoint::{Entity, Removed};
 /// one a test can read without raising a `Ui` to do it.
 #[derive(Debug)]
 pub(crate) struct Status<'a> {
-    pub(crate) converged: bool,
-    pub(crate) iterations: u32,
-    /// What the sketch can still do, where the two above are only how the last
-    /// run getting it there went.
-    pub(crate) degrees_of_freedom: usize,
-    pub(crate) redundant_constraints: usize,
+    /// What the last solve of the open sketch made of it, or `None` where no
+    /// sketch is open.
+    ///
+    /// Gathered rather than four optional fields, because they are absent
+    /// together and for one reason: they are a *sketch's* report, and a document
+    /// being looked at rather than drawn in has no sketch to report on. Four
+    /// `Option`s would be four chances to show three of them and not the fourth.
+    pub(crate) solved: Option<Solved>,
     /// How many extrudes no longer know which region they are grown from.
     ///
     /// The one thing a document can say about a step *downstream* of the sketch
@@ -85,14 +87,42 @@ fn noun(part: Part) -> &'static str {
     }
 }
 
-impl fmt::Display for Status<'_> {
+/// How the last solve of the open sketch went, and what it left the drawing
+/// free to do.
+///
+/// Its own record rather than four fields on [`Status`], because the four are
+/// one answer: they are what a *solve* reported, and a document nobody is
+/// drawing in has had none.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Solved {
+    pub(crate) converged: bool,
+    pub(crate) iterations: u32,
+    /// What the sketch can still do, where the two above are only how the last
+    /// run getting it there went.
+    pub(crate) degrees_of_freedom: usize,
+    pub(crate) redundant_constraints: usize,
+}
+
+impl fmt::Display for Solved {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let state = if self.converged { "solved" } else { "unsolved" };
         write!(
             f,
             "{state} · {} dof · {} redundant · {} iterations",
             self.degrees_of_freedom, self.redundant_constraints, self.iterations,
-        )?;
+        )
+    }
+}
+
+impl fmt::Display for Status<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // What the drawing is doing, or that there is no drawing being done.
+        // First either way, because it is the clause every other one is read
+        // against — and the words say which of the two the rest belongs to.
+        match self.solved {
+            Some(solved) => write!(f, "{solved}")?,
+            None => f.write_str("no sketch open")?,
+        }
         if self.lost > 0 {
             // Named for what was lost rather than for the step that lost it: a
             // profile is what an extrude is grown from, and "1 extrude" would

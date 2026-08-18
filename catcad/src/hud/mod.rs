@@ -97,7 +97,13 @@ impl Hud {
         let Shown {
             models, selection, ..
         } = shown;
-        let model = models.open();
+        // Nothing at all where no sketch is open. What this bar offers is what
+        // can be *said about* a drawing — a relation between two of its
+        // entities, a dimension retyped, a region grown — and none of that is
+        // asked of a document you are only looking at.
+        let Some(model) = models.open() else {
+            return;
+        };
         let sketch = model.of();
         model.offers(selection.picked(), &mut self.offers);
         let dimension = dimension_picked(model, selection);
@@ -207,7 +213,6 @@ impl Hud {
             models,
             ..
         } = shown;
-        let sketch = models.open().of();
         stacked(Panel::vstack(), "readout").show(ui, |ui| {
             projection_toggle(ui, projection, intents);
             // Cut off rather than allowed to run on, and this is load-bearing
@@ -226,7 +231,14 @@ impl Hud {
                 .auto_id()
                 .text_wrap(TextWrap::Ellipsis)
                 .show(ui);
-            tidy_button(ui, sketch, intents);
+            // Only where there is a drawing to clean up. A button that could
+            // not act is worse than none, because it still takes the press —
+            // and palantir's has no dark state to wear instead, which is the
+            // same reason the constraint bar shows nothing rather than a row of
+            // grey.
+            if let Some(sketch) = models.open().map(Model::of) {
+                tidy_button(ui, sketch, intents);
+            }
             filing_buttons(ui, intents);
         });
     }

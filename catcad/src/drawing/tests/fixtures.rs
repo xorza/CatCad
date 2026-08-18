@@ -57,13 +57,19 @@ impl Linkage {
 
     /// The two halves as a reader of the model wants them.
     pub(super) fn model(&self) -> Model<'_> {
-        self.models().open()
+        self.models()
+            .open()
+            .expect("a fixture opens the sketch it names")
     }
 
     /// Every sketch it holds, which for a fixture of one is that one — open,
     /// so it draws in the colours of what it has left to decide.
     pub(super) fn models(&self) -> Models<'_> {
-        Models::new(&self.timeline, &self.build, self.timeline.first_sketch())
+        Models::new(
+            &self.timeline,
+            &self.build,
+            Some(self.timeline.first_sketch()),
+        )
     }
 
     /// Take `grip` to `world`, as the application's edit path would.
@@ -109,12 +115,18 @@ pub(super) struct Assorted {
 impl Assorted {
     /// Every sketch it holds, which for a fixture of one is that one.
     pub(super) fn models(&self) -> Models<'_> {
-        Models::new(&self.timeline, &self.build, self.timeline.first_sketch())
+        Models::new(
+            &self.timeline,
+            &self.build,
+            Some(self.timeline.first_sketch()),
+        )
     }
 
     /// The two halves as a reader of the model wants them.
     pub(super) fn model(&self) -> Model<'_> {
-        self.models().open()
+        self.models()
+            .open()
+            .expect("a fixture opens the sketch it names")
     }
 
     pub(super) fn new() -> Self {
