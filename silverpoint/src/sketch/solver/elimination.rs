@@ -114,6 +114,40 @@ impl Elimination {
     /// ones it built, and the entities walked here are the ones that built them.
     pub(super) fn measure(&mut self, sketch: &Sketch, system: &System, into: &mut Outcome) {
         self.null_space(system);
+        self.read(sketch, system, into);
+    }
+
+    /// The same reading, off the reduction already in hand.
+    ///
+    /// For the one caller that has just asked [`Elimination::yields`] of this
+    /// very system and found the answer no: a drag the constraints refuse moves
+    /// nothing, so the sketch it describes afterwards is the sketch it asked
+    /// about, and reducing again is the same arithmetic reaching the same
+    /// answer. On that path there is no run to dwarf the two — measured at 174µs
+    /// against 90µs on a chain of 242 parameters, where a drag that *moves*
+    /// something spends 4.8ms and would not notice either.
+    ///
+    /// Apart from [`Elimination::measure`] rather than folded into it, because
+    /// nothing here can tell whether the rows below still describe `system`:
+    /// they are the last reduction this took, whatever it was of. The caller
+    /// says so by reaching for this, and the width assert is the half of that
+    /// claim which can be checked.
+    pub(super) fn read(&self, sketch: &Sketch, system: &System, into: &mut Outcome) {
+        debug_assert_eq!(
+            self.null.len(),
+            system.width() * self.free.len(),
+            "the reduction in hand is of another system"
+        );
+        // And the partition, which is what says so on the path this exists for:
+        // a drag is refused because the sketch is fully determined, and there
+        // the null space is empty and the width above multiplies out to nothing
+        // whatever system it is asked about. Every movable column took a pivot
+        // or did not, so the two lists cover them between them.
+        debug_assert_eq!(
+            self.free.len() + self.pivots.len(),
+            system.movable.iter().filter(|&&may| may).count(),
+            "the reduction in hand partitions another system's columns"
+        );
         // Read off the partition itself rather than by counting the movable
         // columns again and subtracting the rank: the freedoms are exactly the
         // columns that took no pivot, so this cannot drift from the reduction it

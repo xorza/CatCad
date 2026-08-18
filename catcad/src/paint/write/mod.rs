@@ -31,11 +31,11 @@ use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::{
     DECIMALS, DORMANT_FACE, EDGE_WIDTH, FACE, FACE_SAGITTA, FIXED_MARKER, FREE_MARKER, GHOST, MARK,
-    MARK_FONT, PINNED, REDUNDANT, SOLID, SOLID_SAGITTA, colour, ink, marks, radius_prefix,
-    standing, symbol,
+    MARK_FONT, PINNED, REDUNDANT, SOLID, SOLID_SAGITTA, colour, ink, marks, standing, symbol,
 };
 use crate::part::Part;
 use crate::preview::Ends;
+use crate::wording;
 
 /// The shape a two-click tool is half-way through, and the plane it lies in.
 ///
@@ -295,8 +295,8 @@ pub(super) fn texts(
                 // what it is stated as, where a symbol would say only the first and
                 // leave the drawing unreadable.
                 Some(value) => {
-                    let unit = radius_prefix(constraint);
-                    write!(mark.content, "{unit}{value:.*}", DECIMALS)
+                    let prefix = wording::named(constraint).prefix;
+                    write!(mark.content, "{prefix}{value:.*}", DECIMALS)
                         .expect("writing to a string cannot fail");
                 }
                 None => mark.content.push_str(symbol(constraint)),

@@ -101,11 +101,11 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
 /// them.
 ///
 /// The first half guards the table itself. [`wording::named`] states a
-/// relation's word and its mark on one line and a dimension's word alone, and
-/// which of the two a constraint is has to be the same answer
-/// [`Constraint::value`] gives — a dimension written as a relation would be
-/// drawn as a mark *and* as its number, and a relation written as a dimension
-/// would be drawn as neither.
+/// relation's word and its mark on one line and a dimension's word and the
+/// prefix its figure carries on another, and which of the two a constraint is
+/// has to be the same answer [`Constraint::value`] gives — a dimension written
+/// as a relation would be drawn as a mark *and* as its number, and a relation
+/// written as a dimension would be drawn as neither.
 ///
 /// Every variant, driven off `offers` rather than a list written twice, so a
 /// fifteenth is covered the moment the drawing can state it.
@@ -132,6 +132,13 @@ fn every_relation_is_named_both_ways_and_every_mark_has_a_glyph() {
                 "relation"
             },
             constraint.value(),
+        );
+        // A relation is drawn as its mark and has no figure, so a prefix on one
+        // would be a string nothing could ever put anywhere.
+        assert!(
+            named.glyph.is_none() || named.prefix.is_empty(),
+            "{constraint:?} is drawn as a mark and carries the prefix {:?}",
+            named.prefix,
         );
     }
 

@@ -2,18 +2,20 @@
 
 use silverpoint::{Along, Constraint};
 
-/// What one relation is called, in both places a person reads it.
+/// What one relation is called, everywhere a person reads it.
 ///
-/// **One table where there were two**, and they were two tables over the same
-/// fourteen variants that grouped them differently — the drawing marked a point
-/// on an edge and a point on a circle with one glyph, and the bar captioned them
-/// "On edge" and "On circle". Neither knew about the other, so a relation added
-/// to one was a button with no mark or a mark with no button, and the two were
-/// four files apart.
+/// **One table where there were three**, and all three walked the same fourteen
+/// variants in three different files: the bar's caption, the mark the drawing
+/// shows, and the prefix a figure carries. They grouped the variants
+/// differently — the drawing marked a point on an edge and a point on a circle
+/// with one glyph where the bar captioned them "On edge" and "On circle" — and
+/// none of them knew about the others, so a relation added to one was a button
+/// with no mark, or a mark with no button, or a number drawn as a radius
+/// because a catch-all had nothing better to say.
 ///
-/// Stated at the finer of the two groupings, which is what lets one row answer
-/// both: a row per thing a reader can be shown, each naming its word and its
-/// mark together.
+/// Stated at the finest of the three groupings, which is what lets one row
+/// answer all of them: a row per thing a reader can be shown, naming together
+/// everything they can be shown of it.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Named {
     /// What a control offering it is captioned with — a word, because a button
@@ -32,20 +34,39 @@ pub(crate) struct Named {
     /// reached for one without asking [`Constraint::value`] first has made a
     /// mistake rather than found an empty string.
     pub(crate) glyph: Option<&'static str>,
+    /// What the drawing puts in front of a dimension's figure, where the number
+    /// alone would not say what it measures.
+    ///
+    /// A radius is the one that needs it: a bare number beside a circle reads as
+    /// a diameter to half of everyone, and `R` is what a drawing puts there. A
+    /// distance needs nothing — it is written along the span it measures, which
+    /// says what it is.
+    ///
+    /// Empty for every relation, which has no figure to put anything in front
+    /// of. Stated per dimension rather than defaulted, so a second one that
+    /// needs a prefix — a diameter, most obviously — has to say so here rather
+    /// than falling through a catch-all into being drawn as a radius.
+    pub(crate) prefix: &'static str,
 }
 
 impl Named {
-    /// A relation, which has both.
+    /// A relation, which has a mark and no figure to prefix.
     const fn relation(word: &'static str, glyph: &'static str) -> Self {
         Self {
             word,
             glyph: Some(glyph),
+            prefix: "",
         }
     }
 
-    /// A dimension, which is drawn as its number and so has no mark.
-    const fn dimension(word: &'static str) -> Self {
-        Self { word, glyph: None }
+    /// A dimension, which is drawn as its number and so has no mark — with
+    /// whatever that number is prefixed by, which for most of them is nothing.
+    const fn dimension(word: &'static str, prefix: &'static str) -> Self {
+        Self {
+            word,
+            glyph: None,
+            prefix,
+        }
     }
 }
 
@@ -70,19 +91,21 @@ pub(crate) fn named(constraint: Constraint) -> Named {
         Constraint::Distance {
             along: Along::Shortest,
             ..
-        } => Named::dimension("Distance"),
+        } => Named::dimension("Distance", ""),
         Constraint::Distance {
             along: Along::Horizontal,
             ..
-        } => Named::dimension("Horizontal distance"),
+        } => Named::dimension("Horizontal distance", ""),
         Constraint::Distance {
             along: Along::Vertical,
             ..
-        } => Named::dimension("Vertical distance"),
+        } => Named::dimension("Vertical distance", ""),
         // A standoff and a spacing are a distance to a reader: what differs is
         // what they are measured between, which is plain from what was picked.
-        Constraint::Standoff { .. } | Constraint::Spacing { .. } => Named::dimension("Distance"),
-        Constraint::Radius { .. } => Named::dimension("Radius"),
+        Constraint::Standoff { .. } | Constraint::Spacing { .. } => {
+            Named::dimension("Distance", "")
+        }
+        Constraint::Radius { .. } => Named::dimension("Radius", "R"),
         Constraint::Horizontal { .. } => Named::relation("Horizontal", "\u{2015}"),
         Constraint::Vertical { .. } => Named::relation("Vertical", "\u{2502}"),
         Constraint::Parallel { .. } => Named::relation("Parallel", "\u{2225}"),

@@ -359,19 +359,6 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
 /// the document's to decide; until it decides, a number is a number.
 pub(crate) const DECIMALS: usize = 2;
 
-/// What a dimension's number is prefixed with, where the kind is not obvious
-/// from where it sits.
-///
-/// A radius is the one that needs it: a bare number beside a circle would read
-/// as a diameter to half of everyone, and `R` is what a drawing puts there. A
-/// distance needs nothing — it is written along the span it measures.
-fn radius_prefix(constraint: Constraint) -> &'static str {
-    match constraint {
-        Constraint::Radius { .. } => "R",
-        _ => "",
-    }
-}
-
 /// The mark a relation is drawn as.
 ///
 /// Read off [`wording`](crate::wording), which is where a relation's word and

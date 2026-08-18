@@ -201,7 +201,22 @@ impl Solver {
                 .elimination
                 .yields(&self.system, self.pulls.iter().map(|pull| pull.param));
         if pinned {
-            self.describe(sketch, into, 0);
+            // Nothing moves, so nothing has to be worked out twice. What is in
+            // hand is the system this drag would have been solved against and
+            // the reduction just taken off it, and where nothing is *held* that
+            // system is also the sketch's own — so the description a caller is
+            // owed is a reading of what is already there. Reassembling and
+            // reducing again is nearly the whole cost of this path.
+            //
+            // A drag that holds something cannot take the shortcut: the
+            // reduction in hand is of a system with that point pinned, and what
+            // a sketch can do is not a question about what someone is holding
+            // while it is asked — see [`Solver::assemble_at_rest`].
+            if holding.is_empty() {
+                self.read_unmoved(sketch, into);
+            } else {
+                self.describe(sketch, into, 0);
+            }
             return;
         }
         self.was.clear();
@@ -283,15 +298,34 @@ impl Solver {
     ///
     /// Reduces whichever assembly the solver is holding rather than building
     /// one, so this is never called on its own: getting the sketch's own
-    /// assembly there is [`Solver::describe`]'s, and the assert below is the
-    /// half of that promise cheap enough to check.
+    /// assembly there is [`Solver::describe`]'s, and the assert in
+    /// [`Solver::reported`] is the half of that promise cheap enough to check.
     fn read_at_rest(&mut self, sketch: &Sketch, into: &mut Outcome, iterations: u32) {
+        self.elimination.measure(sketch, &self.system, into);
+        self.reported(sketch, into, iterations);
+    }
+
+    /// The same, off the reduction already in hand as well as the assembly.
+    ///
+    /// What a drag the constraints refuse wants. It has just reduced this very
+    /// system to find out that the pull has nowhere to go, and nothing has moved
+    /// since — so the sketch to describe is the sketch it asked about, and the
+    /// answer is the one already worked out. See [`Elimination::read`], and
+    /// [`Solver::drag`], which is the only caller and the only place the claim
+    /// that nothing moved can be made.
+    fn read_unmoved(&self, sketch: &Sketch, into: &mut Outcome) {
+        self.elimination.read(sketch, &self.system, into);
+        self.reported(sketch, into, 0);
+    }
+
+    /// What both readings end with: how the run went, over the assembly that
+    /// was read.
+    fn reported(&self, sketch: &Sketch, into: &mut Outcome, iterations: u32) {
         debug_assert_eq!(
             self.system.width(),
             sketch.params().count(),
             "the assembly being described is of another sketch"
         );
-        self.elimination.measure(sketch, &self.system, into);
         into.converged = self.system.max_residual() <= TOLERANCE;
         into.iterations = iterations;
     }

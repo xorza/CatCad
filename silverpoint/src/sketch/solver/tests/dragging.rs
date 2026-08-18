@@ -3,6 +3,7 @@
 
 use crate::Snapshot;
 use crate::sketch::constraint::Constraint;
+use crate::sketch::solver::freedom::Freedom;
 use crate::sketch::solver::tests::fixtures::{Apart, DRAGGED, EPSILON, Pegged, determined_pair};
 use crate::sketch::solver::*;
 use glam::DVec2;
@@ -211,6 +212,21 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
             outcome.iterations(),
             0,
             "the cursor at {to:?} ran a solve to conclude nothing: {outcome:?}"
+        );
+        // And described off the reduction the refusal was decided by, rather
+        // than off one taken again afterwards — see
+        // [`Solver::read_unmoved`](crate::Solver). The labels are what would
+        // show a stale one: the arm can still swing, so the far end is on a
+        // track, and the point welded to the anchor is not.
+        assert_eq!(
+            outcome.point(swinging),
+            Freedom::Partly,
+            "the cursor at {to:?} lost the arm's swing: {outcome:?}"
+        );
+        assert_eq!(
+            outcome.point(pinned),
+            Freedom::Determined,
+            "the cursor at {to:?} left a welded point free: {outcome:?}"
         );
     }
 }
