@@ -44,30 +44,16 @@ struct Stretch {
 }
 
 impl Stretch {
-    /// Whether `col` falls inside, and so whether the row can hold anything
-    /// there.
-    ///
-    /// **The question both walks of the elimination ask**, and the reason they
-    /// ask it: outside the stretch a row is exactly zero at every column but the
-    /// ones passed over, so the pivot search cannot want it and the update would
-    /// change nothing by it. Both ask it only of the column being pivoted on,
-    /// which is never one of those — every passed-over column lies behind the
-    /// walk. Named rather than spelt out at each, where it read once as a pair
-    /// of bounds and once as their negation.
-    fn holds(self, col: usize) -> bool {
-        self.low <= col && col <= self.high
-    }
-
     /// Every column from `low` rightwards that a row with this stretch can hold
     /// anything in: the stretch, and the passed-over columns short of it.
     ///
-    /// **The one place the exclusion above is made good.** Three walks need a
-    /// row whole — the swap, the update, and the substitution that reads the
-    /// null space — over three different spans, and each was spelling out the
-    /// same rule against its own bound. Stated once because getting it wrong is
-    /// silent: an overlap between the two halves swapped a column twice and
-    /// landed it back where it started, which showed up only as a null-space
-    /// entry parts-in-1e12 adrift.
+    /// **The one place the exclusion above is made good.** Two walks need a row
+    /// whole — the update, and the substitution that reads the null space — over
+    /// different spans, and each was spelling out the same rule against its own
+    /// bound. Stated once because getting it wrong is silent: back when partial
+    /// pivoting still moved rows, a third walk spelt it out too and let the two
+    /// halves overlap, swapping a column twice so that it landed back where it
+    /// started. It showed up only as a null-space entry parts-in-1e12 adrift.
     fn spans<'a>(self, free: &'a [usize]) -> impl Iterator<Item = usize> + 'a {
         free.iter()
             .copied()
@@ -95,14 +81,18 @@ pub(super) struct Elimination {
     /// What tells a parameter the constraints resolve from one they leave to be
     /// chosen.
     pivots: Vec<usize>,
-    /// Which equation each row started life as, permuted in step with the row
-    /// swaps partial pivoting makes.
+    /// Which row each pivot was taken in, and then — past the rank — the rows
+    /// none was.
     ///
-    /// Without it a row is anonymous the moment it is swapped, and the rows past
-    /// the rank — the ones the reduction found nothing left to do with — could
-    /// be counted but not named. With it they can be traced back to the
-    /// constraints that wrote them, which is the difference between telling a
-    /// user that their sketch is over-constrained and telling them by what.
+    /// The rows are never moved, so a row *is* the equation it was assembled
+    /// from and partial pivoting is a matter of recording which one was chosen
+    /// rather than of shuffling it into place. Reading it back to front is what
+    /// names the equations the reduction found nothing left to do with, which is
+    /// the difference between telling a user that their sketch is
+    /// over-constrained and telling them by what.
+    ///
+    /// Ordered the way the reduction met them: pivots in the order the columns
+    /// took them, then the leftovers in row order.
     origin: Vec<usize>,
     /// The null space of the Jacobian, one row of `free.len()` per parameter:
     /// how far that parameter travels along each way the sketch can still move.
@@ -110,30 +100,59 @@ pub(super) struct Elimination {
     null: Vec<f64>,
     /// Where each row holds anything, the passed-over columns aside.
     ///
-    /// Taken off the rows before the walk and carried through it: a swap moves
-    /// two rows' stretches with them, and an update widens the row it wrote to
-    /// by the pivot row's — and then closes it up behind the walk, every column
-    /// that took a pivot being exactly zero once it has. That closing is what
-    /// makes it worth keeping: on a sketch with nothing left undecided the
-    /// stretch chases the walk rightwards instead of covering everything the
-    /// fill has reached.
+    /// Taken off the rows before the walk rather than scanned for, the assembly
+    /// having written it down already: a sparse row runs ascending by column, so
+    /// its stretch is its first entry and its last. An update then widens the row
+    /// it wrote to by the pivot row's, and closes it up behind the walk, every
+    /// column that took a pivot being exactly zero once it has.
     ///
-    /// **What it spares is mostly the looking.** The arithmetic it shortens is
-    /// small — an elimination over a sketch barely fills, so the rows it updates
-    /// hold a couple of cells each. What the walk does far more of is ask every
-    /// row below a column whether it holds anything there, and asking that of a
-    /// short array beside the matrix rather than of the matrix is the difference
-    /// between a read straight through and a stride of a whole row into
-    /// something far too large to sit in cache.
-    ///
-    /// Read once more after the walk is over, by the substitution that builds
-    /// the null space: what a pivot has to do to keep its own equation satisfied
-    /// is a sum over that row, and this is how far it runs.
+    /// **Three readers, and that closing is what serves all of them.** Where a
+    /// row starts is where it joins [`Elimination::active`]; where it ends is
+    /// when it leaves; and what lies between is the span an update walks, and
+    /// the substitution that builds the null space after it — what a pivot has
+    /// to do to keep its own equation satisfied being a sum over its row, and
+    /// this how far that runs.
     reach: Vec<Stretch>,
     /// The columns that took no pivot, which are the null space's own axes.
     /// Filled by [`Elimination::eliminate`] beside [`Elimination::pivots`], the
     /// other half of the same partition.
     free: Vec<usize>,
+    /// The rows the walk is inside: those whose stretch covers the column being
+    /// decided, and which have not pivoted yet.
+    ///
+    /// **What both walks of the elimination iterate, in place of every row below
+    /// the column.** A row joins when the walk reaches the first column it holds
+    /// anything in and leaves when the walk passes the last, so what is in here
+    /// is exactly what asking every row below the column whether its
+    /// [`Stretch`] covered it used to admit — carried rather than searched for
+    /// afresh at every column.
+    ///
+    /// It is small, and that is a fact about sketches rather than a hope: an
+    /// equation constrains a handful of neighbouring parameters, so only a
+    /// handful of equations cover any one of them. Measured on a chain of 250
+    /// links at 502 parameters, three rows cover the busiest column and 1496
+    /// row-columns are covered in total — against the 251000 tests that asking
+    /// every row at every column came to.
+    active: Vec<usize>,
+    /// Every row, grouped by the column it joins [`Elimination::active`] at,
+    /// with [`Elimination::joining`] indexing the groups.
+    ///
+    /// A counting sort of the rows by their first column, which the assembly has
+    /// already written down: a sparse row runs ascending, so its first entry is
+    /// where it starts. Flat rather than a list per column, there being one
+    /// group per parameter and none of them pushed to after it is built.
+    entrants: Vec<u32>,
+    /// Where each column's group of [`Elimination::entrants`] begins, with a
+    /// trailing sentinel: column `c` admits `entrants[joining[c]..joining[c+1]]`.
+    joining: Vec<u32>,
+    /// Which rows took a pivot, which is what is left to say about the ones that
+    /// did not: an equation no row pivoted on is one the rest already imply.
+    ///
+    /// Needed because rows are no longer moved. Partial pivoting used to swap
+    /// the chosen row up to the rank boundary, so "pivoted" was a position and
+    /// the rest were whatever lay past it; now the choice is recorded instead of
+    /// enacted, and this is the record.
+    used: Vec<bool>,
 }
 
 impl Elimination {
@@ -281,6 +300,7 @@ impl Elimination {
         self.origin.clear();
         self.free.clear();
         self.reach.clear();
+        self.active.clear();
         if n == 0 || system.height() == 0 {
             // Nothing to eliminate, so every column the sketch can move is one
             // it is still free to choose.
@@ -294,6 +314,10 @@ impl Elimination {
             pivots,
             free,
             reach,
+            active,
+            entrants,
+            joining,
+            used,
             ..
         } = self;
         // Spread back out to a cell per column, because the elimination writes
@@ -304,9 +328,8 @@ impl Elimination {
         // somewhere else.
         a.clear();
         a.resize(m * n, 0.0);
-        // Every row starts as the equation it was assembled from, and follows
-        // its row through every swap below.
-        origin.extend(0..m);
+        used.clear();
+        used.resize(m, false);
         let mut scale = 0.0f64;
         // Where each row holds anything, which the assembly already knows: a row
         // runs ascending by column, so its stretch is its first and its last.
@@ -330,67 +353,75 @@ impl Elimination {
                 _ => Stretch { low: 0, high: 0 },
             });
         }
+        // Group the rows by the column each joins the walk at, which is the
+        // first one it holds anything in. A counting sort over what the loop
+        // above already read off the assembly.
+        joining.clear();
+        joining.resize(n + 1, 0);
+        for stretch in reach.iter() {
+            joining[stretch.low] += 1;
+        }
+        let mut filled = 0;
+        for slot in joining.iter_mut() {
+            let count = *slot;
+            *slot = filled;
+            filled += count;
+        }
+        entrants.clear();
+        entrants.resize(m, 0);
+        for (at, stretch) in reach.iter().enumerate() {
+            entrants[joining[stretch.low] as usize] = at as u32;
+            joining[stretch.low] += 1;
+        }
+        // Scattering left each slot holding the *end* of its group, which is the
+        // start of the next: shifting it up by one turns the ends into starts
+        // and gives the sentinel the last group needs.
+        joining.copy_within(0..n, 1);
+        joining[0] = 0;
+
         let scale = scale.max(1.0);
         let tolerance = RANK_TOLERANCE * scale;
-        let mut rank = 0;
         for col in 0..n {
+            for &row in &entrants[joining[col] as usize..joining[col + 1] as usize] {
+                active.push(row as usize);
+            }
+            // And out again once the walk is past everything they hold. Order is
+            // kept rather than swap-removed, so that a row which joined earlier
+            // is still met earlier — which is what the tie below leans on.
+            active.retain(|&row| reach[row].high >= col);
             if !system.movable[col] {
                 continue;
             }
-            // Every row has pivoted already, so nothing is left to decide this
-            // column or any after it.
-            if rank == m {
+            // The rows this column falls inside, and no others: the rest are
+            // exactly zero here, so they could not be the largest unless every
+            // candidate were — which the tolerance below is what answers.
+            let mut chosen = usize::MAX;
+            let mut largest = 0.0f64;
+            for &row in active.iter() {
+                let value = a[row * n + col].abs();
+                // Ties to the lowest row, which is what the scan in row order
+                // this replaces would have kept: rows sit here in the order they
+                // joined, and a column reached by two of them at once would
+                // otherwise pivot on whichever of the two started earlier.
+                if value > largest || (value == largest && row < chosen) {
+                    largest = value;
+                    chosen = row;
+                }
+            }
+            if chosen == usize::MAX || largest <= tolerance {
                 free.push(col);
                 continue;
             }
-            // Only rows this column falls inside can hold anything in it. The
-            // rest are exactly zero there, so they cannot be the largest unless
-            // every candidate is — which the tolerance below is what answers.
-            let mut pivot = rank;
-            for row in rank..m {
-                if reach[row].holds(col) && a[row * n + col].abs() > a[pivot * n + col].abs() {
-                    pivot = row;
-                }
-            }
-            if a[pivot * n + col].abs() <= tolerance {
-                free.push(col);
-                continue;
-            }
-            if pivot != rank {
-                // Both rows are zero outside the wider of their two stretches,
-                // so what the wider one spans is everything the swap has to
-                // move.
-                let merged = Stretch {
-                    low: reach[pivot].low.min(reach[rank].low),
-                    high: reach[pivot].high.max(reach[rank].high),
-                };
-                for c in merged.spans(free) {
-                    a.swap(pivot * n + c, rank * n + c);
-                }
-                origin.swap(pivot, rank);
-                reach.swap(pivot, rank);
-            }
-            let diagonal = a[rank * n + col];
+            let diagonal = a[chosen * n + col];
             // What the pivot row can hold from here on. Everything behind this
             // column it holds is a column that was passed over: the ones that
             // took a pivot were set to zero, not subtracted towards it.
             let pivoting = Stretch {
                 low: col + 1,
-                high: reach[rank].high,
+                high: reach[chosen].high,
             };
-            for row in (rank + 1)..m {
-                // Asked before the matrix is touched, as the pivot search above
-                // asks it. Nearly every row is one this refuses — a sketch's
-                // equations are local, so of the five hundred below a column a
-                // handful reach it — and each one it refuses is a stride of a
-                // whole row not taken through something far too large to sit in
-                // cache.
-                //
-                // Measured at 502 parameters: asking it took a reduction from
-                // 166µs to 131µs, and the scan it stands in front of costs 104µs
-                // of that former figure on its own. It was being paid to learn
-                // there was nothing to do.
-                if !reach[row].holds(col) {
+            for &row in active.iter() {
+                if row == chosen {
                     continue;
                 }
                 let factor = a[row * n + col] / diagonal;
@@ -402,7 +433,7 @@ impl Elimination {
                 // would put a tolerance under an answer that has none. Measured
                 // at parts in 1e12 on the null space when they were.
                 for c in pivoting.spans(free) {
-                    a[row * n + c] -= factor * a[rank * n + c];
+                    a[row * n + c] -= factor * a[chosen * n + c];
                 }
                 // Set rather than subtracted to. What the subtraction would
                 // leave is `x - (x/d)·d`, which is a rounding away from the zero
@@ -415,9 +446,16 @@ impl Elimination {
                     high: reach[row].high.max(pivoting.high),
                 };
             }
+            // A row pivots once and is done: out of the walk, and named by the
+            // column it decided rather than moved to sit beside it.
+            active.retain(|&row| row != chosen);
+            used[chosen] = true;
+            origin.push(chosen);
             pivots.push(col);
-            rank += 1;
         }
+        // The rows no column pivoted on, which is what `origin` is read past the
+        // rank for.
+        origin.extend((0..m).filter(|&row| !used[row]));
     }
 
     /// Reduce the Jacobian to row echelon form and write out the null space that
@@ -488,12 +526,16 @@ impl Elimination {
         let Self {
             rows: a,
             pivots,
+            origin,
             free,
             null,
             reach,
             ..
         } = self;
-        for (row, &pivot) in pivots.iter().enumerate().rev() {
+        for (at, &pivot) in pivots.iter().enumerate().rev() {
+            // Which row took this pivot, the rows never having been moved to
+            // put it on the diagonal.
+            let row = origin[at];
             let diagonal = a[row * n + pivot];
             // Echelon form says a row holds nothing left of its own pivot, and
             // for the columns that *took* one that is exact: the elimination set

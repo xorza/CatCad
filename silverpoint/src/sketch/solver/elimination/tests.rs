@@ -11,6 +11,14 @@ use crate::sketch::solver::system::System;
 /// answer without the shortcuts" is the whole of what it is for. What comes
 /// back is what a caller reads: which columns pivoted, which were left free,
 /// which equation each row ended as, and the null space built off them.
+///
+/// Records which row each pivot fell in rather than swapping it into place, as
+/// the reduction does. Moving rows is not one of the shortcuts under test — it
+/// is a way of writing the same elimination down — and mirroring it here keeps
+/// the two agreeing about *which* of two identical rows pivots. A walk that
+/// swaps meets the rows it has not used in the order its own swaps left them,
+/// so it breaks a tie between duplicate equations by an order that exists only
+/// because it swaps.
 fn reference(
     jacobian: &[f64],
     movable: &[bool],
@@ -18,55 +26,53 @@ fn reference(
 ) -> (Vec<usize>, Vec<usize>, Vec<usize>, Vec<f64>) {
     let mut a = jacobian.to_vec();
     let m = a.len() / n;
-    let mut origin: Vec<usize> = (0..m).collect();
     let scale = a.iter().fold(0.0f64, |acc, v| acc.max(v.abs())).max(1.0);
     let tolerance = RANK_TOLERANCE * scale;
     let (mut pivots, mut free) = (Vec::new(), Vec::new());
-    let mut rank = 0;
+    let mut origin: Vec<usize> = Vec::new();
+    let mut used = vec![false; m];
     for col in 0..n {
         if !movable[col] {
             continue;
         }
-        if rank == m {
+        let mut chosen = usize::MAX;
+        for row in 0..m {
+            if used[row] {
+                continue;
+            }
+            if chosen == usize::MAX || a[row * n + col].abs() > a[chosen * n + col].abs() {
+                chosen = row;
+            }
+        }
+        if chosen == usize::MAX || a[chosen * n + col].abs() <= tolerance {
             free.push(col);
             continue;
         }
-        let mut pivot = rank;
-        for row in rank..m {
-            if a[row * n + col].abs() > a[pivot * n + col].abs() {
-                pivot = row;
+        let diagonal = a[chosen * n + col];
+        for row in 0..m {
+            if used[row] || row == chosen {
+                continue;
             }
-        }
-        if a[pivot * n + col].abs() <= tolerance {
-            free.push(col);
-            continue;
-        }
-        if pivot != rank {
-            for c in 0..n {
-                a.swap(pivot * n + c, rank * n + c);
-            }
-            origin.swap(pivot, rank);
-        }
-        let diagonal = a[rank * n + col];
-        for row in (rank + 1)..m {
             let factor = a[row * n + col] / diagonal;
             if factor == 0.0 {
                 continue;
             }
             for c in 0..n {
-                a[row * n + c] -= factor * a[rank * n + c];
+                a[row * n + c] -= factor * a[chosen * n + c];
             }
         }
+        used[chosen] = true;
+        origin.push(chosen);
         pivots.push(col);
-        rank += 1;
     }
-    for row in (0..rank).rev() {
-        let pivot = pivots[row];
+    origin.extend((0..m).filter(|&row| !used[row]));
+    for at in (0..pivots.len()).rev() {
+        let (row, pivot) = (origin[at], pivots[at]);
         let diagonal = a[row * n + pivot];
         for c in 0..n {
             a[row * n + c] /= diagonal;
         }
-        for above in 0..row {
+        for &above in &origin[..at] {
             let factor = a[above * n + pivot];
             if factor == 0.0 {
                 continue;
@@ -81,9 +87,9 @@ fn reference(
     for (axis, &col) in free.iter().enumerate() {
         null[col * axes + axis] = 1.0;
     }
-    for (row, &pivot) in pivots.iter().enumerate() {
+    for (at, &pivot) in pivots.iter().enumerate() {
         for (axis, &col) in free.iter().enumerate() {
-            null[pivot * axes + axis] = -a[row * n + col];
+            null[pivot * axes + axis] = -a[origin[at] * n + col];
         }
     }
     (pivots, free, origin, null)
