@@ -8,21 +8,25 @@ use crate::document::file::saved::handles::{Handles, finite, plane_at, sketch_at
 use crate::document::file::saved::numbering::Numbering;
 use crate::document::file::saved::sketch::Sketch;
 use crate::profile::Profile;
-use crate::timeline::feature::{Datum, Feature};
+use crate::timeline::feature::{Datum, Feature, World};
 use crate::timeline::{FeatureId, Timeline};
 
 /// One step, as a file holds it.
 ///
-/// Flatter than [`Feature`], which nests a [`Datum`] inside its plane arm: the
-/// two kinds of plane read as two kinds of step here, because a file is written
-/// to be read by a person and `Plane(Ground)` says the same thing twice. The
-/// match converting between them is exhaustive both ways, so the flattening
-/// costs nothing — a third kind of plane is a compile error here rather than a
-/// step that quietly writes as something else.
+/// Flatter than [`Feature`], which nests a [`Datum`] inside its plane arm: each
+/// kind of plane reads as its own kind of step here, because a file is written
+/// to be read by a person and `Plane(World(Ground))` says the same thing three
+/// times over. The match converting between them is exhaustive both ways, so
+/// the flattening costs nothing — a fourth kind of plane is a compile error
+/// here rather than a step that quietly writes as something else.
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) enum Step {
-    /// The world's own ground, which depends on nothing.
+    /// The horizontal plane the world comes with, which depends on nothing.
     Ground,
+    /// The upright one across the model, likewise.
+    Front,
+    /// The upright one along it, likewise.
+    Side,
     /// Parallel to an earlier plane, this far along its normal.
     Plane { from: usize, by: f64 },
     /// A sketch, and the plane it is drawn on.
@@ -88,13 +92,25 @@ impl Profiled {
     }
 }
 
+/// The step a world plane loads as.
+///
+/// Written once for the three arms above it rather than three times: what tells
+/// them apart is which [`World`] they name, and nothing else about loading one
+/// differs. A world plane depends on nothing, so there is no reference to check
+/// and no way for this to fail.
+fn world_plane(world: World) -> Loaded {
+    Loaded::plain(Feature::Plane(Datum::World(world)))
+}
+
 impl Step {
     /// `feature` as a file would hold it, with `steps` saying what number each
     /// of the timeline's handles is written as and `handles` what number each
     /// step's own geometry is.
     pub(super) fn of(feature: &Feature, steps: &Numbering<FeatureId>, handles: &[Handles]) -> Self {
         match feature {
-            Feature::Plane(Datum::Ground) => Step::Ground,
+            Feature::Plane(Datum::World(World::Ground)) => Step::Ground,
+            Feature::Plane(Datum::World(World::Front)) => Step::Front,
+            Feature::Plane(Datum::World(World::Side)) => Step::Side,
             Feature::Plane(Datum::Offset { from, by }) => Step::Plane {
                 from: steps.of(*from),
                 by: *by,
@@ -125,7 +141,9 @@ impl Step {
         handles: &[Handles],
     ) -> Result<Loaded, Fault> {
         match self {
-            Step::Ground => Ok(Loaded::plain(Feature::Plane(Datum::Ground))),
+            Step::Ground => Ok(world_plane(World::Ground)),
+            Step::Front => Ok(world_plane(World::Front)),
+            Step::Side => Ok(world_plane(World::Side)),
             Step::Plane { from, by } => {
                 finite(at, *by)?;
                 Ok(Loaded::plain(Feature::Plane(Datum::Offset {

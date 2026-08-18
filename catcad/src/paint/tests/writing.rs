@@ -5,9 +5,10 @@ use crate::demo;
 use crate::document::Document;
 use crate::paint::tests::fixtures::{drawn, every_statable};
 use crate::paint::*;
+use crate::part::Part;
 use crate::timeline::Timeline;
-use crate::timeline::feature::{Datum, Feature};
-use aperture::{Facing, Scene, Turn};
+use crate::timeline::feature::{Datum, Feature, World};
+use aperture::{Curve, Facing, Scene, Turn};
 use glam::{DVec2, Vec2, Vec3};
 use silverpoint::{Along, Dimension, Sketch};
 
@@ -25,9 +26,10 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let mut layout = Layout::default();
     redraw(one.models(), &mut layout, Showing::default(), &mut scene);
 
-    // Seven segments — four sides, the rail, and the arm's two bars — two
-    // circles, and a marker on each of the nine points.
-    assert_eq!(scene.curves.len(), 7);
+    // Seven segments — four sides, the rail, and the arm's two bars — plus the
+    // outline of the one plane this fixture draws on; two circles, and a marker
+    // on each of the nine points.
+    assert_eq!(scene.curves.len(), 8);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
 
@@ -51,7 +53,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
         Showing::default(),
         &mut scene,
     );
-    assert_eq!(scene.curves.len(), 7);
+    assert_eq!(scene.curves.len(), 8);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
 }
@@ -82,8 +84,10 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
     // cylinder.
     assert_eq!(picture.solids.len(), 3);
     // And both sketches: the frame's seven edges and the triangle's three, two
-    // rims, nine markers and three.
-    assert_eq!(picture.curves.len(), 10);
+    // rims, nine markers and three — with one outline, for the plane the open
+    // sketch is drawn on. The other three planes the demo holds are not drawn
+    // while a drawing stands on one of them.
+    assert_eq!(picture.curves.len(), 11);
     assert_eq!(picture.rings.len(), 2);
     assert_eq!(picture.points.len(), 12);
     // And no controls, which are not the document's: they are built against a
@@ -289,7 +293,7 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
 #[test]
 fn only_the_open_sketch_shows_its_constraints() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let mut stated = || {
         let mut sketch = Sketch::default();
         let a = sketch.add_point(DVec2::ZERO);
@@ -335,7 +339,8 @@ fn only_the_open_sketch_shows_its_constraints() {
         "a sketch nobody is in put its constraints on screen"
     );
     // Both sketches are still *drawn* — it is the marks alone that go.
-    assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
+    // Both sketches and the one plane they are drawn on.
+    assert_eq!(scene.curves.len(), 3, "the picture is of both sketches");
 
     // The same layout, so the only thing that has changed is which sketch is
     // open — and the marks have to follow it.
@@ -428,7 +433,7 @@ fn only_the_open_sketch_shows_its_constraints() {
 #[test]
 fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let mut lone = || {
         let mut sketch = Sketch::default();
         let a = sketch.add_point(DVec2::ZERO);
@@ -466,7 +471,8 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
         Showing::default(),
         &mut scene,
     );
-    assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
+    // Both sketches and the one plane they are drawn on.
+    assert_eq!(scene.curves.len(), 3, "the picture is of both sketches");
     // Two free ends are two degrees of freedom apiece, so the live one is drawn
     // in what a wholly free edge is drawn in.
     assert_eq!(drawn(&scene, &layout, here), [FREE]);
@@ -486,4 +492,84 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
         "the picture did not follow the open sketch"
     );
     assert_eq!(drawn(&scene, &layout, there), [FREE]);
+}
+
+/// The plane being drawn on is outlined, and the outline encloses the drawing
+/// with room to spare.
+///
+/// **The whole of what a sheet has to do**, and the two ways of getting it wrong
+/// both pass a count. One sized off how *wide* the drawing is leaves an edge
+/// running through the model, because a drawing need not be centred on anything;
+/// one centred on the plane's own origin, which a drawing need not be near
+/// either, is four times the size it has to be and off to one side. Either reads
+/// as a stray line rather than as the edge of the ground.
+///
+/// Read back through the plane the sheet lies in rather than in the world, which
+/// is the frame the claim is actually about: the demo draws on the ground, so a
+/// square measured in world x and z would happen to agree, and one drawn on the
+/// shelf would not.
+#[test]
+fn the_plane_being_drawn_on_is_outlined_round_its_drawing() {
+    let mut build = Build::default();
+    let document = demo::document(&mut build);
+    let models = document.models(&build, document.opening());
+    let mut layout = Layout::default();
+    let mut scene = Scene::default();
+    redraw(models, &mut layout, Showing::default(), &mut scene);
+
+    // One, and it names the plane the open sketch is drawn on. The other three
+    // planes the demo holds are not drawn while a drawing stands on one of them.
+    let named = |curve: &Curve| curve.tag.and_then(|tag| layout.names().get(tag));
+    let outlines: Vec<_> = scene
+        .curves
+        .iter()
+        .filter(|curve| matches!(named(curve), Some(Part::Plane(_))))
+        .collect();
+    let [outline] = outlines[..] else {
+        panic!("{} planes were outlined, not one", outlines.len());
+    };
+    assert_eq!(named(outline), Some(Part::Plane(models.open_plane())));
+    assert!(outline.closed, "a sheet's outline does not close");
+
+    // Its corners in the plane's own coordinates, which is where the drawing's
+    // are.
+    let plane = models.open().plane();
+    let corners: Vec<DVec2> = outline
+        .points
+        .iter()
+        .map(|&at| plane.flatten(at.as_dvec3()))
+        .collect();
+    let low = corners.iter().copied().fold(DVec2::INFINITY, DVec2::min);
+    let high = corners
+        .iter()
+        .copied()
+        .fold(DVec2::NEG_INFINITY, DVec2::max);
+    let side = high - low;
+    // To a fraction of itself rather than exactly: a corner crosses into the
+    // renderer's `f32` and back on its way here, so demanding the decimal would
+    // be asserting how that rounded.
+    assert!(
+        (side.x - side.y).abs() < side.x * 1e-5,
+        "a sheet is {side:?} rather than square",
+    );
+
+    // Every point of the drawing inside it, and none of them on the edge: the
+    // margin is what keeps the outline off the geometry.
+    let clear = side.x * 0.01;
+    for (_, point) in models.open().sketch().points() {
+        let at = point.position;
+        assert!(
+            at.cmpgt(low + clear).all() && at.cmplt(high - clear).all(),
+            "{at:?} is not inside the sheet running {low:?} to {high:?}",
+        );
+    }
+
+    // And not so far outside it as to be a square about the origin grown until
+    // it happened to reach: the demo draws from (0, 0) out to (8, 5), so a sheet
+    // centred on the plane's origin would run past −8 on both axes.
+    assert!(
+        low.x > -4.0 && low.y > -4.0,
+        "the sheet starts at {low:?}, so it is centred on the origin rather than \
+         on the drawing",
+    );
 }

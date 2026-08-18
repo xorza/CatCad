@@ -212,6 +212,10 @@ impl Primitive for Object {
         self.tag
     }
 
+    fn standing(&self) -> Precedence {
+        self.precedence
+    }
+
     /// Measured after the transform, so this is where the geometry actually
     /// lands — and the one kind whose extent is the model rather than a claim
     /// about legibility.

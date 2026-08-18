@@ -5,7 +5,7 @@ use crate::drawing::anchor::Anchor;
 use crate::intent::change::Change;
 use crate::model::Models;
 use crate::timeline::Timeline;
-use crate::timeline::feature::{Datum, Feature};
+use crate::timeline::feature::{Datum, Feature, World};
 use glam::{DVec2, Vec3};
 use silverpoint::{Entity, Plane};
 
@@ -59,7 +59,7 @@ fn world(x: f64, y: f64) -> Vec3 {
 #[test]
 fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
         sketch: square(),
@@ -159,7 +159,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
 #[should_panic(expected = "this extrude has not been modelled")]
 fn reopening_forgets_what_the_last_document_modelled() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
         sketch: square(),
@@ -190,7 +190,7 @@ fn reopening_forgets_what_the_last_document_modelled() {
 #[test]
 fn two_sketches_settle_into_two_answers_that_do_not_overwrite_each_other() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let boxy = timeline.add(Feature::Sketch {
         on: ground,
         sketch: square(),
@@ -244,7 +244,7 @@ fn two_sketches_settle_into_two_answers_that_do_not_overwrite_each_other() {
 #[test]
 fn any_sketch_settling_moves_the_documents_one_revision() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let boxy = timeline.add(Feature::Sketch {
         on: ground,
         sketch: square(),
@@ -295,7 +295,7 @@ fn any_sketch_settling_moves_the_documents_one_revision() {
 #[should_panic(expected = "this sketch has not been settled")]
 fn reopening_forgets_what_the_last_document_settled() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let boxy = timeline.add(Feature::Sketch {
         on: ground,
         sketch: square(),

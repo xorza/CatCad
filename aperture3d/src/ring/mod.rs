@@ -332,6 +332,10 @@ impl Primitive for Ring {
         self.tag
     }
 
+    fn standing(&self) -> Precedence {
+        self.precedence
+    }
+
     /// A circle reaches its radius along every world axis except in so far as
     /// its plane leans away from that axis, which is what the normal's
     /// component in it measures.

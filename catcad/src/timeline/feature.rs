@@ -1,6 +1,6 @@
 //! One step of a timeline, and the kinds there are.
 
-use silverpoint::Sketch;
+use silverpoint::{Plane, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::FeatureId;
@@ -113,11 +113,11 @@ impl Feature {
     /// the only reason this is a noun phrase rather than a word.
     pub(super) fn kind(&self) -> &'static str {
         match self {
-            // *Which* plane, because the ground is not somewhere anybody put
-            // one and the slip about it is its own: a caller asking the ground
-            // to move has mistaken a plane for the world, and "a plane rather
-            // than a plane" would tell them nothing.
-            Feature::Plane(Datum::Ground) => "the ground",
+            // *Which* plane, because a world plane is not somewhere anybody
+            // put one and the slip about it is its own: a caller asking one to
+            // move has mistaken a plane for the world, and "a plane rather than
+            // a plane" would tell them nothing.
+            Feature::Plane(Datum::World(_)) => "a world plane",
             Feature::Plane(Datum::Offset { .. }) => "a plane",
             Feature::Sketch { .. } => "a sketch",
             Feature::Extrude { .. } => "an extrude",
@@ -133,9 +133,9 @@ impl Feature {
 /// face of a solid waits for there to be solids to put one on.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Datum {
-    /// The world's own ground, which depends on nothing and so is where every
-    /// chain of planes ends.
-    Ground,
+    /// One of the three the world comes with, which depends on nothing and so
+    /// is where every chain of planes ends.
+    World(World),
     /// Parallel to another, this far along its normal.
     ///
     /// One number, and moving a plane is retyping it. What that costs is the
@@ -149,8 +149,39 @@ impl Datum {
     /// The planes this one is measured from.
     fn referents(&self) -> std::option::IntoIter<FeatureId> {
         match self {
-            Datum::Ground => None.into_iter(),
+            Datum::World(_) => None.into_iter(),
             Datum::Offset { from, .. } => Some(*from).into_iter(),
+        }
+    }
+}
+
+/// Which of the three planes the world comes with.
+///
+/// One arm of [`Datum`] rather than three, because nothing reading a datum
+/// tells them apart: what a plane is measured off, whether it can be moved and
+/// what may be built on it are the same answers for all three. What differs is
+/// the frame each stands for, and that is the whole of what this holds.
+///
+/// Here rather than in silverpoint, which holds the frames themselves. Which
+/// three a modeller offers and what they are called is this crate's business; a
+/// plane there is a frame and knows nothing about being referred to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum World {
+    /// The horizontal one, faced from above.
+    Ground,
+    /// The upright one across the model, faced from the front.
+    Front,
+    /// The upright one along it, faced from the right.
+    Side,
+}
+
+impl World {
+    /// The frame it stands for.
+    pub(crate) fn plane(self) -> Plane {
+        match self {
+            World::Ground => Plane::GROUND,
+            World::Front => Plane::FRONT,
+            World::Side => Plane::SIDE,
         }
     }
 }

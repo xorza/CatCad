@@ -99,6 +99,12 @@ pub(super) struct Picture {
 }
 
 impl Picture {
+    /// How much of the world what has been drawn occupies, or `None` where
+    /// nothing has been. What a camera is aimed at to take the whole of it in.
+    pub(super) fn extent(&self) -> Option<Extent> {
+        self.renderer.borrow().scene().extent()
+    }
+
     /// A picture of `models`, laid out as they stand.
     ///
     /// Lays the drawing out itself rather than being handed a scene, which is
@@ -127,12 +133,6 @@ impl Picture {
     /// from is the very renderer these calls write into.
     pub(super) fn painting(&self) -> Rc<RefCell<dyn GpuPaint>> {
         self.renderer.clone()
-    }
-
-    /// What the picture holds occupies in world space, or `None` if it holds
-    /// nothing — what a camera is aimed at to take the whole of it in.
-    pub(super) fn extent(&self) -> Option<Extent> {
-        self.renderer.borrow().scene().extent()
     }
 
     /// Lay the drawing out again if it has moved, and cut the controls against

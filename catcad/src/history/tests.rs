@@ -4,7 +4,7 @@ use crate::demo;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
 use crate::paint;
-use crate::timeline::feature::{Datum, Feature};
+use crate::timeline::feature::{Datum, Feature, World};
 use crate::timeline::{FeatureId, Timeline};
 use glam::{DVec2, Vec3};
 use silverpoint::{CircleId, Plane, PointId};
@@ -459,7 +459,7 @@ fn the_oldest_steps_are_forgotten_rather_than_the_history_growing_without_end() 
 fn a_drag_in_one_sketch_does_not_extend_a_step_opened_in_another() {
     let mut build = Build::default();
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let mut lone = || {
         let mut sketch = silverpoint::Sketch::default();
         let point = sketch.add_point(DVec2::ZERO);
@@ -531,7 +531,7 @@ fn moving_a_plane_carries_what_is_drawn_on_it_and_solves_nothing() {
 
     let mut build = Build::default();
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let shelf = timeline.add(Feature::Plane(Datum::Offset {
         from: ground,
         by: 2.0,

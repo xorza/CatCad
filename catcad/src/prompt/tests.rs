@@ -4,7 +4,7 @@ use silverpoint::{Along, Constraint, Dimension, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::Timeline;
-use crate::timeline::feature::{Datum, Feature};
+use crate::timeline::feature::{Datum, Feature, World};
 
 /// A dimension to open a form over.
 ///
@@ -14,7 +14,7 @@ use crate::timeline::feature::{Datum, Feature};
 /// pinning nothing.
 fn dimension() -> Part {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let mut sketch = Sketch::default();
     let from = sketch.add_point(DVec2::ZERO);
     let to = sketch.add_point(DVec2::X);
@@ -228,7 +228,7 @@ fn both_answers_have_a_glyph_to_draw_them() {
 #[test]
 fn a_form_is_about_exactly_the_mark_it_stands_over() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(DVec2::ZERO);
     let at = timeline.add(Feature::Sketch { on: ground, sketch });

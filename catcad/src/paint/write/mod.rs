@@ -19,11 +19,11 @@
 //! these are the calls that spend them.
 
 use aperture::{Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Styled, Text, Vertex};
-use glam::{Mat4, Vec2, Vec3};
-use silverpoint::{Circle, CircleId, Constraint, Segment, SegmentId, Sketch};
+use glam::{DVec2, Mat4, Vec2, Vec3};
+use silverpoint::{Circle, CircleId, Constraint, Plane, Segment, SegmentId, Sketch};
 use std::fmt::Write;
 
-use crate::model::{Model, Models};
+use crate::model::{Model, Models, Spread};
 use crate::paint::growing::Growing;
 use crate::paint::layout::Sheets;
 use crate::paint::marks::mark::Mark;
@@ -31,10 +31,12 @@ use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::{
     DECIMALS, DORMANT_FACE, EDGE_WIDTH, FACE, FACE_SAGITTA, FIXED_MARKER, FREE_MARKER, GHOST, MARK,
-    MARK_FONT, PINNED, REDUNDANT, SOLID, SOLID_SAGITTA, colour, ink, marks, standing, symbol,
+    MARK_FONT, PINNED, REDUNDANT, SHEET, SHEET_WIDTH, SOLID, SOLID_SAGITTA, colour, ink, marks,
+    standing, symbol,
 };
 use crate::part::Part;
 use crate::preview::Ends;
+use crate::timeline::FeatureId;
 use crate::wording;
 
 /// The shape a two-click tool is half-way through, and the plane it lies in.
@@ -76,24 +78,36 @@ pub(super) fn curves(
     models: Models<'_>,
     names: &mut Names,
     band: Option<Band>,
+    sheet: Spread,
     into: &mut Batch<Curve>,
 ) {
+    // The sketch being drawn in, which supplies both halves of the one sheet
+    // written here: the step its plane is, for the tag, and where that plane
+    // lies. The second is the model's own — a drawing lies in the plane it is
+    // drawn on — so there is no second lookup to disagree with it.
+    let open = models.open();
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
-    // one that does not — see `Batch::refill`. The band is chained on rather
-    // than pushed after for the same reason: appended, it would be dropped by
-    // the next rewrite of the drawing and allocated afresh by the one after,
-    // once a frame for as long as a line is being drawn.
+    // one that does not — see `Batch::refill`. That is also why all three kinds
+    // are chained into one refill rather than written in three passes: a stroke
+    // appended outside it would be dropped by the next rewrite of the drawing
+    // and allocated afresh by the one after, once a frame for as long as a line
+    // is being drawn.
+    //
+    // Back to front, so the order reads the way the picture does: the plane a
+    // drawing is done on, then the drawing, then what is being drawn now.
     into.refill(
-        models
-            .iter()
-            .flat_map(|model| {
-                model
-                    .sketch()
-                    .segments()
-                    .map(move |(id, edge)| Stroke::Edge(model, id, edge))
-            })
-            .chain(band.map(Stroke::Band)),
+        std::iter::once(Stroke::Sheet {
+            at: models.open_plane(),
+            plane: open.plane(),
+        })
+        .chain(models.iter().flat_map(|model| {
+            model
+                .sketch()
+                .segments()
+                .map(move |(id, edge)| Stroke::Edge(model, id, edge))
+        }))
+        .chain(band.map(Stroke::Band)),
         |curve, stroke| {
             curve.width = EDGE_WIDTH;
             match stroke {
@@ -118,9 +132,48 @@ pub(super) fn curves(
                     curve.plane_normal = Some(band.normal);
                     curve.tag = None;
                 }
+                // The one stroke here that is not part of a drawing but of
+                // what a drawing is done *on*, which is the whole of why it
+                // stands as a frame: it runs right round the geometry, and
+                // ranked as a shape it would take clicks meant for whatever it
+                // encircled. Standing as a frame is also what keeps it from
+                // deciding where the camera goes — see
+                // [`Scene::extent`](aperture::Scene), which leaves the furniture
+                // out because furniture is sized to what it stands around.
+                //
+                // Written over the points already there rather than into a
+                // fresh list, like the two above and for the same reason — a
+                // closed outline is four `Vec3`s, and a rewrite that allocated
+                // them would do it on every frame a band moves.
+                Stroke::Sheet { at, plane } => {
+                    curve.points.clear();
+                    curve.points.extend(corners(plane, sheet));
+                    curve.closed = true;
+                    curve.width = SHEET_WIDTH;
+                    curve.color = SHEET;
+                    curve.precedence = Precedence::Frame;
+                    curve.plane_normal = Some(plane.normal().as_vec3());
+                    curve.tag = Some(names.tag(Part::Plane(at)));
+                }
             }
         },
     );
+}
+
+/// The four corners of the sheet `spread` names in `plane`, wound the way they
+/// are stroked.
+///
+/// In the world rather than in logical pixels, which is what tells a sheet from
+/// the handles that sit on the same plane: a plane is a place, where a handle is
+/// a thing to grab and holds its size on screen. So this is here with the
+/// drawing rather than in [`gizmos::shape`](crate::paint::gizmos), whose shapes
+/// are all measured on screen.
+fn corners(plane: Plane, spread: Spread) -> [Vec3; 4] {
+    [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)].map(|(x, y)| {
+        plane
+            .point(spread.middle + DVec2::new(x, y) * spread.reach)
+            .as_vec3()
+    })
 }
 
 /// One stroke to write: an edge the sketch holds, or the band a tool is in the
@@ -129,6 +182,25 @@ pub(super) fn curves(
 enum Stroke<'a> {
     Edge(Model<'a>, SegmentId, Segment),
     Band(Band),
+    /// The outline of the plane the drawing is standing on.
+    ///
+    /// **That one and no other**, though a document holds several and every one
+    /// of them is somewhere a drawing could be started. A plane is drawn where
+    /// it is what you are working with: while a sketch is open that is the plane
+    /// under it, and the rest would be furniture standing in front of the model
+    /// — the three the world comes with are square to one another and cross at
+    /// the origin, so two of them cut across whatever is built there, taking
+    /// presses meant for it and drawing over the solids it hides behind.
+    ///
+    /// The other reading of that rule is the one that has nowhere to be stated
+    /// yet: with no sketch open there is no drawing to stand in front of, and
+    /// every plane wants showing because picking one is the whole of what there
+    /// is to do. Nothing can close a sketch today — see
+    /// [`Session::editing`](crate::session::Session).
+    Sheet {
+        at: FeatureId,
+        plane: Plane,
+    },
 }
 
 /// The sketch's circles, one ring apiece.

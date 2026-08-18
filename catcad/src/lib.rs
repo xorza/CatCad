@@ -146,6 +146,11 @@ impl CatCad {
         // plane does not lean away from it, and a stroke's width and a marker's
         // glyph reach nowhere at all, being screen-sized. A document measuring
         // itself would be a second copy of all of that, free to drift.
+        //
+        // The sheets standing for the planes are no part of it, and are left out
+        // where a scene says how far it reaches rather than here — furniture is
+        // sized to what it stands around, so a camera framed on it would frame
+        // the room. See [`Scene::extent`](aperture::Scene).
         // Opened in its first sketch, so a tool has somewhere to draw before
         // anything has been picked out.
         let session = Session::new(document.opening());

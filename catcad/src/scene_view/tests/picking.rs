@@ -389,6 +389,7 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
 /// cursor into a thing that was half highlighted. And the look every other part
 /// takes replaces the colour outright, which for an axis erases the one thing
 /// it is saying: which axis it is.
+///
 #[test]
 fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
     let mut raised = RaisedView::new();
@@ -398,7 +399,7 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
     // worked out here: the middle of the first arrow's shaft quad, which is its
     // four corners averaged and therefore inside it whatever the shape's
     // proportions become.
-    let (on_shaft, drawn) = {
+    let (on_shaft, handles) = {
         let renderer = raised.view.renderer().borrow();
         let gizmos = &renderer.scene().gizmos;
         let corners = &gizmos[0].points;
@@ -407,7 +408,7 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
         (middle, tags)
     };
     assert_eq!(
-        drawn.len(),
+        handles.len(),
         4,
         "the demo's one datum is two arrows, a hub and a corner"
     );
@@ -420,14 +421,16 @@ fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
         "the cursor on a datum's axis reported {hovered:?}"
     );
 
-    // The whole gizmo, not the one piece that answered the pick.
+    // The whole gizmo, not the one piece that answered the pick. Nothing else
+    // on screen names this plane: it is not the one the drawing stands on, so
+    // no outline is drawn round it — see [`Stroke::Sheet`](crate::paint::write).
     let lit: Vec<_> = raised.view.lit().iter().map(|lit| lit.tag).collect();
     assert_eq!(
         lit,
-        drawn,
+        handles,
         "hovering one axis lit {} of the gizmo's {} pieces",
         lit.len(),
-        drawn.len(),
+        handles.len(),
     );
     // And each keeps its own colour, brightened. `Tint::Ink` here would be the
     // hover's yellow on both, which is also how it would look if the two arrows

@@ -6,7 +6,7 @@ use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
 use crate::profile::Profile;
 use crate::timeline::along::Along;
-use crate::timeline::feature::{Datum, Feature};
+use crate::timeline::feature::{Datum, Feature, World};
 
 pub(crate) mod along;
 pub(crate) mod feature;
@@ -44,6 +44,25 @@ pub(crate) struct Timeline {
 }
 
 impl Timeline {
+    /// A timeline holding the three world planes and nothing else — where every
+    /// document starts.
+    ///
+    /// Not [`Default`], which is what the file loader builds on before adding
+    /// every step the file holds: a default that seeded these would give a
+    /// loaded document two sets of them.
+    ///
+    /// The three are ordinary steps once they are here, so nothing downstream
+    /// treats them as a header. What that costs is that a fourth [`World`]
+    /// would have to be added to the list below by hand; the file's own
+    /// conversion is exhaustive both ways and is where that is caught.
+    pub(crate) fn started() -> Self {
+        let mut timeline = Self::default();
+        for world in [World::Ground, World::Front, World::Side] {
+            timeline.add(Feature::Plane(Datum::World(world)));
+        }
+        timeline
+    }
+
     /// Add `feature` as the newest step, and hand back the handle that names
     /// it.
     ///
@@ -119,7 +138,7 @@ impl Timeline {
     pub(crate) fn plane(&self, at: FeatureId) -> Plane {
         let feature = self.feature(at);
         match feature {
-            Feature::Plane(Datum::Ground) => Plane::GROUND,
+            Feature::Plane(Datum::World(world)) => world.plane(),
             Feature::Plane(Datum::Offset { from, by }) => {
                 let base = self.plane(*from);
                 Plane {
@@ -139,7 +158,7 @@ impl Timeline {
     pub(crate) fn offset(&mut self, at: FeatureId, to: f64) {
         match self.feature_mut(at) {
             Feature::Plane(Datum::Offset { by, .. }) => *by = to,
-            other @ (Feature::Plane(Datum::Ground)
+            other @ (Feature::Plane(Datum::World(_))
             | Feature::Sketch { .. }
             | Feature::Extrude { .. }) => wrong_kind(at, "a plane that can be moved", other),
         }
@@ -226,22 +245,37 @@ impl Timeline {
 
     /// Every plane that can be moved, in the order they were put there.
     ///
-    /// Only these are drawn. The world's own ground is what everything else is
-    /// measured *from* rather than something anybody put anywhere, and a
-    /// rectangle standing for it would be a rectangle standing for the world.
+    /// The three the world comes with are not among them. They are what
+    /// everything else is measured *from* rather than anything anybody put
+    /// anywhere, so there is no offset on one to restate — which is a different
+    /// question from whether one is drawn.
     pub(crate) fn movable_planes(&self) -> impl Iterator<Item = FeatureId> {
         self.steps()
             .filter(|(_, feature)| matches!(feature, Feature::Plane(Datum::Offset { .. })))
             .map(|(id, _)| id)
     }
 
-    /// The plane at `at` as something that can be moved, or `None` where it is
-    /// the ground.
+    /// Which step holds the world plane `world`, or `None` where the timeline
+    /// holds none.
     ///
-    /// `None` rather than a panic for the ground, unlike asking a sketch: a
-    /// caller here has a plane and is asking whether it goes anywhere, which is
-    /// a fair question with a real answer. Asking a *sketch* for its offset is
-    /// the mistake, and that is what still panics.
+    /// A search rather than a fixed position, because a timeline read off a
+    /// file holds whatever the file said: the three are ordinary steps, and
+    /// nothing requires them to be at the head or to be there at all.
+    pub(crate) fn world(&self, world: World) -> Option<FeatureId> {
+        self.steps()
+            .find(|(_, feature)| {
+                matches!(feature, Feature::Plane(Datum::World(held)) if *held == world)
+            })
+            .map(|(id, _)| id)
+    }
+
+    /// The plane at `at` as something that can be moved, or `None` where it is
+    /// one the world comes with.
+    ///
+    /// `None` rather than a panic for those, unlike asking a sketch: a caller
+    /// here has a plane and is asking whether it goes anywhere, which is a fair
+    /// question with a real answer. Asking a *sketch* for its offset is the
+    /// mistake, and that is what still panics.
     pub(crate) fn movable(&self, at: FeatureId) -> Option<Movable> {
         let feature = self.feature(at);
         match feature {
@@ -249,7 +283,7 @@ impl Timeline {
                 at,
                 along: Along::on(self.plane(*from)),
             }),
-            Feature::Plane(Datum::Ground) => None,
+            Feature::Plane(Datum::World(_)) => None,
             Feature::Sketch { .. } | Feature::Extrude { .. } => wrong_kind(at, "a plane", feature),
         }
     }
@@ -467,15 +501,16 @@ pub(crate) struct FeatureId(u32);
 #[cfg(test)]
 mod internals {
     use crate::timeline::Timeline;
-    use crate::timeline::feature::{Datum, Feature};
+    use crate::timeline::feature::{Datum, Feature, World};
     use silverpoint::Sketch;
 
     impl Timeline {
-        /// `sketch` on the ground, which is the shape the demo has and every
-        /// fixture wants.
+        /// `sketch` on the ground, which is the least a timeline can be and
+        /// still hold a drawing — and so what every fixture about something
+        /// else wants. A *document* starts from [`Timeline::started`].
         pub(crate) fn of(sketch: Sketch) -> Self {
             let mut timeline = Self::default();
-            let ground = timeline.add(Feature::Plane(Datum::Ground));
+            let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
             timeline.add(Feature::Sketch { on: ground, sketch });
             timeline
         }

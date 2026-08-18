@@ -3,7 +3,7 @@ use crate::build::Build;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
 use aperture::Motion;
-use glam::{DVec2, Vec3};
+use glam::{DVec2, DVec3, Vec3};
 use silverpoint::{Plane, Sketch};
 
 /// A step names an earlier step and never itself, and a handle stays dead once
@@ -16,7 +16,7 @@ use silverpoint::{Plane, Sketch};
 #[test]
 fn a_step_is_built_only_on_earlier_ones_and_handles_are_never_reused() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
         sketch: Sketch::default(),
@@ -26,7 +26,7 @@ fn a_step_is_built_only_on_earlier_ones_and_handles_are_never_reused() {
 
     // A third step takes a third handle rather than either of the first two,
     // so nothing minted earlier can be confused for it.
-    let next = timeline.add(Feature::Plane(Datum::Ground));
+    let next = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     assert!(next != ground && next != drawn);
 
     // And a handle from one timeline names nothing in a shorter one — which is
@@ -71,7 +71,7 @@ fn a_sketch_lands_where_its_plane_says_and_stores_none_of_it() {
 #[test]
 fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let shelf = timeline.add(Feature::Plane(Datum::Offset {
         from: ground,
         by: 2.0,
@@ -131,19 +131,64 @@ fn a_sketch_is_not_a_plane_that_can_be_moved() {
     timeline.movable(timeline.first_sketch());
 }
 
-/// **Moving the ground says the ground is what was named.**
+/// A started timeline holds the three world planes, and none of them moves.
 ///
-/// The one refusal that cannot be worded as a kind: the ground *is* a plane, so
-/// a caller told it had named "a plane rather than a plane" would learn nothing
-/// — and this is the caller most in need of telling, having mistaken a plane for
-/// the world. See [`Feature::kind`](crate::timeline::feature::Feature), which is
-/// what tells the two apart, and [`wrong_kind`](crate::timeline::wrong_kind),
-/// which every refusal here comes through.
+/// Where every document begins, and three claims about it. That the three are
+/// *found* rather than sitting at fixed positions is what lets a file hold them
+/// anywhere — see [`Timeline::world`]. That each resolves to silverpoint's own
+/// constant is what says the two crates agree about which way is up. And that
+/// none is movable is what keeps a drag off the world: there is no offset on one
+/// to restate.
 #[test]
-#[should_panic(expected = "names the ground rather than a plane that can be moved")]
-fn the_ground_is_a_plane_and_not_one_that_moves() {
+fn a_started_timeline_holds_three_world_planes_and_moves_none_of_them() {
+    let mut timeline = Timeline::started();
+    // Written out rather than walked off `started`, so a fourth world plane
+    // left out of that list fails here rather than passing quietly.
+    for (world, frame) in [
+        (World::Ground, Plane::GROUND),
+        (World::Front, Plane::FRONT),
+        (World::Side, Plane::SIDE),
+    ] {
+        let at = timeline
+            .world(world)
+            .unwrap_or_else(|| panic!("a started timeline is missing {world:?}"));
+        assert_eq!(timeline.plane(at), frame, "{world:?} stands elsewhere");
+        assert!(timeline.movable(at).is_none(), "{world:?} can be moved");
+    }
+    assert_eq!(timeline.steps().count(), 3, "a started timeline holds more");
+    assert_eq!(timeline.movable_planes().count(), 0);
+    // Nothing drawn on any of them, which is what an empty document is.
+    assert_eq!(timeline.sketches().count(), 0);
+
+    // A datum measured off one runs along *that* one's normal, which is what
+    // makes which world plane a drawing starts from a real choice rather than
+    // three names for the same frame.
+    let front = timeline.world(World::Front).expect("the front");
+    let out = timeline.add(Feature::Plane(Datum::Offset {
+        from: front,
+        by: 2.0,
+    }));
+    assert_eq!(
+        timeline.plane(out).origin,
+        DVec3::new(0.0, 0.0, 2.0),
+        "a datum off the front does not stand out along +Z",
+    );
+}
+
+/// **Moving a world plane says which kind of plane was named.**
+///
+/// The one refusal that cannot be worded as a kind: a world plane *is* a plane,
+/// so a caller told it had named "a plane rather than a plane" would learn
+/// nothing — and this is the caller most in need of telling, having mistaken a
+/// plane for the world. See
+/// [`Feature::kind`](crate::timeline::feature::Feature), which is what tells the
+/// two apart, and [`wrong_kind`](crate::timeline::wrong_kind), which every
+/// refusal here comes through.
+#[test]
+#[should_panic(expected = "names a world plane rather than a plane that can be moved")]
+fn a_world_plane_is_a_plane_and_not_one_that_moves() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     timeline.offset(ground, 1.0);
 }
 
@@ -156,7 +201,7 @@ fn the_ground_is_a_plane_and_not_one_that_moves() {
 #[should_panic(expected = "names a plane rather than an extrude")]
 fn a_plane_is_not_a_solid_that_can_be_carried() {
     let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let shelf = timeline.add(Feature::Plane(Datum::Offset {
         from: ground,
         by: 1.0,

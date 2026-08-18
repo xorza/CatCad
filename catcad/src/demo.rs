@@ -12,7 +12,7 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::intent::change::Change;
 use crate::timeline::Timeline;
-use crate::timeline::feature::{Datum, Feature};
+use crate::timeline::feature::{Datum, Feature, World};
 
 /// How far the demo's second plane is held off the ground.
 ///
@@ -53,12 +53,15 @@ const DEPTH: f64 = 1.4;
 /// The demo as a document: two sketches on two planes, and a solid grown off
 /// one of them.
 pub(crate) fn document(build: &mut Build) -> Document {
-    // Five steps: the ground, a drawing on it, a plane held clear of the
-    // ground, a drawing on that, and a solid grown off the first. Neither
-    // sketch carries a plane — each names one — so the second follows its datum
-    // wherever that goes, and moving the datum is retyping one number.
-    let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    // The three world planes every document starts with, then four steps: a
+    // drawing on the ground, a plane held clear of it, a drawing on that, and a
+    // solid grown off the first. Neither sketch carries a plane — each names one
+    // — so the second follows its datum wherever that goes, and moving the datum
+    // is retyping one number.
+    let mut timeline = Timeline::started();
+    let ground = timeline
+        .world(World::Ground)
+        .expect("a started timeline holds the ground");
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
         sketch: sketch(),

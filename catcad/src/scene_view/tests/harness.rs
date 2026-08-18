@@ -13,12 +13,12 @@ use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::scene_view::aimed::Aimed;
 use crate::session::Session;
+use crate::timeline::FeatureId;
 use crate::tool::Tool;
 use aperture::HitAt;
 use glam::{Vec2, Vec3};
 use palantir::internals::UiHarness;
-use silverpoint::Entity;
-use silverpoint::Grown;
+use silverpoint::{Entity, Grown, Plane};
 
 /// The demo with the *view* raised over it and no application around it.
 ///
@@ -208,6 +208,31 @@ impl RaisedView {
         })
     }
 
+    /// The demo's one plane that can be moved.
+    ///
+    /// Named by *being* movable rather than by its position among the planes: a
+    /// document holds the three the world comes with as well, and those are what
+    /// everything else is measured from rather than anything a drag can take
+    /// anywhere.
+    pub(super) fn shelf(&self) -> FeatureId {
+        self.movable().0
+    }
+
+    /// Where it lies.
+    pub(super) fn shelf_plane(&self) -> Plane {
+        self.movable().1
+    }
+
+    /// Both halves, which the two above are the readings of. Private, because a
+    /// caller wanting both is a caller that has to remember which is which.
+    fn movable(&self) -> (FeatureId, Plane) {
+        self.document
+            .models(&self.build, self.session.editing())
+            .movable_planes()
+            .next()
+            .expect("the demo draws a datum that can be moved")
+    }
+
     /// A cursor position that lands on the datum drawn round the other sketch.
     ///
     /// Swept rather than aimed at a corner worked out by hand, because a datum
@@ -215,8 +240,14 @@ impl RaisedView {
     /// so which of its pixels are its own depends on what the drawing happens to
     /// project over. That there is such a pixel at all is half of what the test
     /// below is claiming.
+    ///
+    /// That one plane and not any plane, which it used to be: the plane the
+    /// open sketch is drawn on is outlined now and reports itself the same way,
+    /// so a sweep for whichever came first would find the ground and land a
+    /// press that orbits.
     pub(super) fn over_datum(&self) -> Option<Vec2> {
-        self.scan(|part, _| matches!(part, Some(Part::Plane(_))))
+        let shelf = self.shelf();
+        self.scan(|part, _| part == Some(Part::Plane(shelf)))
     }
 
     /// The first cursor of a coarse sweep whose hit resolves to a grip

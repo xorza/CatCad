@@ -23,7 +23,7 @@ use glam::Vec3;
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Constraint, Freedom};
 
-use crate::model::{Model, Models};
+use crate::model::{Model, Models, Spread};
 use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
 use crate::preview::Preview;
@@ -121,6 +121,48 @@ const FACE: Vec3 = Vec3::new(0.18, 0.32, 0.46);
 /// the states above, because a rubber band has no freedom to report: it is not
 /// geometry yet, and the constraints have not been asked about it.
 const GHOST: Vec3 = Vec3::new(0.72, 0.74, 0.78);
+
+/// What the outline of the plane being drawn on is drawn in.
+///
+/// Cool and low, because it runs right round the geometry and has to read as
+/// the edge of the ground rather than as another stroke.
+const SHEET: Vec3 = Vec3::new(0.42, 0.46, 0.54);
+
+/// How wide a plane's outline is, in logical pixels.
+///
+/// Under [`EDGE_WIDTH`], so a plane's own edge cannot be taken for something
+/// drawn on it.
+const SHEET_WIDTH: f32 = 1.0;
+
+/// How much room a plane's sheet leaves beyond the drawing standing on it, and
+/// the least it ever reaches, in sketch units.
+///
+/// Measured in the world rather than on screen, unlike the handles that sit on a
+/// plane: a plane is a *place*, and a sheet sized in pixels would swim as the
+/// camera pulled back and would be claiming the plane is small.
+///
+/// Over one, and that is the whole of what the margin is for: a sheet has to
+/// *enclose* the drawing standing on it. One that fell short is a square with an
+/// edge running across the model, which reads as a stray line rather than as the
+/// edge of the ground.
+///
+/// Floored, because a sketch with one point in it — or none — has no size of its
+/// own to ask for, and a sheet the width of nothing is not a plane anybody can
+/// see they are drawing on.
+const SHEET_MARGIN: f64 = 1.15;
+const SHEET_LEAST: f64 = 3.0;
+
+/// Where the sheet for a drawing spread over `spread` is laid out.
+///
+/// The middle is the drawing's and is carried across untouched; what is decided
+/// here is only how far past it the sheet goes, which is appearance and so this
+/// module's — see [`Spread`](crate::model::Spread).
+fn sheeted(spread: Spread) -> Spread {
+    Spread {
+        reach: (SHEET_MARGIN * spread.reach).max(SHEET_LEAST),
+        ..spread
+    }
+}
 
 /// What geometry with this much freedom left is drawn in.
 fn colour(freedom: Freedom) -> Vec3 {
@@ -287,6 +329,7 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         sheets,
         placed,
         proposed,
+        sheet,
         ..
     } = &mut *layout;
     names.wind_back(from);
@@ -299,6 +342,10 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
     // list, so it says the same thing twice rather than being a case of its own.
     if from <= Stage::Drawing {
         names.opened(Stage::Drawing);
+        // Worked out with the drawing rather than with the stroke that spends
+        // it, because it is a walk of every point the open sketch holds and the
+        // stroke is written a stage later — see [`Layout::sheet`].
+        *sheet = sheeted(models.spread());
         write::points(models, names, &mut into.points);
         write::faces(models, names, sheets, &mut into.faces);
     }
@@ -334,6 +381,7 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
             models,
             names,
             write::Band::new(models, showing.band.and_then(Preview::line)),
+            *sheet,
             &mut into.curves,
         );
         write::rings(

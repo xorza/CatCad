@@ -74,7 +74,17 @@ const AXIS_CORNER: Vec3 = Vec3::new(0.50, 0.52, 0.55);
 /// reporting one [`Part`] is what [`Names`](crate::paint::names::Names) is already
 /// built to allow — a tag is a position in a list and nothing assumes the list
 /// holds each part once — so grabbing any of them grabs the datum, and lighting
-/// the datum lights them all.
+/// the datum lights them all. The plane's own outline is named the same way and
+/// written with the drawing, being world-measured — see
+/// [`write::curves`](crate::paint::write::curves).
+///
+/// **Not every plane, unlike the outlines.** Handles are drawn where there is
+/// something to take hold of, which is a plane with an offset to restate — see
+/// [`Models::movable_planes`](crate::model::Models::movable_planes). The three
+/// the world comes with have none, and a gizmo apiece would put six arrows
+/// through the origin, which is where a model is built: a control that cannot be
+/// used but can still be clicked is worse than no control, because it takes the
+/// click.
 ///
 /// **A dimension's lines are named nothing.** What a dimension offers a click is
 /// its number, which is a label and outranks any stroke running under it — see
@@ -128,7 +138,7 @@ pub(crate) fn write(
     });
     into.refill(
         models
-            .planes()
+            .movable_planes()
             .flat_map(|(at, plane)| {
                 [
                     Piece::Axis(plane, DVec2::X, AXIS_X),

@@ -58,6 +58,11 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     // Four strokes for the demo's one movable plane — two arrows, the hub they
     // cross at and the corner square — and all four naming that plane, which is
     // what makes the whole of it one thing to point at.
+    //
+    // Four and not sixteen. Every plane is *drawn* now, as an outline written
+    // with the drawing, but only one of them has anything to take hold of: the
+    // three the world comes with cannot be moved, and arrows on them would put
+    // six shafts through the origin, where a model is built.
     assert_eq!(named.len(), 4);
     let Some(Part::Plane(at)) = named[0].tag.and_then(|tag| layout.names().get(tag)) else {
         unreachable!("the arrows were found by their tags naming a plane");
@@ -69,7 +74,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     // never on.
     let models = document.models(&build, document.opening());
     let (_, plane) = models
-        .planes()
+        .movable_planes()
         .find(|(id, _)| *id == at)
         .expect("the arrows name a plane the document holds");
     let origin = plane.point(DVec2::ZERO).as_vec3();

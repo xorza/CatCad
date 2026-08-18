@@ -251,6 +251,10 @@ impl Primitive for Curve {
         self.tag
     }
 
+    fn standing(&self) -> Precedence {
+        self.precedence
+    }
+
     fn reaches(&self, mut include: impl FnMut(Vec3)) {
         for point in &self.points {
             include(*point);

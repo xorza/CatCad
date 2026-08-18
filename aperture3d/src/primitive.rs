@@ -1,5 +1,6 @@
 //! What everything a scene holds has in common.
 
+use crate::hit::Precedence;
 use crate::renderer::record::Instance;
 use crate::tag::Tag;
 use glam::Vec3;
@@ -23,8 +24,9 @@ pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 1.5;
 ///
 /// The five are different shapes, picked by different arithmetic and drawn by
 /// different shaders, and none of that is here. What is here is what a scene
-/// does to all five alike — name what a pick reports, and measure how far each
-/// reaches — so that those are written once rather than once per kind.
+/// does to all five alike — name what a pick reports, say what it is for, and
+/// measure how far each reaches — so that those are written once rather than
+/// once per kind.
 ///
 /// Turning one into records is [`Flatten`], a second trait rather than two more
 /// methods on this one, because it is the one thing the five do not share.
@@ -37,6 +39,10 @@ pub(crate) const DEFAULT_STROKE_WIDTH: f32 = 1.5;
 pub(crate) trait Primitive {
     /// What a pick that lands on it reports, and what a highlight names.
     fn tag(&self) -> Option<Tag>;
+
+    /// What it is for, which decides both what a click meant for two things at
+    /// once lands on and whether it counts toward how far the scene reaches.
+    fn standing(&self) -> Precedence;
 
     /// Hand `include` every world point the primitive reaches.
     ///

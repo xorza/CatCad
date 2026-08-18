@@ -244,7 +244,7 @@ mod tests {
     use crate::intent::Choice;
     use crate::model::Models;
     use crate::timeline::Timeline;
-    use crate::timeline::feature::{Datum, Feature};
+    use crate::timeline::feature::{Datum, Feature, World};
     use crate::tool::dimensioning::Dimensioning;
     use glam::DVec2;
     use silverpoint::{Entity, Sketch};
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn picking_something_out_opens_the_sketch_it_came_from() {
         let mut timeline = Timeline::default();
-        let ground = timeline.add(Feature::Plane(Datum::Ground));
+        let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
         let mut lone = || {
             let mut sketch = Sketch::default();
             let point = sketch.add_point(DVec2::ZERO);
@@ -341,7 +341,7 @@ mod tests {
             let here = sketch.add_point(DVec2::ZERO);
             let there = sketch.add_point(apart);
             let mut timeline = Timeline::default();
-            let ground = timeline.add(Feature::Plane(Datum::Ground));
+            let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
             let at = timeline.add(Feature::Sketch { on: ground, sketch });
             let mut build = Build::default();
             timeline.edit(at).opened(&mut build);

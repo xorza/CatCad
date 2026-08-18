@@ -184,7 +184,7 @@ mod tests {
     use crate::drawing::Grip;
     use crate::intent::change::Change;
     use crate::timeline::Timeline;
-    use crate::timeline::feature::{Datum, Feature};
+    use crate::timeline::feature::{Datum, Feature, World};
     use silverpoint::{Plane, Sketch};
 
     /// Where the region at 0 of `sketch` lies, as its fill's corners.
@@ -222,7 +222,7 @@ mod tests {
         // each is a different shape in a different place — which is what says
         // the sketch is part of the key.
         let mut timeline = Timeline::default();
-        let ground = timeline.add(Feature::Plane(Datum::Ground));
+        let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
         let shelf = timeline.add(Feature::Plane(Datum::Offset {
             from: ground,
             by: 3.0,

@@ -180,12 +180,7 @@ fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
         let cursor = raised
             .over_datum()
             .unwrap_or_else(|| panic!("yaw {yaw}: no cursor found the datum"));
-        let (_, shelf) = raised
-            .document
-            .models(&raised.build, raised.session.editing())
-            .planes()
-            .next()
-            .expect("the demo draws a datum");
+        let shelf = raised.shelf_plane();
         // Where the press lands on the plane, which is the point the drag has
         // hold of and the one that has to stay under the pointer.
         let grabbed = Motion::Plane {
@@ -201,13 +196,7 @@ fn a_datum_keeps_the_point_it_was_grabbed_by_under_the_cursor() {
         raised.harness.drag_to(cursor + step);
         raised.frame();
 
-        let moved = raised
-            .document
-            .models(&raised.build, raised.session.editing())
-            .planes()
-            .next()
-            .expect("the datum is still drawn")
-            .1;
+        let moved = raised.shelf_plane();
         let travelled = (moved.origin - shelf.origin).dot(shelf.normal());
         assert!(
             travelled.abs() > 0.1,
@@ -302,12 +291,7 @@ fn dragging_a_datum_slides_it_and_leaves_the_open_sketch_alone() {
         .expect("no cursor found the datum to move");
 
     let drawn = open_markers(&raised);
-    let (_, shelf) = raised
-        .document
-        .models(&raised.build, raised.session.editing())
-        .planes()
-        .next()
-        .expect("the demo draws a datum");
+    let shelf = raised.shelf_plane();
     assert_eq!(
         shelf.origin.y,
         demo::SHELF,
@@ -320,13 +304,7 @@ fn dragging_a_datum_slides_it_and_leaves_the_open_sketch_alone() {
     raised.harness.drag_to(cursor + Vec2::new(0.0, 45.0));
     raised.frame();
 
-    let moved = raised
-        .document
-        .models(&raised.build, raised.session.editing())
-        .planes()
-        .next()
-        .expect("the datum is still drawn")
-        .1;
+    let moved = raised.shelf_plane();
     // Down the screen, on a view that opens looking down at the model, is down
     // the ground's normal. Which way it went rather than merely that it went:
     // a sign flipped anywhere between the ray and the offset — in `travel`, in

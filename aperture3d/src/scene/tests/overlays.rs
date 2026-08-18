@@ -299,4 +299,33 @@ fn the_extent_covers_transformed_meshes_and_curves() {
     assert_eq!(both.min, Vec3::new(0.0, -1.0, -1.0));
     assert_eq!(both.max, Vec3::new(11.0, 4.0, 1.0));
     assert_eq!(both.centre(), Vec3::new(5.5, 1.5, 0.0));
+
+    // A *frame* does not, however far it reaches. Furniture is drawn around
+    // what a scene holds and sized to it, so a camera aimed at an extent that
+    // counted one would be standing back to take in the room rather than the
+    // thing in it — see [`Reach::cover`](crate::extent::Reach). Reaching far
+    // enough to be unmissable in every direction, and in both a mesh batch and
+    // an overlay batch, because a walk that forgot one of them would still
+    // pass a test that used the other.
+    scene.curves.push(Curve {
+        precedence: Precedence::Frame,
+        ..Curve::segment(Vec3::splat(-50.0), Vec3::splat(50.0))
+    });
+    scene.faces.push(Object {
+        precedence: Precedence::Frame,
+        ..Object::new(Mesh::cube(80.0))
+    });
+    assert_eq!(
+        scene.extent().unwrap(),
+        both,
+        "furniture widened the extent it is drawn inside",
+    );
+
+    // And a scene with nothing but frames in it has nothing worth aiming at.
+    let mut framed = Scene::default();
+    framed.curves.push(Curve {
+        precedence: Precedence::Frame,
+        ..Curve::segment(Vec3::ZERO, Vec3::X)
+    });
+    assert!(framed.extent().is_none());
 }

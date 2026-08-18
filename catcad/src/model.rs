@@ -1,7 +1,7 @@
 //! The drawing as it currently stands: what is written down, and what the last
 //! solve made of it.
 
-use glam::Vec3;
+use glam::{DVec2, Vec3};
 use silverpoint::{Arrangement, Constraint, Entity, Outcome, Plane, Prism, Sketch};
 
 use crate::build::settled::Settled;
@@ -330,6 +330,23 @@ impl<'a> Model<'a> {
     }
 }
 
+/// A square in a plane's own coordinates: where its middle is, and how far it
+/// reaches from there along either axis.
+///
+/// What a sheet is laid out as. Its own type rather than a pair, because the two
+/// halves are read together everywhere and a caller handed them apart is a
+/// caller free to widen one without moving the other.
+///
+/// [`Default`] is the plane's own origin and no reach at all — an empty sketch,
+/// which has nowhere else to be about and no size to ask for. What a *drawn*
+/// sheet then comes to is [`paint`](crate::paint)'s: how much room to leave
+/// round the drawing and how small a sheet may get are appearance.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct Spread {
+    pub(crate) middle: DVec2,
+    pub(crate) reach: f64,
+}
+
 /// Every sketch a document holds, as it currently stands.
 ///
 /// The plural of [`Model`], and what anything drawing or pruning a *document*
@@ -412,13 +429,65 @@ impl<'a> Models<'a> {
 
     /// Every plane that can be moved, with where it lies.
     ///
-    /// What is *drawn* as a datum — see
-    /// [`Timeline::movable_planes`](crate::timeline::Timeline::movable_planes).
-    pub(crate) fn planes(self) -> impl Iterator<Item = (FeatureId, Plane)> {
+    /// **What has handles drawn on it**, which is a narrower question than what
+    /// is drawn: a gizmo is the thing you take hold of, so a plane with no
+    /// offset to restate has nothing for one to do. The three the world comes
+    /// with would also put six arrows through the origin, where a model is
+    /// built — and a control that cannot be used but can be clicked is worse
+    /// than no control, because it takes the click.
+    pub(crate) fn movable_planes(self) -> impl Iterator<Item = (FeatureId, Plane)> {
         let timeline = self.timeline;
         timeline
             .movable_planes()
             .map(move |at| (at, timeline.plane(at)))
+    }
+
+    /// Which plane the open sketch is drawn on.
+    pub(crate) fn open_plane(self) -> FeatureId {
+        self.timeline.drawn_on(self.editing)
+    }
+
+    /// The square the open sketch stands in, in its plane's own coordinates.
+    ///
+    /// What a datum's sheet is laid out against. A square rather than the box
+    /// itself, because a sheet is one: what it has to do is *enclose* the
+    /// drawing standing on it, and a rectangle fitted to the drawing would be
+    /// claiming a shape the plane does not have.
+    ///
+    /// **Centred on the drawing rather than on the plane's origin**, which is
+    /// the difference between a sheet that reads as the ground under a model
+    /// and one that reads as a stray line across it. A drawing need not be
+    /// anywhere near the origin its plane counts from — the demo's is in one
+    /// quadrant of it — so a square centred there and grown until it held the
+    /// drawing would be four times the size it had to be and off to one side.
+    /// Where the origin *is* stays the gizmo's to say.
+    ///
+    /// In the plane's own coordinates, so the answer is the same wherever the
+    /// plane is: a datum held clear of the ground carries its drawing along, and
+    /// a sheet worked out in the world would grow with the offset as though the
+    /// drawing had moved.
+    ///
+    /// The open sketch alone, which is the only plane drawn as a sheet — see
+    /// [`Stroke::Sheet`](crate::paint::write). An empty one spreads about the
+    /// plane's own origin, having nothing else to be about.
+    ///
+    /// Not what a *camera* is aimed at, which is the scene's own extent:
+    /// [`Scene::extent`](aperture::Scene) leaves the sheets out for being
+    /// furniture, so a plane is never sized against a reach that counted it.
+    pub(crate) fn spread(self) -> Spread {
+        let mut low = DVec2::splat(f64::INFINITY);
+        let mut high = DVec2::splat(f64::NEG_INFINITY);
+        for (_, point) in self.open().sketch().points() {
+            low = low.min(point.position);
+            high = high.max(point.position);
+        }
+        if low.x > high.x {
+            return Spread::default();
+        }
+        Spread {
+            middle: (low + high) * 0.5,
+            reach: ((high - low) * 0.5).max_element(),
+        }
     }
 
     /// How many extrudes no longer know which region they are grown from.
@@ -510,7 +579,7 @@ impl<'a> Models<'a> {
 mod tests {
     use super::*;
     use crate::timeline::Timeline;
-    use crate::timeline::feature::{Datum, Feature};
+    use crate::timeline::feature::{Datum, Feature, World};
     use glam::DVec2;
     use silverpoint::Sketch;
 
@@ -531,7 +600,7 @@ mod tests {
         assert_eq!(one, other, "two fresh arenas stopped agreeing on a handle");
 
         let mut timeline = Timeline::default();
-        let ground = timeline.add(Feature::Plane(Datum::Ground));
+        let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
         let first = timeline.add(Feature::Sketch {
             on: ground,
             sketch: here,

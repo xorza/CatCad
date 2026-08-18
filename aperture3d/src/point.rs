@@ -110,6 +110,10 @@ impl Primitive for Point {
         self.tag
     }
 
+    fn standing(&self) -> Precedence {
+        self.precedence
+    }
+
     fn reaches(&self, mut include: impl FnMut(Vec3)) {
         include(self.position);
     }

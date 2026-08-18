@@ -1,5 +1,6 @@
 //! How much of the world a scene occupies, and what walks a scene to find out.
 
+use crate::hit::Precedence;
 use crate::primitive::Primitive;
 use glam::Vec3;
 
@@ -57,9 +58,23 @@ impl Default for Reach {
 }
 
 impl Reach {
-    /// Widen to hold everything `items` reaches.
+    /// Widen to hold everything `items` reaches, bar the furniture.
+    ///
+    /// **A frame does not count.** What an extent is for is aiming a camera at
+    /// what a scene holds — and furniture *around* a drawing is sized to that
+    /// drawing rather than the other way about, so counting it would let the
+    /// room decide how far back the camera stands to look at the thing in it. A
+    /// datum drawn as a sheet reaching past whatever lies on it is the case this
+    /// is written for; a backdrop is the same shape.
+    ///
+    /// Nothing is lost by leaving them out. A frame is drawn around something,
+    /// so what it frames is covered already — and a scene holding nothing but
+    /// frames has nothing worth aiming at.
     pub(crate) fn cover<P: Primitive>(&mut self, items: &[P]) {
         for item in items {
+            if item.standing() == Precedence::Frame {
+                continue;
+            }
             item.reaches(|point| {
                 self.min = self.min.min(point);
                 self.max = self.max.max(point);

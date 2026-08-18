@@ -224,8 +224,9 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
         .map(|point| point.tag.and_then(|tag| layout.names().get(tag)))
         .collect();
     assert_eq!(before, after, "a rewrite renumbered the drawing");
-    // Cleared and refilled rather than appended to.
+    // Cleared and refilled rather than appended to. One stroke for the linkage
+    // and one for the outline of the plane it is drawn on.
     assert_eq!(scene.points.len(), 2);
-    assert_eq!(scene.curves.len(), 1);
+    assert_eq!(scene.curves.len(), 2);
     assert!(scene.rings.is_empty());
 }

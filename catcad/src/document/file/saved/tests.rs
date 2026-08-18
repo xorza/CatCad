@@ -4,7 +4,7 @@ use crate::build::Build;
 use crate::demo;
 use crate::document::file::error::Missing;
 use crate::profile::Profile;
-use crate::timeline::feature::Datum;
+use crate::timeline::feature::{Datum, World};
 use glam::DVec2;
 use silverpoint::{Constraint, Dimension};
 
@@ -82,8 +82,9 @@ fn the_demo_comes_back_the_way_it_went_in() {
 
 /// A document is exactly this on the page.
 ///
-/// The golden, and the format's own documentation: three steps covering all
-/// three kinds, and every list a sketch holds. What it guards is silent drift —
+/// The golden, and the format's own documentation: the three planes every
+/// document starts with, then a step of each other kind, and every list a
+/// sketch holds. What it guards is silent drift —
 /// a field renamed while refactoring writes a file the old reader refuses, and
 /// nothing but a checked-in expectation notices that the rename was a change to
 /// the format.
@@ -117,8 +118,13 @@ fn a_document_is_written_exactly_like_this() {
         },
     });
 
-    let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::Ground));
+    // Started rather than assembled, so what a document actually opens with is
+    // what is written out below — and so the three world planes are pinned as
+    // three lines a person can read rather than as one nested record.
+    let mut timeline = Timeline::started();
+    let ground = timeline
+        .world(World::Ground)
+        .expect("a started timeline holds the ground");
     let shelf = timeline.add(Feature::Plane(Datum::Offset {
         from: ground,
         by: 2.2,
@@ -162,12 +168,14 @@ fn a_document_is_written_exactly_like_this() {
     ),
     steps: [
         Ground,
+        Front,
+        Side,
         Plane(
             from: 0,
             by: 2.2,
         ),
         Sketch(
-            on: 1,
+            on: 3,
             sketch: (
                 points: [
                     (at: (0.0, 0.0), fixed: true),
@@ -187,7 +195,7 @@ fn a_document_is_written_exactly_like_this() {
         ),
         Extrude(
             profile: (
-                sketch: 2,
+                sketch: 4,
                 bounds: [
                     Segment(at: 0, along: true),
                     Circle(at: 0, along: false),
