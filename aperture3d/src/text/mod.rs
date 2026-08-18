@@ -365,9 +365,11 @@ impl Styled for Text {
 /// that marked the batch it measured, and a marked batch is one the renderer
 /// lays out again.
 ///
-/// Measured unscaled, so the answer is in logical pixels like every other
-/// overlay's size — a label's extent is what it will be drawn at, and how many
-/// device pixels that is belongs to whoever rasterizes it.
+/// The answer is in logical pixels like every other overlay's size — a
+/// label's extent is what it will be drawn at, and how many device pixels
+/// that is belongs to whoever rasterizes it. `TextGlyphs::measure` answers
+/// in those units and takes no raster scale, so there is nothing to undo
+/// here.
 ///
 /// Takes the caller's lease rather than the shaper, because measuring is half
 /// of laying a run out and the other half needs the same one: a lease is the
@@ -375,7 +377,7 @@ impl Styled for Text {
 /// hand over a shaper for this to open another from.
 pub(crate) fn measure_all(texts: &[Text], glyphs: &mut TextGlyphs<'_>) {
     for text in texts {
-        let Size { w, h } = glyphs.measure(&text.content, text.font, 1.0);
+        let Size { w, h } = glyphs.measure(&text.content, text.font);
         text.extent.set(Vec2::new(w, h));
     }
 }

@@ -311,14 +311,12 @@ fn a_run_is_picked_over_the_pixels_it_was_drawn_on() {
 
                 // **Where the box sits, not how big it is.** Its size is shared
                 // by construction — one `Text::extent` feeds both the origin the
-                // glyphs hang off and the rectangle a pick opens — so a size
-                // that drifted would have to drift in the shaper, and it does:
-                // a run comes out a few percent wider than its own box on a
-                // display above 1, because `TextGlyphs::measure` scales one
-                // shaping linearly where `TextGlyphs::line` shapes again at the
-                // raster size and quantises there. Bounded, palantir's to
-                // settle, and not what this is asking about. What can drift here
-                // is placement, and that is what is measured.
+                // glyphs hang off and the rectangle a pick opens. The two are in
+                // different units by design: the extent is the run's advance in
+                // logical pixels, while `TextGlyphs::line` rounds every glyph
+                // position at the raster size, so on a display above 1 the ink
+                // spans a little differently than the box does. What can drift
+                // here is placement, and that is what is measured.
                 assert!(
                     lo.abs_diff_eq(ink_min, 8.0),
                     "{case}: the ink starts at {ink_min:?} and the pick box at {lo:?}"
