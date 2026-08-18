@@ -20,7 +20,7 @@ fn turned(turn: Turn) -> Text {
     label().facing(Facing::Turned(turn))
 }
 
-/// The plane the camera above looks straight at, set the way a drawing on it
+/// The plane [`Camera::head_on`] looks straight at, set the way a drawing on it
 /// would be: advancing along world +x.
 ///
 /// Its axes come out the screen's own, which is what makes it the yardstick

@@ -100,22 +100,6 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
     assert!(!actual.abs_diff_eq(naive, 1e-3));
 }
 
-/// The middle pixel of the frame, RGB as the target holds it — which is
-/// sRGB-encoded, the pass having written linear colour into an sRGB target.
-///
-/// The middle because that is where a test puts the thing it is asking about,
-/// and one pixel because what these ask is what colour came out rather than how
-/// much of it there was. Fully covered, so the resolve has nothing to average.
-fn middle_pixel(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> [i32; 3] {
-    let pixels = frame_pixels(gpu, target);
-    let at = ((FRAME.y / 2 * FRAME.x + FRAME.x / 2) * 4) as usize;
-    [
-        i32::from(pixels[at]),
-        i32::from(pixels[at + 1]),
-        i32::from(pixels[at + 2]),
-    ]
-}
-
 /// A quad facing the camera, big enough to cover the middle of the frame
 /// and small enough to stay inside it.
 fn facing_quad() -> Mesh {
@@ -860,17 +844,7 @@ fn frame_target(device: &wgpu::Device) -> wgpu::Texture {
     })
 }
 
-/// How many pixels of the frame are something other than the background.
-///
-/// The clear is near black — 0.02 linear, which the sRGB target encodes to
-/// about 40 — and everything this crate draws is lit well clear of it, so the
-/// threshold is a wide gap rather than a tuned one.
-fn drawn_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> usize {
-    drawn_ink(gpu, target).count
-}
-
-/// Where the drawn pixels are, and how many — the same readback, asked the
-/// fuller question.
+/// Where the drawn pixels are, and how many.
 #[derive(Debug)]
 struct Ink {
     count: usize,
@@ -931,27 +905,6 @@ fn frame_pixels(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Vec<u8> {
     drop(mapped);
     readback.unmap();
     pixels
-}
-
-fn drawn_ink(gpu: &HeadlessTestGpuLease, target: &wgpu::Texture) -> Ink {
-    /// Above the background and far below anything drawn.
-    const LIT: u8 = 80;
-
-    let mut ink = Ink {
-        count: 0,
-        min: UVec2::splat(u32::MAX),
-        max: UVec2::ZERO,
-    };
-    for (at, pixel) in frame_pixels(gpu, target).chunks_exact(4).enumerate() {
-        if pixel[0].max(pixel[1]).max(pixel[2]) <= LIT {
-            continue;
-        }
-        let at = UVec2::new(at as u32 % FRAME.x, at as u32 / FRAME.x);
-        ink.count += 1;
-        ink.min = ink.min.min(at);
-        ink.max = ink.max.max(at);
-    }
-    ink
 }
 
 /// One kind put into an otherwise empty scene, and what to call it when the
@@ -1089,15 +1042,54 @@ impl<'a> Framed<'a> {
             .frame_offscreen(&self.target, scale, &mut self.pane);
     }
 
-    /// How much of the frame it last painted is something other than the
-    /// background.
-    fn drawn(&self) -> usize {
-        drawn_pixels(self.gpu, &self.target)
+    /// Where the last frame it painted has ink on it, and how much.
+    ///
+    /// The clear is near black — 0.02 linear, which the sRGB target encodes to
+    /// about 40 — and everything this crate draws is lit well clear of it, so
+    /// the threshold is a wide gap rather than a tuned one.
+    fn inked(&self) -> Ink {
+        /// Above the background and far below anything drawn.
+        const LIT: u8 = 80;
+
+        let mut ink = Ink {
+            count: 0,
+            min: UVec2::splat(u32::MAX),
+            max: UVec2::ZERO,
+        };
+        for (at, pixel) in frame_pixels(self.gpu, &self.target)
+            .chunks_exact(4)
+            .enumerate()
+        {
+            if pixel[0].max(pixel[1]).max(pixel[2]) <= LIT {
+                continue;
+            }
+            let at = UVec2::new(at as u32 % FRAME.x, at as u32 / FRAME.x);
+            ink.count += 1;
+            ink.min = ink.min.min(at);
+            ink.max = ink.max.max(at);
+        }
+        ink
     }
 
-    /// What colour the middle of that frame came out.
+    /// How much of that frame is something other than the background.
+    fn drawn(&self) -> usize {
+        self.inked().count
+    }
+
+    /// What colour its middle pixel came out, RGB as the target holds it.
+    ///
+    /// The middle because that is where a test puts the thing it is asking
+    /// about, and one pixel because what these ask is what colour came out
+    /// rather than how much of it there was. Fully covered, so the resolve has
+    /// nothing to average.
     fn middle(&self) -> [i32; 3] {
-        middle_pixel(self.gpu, &self.target)
+        let pixels = frame_pixels(self.gpu, &self.target);
+        let at = ((FRAME.y / 2 * FRAME.x + FRAME.x / 2) * 4) as usize;
+        [
+            i32::from(pixels[at]),
+            i32::from(pixels[at + 1]),
+            i32::from(pixels[at + 2]),
+        ]
     }
 
     /// What `text` inks, as the only thing in the scene, at one physical pixel
@@ -1117,7 +1109,7 @@ impl<'a> Framed<'a> {
             scene.texts.push(text);
         });
         self.paint(scale);
-        drawn_ink(self.gpu, &self.target)
+        self.inked()
     }
 }
 
