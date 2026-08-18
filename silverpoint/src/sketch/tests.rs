@@ -524,9 +524,12 @@ fn a_dimension_is_fitted_to_what_the_drawing_measures_and_dropped_where_it_measu
 #[test]
 fn two_edges_run_together_or_cross_and_a_collapsed_one_does_neither() {
     let mut sketch = Sketch::default();
-    let (a, b) = (sketch.add_point_at(0.0, 0.0), sketch.add_point_at(3.0, 4.0));
-    let (c, d) = (sketch.add_point_at(1.0, 0.0), sketch.add_point_at(4.0, 4.0));
-    let (e, f) = (sketch.add_point_at(0.0, 0.0), sketch.add_point_at(4.0, 3.0));
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(3.0, 4.0));
+    let c = sketch.add_point(DVec2::new(1.0, 0.0));
+    let d = sketch.add_point(DVec2::new(4.0, 4.0));
+    let e = sketch.add_point(DVec2::ZERO);
+    let f = sketch.add_point(DVec2::new(4.0, 3.0));
     let first = sketch.add_segment(a, b);
     let beside = sketch.add_segment(c, d);
     let across = sketch.add_segment(e, f);
@@ -549,7 +552,8 @@ fn two_edges_run_together_or_cross_and_a_collapsed_one_does_neither() {
 
     // And a pair at an angle meets where it meets. `first` runs (0,0)→(3,4) and
     // this one (0,4)→(3,0), so they cross at half of each: (1.5, 2).
-    let (over, under) = (sketch.add_point_at(0.0, 4.0), sketch.add_point_at(3.0, 0.0));
+    let over = sketch.add_point(DVec2::new(0.0, 4.0));
+    let under = sketch.add_point(DVec2::new(3.0, 0.0));
     let slanting = sketch.add_segment(over, under);
     assert_eq!(sketch.crossing(first, slanting), Some(DVec2::new(1.5, 2.0)));
     // Either way round names the same place, which is the whole of what a
@@ -560,14 +564,16 @@ fn two_edges_run_together_or_cross_and_a_collapsed_one_does_neither() {
     // are asked. `across` runs (0,0)→(4,3) and this one is well off the end of
     // it — a crossing bounded to the edges would answer nothing here, and what
     // a mark about the angle between them needs is somewhere to stand.
-    let (far, farther) = (sketch.add_point_at(8.0, 0.0), sketch.add_point_at(8.0, 2.0));
+    let far = sketch.add_point(DVec2::new(8.0, 0.0));
+    let farther = sketch.add_point(DVec2::new(8.0, 2.0));
     let beyond = sketch.add_segment(far, farther);
     assert_eq!(sketch.crossing(across, beyond), Some(DVec2::new(8.0, 6.0)));
 
     // An edge whose ends have met has no direction of its own, so it is
     // parallel to nothing and crosses nothing — not even another that has also
     // collapsed, which is the pair that would divide by nothing at all.
-    let (here, there) = (sketch.add_point_at(2.0, 2.0), sketch.add_point_at(2.0, 2.0));
+    let here = sketch.add_point(DVec2::new(2.0, 2.0));
+    let there = sketch.add_point(DVec2::new(2.0, 2.0));
     let collapsed = sketch.add_segment(here, there);
     let also = sketch.add_segment(there, here);
     assert!(!sketch.parallel(collapsed, first));
@@ -661,7 +667,8 @@ fn a_point_drops_onto_an_edges_line_or_onto_the_edge_itself() {
     let mut sketch = Sketch::default();
     // Four along the x axis from the origin, so the foot of anything is its own
     // x and the ends are at 0 and 4.
-    let (a, b) = (sketch.add_point_at(0.0, 0.0), sketch.add_point_at(4.0, 0.0));
+    let a = sketch.add_point(DVec2::ZERO);
+    let b = sketch.add_point(DVec2::new(4.0, 0.0));
     let edge = sketch.add_segment(a, b);
 
     // Square onto the middle: both answers are the foot, and it is the point's
@@ -685,7 +692,8 @@ fn a_point_drops_onto_an_edges_line_or_onto_the_edge_itself() {
     // An edge whose ends have met has no line to drop onto and no edge to land
     // on, so neither answers — where dividing by the length it does not have
     // would answer a NaN.
-    let (c, d) = (sketch.add_point_at(7.0, 7.0), sketch.add_point_at(7.0, 7.0));
+    let c = sketch.add_point(DVec2::new(7.0, 7.0));
+    let d = sketch.add_point(DVec2::new(7.0, 7.0));
     let collapsed = sketch.add_segment(c, d);
     assert_eq!(sketch.foot_on(collapsed, middle), None);
     assert_eq!(sketch.nearest_on(collapsed, middle), None);

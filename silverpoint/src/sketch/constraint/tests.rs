@@ -1,7 +1,5 @@
 use super::*;
 use crate::sketch::Sketch;
-use crate::sketch::solver::Solver;
-use crate::sketch::solver::outcome::Outcome;
 
 /// Four points in general position (no two sharing a coordinate, none
 /// axis-aligned), one circle, and segments over them — so no partial
@@ -43,16 +41,25 @@ impl Fixture {
     }
 }
 
-fn analytic(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
-    let mut cells = vec![0.0; sketch.params().count()];
-    equation.evaluate(sketch, &mut JacobianRow::new(sketch.params(), &mut cells));
-    cells
+/// One equation evaluated: what it reads, and the row of partials it wrote.
+#[derive(Debug)]
+struct Row {
+    residual: f64,
+    partials: Vec<f64>,
+}
+
+fn evaluate(sketch: &Sketch, equation: Constraint) -> Row {
+    let mut partials = vec![0.0; sketch.params().count()];
+    let residual = equation.evaluate(
+        sketch,
+        &mut JacobianRow::new(sketch.params(), &mut partials),
+    );
+    Row { residual, partials }
 }
 
 /// The residual alone, for a test that has nothing to say about the partials.
 fn residual(sketch: &Sketch, equation: Constraint) -> f64 {
-    let mut cells = vec![0.0; sketch.params().count()];
-    equation.evaluate(sketch, &mut JacobianRow::new(sketch.params(), &mut cells))
+    evaluate(sketch, equation).residual
 }
 
 /// Central differences of the residual, which the analytic partials must
@@ -63,24 +70,15 @@ fn numeric(sketch: &Sketch, equation: Constraint) -> Vec<f64> {
     let mut base = Vec::new();
     sketch.params().write(&mut base);
     let mut scratch = sketch.clone();
-    // Never read: a central difference is two residuals, and the partials the
-    // rows carry are what this is checking those residuals against.
-    let mut discard = vec![0.0; base.len()];
     let mut row = Vec::with_capacity(base.len());
     for i in 0..base.len() {
         let mut params = base.clone();
         params[i] = base[i] + H;
         scratch.set_params(&params);
-        let high = equation.evaluate(
-            &scratch,
-            &mut JacobianRow::new(scratch.params(), &mut discard),
-        );
+        let high = residual(&scratch, equation);
         params[i] = base[i] - H;
         scratch.set_params(&params);
-        let low = equation.evaluate(
-            &scratch,
-            &mut JacobianRow::new(scratch.params(), &mut discard),
-        );
+        let low = residual(&scratch, equation);
         row.push((high - low) / (2.0 * H));
     }
     row
@@ -232,7 +230,7 @@ fn analytic_partials_match_central_differences() {
     // so a coincidence is checked as the two equations it actually becomes.
     for constraint in cases {
         for equation in constraint.equations() {
-            let a = analytic(&sketch, equation);
+            let a = evaluate(&sketch, equation).partials;
             let n = numeric(&sketch, equation);
             for (i, (got, want)) in a.iter().zip(&n).enumerate() {
                 assert!(
@@ -286,8 +284,7 @@ fn which_way_a_distance_is_read_decides_where_the_solve_lands() {
             along,
             dimension: Dimension::new(10.0),
         });
-        let mut outcome = Outcome::default();
-        Solver::default().solve(&mut sketch, &mut outcome);
+        let outcome = sketch.solved();
         assert!(outcome.converged(), "{along:?} left the sketch unsolved");
         sketch.point(free).position
     };

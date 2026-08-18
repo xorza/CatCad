@@ -2,7 +2,15 @@ use super::*;
 use crate::math::triangulate::Fill;
 use crate::sketch::arrangement::filler::Filler;
 use crate::sketch::entity::Entity;
+use crate::sketch::{CircleId, SegmentId};
 use std::f64::consts::PI;
+
+/// How near two areas have to be to count as the same one.
+///
+/// Wide of a rounding and nowhere near the differences being told apart, which
+/// are whole units — the areas here are sums over flattened arcs, so the last
+/// couple of digits are the flattening's rather than the region's.
+const CLOSE: f64 = 1e-9;
 
 /// Every face's area, in the order the faces come back in — which is the order
 /// their curves are walked, and enough to say what a drawing enclosed without
@@ -27,7 +35,20 @@ fn covers(of: &Arrangement, want: &[f64]) -> bool {
         && found
             .iter()
             .zip(&want)
-            .all(|(got, want)| (got - want).abs() < 1e-9)
+            .all(|(got, want)| (got - want).abs() < CLOSE)
+}
+
+/// Whether the areas are these, to within a rounding, in the order given.
+///
+/// The reading for a test about the order itself. Everything else asks
+/// [`covers`], order not being what the areas say.
+fn follows(of: &Arrangement, want: &[f64]) -> bool {
+    let found = areas(of);
+    found.len() == want.len()
+        && found
+            .iter()
+            .zip(want)
+            .all(|(got, want)| (got - want).abs() < CLOSE)
 }
 
 /// Where the face covering `want` fell.
@@ -39,33 +60,106 @@ fn covers(of: &Arrangement, want: &[f64]) -> bool {
 fn covering(of: &Arrangement, want: f64) -> usize {
     of.faces()
         .iter()
-        .position(|face| (face.area() - want).abs() < 1e-9)
+        .position(|face| (face.area() - want).abs() < CLOSE)
         .unwrap_or_else(|| panic!("no face covers {want}: {:?}", areas(of)))
+}
+
+/// A rectangle four across and three up from the origin, closed.
+fn square() -> Sketch {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
+    sketch
+}
+
+/// The same rectangle with one side missing: curves that shut nothing in.
+fn open() -> Sketch {
+    let mut sketch = Sketch::default();
+    sketch.polyline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
+    sketch
+}
+
+/// A bowtie: along the bottom, up the rising diagonal, along the top, and back
+/// down the falling one, which puts the two diagonals across each other at the
+/// origin with a lobe either side of it.
+fn bowtie() -> Sketch {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)]);
+    sketch
+}
+
+/// Four circles about the origin, one inside the next.
+fn nested() -> Sketch {
+    let mut sketch = Sketch::default();
+    for radius in [4.0, 3.0, 2.0, 1.0] {
+        let middle = sketch.add_point(DVec2::ZERO);
+        sketch.add_circle(middle, radius);
+    }
+    sketch
+}
+
+/// A circle of three about the origin with one of one cut out of it, off
+/// centre — so what makes the ring is containment rather than anything
+/// concentric might be got away with.
+fn pierced() -> Sketch {
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::ZERO);
+    sketch.add_circle(middle, 3.0);
+    let inner = sketch.add_point(DVec2::new(0.5, -0.25));
+    sketch.add_circle(inner, 1.0);
+    sketch
+}
+
+/// A circle of two about the origin with a chord across it at `y = 1`, and the
+/// handles of both.
+///
+/// Off centre, so the two halves come out different sizes and each can be told
+/// from the other by what it covers rather than by where it fell.
+#[derive(Debug)]
+struct Halved {
+    sketch: Sketch,
+    circle: CircleId,
+    chord: SegmentId,
+}
+
+impl Halved {
+    fn new() -> Self {
+        let mut sketch = Sketch::default();
+        let middle = sketch.add_point(DVec2::ZERO);
+        let circle = sketch.add_circle(middle, 2.0);
+        let left = sketch.add_point(DVec2::new(-5.0, 1.0));
+        let right = sketch.add_point(DVec2::new(5.0, 1.0));
+        let chord = sketch.add_segment(left, right);
+        Self {
+            sketch,
+            circle,
+            chord,
+        }
+    }
+
+    /// The smaller half, by the cap formula: `r²(θ − sin θ)/2` with
+    /// `θ = 2·acos(1/2) = 2π/3`.
+    fn cap() -> f64 {
+        let turn = 2.0 * (0.5_f64).acos();
+        4.0 * (turn - turn.sin()) / 2.0
+    }
 }
 
 /// A closed run of edges shuts in one face, and an open one shuts in nothing.
 #[test]
 fn a_closed_outline_encloses_a_face_and_an_open_one_does_not() {
-    let mut sketch = Sketch::default();
-    sketch.outline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
-    assert!(
-        covers(&Arrangement::of(&sketch), &[12.0]),
-        "{:?}",
-        areas(&Arrangement::of(&sketch))
-    );
+    let found = Arrangement::of(&square());
+    assert!(covers(&found, &[12.0]), "{:?}", areas(&found));
 
     // The same run with one edge missing shuts in nothing at all: three sides
     // of a rectangle is a line, however nearly it closes.
-    let mut open = Sketch::default();
-    open.polyline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
-    assert!(Arrangement::of(&open).faces().is_empty());
+    assert!(Arrangement::of(&open()).faces().is_empty());
 }
 
 /// A lone circle is its own loop, with no corner on it until one is planted.
 #[test]
 fn a_circle_nothing_crosses_encloses_its_own_disc() {
     let mut sketch = Sketch::default();
-    let middle = sketch.add_point_at(1.0, -2.0);
+    let middle = sketch.add_point(DVec2::new(1.0, -2.0));
     sketch.add_circle(middle, 3.0);
 
     let found = Arrangement::of(&sketch);
@@ -82,12 +176,12 @@ fn a_circle_nothing_crosses_encloses_its_own_disc() {
 #[test]
 fn a_segment_across_a_circle_cuts_it_into_two_faces() {
     let mut sketch = Sketch::default();
-    let middle = sketch.add_point_at(0.0, 0.0);
+    let middle = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(middle, 2.0);
     // Straight through the centre and out the far side, so the chord is a
     // diameter and the two halves come out the same size.
-    let left = sketch.add_point_at(-5.0, 0.0);
-    let right = sketch.add_point_at(5.0, 0.0);
+    let left = sketch.add_point(DVec2::new(-5.0, 0.0));
+    let right = sketch.add_point(DVec2::new(5.0, 0.0));
     sketch.add_segment(left, right);
 
     let found = Arrangement::of(&sketch);
@@ -95,19 +189,10 @@ fn a_segment_across_a_circle_cuts_it_into_two_faces() {
     assert!(covers(&found, &[half, half]), "{:?}", areas(&found));
     assert!(found.faces().iter().all(|face| face.holes() == 0));
 
-    // Off centre, the two halves differ — which is what says the cut is being
-    // measured rather than assumed. A chord at y = 1 on a radius of 2 cuts off
-    // a cap of r²(θ − sin θ)/2 with θ = 2·acos(1/2) = 2π/3.
-    let mut offset = Sketch::default();
-    let middle = offset.add_point_at(0.0, 0.0);
-    offset.add_circle(middle, 2.0);
-    let left = offset.add_point_at(-5.0, 1.0);
-    let right = offset.add_point_at(5.0, 1.0);
-    offset.add_segment(left, right);
-
-    let found = Arrangement::of(&offset);
-    let turn = 2.0 * (0.5_f64).acos();
-    let cap = 4.0 * (turn - turn.sin()) / 2.0;
+    // Off centre, which is what says the cut is being measured rather than
+    // assumed.
+    let found = Arrangement::of(&Halved::new().sketch);
+    let cap = Halved::cap();
     assert!(
         covers(&found, &[PI * 4.0 - cap, cap]),
         "{:?} against a cap of {cap}",
@@ -124,15 +209,7 @@ fn a_segment_across_a_circle_cuts_it_into_two_faces() {
 /// cannot answer this.
 #[test]
 fn a_circle_inside_a_circle_makes_a_disc_and_a_ring_around_it() {
-    let mut sketch = Sketch::default();
-    let middle = sketch.add_point_at(0.0, 0.0);
-    sketch.add_circle(middle, 3.0);
-    // Off-centre, so this is containment rather than anything concentric might
-    // be got away with.
-    let inner = sketch.add_point_at(0.5, -0.25);
-    sketch.add_circle(inner, 1.0);
-
-    let found = Arrangement::of(&sketch);
+    let found = Arrangement::of(&pierced());
     assert!(covers(&found, &[PI * 9.0 - PI, PI]), "{:?}", areas(&found));
     // The ring is the one with something missing from it.
     assert_eq!(found.faces()[0].holes(), 1, "the ring has no hole in it");
@@ -146,13 +223,7 @@ fn a_circle_inside_a_circle_makes_a_disc_and_a_ring_around_it() {
 /// sketch's own handles could never find these.
 #[test]
 fn a_polyline_crossing_itself_makes_a_face_on_either_side() {
-    let mut sketch = Sketch::default();
-    // A bowtie: along the bottom, up the rising diagonal, along the top, and
-    // back down the falling one — which puts the two diagonals across each
-    // other at the origin.
-    sketch.outline(&[(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)]);
-
-    let found = Arrangement::of(&sketch);
+    let found = Arrangement::of(&bowtie());
     // Each lobe is a triangle two across its base and one tall, so one apiece
     // — and the crossing at the origin is a corner no point of the sketch
     // sits at.
@@ -163,13 +234,7 @@ fn a_polyline_crossing_itself_makes_a_face_on_either_side() {
 /// A hole goes in the face it is actually cut from, not the outermost one.
 #[test]
 fn a_ring_inside_a_ring_puts_each_hole_where_it_belongs() {
-    let mut sketch = Sketch::default();
-    for radius in [4.0, 3.0, 2.0, 1.0] {
-        let middle = sketch.add_point_at(0.0, 0.0);
-        sketch.add_circle(middle, radius);
-    }
-
-    let found = Arrangement::of(&sketch);
+    let found = Arrangement::of(&nested());
     // Four circles nested make four faces: three rings and the disc in the
     // middle, each the difference of two consecutive discs.
     assert!(
@@ -191,11 +256,7 @@ fn a_ring_inside_a_ring_puts_each_hole_where_it_belongs() {
 /// pass their own tests and disagree here.
 #[test]
 fn a_face_fills_to_the_area_it_encloses() {
-    let mut sketch = Sketch::default();
-    let middle = sketch.add_point_at(0.0, 0.0);
-    sketch.add_circle(middle, 3.0);
-    let inner = sketch.add_point_at(0.5, -0.25);
-    sketch.add_circle(inner, 1.0);
+    let mut sketch = pierced();
 
     // Flattening cuts corners off every circumference, so a fill lands a shade
     // under what the true curves enclose — and not by much at this sagitta.
@@ -261,7 +322,7 @@ fn a_face_fills_to_the_area_it_encloses() {
     // recorded as the fragment past where the first had ended. Neither hole
     // then closes, and the region lost outright gets filled over: with one hole
     // there is nothing to overwrite and nothing to notice.
-    let far = sketch.add_point_at(-1.2, 1.0);
+    let far = sketch.add_point(DVec2::new(-1.2, 1.0));
     sketch.add_circle(far, 0.6);
     let found = Arrangement::of(&sketch);
     let ring = found
@@ -289,7 +350,7 @@ fn a_face_fills_to_the_area_it_encloses() {
     // against a number the drawing states rather than one it computed.
     let stated = PI * (3.0 * 3.0 - 1.0 * 1.0 - 0.6 * 0.6);
     assert!(
-        (ring.area() - stated).abs() < 1e-9,
+        (ring.area() - stated).abs() < CLOSE,
         "{} against {stated}",
         ring.area()
     );
@@ -309,7 +370,7 @@ fn a_face_fills_to_the_area_it_encloses() {
 #[test]
 fn the_order_faces_come_back_in_survives_the_geometry_moving() {
     let mut sketch = Sketch::default();
-    sketch.outline(&[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]);
+    let first = sketch.outline(&[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]);
     sketch.outline(&[(10.0, 0.0), (12.0, 0.0), (12.0, 2.0), (10.0, 2.0)]);
     sketch.outline(&[(20.0, 0.0), (23.0, 0.0), (23.0, 3.0), (20.0, 3.0)]);
 
@@ -318,27 +379,23 @@ fn the_order_faces_come_back_in_survives_the_geometry_moving() {
     // means the same thing across a rebuild in place.
     let mut found = Arrangement::default();
     found.rebuild(&sketch);
-    let before = areas(&found);
     assert!(
-        before
-            .iter()
-            .zip([1.0, 4.0, 9.0])
-            .all(|(got, want)| (got - want).abs() < 1e-9),
-        "{before:?} is not the order the squares were drawn in"
+        follows(&found, &[1.0, 4.0, 9.0]),
+        "{:?} is not the order the squares were drawn in",
+        areas(&found)
     );
 
     // The first square's near corner, dragged away from everything.
-    let corner = sketch.points().next().expect("the first square has one").0;
-    sketch.set_point(corner, DVec2::new(-10.0, -10.0));
+    sketch.set_point(first[0], DVec2::new(-10.0, -10.0));
 
     found.rebuild(&sketch);
     let after = areas(&found);
     assert!(
-        (after[2] - 9.0).abs() < 1e-9,
+        (after[2] - 9.0).abs() < CLOSE,
         "{after:?} moved an untouched square out of third place"
     );
     assert!(
-        (after[1] - 4.0).abs() < 1e-9,
+        (after[1] - 4.0).abs() < CLOSE,
         "{after:?} moved an untouched square out of second place"
     );
     // And the growth was real: sorting by size would have put this one first
@@ -356,17 +413,12 @@ fn the_order_faces_come_back_in_survives_the_geometry_moving() {
 /// back.
 #[test]
 fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
-    let mut sketch = Sketch::default();
-    let middle = sketch.add_point_at(0.0, 0.0);
-    let circle = sketch.add_circle(middle, 2.0);
-    // Off centre, so the two halves come out different sizes and each can be
-    // told from the other by what it covers rather than by where it fell.
-    let left = sketch.add_point_at(-5.0, 1.0);
-    let right = sketch.add_point_at(5.0, 1.0);
-    let chord = sketch.add_segment(left, right);
-    // A cap of r²(θ − sin θ)/2 with θ = 2·acos(1/2) = 2π/3.
-    let turn = 2.0 * (0.5_f64).acos();
-    let cap = 4.0 * (turn - turn.sin()) / 2.0;
+    let Halved {
+        mut sketch,
+        circle,
+        chord,
+    } = Halved::new();
+    let cap = Halved::cap();
 
     let found = Arrangement::of(&sketch);
     let (above, below) = (covering(&found, cap), covering(&found, PI * 4.0 - cap));
@@ -413,8 +465,8 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
     // along the spur and back, so the spur appears in the outline both ways
     // round. Without either rule, drawing a stray line inside a region would
     // rename it and everything built on it would be lost.
-    let base = sketch.add_point_at(0.0, 1.0);
-    let tip = sketch.add_point_at(0.0, 1.5);
+    let base = sketch.add_point(DVec2::new(0.0, 1.0));
+    let tip = sketch.add_point(DVec2::new(0.0, 1.5));
     let spur = sketch.add_segment(base, tip);
 
     let found = Arrangement::of(&sketch);
@@ -424,7 +476,7 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
             .face_named_by(name)
             .unwrap_or_else(|| panic!("{name:?} stopped naming anything"));
         assert!(
-            (found.faces()[still].area() - want).abs() < 1e-9,
+            (found.faces()[still].area() - want).abs() < CLOSE,
             "{name:?} found a region covering {} rather than {want}",
             found.faces()[still].area()
         );
@@ -458,52 +510,44 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
 /// name still names the disc.
 #[test]
 fn a_name_holds_where_a_position_does_not() {
-    let mut sketch = Sketch::default();
-    sketch.outline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
-    let middle = sketch.add_point_at(10.0, 0.0);
+    let mut sketch = square();
+    let middle = sketch.add_point(DVec2::new(10.0, 0.0));
     sketch.add_circle(middle, 1.0);
 
     // One arrangement rebuilt rather than two of them, because that is what an
     // edit does — and a position only means anything across a rebuild in place.
     let mut found = Arrangement::default();
     found.rebuild(&sketch);
-    let before = areas(&found);
-    assert_eq!(before.len(), 2, "{before:?}");
     assert!(
-        before
-            .iter()
-            .zip([12.0, PI])
-            .all(|(got, want)| (got - want).abs() < 1e-9),
-        "{before:?} is not the square and then the disc"
+        follows(&found, &[12.0, PI]),
+        "{:?} is not the square and then the disc",
+        areas(&found)
     );
     let disc = found.faces()[1].named().to_vec();
-    let square = found.faces()[0].named().to_vec();
+    let square_by = found.faces()[0].named().to_vec();
 
     sketch.outline(&[(20.0, 0.0), (22.0, 0.0), (22.0, 2.0), (20.0, 2.0)]);
     found.rebuild(&sketch);
-    let after = areas(&found);
-    assert_eq!(after.len(), 3, "{after:?}");
     assert!(
-        after
-            .iter()
-            .zip([12.0, 4.0, PI])
-            .all(|(got, want)| (got - want).abs() < 1e-9),
-        "{after:?} is not the two squares and then the disc"
+        follows(&found, &[12.0, 4.0, PI]),
+        "{:?} is not the two squares and then the disc",
+        areas(&found)
     );
 
     // The position that named the disc now names the square drawn after it —
     // which is the silent failure the name exists to refuse.
     assert!(
-        (found.faces()[1].area() - 4.0).abs() < 1e-9,
-        "{after:?} left the disc where it was, so this proves nothing"
+        (found.faces()[1].area() - 4.0).abs() < CLOSE,
+        "{:?} left the disc where it was, so this proves nothing",
+        areas(&found)
     );
     assert_eq!(found.face_named_by(&disc), Some(2));
 
     // Drawing *across* the region is the one thing that does break the name,
     // and it says so rather than answering with whichever half covers most:
     // neither half is bounded by what the disc was bounded by.
-    let left = sketch.add_point_at(8.0, 0.5);
-    let right = sketch.add_point_at(12.0, 0.5);
+    let left = sketch.add_point(DVec2::new(8.0, 0.5));
+    let right = sketch.add_point(DVec2::new(12.0, 0.5));
     sketch.add_segment(left, right);
     found.rebuild(&sketch);
     assert_eq!(
@@ -518,7 +562,7 @@ fn a_name_holds_where_a_position_does_not() {
     // besides* is not it either. A circle straddling the square's right edge
     // takes a bite out of it — all four edges still bound what is left, on the
     // same sides, and now the circle does too.
-    let hub = sketch.add_point_at(4.0, 1.5);
+    let hub = sketch.add_point(DVec2::new(4.0, 1.5));
     let bite = sketch.add_circle(hub, 1.0);
     found.rebuild(&sketch);
 
@@ -526,11 +570,11 @@ fn a_name_holds_where_a_position_does_not() {
     let bitten = covering(&found, 12.0 - PI / 2.0);
     let bitten_by = found.faces()[bitten].named().to_vec();
     assert!(
-        bitten_by.len() == 5 && square.iter().all(|bound| bitten_by.contains(bound)),
+        bitten_by.len() == 5 && square_by.iter().all(|bound| bitten_by.contains(bound)),
         "the bitten square is not the square's four edges and one more, so this proves nothing: \
-         {bitten_by:?} against {square:?}"
+         {bitten_by:?} against {square_by:?}"
     );
-    assert_eq!(found.face_named_by(&square), None);
+    assert_eq!(found.face_named_by(&square_by), None);
 
     // And the same refusal the other way round, which is the one a check on
     // containment alone would miss. Take the circle away and the square comes
@@ -543,7 +587,7 @@ fn a_name_holds_where_a_position_does_not() {
     // While the square's own name fits it again — which is what says the
     // refusal above is about the boundary rather than about the face having
     // gone.
-    assert_eq!(found.face_named_by(&square), Some(0));
+    assert_eq!(found.face_named_by(&square_by), Some(0));
 }
 
 /// A reused arrangement answers exactly as a fresh one would.
@@ -560,33 +604,6 @@ fn a_name_holds_where_a_position_does_not() {
 /// and each is asked in both orders, because a leak only shows going one way.
 #[test]
 fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
-    let nested = || {
-        let mut sketch = Sketch::default();
-        for radius in [4.0, 3.0, 2.0, 1.0] {
-            let middle = sketch.add_point_at(0.0, 0.0);
-            sketch.add_circle(middle, radius);
-        }
-        sketch
-    };
-    let bowtie = || {
-        let mut sketch = Sketch::default();
-        sketch.outline(&[(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)]);
-        sketch
-    };
-    let square = || {
-        let mut sketch = Sketch::default();
-        sketch.outline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
-        sketch
-    };
-    // Three sides of a rectangle: curves that shut nothing in, so a rebuild
-    // over it has to leave no face behind from whatever came before.
-    let open = || {
-        let mut sketch = Sketch::default();
-        sketch.polyline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
-        sketch
-    };
-    let empty = Sketch::default;
-
     /// One drawing in the sweep, and what to call it when it fails.
     type Case = (&'static str, fn() -> Sketch);
 
@@ -595,7 +612,7 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
         ("bowtie", bowtie),
         ("square", square),
         ("open", open),
-        ("empty", empty),
+        ("empty", Sketch::default),
     ];
 
     let mut reused = Arrangement::default();
@@ -693,21 +710,21 @@ fn crossings_within_a_rounding_of_each_other_fold_to_one_corner() {
     for (miss, corners, faces) in [(1e-10, 7, 0), (0.25, 9, 1)] {
         let mut sketch = Sketch::default();
         let flat = [
-            sketch.add_point_at(-1.0, 0.0),
-            sketch.add_point_at(1.0, 0.0),
+            sketch.add_point(DVec2::new(-1.0, 0.0)),
+            sketch.add_point(DVec2::new(1.0, 0.0)),
         ];
         sketch.add_segment(flat[0], flat[1]);
         let upright = [
-            sketch.add_point_at(0.0, -1.0),
-            sketch.add_point_at(0.0, 1.0),
+            sketch.add_point(DVec2::new(0.0, -1.0)),
+            sketch.add_point(DVec2::new(0.0, 1.0)),
         ];
         sketch.add_segment(upright[0], upright[1]);
         // `y = x + miss`, which meets the flat one at `(−miss, 0)` and the
         // upright one at `(0, miss)` — neither of them the origin, where the
         // other two meet.
         let across = [
-            sketch.add_point_at(-1.0, -1.0 + miss),
-            sketch.add_point_at(1.0, 1.0 + miss),
+            sketch.add_point(DVec2::new(-1.0, -1.0 + miss)),
+            sketch.add_point(DVec2::new(1.0, 1.0 + miss)),
         ];
         sketch.add_segment(across[0], across[1]);
 

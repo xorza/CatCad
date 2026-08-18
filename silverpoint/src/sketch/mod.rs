@@ -843,16 +843,11 @@ mod drawing {
     use glam::DVec2;
 
     impl Sketch {
-        /// A point at `x, y`.
-        pub(super) fn add_point_at(&mut self, x: f64, y: f64) -> PointId {
-            self.add_point(DVec2::new(x, y))
-        }
-
         /// An open run of segments through `corners`, and the points it planted.
         pub(super) fn polyline(&mut self, corners: &[(f64, f64)]) -> Vec<PointId> {
             let placed: Vec<PointId> = corners
                 .iter()
-                .map(|&(x, y)| self.add_point_at(x, y))
+                .map(|&(x, y)| self.add_point(DVec2::new(x, y)))
                 .collect();
             for pair in placed.windows(2) {
                 self.add_segment(pair[0], pair[1]);
@@ -860,10 +855,33 @@ mod drawing {
             placed
         }
 
-        /// A closed run of segments through `corners`.
-        pub(crate) fn outline(&mut self, corners: &[(f64, f64)]) {
+        /// A closed run of segments through `corners`, and the points it planted.
+        pub(crate) fn outline(&mut self, corners: &[(f64, f64)]) -> Vec<PointId> {
             let placed = self.polyline(corners);
             self.add_segment(placed[placed.len() - 1], placed[0]);
+            placed
+        }
+    }
+}
+
+#[cfg(test)]
+mod solving {
+    use crate::sketch::Sketch;
+    use crate::sketch::solver::Solver;
+    use crate::sketch::solver::outcome::Outcome;
+
+    impl Sketch {
+        /// This sketch solved once, through a solver stood up for the call.
+        ///
+        /// What most tests want: one sketch, one solve, and the report of it.
+        /// Nothing is asserted about that report — a solve that finds no answer
+        /// is a thing worth testing, and the caller says which it asked for.
+        /// A test that goes on to drag, or that means to hand one solver
+        /// several sketches, keeps hold of the solver and writes the calls out.
+        pub(super) fn solved(&mut self) -> Outcome {
+            let mut outcome = Outcome::default();
+            Solver::default().solve(self, &mut outcome);
+            outcome
         }
     }
 }

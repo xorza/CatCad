@@ -17,7 +17,8 @@ const EPSILON: f64 = 1e-9;
 /// decades under one pixel of the drawing on screen.
 const DRAGGED: f64 = 1e-7;
 
-/// A fixed anchor at the origin and a free point one along, stated five apart.
+/// A fixed anchor at the origin and a free point one along, with a distance
+/// stated over the pair.
 ///
 /// The smallest sketch here that has an answer worth naming, and what the two
 /// redundancy fixtures below start from.
@@ -31,12 +32,19 @@ struct Apart {
 }
 
 impl Apart {
+    /// The pair stated five apart, which is what every fixture here but one
+    /// wants.
     fn new() -> Self {
+        Self::stating(5.0)
+    }
+
+    /// The same pair with the distance said to be `value` instead.
+    fn stating(value: f64) -> Self {
         let mut sketch = Sketch::default();
         let anchor = sketch.add_point(DVec2::ZERO);
         let free = sketch.add_point(DVec2::new(1.0, 0.0));
         sketch.fix(anchor);
-        let stated = sketch.add_constraint(Constraint::apart(anchor, free, 5.0));
+        let stated = sketch.add_constraint(Constraint::apart(anchor, free, value));
         Self {
             sketch,
             anchor,
@@ -81,13 +89,13 @@ struct Conflicting {
 
 impl Conflicting {
     fn new() -> Self {
-        let mut sketch = Sketch::default();
-        let anchor = sketch.add_point(DVec2::ZERO);
-        let free = sketch.add_point(DVec2::new(1.0, 0.0));
-        sketch.fix(anchor);
-        for distance in [1.0, 2.0] {
-            sketch.add_constraint(Constraint::apart(anchor, free, distance));
-        }
+        let Apart {
+            mut sketch,
+            anchor,
+            free,
+            ..
+        } = Apart::stating(1.0);
+        sketch.add_constraint(Constraint::apart(anchor, free, 2.0));
         Self { sketch, free }
     }
 }
@@ -156,16 +164,45 @@ impl Orbit {
     }
 }
 
+/// A circle of radius three whose rim passes through a fixed point.
+///
+/// One drawing whose radius and centre cannot move independently: the rim is
+/// held to that point, so the centre stands exactly its radius away — and
+/// growing the circle walks the centre unless something holds it.
+#[derive(Debug)]
+struct Pegged {
+    sketch: Sketch,
+    centre: PointId,
+    circle: CircleId,
+}
+
+impl Pegged {
+    fn new() -> Self {
+        let mut sketch = Sketch::default();
+        let edge = sketch.add_point(DVec2::ZERO);
+        sketch.fix(edge);
+        let centre = sketch.add_point(DVec2::new(3.0, 0.0));
+        let circle = sketch.add_circle(centre, 3.0);
+        sketch.add_constraint(Constraint::PointOnCircle {
+            point: edge,
+            circle,
+        });
+        Self {
+            sketch,
+            centre,
+            circle,
+        }
+    }
+}
+
 /// An [`Apart`] with a level across it, so the free point has one place to be.
-fn determined_pair() -> Sketch {
-    let Apart {
-        mut sketch,
-        anchor,
-        free,
-        ..
-    } = Apart::new();
-    sketch.add_constraint(Constraint::Horizontal { a: anchor, b: free });
-    sketch
+fn determined_pair() -> Apart {
+    let mut pair = Apart::new();
+    pair.sketch.add_constraint(Constraint::Horizontal {
+        a: pair.anchor,
+        b: pair.free,
+    });
+    pair
 }
 
 #[test]
@@ -177,8 +214,7 @@ fn distance_moves_a_point_along_its_own_direction() {
         ..
     } = Apart::new();
 
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
 
     assert!(outcome.converged(), "{:?}", outcome);
     // The residual's gradient points along b - a, so a point starting on the
@@ -247,14 +283,10 @@ fn a_sketch_solves_the_same_once_geometry_and_constraints_are_removed() {
 #[test]
 fn the_requested_distance_is_what_changes_the_answer() {
     let solve_for = |distance: f64| {
-        let mut sketch = Sketch::default();
-        let anchor = sketch.add_point(DVec2::ZERO);
-        let free = sketch.add_point(DVec2::new(1.0, 0.0));
-        sketch.fix(anchor);
-        sketch.add_constraint(Constraint::apart(anchor, free, distance));
-        let mut outcome = Outcome::default();
-        Solver::default().solve(&mut sketch, &mut outcome);
-        assert!(outcome.converged());
+        let Apart {
+            mut sketch, free, ..
+        } = Apart::stating(distance);
+        assert!(sketch.solved().converged());
         sketch.point(free).position.x
     };
     assert!((solve_for(5.0) - 5.0).abs() < EPSILON);
@@ -273,8 +305,7 @@ fn three_distances_make_a_right_triangle() {
         sketch.add_constraint(Constraint::apart(first, second, distance));
     }
 
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
     assert!(outcome.converged(), "{:?}", outcome);
 
     let (pa, pb, pc) = (
@@ -321,8 +352,7 @@ fn a_rectangle_is_fully_constrained() {
     });
     sketch.add_constraint(Constraint::Vertical { a: p0, b: p3 });
 
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
     assert!(outcome.converged(), "{:?}", outcome);
 
     // Six independent equations against six free parameters pin every corner
@@ -352,8 +382,7 @@ fn a_coincidence_pins_both_axes_and_counts_as_two_equations() {
     sketch.fix(anchor);
     sketch.add_constraint(Constraint::Coincident { a: anchor, b: free });
 
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
 
     assert!(outcome.converged(), "{:?}", outcome);
     assert!((sketch.point(free).position - sketch.point(anchor).position).length() < EPSILON);
@@ -384,8 +413,7 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
     // middle one leaves the last with somewhere to go.
     sketch.add_constraint(Constraint::apart(anchor, held, 5.0));
     sketch.add_constraint(Constraint::apart(held, trailing, 5.0));
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let mut outcome = sketch.solved();
     assert!(outcome.converged(), "{outcome:?}");
 
     // Drag the middle point straight up. It has to stay exactly there.
@@ -478,17 +506,12 @@ fn a_held_point_stays_put_and_the_rest_of_the_sketch_follows() {
 /// where the leak went.
 #[test]
 fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
-    // Determined outright: a fixed anchor, a distance and a level. There is one
-    // place this point can be, and the cursor gets no say in it.
-    let mut sketch = Sketch::default();
-    let anchor = sketch.add_point(DVec2::ZERO);
-    let pinned = sketch.add_point(DVec2::new(5.0, 0.0));
-    sketch.fix(anchor);
-    sketch.add_constraint(Constraint::apart(anchor, pinned, 5.0));
-    sketch.add_constraint(Constraint::Horizontal {
-        a: anchor,
-        b: pinned,
-    });
+    // There is one place this point can be, and the cursor gets no say in it.
+    let Apart {
+        mut sketch,
+        free: pinned,
+        ..
+    } = determined_pair();
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
     solver.solve(&mut sketch, &mut outcome);
@@ -590,25 +613,16 @@ fn a_drag_the_constraints_leave_nowhere_to_go_moves_nothing() {
 /// should not carry it across the drawing.
 #[test]
 fn holding_the_centre_is_what_grows_a_circle_instead_of_walking_it() {
-    fn through_the_origin() -> (Sketch, PointId, CircleId) {
-        let mut sketch = Sketch::default();
-        let edge = sketch.add_point(DVec2::ZERO);
-        sketch.fix(edge);
-        let centre = sketch.add_point(DVec2::new(3.0, 0.0));
-        let circle = sketch.add_circle(centre, 3.0);
-        sketch.add_constraint(Constraint::PointOnCircle {
-            point: edge,
-            circle,
-        });
-        (sketch, centre, circle)
-    }
-
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
 
     // Holding nothing, the centre is free to travel and the constraint makes it:
     // a radius of five puts the centre five from the origin.
-    let (mut sketch, centre, circle) = through_the_origin();
+    let Pegged {
+        mut sketch,
+        centre,
+        circle,
+    } = Pegged::new();
     solver.solve(&mut sketch, &mut outcome);
     solver.drag(
         &mut sketch,
@@ -629,7 +643,11 @@ fn holding_the_centre_is_what_grows_a_circle_instead_of_walking_it() {
 
     // Holding the centre, the same drive has nowhere to go: the standoff is
     // fixed at three, so the radius is too, and the sketch comes back untouched.
-    let (mut sketch, centre, circle) = through_the_origin();
+    let Pegged {
+        mut sketch,
+        centre,
+        circle,
+    } = Pegged::new();
     solver.solve(&mut sketch, &mut outcome);
     solver.drag(
         &mut sketch,
@@ -722,11 +740,9 @@ fn a_drag_the_constraints_cannot_take_exactly_lands_as_near_as_they_allow() {
 fn a_reused_solver_answers_exactly_as_a_fresh_one_would() {
     // What each looks like to a solver that has never seen anything.
     let mut fresh_rectangle = Rectangle::new().sketch;
-    let mut rectangle_outcome = Outcome::default();
-    Solver::default().solve(&mut fresh_rectangle, &mut rectangle_outcome);
+    let rectangle_outcome = fresh_rectangle.solved();
     let mut fresh_pair = Apart::new().sketch;
-    let mut pair_outcome = Outcome::default();
-    Solver::default().solve(&mut fresh_pair, &mut pair_outcome);
+    let pair_outcome = fresh_pair.solved();
 
     // The same two through one solver, largest first. The whole outcome is
     // compared rather than the report alone: the freedoms are keyed by slot and
@@ -766,8 +782,7 @@ fn a_duplicate_constraint_is_reported_as_redundant() {
         stated: [first, second],
     } = Doubled::new();
 
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
 
     // Consistent, so it still solves — but two equations share one row of
     // rank, and the extra one is reported rather than silently absorbed.
@@ -811,8 +826,7 @@ fn redundancy_names_constraints_and_leaves_the_needed_ones_alone() {
     let second = sketch.add_constraint(together);
     let apart = sketch.add_constraint(Constraint::apart(anchor, other, 2.0));
 
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
     assert!(outcome.converged(), "{:?}", outcome);
 
     // Five equations, rank three: the coincidence pair spends two and the
@@ -840,8 +854,7 @@ fn redundancy_names_constraints_and_leaves_the_needed_ones_alone() {
 fn conflicting_distances_settle_at_the_least_squares_compromise() {
     let Conflicting { mut sketch, free } = Conflicting::new();
 
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
 
     // Minimising (L-1)² + (L-2)² puts L at 1.5, leaving each equation half a
     // unit out. The solve reports failure rather than pretending.
@@ -870,8 +883,7 @@ fn a_circle_solves_its_radius_and_the_point_on_it_together() {
     sketch.add_constraint(Constraint::PointOnCircle { point: rim, circle });
 
     let start = sketch.point(rim).position;
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
     assert!(outcome.converged(), "{:?}", outcome);
 
     assert!((sketch.circle(circle).radius - 2.0).abs() < EPSILON);
@@ -898,8 +910,7 @@ fn point_on_segment_slides_onto_the_line_without_moving_it() {
         segment,
     });
 
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
     assert!(outcome.converged(), "{:?}", outcome);
 
     // Both endpoints are fixed, so the line can't come to the point: the
@@ -920,8 +931,7 @@ fn point_on_segment_slides_onto_the_line_without_moving_it() {
 #[test]
 fn a_sketch_with_no_constraints_is_solved_and_everything_it_can_move_is_free() {
     let mut sketch = Sketch::default();
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let mut outcome = sketch.solved();
     assert!(outcome.converged());
     assert_eq!(outcome.iterations(), 0);
     assert_eq!(outcome.degrees_of_freedom(), 0);
@@ -1066,7 +1076,7 @@ fn the_freedoms_agree_with_what_holding_each_point_costs() {
     let mut solver = Solver::default();
 
     for (name, mut sketch) in [
-        ("a determined pair", determined_pair()),
+        ("a determined pair", determined_pair().sketch),
         ("a point on its own circle", Orbit::new().sketch),
         ("a duplicated constraint", Doubled::new().sketch),
         ("conflicting distances", Conflicting::new().sketch),
@@ -1088,6 +1098,13 @@ fn the_freedoms_agree_with_what_holding_each_point_costs() {
             );
         }
     }
+}
+
+/// Where a tangency left the circle: its centre, and how big it ended up.
+#[derive(Debug)]
+struct Touching {
+    centre: DVec2,
+    radius: f64,
 }
 
 /// A tangency drives the circle until its rim just touches the line, and it
@@ -1118,32 +1135,34 @@ fn a_tangency_stands_the_centre_off_the_line_by_the_radius() {
             segment: edge,
             circle,
         });
-        let mut outcome = Outcome::default();
-        Solver::default().solve(&mut sketch, &mut outcome);
+        let outcome = sketch.solved();
         assert!(outcome.converged(), "{outcome:?}");
         // The line is the x axis, so the perpendicular distance is |y|.
-        (sketch.point(centre).position, sketch.circle(circle).radius)
+        Touching {
+            centre: sketch.point(centre).position,
+            radius: sketch.circle(circle).radius,
+        }
     };
 
     // Starting above, it settles above — the radius exactly, not the negative
     // of it. The x coordinate is free to be anything and stays where it began,
     // because a tangency says nothing about where along the line it touches.
-    let (above, radius) = solve_from(DVec2::new(1.5, 2.6), 1.2);
-    assert!((above.y - 1.2).abs() < EPSILON, "{above:?}");
-    assert!((above.x - 1.5).abs() < EPSILON, "{above:?}");
-    assert!((radius - 1.2).abs() < EPSILON);
+    let above = solve_from(DVec2::new(1.5, 2.6), 1.2);
+    assert!((above.centre.y - 1.2).abs() < EPSILON, "{above:?}");
+    assert!((above.centre.x - 1.5).abs() < EPSILON, "{above:?}");
+    assert!((above.radius - 1.2).abs() < EPSILON);
 
     // Starting below, it settles below rather than being dragged through the
     // line to the mirror answer. That is the sign the residual takes out.
-    let (below, _) = solve_from(DVec2::new(1.5, -2.6), 1.2);
-    assert!((below.y + 1.2).abs() < EPSILON, "{below:?}");
+    let below = solve_from(DVec2::new(1.5, -2.6), 1.2);
+    assert!((below.centre.y + 1.2).abs() < EPSILON, "{below:?}");
 
     // And the radius is what decides how far off: a different one is a
     // different answer, so the constraint is reading the radius rather than
     // some fixed gap.
-    let (nearer, _) = solve_from(DVec2::new(1.5, 2.6), 0.4);
-    assert!((nearer.y - 0.4).abs() < EPSILON, "{nearer:?}");
-    assert!(nearer.y != above.y);
+    let nearer = solve_from(DVec2::new(1.5, 2.6), 0.4);
+    assert!((nearer.centre.y - 0.4).abs() < EPSILON, "{nearer:?}");
+    assert!(nearer.centre.y != above.centre.y);
 }
 
 /// Equality makes two things match without saying what either measures, which
@@ -1166,8 +1185,7 @@ fn equality_matches_two_lengths_and_two_radii_without_fixing_either() {
         first: measured,
         second: matched,
     });
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
     assert!(outcome.converged(), "{outcome:?}");
 
     let span = |from: PointId, to: PointId| {
@@ -1189,8 +1207,7 @@ fn equality_matches_two_lengths_and_two_radii_without_fixing_either() {
     let first = sketch.add_circle(hub, 2.0);
     let second = sketch.add_circle(far, 0.75);
     sketch.add_constraint(Constraint::EqualRadius { first, second });
-    let mut outcome = Outcome::default();
-    Solver::default().solve(&mut sketch, &mut outcome);
+    let outcome = sketch.solved();
     assert!(outcome.converged(), "{outcome:?}");
 
     let (one, two) = (sketch.circle(first).radius, sketch.circle(second).radius);
