@@ -76,6 +76,13 @@ impl Face {
     /// region with all of those pieces, and they are one wall — so a caller
     /// sweeping one asks for the pieces rather than searching the boundary for
     /// them.
+    ///
+    /// A walk rather than a lookup, and quadratic over a whole prism, one wall
+    /// asking after another's: [`Skinner::wall`](crate::Skinner) calls this once
+    /// per wall. **Which is not where the time goes.** Skinning a solid grown off
+    /// a 128-sided profile measures 49.6µs, of which this is 3.2µs and the two
+    /// end caps are 46.0µs — so a lookup here would buy six per cent of a cost
+    /// that is really the triangulator's.
     pub(crate) fn pieces_of(&self, bound: Bound) -> &[Half] {
         match self.walls.iter().position(|&had| had == bound) {
             Some(at) => self.pieces.get(at),
