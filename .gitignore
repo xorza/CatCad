@@ -3,3 +3,4 @@
 .tmp/
 # Written by `cargo bench --bench alloc -- --dump`, into the package root.
 dhat-heap.json
+.refs/
