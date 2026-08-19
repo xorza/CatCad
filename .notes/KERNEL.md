@@ -1084,7 +1084,7 @@ the published classification, and every result is asserted to be in the exact
 tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
 not a warning.
 
-### M4 — boolean, planar only — **done** but for the form's own control
+### M4 — boolean, planar only — **done**
 
 `solid/boolean/`, in the four stages of §7.4. Every face of each body is cut by
 every plane of the other that reaches it (`splitting/`); each region that falls
@@ -1143,10 +1143,17 @@ Where every step merges the answer is one body; where none can, it is one solid
 per extrude, which is exactly the old picture. M5 is what shrinks the second
 case to nothing.
 
-Open: **the form does not offer the choice yet.** Every extrude the application
-makes says `Join`, which is what a second one means nine times in ten and the
-only operation whose answer is the extrude itself where nothing stands. A cut
-reaches the kernel only through a test until the form has a control for it.
+**The form offers the choice**, as three square buttons under the depth: `+`,
+`−`, `∩`, one hue told apart by how bright, so the row reads as one control with
+a setting rather than three presses. It opens on a join, which is what a second
+solid means nine times in ten and the only operation whose answer is the extrude
+itself where nothing stands yet.
+
+Open: **the preview still draws the prism rather than the answer.** A depth
+being typed shows what the extrude *is*, which for a cut is what is about to be
+taken away rather than what will be left. Honest as far as it goes and not the
+whole of it — see [`Growing`](../catcad/src/paint/growing.rs), which raises the
+extrusion alone because a preview of a cut wants the boolean in the paint path.
 
 **The matrix is in** — `boolean/tests/matrix.rs` — and it is what the milestone
 is measured by: seven placements against three operators, every volume worked

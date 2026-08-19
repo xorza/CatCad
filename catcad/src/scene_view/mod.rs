@@ -269,7 +269,7 @@ impl SceneView {
             // Resolved here rather than remembered, for the reason the form
             // holds a name at all: the arrangement it was read from is not the
             // one it is being drawn against.
-            Asking::Extrude { profile } => profile
+            Asking::Extrude { profile, .. } => profile
                 .face_of(models)
                 .and_then(|region| {
                     self.picture

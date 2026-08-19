@@ -27,26 +27,39 @@ use crate::paint::MARK_FONT;
 /// of a model. The pair is the one every interface agrees on, so nothing has to
 /// be read to be understood.
 ///
-/// Checked against the font stack by `both_answers_have_a_glyph_to_draw_them`,
+/// Checked against the font stack by `every_button_on_the_form_has_a_glyph_to_draw_it`,
 /// on the same terms the constraint marks are: a character nothing offers
 /// rasterizes to nothing, and a button that draws blank is a button that is not
 /// there.
 pub(crate) const CONFIRM: &str = "\u{2713}";
 pub(crate) const CANCEL: &str = "\u{2717}";
 
-/// How far across an answer is, in logical pixels.
+/// What an extrude does with the solid standing before it.
 ///
-/// Square, and both of them the same square. A button that hugs its label comes
-/// out the width of the glyph it holds, and the two answers are not the same
-/// width — a tick is broader than a cross — so hugging gives a pair that is
-/// visibly mismatched. What these are is a pair of equal choices, and the shape
-/// should say so before the colour does.
+/// Glyphs for the reason the pair above are glyphs, and the same three every
+/// modeller draws these with: `+` adds what is grown to what stands, `−` takes
+/// it out, and `∩` keeps only what both hold. Checked against the font stack by
+/// the same test the answers are — a character nothing offers rasterizes to
+/// nothing, and a button that draws blank is a button that is not there.
+pub(crate) const JOINS: &str = "+";
+pub(crate) const CUTS: &str = "\u{2212}";
+pub(crate) const SHARES: &str = "\u{2229}";
+
+/// How far across a button on the form is, in logical pixels.
 ///
-/// Close to the height of the field above them, so the form reads as one
-/// control rather than as a box with a pair of larger things under it. Small
-/// enough to be chrome: these stand *on* a drawing, and a button there competes
-/// with the geometry it is about.
-pub(crate) const ANSWER_SIDE: f32 = 19.0;
+/// Square, and every one of them the same square. A button that hugs its label
+/// comes out the width of the glyph it holds, and no two of these are the same
+/// width — a tick is broader than a cross — so hugging gives a row that is
+/// visibly mismatched. What each row is is a set of equal choices, and the
+/// shape should say so before the colour does. One size across both rows, so
+/// the two read as one form rather than as two controls that happen to be
+/// stacked.
+///
+/// Close to the height of the field above them, so the form reads as one thing
+/// rather than as a box with larger things under it. Small enough to be chrome:
+/// these stand *on* a drawing, and a button there competes with the geometry it
+/// is about.
+pub(crate) const BUTTON_SIDE: f32 = 19.0;
 
 /// Green for the one that goes through and red for the one that does not.
 ///
@@ -57,6 +70,15 @@ pub(crate) const ANSWER_SIDE: f32 = 19.0;
 /// that two small blocks of colour sitting on a model read as chrome.
 const GOES_INK: Color = Color::rgb(0.24, 0.52, 0.30);
 const STOPS_INK: Color = Color::rgb(0.58, 0.22, 0.20);
+
+/// Blue for the choice that is neither, which the operations are.
+///
+/// A green and a red already mean *goes* and *stops* on this form, and an
+/// operation is not an answer — it is what the answer will do. One hue for all
+/// three of them, told apart by how bright: what says which is chosen is that
+/// the other two are dimmer, so the row reads as one control with a setting
+/// rather than as three buttons any of which might be pressed.
+const DOING_INK: Color = Color::rgb(0.26, 0.36, 0.52);
 
 /// The stock field, set in the face a dimension's mark is set in.
 ///
@@ -141,3 +163,11 @@ pub(crate) static GOES: LazyLock<ButtonTheme> = LazyLock::new(|| answer(GOES_INK
 
 /// The button that throws it away.
 pub(crate) static STOPS: LazyLock<ButtonTheme> = LazyLock::new(|| answer(STOPS_INK));
+
+/// The operation the form is set to.
+pub(crate) static CHOSEN: LazyLock<ButtonTheme> = LazyLock::new(|| answer(DOING_INK));
+
+/// The two it is not — the same recipe, dimmed, so the row reads as one
+/// control rather than as three equal presses.
+pub(crate) static OFFERED: LazyLock<ButtonTheme> =
+    LazyLock::new(|| answer(DOING_INK.lerp(Color::BLACK, 0.5)));

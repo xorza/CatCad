@@ -11,7 +11,9 @@ use crate::hud::internals::{EXTRUDE_BUTTON, TIDY_BUTTON, TREE_PITCH, TREE_ROW};
 use crate::intent::Choice;
 use crate::part::Part;
 use crate::timeline::FeatureId;
+use crate::timeline::feature::Feature;
 use crate::tool::Tool;
+use silverpoint::Operation;
 
 /// The clean-up button takes out geometry a deletion left behind, and leaves
 /// the drawing it was pressed on otherwise alone.
@@ -675,4 +677,71 @@ fn deleting_the_sketch_you_are_in_leaves_the_frame_standing() {
     raised.ctrl(Key::Char('Z'));
     raised.frame();
     assert_eq!(raised.solids(), 1, "the undo left the solid off");
+}
+
+/// **The form says what the extrude will do, and the document does it.**
+///
+/// The other half of what the boolean landed for: until the form carried this
+/// control every extrude the application made was a join, and a cut reached the
+/// kernel only through a test. Pressed here the way a person presses it — the
+/// button found by where it was laid out, not by a change pushed past the form
+/// — so what is checked is the whole chain: the control sets the form, the form
+/// carries the word into [`Change::Extrude`](crate::intent::change::Change),
+/// the step holds it, and the rebuild asks the kernel for it.
+///
+/// A second extrude off the *frame*, which is the region the demo did not grow
+/// from. Cutting takes the solid the demo already grew and leaves it standing —
+/// there is nothing of the frame inside the hub — so what says the word
+/// arrived is the step itself rather than a volume: a join would have put a
+/// second solid on screen and a cut does not.
+#[test]
+fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
+    let mut raised = Raised::new();
+    let open = raised.models().open().expect("the fixture opens a sketch");
+    let frame = open.region(0);
+    raised.choose(Choice::Select(Some(frame)));
+    raised.frame();
+    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.frame();
+
+    // The form is up, and it opens on a join — which is what a second solid
+    // means unless somebody says otherwise.
+    let grown = raised.models().grown();
+    let cut = raised
+        .harness
+        .layout_rect(Prompt::operation_id(crate::prompt::look::CUTS))
+        .expect("the form drew no control for what the extrude does");
+    raised
+        .harness
+        .click_at(cut.min + Vec2::new(cut.size.w, cut.size.h) * 0.5);
+    raised.frame();
+
+    raised.harness.type_text("2");
+    raised.frame();
+    raised.harness.key(Key::Enter);
+    raised.frame();
+
+    // The step is there and it is a cut, in the timeline rather than in the
+    // form: what the control set has to have crossed into the document.
+    let (_, feature) = raised
+        .models()
+        .steps()
+        .filter(|(_, feature)| matches!(feature, Feature::Extrude { .. }))
+        .last()
+        .expect("committing the form grew no step");
+    assert!(
+        matches!(
+            feature,
+            Feature::Extrude {
+                operation: Operation::Cut,
+                ..
+            }
+        ),
+        "the form's own word did not reach the timeline: {feature:?}",
+    );
+    assert_eq!(
+        raised.models().grown(),
+        grown + 1,
+        "the cut grew no solid of its own to take away with"
+    );
 }

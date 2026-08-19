@@ -17,8 +17,8 @@
 
 use glam::Vec2;
 use palantir::{
-    Align, Button, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing, Text,
-    TextEdit, TextRun, TextWrap, Ui, VAlign, WidgetId,
+    Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing,
+    Text, TextEdit, TextRun, TextWrap, Ui, VAlign, WidgetId,
 };
 use silverpoint::{Entity, Operation};
 use std::fmt::Write;
@@ -75,7 +75,15 @@ pub(crate) enum Asking {
     /// the arrangement while someone is still typing; a position would then name
     /// a different region and the solid would quietly become one, or the commit
     /// would grow it.
-    Extrude { profile: Profile },
+    /// **What it does with what stands is here rather than on a field**,
+    /// because it is a choice among three and not a number: a field holds text
+    /// somebody types and this is a control somebody sets. It starts as a join,
+    /// which is what a second solid means nine times in ten and the only one
+    /// whose answer is the extrude itself where nothing stands yet.
+    Extrude {
+        profile: Profile,
+        operation: Operation,
+    },
 }
 
 impl Asking {
@@ -89,7 +97,7 @@ impl Asking {
     /// but both begin here, and they began here in two different spellings.
     fn extruding(&self) -> Option<&Profile> {
         match self {
-            Asking::Extrude { profile } => Some(profile),
+            Asking::Extrude { profile, .. } => Some(profile),
             Asking::Dimension { .. } | Asking::Circle { .. } => None,
         }
     }
@@ -335,6 +343,7 @@ impl Prompt {
             Opening::Extrude { sketch, region } => Self::on(
                 Asking::Extrude {
                     profile: models.at(sketch)?.profile(region),
+                    operation: Operation::Join,
                 },
                 [("Depth", Seed::Offered(0.0))],
             ),
@@ -651,7 +660,7 @@ impl Prompt {
                 // same answer, so it leaves the tool in the same place.
                 intents.push(Choice::Hold(Tool::Circle { center: None }));
             }
-            Asking::Extrude { profile } => {
+            Asking::Extrude { profile, operation } => {
                 let Some(distance) = self.says(0) else {
                     return;
                 };
@@ -671,11 +680,7 @@ impl Prompt {
                     sketch,
                     region,
                     distance,
-                    // Added to what stands, always, until the form offers the
-                    // choice: a boss is what a second extrude is for nine
-                    // documents in ten, and it is the one operation whose
-                    // answer is the extrude itself where nothing stands yet.
-                    operation: Operation::Join,
+                    operation: *operation,
                 });
             }
         }
@@ -696,6 +701,44 @@ impl Prompt {
     /// in it are between them enough to tell any two apart.
     fn field_id(nth: usize) -> WidgetId {
         WidgetId::from_hash(("catcad.prompt.field", nth))
+    }
+
+    /// Show one of the form's square buttons, and say whether it was pressed.
+    ///
+    /// Both rows are the same button in a different colour, and were the same
+    /// five chained calls written twice: what tells them apart is which glyph,
+    /// which theme and which id, so those are what this takes. A second
+    /// spelling of the chain would be a second chance for one row's size or
+    /// hover to drift from the other's — which is the argument
+    /// [`look::answer`](look) already makes about the two answers, one level up.
+    fn button(ui: &mut Ui, id: WidgetId, glyph: &str, theme: &ButtonTheme) -> bool {
+        Button::new()
+            .id(id)
+            .label(glyph)
+            .style(theme)
+            .size((
+                Sizing::fixed(look::BUTTON_SIDE),
+                Sizing::fixed(look::BUTTON_SIDE),
+            ))
+            .show(ui)
+            .left
+            .clicked()
+    }
+
+    /// What the button setting the form to `glyph`'s operation is recorded
+    /// under.
+    ///
+    /// Named rather than salted, for the reason a field's id is: a caller
+    /// outside cannot work out an `auto_id`, and a test pressing the control
+    /// has to find where it was laid out. By its glyph because that is what
+    /// tells the three apart and is already what the button carries.
+    fn doing_id(glyph: &str) -> WidgetId {
+        WidgetId::from_hash(("catcad.prompt.doing", glyph))
+    }
+
+    /// What the button answering with `glyph` is recorded under.
+    fn answer_id(glyph: &str) -> WidgetId {
+        WidgetId::from_hash(("catcad.prompt.answer", glyph))
     }
 
     /// The first field's number, as that field will shape it.
@@ -801,7 +844,13 @@ impl Prompt {
             anchor.size.h + STANDS_CLEAR * 2.0,
         );
         let blurs = self.blurs();
-        let Self { fields, .. } = self;
+        // Both borrowed off `self` at once, and they may be: they are different
+        // fields, and the row below writes one while reading the other.
+        let Self { about, fields, .. } = self;
+        let doing = match about {
+            Asking::Extrude { operation, .. } => Some(operation),
+            Asking::Dimension { .. } | Asking::Circle { .. } => None,
+        };
         let mut said = Said::default();
         let mut answered = None;
         Popup::below(anchor)
@@ -850,6 +899,32 @@ impl Prompt {
                             said = said.and(Said::of(&shown));
                         }
                     });
+                    // **What the answer will do, where there is a choice about
+                    // it.** Under the number rather than beside it, for the
+                    // reason the answers are: a row grown by three more buttons
+                    // is a form wider than the thing it stands on. Only an
+                    // extrude has one — a dimension restates a number and a
+                    // circle is drawn, and neither does anything to a solid.
+                    if let Some(doing) = doing {
+                        Panel::hstack().id_salt("doing").gap(GAP).show(ui, |ui| {
+                            for (glyph, operation) in [
+                                (look::JOINS, Operation::Join),
+                                (look::CUTS, Operation::Cut),
+                                (look::SHARES, Operation::Intersect),
+                            ] {
+                                // Which one is set is said by the other two
+                                // being dimmer — see [`look::CHOSEN`].
+                                let theme = if *doing == operation {
+                                    &*look::CHOSEN
+                                } else {
+                                    &*look::OFFERED
+                                };
+                                if Self::button(ui, Self::doing_id(glyph), glyph, theme) {
+                                    *doing = operation;
+                                }
+                            }
+                        });
+                    }
                     // Only where this is how the form is dismissed. A form that
                     // blurs shut has no use for them, and two buttons that were
                     // not the way out would be two buttons lying about it.
@@ -866,18 +941,12 @@ impl Prompt {
                                     (look::CONFIRM, &*look::GOES, Done::Commit),
                                     (look::CANCEL, &*look::STOPS, Done::Cancel),
                                 ] {
-                                    let pressed = Button::new()
-                                        .id_salt(glyph)
-                                        .label(glyph)
-                                        .style(theme)
-                                        .size((
-                                            Sizing::fixed(look::ANSWER_SIDE),
-                                            Sizing::fixed(look::ANSWER_SIDE),
-                                        ))
-                                        .show(ui)
-                                        .left
-                                        .clicked();
-                                    if pressed {
+                                    // Named like every other id on this form,
+                                    // where it was salted: a caller outside
+                                    // cannot work out an `auto_id`, and these
+                                    // are as pressable by a test as the row
+                                    // above them.
+                                    if Self::button(ui, Self::answer_id(glyph), glyph, theme) {
                                         answered = Some(answer);
                                     }
                                 }
@@ -913,6 +982,13 @@ pub(crate) mod internals {
         /// What the `nth` field is recorded under.
         pub(crate) fn nth_field_id(nth: usize) -> WidgetId {
             Self::field_id(nth)
+        }
+
+        /// What the button setting the operation `glyph` draws is recorded
+        /// under — see [`look`](crate::prompt::look), which is where the three
+        /// glyphs are.
+        pub(crate) fn operation_id(glyph: &str) -> WidgetId {
+            Self::doing_id(glyph)
         }
     }
 }

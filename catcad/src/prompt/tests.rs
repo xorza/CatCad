@@ -1,6 +1,6 @@
 use super::*;
 use glam::DVec2;
-use silverpoint::{Along, Constraint, Dimension, Sketch};
+use silverpoint::{Along, Constraint, Dimension, Operation, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::Timeline;
@@ -45,6 +45,7 @@ fn grown() -> Prompt {
     Prompt::on(
         Asking::Extrude {
             profile: Profile::new(sketch, Vec::new()),
+            operation: Operation::Join,
         },
         [("Depth", Seed::Offered(0.0))],
     )
@@ -208,7 +209,7 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
     );
 }
 
-/// **Both answers have a glyph to draw them.**
+/// **Every button on the form has a glyph to draw it.**
 ///
 /// The failure this guards is silent and total, and it is the one the
 /// constraint marks are guarded against for the same reason: a character the
@@ -220,12 +221,18 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
 /// is not a thing, but reading it off the wrong style would still be asking a
 /// question nobody has.
 #[test]
-fn both_answers_have_a_glyph_to_draw_them() {
+fn every_button_on_the_form_has_a_glyph_to_draw_it() {
     let shaper = palantir::TextShaper::new();
     let mut glyphs = shaper.glyphs();
     let mut placed = Vec::new();
 
-    for answer in [look::CONFIRM, look::CANCEL] {
+    for answer in [
+        look::CONFIRM,
+        look::CANCEL,
+        look::JOINS,
+        look::CUTS,
+        look::SHARES,
+    ] {
         glyphs.line(answer, crate::paint::MARK_FONT, 1.0, &mut placed);
         let [glyph] = placed[..] else {
             panic!("{answer:?} shaped to {} glyphs", placed.len());
