@@ -7,8 +7,8 @@
 //!
 //! **A kernel is a graph of faces that knows what solid it bounds.** Everything
 //! else follows: what a body is made of is [`topology`], what its pieces lie on
-//! is [`geometry`], what writes one is [`build`], and what draws one is
-//! [`mesh`]. The whole design, the decisions behind it and what is still to
+//! is [`geometry`], where two of those cross is [`meeting`], what writes one is
+//! [`build`], and what draws one is [`mesh`]. The whole design, the decisions behind it and what is still to
 //! come are in `.notes/KERNEL.md`.
 //!
 //! It may reach [`arena`](crate::arena), [`loops`](crate::loops),
@@ -20,5 +20,6 @@
 pub(crate) mod build;
 pub(crate) mod geometry;
 pub(crate) mod grown;
+pub(crate) mod meeting;
 pub(crate) mod mesh;
 pub(crate) mod topology;

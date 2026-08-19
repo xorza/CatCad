@@ -24,6 +24,7 @@ pub(crate) mod circle;
 pub(crate) mod cone;
 pub(crate) mod curve;
 pub(crate) mod cylinder;
+pub(crate) mod ellipse;
 pub(crate) mod line;
 pub(crate) mod sphere;
 pub(crate) mod surface;

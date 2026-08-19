@@ -30,7 +30,8 @@ is settled and written up in [`KERNEL.md`](KERNEL.md), and what a number *is*
   whose faces are named `Grown::{Base, Far, Side(Bound)}` in the same vocabulary
   the region was. A `Body` out of the kernel in `silverpoint/src/solid/`: exact
   planes and cylinders, edges with curves of their own, a validity check after
-  every build. Nothing combines yet.
+  every build, and an exact answer for where two of its surfaces meet wherever
+  that answer is a line, a circle or an ellipse. Nothing combines yet.
 - **The document.** A `Timeline` of `Plane | Sketch | Extrude` steps, replayed
   by `Build` into `Settled` per sketch and `Bodied` per extrude, saved as RON
   and reopened onto the same drawing. Snapshot undo/redo, with a drag
@@ -101,10 +102,11 @@ beside the sketch it is grown from. The design, and where it currently stands,
 are in [`KERNEL.md`](KERNEL.md); what follows is only why it is that and not one
 of the two cheaper answers.
 
-**Under way.** The kernel's geometry, topology, validity checker, extrusion and
-mesher are in the tree, and CatCad draws and picks bodies rather than prisms —
-milestones M1 and M2 of seven. What is left for *this item* is the exact
-arithmetic and then the intersections and booleans it is for.
+**Under way.** The kernel's geometry, topology, validity checker, extrusion,
+mesher and the reducible half of its quadric intersection are in the tree, and
+CatCad draws and picks bodies rather than prisms. What is left for *this item*
+is the exact arithmetic, the general intersection it runs, and the booleans they
+are both for.
 
 Evaluating on a tessellation — a mesh arrangement decided by exact predicates,
 the Manifold line of work — is robust, general and quick to reach, and it buys

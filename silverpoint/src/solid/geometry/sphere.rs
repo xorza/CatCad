@@ -19,6 +19,15 @@ pub(crate) struct Sphere {
 }
 
 impl Sphere {
+    /// Where it stands.
+    ///
+    /// Named, because [`Axis::origin`] is where it is kept and not what it is
+    /// called — a reader of `sphere.axis.origin` has to know that a sphere's
+    /// frame is hung off its centre before the line means anything.
+    pub(crate) fn centre(&self) -> DVec3 {
+        self.axis.origin
+    }
+
     /// Where the parameters `uv` land: `u` radians round, `v` up from the
     /// equator towards the pole the axis points at.
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {

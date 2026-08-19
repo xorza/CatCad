@@ -12,6 +12,7 @@ use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
+use crate::solid::meeting::Meeting;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
@@ -365,10 +366,16 @@ impl Builder {
         let [from, to] = self.corners[corner].expect("every corner of a strip is raised");
         let origin = self.base_at(raising, corner);
         // No crease where the two walls lie on one surface: either side of a
-        // split cylinder, or two arcs of one circle the drawing was cut
-        // between. A box's upright corner is not that, and is not flagged.
+        // split cylinder, two arcs of one circle the drawing was cut between,
+        // or two segments drawn straight through a corner. A box's upright
+        // corner is not that, and is not flagged.
+        //
+        // Asked of the *surfaces* rather than of their descriptions, because the
+        // last of those three is two planes that are one plane and not the same
+        // `Plane` — different origins, one surface.
         let topology = into.topology();
-        let smooth = topology.face(between[0]).surface == topology.face(between[1]).surface;
+        let [one, two] = between.map(|face| topology.face(face).surface);
+        let smooth = Meeting::of(&one, &two) == Meeting::Same;
         let climbing = into.topology_mut().add_edge(Edge {
             curve: Curve::Line(Line {
                 origin,

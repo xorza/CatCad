@@ -1,5 +1,6 @@
 //! The line a surface of revolution turns about.
 
+use crate::math::plane::Plane;
 use crate::solid::geometry::line::Line;
 use glam::DVec3;
 
@@ -39,6 +40,25 @@ impl Axis {
         axis
     }
 
+    /// A frame running `direction` through `origin`, angles from wherever.
+    ///
+    /// For a curve nothing fixes the angles of — the circle two spheres meet
+    /// in has a centre and a normal and no preferred place to start. The
+    /// reference is picked off whichever world axis leans on the direction
+    /// least, so it is far from degenerate however the direction lies, and it
+    /// is the same answer every time the same direction is handed over.
+    pub(crate) fn about(origin: DVec3, direction: DVec3) -> Self {
+        let leaning = direction.abs();
+        let away = if leaning.x <= leaning.y && leaning.x <= leaning.z {
+            DVec3::X
+        } else if leaning.y <= leaning.z {
+            DVec3::Y
+        } else {
+            DVec3::Z
+        };
+        Self::new(origin, direction, direction.cross(away).normalize())
+    }
+
     /// [`Axis::reference`] turned a quarter turn about the line.
     ///
     /// The second of the two directions the angular parameter is read against,
@@ -63,6 +83,20 @@ impl Axis {
     pub(crate) fn angle_of(self, at: DVec3) -> f64 {
         let out = at - self.origin;
         out.dot(self.quarter()).atan2(out.dot(self.reference))
+    }
+
+    /// The plane square to it, framed by its own two square directions.
+    ///
+    /// The same three directions read the other way round: an axis leads with
+    /// the one it turns about, a plane with the two it spans. Which is why a
+    /// caller with a point and a normal reaches for [`Axis::about`] and then
+    /// this, rather than picking a perpendicular of its own.
+    pub(crate) fn plane(self) -> Plane {
+        Plane {
+            origin: self.origin,
+            x: self.reference,
+            y: self.quarter(),
+        }
     }
 
     /// How far `at` stands from the line it runs along — which is a radius,

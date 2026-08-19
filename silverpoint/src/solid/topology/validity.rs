@@ -1,6 +1,7 @@
 //! Everything a body promises, checked from scratch.
 
 use crate::number::predicate::{self, slack};
+use crate::solid::meeting::Meeting;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::edge::{Edge, EdgeId};
@@ -294,7 +295,7 @@ impl Checking {
         for (id, edge) in topology.edges() {
             let [one, two] = edge.between.map(|face| topology.face(face).surface);
             assert!(
-                edge.artificial == (one == two),
+                edge.artificial == (Meeting::of(&one, &two) == Meeting::Same),
                 "edge {id:?} calls itself {} between {one:?} and {two:?}",
                 if edge.artificial {
                     "smooth"

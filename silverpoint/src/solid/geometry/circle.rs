@@ -30,14 +30,4 @@ impl Circle {
     pub(crate) fn tangent(&self, t: f64) -> DVec3 {
         self.axis.radial(t + std::f64::consts::FRAC_PI_2)
     }
-
-    /// How far `at` stands from the circle.
-    ///
-    /// Two components at right angles: how far off the plane of it, and how far
-    /// the shadow on that plane misses the ring by.
-    pub(crate) fn off(&self, at: DVec3) -> f64 {
-        let along = self.axis.along(at);
-        let out = self.axis.off(at) - self.radius;
-        (along * along + out * out).sqrt()
-    }
 }

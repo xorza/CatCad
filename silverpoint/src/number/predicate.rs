@@ -5,7 +5,7 @@
 //! deciding the shape of a solid inside an expression, where the decision
 //! cannot be seen, cannot be widened, and cannot be told from a rounding.
 
-use crate::number::tolerance::{ROUNDING, WRAPPING};
+use crate::number::tolerance::{ALIGNED, ROUNDING, WRAPPING};
 use glam::DVec3;
 
 /// Whether two places are the same place, to within `given`.
@@ -46,6 +46,24 @@ pub(crate) fn touching(off: f64, given: f64) -> bool {
 pub(crate) fn slack(tolerance: f64) -> f64 {
     debug_assert!(tolerance >= 0.0, "a negative {tolerance} admits nothing");
     tolerance + ROUNDING
+}
+
+/// Whether two unit directions run the same way, or exactly opposite ways.
+///
+/// Which is one question and not two: an axis has no preferred end, so a
+/// surface asking whether a plane lies square across it means the same thing by
+/// either answer. A caller that needs the *sense* as well takes the dot product
+/// itself, and this is not what it wants.
+pub(crate) fn parallel(one: DVec3, two: DVec3) -> bool {
+    // Slack enough for a direction that has been normalized once or twice,
+    // tight enough that anything never normalized at all is nowhere near it.
+    const UNIT: f64 = 1e-6;
+    debug_assert!(
+        (one.length_squared() - 1.0).abs() < UNIT && (two.length_squared() - 1.0).abs() < UNIT,
+        "{one:?} and {two:?} are compared as directions and are not unit",
+    );
+    // The sine of the angle between them, which is what [`ALIGNED`] bounds.
+    one.cross(two).length() <= ALIGNED
 }
 
 /// Whether a turn of `sweep` radians carries a surface the whole way round.
@@ -109,6 +127,23 @@ mod tests {
         // boundary is where `WRAPPING` puts it and not at `TAU` itself.
         assert!(wraps(TAU - 1e-10));
         assert!(!wraps(TAU - 1e-8));
+    }
+
+    /// Two directions are parallel whichever end of each is taken, and a
+    /// quarter turn apart is not parallel at all.
+    #[test]
+    fn parallel_asks_about_the_line_rather_than_the_arrow() {
+        assert!(parallel(DVec3::X, DVec3::X));
+        assert!(parallel(DVec3::X, DVec3::NEG_X), "an axis has no near end");
+        assert!(!parallel(DVec3::X, DVec3::Y));
+        assert!(!parallel(DVec3::X, DVec3::Z));
+
+        // A hair off, either side of the bound. The sine of a small angle is
+        // the angle, so a tenth of the bound in radians is a tenth of it here.
+        let leaning = DVec3::new(1.0, 1e-10, 0.0).normalize();
+        assert!(parallel(DVec3::X, leaning));
+        let further = DVec3::new(1.0, 1e-8, 0.0).normalize();
+        assert!(!parallel(DVec3::X, further));
     }
 
     /// Distance to a surface is compared inclusively, and [`EXACT`] admits only

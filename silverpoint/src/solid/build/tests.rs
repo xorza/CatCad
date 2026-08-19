@@ -213,6 +213,44 @@ fn a_circle_raises_two_walls_with_one_name_on_one_exact_cylinder() {
     assert!((want - read) < 1e-3, "it shut in {read} against {want}");
 }
 
+/// **A corner drawn straight through leaves no crease.**
+///
+/// A polyline that carries on in the same direction past a vertex raises two
+/// walls that are one plane — the same normal, different origins — so the
+/// upright edge between them is a place where two faces meet smoothly rather
+/// than a corner. A display may pass over it and an export may merge across it,
+/// and neither could if the two surfaces were told apart by comparing their
+/// descriptions instead of their geometry. See
+/// [`Meeting::Same`](crate::solid::meeting::Meeting).
+#[test]
+fn a_corner_drawn_straight_through_leaves_no_crease() {
+    let mut sketch = Sketch::default();
+    // Four by three, with the bottom drawn as two segments end to end.
+    sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
+    let found = Arrangement::of(&sketch);
+    let body = Extrusion::new(&found, 0, Plane::GROUND, 2.0).body();
+
+    let smooth: Vec<_> = body
+        .topology()
+        .edges()
+        .filter(|(_, edge)| edge.artificial)
+        .collect();
+    assert_eq!(smooth.len(), 1, "{smooth:?}");
+    // And it is the one standing where the bottom runs straight on, rather than
+    // at any of the four real corners.
+    let (_, edge) = smooth[0];
+    let standing = body.topology().vertex(edge.from).at;
+    assert!(
+        standing.distance(Plane::GROUND.point(DVec2::new(2.0, 0.0))) < 1e-12,
+        "the smooth edge stands at {standing:?}",
+    );
+
+    // Five walls, because the drawing has five curves — one name each, and the
+    // straight-through corner takes none of them away.
+    assert_eq!(body.grown().count(), 7, "two caps and five walls");
+    assert!((volume(&body) - 24.0).abs() < 1e-9);
+}
+
 /// **A spur raises no wall**, because it has no thickness to raise one from.
 ///
 /// A line dangling into a region is walked out and straight back, so it bounds

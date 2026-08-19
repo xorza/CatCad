@@ -276,10 +276,6 @@ fn the_two_curves_evaluate_and_measure_by_hand() {
     // The tangent is the radius turned a quarter forward, so at zero it points
     // where the quarter turn does.
     near(circle.tangent(0.0), DVec3::NEG_Z, "counterclockwise");
-    // Off it by three in the plane and four along the axis is five away, which
-    // is the whole reason the two components are taken at right angles.
-    assert!((circle.off(DVec3::new(6.0, 4.0, 0.0)) - 5.0).abs() < NEAR);
-    assert!(circle.off(circle.at(1.0)) < NEAR);
 }
 
 /// **How finely a curve is cut follows the sagitta**, and a straight one is

@@ -1,5 +1,7 @@
 //! How much room each kind of comparison is given.
 
+use crate::math::approx::{PARALLEL, TOUCHING};
+
 /// What an exact construction is worth.
 ///
 /// A vertex where three exact surfaces meet stands at one place and no other,
@@ -33,3 +35,26 @@ pub(crate) const ROUNDING: f64 = 1e-9;
 /// reaching this is split rather than represented — see `.notes/KERNEL.md`
 /// §4.4, which is why no loop here ever walks the same edge twice.
 pub(crate) const WRAPPING: f64 = std::f64::consts::TAU - 1e-9;
+
+/// How near two pieces of geometry have to be to count as being in one place,
+/// in world units.
+///
+/// What a pair of surfaces is asked when it has to decide whether it is one
+/// surface described twice, two that never meet, or two that touch. Nothing
+/// there carries a tolerance of its own yet — a surface's is zero and the
+/// question is about the pair — so the answer is the drawing's own bound, which
+/// is what everything raised off one is known to anyway (§4.1).
+///
+/// The same number as [`TOUCHING`] and, for now, a second name for it: the two
+/// become one constant when `number/` is shared downward into `sketch`
+/// (`.notes/KERNEL.md` §6).
+pub(crate) const PLACED: f64 = TOUCHING;
+
+/// How near parallel two directions may run before they count as one
+/// direction, as a sine.
+///
+/// Dimensionless, so it says nothing about how large anything is — which is
+/// what makes it the right question to ask of an axis and a normal, and the
+/// wrong one to ask of two places. A second name for [`PARALLEL`], like
+/// [`PLACED`] above.
+pub(crate) const ALIGNED: f64 = PARALLEL;

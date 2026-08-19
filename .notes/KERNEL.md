@@ -4,11 +4,11 @@ The design for roadmap item 2: a solid that stops being one independent prism
 per extrude and becomes a body built by a sequence of operations, over an exact
 boundary representation written here.
 
-**M1 and M2 are in the tree** — `silverpoint/src/solid/` holds the geometry, the
-topology, the validity checker, the extrusion and the mesher, and CatCad draws
-and picks bodies rather than prisms. `Prism`, `Skinner` and `Patch` are gone.
-What is left is §9's M0-proper and everything from M3 on: the exact arithmetic,
-the intersection routines, and the booleans they are for.
+**M1, M2 and M3a are in the tree** — `silverpoint/src/solid/` holds the
+geometry, the topology, the validity checker, the extrusion, the mesher and the
+reducible half of quadric intersection, and CatCad draws and picks bodies rather
+than prisms. `Prism`, `Skinner` and `Patch` are gone. What is left is §9's
+M0-proper, M3b, and the booleans they are for.
 
 Each decision below says where it stands. A milestone that has landed keeps only
 what a reader still has to know; what it cost to get there is in the diff.
@@ -655,13 +655,15 @@ silverpoint/src/
   solid/
     mod.rs  grown.rs
     geometry/      surface, curve, plane (in math/), cylinder, cone, sphere,
-                   line, circle, axis, tests
-                   — to come: ellipse, quartic, torus, nurbs
+                   line, circle, ellipse, axis, tests
+                   — to come: quartic, torus, nurbs
     topology/      mod (Topology), body, lump, shell, face, edge, vertex,
                    coedge, validity, tests
     build/         mod, extrusion, strip, tests
+    meeting/       mod (Meeting, Curves), tests
+                   — to come: the algebraic route, beside it
     mesh/          mod (Mesher, Patch), tests
-                   — to come: intersect/, boolean/
+                   — to come: boolean/
 ```
 
 The published surface is `Body`, `Grown`, `Extrusion`, `Builder`, `Mesher` and
@@ -771,10 +773,10 @@ its parameter domain is a rectangle. A sphere or a torus will want a grid.
 **Natural ∩ natural is exact, and it is one problem, not a matrix.** Two
 routines, in this order:
 
-1. **Geometric, for the reducible cases.** Two quadrics whose intersection
-   degenerates to conics — most of what a mechanical part contains — give lines,
-   circles and ellipses directly, with better conditioning than the algebraic
-   route and no square roots at all.
+1. **Geometric, for the reducible cases — in the tree, as `solid/meeting/`.**
+   Two quadrics whose intersection degenerates to conics — most of what a
+   mechanical part contains — give lines, circles and ellipses directly, with
+   better conditioning than the algebraic route and no square roots at all.
 
    | | plane | cylinder | cone | sphere |
    | --- | --- | --- | --- | --- |
@@ -1033,23 +1035,54 @@ deliberately not — the drawing's cost is kept off the camera's clock. That is 
 decision about the paint layer rather than about the kernel, and it is the last
 thing M2 owes.
 
-### M3 — quadric intersection, exact, all pairs
+### M3a — the reducible cases — **done**
 
-Both routines of §7.3: the geometric reducible cases, then the algebraic
-parameterization for the rest. No boolean yet — the deliverable is a curve.
-Split into **M3a** (reducible) and **M3b** (algebraic) if the second wants its
-own run at it; M4 needs only M3a.
+`solid/meeting/` — named for what it answers rather than for what it does,
+because `math::intersect` is already the two-dimensional one and two modules
+called intersect in one crate is one too many.
 
-**Tests.** Against hand-computed geometry, asserted on the curve's own
-parameters rather than on sampled points: two planes at a known dihedral give
-the known line; a plane perpendicular to a cylinder's axis gives the circle of
-the right radius and centre; a plane at 45° gives an ellipse with semi-axes `r`
-and `r√2`; a tangent plane gives one line; two coaxial cylinders give nothing or
-everything; two equal cylinders with perpendicular meeting axes give **two
-ellipses**, exactly, with semi-axes `r` and `r√2`; two unequal cylinders give a
-quartic whose `Δ` and branch count match the published classification. Every
-result asserted to be in the exact tier — a fitted curve appearing anywhere in
-M3 is a failure of the milestone, not a warning.
+`Meeting::of` takes a pair of surfaces and answers `Apart`, `Same`,
+`Touching(point)`, `Along` one or two exact curves, or `Algebraic` — which is
+the honest way of saying they do meet, in a quartic, and M3b is what
+parameterizes it. The awkward answers are answers: `Same` is what a boolean has
+to know before it can decide which of two flush faces survives, and `Touching`
+is the tangency every kernel's bug list is made of.
+
+Covered: plane∩plane, plane∩cylinder in all three of its cases, plane∩sphere,
+plane square across a cone, cylinder∩cylinder parallel and equal-crossing,
+sphere on a cylinder's axis, sphere∩sphere. A cone against anything curved is
+`Algebraic` for now — those reduce as readily as the rest, and wait for a
+revolve, because a case nothing can produce is a case nothing can check.
+
+**It already has a reader**, which M3 was not expected to: whether two faces lie
+on one surface is what says there is no crease between them, and `Meeting::Same`
+answers it better than comparing two surface descriptions — two planes can be
+one plane and not be the same `Plane`. A polyline drawn straight through a
+vertex now raises two walls that meet smoothly, where before it raised a crease
+that was not there.
+
+**Tests.** Asserted on the curves' own parameters, per the milestone: two planes
+at a right angle give the axis they share; a plane square across a cylinder
+gives the cylinder's own circle where the axis pierces it; a plane at 45° gives
+an ellipse with semi-axes `r` and `r√2`; a chord gives two lines and a tangent
+plane one; two equal cylinders crossing square give **two ellipses**, exactly,
+with semi-axes `r` and `r√2`, in planes square to each other; unequal or skew
+ones come back `Algebraic`. And over all of them the assertion the hand-computed
+ones cannot make: **every curve is sampled the whole way round and held against
+both surfaces it came from**, which are two routes to one answer that share no
+arithmetic.
+
+### M3b — the algebraic parameterization
+
+What is left of §7.3: a smooth quartic parameterized exactly as
+`X₁(u,v) ± X₂(u,v)·√Δ(u,v)`, all components separated, all degeneracies handled,
+near-optimal in square roots. Wants M0-proper first — the spike (§4.2) showed
+the tower is what it runs on.
+
+**Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
+the published classification, and every result is asserted to be in the exact
+tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
+not a warning.
 
 ### M4 — boolean, planar only
 
@@ -1115,9 +1148,11 @@ Either true of a commit or not.
 5. **Every milestone is a stopping point.** Held: the tree stands at M2 with
    CatCad no worse off than before, and every solid it draws sits on an exact
    surface where none did. The next is M5, where roadmap item 2 is delivered.
-6. **Do not extrapolate.** M1–M2 were the comfortable part and are done. M3 is
-   where the truth is; get there — and M0's arithmetic is the one thing worth
-   finishing on the way, because it is what M3 is checked against.
+6. **Do not extrapolate.** M1–M2 were the comfortable part and are done, and
+   M3a came in behind them cheaply because the degenerate cases are geometry
+   rather than algebra. M3b is where the truth is, and it cannot start before
+   M0's arithmetic — which is therefore the next thing, whatever else looks
+   more inviting.
 
 ---
 
@@ -1137,8 +1172,11 @@ triangulation had to learn to follow a curved surface (§7.2), and everything on
 the rebuild path had to keep its own room so the allocation gate stayed at zero
 (§4.5).
 
-**M3–M5 is the real work.** M3b is research-grade but published, complete and
-proven, which is the difference between hard and open-ended.
+**M3b–M5 is the real work**, M3a having come in behind M2 for a fraction of what
+the milestone was sized at: the reducible cases are a page of vector algebra
+each, and the general one is the whole of the difficulty. M3b is research-grade
+but published, complete and proven, which is the difference between hard and
+open-ended.
 
 **M6 is the only unbounded milestone**, and it sits behind the torus rather than
 behind the second hole anyone drills. Roadmap item 2 lands without it.
