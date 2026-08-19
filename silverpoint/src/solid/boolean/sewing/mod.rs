@@ -33,7 +33,7 @@ use crate::solid::topology::lump::Lump;
 use crate::solid::topology::shell::{Shell, ShellId};
 use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
-use glam::DVec3;
+use glam::{DVec2, DVec3};
 use std::f64::consts::{PI, TAU};
 
 use std::ops::Range;
@@ -42,6 +42,17 @@ use std::ops::Range;
 #[derive(Debug)]
 struct Join {
     ends: [VertexId; 2],
+    /// A place halfway along it, which is what tells two edges between one
+    /// pair of vertices apart.
+    ///
+    /// **Two arcs of a circle share both their ends**, and a bore's rim is
+    /// exactly that: the block's face and the bore's wall each walk the circle
+    /// in two pieces, and the two pieces run between the same two vertices. Read
+    /// by their ends alone they are one edge claimed four times, which closes
+    /// nothing and reads as a body that will not sew. For a straight edge the
+    /// middle follows from the ends, so this changes nothing there — which is
+    /// why it is the rule for every edge rather than a case for round ones.
+    middle: DVec3,
     /// What the edge runs along — see [`Runs`].
     along: Runs,
     /// The faces that have claimed it. Exactly two by the end, or the regions
@@ -88,22 +99,40 @@ enum Runs {
     Arc { imprint: u32, bounds: [f64; 2] },
 }
 
-/// Which corners of a loop are places rather than passings, in order.
+/// The imprint a loop runs along the whole way round, where it is one closed
+/// arc and nothing else.
 ///
-/// **A loop that is one arc the whole way round is split in two**, and that is
-/// the whole of why this is not just [`splitting::passing`] read off each
-/// corner. A circle bored through a face has no corner where one stretch meets
-/// a different one, so every one of them is a passing and the loop would come
-/// back empty; and an edge that ran the whole way round would begin and end at
-/// one vertex and say nothing about which way it went. §4.4 gives a *face* that
-/// wraps the same answer — split it, and say where — and half way round is
-/// where, for the same reason it is where a cylinder is split: nowhere in
-/// particular, so anywhere will do, so take the middle.
-fn kept(walk: &[Corner], into: &mut Vec<usize>) {
-    into.extend((0..walk.len()).filter(|&step| !splitting::passing(walk, step)));
-    if into.is_empty() && walk.len() > 1 {
-        into.extend([0, walk.len() / 2]);
-    }
+/// A circle bored through a face has no corner where one stretch meets a
+/// different one: every corner of it is a [`passing`](splitting::passing), so
+/// the loop has no places at all and nothing to hang an edge between. Which is
+/// a case rather than a degenerate — it is what every hole a round tool cuts
+/// looks like — and [`Sewing::encircle`] is the answer to it.
+///
+/// Fewer than three corners is not one: a closed imprint arrives flattened, and
+/// what a flattening of a circle cannot be is a pair of points.
+fn encircled(walk: &[Corner]) -> Option<u32> {
+    let Came::Arc(imprint) = walk.first()?.came else {
+        return None;
+    };
+    (walk.len() >= 3 && walk.iter().all(|it| it.came == Came::Arc(imprint))).then_some(imprint)
+}
+
+/// One place a curve already carries a vertex.
+///
+/// **What says where a closed imprint is split.** A circle has no corner of its
+/// own to begin at, but the *other* faces on it do: the wall of a bore is two
+/// faces of one cylinder split at a seam, and where that seam crosses the rim is
+/// a place a vertex already stands. Split anywhere else and the rim of the hole
+/// and the rim of the wall are two circles with four vertices between them,
+/// sharing no edge — so the shell never crosses from one to the other.
+///
+/// Kept as a place rather than as a parameter, because that is how the sewing
+/// tells any two things apart — see the module's own note — and because the two
+/// faces meeting there read the curve from different parameters.
+#[derive(Debug, Clone, Copy)]
+struct Pinned {
+    imprint: u32,
+    at: DVec3,
 }
 
 /// How far round `curve` the stretch from corner `from` to corner `to` goes,
@@ -115,18 +144,41 @@ fn kept(walk: &[Corner], into: &mut Vec<usize>) {
 /// pair of angles. Every chord is a small step at [`CHORDED`], so the shortest
 /// way round each of them is the way the boundary actually went, and the sum of
 /// those is the sweep.
+///
+/// Asked from a corner to itself, it goes the whole way round rather than
+/// nowhere — which is the one thing a caller wanting a lap could not otherwise
+/// say, and is what [`Sewing::encircle`] reads the direction of a closed loop
+/// off.
+///
+/// **Halfway first, every step.** "A small step at [`CHORDED`]" is true of a
+/// cut that is round in the parameters it was made in and false of one that is
+/// straight in them: a circle square to a cylinder's axis is the line
+/// `v = that` in its `(θ, v)`, so the whole half turn across a wall arrives as
+/// one step of exactly π — which is the one step the shortest way round cannot
+/// answer, the two ways being the same length. Halving it is enough for good:
+/// a stretch runs less than the whole way round, so each half runs less than
+/// half of it. The midpoint is read off the *parameters*, where it is on the
+/// curve exactly for a cut like that and a chord's breadth inside it for a
+/// flattened one — and a place a chord's breadth inside a circle stands at the
+/// angle the arc's middle does.
 fn swept(walk: &[Corner], from: usize, to: usize, on: Surface, curve: Curve) -> [f64; 2] {
-    let angle = |step: usize| curve.along(on.at(walk[step].at));
-    let start = angle(from);
+    let angle = |at: DVec2| curve.along(on.at(at));
+    let start = angle(walk[from].at);
     let (mut sweep, mut last) = (0.0, start);
     let mut step = from;
-    while step != to {
-        step = (step + 1) % walk.len();
-        let next = angle(step);
-        sweep += (next - last + PI).rem_euclid(TAU) - PI;
-        last = next;
+    loop {
+        let next = (step + 1) % walk.len();
+        let across = [(walk[step].at + walk[next].at) / 2.0, walk[next].at];
+        for at in across {
+            let now = angle(at);
+            sweep += (now - last + PI).rem_euclid(TAU) - PI;
+            last = now;
+        }
+        step = next;
+        if step == to {
+            break [start, start + sweep];
+        }
     }
-    [start, start + sweep]
 }
 
 /// One step of one loop: the edge it walks and which way.
@@ -175,6 +227,11 @@ pub(super) struct Sewing {
     /// [`Sewing::raise`] — and which of its corners are places.
     turning: Vec<Corner>,
     kept: Vec<usize>,
+    /// Every place a region's boundary already puts a vertex on an imprint —
+    /// see [`Sewing::pin`] — and the angles one closed imprint is broken at,
+    /// in the order its loop walks them.
+    pinned: Vec<Pinned>,
+    around: Vec<f64>,
     /// The room the validity check works in, held for the reason the rest is.
     checking: Checking,
 }
@@ -197,10 +254,11 @@ impl Sewing {
     ) -> bool {
         into.clear();
         self.reset();
+        self.pin(kept, loops);
         for region in kept {
             self.raise(region, loops, imprints, into);
         }
-        if !self.join() {
+        if !self.join(imprints, into) {
             into.clear();
             return false;
         }
@@ -227,6 +285,125 @@ impl Sewing {
         self.joins.clear();
         self.steps.clear();
         self.edges.clear();
+    }
+
+    /// Note every place a region's boundary already puts a vertex on an
+    /// imprint.
+    ///
+    /// **Read across every region before any of them is raised**, which is the
+    /// whole point: a closed imprint has no place of its own to begin at and
+    /// has to take one from a face that does — and which face that is has
+    /// nothing to do with the order the regions come in. The block is cut
+    /// before the tube that bores it, and it is the tube's wall that says where
+    /// the rim is split.
+    ///
+    /// A corner is a place on an imprint when the stretch entering it or the
+    /// stretch leaving it runs along one — either, because a corner where an
+    /// arc meets a straight edge is on the arc just as much as one where two
+    /// arcs meet. Passings are not places: they are where the flattening put a
+    /// corner, and no vertex will stand there.
+    fn pin(&mut self, kept: &[Kept], loops: &Loops<Corner>) {
+        self.pinned.clear();
+        for region in kept {
+            for run in region.loops.clone() {
+                let walk = loops.get(run);
+                for step in 0..walk.len() {
+                    if splitting::passing(walk, step) {
+                        continue;
+                    }
+                    let before = walk[(step + walk.len() - 1) % walk.len()].came;
+                    let marks = [before, walk[step].came];
+                    // **Lifted only where one of the two runs along an arc**,
+                    // which over two flat bodies is never. This walks every
+                    // corner of every region a boolean keeps, on the path a
+                    // document is rebuilt down sixty times a second, and a
+                    // place is a surface evaluation.
+                    if !marks.iter().any(|came| matches!(came, Came::Arc(_))) {
+                        continue;
+                    }
+                    let at = region.surface.at(walk[step].at);
+                    for came in marks {
+                        let Came::Arc(imprint) = came else {
+                            continue;
+                        };
+                        let known = self.pinned.iter().any(|it| {
+                            it.imprint == imprint && predicate::coincident(it.at, at, PLACED)
+                        });
+                        if !known {
+                            self.pinned.push(Pinned { imprint, at });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Put down the vertices and arcs of a loop that is one closed imprint.
+    ///
+    /// **Where the surface is already split**, which is [`Pinned`]: the places
+    /// other faces on this curve have already broken it at, and there is no
+    /// other answer — split anywhere else and the two rims of a bore share no
+    /// edge and no shell closes over them. Where nothing else broke it, §4.4's
+    /// answer for a face that wraps stands: split it, and say where. Its own
+    /// zero and half turn is where, so that two closed loops on one curve that
+    /// have only this to go on still agree.
+    ///
+    /// The vertices come off the *curve* and not off the corners: a corner of a
+    /// flattened circle stands a sagitta inside it, and a vertex a sagitta from
+    /// where the wall's own corner stands is a second vertex rather than the
+    /// same one.
+    fn encircle(&mut self, imprint: u32, imprints: &[Curve], on: Surface, into: &mut Body) {
+        let curve = imprints[imprint as usize];
+        self.around.clear();
+        for pinned in &self.pinned {
+            if pinned.imprint == imprint {
+                self.around.push(curve.along(pinned.at));
+            }
+        }
+        if self.around.is_empty() {
+            self.around.extend([0.0, PI]);
+        }
+        self.around
+            .sort_by(|one, two| one.partial_cmp(two).expect("an angle is finite"));
+        // Which way the loop goes round the curve, off the flattening that is
+        // about to be thrown away — the arcs have to be walked the way the
+        // region's own boundary walked them or the face will face the wrong way.
+        let [from, round] = swept(&self.turning, 0, 0, on, curve);
+        // A loop of one closed imprint is the whole of that curve, so its lap
+        // is a whole turn — and the sign of it is the only thing read below, so
+        // a loop that was not would be turned into arcs the wrong way round
+        // without anything noticing. Loosely, because what would be wrong with
+        // it is a whole turn out and not a rounding.
+        debug_assert!(
+            ((round - from).abs() - TAU).abs() < TAU / 4.0,
+            "a loop of one closed imprint swept {} rather than a whole turn",
+            round - from,
+        );
+        let forward = round > from;
+        if !forward {
+            self.around.reverse();
+        }
+        for which in 0..self.around.len() {
+            let at = self.around[which];
+            let next = self.around[(which + 1) % self.around.len()];
+            // One place is broken nowhere, so the arc leaving it is the whole
+            // turn; the difference would read as nought.
+            let step = match self.around.len() {
+                1 if forward => TAU,
+                1 => -TAU,
+                _ if forward => (next - at).rem_euclid(TAU),
+                _ => -((at - next).rem_euclid(TAU)),
+            };
+            let vertex = self.vertex(curve.at(at), into);
+            self.walks.push(Stepped {
+                vertex,
+                along: Runs::Arc {
+                    imprint,
+                    bounds: [at, at + step],
+                },
+            });
+        }
+        self.starts.push(self.walks.len());
     }
 
     /// Make the face one region becomes, and register the vertices it stands
@@ -259,9 +436,19 @@ impl Sewing {
             if !region.outward {
                 splitting::turned(&mut self.turning);
             }
-            // Which corners are places rather than passings — see [`kept`].
+            // A loop that is one closed arc has no place of its own to begin
+            // at, and is put down whole rather than walked — see
+            // [`Sewing::encircle`].
+            if let Some(imprint) = encircled(&self.turning) {
+                self.encircle(imprint, imprints, region.surface, into);
+                continue;
+            }
+            // Which corners are places rather than the ones a flattening put
+            // there — see [`splitting::passing`].
             self.kept.clear();
-            kept(&self.turning, &mut self.kept);
+            self.kept.extend(
+                (0..self.turning.len()).filter(|&step| !splitting::passing(&self.turning, step)),
+            );
             for which in 0..self.kept.len() {
                 let step = self.kept[which];
                 let corner = self.turning[step];
@@ -352,7 +539,7 @@ impl Sewing {
 
     /// Find the edge every step of every loop walks, and say whether each was
     /// claimed by exactly two faces.
-    fn join(&mut self) -> bool {
+    fn join(&mut self, imprints: &[Curve], into: &Body) -> bool {
         self.steps.clear();
         self.steps.reserve_exact(self.walks.len());
         for which in 0..self.raised.len() {
@@ -366,7 +553,17 @@ impl Sewing {
                         step + 1
                     };
                     let ends = [self.walks[step].vertex, self.walks[next].vertex];
-                    let claimed = self.claim(ends, self.walks[step].along, face);
+                    let along = self.walks[step].along;
+                    let middle = match along {
+                        Runs::Arc { imprint, bounds } => {
+                            imprints[imprint as usize].at((bounds[0] + bounds[1]) / 2.0)
+                        }
+                        Runs::Straight => {
+                            let [from, to] = ends.map(|end| into.topology().vertex(end).at);
+                            (from + to) / 2.0
+                        }
+                    };
+                    let claimed = self.claim(ends, middle, along, face);
                     self.steps.push(claimed);
                 }
             }
@@ -374,15 +571,17 @@ impl Sewing {
         self.joins.iter().all(|join| join.claims == 2)
     }
 
-    /// Claim the edge between `ends` for `face`, finding it or starting it.
-    fn claim(&mut self, ends: [VertexId; 2], along: Runs, face: FaceId) -> Step {
-        let found = self
-            .joins
-            .iter()
-            .position(|join| join.ends == ends || join.ends == [ends[1], ends[0]]);
+    /// Claim the edge between `ends` and through `middle` for `face`, finding
+    /// it or starting it.
+    fn claim(&mut self, ends: [VertexId; 2], middle: DVec3, along: Runs, face: FaceId) -> Step {
+        let found = self.joins.iter().position(|join| {
+            (join.ends == ends || join.ends == [ends[1], ends[0]])
+                && predicate::coincident(join.middle, middle, PLACED)
+        });
         let Some(join) = found else {
             self.joins.push(Join {
                 ends,
+                middle,
                 along,
                 between: [Some(face), None],
                 claims: 1,

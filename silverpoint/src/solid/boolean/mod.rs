@@ -2,14 +2,18 @@
 //!
 //! Four stages, each with its two-dimensional precedent already working next
 //! door in [`Arrangement`](crate::Arrangement) — see `.notes/KERNEL.md` §7.4.
-//! Every face of each body is cut by every plane of the other that reaches it
-//! ([`splitting`]); each region that falls out is asked where it stands
+//! Every face of each body is cut by every surface of the other ([`splitting`])
+//! — by the surface and not by the face; each region that falls out is asked
+//! where it stands
 //! ([`sounding`]); the operator says which of those to keep; and what is kept
 //! is sewn back into a body.
 //!
-//! **Planar only**, which is what M4 is. A body with anything curved in it is
-//! refused rather than approximated, because a curved face cut by a plane meets
-//! it in a curve this has no way to carry.
+//! **Curved as well as flat**, over the exact tier: a face is laid out in its
+//! own parameters and a cut is a line or a circle in them, the polyline that
+//! comes of it decides which regions to keep, and the *curve* the meeting gave
+//! builds the edge. Nothing here is refused for being round. What is refused is
+//! a crossing that cannot be written down in a face's own parameters — see
+//! [`imprinted`] — which is a narrower thing and says so where it happens.
 
 use crate::loops::Loops;
 use crate::math::triangulate::{Cutter, Fill};
@@ -133,9 +137,9 @@ impl Boolean {
     /// Put `one` and `two` together as `doing` says, into `into`.
     ///
     /// `false`, with `into` emptied, where it will not — and a refusal is an
-    /// answer rather than a failure. Four things are refused: a body with a
-    /// curved face in it, which waits on a closed imprint having somewhere to
-    /// begin; a result whose regions leave an edge with one face or
+    /// answer rather than a failure. Four things are refused: a crossing no
+    /// face's own parameters can carry, which today means an ellipse or a line
+    /// along a cylinder; a result whose regions leave an edge with one face or
     /// three, which two solids meeting along nothing but an edge genuinely do;
     /// one that closes into shells sharing a corner, which two meeting at
     /// nothing but a point genuinely do; and a cavity with more than one lump
@@ -199,13 +203,18 @@ struct Combining {
     /// The distinct surfaces of the body being cut against — see
     /// [`Combining::against`], which says why they are not its faces.
     met: Vec<Surface>,
-    /// Every curve a cut imprinted that is not a straight line, in the order
-    /// they were made — which is the order [`Came::Arc`] numbers them in.
+    /// Every curve an imprint runs along that is not a straight line, in the
+    /// order they were numbered — which is the order [`Came::Arc`] reads them
+    /// in.
     ///
     /// Held for the whole combine rather than per face, because the loops above
     /// are too: a region of one face and a region of another both point in
     /// here, and a list emptied between faces would have them pointing at each
     /// other's curves.
+    ///
+    /// **One number per curve**, which is what lets the sewing tell that an arc
+    /// of one region and an arc of another are the same arc — see
+    /// [`numbered`].
     imprints: Vec<Curve>,
     kept: Vec<Kept>,
 }
@@ -213,14 +222,10 @@ struct Combining {
 impl Combining {
     /// Cut both bodies against each other and keep what `doing` asks for.
     ///
-    /// `false` where it will not: a curved body at the door — see [`flat`],
-    /// which says what is left before that gate can lift — and a crossing
-    /// nothing here can write down in a face's own parameters, which is
-    /// [`imprinted`]. See `.notes/KERNEL.md` §8's `Built::Refused`.
+    /// `false` where a crossing turns up that nothing here can write down in a
+    /// face's own parameters, which is [`imprinted`]. See `.notes/KERNEL.md`
+    /// §8's `Built::Refused`.
     fn combine(&mut self, one: &Body, two: &Body, doing: Operation) -> bool {
-        if !flat(one) || !flat(two) {
-            return false;
-        }
         self.loops.clear();
         self.kept.clear();
         self.imprints.clear();
@@ -286,17 +291,17 @@ impl Combining {
                 // Each curve of the meeting in turn: a plane cutting a chord
                 // off a cylinder meets it in two, and both divide the face.
                 for curve in along.curves() {
-                    // The number the imprint *would* take, handed down rather
-                    // than handed back: a round cut carries its own — see
-                    // [`Cut::Round`] — so it has to be numbered before it is
-                    // built, and only a cut that turns out round spends it.
-                    let next = self.imprints.len() as u32;
-                    let Some(Imprint { cut, curve }) = imprinted(face.surface, *curve, next) else {
+                    // Numbered before the cut is built rather than after, which
+                    // is what a round cut needs: it carries its own number —
+                    // see [`Cut::Round`] — so there is nothing to hand back.
+                    // A straight imprint carries none and spends none.
+                    let next = match curve {
+                        Curve::Line(_) => None,
+                        _ => Some(numbered(&mut self.imprints, *curve)),
+                    };
+                    let Some(cut) = imprinted(face.surface, *curve, next) else {
                         return false;
                     };
-                    if let Some(curve) = curve {
-                        self.imprints.push(curve);
-                    }
                     if !self.splitting.split(&self.cells, cut, &mut self.spare) {
                         return false;
                     }
@@ -347,10 +352,7 @@ impl Combining {
                     // straight edges rather than as the circle it is.
                     let came = match topology.edge(coedge.edge).curve {
                         Curve::Line(_) => Came::Edge,
-                        curve => {
-                            imprints.push(curve);
-                            Came::Arc(imprints.len() as u32 - 1)
-                        }
+                        curve => Came::Arc(numbered(imprints, curve)),
                     };
                     topology.walk(*coedge, CHORDED, traced);
                     marks.resize(traced.len(), came);
@@ -453,19 +455,24 @@ fn agree(theirs: DVec3, facing: DVec3) -> bool {
     theirs.dot(facing) > 0.0
 }
 
-/// A cut in a surface's own parameters, and the world curve it was imprinted
-/// from where that is worth remembering.
+/// The number `curve` imprints under, taken from wherever the same curve
+/// already has one.
 ///
-/// The two together because they are one answer: the cut is what divides the
-/// face and the curve is what the edge along it will lie on, and parameters
-/// cannot be asked for the second — a plane's uv is the same whichever body
-/// drew on it.
-#[derive(Debug)]
-struct Imprint {
-    cut: Cut,
-    /// `None` for a straight imprint: a line between two places is determined
-    /// by the places, so nothing about it has to be carried.
-    curve: Option<Curve>,
+/// **One number per curve, across both bodies and every face of either.** The
+/// same circle is met twice — once cutting a block's end, once cutting the
+/// tube that bores it — and the two meetings hand back the identical curve,
+/// [`Meeting::of`] being one routine whichever way round it is asked. Numbered
+/// apart, an arc of the block's rim and an arc of the bore's wall would be two
+/// curves that happen to coincide, and nothing downstream could tell that a
+/// place on one is a place on the other. Which is what the sewing has to know
+/// before it can split a closed imprint where the surface is already split —
+/// see [`Sewing::pin`](sewing::Sewing::pin).
+fn numbered(imprints: &mut Vec<Curve>, curve: Curve) -> u32 {
+    let found = imprints.iter().position(|&it| it == curve);
+    found.unwrap_or_else(|| {
+        imprints.push(curve);
+        imprints.len() - 1
+    }) as u32
 }
 
 /// `along` in `on`'s own parameters, or `None` where it cannot be carried
@@ -482,18 +489,20 @@ struct Imprint {
 /// surfaces meet along this curve, so what this cannot carry is a face that
 /// would really have been divided — see [`Combining::against`], which turns
 /// that into a refusal of the whole boolean.
-fn imprinted(on: Surface, along: Curve, imprint: u32) -> Option<Imprint> {
+///
+/// `imprint` is the number the curve was given, and `None` where it was given
+/// none because it is a straight line — see [`numbered`]. The round arms want
+/// one and the straight-on-a-plane arm does not, which is exactly the two
+/// states of that argument.
+fn imprinted(on: Surface, along: Curve, imprint: Option<u32>) -> Option<Cut> {
     match (on, along) {
         // A line on a plane is a line in its parameters.
         (Surface::Plane(plane), Curve::Line(line)) => {
             let at = plane.flatten(line.origin);
-            Some(Imprint {
-                cut: Cut::Straight {
-                    at,
-                    along: (plane.flatten(line.origin + line.direction) - at).normalize(),
-                    imprint: None,
-                },
-                curve: None,
+            Some(Cut::Straight {
+                at,
+                along: (plane.flatten(line.origin + line.direction) - at).normalize(),
+                imprint: None,
             })
         }
         // A circle lying *in* a plane keeps its frame whole: the centre
@@ -501,14 +510,11 @@ fn imprinted(on: Surface, along: Curve, imprint: u32) -> Option<Imprint> {
         // **Inward**, so what is kept first is the disc — the splitter cuts both
         // ways round and each side is read by where it stands, so which is
         // asked first says nothing about the answer.
-        (Surface::Plane(plane), Curve::Circle(circle)) => Some(Imprint {
-            cut: Cut::Round {
-                middle: plane.flatten(circle.axis.origin),
-                radius: circle.radius,
-                inward: true,
-                imprint,
-            },
-            curve: Some(Curve::Circle(circle)),
+        (Surface::Plane(plane), Curve::Circle(circle)) => Some(Cut::Round {
+            middle: plane.flatten(circle.axis.origin),
+            radius: circle.radius,
+            inward: true,
+            imprint: imprint.expect("a circle is numbered"),
         }),
         // A circle on a cylinder square to its axis is a *straight* cut in the
         // cylinder's own parameters: every place on it stands the same distance
@@ -522,13 +528,10 @@ fn imprinted(on: Surface, along: Curve, imprint: u32) -> Option<Imprint> {
         (Surface::Cylinder(tube), Curve::Circle(circle))
             if predicate::parallel(circle.axis.direction, tube.axis.direction) =>
         {
-            Some(Imprint {
-                cut: Cut::Straight {
-                    at: DVec2::new(0.0, tube.axis.along(circle.axis.origin)),
-                    along: DVec2::X,
-                    imprint: Some(imprint),
-                },
-                curve: Some(Curve::Circle(circle)),
+            Some(Cut::Straight {
+                at: DVec2::new(0.0, tube.axis.along(circle.axis.origin)),
+                along: DVec2::X,
+                imprint,
             })
         }
         // Everything else. A ruling line on a cylinder is a cut at a constant
@@ -538,22 +541,6 @@ fn imprinted(on: Surface, along: Curve, imprint: u32) -> Option<Imprint> {
         // An ellipse anywhere is a sinusoid or worse.
         _ => None,
     }
-}
-
-/// Whether every face of `body` lies on a plane.
-///
-/// **The one thing still refused wholesale**, and it is a narrower refusal than
-/// it reads: every stage below now works in a face's own parameters, meets
-/// surfaces exactly and remembers the curve an imprint came from. What is left
-/// is a *closed* imprint — a circle bored through a face has no endpoints, so
-/// the run of corners along it collapses to nothing and the arc that comes back
-/// has no way to say which of its two ways round the edge walks. Both want the
-/// same answer §4.4 gives a wrapping face: split it, and say where. Until then
-/// a curved body is turned away at the door rather than part way through.
-fn flat(body: &Body) -> bool {
-    body.topology()
-        .faces()
-        .all(|(_, face)| matches!(face.surface, Surface::Plane(_)))
 }
 
 #[cfg(test)]

@@ -1170,7 +1170,7 @@ its own. What was wrong was the vertex, whose faces come in two cones with no
 edge between them, and only a walk across *shells* can see that. `Sewing` now
 claims a shell's corners as it gathers it and refuses a second claim.
 
-### M5 — boolean over the whole exact tier — **roadmap item 2 delivered**
+### M5 — boolean over the whole exact tier — the round cut **done**, cylinder ∩ cylinder **open**
 
 **How a curved cut is carried, decided.** The polyline classifies and the curve
 builds: `Cells` goes on holding points in a surface's parameters, a closed cut
@@ -1291,27 +1291,69 @@ vertices: read the old way, the rim of every hole a curved tool cuts was thrown
 away and the block came back whole. That was the missing hole, and it was in the
 sewing rather than in `punch`.
 
-Still shut, and the door is now held by one thing rather than by "curved". A
-bore reaches `Sewing::gather` and is refused there — every edge claimed exactly
-twice, so the regions do close, but the faces do not come out as one shell with
-one lump. The two candidates are the shell walk not crossing from the block to
-the wall, and the block's rim being split at its own middle while the wall's is
-split at the cylinder's seam, which puts four vertices on one circle where there
-should be two. Splitting a closed imprint *where the surface is already split*
-rather than at its middle would settle both.
+**And the door is open.** A closed imprint is split *where the surface is
+already split*, which is the answer the last increment was one guess away from
+and is not a convention at all. Every region a boolean keeps is read once
+before any of it is raised, and every place a boundary already puts a vertex on
+an imprint is noted; a loop that is one arc the whole way round then takes its
+two vertices from that list rather than from its own flattening. So a bore's rim
+is broken where the wall's own seam crosses it, and the two rims are one circle
+with two vertices instead of two circles with four. Where nothing else broke the
+curve — nothing does yet — §4.4's answer still stands, pinned to the curve's own
+zero and half turn so two such loops cannot disagree.
+
+Three things that fell out of it, and each was a bug the bore alone would have
+shown:
+
+**One number per curve.** `Meeting::of` is one routine whichever way round it is
+asked, so the circle a plane cuts out of a cylinder is the identical value both
+times — but it was numbered twice, once per body, and nothing downstream could
+tell that a place on one arc was a place on the other. Imprints are interned by
+value now.
+
+**A vertex comes off the curve, not off a corner.** A corner of a flattened
+circle stands a sagitta inside it, and a vertex a sagitta from where the wall's
+own corner stands is a second vertex rather than the same one.
+
+**Two arcs between one pair of vertices are two edges.** An edge was found by its
+ends, which is true of every straight one and false of both halves of a rim. Read
+that way a bore's rim is one edge claimed four times: the two walls close into a
+lens of their own and the block is never reached. An edge is found by its ends
+*and* a place halfway along it now — which for a straight edge follows from the
+ends and so changes nothing there.
+
+**And a cut along the boundary divides nothing.** A body cut against one grown
+off the same circle — a boss on a plate, a second feature off the drawing that
+made the first — imprints a circle exactly where the face already has one, and
+the region came back with the cut added as a second copy of a hole it already
+had. Which is the round answer to what a coplanar pair of faces is in the flat
+one: the surface is described twice and the region is whole on one side of it
+and absent from the other. The demo reaches this on its second extrude.
+
+**What is refused, and it is no longer "curved".** A ruling line on a cylinder —
+a plane parallel to its axis — is a cut at a constant angle in a parameter that
+*wraps*, and `imprinted` turns it away; an ellipse is a sinusoid and likewise;
+two cylinders across each other are `Meeting::Algebraic`. So M5 delivers the
+bore, the pocket, the boss and the rod, and turns away the cross drilling.
+Steinmetz waits on cylinder ∩ cylinder, which wants parameter-space sinusoids
+and is the next thing in this milestone rather than the last thing in it.
 
 Cylinders, cones and spheres, all of them, because they are one algebra.
 
-**Tests.** Cube minus a concentric cylinder: volume `a³ − πr²h`, and the body
-reports **exact** rather than a tolerance. The pocket wall's name is the tool's
-`Side(circle)` and its material side is the negation of the tool's. A through
-hole leaves the top face with an inner loop, `R` up by one and genus up by one.
-A cut flush with an existing face leaves that face's name unchanged. A cut
-removing everything reports `Built::Empty` and later steps still build. **Two
-equal perpendicular cylinders give the Steinmetz solid, whose intersection
-volume is exactly `16r³/3`** — an analytic cross-check that catches nearly every
-possible error. Cross drilling with unequal diameters, offset axes and tangent
-axes.
+**Tests, held.** Cube minus a concentric cylinder: eight faces, eighteen edges,
+twelve vertices, genus one, both walls on the tool's own exact cylinder and
+every rim a half turn of its own circle. Volume `a³ − πr²h` read at three
+sagittas, because a single reading would pass against a body whose wall really
+was the polygon. The same four ways round — bored through, stopped half way, a
+boss on the end, and the rod kept on its own. The pocket's wall is the tool's
+`Side(circle)` over both halves and every face of the tool comes through facing
+the other way. A crossing no face can carry is refused with nothing left behind.
+
+**Tests, waiting on the rest of the milestone.** Two equal perpendicular
+cylinders give the Steinmetz solid, whose intersection volume is exactly
+`16r³/3` — an analytic cross-check that catches nearly every possible error.
+Cross drilling with unequal diameters, offset axes and tangent axes. A cut
+removing everything reports `Built::Empty` and later steps still build.
 
 ### M6 — the fitted tier: torus, and marching
 
@@ -1347,9 +1389,12 @@ Either true of a commit or not.
    what it just built, under `cfg!(debug_assertions)`. Every check it makes has
    a test that breaks a valid body one way and shows it caught.
 4. **No silent tolerance.** §4.1.
-5. **Every milestone is a stopping point.** Held: the tree stands at M2 with
-   CatCad no worse off than before, and every solid it draws sits on an exact
-   surface where none did. The next is M5, where roadmap item 2 is delivered.
+5. **Every milestone is a stopping point.** Held: the tree stands part way
+   through M5 with CatCad better off than before, not merely no worse — a
+   document can bore a hole, sink a pocket and stand a boss, all of it exact,
+   where the boolean turned away anything round the day before. What is left of
+   M5 is cylinder ∩ cylinder, and what waits on it is the cross drilling and the
+   Steinmetz cross-check.
 6. **Do not extrapolate.** M1–M2 were the comfortable part and are done, and
    M3a came in behind them cheaply because the degenerate cases are geometry
    rather than algebra. M3b is where the truth is, and it cannot start before

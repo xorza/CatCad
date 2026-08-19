@@ -11,11 +11,17 @@
 //! **Cutting further than necessary is deliberate.** A plane of the other body
 //! that only clips a corner still cuts this face from edge to edge, leaving two
 //! regions where the boundary between them is no boundary at all. That costs
-//! faces and costs nothing else: the two lie on one surface, so the edge
-//! between them is flagged as no crease, they carry the same
-//! [`Grown`](crate::solid::grown::Grown) name, and a caller asking what faces
-//! the body has is answered in names rather than in pieces. See
+//! faces and, while every surface was a plane, nothing else: the two lie on one
+//! surface, so the edge between them is flagged as no crease, they carry the
+//! same [`Grown`](crate::solid::grown::Grown) name, and a caller asking what
+//! faces the body has is answered in names rather than in pieces. See
 //! `.notes/KERNEL.md` §4.4 and §5.
+//!
+//! It costs one thing more now that a surface may be round. What divides a face
+//! has to be writable in that face's own parameters, and some crossings are not
+//! — so a surface the face never actually meets can refuse the whole boolean
+//! for a cut that would have divided nothing. Asking whether the *faces* meet
+//! before asking whether the surfaces do is the answer, and it is not written.
 
 use crate::loops::Loops;
 use crate::math::arc;
@@ -465,6 +471,31 @@ impl Cells {
     }
 }
 
+/// Whether a region the cut runs along the boundary of is on the side kept.
+///
+/// **Which side it is on, where its boundary cannot say.** A corner on the cut
+/// is on neither side, so the answer comes off the first corner that is not —
+/// an outline standing clear of a hole the cut lies along, most often.
+///
+/// Where every corner is on it, the region *is* what the cut bounds, and then
+/// the middle of the cut is the one place inside it there is to ask. A straight
+/// cut has no middle and needs none: a region every corner of which lies on one
+/// line has no width, and bounds nothing on either side of it.
+fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut) -> bool {
+    for walk in region {
+        for corner in walk {
+            match Side::of(cut, corner.at) {
+                Side::On => continue,
+                side => return side == Side::Kept,
+            }
+        }
+    }
+    match cut {
+        Cut::Round { middle, .. } => cut.side(middle) > 0.0,
+        Cut::Straight { .. } => false,
+    }
+}
+
 /// Cuts regions along a line or a circle, keeping the room it works in.
 #[derive(Debug, Default)]
 pub(super) struct Splitting {
@@ -474,6 +505,12 @@ pub(super) struct Splitting {
     /// about it is the same whatever met it — refuse the whole boolean — and
     /// the walk that finds one is three frames down from the call that reports.
     beyond: bool,
+    /// Whether a loop of the region being cut lay wholly *on* the cut.
+    ///
+    /// A flag for the reason the one above is: what finds it is the walk over
+    /// one loop, and what has to act on it is the walk over the region those
+    /// loops belong to. See [`Splitting::region`].
+    alongside: bool,
     /// Which side of the cut each corner of the loop being walked fell.
     sides: Vec<Side>,
     /// A closed cut as a loop of its own, flattened — see [`Cut::walk`].
@@ -537,9 +574,33 @@ impl Splitting {
         self.chains.clear();
         self.ends.clear();
         self.whole.clear();
+        self.alongside = false;
         let held = region.clone();
         for walk in region {
             self.chain(walk, cut);
+        }
+        // **A cut running along a loop of the boundary divides nothing.** The
+        // region is whole on one side of it and absent from the other, which is
+        // the round answer to what a coplanar pair of faces is in the flat one:
+        // the surface is described twice and at most one description survives.
+        // Reached whenever a body is cut against one grown off the same circle
+        // — a boss on a plate, a second feature off the drawing that made the
+        // first — and read any other way the region comes back with the cut
+        // added as a second copy of a hole it already had.
+        //
+        // Nothing crossed, which a closed cut running along a loop guarantees —
+        // a hole cannot be crossed by the outline that holds it — and a
+        // straight one does not: a zero-width loop lying on a line says nothing
+        // about a cut that divides the region elsewhere.
+        if self.alongside && self.chains.len() == 0 {
+            if kept(held.clone(), cut) {
+                into.add(|write| {
+                    for walk in held {
+                        write.push(walk);
+                    }
+                });
+            }
+            return;
         }
         // **A closed cut the boundary never met.** A circle can lie wholly
         // within a region and take a disc out of its middle without touching an
@@ -645,10 +706,13 @@ impl Splitting {
                 self.beyond = true;
                 return;
             }
-            // Nothing of it fell away. A loop lying wholly *on* the cut bounds
-            // nothing and is left behind with the dropped side.
+            // Nothing of it fell away. A loop lying wholly *on* the cut is the
+            // cut running along the boundary rather than dividing it, which is
+            // the region's business and not this loop's.
             if self.sides.contains(&Side::Kept) {
                 self.whole.push(walk);
+            } else {
+                self.alongside = true;
             }
             return;
         }

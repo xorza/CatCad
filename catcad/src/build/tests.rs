@@ -23,6 +23,14 @@ fn square() -> Sketch {
     sketch
 }
 
+/// One circle of unit radius about the origin.
+fn ring() -> Sketch {
+    let mut sketch = Sketch::default();
+    let center = sketch.add_point(DVec2::ZERO);
+    sketch.add_circle(center, 1.0);
+    sketch
+}
+
 /// Two circles far enough apart to miss each other: two regions, and six
 /// degrees of freedom — a centre apiece and a radius apiece.
 fn two_rings() -> Sketch {
@@ -131,31 +139,41 @@ fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
 /// **A step the kernel will not merge stands beside the model rather than
 /// vanishing**, which is the whole of what a refusal costs.
 ///
-/// Two rings far enough apart to miss each other, each carried up into a
-/// cylinder. The boolean is planar — M4, and M5 is what widens it — so joining
-/// the second onto the first is refused, and what the document shows is both
-/// solids side by side: exactly the picture it showed before there were
-/// booleans at all. The tree says which step could not be merged, because
-/// [`Models::lost`] counts a refusal among what went wrong.
+/// A square and a disc drawn on one plane, overlapping, each carried up two.
+/// The square's walls run *along* the disc's cylinder — a plane parallel to an
+/// axis meets it in two ruling lines, which are cuts at a constant angle in a
+/// parameter that wraps and nothing yet writes one down. So joining the second
+/// onto the first is refused, and what the document shows is both solids side
+/// by side: exactly the picture it showed before there were booleans at all.
+/// The tree says which step could not be merged, because [`Models::unmerged`]
+/// counts a refusal apart from a lost profile.
+///
+/// Two sketches rather than one, because a square drawn over a circle is *cut*
+/// by it: what would come out is three regions and neither operand whole.
 #[test]
 fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
-        sketch: two_rings(),
+        sketch: square_at(0.5, -0.5),
+    });
+    let round = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: ring(),
     });
 
     let mut build = Build::default();
     timeline.edit(drawn).opened(&mut build);
-    let open = |timeline: &Timeline, build: &Build, region| {
-        Models::new(timeline, build, Some(drawn))
+    timeline.edit(round).opened(&mut build);
+    let open = |timeline: &Timeline, build: &Build, at| {
+        Models::new(timeline, build, Some(at))
             .open()
             .expect("a fixture opens the sketch it names")
-            .profile(region)
+            .profile(0)
     };
-    let one = open(&timeline, &build, 0);
-    let two = open(&timeline, &build, 1);
+    let one = open(&timeline, &build, drawn);
+    let two = open(&timeline, &build, round);
     let first = timeline.add(Feature::Extrude {
         profile: one,
         distance: 2.0,
@@ -173,7 +191,7 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     assert_eq!(
         build.bodied(second).built(),
         Built::Refused,
-        "a planar boolean joined two cylinders",
+        "a cut along a cylinder's ruling was carried through",
     );
 
     // Both on screen, each still its own solid, and each still knowing which
