@@ -171,6 +171,23 @@ pub(crate) enum Change {
     /// the document rather than about this: everything is measured from them,
     /// however many links back.
     DeleteStep { step: FeatureId },
+    /// Move a step to a different place in the recipe.
+    ///
+    /// **A final position, clamped before it is asked for.** Where a step may go
+    /// is a run bounded by what it is built on and what is built on it — see
+    /// [`Timeline::moves_within`](crate::timeline::Timeline) — and whatever
+    /// raises this clamps to that run, so an invalid position is unreachable
+    /// rather than refused. Naming where it wants to end up is also what makes a
+    /// replayed pass land in the same place, like everything else here; "one
+    /// place up" asked twice would travel two.
+    ///
+    /// **It changes nothing built, today.** Every step resolves what it is built
+    /// on by reference rather than by position, so the model comes out identical
+    /// whatever order the recipe runs in. What order decides is what the tree
+    /// shows, what the file writes, and — once there is a bar — how much of the
+    /// recipe is built at all. It stops being cosmetic the moment a solid can be
+    /// built on another.
+    Reorder { step: FeatureId, to: usize },
     /// Take a plane to a new offset from the one it is measured off.
     ///
     /// Names the offset it wants rather than a step to take, like everything
@@ -265,6 +282,11 @@ impl Change {
             // And the one that takes steps away, which has no *after* for the
             // same reason a creation has no before.
             Change::DeleteStep { .. } => About::Removes,
+            // And the one that moves a step without changing what any step says.
+            // Its own arm rather than a rewrite of the step it names, because a
+            // rewrite is recorded by comparing what a step held on either side
+            // and this leaves every one of them holding exactly what it did.
+            Change::Reorder { step, .. } => About::Moves { at: step },
             // The camera is not the drawing. Turning it names no step, so there
             // is nothing to take back and nothing to solve again.
             Change::Orbit { .. }
@@ -307,6 +329,14 @@ pub(crate) enum About {
     /// of structural change a compile error rather than a step nothing can take
     /// back.
     Removes,
+    /// It moves the step at `at` without changing what any step says.
+    ///
+    /// The one structural change with nothing to record on either side but a
+    /// *place*: no step is made, none is taken away, and every one of them holds
+    /// afterwards exactly what it held before. Which is why it cannot be a
+    /// [`About::Rewrites`] — that arm decides whether to record anything by
+    /// comparing the step's value at either end, and here they are equal.
+    Moves { at: FeatureId },
     /// It rewrites the step at `at`, which the timeline already holds.
     Rewrites {
         at: FeatureId,

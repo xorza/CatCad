@@ -4,6 +4,8 @@
 //! order really says is that a step's referents come earlier than it, and that
 //! is what makes this a recipe rather than a graph.
 
+use std::ops::Range;
+
 use silverpoint::Plane;
 
 use crate::drawing::Drawing;
@@ -318,6 +320,71 @@ impl Timeline {
     /// How many steps there are.
     pub(crate) fn count(&self) -> usize {
         self.steps.len()
+    }
+
+    /// Where the step at `at` may be moved to: after everything it is built on,
+    /// before everything built on it.
+    ///
+    /// **A range and not a yes-or-no**, which is what keeps the invariant
+    /// absolute rather than conditional. A step's referents come earlier and its
+    /// dependents later, so the positions it may legally take are a run with the
+    /// one it currently holds somewhere inside — and a gesture clamped to the
+    /// run cannot ask for a position that would break the recipe. Nothing has to
+    /// refuse anything, because nothing invalid can be asked.
+    ///
+    /// **Direct referents and direct dependents are enough.** Anything built on
+    /// a dependent is later than that dependent, so the nearest one is the
+    /// binding constraint; the same downwards.
+    ///
+    /// A *final* index, like the one [`Timeline::shift`] takes: the run ends
+    /// exactly at the first dependent's position, because landing one place
+    /// earlier is landing immediately before it.
+    pub(crate) fn moves_within(&self, at: FeatureId) -> Range<usize> {
+        let held = self.position(at).expect(REMOVED_STEP);
+        let after = self
+            .feature(at)
+            .referents()
+            .map(|on| self.position(on).expect(REMOVED_STEP) + 1)
+            .max()
+            .unwrap_or(0);
+        let before = self.steps[held + 1..]
+            .iter()
+            .position(|step| step.feature.referents().any(|on| on == at))
+            .map_or(self.steps.len(), |nth| held + 1 + nth);
+        after..before
+    }
+
+    /// Move the step at `at` to `to`, which has to be somewhere it may go.
+    ///
+    /// A *final* index: the step ends up there, and everything between where it
+    /// was and where it lands closes up behind it.
+    ///
+    /// The assertion is a statement rather than a guard — whatever raises a move
+    /// clamps it to [`Timeline::moves_within`] first, so an invalid one is
+    /// unreachable rather than refused. It is here because that is the one line
+    /// that would make the recipe a graph.
+    pub(crate) fn shift(&mut self, at: FeatureId, to: usize) {
+        let from = self.position(at).expect(REMOVED_STEP);
+        assert!(
+            self.moves_within(at).contains(&to),
+            "a step cannot be moved past what it is built on or what is built on it"
+        );
+        if from == to {
+            return;
+        }
+        let step = self.steps.remove(from);
+        self.steps.insert(to, step);
+        self.refile();
+    }
+
+    /// Where the step at `at` sits among the rest.
+    ///
+    /// The one place a position leaves the timeline. A handle is what everything
+    /// names a step by, and a position is a fact about the *recipe* rather than
+    /// about the step — which is why only the two things that are about the
+    /// recipe ask for one: a move, and putting back what a delete took.
+    pub(crate) fn position_of(&self, at: FeatureId) -> usize {
+        self.position(at).expect(REMOVED_STEP)
     }
 
     /// Whether the step at `at` may be taken out at all.

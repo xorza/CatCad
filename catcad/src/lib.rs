@@ -38,7 +38,7 @@ pub use bench::alloc_bench;
 use std::path::PathBuf;
 
 use palantir::{
-    App, Configure, HostHandle, Key, KeyFilter, Panel, Shortcut, Sizing, Ui, WindowToken,
+    App, Configure, HostHandle, Key, KeyFilter, Mods, Panel, Shortcut, Sizing, Ui, WindowToken,
 };
 
 use crate::build::Build;
@@ -78,6 +78,20 @@ const DELETE: Shortcut = Shortcut::key(Key::Delete);
 /// The three every modeller binds, in the places every modeller binds them.
 /// Save As is Save with Shift, which is why the two are matched exactly rather
 /// than by modifier subset — see [`UNDO`].
+/// Move the picked step one place earlier or later in the recipe.
+///
+/// **The chord and not a drag on the row**, deliberately. A drag is the gesture
+/// a tree wants, and it wants live feedback with it — a row that follows the
+/// pointer, or a gap opening where it would land — because a drag without one is
+/// a gesture you make blind. That is worth building when the order *does*
+/// something: today every step resolves what it stands on by reference, so a
+/// reorder changes what the tree shows and what the file writes and nothing
+/// else. A press moves the row by one and shows it, which is the whole gesture
+/// and needs nothing held between frames.
+///
+/// Ctrl rather than bare arrows, which the view will want for nudging geometry.
+const REORDER_UP: Shortcut = Shortcut::new(Mods::CTRL, Key::ArrowUp);
+const REORDER_DOWN: Shortcut = Shortcut::new(Mods::CTRL, Key::ArrowDown);
 const NEW: Shortcut = Shortcut::ctrl('N');
 const SAVE: Shortcut = Shortcut::ctrl('S');
 const SAVE_AS: Shortcut = Shortcut::ctrl_shift('S');
@@ -227,6 +241,23 @@ impl CatCad {
                 Tool::Pointer => Intent::from(Choice::Close),
                 _ => Choice::Hold(Tool::Pointer).into(),
             });
+        }
+        // One step and no more, because a move puts *a* step somewhere: two at
+        // once would be two moves whose second is measured against what the
+        // first left, which is a thing to ask for twice if it is wanted.
+        if let [Part::Step(step)] = *self.session.selection().picked() {
+            for (chord, by) in [(REORDER_UP, -1), (REORDER_DOWN, 1)] {
+                // Clamped here rather than refused there, so the document is
+                // never asked for a position a step may not take — see
+                // [`Change::Reorder`]. At the end of its run the key does
+                // nothing, which is not the same as a step that moved nowhere:
+                // that one would be an undo to press and watch do nothing.
+                if ui.key_pressed(chord)
+                    && let Some(to) = self.document.nudged(step, by)
+                {
+                    self.intents.push(Change::Reorder { step, to });
+                }
+            }
         }
         // Everything picked out, each named rather than "the selection": an
         // intent says where it wants to end up, and a replayed pass reading the

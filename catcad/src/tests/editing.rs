@@ -479,3 +479,82 @@ fn a_tree_row_picks_the_step_it_stands_for_and_delete_takes_it() {
         "the solid grown from it stayed behind"
     );
 }
+
+/// Ctrl+Down moves the picked step one place later, Ctrl+Up puts it back, and a
+/// step at the end of its run does not move at all.
+///
+/// **The wiring, and the refusal at the ends.** Where a step may go is the
+/// timeline's, asked of a hand-built chain in its own tests; what this pins is
+/// that the chord reaches it, that the clamp happens before the document is
+/// asked, and that a key with nowhere to go leaves *nothing* on the undo stack.
+/// A move that moved nowhere would be an undo the user presses and watches do
+/// nothing.
+///
+/// Both steps are found by asking what they can do rather than by position. The
+/// demo holds one of each — a world plane nothing is built on can go anywhere
+/// after itself, and its own datum carries the sketch drawn on it and so is
+/// pinned against it — but which is which is the demo's shape rather than this
+/// test's claim.
+#[test]
+fn ctrl_arrows_move_the_picked_step_and_stop_at_the_ends_of_its_run() {
+    let mut raised = Raised::new();
+    let recipe =
+        |raised: &Raised| -> Vec<FeatureId> { raised.models().steps().map(|(at, _)| at).collect() };
+    let whole = recipe(&raised);
+    let room = |raised: &Raised, at: FeatureId| raised.app.document.nudged(at, 1).is_some();
+    let free = whole
+        .iter()
+        .copied()
+        .find(|&at| room(&raised, at))
+        .expect("the demo holds a step with somewhere to go");
+    let pinned = whole
+        .iter()
+        .copied()
+        .find(|&at| !room(&raised, at))
+        .expect("the demo holds a step with nowhere to go");
+    let sits = |raised: &Raised, at: FeatureId| {
+        recipe(raised)
+            .iter()
+            .position(|&held| held == at)
+            .expect("every step is in the recipe")
+    };
+    let was = sits(&raised, free);
+
+    raised.choose(Choice::Select(Some(Part::Step(free))));
+    raised.frame();
+    raised.ctrl(Key::ArrowDown);
+    raised.frame();
+    let moved = recipe(&raised);
+    assert_eq!(
+        sits(&raised, free),
+        was + 1,
+        "Ctrl+Down did not carry the step one place later"
+    );
+    assert_ne!(moved, whole, "the recipe came out in the same order");
+
+    // Back up, and the recipe is the one the document opened with.
+    raised.ctrl(Key::ArrowUp);
+    raised.frame();
+    assert_eq!(recipe(&raised), whole, "Ctrl+Up did not put it back");
+
+    // The pinned one has what is built on it sitting directly after, so there is
+    // nowhere later to go. Nothing moves, and — the half worth pinning — nothing
+    // is recorded: the undo below takes back the *first* pair, not an empty step.
+    raised.choose(Choice::Select(Some(Part::Step(pinned))));
+    raised.frame();
+    raised.ctrl(Key::ArrowDown);
+    raised.frame();
+    assert_eq!(
+        recipe(&raised),
+        whole,
+        "a step moved past what is built on it"
+    );
+
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(
+        recipe(&raised),
+        moved,
+        "one undo did not take back the last move that happened"
+    );
+}

@@ -411,3 +411,76 @@ fn deleting_a_step_takes_everything_built_on_it_and_nothing_beside_it() {
     assert!(!timeline.removable(ground));
     assert!(timeline.removable(held) && timeline.removable(drawn));
 }
+
+/// Where a step may be moved to is bounded at both ends by what it is tied to,
+/// and moving it inside those bounds leaves the recipe standing.
+///
+/// **Both ends, hand-computed against a chain**, because the two are different
+/// mistakes and only one of them is obvious. A run that reached too far *down*
+/// puts a step after something built on it; one that reached too far *up* puts
+/// it before what it is built on. Either makes the recipe a graph.
+///
+/// The sibling on the ground is what says the bound is about being *tied* rather
+/// than about being adjacent: nothing ties it to the chain, so it may pass right
+/// through the middle of it.
+#[test]
+fn a_step_moves_only_between_what_it_is_built_on_and_what_is_built_on_it() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let held = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: 1.0,
+    }));
+    let beside = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: Sketch::default(),
+    });
+    let drawn = timeline.add(Feature::Sketch {
+        on: held,
+        sketch: Sketch::default(),
+    });
+    let order =
+        |timeline: &Timeline| -> Vec<FeatureId> { timeline.steps().map(|(at, _)| at).collect() };
+    assert_eq!(order(&timeline), [ground, held, beside, drawn]);
+
+    // `held` sits at 1, is built on the ground at 0, and carries `drawn` at 3.
+    // So it may take 1 or 2 and nothing else: 0 would put it before the ground,
+    // 3 would put it after the sketch drawn on it.
+    assert_eq!(timeline.moves_within(held), 1..3);
+    // The sketch on it is built on `held` and carries nothing, so it may go
+    // anywhere after its plane — 2 or 3.
+    assert_eq!(timeline.moves_within(drawn), 2..4);
+    // The ground is built on nothing and carries `held` at 1, so it is pinned.
+    assert_eq!(timeline.moves_within(ground), 0..1);
+    // And the sibling is tied to the ground alone, so it may sit anywhere after
+    // it — including between the two steps of the chain it has nothing to do
+    // with.
+    assert_eq!(timeline.moves_within(beside), 1..4);
+
+    // Moved to the far end of its own run, which closes the gap behind it.
+    timeline.shift(beside, 3);
+    assert_eq!(order(&timeline), [ground, held, drawn, beside]);
+    // And back, which is what an undo of a move is.
+    timeline.shift(beside, 2);
+    assert_eq!(order(&timeline), [ground, held, beside, drawn]);
+    // A run is measured where the step now stands: `drawn` has moved up with
+    // the shuffle and its plane has not.
+    assert_eq!(timeline.moves_within(drawn), 2..4);
+}
+
+/// A step cannot be moved past what is built on it.
+///
+/// The assertion is a statement rather than a guard — whatever raises a move
+/// clamps to [`Timeline::moves_within`] first — and this is what says the
+/// statement is true.
+#[test]
+#[should_panic = "a step cannot be moved past"]
+fn a_step_cannot_be_moved_past_what_is_built_on_it() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: Sketch::default(),
+    });
+    timeline.shift(ground, 1);
+}

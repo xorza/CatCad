@@ -168,6 +168,17 @@ impl History {
                 document.apply(build, change);
                 None
             }
+            // A move, and it is answered on its own because there is nothing to
+            // compare: every step holds afterwards exactly what it held before,
+            // so the arm below would find them equal and record nothing.
+            About::Moves { at } => {
+                self.close();
+                let Shaped::Moved { from, to } = document.apply(build, change) else {
+                    panic!("a change that moves a step says where it went");
+                };
+                self.record(Edit::Moved { at, from, to });
+                None
+            }
             About::Rewrites { at, coalesces } => {
                 // The open step has to be a rewrite *of this step*, not merely
                 // open. With one drawing there was nothing else a change could
@@ -232,6 +243,10 @@ impl History {
             // And undoing a removal is the opposite again: the steps come back,
             // each where it sat.
             Edit::Removed { steps } => document.replant_all(build, steps),
+            // A move is the one edit that undoes by *doing* rather than by
+            // putting something back — a step's place is the whole of what it
+            // changed, so going back is going the other way.
+            Edit::Moved { at, from, .. } => document.shift_to(build, *at, *from),
         }
     }
 
@@ -254,6 +269,7 @@ impl History {
                 let steps: Vec<FeatureId> = steps.iter().map(|uprooted| uprooted.at).collect();
                 document.uproot_all(build, &steps);
             }
+            Edit::Moved { at, to, .. } => document.shift_to(build, *at, *to),
         }
         self.applied += 1;
     }
@@ -352,6 +368,18 @@ pub(crate) enum Edit {
     /// back. Neither has to work the cascade out again, and neither could: by
     /// the time an undo runs, the steps it would have been read from are gone.
     Removed { steps: Vec<Uprooted> },
+    /// A step moved, and the two places it has been.
+    ///
+    /// The only edit here that undoes by *doing* rather than by putting a value
+    /// or a step back, and it can because a place is the whole of what it
+    /// changed — going back is going the other way, and there is no solve in
+    /// between free to land somewhere else. See [`History`], on why every other
+    /// edit is a state rather than an action.
+    Moved {
+        at: FeatureId,
+        from: usize,
+        to: usize,
+    },
 }
 
 #[cfg(test)]

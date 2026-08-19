@@ -147,6 +147,35 @@ impl Document {
         pulled
     }
 
+    /// Move the step at `at` to `to`, which is both directions of an undo — one
+    /// way puts it back where it was, the other where it went.
+    ///
+    /// Clamped by whoever asked, like the change itself: what reaches here is a
+    /// position the step may take, and putting one back where it came from is
+    /// always one of those.
+    pub(crate) fn shift_to(&mut self, build: &mut Build, at: FeatureId, to: usize) {
+        self.timeline.shift(at, to);
+        build.revised();
+        self.remodel(build);
+        self.edits = self.edits.next();
+    }
+
+    /// Where the step at `at` would land if it were moved `by` places, or `None`
+    /// where it cannot go that way.
+    ///
+    /// **Refused rather than clamped at the ends**, which is the difference
+    /// between a key that does nothing and a key that records a step that did
+    /// nothing: an `Edit` for a move that moved nowhere is an undo the user
+    /// presses and watches do nothing.
+    ///
+    /// Beside [`Document::movable`] and for the reason that one is here: a press
+    /// has the document and not the build, and where a step may go is the
+    /// timeline's alone.
+    pub(crate) fn nudged(&self, at: FeatureId, by: isize) -> Option<usize> {
+        let to = self.timeline.position_of(at).checked_add_signed(by)?;
+        self.timeline.moves_within(at).contains(&to).then_some(to)
+    }
+
     /// Take `steps` out again, which is the redo of a delete.
     ///
     /// The same cascade the delete worked out rather than a fresh one, and it is
@@ -528,6 +557,20 @@ impl Document {
                     Vec::new()
                 });
             }
+            // Nothing is solved and nothing is rebuilt *differently*: every step
+            // resolves what it stands on by reference rather than by position,
+            // so the model comes out identical however the recipe is ordered.
+            // The rebuild below runs all the same, because the day a solid can
+            // be built on another that stops being true, and a reorder that
+            // skipped it would be a model quietly disagreeing with its recipe.
+            Change::Reorder { step, to } => {
+                shaped = Shaped::Moved {
+                    from: self.timeline.position_of(step),
+                    to,
+                };
+                self.timeline.shift(step, to);
+                build.revised();
+            }
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),
@@ -544,7 +587,9 @@ impl Document {
         // is careful about elsewhere for the same reason — see [`Edits`], on why
         // turning the camera must not move the revision.
         match change.about() {
-            About::Makes | About::Removes | About::Rewrites { .. } => self.remodel(build),
+            About::Makes | About::Removes | About::Moves { .. } | About::Rewrites { .. } => {
+                self.remodel(build)
+            }
             About::Nothing => {}
         }
         self.edits = self.edits.next();
@@ -575,6 +620,14 @@ pub(crate) enum Shaped {
     /// Empty where the document refused: a world plane is not a step anybody may
     /// take out, and a refusal is nothing done rather than an error to report.
     Took(Vec<Uprooted>),
+    /// A step moved, and both places it has been.
+    ///
+    /// Both, though the change named one of them: [`About`] is what the history
+    /// reads a change by, and it says a step *moved* without saying where to —
+    /// so a history reaching into `Change::Reorder` for the other half would be
+    /// matching on a kind it had already been told about. One channel for the
+    /// whole answer instead.
+    Moved { from: usize, to: usize },
 }
 
 /// How many times a document has been changed.
