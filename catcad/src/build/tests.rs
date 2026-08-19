@@ -321,3 +321,66 @@ fn reopening_forgets_what_the_last_document_settled() {
     build.reopened();
     let _ = build.settled(boxy).outcome();
 }
+
+/// A rebuild leaves every extrude findable, whatever order the walk arrived in.
+///
+/// **The trap the recipe order sets, asserted before anything can spring it.**
+/// `modelled` is read by halving it, which an unsorted list answers wrongly
+/// rather than slowly — and the walk that fills it is the order the steps are
+/// *built* in, which is the order they were taken in only until something moves
+/// one. Nothing moves one yet, so this hands the walk over reversed to ask the
+/// question a reorder will ask for real.
+///
+/// Two regions and not one, because a list of one is sorted whatever it holds.
+/// Each named through its own profile, so a lookup landing on its neighbour is a
+/// wrong region rather than a missing one — and one landing nowhere is the
+/// panic a halved search makes of a list that is not in order.
+#[test]
+fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let drawn = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: two_rings(),
+    });
+    let mut build = Build::default();
+    timeline.edit(drawn).opened(&mut build);
+
+    // A disc apiece, named by what bounds each — so which of the two a lookup
+    // answers with is a question with a right answer.
+    // Named before any of them is added, because naming one borrows the very
+    // timeline the addition writes.
+    let profiles = {
+        let models = Models::new(&timeline, &build, Some(drawn));
+        let open = models.open().expect("a fixture opens the sketch it names");
+        [open.profile(0), open.profile(1)]
+    };
+    let grown: Vec<FeatureId> = profiles
+        .map(|profile| {
+            timeline.add(Feature::Extrude {
+                profile,
+                distance: 1.0,
+            })
+        })
+        .into();
+
+    // Forwards first, which is what every rebuild does today.
+    let walk: Vec<_> = timeline.extrudes().collect();
+    build.remodel(walk.iter().copied());
+    let found: Vec<Option<usize>> = grown.iter().map(|&at| build.modelled(at)).collect();
+    assert_eq!(
+        found,
+        [Some(0), Some(1)],
+        "the two discs are not two regions"
+    );
+
+    // And backwards, which is what a reordered recipe will hand it. The same
+    // two answers, against the same two handles: what order the walk arrives in
+    // is the recipe's business and no part of what an extrude resolves to.
+    build.remodel(walk.iter().rev().copied());
+    let reversed: Vec<Option<usize>> = grown.iter().map(|&at| build.modelled(at)).collect();
+    assert_eq!(
+        reversed, found,
+        "an extrude resolved differently for having been walked later"
+    );
+}

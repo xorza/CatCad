@@ -34,6 +34,69 @@ fn a_step_is_built_only_on_earlier_ones_and_handles_are_never_reused() {
     assert!(!Timeline::default().holds(ground));
 }
 
+/// Every handle finds its own step, across a step being taken off the end and
+/// put back.
+///
+/// **What [`Timeline::filed`] has to get right**, and the reason it is asked of
+/// more than one step: the index is rewritten whole every time the steps move,
+/// so an entry left over from before would be a handle quietly answering with
+/// its neighbour — which is a step drawn in another's place rather than a crash.
+///
+/// The planes are held at different offsets so each is a different answer. Told
+/// apart by where each *lands* rather than by comparing features, which is what
+/// makes a wrong lookup visible: two planes at one offset would be the same
+/// step as far as any assertion here could tell.
+#[test]
+fn every_handle_finds_its_own_step_across_a_step_going_and_coming_back() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let held: Vec<FeatureId> = (1..=3)
+        .map(|nth| {
+            timeline.add(Feature::Plane(Datum::Offset {
+                from: ground,
+                by: f64::from(nth),
+            }))
+        })
+        .collect();
+    // The ground faces +Y, so a plane held `by` off it sits `by` up the world's
+    // own +Y and nowhere else.
+    let lands = |timeline: &Timeline, at: FeatureId| timeline.plane(at).origin.y;
+    for (nth, &at) in held.iter().enumerate() {
+        assert_eq!(lands(&timeline, at), nth as f64 + 1.0, "{at:?} is misfiled");
+    }
+
+    // The newest off the end. Its own handle stops naming anything, and the
+    // rest go on naming exactly what they did — which is the half a rewritten
+    // index gets wrong, because every entry is written afresh and only the
+    // three that should move are meant to.
+    let newest = held[2];
+    let feature = timeline.feature(newest).clone();
+    timeline.drop_newest(newest);
+    assert!(
+        !timeline.holds(newest),
+        "a dropped handle still names a step"
+    );
+    assert!(timeline.holds(ground));
+    for (nth, &at) in held[..2].iter().enumerate() {
+        assert_eq!(lands(&timeline, at), nth as f64 + 1.0, "{at:?} moved");
+    }
+
+    // And back under the same name, which is what a redo is.
+    timeline.append(newest, feature);
+    assert!(timeline.holds(newest), "a step put back is not there");
+    for (nth, &at) in held.iter().enumerate() {
+        assert_eq!(
+            lands(&timeline, at),
+            nth as f64 + 1.0,
+            "{at:?} came back wrong"
+        );
+    }
+
+    // A handle no counter ever issued names nothing, rather than reading past
+    // the end of the index.
+    assert!(!timeline.holds(FeatureId(u32::MAX)));
+}
+
 /// A sketch is stored in its plane's coordinates, and the plane is worked out
 /// rather than kept.
 ///

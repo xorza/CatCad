@@ -50,15 +50,17 @@ pub(crate) struct Build {
     /// that way, which is the one thing this costs: a sketch is settled for the
     /// first time once per document, and read on every frame that draws one.
     settled: Vec<Settled>,
-    /// Which region each extrude is currently grown from, in the order the
-    /// timeline holds them — which is handle order, and searched as such like
-    /// the list above.
+    /// Which region each extrude is currently grown from, **in handle order**,
+    /// and searched as such like the list above.
     ///
     /// Emptied and refilled whole by [`Build::remodel`] rather than kept in step
     /// entry by entry: an extrude names its region by what bounds it, and every
     /// edit to a sketch is an edit that could have taken one of those away.
-    /// Refilling from the timeline's own walk is also what keeps it sorted
-    /// without anything here having to arrange it.
+    ///
+    /// **Put in order rather than arriving in it**, unlike the list above, which
+    /// is why `remodel` ends in a sort: the walk that fills this is the order the
+    /// steps are *built* in, and that is the order they were taken in only until
+    /// something moves one.
     modelled: Vec<Modelled>,
     /// Which version of the document this describes, so anything holding a
     /// layout of it can tell whether that layout is still current.
@@ -228,6 +230,18 @@ impl Build {
                 step.profile.face_in(settled.arrangement()),
             ));
         }
+        // **Put in handle order, because the walk above is not in one.** It is
+        // the order the steps are *built* in, which is the order they were taken
+        // in only until something moves one — and this list is read by halving
+        // it, which an unsorted list answers wrongly rather than slowly. The
+        // walk cannot simply be taken in handle order instead: which region an
+        // extrude is grown from has to be worked out in the order the recipe
+        // runs, and the two are about to differ.
+        //
+        // Sorted rather than inserted in place, and it is the cheap half of this
+        // call: a sort of the extrudes against a resolve per extrude, each of
+        // which walks an arrangement's faces.
+        modelled.sort_unstable_by_key(Modelled::of);
     }
 
     /// Note that the document has moved without anything being solved.

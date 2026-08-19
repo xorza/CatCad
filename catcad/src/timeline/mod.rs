@@ -1,4 +1,8 @@
-//! Every step taken to build the document, in the order they were taken.
+//! Every step taken to build the document, in the order they are built.
+//!
+//! Which is the order they were taken in, until something moves one. What the
+//! order really says is that a step's referents come earlier than it, and that
+//! is what makes this a recipe rather than a graph.
 
 use silverpoint::Plane;
 
@@ -26,22 +30,48 @@ pub(crate) mod feature;
 /// dead rather than coming back naming whatever was done next.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Timeline {
-    /// Every step, in the order they were taken — which is also strictly
-    /// increasing in [`FeatureId`], and load-bearingly so.
+    /// Every step, **in the order they are built**.
     ///
-    /// The two are the same order because a handle is issued by a counter that
-    /// only ever goes up: [`Timeline::add`] pushes one greater than every
-    /// handle ever given out, and [`Timeline::append`] asserts as much of the
-    /// step a redo hands back. Nothing else writes this, and neither of the two
-    /// can put a step anywhere but the end.
-    ///
-    /// What it buys is that a handle is *found* rather than searched for — see
-    /// [`Timeline::position`]. What it costs is that both push sites have to go
-    /// on being the only ones.
+    /// The order they were taken in, until something moves one. Nothing does
+    /// yet, so the two agree and this is still strictly increasing in
+    /// [`FeatureId`] — but nothing may lean on that any more, which is what
+    /// [`Timeline::filed`] is for. What a reader may lean on is the one thing
+    /// this order really says: **a step's referents are earlier than it**. That
+    /// is asserted at every line that writes here, and it is what makes
+    /// [`Timeline::plane`]'s walk terminate and what the file format's
+    /// backwards references encode.
     steps: Vec<Step>,
+    /// Where the step each handle names sits in `steps`, indexed by the handle
+    /// itself, and [`GONE`] for a handle the timeline no longer holds.
+    ///
+    /// **A load rather than a search**, which is what a handle issued by a
+    /// counter buys once the steps are no longer sorted by one: a handle *is* a
+    /// slot number. The order they are built in and the order they were taken in
+    /// are about to part company — a step can be moved — and every reading of
+    /// the document comes through [`Timeline::position`] several times over, so
+    /// what that costs is worth spending nothing on. It is also strictly faster
+    /// than the halving it replaces.
+    ///
+    /// **A handle staying dead becomes a value** rather than a property of a
+    /// search. A step taken back leaves `GONE` behind it, and nothing reissues
+    /// the handle — see [`FeatureId`] — so the slot says so for the life of the
+    /// document.
+    ///
+    /// Rewritten whole by [`Timeline::refile`], which every line that writes
+    /// `steps` ends in. Derived from `steps` and compared with it only because
+    /// deriving [`PartialEq`] is simpler than not: two timelines holding the
+    /// same steps file them the same way.
+    filed: Vec<u32>,
     /// What the next step will be called. Only ever counts up.
     next: u32,
 }
+
+/// What [`Timeline::filed`] holds for a handle whose step is not there.
+///
+/// A sentinel rather than an `Option<u32>`, which would double an entry to carry
+/// a bit the number can spell for free: a position is bounded by how many steps
+/// there are, and there cannot be this many.
+const GONE: u32 = u32::MAX;
 
 impl Timeline {
     /// A timeline holding the three world planes and nothing else — where every
@@ -78,14 +108,8 @@ impl Timeline {
         );
         let id = FeatureId(self.next);
         self.next += 1;
-        // What the search leans on, stated where it is made true: the counter
-        // only goes up, so this is greater than every handle ever given out and
-        // the steps stay sorted by taking one on the end.
-        debug_assert!(
-            self.steps.last().is_none_or(|last| last.id < id),
-            "a step was taken out of order"
-        );
         self.steps.push(Step { id, feature });
+        self.refile();
         id
     }
 
@@ -109,22 +133,45 @@ impl Timeline {
     /// Where the step `id` names sits among the rest, or `None` where the
     /// timeline no longer holds one there.
     ///
-    /// **Halved rather than walked**, which is the whole of what the steps
-    /// running in handle order is for — see the field. Every reading of the
-    /// document comes through here several times over: laying one sketch out
-    /// asks for its own step and then for each plane back to the ground, and a
-    /// picture is every sketch laid out — so a walk made drawing a document cost
-    /// the square of its length rather than its length. Four hundred sketches
-    /// took six hundred microseconds a frame and now take two hundred and
-    /// seventy, and what is left of that is the geometry rather than the
-    /// looking.
+    /// **Looked up rather than searched for** — see [`Timeline::filed`]. Every
+    /// reading of the document comes through here several times over: laying one
+    /// sketch out asks for its own step and then for each plane back to the
+    /// ground, and a picture is every sketch laid out. A walk made drawing a
+    /// document cost the square of its length; halving it took four hundred
+    /// sketches from six hundred microseconds a frame to two hundred and
+    /// seventy, and this takes the search out altogether.
     ///
     /// Reading and writing both, unlike [`Timeline::held`] above: what differs
     /// between the two is only which way the step is then borrowed, and a
-    /// second search spelt out for the mutable one would be a second place to
-    /// forget that the steps are sorted.
+    /// second lookup spelt out for the mutable one would be a second place to
+    /// learn where a step lives.
     fn position(&self, id: FeatureId) -> Option<usize> {
-        self.steps.binary_search_by_key(&id, |step| step.id).ok()
+        match *self.filed.get(id.0 as usize)? {
+            GONE => None,
+            at => Some(at as usize),
+        }
+    }
+
+    /// Work out afresh where every handle's step sits.
+    ///
+    /// **The one place [`Timeline::filed`] is written**, and every line that
+    /// moves a step ends here. Whole rather than patched at the entries that
+    /// moved, because most of the things that move a step move several — a
+    /// removal shifts everything after it — and a patch that covered one case
+    /// and not another would be an index quietly answering with a neighbour.
+    ///
+    /// A walk of the steps per step written, so raising a document of `n` steps
+    /// files them `n` times over. At the scale a timeline reaches that is
+    /// microseconds, and it is the price of there being one path rather than an
+    /// append-only one beside it.
+    fn refile(&mut self) {
+        // Cleared and regrown rather than assigned, so the room it has already
+        // taken is kept — this runs on every step a file is loaded from.
+        self.filed.clear();
+        self.filed.resize(self.next as usize, GONE);
+        for (at, step) in self.steps.iter().enumerate() {
+            self.filed[step.id.0 as usize] = at as u32;
+        }
     }
 
     /// Where the plane `at` names lies in the world.
@@ -210,6 +257,9 @@ impl Timeline {
     pub(crate) fn drop_newest(&mut self, at: FeatureId) {
         let newest = self.steps.pop().expect("the timeline holds a step to drop");
         assert_eq!(newest.id, at, "only the newest step can be taken back");
+        // Leaving `GONE` where the handle was — see [`Timeline::filed`], on a
+        // dead handle being a value rather than a search coming up empty.
+        self.refile();
     }
 
     /// Put a step back on the end under the name it already had.
@@ -217,6 +267,14 @@ impl Timeline {
     /// The other half of [`Timeline::drop_newest`], and the reason that one does
     /// not reissue its handle: a redo is the same step returning, so anything
     /// that kept its name is right to find it again.
+    ///
+    /// On the end, and named more recently than anything already there. Both
+    /// hold only because nothing can *move* a step yet: what a redo puts back is
+    /// what the undo just took off, and neither could have been anywhere but
+    /// last. Once one can be moved, this and the assertion in
+    /// [`Timeline::drop_newest`] are the two lines that stop being true — see
+    /// `.notes/PLAN-editable-timeline.md`, where they become a position rather
+    /// than an end.
     pub(crate) fn append(&mut self, at: FeatureId, feature: Feature) {
         assert!(
             self.steps.last().is_none_or(|last| last.id < at),
@@ -227,10 +285,11 @@ impl Timeline {
             "a step can only be built on one the timeline already has"
         );
         self.steps.push(Step { id: at, feature });
+        self.refile();
     }
 
-    /// Every step, in the order they were taken, each with the handle that
-    /// names it.
+    /// Every step, in the order they are built, each with the handle that names
+    /// it.
     ///
     /// The whole recipe, which is what saving writes down. Ordered, so a step's
     /// position in this is a name a file can use: everything a step is built on
@@ -243,7 +302,7 @@ impl Timeline {
         self.steps.iter().map(|step| (step.id, &step.feature))
     }
 
-    /// Every plane the timeline holds, in the order they were put there.
+    /// Every plane the timeline holds, in the order they are built.
     ///
     /// All of them, including the three the world comes with. Which of those get
     /// *drawn* is a question about what you are working on rather than about
@@ -359,7 +418,7 @@ impl Timeline {
         self.plane(self.drawn_on(at))
     }
 
-    /// Every sketch the timeline holds, in the order they were drawn.
+    /// Every sketch the timeline holds, in the order they are built.
     pub(crate) fn sketches(&self) -> impl Iterator<Item = FeatureId> {
         self.steps()
             .filter(|(_, feature)| matches!(feature, Feature::Sketch { .. }))
@@ -487,9 +546,11 @@ struct Step {
 /// **Ordered, and the order means when.** A handle is issued by a counter that
 /// only ever goes up, so one being less than another is that step having been
 /// taken first — which is a fact about the document rather than about the
-/// numbers. It is what lets the three lists keyed by one be *sorted* by one, and
-/// so halved rather than walked: the timeline's own steps, and both of the
-/// things a [`Build`](crate::build::Build) works out from them.
+/// numbers. It is what lets the two lists a [`Build`](crate::build::Build) works
+/// out be *sorted* by one, and so halved rather than walked — and what lets the
+/// timeline's own steps be *indexed* by one, which is a step better: a counter
+/// that only goes up issues slot numbers, so a handle needs no search at all.
+/// See [`Timeline::filed`].
 ///
 /// Hashed as well, which says nothing about when: it is what lets a save number
 /// the steps by looking each one up rather than by scanning for it.
