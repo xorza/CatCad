@@ -62,6 +62,7 @@ pub use sketch::solver::freedom::Freedom;
 pub use sketch::solver::outcome::Outcome;
 pub use sketch::solver::{Drive, Solver};
 pub use sketch::{Circle, CircleId, Point, PointId, Removed, Segment, SegmentId, Sketch};
+pub use solid::boolean::Operation;
 pub use solid::build::extrusion::{Builder, Extrusion};
 pub use solid::grown::Grown;
 pub use solid::mesh::{Mesher, Patch};

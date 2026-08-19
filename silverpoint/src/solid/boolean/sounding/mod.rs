@@ -12,13 +12,11 @@
 //! of the body: an odd number of crossings and it started inside. See
 //! `.notes/KERNEL.md` §7.4.
 
-use crate::math::plane::Plane;
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, PLACED};
-use crate::solid::geometry::surface::Surface;
+use crate::solid::boolean::planar;
 use crate::solid::topology::body::Body;
-use crate::solid::topology::face::Face;
 use glam::{DVec2, DVec3};
 use std::ops::Range;
 
@@ -191,18 +189,6 @@ impl Sounding {
             }
             self.faces.push(from..self.starts.len() - 1);
         }
-    }
-}
-
-/// The plane a face lies on.
-///
-/// Every face a planar boolean touches lies on one, and a caller that has
-/// handed over a body with anything else in it has skipped the check that keeps
-/// them out — see [`Sounding::standing`].
-fn planar(face: &Face) -> Plane {
-    match face.surface {
-        Surface::Plane(plane) => plane,
-        other => unreachable!("a planar boolean was handed {other:?}"),
     }
 }
 

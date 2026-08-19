@@ -171,6 +171,18 @@ struct Ends {
 }
 
 impl Splitting {
+    /// Cut every region of `from` along `cut`, keeping both sides, and write
+    /// what falls out into `into`.
+    ///
+    /// `into` is emptied first. What comes back is every region the cut leaves,
+    /// each wholly to one side of it — which is the property a boolean needs
+    /// before it can ask of any of them whether to keep it.
+    pub(super) fn split(&mut self, from: &Cells, cut: Cut, into: &mut Cells) {
+        into.clear();
+        self.append(from, cut, into);
+        self.append(from, cut.turned(), into);
+    }
+
     /// Cut every region of `from` along `cut`, keeping the left of it, and
     /// write what survives into `into`.
     ///
@@ -178,6 +190,11 @@ impl Splitting {
     /// [`Cut::turned`].
     pub(super) fn halve(&mut self, from: &Cells, cut: Cut, into: &mut Cells) {
         into.clear();
+        self.append(from, cut, into);
+    }
+
+    /// The same, onto whatever `into` already holds.
+    fn append(&mut self, from: &Cells, cut: Cut, into: &mut Cells) {
         for at in 0..from.len() {
             self.region(from.cell(at), cut, into);
         }
