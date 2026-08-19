@@ -7,9 +7,10 @@ use crate::tests::harness::Raised;
 use glam::{DVec2, Vec2, Vec3};
 use palantir::Key;
 
-use crate::hud::internals::{EXTRUDE_BUTTON, TIDY_BUTTON};
+use crate::hud::internals::{EXTRUDE_BUTTON, TIDY_BUTTON, TREE_PITCH, TREE_ROW};
 use crate::intent::Choice;
 use crate::part::Part;
+use crate::timeline::FeatureId;
 use crate::tool::Tool;
 
 /// The clean-up button takes out geometry a deletion left behind, and leaves
@@ -406,4 +407,75 @@ fn delete_on_a_picked_plane_takes_it_and_what_is_drawn_on_it() {
     raised.frame();
     assert_eq!(raised.models().planes().count(), planes);
     assert_eq!(raised.models().iter().count(), before);
+}
+
+/// The feature tree lists every step in the order they build, and a row is how
+/// a step of any kind gets picked out.
+///
+/// **The one place two of the three kinds can be pointed at.** A plane has a
+/// square in the view and a sketch has its geometry, but a sketch *step* and an
+/// extrude have nothing on screen that is the step rather than something it
+/// produced — so before there was a list of them, neither could be picked out
+/// and neither could be deleted.
+///
+/// Aimed by walking the recipe rather than at rows written out here: which step
+/// is which row is exactly the claim, so a test that hard-coded it would be
+/// asserting the demo's shape instead.
+#[test]
+fn a_tree_row_picks_the_step_it_stands_for_and_delete_takes_it() {
+    let mut raised = Raised::new();
+    let recipe: Vec<FeatureId> = raised.models().steps().map(|(at, _)| at).collect();
+    let row = |nth: usize| TREE_ROW + Vec2::new(0.0, TREE_PITCH * nth as f32);
+
+    // The first row is the first step, which says the list runs the way the
+    // recipe does rather than in whatever order the steps were reached.
+    raised.harness.click_at(row(0));
+    raised.frame();
+    assert!(
+        raised
+            .app
+            .session
+            .selection()
+            .contains(Part::Step(recipe[0])),
+        "the first row picked something other than the first step"
+    );
+
+    // A sketch's own row, found by which step it is. Picking it opens it, which
+    // is what makes the tree a way *into* a drawing rather than only a list —
+    // and it is the same `Part::Step` the plane above wore.
+    let drawn = raised
+        .models()
+        .iter()
+        .next()
+        .map(crate::model::Model::of)
+        .expect("the demo draws a sketch");
+    let nth = recipe
+        .iter()
+        .position(|&at| at == drawn)
+        .expect("every step has a row");
+    raised.harness.click_at(row(nth));
+    raised.frame();
+    assert!(raised.app.session.selection().contains(Part::Step(drawn)));
+    assert_eq!(
+        raised.app.editing(),
+        drawn,
+        "picking a sketch in the tree did not open it"
+    );
+
+    // And Delete takes it, with the solid grown from it — a cascade nothing
+    // could ask for until there was a row to point at.
+    let sketches = raised.models().iter().count();
+    let solids = raised.solids();
+    assert!(solids > 0, "the demo grows nothing off its first sketch");
+    raised.harness.key(Key::Delete);
+    raised.frame();
+    assert_eq!(
+        raised.models().iter().count(),
+        sketches - 1,
+        "the sketch outlived its row being deleted"
+    );
+    assert!(
+        raised.solids() < solids,
+        "the solid grown from it stayed behind"
+    );
 }

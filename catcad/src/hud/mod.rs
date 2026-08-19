@@ -3,8 +3,8 @@
 
 use aperture::Projection;
 use palantir::{
-    Align, Button, ButtonTheme, Configure, DragValue, InternedStr, Palette, Panel, Text, TextWrap,
-    Ui,
+    Align, Button, ButtonTheme, Configure, DragValue, InternedStr, Palette, Panel, Sizing, Text,
+    TextWrap, Ui,
 };
 
 use crate::intent::change::Change;
@@ -14,6 +14,7 @@ use crate::paint::DECIMALS;
 use crate::part::Part;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
+use crate::timeline::feature::{Datum, Feature};
 use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
 use crate::wording;
@@ -32,10 +33,10 @@ use crate::hud::bar::{filing_buttons, floating, projection_toggle, stacked, tidy
 pub(super) const PADDING: f32 = 12.0;
 pub(super) const GAP: f32 = 8.0;
 
-/// Everything drawn over the viewport, and the look a tool button wears while
-/// its tool is in hand.
+/// Everything drawn over the viewport, and the look a button wears while what it
+/// stands for is held.
 ///
-/// A value rather than a pair of bare `show`s, for the theme alone: the armed
+/// A value rather than a pair of bare `show`s, for the theme alone: the held-down
 /// look is a handful of backgrounds derived once and read every frame, and the
 /// record pass is gated at zero allocations.
 ///
@@ -46,7 +47,7 @@ pub(super) const GAP: f32 = 8.0;
 /// replayed pass.
 #[derive(Debug)]
 pub(crate) struct Hud {
-    armed: ButtonTheme,
+    pressed: ButtonTheme,
     /// What the current selection admits, refilled every frame. Kept for its
     /// room rather than its contents: the record pass allocates nothing, and a
     /// bar rebuilt sixty times a second would otherwise ask the heap for a list
@@ -83,7 +84,83 @@ impl Hud {
             self.tools(ui, shown, intents);
             self.readout(ui, shown, intents);
         });
+        self.tree(ui, shown, intents);
         self.constraints(ui, shown, intents);
+    }
+
+    /// The recipe, down the right edge: a row per step, in the order they build.
+    ///
+    /// **What two of the three kinds of step could not be pointed at without.** A
+    /// plane has a square in the view, but a sketch *step* and an extrude have
+    /// nothing on screen that is the step rather than something it produced — a
+    /// sketch's geometry is what is drawn *in* it, and a solid's face was grown
+    /// off a region. So until there was a list of them, neither could be picked
+    /// out at all, and so neither could be deleted.
+    ///
+    /// The right edge, which is the one side the overlay does not already use:
+    /// the tools and the readout are a column at the top left, and the
+    /// constraint bar is pinned bottom left.
+    ///
+    /// **Named by kind and ordinal**, worked out here and stored nowhere. The
+    /// three the world comes with have names of their own — see
+    /// [`World::named`](crate::timeline::feature::World) — and the rest are
+    /// counted as they are met. Steps a user can *name* are their own item; a
+    /// tree reading "Sketch, Sketch, Sketch" is what makes them one.
+    ///
+    /// Interned into the pass's own arena rather than formatted into a `String`,
+    /// like the status line beside it: this is a row per step per frame, and the
+    /// record pass is gated at zero allocations.
+    fn tree(&self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
+        let Shown {
+            models, selection, ..
+        } = shown;
+        floating(Panel::vstack(), "tree", Align::TOP_RIGHT).show(ui, |ui| {
+            let (mut planes, mut sketches, mut solids) = (0, 0, 0);
+            for (at, feature) in models.steps() {
+                // The suffix the status line already uses for the same state, so
+                // the two say it the same way — see
+                // [`Status`](crate::status::Status).
+                let lost = if models.lost_at(at) { " · lost" } else { "" };
+                let (named, nth) = match feature {
+                    Feature::Plane(Datum::World(world)) => (world.named(), None),
+                    Feature::Plane(Datum::Offset { .. }) => {
+                        planes += 1;
+                        ("Plane", Some(planes))
+                    }
+                    Feature::Sketch { .. } => {
+                        sketches += 1;
+                        ("Sketch", Some(sketches))
+                    }
+                    Feature::Extrude { .. } => {
+                        solids += 1;
+                        ("Extrude", Some(solids))
+                    }
+                };
+                let label = match nth {
+                    Some(nth) => ui.fmt(format_args!("{named} {nth}{lost}")),
+                    None => ui.fmt(format_args!("{named}{lost}")),
+                };
+                let mut row = Button::new()
+                    // By the handle, which is what makes a row's identity
+                    // survive a step above it going: salted by position, every
+                    // row below a delete would take its neighbour's id and the
+                    // pointer would find itself over a different step.
+                    .id_salt(at)
+                    .label(label)
+                    .text_align(Align::LEFT)
+                    .size((Sizing::FILL, Sizing::HUG));
+                if selection.contains(Part::Step(at)) {
+                    row = row.style(&self.pressed);
+                }
+                if row.show(ui).left.clicked() {
+                    // Picked out and nothing else. What follows from picking a
+                    // step is decided where everything else about a selection is
+                    // — a sketch opens, a plane does not — see
+                    // [`Models::opens`](crate::model::Models).
+                    intents.push(Choice::Select(Some(Part::Step(at))));
+                }
+            }
+        });
     }
 
     /// What can be asked of what is picked out, along the bottom.
@@ -329,7 +406,7 @@ impl Hud {
         // the line tool, and a button that went dark between its two clicks
         // would be saying the opposite.
         if tool.is(arms) {
-            button = button.style(&self.armed);
+            button = button.style(&self.pressed);
         }
         if button.show(ui).left.clicked() {
             intents.push(Choice::Hold(tool.toggled(arms)));
@@ -457,14 +534,15 @@ impl Default for Hud {
         // Off the stock palette, which is the one the app runs on: nothing here
         // restyles palantir, so this is `Theme::default`'s own button with two
         // of its states rewritten.
-        let mut armed = ButtonTheme::from_palette(&Palette::DEFAULT);
-        // An armed tool reads as held down — it stays pressed until it is put
-        // down, so the button wears its pressed look at rest and under the
-        // pointer alike.
-        armed.looks.normal = armed.looks.active.clone();
-        armed.looks.hovered = armed.looks.active.clone();
+        let mut pressed = ButtonTheme::from_palette(&Palette::DEFAULT);
+        // A tool in hand and a step picked out both read as held down — each
+        // stays that way until something puts it down — so the button wears its
+        // pressed look at rest and under the pointer alike. One theme for the
+        // two, because it is one thing being said about them.
+        pressed.looks.normal = pressed.looks.active.clone();
+        pressed.looks.hovered = pressed.looks.active.clone();
         Self {
-            armed,
+            pressed,
             offers: Vec::new(),
             draft: 0.0,
         }
@@ -533,4 +611,21 @@ pub(crate) mod internals {
     /// when a region is picked, at the near end of a bar hugging the left edge.
     #[cfg(test)]
     pub(crate) const SKETCH_BUTTON: Vec2 = Vec2::new(50.0, 570.0);
+
+    /// The middle of the feature tree's first row, and how far apart the rows
+    /// sit — both measured the same way as the buttons above.
+    ///
+    /// A pitch rather than a position apiece, because the rows are a list: what
+    /// a test wants is the row of a step it found by walking the recipe, and
+    /// writing out one constant per row would be writing down how many steps the
+    /// demo has in a file that is not about that.
+    ///
+    /// Pinned to the top *right*, so the x is measured in from `SIZE` where the
+    /// column's are measured out from zero. Well inside the panel rather than at
+    /// its middle: how wide it is follows from the longest label, and a test
+    /// aimed at the edge would be a test about the wording.
+    #[cfg(test)]
+    pub(crate) const TREE_ROW: Vec2 = Vec2::new(760.0, 28.0);
+    #[cfg(test)]
+    pub(crate) const TREE_PITCH: f32 = 41.25;
 }

@@ -10,7 +10,7 @@ use crate::drawing::Drawing;
 use crate::drawing::measurable::Measurable;
 use crate::part::Part;
 use crate::profile::Profile;
-use crate::timeline::feature::World;
+use crate::timeline::feature::{Feature, World};
 use crate::timeline::{FeatureId, Timeline};
 
 /// A sketch and what the last solve made of it, read together.
@@ -457,6 +457,37 @@ impl<'a> Models<'a> {
             world: timeline.world_at(at),
             movable: timeline.movable(at).is_some(),
         })
+    }
+
+    /// Every step the document holds, in the order they are built.
+    ///
+    /// **The whole recipe**, where everything else here narrows it: this is what
+    /// the feature tree draws, and the one reading that has to show a step of
+    /// every kind rather than the sketches or the planes among them.
+    ///
+    /// The step itself and not a reading of it, unlike [`Models::planes`] beside
+    /// it. What a row needs is which kind and what it is called, and a `Sheeted`
+    /// per step would be resolving a plane for every sketch and every solid to
+    /// answer neither question.
+    pub(crate) fn steps(self) -> impl Iterator<Item = (FeatureId, &'a Feature)> {
+        self.timeline.steps()
+    }
+
+    /// Whether the step at `at` failed to build.
+    ///
+    /// One kind can, today: an extrude whose profile no longer names a region,
+    /// because somebody drew across the one it was grown from — see
+    /// [`Models::lost`], which counts them. Every other kind answers `false`,
+    /// and not for want of asking: a plane and a sketch are what they say they
+    /// are, and there is nothing for either to fail at.
+    ///
+    /// A fair question of any step rather than of an extrude known to be one,
+    /// for the reason [`Timeline::movable`](crate::timeline::Timeline) answers
+    /// for any: what is picked out or listed is a step, and being told its kind
+    /// first is what a caller should not have to arrange.
+    pub(crate) fn lost_at(self, at: FeatureId) -> bool {
+        matches!(self.timeline.feature(at), Feature::Extrude { .. })
+            && self.build.modelled(at).is_none()
     }
 
     /// Which sketch picking `part` puts you in, or `None` where it says nothing
