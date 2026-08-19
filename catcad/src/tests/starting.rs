@@ -11,7 +11,7 @@ use crate::model::Model;
 use crate::part::Part;
 use crate::tests::harness::Raised;
 use crate::timeline::FeatureId;
-use crate::timeline::feature::World;
+use crate::timeline::feature::{Feature, World};
 use crate::tool::Tool;
 use glam::Vec3;
 use palantir::Key;
@@ -49,6 +49,11 @@ fn sketches(raised: &Raised) -> usize {
 /// are all things to *say about* a drawing and none of them shows here, so a
 /// press that landed on the wrong button would land on no button at all.
 ///
+/// The press is asked twice over, because the button not being there is the
+/// whole of what keeps a sketch off a solid — and a test that only ever pressed
+/// it over a plane would pass just as well against a bar that offered it over
+/// anything at all.
+///
 /// The three claims are one gesture's, and each fails differently. A step on the
 /// end says the change reached the document; drawn on the plane that was picked
 /// says the intent carried *which*; and being in it afterwards says the handle
@@ -63,6 +68,23 @@ fn the_sketch_button_starts_a_sketch_on_the_plane_picked_out_and_takes_you_into_
     raised.frame();
     assert_eq!(open(&raised), None, "the sketch did not close");
 
+    // **A plane and not merely a step.** Every kind of step is a row of the
+    // tree a press can pick out, and a bar that read only "a step is picked"
+    // stood the button up over a solid too — where pressing it asks the
+    // timeline for the frame of something that has none.
+    let before = sketches(&raised);
+    let solid = raised
+        .models()
+        .steps()
+        .find(|(_, it)| matches!(it, Feature::Extrude { .. }))
+        .expect("the demo grows a solid")
+        .0;
+    raised.choose(Choice::Select(Some(Part::Step(solid))));
+    raised.frame();
+    raised.harness.click_at(SKETCH_BUTTON);
+    raised.frame();
+    assert_eq!(sketches(&raised), before, "a sketch was started on a solid");
+
     // The Front plane and not the Ground, which the demo already draws on: a
     // sketch landing on whichever plane came first would pass against the one
     // the fixture starts with.
@@ -70,7 +92,6 @@ fn the_sketch_button_starts_a_sketch_on_the_plane_picked_out_and_takes_you_into_
     raised.choose(Choice::Select(Some(Part::Step(front))));
     raised.frame();
 
-    let before = sketches(&raised);
     raised.harness.click_at(SKETCH_BUTTON);
     raised.frame();
 

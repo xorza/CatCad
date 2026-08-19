@@ -196,7 +196,7 @@ impl Hud {
         let Shown {
             models, selection, ..
         } = shown;
-        let startable = plane_picked(selection);
+        let startable = plane_picked(models, selection);
         let open = models.open();
         match open {
             Some(model) => model.offers(selection.picked(), &mut self.offers),
@@ -536,11 +536,20 @@ fn region_picked(selection: &Selection) -> Option<Growable> {
 /// A plane and nothing beside it, so this says nothing while a pair is being
 /// picked for a relation. That also keeps the two halves of the bar from ever
 /// arguing: a selection admits relations or it admits a sketch, never both.
-fn plane_picked(selection: &Selection) -> Option<FeatureId> {
-    match *selection.picked() {
-        [Part::Step(at)] => Some(at),
-        _ => None,
-    }
+///
+/// **A plane and not merely a step**, which is the whole of what `models` is
+/// here for. Every kind of step is one thing a press can pick out — a sketch
+/// and an extrude are rows of the tree like any plane — and a sketch cannot be
+/// started on either: what would follow is the timeline being asked for the
+/// frame of something that has none.
+fn plane_picked(models: Models<'_>, selection: &Selection) -> Option<FeatureId> {
+    let [Part::Step(at)] = *selection.picked() else {
+        return None;
+    };
+    models
+        .planes()
+        .any(|sheeted| sheeted.at == at)
+        .then_some(at)
 }
 
 impl Default for Hud {
