@@ -88,8 +88,9 @@ and §7.3 says where the risk in it sits.
   not reach the heap. Exactly the topology store a kernel wants — §4.5.
 - **`Loops<T>`** (`silverpoint/src/loops.rs`). Flat runs with an index, already
   the shape a face's boundary loops want.
-- **`Cutter`** (`math/triangulate`). Ear clipping with holes bridged in. Widens
-  to public so the kernel can triangulate a trimmed face in parameter space.
+- **`Cutter`** (`math/triangulate`). Ear clipping with holes bridged in, for
+  triangulating a trimmed face in parameter space. Stays `pub(crate)` — see §6,
+  which is most of why `solid/` lives in this crate.
 - **`Plane`** (`math/plane.rs`). Origin plus two axes, with `point` and
   `flatten` — which is to say **it is already a parametric surface with
   evaluation and inversion**. The kernel reuses it rather than defining a second
@@ -104,11 +105,11 @@ and §7.3 says where the risk in it sits.
 
 | today | tomorrow |
 | --- | --- |
-| `silverpoint::prism::Prism` | **dies.** Becomes `billet`'s extrude, which builds a `Body`. |
-| `silverpoint::prism::Grown` | **moves** to `billet`, unchanged. Still `Base \| Far \| Side(Bound)`. |
-| `silverpoint::prism::{Skinner, Patch}` | **die.** Replaced by `billet::mesh`, which tessellates a face from its exact surface. |
+| `silverpoint::prism::Prism` | **dies.** Becomes `solid::build::extrude`, which builds a `Body`. |
+| `silverpoint::prism::Grown` | **moves** to `solid/`, unchanged. Still `Base \| Far \| Side(Bound)`. |
+| `silverpoint::prism::{Skinner, Patch}` | **die.** Replaced by `solid::mesh`, which tessellates a face from its exact surface. |
 | `silverpoint::Filler` / `Fill` | **stay.** The 2D drawing still needs them. |
-| `silverpoint::triangulate::Cutter` | **widens** to public. |
+| `silverpoint::triangulate::Cutter` | **unchanged** — stays `pub(crate)`, reached from `solid/` directly. |
 | `catcad::Part::Solid { of, face }` | **unchanged.** The measure of the naming. |
 | `catcad::Profile`, `Bound` | **unchanged.** |
 | `Feature::Extrude` | gains `operation: Operation`. |
@@ -536,34 +537,74 @@ for no reason the user caused.
 
 ---
 
-## 6. The crate
+## 6. Where it lives
 
-A workspace member, **`billet`** — the stock a part is machined from. Not a
-separate repository: the kernel must have a consumer on every commit, and
-silverpoint is already precedent for a general-purpose core living in-workspace.
-(`bloom`, `anvil` and `swarf` are the other candidates; the name is not settled.)
+**`silverpoint/src/solid/`**, beside `sketch/`. Not a new crate — the crate's own
+module doc already says so, and has since before there was a kernel to put
+there:
 
-`catcad → {billet, aperture3d, silverpoint, palantir}`, `billet → silverpoint`.
-`billet` does not depend on `aperture` and never learns `FeatureId`.
+> Geometry for CAD. Everything 2D lives under `sketch` […] **Three-dimensional
+> work belongs beside it as a sibling module rather than as an extension of it —
+> the two share a crate, not a coordinate space.**
 
-One crate, directory modules, split into sub-crates only if compile time demands
-it.
+Three reasons it is right, in order of weight.
+
+**Everything the kernel reuses is crate-private.** `Arena<T>`, `Loops<T>`,
+`Cutter`, the `approx` tolerance constants, and `Edge`/`Half`/`Shape` are all
+`pub(crate)` today; only `Id`, `Plane`, `Filler`, `Fill`, `Arrangement`, `Face`
+and `Bound` are published. A separate crate would mean promoting five internals
+to `pub` — permanent API surface on a crate that has been careful about having
+none — to buy a boundary that is otherwise free.
+
+**`number/` wants to be shared downward.** The exact predicates and the
+tolerance discipline are as useful to the 2D arrangement as to the kernel — more
+so, since the arrangement currently folds crossings to `TOUCHING` and, by its own
+admission, cannot see two collinear segments overlapping at all. In one crate
+that is an option later; across a crate boundary it is a third crate or nothing.
+
+**The dependency direction already enforces the one guarantee that matters.**
+`solid/` cannot learn `FeatureId` because silverpoint cannot depend on catcad.
+That was the strongest argument for a separate crate and it turns out to be
+free either way.
+
+What it costs, stated so it is a choice:
+
+- **silverpoint stops being "the 2D crate"** in how it is described. Its own doc
+  header never claimed to be — it says "Geometry for CAD" — but the workspace
+  table in `CLAUDE.md` does, and wants correcting.
+- **`dashu` lands in a crate with one dependency today.** That is the price of
+  exact arithmetic wherever it goes.
+- **Compile time.** `solid/` will be the bigger half, so splitting would have
+  saved recompiling the half nobody is working in. Modest.
+- **Later extraction gets harder**, unless the reach is disciplined. So state
+  the rule now: **`solid/` may reach `arena`, `loops`, `number`, `math` and
+  `sketch::arrangement`, and nothing else** — never `sketch::solver`,
+  `sketch::constraint`, or `Sketch` itself. A profile arrives as an
+  `Arrangement` and a face position, which is what `Prism` already takes.
 
 ```
-billet/src/
+silverpoint/src/
   lib.rs
+  arena.rs
+  loops.rs
   number/          mod.rs, rational.rs, interval.rs, expansion.rs, lazy.rs,
-                   algebraic.rs, predicate.rs, tolerance.rs, tests.rs
-  geometry/        mod.rs, surface.rs, curve.rs, cylinder.rs, cone.rs, sphere.rs,
+                   tower.rs, predicate.rs, tolerance.rs, tests.rs
+  math/            (existing: approx, dense, direction, intersect, plane, triangulate)
+  sketch/          (existing)
+  solid/
+    mod.rs
+    geometry/      mod.rs, surface.rs, curve.rs, cylinder.rs, cone.rs, sphere.rs,
                    line.rs, circle.rs, ellipse.rs, quartic.rs, tests.rs
-  topology/        mod.rs, body.rs, lump.rs, shell.rs, face.rs, edge.rs, vertex.rs,
+    topology/      mod.rs, body.rs, lump.rs, shell.rs, face.rs, edge.rs, vertex.rs,
                    coedge.rs, validity.rs, tests.rs
-  build/           mod.rs, extrude.rs, tests.rs
-  intersect/       mod.rs, reducible.rs, pencil.rs, march.rs, tests.rs
-  boolean/         mod.rs, imprint.rs, classify.rs, sew.rs, tests.rs
-  mesh/            mod.rs, bench.rs, tests.rs
-  tests/alloc.rs   (target, `bench` feature, as the other crates have)
+    build/         mod.rs, extrude.rs, tests.rs
+    intersect/     mod.rs, reducible.rs, pencil.rs, march.rs, tests.rs
+    boolean/       mod.rs, imprint.rs, classify.rs, sew.rs, tests.rs
+    mesh/          mod.rs, bench.rs, tests.rs
 ```
+
+`prism/` is deleted into `solid/`. The published surface grows by what `catcad`
+actually calls — `Body`, `Grown`, `Operation`, the mesher — and by nothing else.
 
 ### The type sketch
 
@@ -950,7 +991,7 @@ Either true of a commit or not.
    lands in CatCad. No milestone is "kernel-internal".
 2. **Prototype before integrating.** Each of the quadric parameterization,
    classification and marching gets a throwaway spike, outside the workspace,
-   before a line of it is written in `billet`.
+   before a line of it is written in `solid/`.
 3. **Validity is asserted, not hoped for.** `debug_assert!(body.validate())`
    after every operation.
 4. **No silent tolerance.** §4.1.
