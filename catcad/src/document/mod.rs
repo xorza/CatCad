@@ -16,6 +16,7 @@ use crate::intent::change::{About, Change};
 use crate::model::Models;
 use crate::timeline::feature::Feature;
 use crate::timeline::{FeatureId, Movable, Timeline};
+use silverpoint::Sketch;
 
 /// A drawing and how it is being looked at — everything a session would have to
 /// write down to be opened again.
@@ -73,6 +74,21 @@ impl Document {
         // and a sketch nothing has settled encloses nothing.
         document.remodel(build);
         document
+    }
+
+    /// A document holding the three world planes and nothing else.
+    ///
+    /// **Where every document starts**, and the state the whole of this item is
+    /// for: three planes, nothing drawn on any of them, and a way to start
+    /// drawing on one. A document with no planes could be asked for as easily
+    /// and would be a document nothing could ever be added to — see
+    /// [`Timeline::started`].
+    ///
+    /// Solved on the way through [`Document::new`], which has nothing to solve
+    /// here. Kept as one call anyway, so raising a document is one path however
+    /// much is in it.
+    pub(crate) fn empty(build: &mut Build) -> Self {
+        Self::new(build, Timeline::started())
     }
 
     /// Take the newest step off the end, which has to be `at`.
@@ -389,6 +405,30 @@ impl Document {
                     .expect("a change names a sketch the timeline holds")
                     .profile(region);
                 made = Some(self.timeline.add(Feature::Extrude { profile, distance }));
+                build.revised();
+            }
+            // The other step-adder, and the simpler of the two: a sketch is
+            // born empty, so there is nothing to name and nothing to resolve
+            // against the drawing it is starting on.
+            //
+            // Solved all the same, by the remodel below. An empty sketch has no
+            // geometry to settle and no region to enclose, but everything that
+            // reads one reads what the last solve made of it, and a sketch with
+            // no report is one nothing can draw.
+            Change::AddSketch { on } => {
+                let at = self.timeline.add(Feature::Sketch {
+                    on,
+                    sketch: Sketch::default(),
+                });
+                // **Settled at once, the way a sketch read from a file is.** A
+                // sketch arrives needing a solve whether it arrived with
+                // coordinates or with none, because what everything downstream
+                // reads is what the last solve *made* of one — and a build has
+                // no entry at all for a sketch nothing has solved, so reading
+                // one is a panic rather than an empty drawing. Empty is the
+                // easiest case of the same call and not a case of its own.
+                self.sketching(at).opened(build);
+                made = Some(at);
                 build.revised();
             }
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),

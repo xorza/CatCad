@@ -13,5 +13,6 @@ mod fields;
 mod filing;
 mod harness;
 mod opening;
+mod starting;
 mod tools;
 mod undo;

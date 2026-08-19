@@ -93,22 +93,32 @@ impl Hud {
     /// usually none, so a bar sized to every constraint there is would be
     /// mostly grey the whole time — and what the user wants to know is what
     /// *this* selection can do.
+    ///
+    /// **Almost everything here wants a sketch open**, and for one reason: what
+    /// it offers is what can be *said about* a drawing — a relation between two
+    /// of its entities, a dimension retyped, a region grown — and none of that is
+    /// asked of a document you are only looking at. Starting a sketch is the one
+    /// offer that is not, so it is the one read before that gate: a plane picked
+    /// out is a thing to *begin* on, which is exactly what there is to do when
+    /// there is no drawing yet.
     fn constraints(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
         let Shown {
             models, selection, ..
         } = shown;
-        // Nothing at all where no sketch is open. What this bar offers is what
-        // can be *said about* a drawing — a relation between two of its
-        // entities, a dimension retyped, a region grown — and none of that is
-        // asked of a document you are only looking at.
-        let Some(model) = models.open() else {
-            return;
-        };
-        let sketch = model.of();
-        model.offers(selection.picked(), &mut self.offers);
-        let dimension = dimension_picked(model, selection);
-        let region = region_picked(selection);
-        if self.offers.is_empty() && dimension.is_none() && region.is_none() {
+        let startable = plane_picked(selection);
+        let open = models.open();
+        match open {
+            Some(model) => model.offers(selection.picked(), &mut self.offers),
+            // Cleared rather than left, because it is kept between frames: what
+            // the last open sketch admitted is not what a document being looked
+            // at admits, and the walk below reads this list whether or not
+            // anything refilled it.
+            None => self.offers.clear(),
+        }
+        let dimension = open.and_then(|model| dimension_picked(model, selection));
+        let region = open.and_then(|_| region_picked(selection));
+        if self.offers.is_empty() && dimension.is_none() && region.is_none() && startable.is_none()
+        {
             return;
         }
         // Seeded from the drawing every frame rather than remembered, which is
@@ -120,81 +130,104 @@ impl Hud {
             self.draft = resizable.value;
         }
         floating(Panel::hstack(), "constraints", Align::BOTTOM_LEFT).show(ui, |ui| {
-            if let Some(resizable) = dimension {
-                let edited = DragValue::new(&mut self.draft)
-                    .auto_id()
-                    .speed(DIMENSION_SPEED)
-                    .decimals(DECIMALS)
-                    .show(ui);
-                if edited.changed {
-                    intents.push(Change::Resize {
-                        sketch,
-                        constraint: resizable.constraint,
-                        to: self.draft,
-                    });
-                }
-                // One gesture, one step to take back. `Resize` coalesces, so
-                // the run of them a scrub sends is one open step — and this is
-                // what closes it, the same signal a drag's release gives.
-                if edited.committed {
-                    intents.push(Step::Release);
-                }
-            }
-            // Before the relations, because it is the one thing here that
-            // builds rather than states: a relation says something about the
-            // drawing, and this puts a step on the end of the document.
-            if let Some(growable) = region {
-                let pressed = Button::new()
-                    .id_salt("Extrude")
-                    .label("Extrude")
+            // First, because it is the one thing here that can be asked of a
+            // document nobody is drawing in — so where it stands alone it stands
+            // at the near end of the bar rather than after a gap.
+            if let Some(on) = startable
+                && Button::new()
+                    .id_salt("Sketch")
+                    .label("Sketch")
                     .show(ui)
                     .left
-                    .clicked();
-                if pressed {
-                    // Asks rather than builds. The solid appears at no depth at
-                    // all and the form beside it decides how far it goes, so
-                    // what reaches the timeline is one step carrying the depth
-                    // that was settled on — and a form cancelled leaves the
-                    // document never having heard of it.
-                    intents.push(Choice::Ask(Some(Opening::Extrude {
-                        sketch: growable.sketch,
-                        region: growable.region,
-                    })));
-                }
+                    .clicked()
+            {
+                // Builds rather than asks, unlike Extrude beside it: an extrude
+                // is short of a depth and has a form to collect one, where a
+                // sketch is born empty and has nothing left to settle. What
+                // follows the step is being taken into it, which is the
+                // application's — see [`Session::entered`](crate::session::Session).
+                intents.push(Change::AddSketch { on });
             }
-            for &constraint in &self.offers {
-                let label = wording::named(constraint).word;
-                let pressed = Button::new()
-                    .id_salt(label)
-                    .label(label)
-                    .show(ui)
-                    .left
-                    .clicked();
-                if pressed {
-                    // **Two answers, and which one a button gives follows
-                    // from what it is short of.** A relation says something the
-                    // drawing can work out for itself — that two edges are
-                    // parallel, that a point sits on one — so pressing it
-                    // states it outright. A dimension already knows its number,
-                    // because the drawing measured it, and is short of
-                    // somewhere to put it, so it goes into the pointer's hands.
-                    //
-                    // Which is why a bar button and the tool are not two ways
-                    // of doing one thing: the bar is what says *which* of three
-                    // readings a pair is measured by, which a pointer can only
-                    // guess at, and the tool is what says where the figure
-                    // goes, which a button cannot say at all.
-                    intents.push(match constraint {
-                        // A radius used to be asked for with a form instead,
-                        // on the grounds that the bar's other offers were
-                        // relations needing no number. They have not been for
-                        // some time, and the form was also the one door that
-                        // minted a dimension without a placement.
-                        constraint if let Some(placing) = Dimensioning::placing(constraint) => {
-                            Intent::from(Choice::Hold(Tool::Dimension(placing)))
-                        }
-                        constraint => Change::Constrain { sketch, constraint }.into(),
-                    });
+            // Everything else here is something to *say about* a drawing, so
+            // all of it wants one open — and one binding says which sketch, in
+            // place of each of them asking again.
+            if let Some(sketch) = open.map(Model::of) {
+                if let Some(resizable) = dimension {
+                    let edited = DragValue::new(&mut self.draft)
+                        .auto_id()
+                        .speed(DIMENSION_SPEED)
+                        .decimals(DECIMALS)
+                        .show(ui);
+                    if edited.changed {
+                        intents.push(Change::Resize {
+                            sketch,
+                            constraint: resizable.constraint,
+                            to: self.draft,
+                        });
+                    }
+                    // One gesture, one step to take back. `Resize` coalesces, so
+                    // the run of them a scrub sends is one open step — and this is
+                    // what closes it, the same signal a drag's release gives.
+                    if edited.committed {
+                        intents.push(Step::Release);
+                    }
+                }
+                // Before the relations, because it is the one thing here that
+                // builds rather than states: a relation says something about the
+                // drawing, and this puts a step on the end of the document.
+                if let Some(growable) = region {
+                    let pressed = Button::new()
+                        .id_salt("Extrude")
+                        .label("Extrude")
+                        .show(ui)
+                        .left
+                        .clicked();
+                    if pressed {
+                        // Asks rather than builds. The solid appears at no depth at
+                        // all and the form beside it decides how far it goes, so
+                        // what reaches the timeline is one step carrying the depth
+                        // that was settled on — and a form cancelled leaves the
+                        // document never having heard of it.
+                        intents.push(Choice::Ask(Some(Opening::Extrude {
+                            sketch: growable.sketch,
+                            region: growable.region,
+                        })));
+                    }
+                }
+                for &constraint in &self.offers {
+                    let label = wording::named(constraint).word;
+                    let pressed = Button::new()
+                        .id_salt(label)
+                        .label(label)
+                        .show(ui)
+                        .left
+                        .clicked();
+                    if pressed {
+                        // **Two answers, and which one a button gives follows
+                        // from what it is short of.** A relation says something the
+                        // drawing can work out for itself — that two edges are
+                        // parallel, that a point sits on one — so pressing it
+                        // states it outright. A dimension already knows its number,
+                        // because the drawing measured it, and is short of
+                        // somewhere to put it, so it goes into the pointer's hands.
+                        //
+                        // Which is why a bar button and the tool are not two ways
+                        // of doing one thing: the bar is what says *which* of three
+                        // readings a pair is measured by, which a pointer can only
+                        // guess at, and the tool is what says where the figure
+                        // goes, which a button cannot say at all.
+                        intents.push(match constraint {
+                            // A radius used to be asked for with a form instead,
+                            // on the grounds that the bar's other offers were
+                            // relations needing no number. They have not been for
+                            // some time, and the form was also the one door that
+                            // minted a dimension without a placement.
+                            constraint if let Some(placing) = Dimensioning::placing(constraint) => {
+                                Intent::from(Choice::Hold(Tool::Dimension(placing)))
+                            }
+                            constraint => Change::Constrain { sketch, constraint }.into(),
+                        });
+                    }
                 }
             }
         });
@@ -403,6 +436,22 @@ fn region_picked(selection: &Selection) -> Option<Growable> {
     }
 }
 
+/// The one plane picked out, if what is picked is exactly that.
+///
+/// One rather than any, for the reason the two above are one: the button starts
+/// *a* sketch, and two would be two sketches from one press — which is a thing
+/// the user should ask for twice if they want it.
+///
+/// A plane and nothing beside it, so this says nothing while a pair is being
+/// picked for a relation. That also keeps the two halves of the bar from ever
+/// arguing: a selection admits relations or it admits a sketch, never both.
+fn plane_picked(selection: &Selection) -> Option<FeatureId> {
+    match *selection.picked() {
+        [Part::Plane(at)] => Some(at),
+        _ => None,
+    }
+}
+
 impl Default for Hud {
     fn default() -> Self {
         // Off the stock palette, which is the one the app runs on: nothing here
@@ -476,4 +525,12 @@ pub(crate) mod internals {
     /// so its y is measured down from `SIZE`.
     #[cfg(test)]
     pub(crate) const EXTRUDE_BUTTON: Vec2 = Vec2::new(55.0, 570.0);
+
+    /// The Sketch command, on the same bar and measured the same way.
+    ///
+    /// With one plane picked out it is the only thing on that bar — a plane
+    /// admits no relation and is no region — so it stands where Extrude stands
+    /// when a region is picked, at the near end of a bar hugging the left edge.
+    #[cfg(test)]
+    pub(crate) const SKETCH_BUTTON: Vec2 = Vec2::new(50.0, 570.0);
 }

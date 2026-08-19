@@ -127,19 +127,10 @@ impl Session {
                         None => Tool::Pointer,
                     };
                 }
-                // Everything the session holds is about a sketch, so closing one
-                // puts all of it down: what is in hand draws in the sketch you
-                // are in, and a form stands against it.
-                //
-                // What is picked *out* stays. A selection may name parts of any
-                // sketch and of no sketch at all — a plane, a solid's face — and
-                // none of that stops meaning anything for your having left the
-                // drawing it was picked from.
-                Intent::Choice(Choice::Close) => {
-                    self.editing = None;
-                    self.tool = Tool::Pointer;
-                    self.prompt = None;
-                }
+                // Leaving a sketch puts down everything that was about it — see
+                // [`Session::moved_to`], which is also what walking *into* one
+                // goes through.
+                Intent::Choice(Choice::Close) => self.moved_to(None),
                 // Picking something out opens the sketch it came from. The
                 // one gesture that says which sketch you mean is the one that
                 // says which *thing* you mean, so there is no second one to
@@ -202,6 +193,49 @@ impl Session {
         }
     }
 
+    /// Open the step this frame made, where it made a sketch.
+    ///
+    /// **The one answer that does not come through the inbox**, and it cannot:
+    /// the handle does not exist when the gesture is read, and this session is
+    /// applied before the document is. So the application routes it — see
+    /// [`CatCad::apply`](crate::CatCad) — between the history and the prune,
+    /// which is the only moment the handle exists and nothing has yet read what
+    /// is open.
+    ///
+    /// **A sketch this frame made is the sketch this frame opens**, because
+    /// asking for one is asking to draw on it. Nothing else follows: an extrude
+    /// makes a step too and there is nothing to draw in it, so the kind is asked
+    /// rather than assumed — which is also what keeps this from having to be
+    /// told *which* change made the step. [`Models::at`] is that question
+    /// already: it answers for a sketch and for nothing else.
+    ///
+    /// `None` is every ordinary frame, and leaves what is open where it was.
+    pub(crate) fn entered(&mut self, made: Option<FeatureId>, models: Models<'_>) {
+        if let Some(at) = made.filter(|&at| models.at(at).is_some()) {
+            self.moved_to(Some(at));
+        }
+    }
+
+    /// Work in `sketch` from now on, putting down everything that was about the
+    /// last one.
+    ///
+    /// **The one rule about what the session holds, in the one place it holds.**
+    /// Everything here but the selection is about a sketch — what is in hand
+    /// draws in the one you are in, and a form stands against it — so whenever
+    /// *which* sketch changes, all of it goes. Written out at each of the three
+    /// places that move you it was three chances for one of them to keep half.
+    ///
+    /// What is picked *out* stays, and that is the same rule rather than an
+    /// exception to it: a selection may name parts of any sketch and of none at
+    /// all — a plane, a solid's face — and none of that stops meaning anything
+    /// for your having left the drawing it was picked from. The plane a sketch
+    /// was started on is still picked once you are in the sketch.
+    fn moved_to(&mut self, sketch: Option<FeatureId>) {
+        self.editing = sketch;
+        self.tool = Tool::Pointer;
+        self.prompt = None;
+    }
+
     /// Let go of whatever the model no longer holds.
     ///
     /// After the history rather than before it, because a step taken back can
@@ -215,6 +249,29 @@ impl Session {
     /// tool stays in hand and starts over rather than going down: what was taken
     /// back is the point, not the intention to draw.
     pub(crate) fn prune(&mut self, models: Models<'_>) {
+        // **The sketch you are in, where an undo has taken it off the end.**
+        // First, because everything below reads what is open, and a handle to a
+        // step the timeline no longer holds is not merely stale: most readings
+        // of one are a panic rather than an empty drawing — see
+        // [`Timeline::feature`](crate::timeline::Timeline).
+        //
+        // Nothing could leave `editing` dangling until a sketch could be *made*:
+        // every other step a history takes back was one nobody could be inside.
+        // So this arrived with [`Change::AddSketch`](crate::intent::change::Change),
+        // and it is the whole of what makes undoing one safe.
+        //
+        // Leaves the *selection* alone, exactly as [`Choice::Close`] does: the
+        // plane the sketch was started on is still a plane and still picked, and
+        // the retain below is what answers for anything that has really gone.
+        //
+        // Through the same call [`Choice::Close`] goes through, so an undo that
+        // takes you out of a sketch leaves the session exactly as the door does:
+        // a tool merely *restarted* — which is all the walk below would do — is
+        // a drawing tool still armed with nowhere to draw, and the bar refuses
+        // to arm one in that state.
+        if self.editing.is_some_and(|at| models.at(at).is_none()) {
+            self.moved_to(None);
+        }
         self.selection.retain(|part| models.holds(part));
         // A dimension an undo took back is one there is nothing left to
         // restate, and a form left open over it would commit onto a handle

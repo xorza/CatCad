@@ -223,11 +223,12 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
 
     // The frame is region 0 of the open sketch — the rectangle with the hub cut
     // out of it, which is not the region the demo already grew from.
-    let frame_region = raised
+    let open = raised
         .models()
         .open()
-        .expect("a fixture opens the sketch it names")
-        .region(0);
+        .expect("a fixture opens the sketch it names");
+    let sketch = open.of();
+    let frame_region = open.region(0);
     raised.choose(Choice::Select(Some(frame_region)));
     raised.frame();
 
@@ -267,6 +268,16 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
         2,
         "committing the form did not grow a solid: {}",
         raised.app.status()
+    );
+    // And it leaves you where you were. An extrude *makes* a step, so its handle
+    // is what the frame hands back to the session — and the session takes you
+    // into a step it made only where that step is a sketch. Without the check,
+    // every solid grown would put `editing` on something nothing can draw in.
+    // See [`Session::entered`](crate::session::Session).
+    assert_eq!(
+        raised.app.editing(),
+        sketch,
+        "growing a solid walked out of the sketch it was grown from"
     );
 
     raised.ctrl(Key::Char('Z'));

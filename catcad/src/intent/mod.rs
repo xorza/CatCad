@@ -234,6 +234,14 @@ pub(crate) enum Opening {
 /// the history for anything.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Errand {
+    /// Start again on an empty document — three world planes and nothing drawn
+    /// on any of them.
+    ///
+    /// Asks nothing first, unlike the two below, and asks nothing *after*
+    /// either: there is no dialog because there is nothing to name. What is
+    /// thrown away is whatever was open, which is the same thing
+    /// [`Errand::Open`] throws away and is not guarded there either.
+    New,
     /// Write the document back where it came from, or ask where to put it if it
     /// came from nowhere.
     Save,

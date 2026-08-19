@@ -11,9 +11,10 @@ use crate::timeline::FeatureId;
 /// What the document answers, and the whole of what it answers.
 ///
 /// Everything a document can be *asked* for, which is not quite everything that
-/// changes one: an undo puts a snapshot back without passing through here, and
-/// adding a step — an extrude, so far — has no before for the history to record
-/// and so is not a change anyone can ask for yet. Everything here reaches
+/// changes one: an undo puts a snapshot back without passing through here.
+/// Adding a step is asked for like anything else and only its *recording* is
+/// special, a step that was not there having no before to put back. Everything
+/// here reaches
 /// [`Document::apply`](crate::document::Document), which matches it exhaustively
 /// — so a new one added to this enum is a compile error until the document says
 /// what to do with it, where a new one added beside it in [`Intent`] cannot
@@ -133,6 +134,26 @@ pub(crate) enum Change {
         region: usize,
         distance: f64,
     },
+    /// Start a sketch on a plane.
+    ///
+    /// The second change that *adds* a step rather than rewriting one — see
+    /// [`About::Makes`] — and the one that makes a plane worth drawing: without
+    /// it a world plane is decoration, nothing open is a state only reachable by
+    /// leaving, and an empty document is unreachable outright.
+    ///
+    /// **Names the plane and not the sketch**, which is forced the same way
+    /// [`Change::Extrude`] is forced: the sketch does not exist when the gesture
+    /// is read, so there is no handle to put here. Minting one is the document's,
+    /// and *entering* it is the application's a line later — see
+    /// [`Session::entered`](crate::session::Session), which is the one place the
+    /// inbox is not what carries an answer back.
+    ///
+    /// Not idempotent in the way the rest of these are, and cannot be: a second
+    /// pass starts a second sketch, where every change here names a state to
+    /// arrive at and lands twice on the same one. What holds it to once is that
+    /// nothing raises it a frame at a time — a button press and a double-click
+    /// are each one frame's asking, where a drag is sixty.
+    AddSketch { on: FeatureId },
     /// Take a plane to a new offset from the one it is measured off.
     ///
     /// Names the offset it wants rather than a step to take, like everything
@@ -219,10 +240,11 @@ impl Change {
             | Change::Constrain { sketch, .. }
             | Change::Tidy { sketch }
             | Change::Delete { sketch, .. } => once(sketch),
-            // The sketch it names is what the region is *of* rather than a step
-            // this is about: the step it makes does not exist until it lands, so
-            // there is nothing here for a history to record a *before* against.
-            Change::Extrude { .. } => About::Makes,
+            // The two that make a step. What each names is what the new step is
+            // built *on* rather than a step this is about: the one it makes does
+            // not exist until it lands, so there is nothing here for a history
+            // to record a *before* against.
+            Change::Extrude { .. } | Change::AddSketch { .. } => About::Makes,
             // The camera is not the drawing. Turning it names no step, so there
             // is nothing to take back and nothing to solve again.
             Change::Orbit { .. }

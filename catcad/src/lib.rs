@@ -77,6 +77,7 @@ const DELETE: Shortcut = Shortcut::key(Key::Delete);
 /// The three every modeller binds, in the places every modeller binds them.
 /// Save As is Save with Shift, which is why the two are matched exactly rather
 /// than by modifier subset — see [`UNDO`].
+const NEW: Shortcut = Shortcut::ctrl('N');
 const SAVE: Shortcut = Shortcut::ctrl('S');
 const SAVE_AS: Shortcut = Shortcut::ctrl_shift('S');
 const OPEN: Shortcut = Shortcut::ctrl('O');
@@ -151,8 +152,9 @@ impl CatCad {
         // where a scene says how far it reaches rather than here — furniture is
         // sized to what it stands around, so a camera framed on it would frame
         // the room. See [`Scene::extent`](aperture::Scene).
-        // Opened in its first sketch, so a tool has somewhere to draw before
-        // anything has been picked out.
+        // Opened in no sketch at all, which is how every document opens — see
+        // [`Document::opening`]. What the demo shows before anything is clicked
+        // is its solid and the planes it was built on.
         let session = Session::new(document.opening());
         let mut view = SceneView::new(&document, &build, session.editing());
         if let Some(extent) = view.extent() {
@@ -196,6 +198,9 @@ impl CatCad {
         }
         if ui.key_pressed(REDO) {
             self.intents.push(Step::Redo);
+        }
+        if ui.key_pressed(NEW) {
+            self.intents.push(Errand::New);
         }
         if ui.key_pressed(SAVE) {
             self.intents.push(Errand::Save);
@@ -325,8 +330,16 @@ impl CatCad {
             self.document.models(&self.build, self.session.editing()),
             &self.intents,
         );
-        self.history
+        let made = self
+            .history
             .apply(&mut self.document, &mut self.build, &self.intents);
+        // A sketch this frame made is the sketch this frame opens, and this is
+        // the one thing a frame decides that the inbox cannot carry: the handle
+        // did not exist when the asking was read. See [`Session::entered`].
+        self.session.entered(
+            made,
+            self.document.models(&self.build, self.session.editing()),
+        );
         // After the history, because an undo can take geometry the session was
         // still holding on to — see [`Session::prune`].
         self.session
@@ -357,6 +370,7 @@ impl CatCad {
                 continue;
             };
             match errand {
+                Errand::New => self.start_new(),
                 // Where it came from, and a dialog only if it came from
                 // nowhere. That is what makes it the one worth binding: a
                 // document that has a name is written without being asked
@@ -378,6 +392,29 @@ impl CatCad {
                 }
             }
         }
+    }
+
+    /// Throw everything away and start on an empty document.
+    ///
+    /// The same replacement [`CatCad::read`] performs, minus the reading: a
+    /// different document is a different session and a different history, and
+    /// this one has never been anywhere, so it has no path to save back to
+    /// either. Nothing is guarded and nothing is asked — see [`Errand::New`].
+    ///
+    /// The camera comes back to its default with the rest, because the camera is
+    /// the *document's* — see [`Document`] — so a new one arrives with a new one.
+    /// Nothing aims it afterwards, unlike [`CatCad::build`]: framing needs an
+    /// extent and an empty document has none, its three planes being drawn at
+    /// the origin at a fixed size on screen rather than reaching anywhere. Which
+    /// is the answer that wanted no code — the default already looks at the
+    /// origin, and the origin is where the three cross.
+    fn start_new(&mut self) {
+        self.document = Document::empty(&mut self.build);
+        self.session = Session::new(self.document.opening());
+        self.history = History::default();
+        // Back to a document that has never been anywhere, which is what
+        // `Save` then asks about — see [`Filing`](crate::filing::Filing).
+        self.filing = Filing::default();
     }
 
     /// Ask where to put the document, and put it there.

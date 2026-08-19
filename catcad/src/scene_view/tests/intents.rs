@@ -1,7 +1,9 @@
 //! What a gesture hands the document, which is an intent and never an edit.
 
-use crate::intent::Intent;
 use crate::intent::change::Change;
+use crate::intent::{Choice, Intent, Intents};
+use crate::part::Part;
+use crate::scene_view::click::{Click, clicked};
 use crate::scene_view::tests::harness::RaisedView;
 use glam::Vec2;
 
@@ -89,4 +91,111 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
         unlaid,
         "an orbit asked the drawing to be laid out again"
     );
+}
+
+/// A second click on a plane starts a sketch on it; a second click on anything
+/// else starts nothing.
+///
+/// **The gesture that makes a world plane worth having.** Without it the three a
+/// document comes with are decoration and an empty document is a dead end — see
+/// [`Change::AddSketch`].
+///
+/// Driven through [`clicked`] rather than the pointer, and that seam is the same
+/// one every other double-click test takes: what a click *found* is resolved
+/// against a painted frame, and these harnesses record without a GPU. What is
+/// asked here is the half that needs no measuring — given that the click landed
+/// on a plane, what does it come to.
+///
+/// The plane a *sketch* is drawn on as well as one nothing stands on, because
+/// the two read differently and only one of them is obvious: a second click on
+/// a plane already carrying a sketch starts another rather than opening the one
+/// that is there. Opening what is there is a different command with no answer
+/// where a plane carries three.
+#[test]
+fn a_second_click_on_a_plane_starts_a_sketch_and_on_anything_else_starts_none() {
+    let raised = RaisedView::new();
+    let sketch = raised.editing();
+    let drawing = raised.document.drawing_at(sketch);
+    let (point, _) = drawing
+        .sketch()
+        .points()
+        .next()
+        .expect("the demo draws points");
+
+    let asked = |double: bool, under: Option<Part>| {
+        let mut intents = Intents::default();
+        clicked(
+            Click {
+                double,
+                adding: false,
+                under,
+                // Nothing resolved on the plane, so no tool has anywhere to
+                // build — which keeps this about the double-click alone.
+                at: None,
+            },
+            &raised.document,
+            &raised.session,
+            &mut intents,
+        );
+        intents.iter().collect::<Vec<Intent>>()
+    };
+    let starts = |asked: &[Intent], on| {
+        asked.iter().any(
+            |intent| matches!(intent, Intent::Change(Change::AddSketch { on: at }) if *at == on),
+        )
+    };
+
+    // The plane the open sketch is drawn on, so this is also the case that says
+    // a plane already carrying a sketch gets another rather than a refusal.
+    let carrying = raised
+        .document
+        .models(&raised.build, Some(sketch))
+        .open_plane()
+        .expect("a fixture opens the sketch it names");
+    let twice = asked(true, Some(Part::Plane(carrying)));
+    assert!(
+        starts(&twice, carrying),
+        "a second click on a plane asked for {twice:?}"
+    );
+    // And it puts away whatever form was open, exactly as any other click does:
+    // the sketch it was about is not the sketch you are now in.
+    assert!(
+        twice
+            .iter()
+            .any(|intent| matches!(intent, Intent::Choice(Choice::Ask(None)))),
+        "starting a sketch left a form standing over the one you left"
+    );
+
+    // One click on the same plane picks it out and starts nothing — which is
+    // what makes the bar's Sketch button the same answer asked a second way.
+    let once = asked(false, Some(Part::Plane(carrying)));
+    assert!(
+        !starts(&once, carrying),
+        "one click on a plane started a sketch: {once:?}"
+    );
+    assert!(
+        once.iter().any(|intent| matches!(
+            intent,
+            Intent::Choice(Choice::Select(Some(Part::Plane(at)))) if *at == carrying
+        )),
+        "one click on a plane did not pick it out: {once:?}"
+    );
+
+    // Nothing else has a sketch to start. A point is geometry drawn *in* one,
+    // and empty space names no plane at all.
+    for under in [
+        Some(Part::Entity {
+            sketch,
+            entity: point.into(),
+        }),
+        None,
+    ] {
+        let asked = asked(true, under);
+        assert!(
+            !asked
+                .iter()
+                .any(|intent| matches!(intent, Intent::Change(Change::AddSketch { .. }))),
+            "a second click on {under:?} asked for {asked:?}"
+        );
+    }
 }

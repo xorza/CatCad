@@ -83,7 +83,13 @@ pub(super) fn filing_buttons(ui: &mut Ui, intents: &mut Intents) {
         .size((Sizing::HUG, Sizing::HUG))
         .gap(GAP)
         .show(ui, |ui| {
-            for (label, errand) in [("Open", Errand::Open), ("Save", Errand::Save)] {
+            // New first, being where a document starts; Save As is left to its
+            // chord, because a bar of four is a bar nobody reads.
+            for (label, errand) in [
+                ("New", Errand::New),
+                ("Open", Errand::Open),
+                ("Save", Errand::Save),
+            ] {
                 if Button::new()
                     .id_salt(label)
                     .label(label)

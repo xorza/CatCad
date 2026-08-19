@@ -51,17 +51,35 @@ pub(crate) struct History {
 impl History {
     /// Land everything a frame asked for, recording whatever moved the drawing.
     ///
-    /// Says nothing about what it did. Whether the drawing moved is a fact
-    /// about the drawing, and anything that needs it reads
+    /// Says nothing about *whether the drawing moved*. That is a fact about the
+    /// drawing, and anything that needs it reads
     /// [`Build::revision`](crate::build::Build::revision) — which cannot
     /// be forgotten to pass on, or passed on wrongly.
-    pub(crate) fn apply(&mut self, document: &mut Document, build: &mut Build, intents: &Intents) {
+    ///
+    /// What it does answer is the step the frame **made**, where one was made:
+    /// a durable name that did not exist when the asking happened, minted by the
+    /// document on the way through. The one thing about a frame that cannot come
+    /// back through the inbox, and the reason is that the inbox is read before
+    /// any of this runs — see [`Session::entered`](crate::session::Session),
+    /// which is its only caller.
+    ///
+    /// The newest, where a frame somehow made two. Nothing raises two: each of
+    /// the two changes that add a step is one press or one click, and a press is
+    /// one frame's asking. If two ever arrive, the later is the one a session
+    /// would have been taken into by the one that landed last.
+    pub(crate) fn apply(
+        &mut self,
+        document: &mut Document,
+        build: &mut Build,
+        intents: &Intents,
+    ) -> Option<FeatureId> {
+        let mut made = None;
         for intent in intents.iter() {
             match intent {
                 Intent::Step(Step::Undo) => self.undo(document, build),
                 Intent::Step(Step::Redo) => self.redo(document, build),
                 Intent::Step(Step::Release) => self.close(),
-                Intent::Change(change) => self.edit(document, build, change),
+                Intent::Change(change) => made = self.edit(document, build, change).or(made),
                 // Taken before this ran, by the app that owns them. What is in
                 // hand and what is picked out are not steps to take back — see
                 // `CatCad::apply`.
@@ -72,6 +90,7 @@ impl History {
                 Intent::Choice(_) | Intent::Errand(_) => {}
             }
         }
+        made
     }
 
     /// Whether there is anything to take back.
@@ -97,7 +116,14 @@ impl History {
     /// refuse records nothing, because
     /// [`Solver::drag`](silverpoint::Solver) has already put the
     /// geometry back by the time this looks.
-    fn edit(&mut self, document: &mut Document, build: &mut Build, change: Change) {
+    /// Hands back the step it made, where the change was one that makes one —
+    /// see [`History::apply`], which is what carries it on.
+    fn edit(
+        &mut self,
+        document: &mut Document,
+        build: &mut Build,
+        change: Change,
+    ) -> Option<FeatureId> {
         // Matched rather than tested arm by arm, so the exhaustiveness
         // [`Change::about`] buys reaches here: a fourth thing a change could do
         // — a step *removed*, which the timeline does not offer yet — would
@@ -115,11 +141,13 @@ impl History {
                     .expect("a change that makes a step says which one it made");
                 let feature = document.feature(at).clone();
                 self.record(Edit::Added { at, feature });
+                Some(at)
             }
             // The camera, which is not the drawing: it lands and is not
             // recorded, so there is nothing here to take back.
             About::Nothing => {
                 document.apply(build, change);
+                None
             }
             About::Rewrites { at, coalesces } => {
                 // The open step has to be a rewrite *of this step*, not merely
@@ -142,7 +170,7 @@ impl History {
                     // rather than leaving sixty steps to take back one at a
                     // time.
                     document.feature_into(at, after);
-                    return;
+                    return None;
                 }
 
                 self.close();
@@ -150,10 +178,11 @@ impl History {
                 document.apply(build, change);
                 let after = document.feature(at).clone();
                 if after == before {
-                    return;
+                    return None;
                 }
                 self.record(Edit::Wrote { at, before, after });
                 self.open = coalesces;
+                None
             }
         }
     }

@@ -79,6 +79,19 @@ pub(super) fn clicked(click: Click, document: &Document, session: &Session, inte
         // else was about somewhere else, and a number half-typed should not be
         // written to the document by a gesture that never mentioned it.
         intents.push(Choice::Ask(None));
+        // The other thing a second click means, and the two cannot both apply:
+        // a dimension has a number to type where a plane has a sketch to start.
+        // What makes it the *second* click rather than the first is that one
+        // click on a plane picks it out — which is what the bar's own Sketch
+        // button reads, so the two gestures are the same answer asked twice.
+        //
+        // Whatever is open, and not only from nothing: a new sketch on a plane
+        // that already carries one is an ordinary thing to want, and refusing it
+        // would be reading the double-click as "open what is there" — which is a
+        // different command, and one with no answer where a plane carries three.
+        if double && let Some(Part::Plane(on)) = under {
+            intents.push(Change::AddSketch { on });
+        }
     }
     // A tool draws in the sketch you are in, so with none open there is no
     // sketch for a click to build in and every click is the pointer's — which
