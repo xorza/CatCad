@@ -293,13 +293,60 @@ well-known failure mode.
   libraries and is out;
 - **Shewchuk expansions** for the fast path — `two_sum`, `two_product`,
   `grow_expansion`, `fast_expansion_sum_zeroelim`, `scale_expansion_zeroelim`;
-- a **real-algebraic-number layer for degree ≤ 4** — polynomial plus isolating
-  interval, comparison by Sturm sequences. No mature Rust crate exists.
+- **a tower of at most two quadratic extensions**, `ℚ(√δ)(√Δ)` — explicit
+  4-tuples of rationals with fixed multiplication rules. **Not** a general
+  real-algebraic-number layer: see the measurements below.
 
-The last item has to be written regardless and is the piece the rest must agree
-with, so writing the whole of `number/` keeps one arithmetic rather than three
-meeting at seams. The bignum layer is commodity and is the one dependency worth
-proposing: **`dashu`**, pure Rust, actively published.
+Writing the whole of `number/` keeps one arithmetic rather than three meeting at
+seams. The bignum layer is commodity and is the one dependency worth proposing:
+**`dashu`**, pure Rust, actively published.
+
+#### What the spike measured
+
+A throwaway implementation of the classification and both intersection routes,
+over `BigRational`, on quadrics built the way CAD builds them — axes and radii
+as `f64` out of a solve, held as the exact dyadic rationals they are.
+
+| | measured |
+| --- | --- |
+| Input surface coefficients | 105–113 bits |
+| Determinantal equation | 103 bits (axis-aligned), 328 bits (tilted axis) |
+| Classification, per face pair | 100–750 µs; **201 µs** averaged over 66 pairs |
+| Worst coefficient in a solved smooth quartic | **408 bits** |
+| Degenerate cases | plane pairs extracted exactly, conics verified at rational points |
+| Smooth quartic on realistic input | **verified exactly in ℚ(√Δ)** against *both* quadrics — rational part and √Δ part each identically zero at 24 sampled branch points |
+
+Four things it settled:
+
+1. **The exactness claim holds.** Nothing was approximated anywhere. Two equal
+   cylinders on meeting perpendicular axes gave the exact plane pair `x ± z = 0`;
+   a cylinder through a 45° cone gave the exact circles at `z = 3` and `z = 7`.
+2. **Growth is bounded and does not compound**, which is what §4.2 claims above.
+   One intersection costs about 4× the input bit size. Surfaces stayed at input
+   size throughout — only derived edges and vertices grew, and those are
+   re-derived each rebuild rather than fed forward.
+3. **The arithmetic is smaller than assumed.** No Sturm sequences, no isolating
+   intervals, no general algebraic numbers. What the general route needs is
+   exact 4×4 linear algebra (determinant, rank, inverse, congruence
+   diagonalization), a polynomial gcd for the repeated-root test, and the
+   quadratic tower.
+4. **A solver-derived axis is never rationally unit** — `|d|²` is not a rational
+   square — so the naive circle parameterization of a cylinder does not exist.
+   This is harmless: the quadric *matrix* is exactly rational regardless, and
+   the pencil route never needs a frame. Worth knowing before anyone reaches for
+   the obvious parameterization.
+
+And one correction it forced: **the fully rational case is not reliably
+reachable.** The ruled pencil member parameterizes over ℚ alone only when its
+determinant is a rational square; two of three test pairs found no such member
+among 4 300 candidate points. Landing one is equivalent to finding a rational
+point on a hyperelliptic curve, which is hard. So `ℚ(√δ)(√Δ)` is the normal
+case, not the exception, and `number/` must carry the tower rather than treat it
+as a fallback.
+
+Not yet proven, and the first thing M0 should finish: the non-square-δ path is
+reasoned about rather than implemented — the spike completes the fully rational
+case and stops at the tower.
 
 ### 4.3 Tolerance lives on entities, not in a global constant
 
@@ -623,12 +670,17 @@ Subdivision to isolate branches, marching within each, loop detection by
 Gauss-map bounds. The output is a fitted curve carrying its fit bound, which
 widens the resulting edge's tolerance — and marks the body as no longer exact.
 
-**Where the risk sits.** The algebraic parameterization is research-grade work:
-pencils of quadrics, Segre classification, canonical forms over ℚ, Uspensky root
-isolation, and the algebraic-number layer to compare points on the resulting
-curves. It is *bounded and published* rather than open-ended. Marching is
-unbounded, and it sits behind the torus rather than behind the second hole
-anyone drills.
+**Where the risk sits.** Less than first written, because the spike walked it
+(§4.2). The algebraic route needs a pencil, a repeated-root test by polynomial
+gcd, exact 4×4 congruence diagonalization, a ruled member found by choosing an
+integer point and solving the linear equation for the λ through it, a split into
+hyperbolic planes, and the quadratic tower. No Segre classification and no root
+isolation were needed to get a realistic cross-bore verified exactly. It is
+*bounded and published*; what remains is the non-square-δ path and turning it
+into production code.
+
+Marching is the unbounded part, and it sits behind the torus rather than behind
+the second hole anyone drills.
 
 ### 7.4 Boolean — four stages, all precedented
 
@@ -788,7 +840,8 @@ cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- 
 ### M0 — exact numbers, geometry, topology, validity
 
 `number/` — rationals, the interval filter, the lazy construction DAG, and the
-degree-≤4 algebraic-number layer. `geometry/` with **all four naturals** and the
+`ℚ(√δ)(√Δ)` tower. The spike (§4.2) has walked the shape of all four; what is
+left is the non-square-δ path and making it production code. `geometry/` with **all four naturals** and the
 exact curve types. `topology/` with the arenas. `validity.rs`.
 
 The largest milestone, deliberately: the exactness tier is a claim the
@@ -912,8 +965,9 @@ Either true of a commit or not.
 ## 11. Scale, and what it costs
 
 **M0 is the biggest single piece**: an exact rational stack, an interval filter,
-a lazy construction DAG and a degree-≤4 algebraic-number layer, none of which
-shows on screen.
+a lazy construction DAG and the quadratic tower, none of which shows on screen.
+Smaller than first estimated — the spike removed the general algebraic-number
+layer from the requirement — but still the bulk of the foundation.
 
 **M1–M2 stay short** and are what keeps rule 5 alive — CatCad's current feature
 set is M1's deliverable, so the project is visibly no worse off very early. They
