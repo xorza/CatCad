@@ -19,7 +19,7 @@ use crate::solid::topology::face::{Face, FaceId};
 use crate::solid::topology::lump::{Lump, LumpId};
 use crate::solid::topology::shell::{Shell, ShellId};
 use crate::solid::topology::vertex::{Vertex, VertexId};
-use glam::{DVec2, DVec3};
+use glam::DVec3;
 use std::ops::Range;
 
 pub(crate) mod body;
@@ -178,20 +178,6 @@ impl Topology {
     /// Every shell of `lump`, the one around it first.
     pub(crate) fn shells_of(&self, lump: &Lump) -> impl Iterator<Item = ShellId> + Clone {
         std::iter::once(lump.outer).chain(lump.voids.iter().copied())
-    }
-
-    /// The corners of one loop of `face`, in that face's own parameters.
-    ///
-    /// **Appends**, and a corner per coedge: a loop is described by the
-    /// vertices its edges run between, so nothing here decides how finely
-    /// anything is flattened. Which makes it exact for a straight edge and a
-    /// caller's mistake for a curved one — see
-    /// [`Mesher`](crate::Mesher), which is what walks a curve properly.
-    pub(crate) fn corners(&self, face: &Face, walk: &[Coedge], into: &mut Vec<DVec2>) {
-        into.extend(walk.iter().map(|&coedge| {
-            let [from, _] = self.ends(coedge);
-            face.surface.uv(self.vertex(from).at)
-        }));
     }
 
     /// Which vertices `coedge` runs between, in the order it walks them.

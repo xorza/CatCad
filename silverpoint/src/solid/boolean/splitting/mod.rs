@@ -307,6 +307,12 @@ impl winding::Place for Corner {
     }
 }
 
+impl Marked for Corner {
+    fn mark(&mut self) -> &mut Came {
+        &mut self.came
+    }
+}
+
 /// Whether the corner at `step` is one the boundary merely passes through.
 ///
 /// **The rule that turns a flattened arc back into an arc.** True where the
@@ -321,6 +327,45 @@ impl winding::Place for Corner {
 pub(super) fn passing(walk: &[Corner], step: usize) -> bool {
     let before = walk[(step + walk.len() - 1) % walk.len()].came;
     matches!(walk[step].came, Came::Arc(_)) && walk[step].came == before
+}
+
+/// Something one step of a loop carries a [`Came`] on.
+///
+/// Two of them — a corner of a region being cut, and a vertex of a loop being
+/// sewn — and both are walked the other way round at some point, which is the
+/// one thing worth writing once. See [`turned`].
+pub(super) trait Marked {
+    fn mark(&mut self) -> &mut Came;
+}
+
+/// Walk one loop the other way round, marks and all.
+///
+/// **Not simply reversed**, which is the whole reason this is written down. A
+/// mark says what the stretch *leaving* its step runs along; walked the other
+/// way, the stretch leaving a step is the one that used to *enter* it — so the
+/// marks step round by one as well as turning over, where the steps themselves
+/// only turn over.
+///
+/// Over three steps `A B C` marked `a b c`, the loop reversed is `C B A` and
+/// its stretches are `b a c`: turning the marks over gives `c b a`, and
+/// stepping them round by one gives `b a c`.
+/// In place and with one mark's worth of room, because a boolean turns a loop
+/// round for every face it lays out and a document is rebuilt on every frame of
+/// a drag: taking the marks out to rotate them would be a heap block per loop
+/// per face per frame.
+pub(super) fn turned(walk: &mut [impl Marked]) {
+    walk.reverse();
+    let Some(first) = walk.first_mut().map(|it| *it.mark()) else {
+        return;
+    };
+    for step in 1..walk.len() {
+        let mark = *walk[step].mark();
+        *walk[step - 1].mark() = mark;
+    }
+    *walk
+        .last_mut()
+        .expect("a walk with a first has a last")
+        .mark() = first;
 }
 
 /// Where one stretch of a region's boundary came from.

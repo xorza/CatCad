@@ -1252,13 +1252,30 @@ curve it can carry, or **beyond** — an ellipse, a pair of lines off a chord, o
 `Meeting::Algebraic`, whose own doc already said that saying so is better than
 saying the surfaces are apart.
 
-Still to come, and it is one piece rather than a switch: **`Combining` works in
-a plane's parameters** — `planar(face)`, `Surface::Plane` on every `Kept`,
-`plane.point(within)` — so lifting `flat` means generalising it to a face's own
-surface, and teaching `crossing` to flatten a meeting into *that* surface's
-parameters. A circle square to a cylinder's axis is a straight line in its
-`(θ, v)`, which is the bore the milestone's first test bores; a plane at an
-angle is a sinusoid, which is beyond and will say so.
+**In: nothing assumes a plane.** `planar` and its `unreachable!` are gone.
+`Combining` lays a face out in *its own* parameters, chorded where its edges
+curve and marked so the sewing can put them back; `imprinted` writes a world
+curve into whichever surface holds it — a circle square to a cylinder's axis is
+the straight line `v = that` in its `(θ, v)`; and every curve of a meeting is
+imprinted rather than only the first, so a plane cutting a chord off a cylinder
+imprints both lines.
+
+Two things the lift found, and they are why the gate is still on the door rather
+than gone:
+
+**A body is cut by the other's *surfaces*, not by its faces.** No face may wrap,
+so a whole cylinder is two faces of one surface — and cutting once per face
+imprinted the same circle twice and punched the same hole through a block twice
+over. Fixed, and it is the sort of thing only a curved body could have shown:
+every planar body the matrix uses has one face per plane.
+
+**A closed imprint has nowhere to begin.** A circle bored through a face is a
+loop of corners all marked with one arc, so every one of them is a place the
+boundary merely passes through and the run collapses to nothing; and an arc that
+does come back has two angles and no way to say which of its two ways round the
+edge walks. Both want the answer §4.4 already gives a wrapping *face* — split
+it, and say where. That is the next piece, and `flat` is what holds the door
+until it lands.
 
 Cylinders, cones and spheres, all of them, because they are one algebra.
 

@@ -164,11 +164,11 @@ fn a_loop_walked_the_other_way_steps_its_marks_round() {
         along: Came::Arc(along),
     };
     let mut walk = [stood(0, 0), stood(1, 1), stood(2, 2)];
-    turned(&mut walk);
+    splitting::turned(&mut walk);
     assert_eq!(walk, [stood(2, 1), stood(1, 0), stood(0, 2)]);
 
     // Twice round is where it started, which is what says it is a walk of the
     // same loop rather than a shuffle.
-    turned(&mut walk);
+    splitting::turned(&mut walk);
     assert_eq!(walk, [stood(0, 0), stood(1, 1), stood(2, 2)]);
 }

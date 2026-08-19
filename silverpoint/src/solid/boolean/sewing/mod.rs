@@ -18,7 +18,7 @@
 use crate::loops::Loops;
 use crate::number::predicate;
 use crate::number::tolerance::{EXACT, PLACED};
-use crate::solid::boolean::splitting::{self, Came, Corner};
+use crate::solid::boolean::splitting::{self, Came, Corner, Marked};
 use crate::solid::boolean::{CHORDED, Kept};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
@@ -69,22 +69,9 @@ struct Stepped {
     along: Came,
 }
 
-/// Walk one loop the other way round, marks and all.
-///
-/// **Not simply reversed**, which is the whole reason this is written down. A
-/// mark says what the stretch *leaving* its vertex runs along; walked the other
-/// way, the stretch leaving a vertex is the one that used to *enter* it — so
-/// the marks step round by one as well as turning over, where the vertices only
-/// turn over.
-///
-/// Over three vertices `A B C` marked `a b c`, the loop reversed is `C B A` and
-/// its stretches are `b a c`: turning the marks over gives `c b a`, and
-/// stepping them round by one gives `b a c`.
-fn turned(walk: &mut [Stepped]) {
-    walk.reverse();
-    let marks: Vec<Came> = walk.iter().map(|it| it.along).collect();
-    for (step, it) in walk.iter_mut().enumerate() {
-        it.along = marks[(step + 1) % marks.len()];
+impl Marked for Stepped {
+    fn mark(&mut self) -> &mut Came {
+        &mut self.along
     }
 }
 
@@ -242,7 +229,7 @@ impl Sewing {
             // were, the two faces across an edge would walk it the same way
             // and no shell would close.
             if !region.outward {
-                turned(&mut self.walks[at..]);
+                splitting::turned(&mut self.walks[at..]);
             }
             self.starts.push(self.walks.len());
         }
