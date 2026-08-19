@@ -399,7 +399,7 @@ fn hovering_a_plane_lights_it_without_recolouring_it() {
             .iter()
             .find(|gizmo| {
                 let named = gizmo.tag.and_then(|tag| raised.view.part(tag));
-                matches!(named, Some(Part::Plane(_)))
+                matches!(named, Some(Part::Step(_)))
             })
             .expect("a plane shows a square that answers for it");
         let corners = &square.points;
@@ -413,7 +413,7 @@ fn hovering_a_plane_lights_it_without_recolouring_it() {
     raised.frame();
     let hovered = raised.view.hovered();
     assert!(
-        matches!(hovered, Some(Part::Plane(_))),
+        matches!(hovered, Some(Part::Step(_))),
         "the cursor on a plane's square reported {hovered:?}"
     );
 

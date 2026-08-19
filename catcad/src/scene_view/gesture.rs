@@ -100,7 +100,7 @@ pub(super) struct Held {
     /// Kept beside [`Grabbed`] rather than derived from it: that one says what
     /// the drag *writes*, in the vocabulary the change needs, and this says what
     /// the user grabbed, in the vocabulary the selection needs. A datum is a
-    /// `Movable` to one and a `Part::Plane` to the other, and a solid's far end
+    /// `Movable` to one and a `Part::Step` to the other, and a solid's far end
     /// is the same `Movable` to one and a `Part::Solid` to the other — which is
     /// exactly why neither can be worked out from the other.
     pub(super) part: Part,
@@ -268,11 +268,14 @@ impl Grabbed {
     ) -> Option<Self> {
         let editing = session.editing();
         Some(match part {
-            // A plane whatever sketch is open: what it moves is where the
-            // sketches on it land, and none of them is being edited by it. The
-            // ground answers `None` and so orbits, which is right — it is not
-            // somewhere anybody put a plane.
-            Part::Plane(at) => Grabbed::Datum(document.movable(at)?),
+            // A step, whatever sketch is open. The one kind that goes anywhere
+            // is a plane somebody put there: what it moves is where the sketches
+            // on it land, and none of them is being edited by it. Everything
+            // else answers `None` and so orbits, which is right — a world plane
+            // is not somewhere anybody put one, and a sketch is drawn on
+            // whatever it is drawn on. See
+            // [`Timeline::movable`](crate::timeline::Timeline).
+            Part::Step(at) => Grabbed::Datum(document.movable(at)?),
             // The far end alone. The base lies in the plane the region was drawn
             // on and has nowhere of its own to go, and a wall is carried by both
             // ends at once — so neither says how far, and a press on either

@@ -197,13 +197,35 @@ fn a_datum_travels_on_its_base_and_measures_its_offset_from_the_same_place() {
     assert_eq!(movable.along.offset_at(Vec3::new(0.0, 3.5, 0.0)), 1.5);
 }
 
-/// Asking a sketch how far it is offset is a caller that has mistaken one kind
-/// of step for the other, and is told so rather than answered.
+/// Every kind of step answers whether it can be moved, and only one kind says
+/// yes.
+///
+/// **A fair question of anything**, which is the whole of what the answer being
+/// an `Option` is for: what is picked out is a step, and a press asks the step
+/// whether there is anything to drag rather than being told first what kind it
+/// is. Asking a sketch used to be the caller's mistake and a panic; it is now a
+/// row of the feature tree with nothing to drag, which is a state and not a
+/// slip.
 #[test]
-#[should_panic(expected = "names a sketch rather than a plane")]
-fn a_sketch_is_not_a_plane_that_can_be_moved() {
-    let timeline = Timeline::of(Sketch::default());
-    timeline.movable(timeline.first_sketch());
+fn only_a_plane_somebody_put_there_can_be_moved() {
+    let mut timeline = Timeline::started();
+    let ground = timeline
+        .world(World::Ground)
+        .expect("a started timeline holds the ground");
+    let shelf = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: 1.0,
+    }));
+    let drawn = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: Sketch::default(),
+    });
+
+    assert!(timeline.movable(shelf).is_some(), "a datum goes nowhere");
+    // The three the world comes with have no offset to restate, and a sketch is
+    // drawn on whatever it is drawn on.
+    assert!(timeline.movable(ground).is_none());
+    assert!(timeline.movable(drawn).is_none());
 }
 
 /// A started timeline holds the three world planes, and none of them moves.

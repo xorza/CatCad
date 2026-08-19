@@ -67,7 +67,7 @@ fn the_sketch_button_starts_a_sketch_on_the_plane_picked_out_and_takes_you_into_
     // sketch landing on whichever plane came first would pass against the one
     // the fixture starts with.
     let front = world_plane(&raised, World::Front);
-    raised.choose(Choice::Select(Some(Part::Plane(front))));
+    raised.choose(Choice::Select(Some(Part::Step(front))));
     raised.frame();
 
     let before = sketches(&raised);
@@ -91,7 +91,7 @@ fn the_sketch_button_starts_a_sketch_on_the_plane_picked_out_and_takes_you_into_
     // picked out through all of it, so a bar re-read would find the button
     // standing there to be pressed again.
     assert!(
-        raised.app.session.selection().contains(Part::Plane(front)),
+        raised.app.session.selection().contains(Part::Step(front)),
         "starting a sketch un-picked the plane, so this proves nothing"
     );
     for _ in 0..3 {
@@ -152,7 +152,7 @@ fn taking_back_a_new_sketch_leaves_the_document_with_nothing_open() {
     raised.frame();
 
     let side = world_plane(&raised, World::Side);
-    raised.choose(Choice::Select(Some(Part::Plane(side))));
+    raised.choose(Choice::Select(Some(Part::Step(side))));
     raised.frame();
     let before = sketches(&raised);
     raised.harness.click_at(SKETCH_BUTTON);
@@ -177,7 +177,7 @@ fn taking_back_a_new_sketch_leaves_the_document_with_nothing_open() {
     // And the plane it was started on is still picked out, exactly as leaving a
     // sketch by the door leaves it: a plane is not something an undo took away.
     assert!(
-        raised.app.session.selection().contains(Part::Plane(side)),
+        raised.app.session.selection().contains(Part::Step(side)),
         "taking back the sketch un-picked the plane it was started on"
     );
 
@@ -257,7 +257,7 @@ fn ctrl_n_starts_again_on_a_document_holding_three_planes_and_nothing_drawn() {
     // And it is a document you can start on, which is the whole of why it is
     // worth being able to reach.
     let ground = world_plane(&raised, World::Ground);
-    raised.choose(Choice::Select(Some(Part::Plane(ground))));
+    raised.choose(Choice::Select(Some(Part::Step(ground))));
     raised.frame();
     raised.harness.click_at(SKETCH_BUTTON);
     raised.frame();

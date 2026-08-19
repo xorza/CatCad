@@ -152,7 +152,7 @@ fn a_second_click_on_a_plane_starts_a_sketch_and_on_anything_else_starts_none() 
         .models(&raised.build, Some(sketch))
         .open_plane()
         .expect("a fixture opens the sketch it names");
-    let twice = asked(true, Some(Part::Plane(carrying)));
+    let twice = asked(true, Some(Part::Step(carrying)));
     assert!(
         starts(&twice, carrying),
         "a second click on a plane asked for {twice:?}"
@@ -168,7 +168,7 @@ fn a_second_click_on_a_plane_starts_a_sketch_and_on_anything_else_starts_none() 
 
     // One click on the same plane picks it out and starts nothing — which is
     // what makes the bar's Sketch button the same answer asked a second way.
-    let once = asked(false, Some(Part::Plane(carrying)));
+    let once = asked(false, Some(Part::Step(carrying)));
     assert!(
         !starts(&once, carrying),
         "one click on a plane started a sketch: {once:?}"
@@ -176,7 +176,7 @@ fn a_second_click_on_a_plane_starts_a_sketch_and_on_anything_else_starts_none() 
     assert!(
         once.iter().any(|intent| matches!(
             intent,
-            Intent::Choice(Choice::Select(Some(Part::Plane(at)))) if *at == carrying
+            Intent::Choice(Choice::Select(Some(Part::Step(at)))) if *at == carrying
         )),
         "one click on a plane did not pick it out: {once:?}"
     );

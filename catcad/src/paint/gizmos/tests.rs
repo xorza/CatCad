@@ -51,7 +51,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         .filter(|gizmo| {
             matches!(
                 gizmo.tag.and_then(|tag| layout.names().get(tag)),
-                Some(Part::Plane(_))
+                Some(Part::Step(_))
             )
         })
         .collect();
@@ -72,7 +72,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     let square = named
         .iter()
         .find(|piece| {
-            piece.tag.and_then(|tag| layout.names().get(tag)) == Some(Part::Plane(movable.at))
+            piece.tag.and_then(|tag| layout.names().get(tag)) == Some(Part::Step(movable.at))
         })
         .expect("the movable plane shows a square");
     let origin = movable.plane.point(DVec2::ZERO).as_vec3();
@@ -121,7 +121,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
             .gizmos
             .iter()
             .find(|gizmo| {
-                gizmo.tag.and_then(|tag| layout.names().get(tag)) == Some(Part::Plane(movable.at))
+                gizmo.tag.and_then(|tag| layout.names().get(tag)) == Some(Part::Step(movable.at))
             })
             .expect("the movable plane shows a square")
             .points
@@ -212,7 +212,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
                 .iter()
                 .filter(|piece| matches!(
                     piece.tag.and_then(|tag| layout.names().get(tag)),
-                    Some(Part::Plane(_))
+                    Some(Part::Step(_))
                 ))
                 .all(|piece| piece.precedence == Precedence::Aside),
             "a plane's square stopped yielding to what is drawn on it"
@@ -294,7 +294,7 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
     for gizmo in scene.gizmos.iter().filter(|gizmo| gizmo.tag.is_some()) {
         let tag = gizmo.tag.expect("this one was just filtered for");
         assert!(
-            matches!(layout.names().get(tag), Some(Part::Plane(_))),
+            matches!(layout.names().get(tag), Some(Part::Step(_))),
             "{tag:?} stopped naming the datum it belongs to"
         );
     }

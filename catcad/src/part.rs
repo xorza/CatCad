@@ -17,10 +17,11 @@ use crate::timeline::FeatureId;
 /// and deleting one would mean deleting whatever draws it — so widening
 /// [`Entity`] would have widened every match that decides those, each of which
 /// would have had to refuse a face by hand.
-/// The sketch is named per variant rather than hoisted alongside the enum,
-/// though both arms carry one today. What comes next does not: a datum plane is
-/// a step of the timeline in its own right and belongs to no sketch, so a
-/// common field would have to be made optional the moment one can be picked.
+/// The sketch is named per variant rather than hoisted alongside the enum, and
+/// what that leaves room for is here: [`Part::Step`] is a step of the timeline
+/// in its own right and belongs to no sketch at all. A common field would have
+/// had to be made optional for it, which is the same thing spelt so that every
+/// arm carrying one has to say it does not mean it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Part {
     /// A point, edge, rim or relation of one sketch, named by the handle that
@@ -49,13 +50,21 @@ pub(crate) enum Part {
     /// holds across an edit rather than across a frame. What a *feature* would
     /// keep is this plus the step, which is exactly what is here.
     Solid { of: FeatureId, face: Grown },
-    /// A datum plane, named by the step that put it there.
+    /// A step of the timeline itself, named by the handle that is it.
     ///
-    /// The one part that belongs to no sketch. A plane is a step of the
-    /// timeline in its own right — what sketches are drawn *on* rather than
-    /// anything drawn — which is why the sketch below is an answer some parts
-    /// do not have.
-    Plane(FeatureId),
+    /// **The whole step and not something in it**, which is what makes this the
+    /// one part that belongs to no sketch. A plane is what sketches are drawn
+    /// *on*; a sketch step is the drawing rather than anything drawn in it; an
+    /// extrude is a solid rather than a face of one. Each is a row of the
+    /// feature tree, and each is what a delete takes whole.
+    ///
+    /// One arm for the three kinds rather than one apiece, because nothing that
+    /// reads a part needs to tell them apart — what may be dragged, what may be
+    /// deleted, what picking one opens are all questions with the timeline's own
+    /// answers, and asking it is cheaper than carrying a second copy of what it
+    /// already says. See [`Timeline::movable`](crate::timeline::Timeline), which
+    /// answers `None` for a step nothing can drag.
+    Step(FeatureId),
     /// The depth of a solid still being decided, which is drawn from an open
     /// form rather than from anything the document holds.
     ///
@@ -70,13 +79,18 @@ impl Part {
     /// Which sketch this belongs to, or `None` where it belongs to none.
     ///
     /// Two things here are not part of a sketch, and the `None` is what says so:
-    /// a plane is what a sketch is drawn *on*, and a face of a solid was grown
-    /// off one rather than drawn in it. Both are steps of the timeline in their
-    /// own right.
+    /// a step of the timeline is not *in* a drawing, and a face of a solid was
+    /// grown off one rather than drawn in it.
+    ///
+    /// **A sketch step answers `None` too**, which is not the contradiction it
+    /// reads as: this asks what a part belongs to, and a sketch belongs to
+    /// nothing. What sketch picking one puts you *in* is a different question,
+    /// and one this cannot answer — telling a sketch step from a plane wants the
+    /// timeline. See [`Models::opens`](crate::model::Models).
     pub(crate) fn sketch(self) -> Option<FeatureId> {
         match self {
             Part::Entity { sketch, .. } | Part::Region { sketch, .. } => Some(sketch),
-            Part::Plane(_) | Part::Solid { .. } | Part::Growing => None,
+            Part::Step(_) | Part::Solid { .. } | Part::Growing => None,
         }
     }
 
@@ -88,7 +102,7 @@ impl Part {
     pub(crate) fn entity(self) -> Option<Entity> {
         match self {
             Part::Entity { entity, .. } => Some(entity),
-            Part::Region { .. } | Part::Plane(_) | Part::Solid { .. } | Part::Growing => None,
+            Part::Region { .. } | Part::Step(_) | Part::Solid { .. } | Part::Growing => None,
         }
     }
 }

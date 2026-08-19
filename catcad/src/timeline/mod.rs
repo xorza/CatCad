@@ -420,13 +420,16 @@ impl Timeline {
             .map(|(id, _)| id)
     }
 
-    /// The plane at `at` as something that can be moved, or `None` where it is
-    /// one the world comes with.
+    /// The step at `at` as something that can be moved, or `None` where nothing
+    /// can move it.
     ///
-    /// `None` rather than a panic for those, unlike asking a sketch: a caller
-    /// here has a plane and is asking whether it goes anywhere, which is a fair
-    /// question with a real answer. Asking a *sketch* for its offset is the
-    /// mistake, and that is what still panics.
+    /// **A question about any step, not only a plane.** What is picked out is a
+    /// row of the tree or a square in the view, and both are a
+    /// [`Part::Step`](crate::part::Part) — so what a press may drag is a
+    /// question with three no answers and one yes, rather than a claim the
+    /// caller had to make first. The three the world comes with cannot go
+    /// anywhere, a sketch is drawn on whatever it is drawn on, and a solid's
+    /// depth is carried by its own handle rather than by the step.
     pub(crate) fn movable(&self, at: FeatureId) -> Option<Movable> {
         let feature = self.feature(at);
         match feature {
@@ -434,8 +437,13 @@ impl Timeline {
                 at,
                 along: Along::on(self.plane(*from)),
             }),
-            Feature::Plane(Datum::World(_)) => None,
-            Feature::Sketch { .. } | Feature::Extrude { .. } => wrong_kind(at, "a plane", feature),
+            // Neither is a thing a drag can take anywhere, and neither is a
+            // caller's mistake to ask about: a step is picked out by *being* a
+            // row of the tree, so what may be dragged is a question asked of
+            // whatever was picked rather than of a plane known to be one.
+            Feature::Plane(Datum::World(_)) | Feature::Sketch { .. } | Feature::Extrude { .. } => {
+                None
+            }
         }
     }
 

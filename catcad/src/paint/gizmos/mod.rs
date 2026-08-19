@@ -116,7 +116,7 @@ pub(crate) fn write(
             .filter(move |sheeted| sheeted.movable || open.is_none_or(|on| on == sheeted.at))
             .map(move |sheeted| {
                 (
-                    Some(Part::Plane(sheeted.at)),
+                    Some(Part::Step(sheeted.at)),
                     Piece::Sheet(sheeted.plane, sheet_ink(sheeted.world)),
                 )
             })

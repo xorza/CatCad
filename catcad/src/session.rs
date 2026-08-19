@@ -2,7 +2,6 @@
 
 use crate::intent::{Choice, Intent, Intents};
 use crate::model::{Model, Models};
-use crate::part::Part;
 use crate::prompt::Prompt;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
@@ -136,14 +135,18 @@ impl Session {
                 // says which *thing* you mean, so there is no second one to
                 // learn — and a click that names no sketch says nothing about
                 // which, so it leaves open whatever was. Empty space is one
-                // such click; a datum plane is the other, being what sketches
-                // are drawn on rather than anything drawn.
+                // such click; a plane is the other, being what sketches are
+                // drawn on rather than anything drawn.
+                //
+                // Which sketch, where any, is [`Models::opens`]'s: a sketch
+                // picked out as a *step* is one you mean to be in, and telling
+                // that from a plane picked the same way wants the timeline.
                 Intent::Choice(Choice::Select(what)) => {
-                    self.editing = what.and_then(Part::sketch).or(self.editing);
+                    self.editing = what.and_then(|part| models.opens(part)).or(self.editing);
                     self.selection.select(what);
                 }
                 Intent::Choice(Choice::Include(what)) => {
-                    self.editing = what.sketch().or(self.editing);
+                    self.editing = models.opens(what).or(self.editing);
                     self.selection.include(what);
                 }
                 Intent::Choice(Choice::Ask(Some(opening))) => {
@@ -374,6 +377,7 @@ mod tests {
     use crate::build::Build;
     use crate::intent::Choice;
     use crate::model::Models;
+    use crate::part::Part;
     use crate::timeline::Timeline;
     use crate::timeline::feature::{Datum, Feature, World};
     use crate::tool::dimensioning::Dimensioning;
@@ -444,20 +448,33 @@ mod tests {
         // sketches are drawn *on*, so picking one leaves open whatever was —
         // and it stays picked out, because the document still holds it.
         intents.clear();
-        intents.push(Choice::Select(Some(Part::Plane(ground))));
+        intents.push(Choice::Select(Some(Part::Step(ground))));
         session.apply(Models::new(&timeline, &build, session.editing()), &intents);
         assert_eq!(
             session.editing(),
             Some(here),
             "picking a plane closed the sketch"
         );
-        assert!(session.selection().contains(Part::Plane(ground)));
+        assert!(session.selection().contains(Part::Step(ground)));
 
         let models = Models::new(&timeline, &build, Some(here));
         session.prune(models);
         assert!(
-            session.selection().contains(Part::Plane(ground)),
+            session.selection().contains(Part::Step(ground)),
             "a plane the document still holds was pruned out of the selection"
+        );
+
+        // **A sketch picked as a step is one you mean to be in**, which is how
+        // a row of the feature tree opens a drawing. The same [`Part::Step`] the
+        // plane above wore, and it says the opposite thing — telling the two
+        // apart is the timeline's, and [`Models::opens`] is where it is asked.
+        intents.clear();
+        intents.push(Choice::Select(Some(Part::Step(there))));
+        session.apply(Models::new(&timeline, &build, session.editing()), &intents);
+        assert_eq!(
+            session.editing(),
+            Some(there),
+            "picking a sketch as a step did not open it"
         );
     }
 

@@ -242,7 +242,7 @@ impl CatCad {
                     // refused, and the refusal is the document's: the key says
                     // what was asked for, and what may be answered is decided
                     // where the answer is.
-                    Part::Plane(step) => self.intents.push(Change::DeleteStep { step: *step }),
+                    Part::Step(step) => self.intents.push(Change::DeleteStep { step: *step }),
                     // Entities otherwise. Deleting a face would mean deleting
                     // whatever draws it, which is a different command and not
                     // this one — so a face picked out alongside an edge lets the

@@ -326,7 +326,7 @@ impl<'a> Model<'a> {
             // in the document at all — it is a form's own reading, and what
             // keeps it from outliving the form is the form closing. See
             // [`Models::holds`], which puts the question to whatever can.
-            Part::Plane(_) | Part::Solid { .. } | Part::Growing => false,
+            Part::Step(_) | Part::Solid { .. } | Part::Growing => false,
         }
     }
 }
@@ -459,6 +459,26 @@ impl<'a> Models<'a> {
         })
     }
 
+    /// Which sketch picking `part` puts you in, or `None` where it says nothing
+    /// about which.
+    ///
+    /// **The timeline's half of a question [`Part`] answers alone for
+    /// everything else.** A part that names an entity or a region carries the
+    /// sketch it belongs to; a [`Part::Step`] carries only a handle, and whether
+    /// that handle is a sketch is a thing only the timeline knows. So this is
+    /// `Part::sketch` with the one case it cannot answer added, and it is what
+    /// the session asks rather than either half.
+    ///
+    /// Through [`Models::at`], which answers for a sketch and nothing else — so
+    /// picking a plane or a solid in the tree leaves open whatever was, exactly
+    /// as clicking one in the view already does.
+    pub(crate) fn opens(self, part: Part) -> Option<FeatureId> {
+        part.sketch().or_else(|| match part {
+            Part::Step(at) => self.at(at).map(Model::of),
+            Part::Entity { .. } | Part::Region { .. } | Part::Solid { .. } | Part::Growing => None,
+        })
+    }
+
     /// Which plane the open sketch is drawn on, where one is open.
     pub(crate) fn open_plane(self) -> Option<FeatureId> {
         Some(self.timeline.drawn_on(self.editing?))
@@ -510,7 +530,7 @@ impl<'a> Models<'a> {
     /// asks is a prune, once per thing picked out.
     pub(crate) fn holds(self, part: Part) -> bool {
         match part {
-            Part::Plane(at) => self.timeline.holds(at),
+            Part::Step(at) => self.timeline.holds(at),
             // A face of a solid outlives an edit exactly while the solid still
             // knows which region it is grown from *and* that face is still one
             // of its own — a wall goes when the curve it was swept from stops

@@ -380,7 +380,7 @@ fn delete_on_a_picked_plane_takes_it_and_what_is_drawn_on_it() {
         .find(|sheeted| sheeted.movable)
         .expect("the demo draws a datum that can be moved")
         .at;
-    raised.choose(Choice::Select(Some(Part::Plane(shelf))));
+    raised.choose(Choice::Select(Some(Part::Step(shelf))));
     raised.frame();
 
     raised.harness.key(Key::Delete);
@@ -397,7 +397,7 @@ fn delete_on_a_picked_plane_takes_it_and_what_is_drawn_on_it() {
     // And it is not picked out any more, because it is not there to be picked —
     // which is `Session::prune`'s, reached by the same frame.
     assert!(
-        !raised.app.session.selection().contains(Part::Plane(shelf)),
+        !raised.app.session.selection().contains(Part::Step(shelf)),
         "a step that is gone is still picked out"
     );
 

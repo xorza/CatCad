@@ -286,7 +286,7 @@ impl RaisedView {
     /// press that orbits.
     pub(super) fn over_datum(&self) -> Option<Vec2> {
         let shelf = self.shelf();
-        self.scan(|part, _| part == Some(Part::Plane(shelf)))
+        self.scan(|part, _| part == Some(Part::Step(shelf)))
     }
 
     /// The first cursor of a coarse sweep whose hit resolves to a grip

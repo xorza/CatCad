@@ -38,21 +38,21 @@ const SELECTED: Highlight = Highlight {
     scale: 1.5,
 };
 
-/// What a datum's axes look like singled out, hovered and picked out alike.
+/// What a step looks like singled out, hovered and picked out alike.
 ///
-/// Brighter rather than recoloured, because an axis arrow is *saying something*
-/// in its colour — which of the two it is — and the looks above exist to
-/// override exactly that. Lighting the x arrow yellow would light up an arrow
-/// that had stopped being the x arrow.
+/// Brighter rather than recoloured, because a plane's square is *saying
+/// something* in its colour — which of the three the world comes with it is —
+/// and the looks above exist to override exactly that. Lighting it yellow would
+/// light up a square that had stopped saying which plane it was.
 ///
-/// One look for both, where everything else has two. A datum is a place to
-/// work rather than a thing to gather, so there is no state to tell apart:
-/// what a hover means here is only "this is what pressing would take".
+/// One look for both, where everything else has two. A step is a place to work
+/// rather than a thing to gather, so there is no state to tell apart: what a
+/// hover means here is only "this is what pressing would take".
 ///
 /// Unscaled, unlike the two above, and by the constructor rather than by hand:
 /// a shape that keeps its own colour is one already saying what it is, and
 /// growing it would move the control out from under the cursor pointing at it.
-const AXIS_LIT: Highlight = Highlight::lifted(1.9);
+const STEP_LIT: Highlight = Highlight::lifted(1.9);
 
 /// How `part` reads when it has been singled out.
 ///
@@ -61,7 +61,7 @@ const AXIS_LIT: Highlight = Highlight::lifted(1.9);
 /// two branches was written second.
 fn singled(part: Part, ordinary: Highlight) -> Highlight {
     match part {
-        Part::Plane(_) => AXIS_LIT,
+        Part::Step(_) => STEP_LIT,
         _ => ordinary,
     }
 }
@@ -319,9 +319,9 @@ pub(crate) mod internals {
         /// grab, or the visual suite checking that what it drew is what the
         /// pointer reports.
         ///
-        /// Whole parts rather than entities, because a plane is one of the
-        /// things a press can take hold of and has no entity to be narrowed to.
-        /// A sweep after geometry narrows it itself.
+        /// Whole parts rather than entities, because a step of the timeline is
+        /// one of the things a press can take hold of and has no entity to be
+        /// narrowed to. A sweep after geometry narrows it itself.
         pub(crate) fn part(&self, tag: Tag) -> Option<Part> {
             self.layout.names().get(tag)
         }
@@ -338,9 +338,8 @@ pub(crate) mod internals {
             /// What the renderer was last told to light.
             ///
             /// The set rather than the renderer's answer, because the renderer
-            /// is told and does not report: what a test asking whether hovering
-            /// one arrow lit the whole gizmo needs is the list that was handed
-            /// over, tags and looks together.
+            /// is told and does not report: what a test asking what a hover lit
+            /// needs is the list that was handed over, tags and looks together.
             pub(crate) fn lit(&self) -> &[Lit] {
                 &self.lit
             }

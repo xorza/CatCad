@@ -89,7 +89,7 @@ pub(super) fn clicked(click: Click, document: &Document, session: &Session, inte
         // that already carries one is an ordinary thing to want, and refusing it
         // would be reading the double-click as "open what is there" — which is a
         // different command, and one with no answer where a plane carries three.
-        if double && let Some(Part::Plane(on)) = under {
+        if double && let Some(Part::Step(on)) = under {
             intents.push(Change::AddSketch { on });
         }
     }

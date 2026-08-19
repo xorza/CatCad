@@ -528,7 +528,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
             .iter()
             .filter(|gizmo| {
                 let named = gizmo.tag.and_then(|tag| layout.names().get(tag));
-                matches!(named, Some(Part::Plane(_)))
+                matches!(named, Some(Part::Step(_)))
             })
             .count()
     };

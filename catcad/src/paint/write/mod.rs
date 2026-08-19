@@ -420,7 +420,7 @@ fn named_planes(models: Models<'_>, names: &mut Names, into: &mut Batch<Text>) {
             // camera is not framed on a label whose distance from the origin is
             // a number of pixels rather than anything the model said.
             text.precedence = Precedence::Frame;
-            text.tag = Some(names.tag(Part::Plane(sheeted.at)));
+            text.tag = Some(names.tag(Part::Step(sheeted.at)));
         },
     );
 }

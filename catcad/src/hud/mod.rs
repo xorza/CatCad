@@ -447,7 +447,7 @@ fn region_picked(selection: &Selection) -> Option<Growable> {
 /// arguing: a selection admits relations or it admits a sketch, never both.
 fn plane_picked(selection: &Selection) -> Option<FeatureId> {
     match *selection.picked() {
-        [Part::Plane(at)] => Some(at),
+        [Part::Step(at)] => Some(at),
         _ => None,
     }
 }

@@ -78,7 +78,7 @@ fn noun(part: Part) -> &'static str {
             ..
         } => "constraint",
         Part::Region { .. } => "region",
-        Part::Plane(_) => "plane",
+        Part::Step(_) => "plane",
         // Which face of the solid is not said. It is the one under the cursor,
         // and "the far end of the extrude" is a sentence about the timeline
         // rather than about the thing being pointed at.
