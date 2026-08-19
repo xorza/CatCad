@@ -91,43 +91,29 @@ impl Document {
         Self::new(build, Timeline::started())
     }
 
-    /// Take the step at `at` out.
-    ///
-    /// What an undo of a creation is, and the third and last way a document
-    /// changes — beside [`Document::apply`], which asks for something, and
-    /// [`Document::restore`], which puts a value back. This puts back a step's
-    /// *absence*, which is the one thing neither of those can say.
-    ///
-    /// What it takes to put the step back is dropped rather than handed on,
-    /// because the history is already holding a copy: an undo of a creation
-    /// reads its `Edit`, which kept the feature for exactly this. A *delete* is
-    /// what really wants that answer — see [`Timeline::uproot`].
-    pub(crate) fn take_back(&mut self, build: &mut Build, at: FeatureId) {
-        self.timeline.uproot(at);
-        build.revised();
-        self.remodel(build);
-        self.edits = self.edits.next();
-    }
-
-    /// Put `feature` back on the end under the name it already had.
-    ///
-    /// The redo of the above, and the reason a dropped handle is never reissued:
-    /// this is the same step returning rather than another one taking its place.
+    /// Put `feature` back on the end under the name it already had, which is the
+    /// redo of a creation.
     ///
     /// **On the end, and that is right rather than merely what it used to do.**
     /// A creation puts a step last, and nothing can have moved it since: any
     /// edit at all throws away what an undo left to redo — see
     /// [`History::record`](crate::history::History) — so between taking this
     /// step off and putting it back the recipe cannot have changed at all.
+    ///
+    /// One step through the call that puts back several, because a creation is a
+    /// cascade of one and nothing about it differs. Undoing one goes through
+    /// [`Document::uproot_all`] the same way — which is what makes a sketch that
+    /// was made and taken back leave nothing behind it, where a second path did
+    /// not forget what the build had settled for it.
     pub(crate) fn put_again(&mut self, build: &mut Build, at: FeatureId, feature: Feature) {
-        self.timeline.replant(Uprooted {
-            at,
-            position: self.timeline.count(),
-            feature,
-        });
-        build.revised();
-        self.remodel(build);
-        self.edits = self.edits.next();
+        self.replant_all(
+            build,
+            &[Uprooted {
+                at,
+                position: self.timeline.count(),
+                feature,
+            }],
+        );
     }
 
     /// Take each of `steps` out, and forget whatever was solved for them.
@@ -142,9 +128,14 @@ impl Document {
     /// the whole recipe: taking the last one first means each removal only ever
     /// shifts steps that have already been taken.
     ///
-    /// The timeline alone, so the two callers can each say what follows —
-    /// [`Document::apply`] lets its own tail rebuild, and
-    /// [`Document::uproot_all`] rebuilds for itself.
+    /// **What the build knew of them goes with them.** A `Settled` is made on
+    /// first use and never removed otherwise, so every step taken out would
+    /// otherwise leave a report about a sketch nothing can reach — see
+    /// [`Build::forgot`].
+    ///
+    /// No rebuild, so the two callers can each say what follows —
+    /// [`Document::apply`] lets its own tail do it, and
+    /// [`Document::uproot_all`] does it for itself.
     fn pulled(&mut self, build: &mut Build, steps: &[FeatureId]) -> Vec<Uprooted> {
         let mut pulled: Vec<Uprooted> = steps
             .iter()
@@ -175,11 +166,15 @@ impl Document {
     /// a recipe the ones before it have already been put back into, so the
     /// position each recorded is the position it takes.
     ///
-    /// Settled afterwards rather than as each lands, and measured rather than
-    /// solved — the same reading [`Document::restore`] takes. What comes back is
-    /// the geometry that went away, so there is nothing to fix and a solve would
-    /// be free to wander off it. Every sketch among them needs it: the build
-    /// forgot what it knew of them when they went.
+    /// Measured rather than solved, the same reading [`Document::restore`] takes:
+    /// what comes back is the geometry that went away, so there is nothing to
+    /// fix and a solve would be free to wander off it. Every sketch among them
+    /// needs it, because [`Document::pulled`] forgot them when they went.
+    ///
+    /// In a pass of its own rather than as each step lands. One pass would do —
+    /// a sketch settles against its plane, and a plane is always earlier, so it
+    /// is always already back — but splitting them means the settle never has to
+    /// know that.
     pub(crate) fn replant_all(&mut self, build: &mut Build, steps: &[Uprooted]) {
         for uprooted in steps {
             self.timeline.replant(uprooted.clone());

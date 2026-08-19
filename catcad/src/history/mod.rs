@@ -228,7 +228,7 @@ impl History {
             Edit::Wrote { at, before, .. } => document.restore(build, *at, before),
             // Undoing a creation puts back the step's *absence*, which is the
             // one thing a restore cannot say.
-            Edit::Added { at, .. } => document.take_back(build, *at),
+            Edit::Added { at, .. } => document.uproot_all(build, &[*at]),
             // And undoing a removal is the opposite again: the steps come back,
             // each where it sat.
             Edit::Removed { steps } => document.replant_all(build, steps),
