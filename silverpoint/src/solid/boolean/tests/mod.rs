@@ -9,11 +9,12 @@ use crate::sketch::entity::Entity;
 use crate::solid::build::extrusion::Extrusion;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
+use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
 use crate::solid::named::{Named, Step};
 use crate::solid::topology::edge::Edge;
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::{PI, SQRT_2, TAU};
 
 /// The two steps the blocks below are grown by.
 ///
@@ -698,6 +699,98 @@ fn two_rods_alongside_each_other_join_into_one() {
         );
         last = off.abs();
     }
+}
+
+/// **A pipe mitred across**, which is a plane meeting a cylinder obliquely and
+/// was the last crossing `imprinted` could not carry.
+///
+/// The curve is an ellipse, and it needs writing down twice over: on the
+/// cutting plane it is an ellipse in that plane's own parameters, which is what
+/// [`Cut::Round`](super::splitting::Cut) became; on the cylinder it is a *graph
+/// over the angle*, `v = level + swing·cos(θ − phase)`, which is
+/// [`Cut::Wave`](super::splitting::Cut).
+///
+/// A unit rod up `+y`, cut by a plane through its axis at half height leaning
+/// forty-five degrees. What comes back is four faces — the base, the two halves
+/// of the wall §4.4 splits it into, and the elliptical lid — over four
+/// vertices and six edges, which is genus nought.
+///
+/// **The lid's curve is asserted exactly.** Leaning at forty-five degrees
+/// stretches the circle by `1/cos 45° = √2` along the lean and leaves it alone
+/// across, so the ellipse is `√2` by `1`, centred where the plane crosses the
+/// axis and square to the plane's own normal. Both halves of it sweep half a
+/// turn of that ellipse's frame, one each way round, which is what says the two
+/// walls meet it along one edge apiece rather than sharing one.
+#[test]
+fn a_pipe_mitred_across_keeps_the_ellipse_exact() {
+    let upright = rod(Plane::GROUND, DVec2::ZERO, 1.0, 6.0, CUBE);
+    let leaning = Plane {
+        origin: DVec3::new(0.0, 3.0, 0.0),
+        x: DVec3::X,
+        y: DVec3::new(0.0, 1.0, -1.0).normalize(),
+    };
+    let lid = block(
+        leaning,
+        &[(-5.0, -5.0), (5.0, -5.0), (5.0, 5.0), (-5.0, 5.0)],
+        10.0,
+        TOOL,
+    );
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(boolean.combine(&upright.body, &lid, Operation::Cut, &mut into));
+
+    let topology = into.topology();
+    assert_eq!(topology.faces().count(), 4);
+    assert_eq!(topology.edges().count(), 6);
+    assert_eq!(topology.vertices().count(), 4);
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "{reckoning:?}");
+
+    // The rod's wall came through as its own two halves, on the tool's own
+    // exact cylinder — the mitre took a bite out of each and renamed neither.
+    assert_eq!(into.patches(upright.wall).count(), 2);
+
+    let want = Ellipse {
+        axis: Axis::new(
+            leaning.origin,
+            leaning.normal(),
+            DVec3::new(0.0, 1.0, -1.0).normalize(),
+        ),
+        major: SQRT_2,
+        minor: 1.0,
+    };
+    let lid: Vec<&Edge> = topology
+        .edges()
+        .map(|(_, edge)| edge)
+        .filter(|edge| matches!(edge.curve, Curve::Ellipse(_)))
+        .collect();
+    assert_eq!(lid.len(), 2, "the mitre came back as {} arcs", lid.len());
+    for edge in &lid {
+        let Curve::Ellipse(oval) = edge.curve else {
+            unreachable!("filtered above")
+        };
+        assert!(
+            oval.axis.origin.abs_diff_eq(want.axis.origin, 1e-12)
+                && oval.axis.direction.abs_diff_eq(want.axis.direction, 1e-12)
+                && (oval.major - want.major).abs() < 1e-12
+                && (oval.minor - want.minor).abs() < 1e-12,
+            "an arc landed on {oval:?} rather than {want:?}",
+        );
+        let swept = edge.bounds[1] - edge.bounds[0];
+        assert!(
+            (swept.abs() - PI).abs() < 1e-12,
+            "an arc swept {swept} rather than half the frame",
+        );
+    }
+    // The two together are the whole ellipse, once round — one loop of the lid
+    // walked in two pieces, so they run the *same* way and their sweeps add to
+    // a whole turn of the frame. Two halves running against each other would be
+    // the lid covering half of itself twice.
+    let round: f64 = lid.iter().map(|edge| edge.bounds[1] - edge.bounds[0]).sum();
+    assert!(
+        (round.abs() - TAU).abs() < 1e-12,
+        "the mitre came round by {round} rather than a whole turn",
+    );
 }
 
 // Already inside a `cfg(test)` module, so it needs no gate of its own.

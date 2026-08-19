@@ -5,6 +5,7 @@ use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
+use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
@@ -465,4 +466,57 @@ fn a_boundary_bounds_its_face_on_everything_but_a_sphere() {
     // Which is what it is for: the pole at `(0, 2, 0)` is on the sphere and
     // outside the rim's own box, and a cull reading that box would miss it.
     assert!(widened.high.y >= 2.0 && rim.high.y < 2.0);
+}
+
+/// **A curve's parameter reads back the way it was written**, which for an
+/// ellipse is not the bearing it stands at.
+///
+/// An ellipse sweeps its *frame* — `major·cos t` along the reference and
+/// `minor·sin t` across it — so `t` is the eccentric angle, and the bearing of
+/// the place it lands at is a different number wherever the two halves differ.
+/// Read as a bearing, the parameter an edge is given sends
+/// [`Curve::at`](Curve::at) somewhere else entirely, and an arc comes back as a
+/// stretch of ellipse it never covered.
+///
+/// The two halves are two and one, so at an eighth of a turn the place stands
+/// at `(√2, ½√2)` off centre, whose bearing is `atan2(½√2, √2)` — about 26.6°
+/// where the parameter is 45°. Hand-computed, and the point of the fixture: a
+/// circle would answer the same to both.
+#[test]
+fn an_ellipse_reads_its_parameter_back_and_not_its_bearing() {
+    let oval = Ellipse {
+        axis: upright(),
+        major: 2.0,
+        minor: 1.0,
+    };
+    let curve = Curve::Ellipse(oval);
+
+    let eighth = FRAC_PI_4;
+    let place = curve.at(eighth);
+    // `upright` runs up +Y from the origin with angles from +X and its quarter
+    // turn at −Z, so an eighth of the frame is `2·cos` along X and `1·sin`
+    // along −Z.
+    let half = SQRT_2 / 2.0;
+    assert!(
+        place.abs_diff_eq(DVec3::new(2.0 * half, 0.0, -half), 1e-12),
+        "{place:?}",
+    );
+    // The bearing there, which is what an axis answers and what this must not.
+    let bearing = upright().angle_of(place);
+    assert!(
+        (bearing - (half / (2.0 * half)).atan()).abs() < 1e-12,
+        "the bearing came out {bearing}",
+    );
+    assert!(
+        (bearing - eighth).abs() > 0.3,
+        "the fixture cannot tell a bearing from a parameter",
+    );
+
+    // Read back, and round-tripped through the place either way.
+    for step in 0..8 {
+        let t = -PI + TAU * f64::from(step) / 8.0;
+        let read = curve.along(curve.at(t));
+        assert!((read - t).abs() < 1e-12, "{t} read back as {read}");
+        assert!(curve.at(read).abs_diff_eq(curve.at(t), 1e-12));
+    }
 }

@@ -30,10 +30,10 @@ use crate::math::winding::{self, holds};
 use crate::number::predicate;
 use crate::number::tolerance::{ENCLOSED, PLACED};
 use glam::DVec2;
-use std::f64::consts::TAU;
+use std::f64::consts::{PI, TAU};
 use std::ops::Range;
 
-/// How finely a closed cut is flattened, as a fraction of its radius.
+/// How finely a closed cut is flattened, as a fraction of its longer half.
 ///
 /// **A classification tolerance and not a geometry one**, which is what lets it
 /// be this coarse. What the corners are for is saying which region a place
@@ -72,18 +72,29 @@ pub(super) enum Cut {
         /// rim. `None` only for a genuine line — a plane meeting a plane.
         run: Option<u32>,
     },
-    /// A circular cut, the inside kept where `inward`.
+    /// A closed cut round an ellipse, the inside kept where `inward`.
     ///
     /// **Closed, which is the whole of what makes it a different case.** A
     /// straight cut always meets a region's boundary if it meets the region at
-    /// all; a circle can lie wholly within one and take a disc out of its
-    /// middle without touching an edge of it, and it can be crossed twice by
-    /// one straight run of boundary. Both are states the straight arm never
+    /// all; a closed one can lie wholly within a region and take a disc out of
+    /// its middle without touching an edge of it, and it can be crossed twice
+    /// by one straight run of boundary. Both are states the straight arm never
     /// reaches — see [`Cut::closed`] and [`Cut::grazes`].
+    ///
+    /// **An ellipse and not a circle, which costs one divide and buys a
+    /// milestone.** A circle is the pair of halves being equal, and everything
+    /// below reads them as a pair either way — where a second variant for the
+    /// round case would be eleven more arms saying nearly the same thing. A
+    /// plane meeting a cylinder squarely gives the circle, and obliquely the
+    /// ellipse; two equal cylinders on crossing axes give two of the second.
     Round {
         middle: DVec2,
-        radius: f64,
-        /// Whether the disc is kept rather than everything but it.
+        /// Unit, the way the longer half runs.
+        along: DVec2,
+        /// The two halves: `x` along [`Cut::Round::along`] and `y` across it.
+        /// Equal for a circle.
+        half: DVec2,
+        /// Whether the inside is kept rather than everything but it.
         inward: bool,
         /// Which of the caller's runs this is — see [`Came::Arc`].
         ///
@@ -94,6 +105,44 @@ pub(super) enum Cut {
         /// chances to split by one cut and stamp another's number.
         run: u32,
     },
+    /// A cut along `v = level + swing·cos(θ − phase)`, everything above it kept
+    /// where `above`.
+    ///
+    /// **What an ellipse is in a cylinder's own parameters.** A plane meeting a
+    /// cylinder obliquely crosses it in one, and so does a second cylinder of
+    /// the same radius on a crossing axis — which is the mitred pipe and the
+    /// Steinmetz solid, and between them the whole of what M5 had left. On a
+    /// plane that curve is an ellipse and [`Cut::Round`] carries it; on the
+    /// cylinder it is a *graph over the angle*, which is why it is its own
+    /// shape rather than a case of one.
+    ///
+    /// Open, not closed: the parameter it is a graph over wraps, but a face may
+    /// not — `.notes/KERNEL.md` §4.4 — so within any one face it runs right
+    /// across like a line. It can still be met twice by one straight run, which
+    /// a line cannot, and that is the one place the two part company.
+    Wave {
+        /// The height it swings about, and how far either way.
+        level: f64,
+        swing: f64,
+        /// The angle its high side stands at.
+        phase: f64,
+        /// Whether what is kept is above it rather than below.
+        above: bool,
+        /// Which of the caller's runs this is — see [`Came::Arc`].
+        run: u32,
+    },
+}
+
+/// How much of a wave a straight run crosses, and where.
+///
+/// Three, because that is the most there can be: a run less than a whole turn
+/// wide meets `v = swing·cos(θ − phase)` where a line meets a cosine, and the
+/// difference of the two turns at most twice over that span — see
+/// [`Cut::crested`].
+#[derive(Debug, Clone, Copy, Default)]
+struct Crested {
+    along: [f64; 3],
+    count: u8,
 }
 
 impl Cut {
@@ -107,13 +156,28 @@ impl Cut {
             },
             Self::Round {
                 middle,
-                radius,
+                along,
+                half,
                 inward,
                 run,
             } => Self::Round {
                 middle,
-                radius,
+                along,
+                half,
                 inward: !inward,
+                run,
+            },
+            Self::Wave {
+                level,
+                swing,
+                phase,
+                above,
+                run,
+            } => Self::Wave {
+                level,
+                swing,
+                phase,
+                above: !above,
                 run,
             },
         }
@@ -126,7 +190,9 @@ impl Cut {
     /// numbered.
     fn came(self) -> Came {
         match self {
-            Self::Straight { run: Some(run), .. } | Self::Round { run, .. } => Came::Arc(run),
+            Self::Straight { run: Some(run), .. }
+            | Self::Round { run, .. }
+            | Self::Wave { run, .. } => Came::Arc(run),
             Self::Straight { run: None, .. } => Came::Edge,
         }
     }
@@ -141,16 +207,39 @@ impl Cut {
     fn side(self, point: DVec2) -> f64 {
         match self {
             Self::Straight { at, along, .. } => along.perp_dot(point - at),
-            Self::Round {
-                middle,
-                radius,
-                inward,
-                ..
-            } => {
-                let off = radius - middle.distance(point);
+            // **How far off along the ray from the middle**, which is what a
+            // radius is to a circle and the nearest thing an ellipse has to
+            // one. A true distance to an ellipse is a quartic; this agrees
+            // with it exactly where the two halves are equal, and everywhere
+            // else it is the same sign and the same nought, which is all
+            // [`Side::of`] reads and all the walk asks.
+            Self::Round { inward, .. } => {
+                let off = self.reach(point);
                 if inward { off } else { -off }
             }
+            // Straight up, which is a distance in `v` and an overstatement of
+            // the distance to the wave itself by however steeply it runs. The
+            // sign and the nought are exact, and those are what [`Side::of`]
+            // and the walk read.
+            Self::Wave { above, .. } => {
+                let off = point.y - self.crest(point.x);
+                if above { off } else { -off }
+            }
         }
+    }
+
+    /// How high the wave stands at the angle `across`.
+    fn crest(self, across: f64) -> f64 {
+        let Self::Wave {
+            level,
+            swing,
+            phase,
+            ..
+        } = self
+        else {
+            return 0.0;
+        };
+        level + swing * (across - phase).cos()
     }
 
     /// How far along the cut `point` stands.
@@ -162,8 +251,13 @@ impl Cut {
     fn down(self, point: DVec2) -> f64 {
         match self {
             Self::Straight { at, along, .. } => along.dot(point - at),
-            Self::Round { middle, inward, .. } => {
-                let off = point - middle;
+            Self::Round {
+                middle,
+                half,
+                inward,
+                ..
+            } => {
+                let off = self.frame(point - middle) / half;
                 let turned = off.y.atan2(off.x).rem_euclid(std::f64::consts::TAU);
                 // Counterclockwise keeps the disc on the left, so keeping
                 // everything *but* it runs the other way round.
@@ -171,6 +265,16 @@ impl Cut {
                     turned
                 } else {
                     std::f64::consts::TAU - turned
+                }
+            }
+            // The angle itself, the wave being a graph over it. Keeping what is
+            // above puts that on the left of a walk running the way the angle
+            // grows; keeping what is below runs the other way.
+            Self::Wave { above, .. } => {
+                if above {
+                    point.x
+                } else {
+                    -point.x
                 }
             }
         }
@@ -189,7 +293,7 @@ impl Cut {
                 from.lerp(to, here / (here - there))
             }
             Self::Round { .. } => {
-                let [first, second] = self.roots(from, to).expect("the run crosses the circle");
+                let [first, second] = self.roots(from, to).expect("the run crosses the ellipse");
                 let along = if (0.0..=1.0).contains(&first) {
                     first
                 } else {
@@ -197,17 +301,89 @@ impl Cut {
                 };
                 from.lerp(to, along)
             }
+            Self::Wave { .. } => {
+                let crested = self.crested(from, to);
+                let along = crested.along[..usize::from(crested.count)]
+                    .iter()
+                    .copied()
+                    .find(|&along| (0.0..=1.0).contains(&along))
+                    .expect("the run crosses the wave");
+                from.lerp(to, along)
+            }
         }
+    }
+
+    /// Where along the run from `from` to `to` the wave is met, in order.
+    ///
+    /// **Bisected, there being nothing to solve.** A straight run against
+    /// `v = level + swing·cos(θ − phase)` is a line against a cosine, and that
+    /// has no closed form — the one crossing in this kernel that has not. What
+    /// there *is* in closed form is where the difference of the two turns:
+    /// `swing·sin(θ − phase)·dθ = −dv`, which has at most two answers over a
+    /// run less than a whole turn wide. Split there, the difference is monotone
+    /// on each piece, so a sign change brackets exactly one root and bisection
+    /// walks it down to the last bit the two ends can be told apart by.
+    ///
+    /// Converged rather than tolerated, which is the distinction that matters:
+    /// what comes back is the root to the precision the numbers hold, not a
+    /// place within some bound of it.
+    fn crested(self, from: DVec2, to: DVec2) -> Crested {
+        let Self::Wave { swing, phase, .. } = self else {
+            return Crested::default();
+        };
+        let run = to - from;
+        let at = |along: f64| {
+            let place = from.lerp(to, along);
+            place.y - self.crest(place.x)
+        };
+        // The run split where the difference turns, ends included. Two turns at
+        // most, and each of them once: the run is a stretch of one face's own
+        // parameters and no face wraps, so it reaches over less than a whole
+        // turn — and which way round it runs says nothing about that, which is
+        // why the span is taken as a range rather than walked from one end.
+        let mut turns = [0.0, 1.0, 0.0, 0.0];
+        let mut pieces = 2;
+        let leaning = -run.y / (swing * run.x);
+        if run.x != 0.0 && leaning.abs() <= 1.0 {
+            let (lo, hi) = (from.x.min(to.x), from.x.max(to.x));
+            let first = leaning.asin();
+            for turn in [first, PI - first] {
+                let over = ((lo - phase - turn) / TAU).ceil();
+                let across = phase + turn + TAU * over;
+                let along = (across - from.x) / run.x;
+                if across < hi && (0.0..1.0).contains(&along) && pieces < turns.len() {
+                    turns[pieces] = along;
+                    pieces += 1;
+                }
+            }
+        }
+        let turns = &mut turns[..pieces];
+        turns.sort_by(|one, two| one.partial_cmp(two).expect("a run is finite"));
+        let mut crested = Crested::default();
+        for step in 1..turns.len() {
+            let (lo, hi) = (turns[step - 1], turns[step]);
+            let (here, there) = (at(lo), at(hi));
+            if here == 0.0 {
+                continue;
+            }
+            if (here > 0.0) == (there > 0.0) {
+                continue;
+            }
+            crested.along[usize::from(crested.count)] = halved(lo, hi, at);
+            crested.count += 1;
+        }
+        crested
     }
 
     /// Where the straight run from `from` to `to` crosses it *twice*, both ends
     /// standing on the same side.
     ///
-    /// The case a closed cut has and a straight one cannot: a run whose ends
-    /// are both outside a circle can still pass through it, and one whose ends
-    /// are both inside cannot leave it — so what this finds is a boundary
-    /// dipping across the cut and back between two of its corners, which the
-    /// walk would otherwise step straight over.
+    /// The case a bent cut has and a straight one cannot: a run whose ends are
+    /// both outside an ellipse can still pass through it, and one whose ends
+    /// both stand above a wave can still dip below it — so what this finds is a
+    /// boundary crossing the cut and back between two of its corners, which the
+    /// walk would otherwise step straight over. A line has no such case, and
+    /// [`Cut::roots`] answers `None` for one.
     fn grazes(self, from: DVec2, to: DVec2) -> Option<[DVec2; 2]> {
         let [first, second] = self.roots(from, to)?;
         let inside = |along: f64| (PLACED..=1.0 - PLACED).contains(&along);
@@ -222,20 +398,28 @@ impl Cut {
     /// spelling out which way round a circle runs. Nought for a straight cut,
     /// which has no corners of its own to give and never asks.
     fn at(self, down: f64) -> DVec2 {
-        let Self::Round {
-            middle,
-            radius,
-            inward,
-            ..
-        } = self
-        else {
-            return DVec2::ZERO;
-        };
-        // `down` runs the way the cut does; counterclockwise keeps the disc on
-        // the left, so the cut runs the other way round where it is not the
-        // disc being kept.
-        let turned = if inward { down } else { -down };
-        middle + DVec2::new(turned.cos(), turned.sin()) * radius
+        match self {
+            Self::Straight { .. } => DVec2::ZERO,
+            // `down` runs the way the cut does; counterclockwise keeps the
+            // inside on the left, so the cut runs the other way round where it
+            // is not the inside being kept.
+            Self::Round {
+                middle,
+                along,
+                half,
+                inward,
+                ..
+            } => {
+                let (across, ahead) = if inward { down } else { -down }.sin_cos();
+                middle + along * (half.x * ahead) + along.perp() * (half.y * across)
+            }
+            // The same the other way about: keeping what is below runs the cut
+            // against the angle.
+            Self::Wave { above, .. } => {
+                let across = if above { down } else { -down };
+                DVec2::new(across, self.crest(across))
+            }
+        }
     }
 
     /// The corners of the cut between two places along it, in the direction it
@@ -247,15 +431,27 @@ impl Cut {
     /// loop closed without this cuts the corner with a chord — a quarter disc
     /// coming back as the triangle under it.
     fn between(self, from: f64, to: f64, into: &mut Vec<Corner>) {
-        let Self::Round { radius, .. } = self else {
-            return;
-        };
-        let sweep = (to - from).rem_euclid(TAU);
-        let count = arc::chords(radius, sweep, radius * ROUNDED);
-        into.extend((1..count).map(|step| Corner {
-            at: self.at(from + sweep * step as f64 / count as f64),
-            came: self.came(),
-        }));
+        match self {
+            Self::Straight { .. } => {}
+            Self::Round { half, .. } => {
+                let sweep = (to - from).rem_euclid(TAU);
+                let count = arc::chords(half.x, sweep, half.x * ROUNDED);
+                into.extend((1..count).map(|step| Corner {
+                    at: self.at(from + sweep * step as f64 / count as f64),
+                    came: self.came(),
+                }));
+            }
+            // Not wrapped, a wave being open: it runs from one edge of the
+            // face to the other and `down` grows the whole way.
+            Self::Wave { .. } => {
+                let sweep = to - from;
+                let count = rippled(sweep);
+                into.extend((1..count).map(|step| Corner {
+                    at: self.at(from + sweep * step as f64 / count as f64),
+                    came: self.came(),
+                }));
+            }
+        }
     }
 
     /// The cut as a loop of corners, wound so the side kept is on its left.
@@ -269,10 +465,10 @@ impl Cut {
     /// meeting that produced the cut and never from here — see
     /// `.notes/KERNEL.md` §7.4.
     fn walk(self, into: &mut Vec<Corner>) {
-        let Self::Round { radius, .. } = self else {
+        let Self::Round { half, .. } = self else {
             return;
         };
-        let count = arc::chords(radius, TAU, radius * ROUNDED);
+        let count = arc::chords(half.x, TAU, half.x * ROUNDED);
         into.reserve_exact(count);
         into.extend((0..count).map(|step| Corner {
             at: self.at(TAU * step as f64 / count as f64),
@@ -287,15 +483,95 @@ impl Cut {
     /// one dimension up — see [`roots`](crate::math::quadratic::roots), which
     /// is also where a graze is argued to be a miss.
     fn roots(self, from: DVec2, to: DVec2) -> Option<[f64; 2]> {
-        let Self::Round { middle, radius, .. } = self else {
-            return None;
+        match self {
+            Self::Straight { .. } => None,
+            Self::Round { middle, half, .. } => {
+                // In the frame the ellipse is the unit circle in, where the run
+                // is still a straight run and the meeting is still a quadratic.
+                let run = self.frame(to - from) / half;
+                let start = self.frame(from - middle) / half;
+                quadratic::roots(
+                    run.length_squared(),
+                    2.0 * run.dot(start),
+                    start.length_squared() - 1.0,
+                )
+            }
+            // Two, or the run went across rather than dipping — which is the
+            // same rule the ellipse answers by, and the reason both are `None`
+            // for one root as well as for none.
+            Self::Wave { .. } => {
+                let crested = self.crested(from, to);
+                (crested.count == 2).then(|| [crested.along[0], crested.along[1]])
+            }
+        }
+    }
+
+    /// `off` turned into the cut's own frame — along its longer half, and
+    /// across it.
+    ///
+    /// A rotation and nothing else, so a length here is a length there. Takes a
+    /// direction rather than a place, the middle being what tells the two
+    /// apart and only some callers wanting it taken off.
+    fn frame(self, off: DVec2) -> DVec2 {
+        let Self::Round { along, .. } = self else {
+            return DVec2::ZERO;
         };
-        let (run, start) = (to - from, from - middle);
-        quadratic::roots(
-            run.length_squared(),
-            2.0 * run.dot(start),
-            start.length_squared() - radius * radius,
-        )
+        DVec2::new(off.dot(along), along.perp_dot(off))
+    }
+
+    /// How far `point` stands inside the ellipse, along the ray from its
+    /// middle.
+    ///
+    /// Positive within. Reduces to `radius − |p − middle|` where the two halves
+    /// are equal, which is what makes an ellipse the one shape here rather than
+    /// a second one beside the circle.
+    fn reach(self, point: DVec2) -> f64 {
+        let Self::Round { middle, half, .. } = self else {
+            return 0.0;
+        };
+        let off = self.frame(point - middle);
+        let out = (off / half).length();
+        if out < f64::MIN_POSITIVE {
+            // The middle itself, where every ray is as good and the nearest
+            // place on the ellipse is a shorter half away.
+            return half.min_element();
+        }
+        off.length() * (1.0 / out - 1.0)
+    }
+}
+
+/// How many chords a stretch of `sweep` of a wave is worth.
+///
+/// A cosine bends no harder than its own swing, so a chord over `h` of angle
+/// strays by at most `swing·h²/8` — and the sagitta wanted is [`ROUNDED`] of
+/// that same swing, which leaves `h = √(8·ROUNDED)` whatever the swing is. In
+/// the face's own parameters, where the classification happens and the body
+/// never looks.
+fn rippled(sweep: f64) -> usize {
+    ((sweep.abs() / (8.0 * ROUNDED).sqrt()).ceil() as usize).max(1)
+}
+
+/// The place between `lo` and `hi` where `at` changes sign, found by halving.
+///
+/// Not [`Cut::between`], which walks a cut's own corners — this is the one
+/// piece of arithmetic in the kernel with no closed form to reach for.
+///
+/// The two have to bracket one, which every caller has just shown. Halved until
+/// the middle is one of the two ends, which is the last bit an `f64` holds
+/// between them — about fifty rounds, and no tolerance anywhere in it.
+fn halved(lo: f64, hi: f64, at: impl Fn(f64) -> f64) -> f64 {
+    let (mut lo, mut hi) = (lo, hi);
+    let rising = at(hi) > 0.0;
+    loop {
+        let middle = 0.5 * (lo + hi);
+        if middle <= lo || middle >= hi {
+            return middle;
+        }
+        if (at(middle) > 0.0) == rising {
+            hi = middle;
+        } else {
+            lo = middle;
+        }
     }
 }
 
@@ -490,7 +766,9 @@ fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut) -> bool {
     }
     match cut {
         Cut::Round { middle, .. } => cut.side(middle) > 0.0,
-        Cut::Straight { .. } => false,
+        // Neither of these is closed, so a region every corner of which lies on
+        // one has no width and bounds nothing on either side of it.
+        Cut::Straight { .. } | Cut::Wave { .. } => false,
     }
 }
 

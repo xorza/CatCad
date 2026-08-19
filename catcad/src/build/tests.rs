@@ -23,11 +23,11 @@ fn square() -> Sketch {
     sketch
 }
 
-/// One circle of unit radius about `(x, 0)`.
-fn ring(x: f64) -> Sketch {
+/// One circle of `radius` about `(x, 0)`.
+fn ring(x: f64, radius: f64) -> Sketch {
     let mut sketch = Sketch::default();
     let center = sketch.add_point(DVec2::new(x, 0.0));
-    sketch.add_circle(center, 1.0);
+    sketch.add_circle(center, radius);
     sketch
 }
 
@@ -147,9 +147,10 @@ fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
 /// booleans at all. The tree says which step could not be merged, because
 /// [`Models::unmerged`] counts a refusal apart from a lost profile.
 ///
-/// Across and not alongside, which is the whole of the fixture: two cylinders
-/// whose axes run parallel meet in ruling *lines*, and those the kernel writes
-/// down and carries.
+/// Across, and of *unequal* radius, which is the whole of the fixture. Two
+/// cylinders whose axes run parallel meet in ruling lines; two of one radius on
+/// crossing axes meet in two ellipses; and the kernel writes both of those down
+/// and carries them. What is left is the quartic, and this is it.
 #[test]
 fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     let mut timeline = Timeline::default();
@@ -157,11 +158,11 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     let upright = timeline.add(Feature::Plane(Datum::World(World::Front)));
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
-        sketch: ring(0.0),
+        sketch: ring(0.0, 1.0),
     });
     let round = timeline.add(Feature::Sketch {
         on: upright,
-        sketch: ring(0.0),
+        sketch: ring(0.0, 1.5),
     });
 
     let mut build = Build::default();

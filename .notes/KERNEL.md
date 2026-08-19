@@ -1170,7 +1170,7 @@ its own. What was wrong was the vertex, whose faces come in two cones with no
 edge between them, and only a walk across *shells* can see that. `Sewing` now
 claims a shell's corners as it gathers it and refuses a second claim.
 
-### M5 — boolean over the whole exact tier — the round cut **done**, cylinder ∩ cylinder **open**
+### M5 — boolean over the whole exact tier — the cuts **done**, measuring them **open**
 
 **How a curved cut is carried, decided.** The polyline classifies and the curve
 builds: `Cells` goes on holding points in a surface's parameters, a closed cut
@@ -1372,12 +1372,43 @@ to be broken wherever another face has already broken it, which is what
 its seam and the face across the rim from it met the circle as one uninterrupted
 cut, so left alone the two meet along one edge and two.
 
-**What is refused, and it is no longer "curved" nor "parallel".** An ellipse is a
-sinusoid in a cylinder's parameters and `imprinted` turns it away; two cylinders
-across each other are `Meeting::Algebraic`. So M5 delivers the bore, the pocket,
-the boss, the rod, the flat and the pair, and turns away the cross drilling.
-Steinmetz waits on cylinder ∩ cylinder, which wants parameter-space sinusoids
-and is the next thing in this milestone rather than the last thing in it.
+**And the ellipse is carried, on both sides of itself.** A plane meeting a
+cylinder obliquely crosses it in one, and so do two cylinders of one radius on
+crossing axes — `Meeting` already handed both back exactly, and `imprinted` could
+not write either down. On the *plane* the curve is an ellipse in that plane's own
+parameters, so `Cut::Round` stopped being a circle and became one: a circle is
+the two halves being equal, and eleven methods that read them as a pair either
+way is one shape rather than two. On the *cylinder* it is a graph over the angle,
+`v = level + swing·cos(θ − phase)`, which is `Cut::Wave` — open, because the
+parameter it graphs over wraps and a face may not, and still able to be met twice
+by one straight run, which is where it parts company with a line.
+
+That crossing is the one in this kernel with no closed form. What *is* closed
+form is where the difference of a line and a cosine turns — `swing·sin(θ −
+phase)·dθ = −dv`, at most twice over a run narrower than a turn — so the run is
+split there, the difference is monotone on each piece, and a sign change is
+bisected to the last bit the two ends can be told apart by. Converged, not
+tolerated.
+
+A pipe mitred across comes out of it: four faces, six edges, genus nought, and
+the lid on the exact `√2 × 1` ellipse, walked once round in two halves. The
+`Curve::along` an ellipse answered with had to be fixed first — it read the
+*bearing* where `Curve::at` takes the eccentric angle, so the two were not
+inverses and an arc came back as a stretch it never covered.
+
+**What is refused is the quartic, and nothing else.** Two cylinders of unequal
+radius, or on axes that miss each other, are `Meeting::Algebraic` — which is
+M3b, and M3b wants M0's arithmetic. Everything reducible is carried.
+
+**What M5 still owes is a measurement, not a cut.** Its volumes — `a³ − πr²h`
+held already, `16r³/3` for the Steinmetz solid, and `πr²` times the height at
+the axis for the mitre — are read off the mesher, and the mesher refines a
+face's boundary and never its interior. A half cylinder under an oblique plane
+comes back with a triangle spanning the whole half turn at every sagitta, whose
+chord cuts across the surface: the wall reads 10.15 where it covers 11.42, and
+refining does not close it. A bore's wall is a rectangle in `(θ, v)` and happens
+to tile thin, which is why every volume held so far. The bodies are right and
+what measures them is not.
 
 **And the triangulator answers for a loop that is not simple.** Which it has to:
 a drawing hands it a face with an edge dangling into it every time, and a

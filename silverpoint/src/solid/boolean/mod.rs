@@ -20,6 +20,7 @@ use crate::math::bounds::Bounds;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::math::winding;
 use crate::number::predicate;
+use crate::number::tolerance::ALIGNED;
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::sewing::Sewing;
 use crate::solid::boolean::sounding::{Sounding, Standing};
@@ -31,7 +32,7 @@ use crate::solid::named::Named;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::Face;
 use glam::{DVec2, DVec3};
-use std::f64::consts::TAU;
+use std::f64::consts::{FRAC_PI_2, TAU};
 use std::ops::Range;
 
 /// How far a chord of a curved edge may fall from it, in world units, wherever
@@ -582,7 +583,8 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
         // asked first says nothing about the answer.
         (Surface::Plane(plane), Curve::Circle(circle)) => Some(Cut::Round {
             middle: plane.flatten(circle.axis.origin),
-            radius: circle.radius,
+            along: DVec2::X,
+            half: DVec2::splat(circle.radius),
             inward: true,
             run: run.expect("a circle is numbered"),
         }),
@@ -627,7 +629,58 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
                 run: None,
             })
         }
-        // Everything else. An ellipse anywhere is a sinusoid or worse.
+        // An ellipse lying *in* a plane keeps its frame whole, as a circle
+        // does: the centre and both halves flatten, and what a plane's
+        // parameters do to lengths is nothing. Which way round the two halves
+        // turn is the one thing to settle — a plane's own uv may hand the
+        // ellipse over mirrored, and [`Cut::Round`] reads its shorter half as a
+        // quarter turn *ahead* of its longer one.
+        (Surface::Plane(plane), Curve::Ellipse(oval)) => {
+            let middle = plane.flatten(oval.axis.origin);
+            let major = plane.flatten(oval.at(0.0)) - middle;
+            let minor = plane.flatten(oval.at(FRAC_PI_2)) - middle;
+            let along = major.normalize();
+            Some(Cut::Round {
+                middle,
+                along: if along.perp().dot(minor) < 0.0 {
+                    -along
+                } else {
+                    along
+                },
+                half: DVec2::new(oval.major, oval.minor),
+                inward: true,
+                run: run.expect("an ellipse is numbered"),
+            })
+        }
+        // And on the cylinder that same ellipse is a *wave* — see [`Cut::Wave`].
+        // Every place of it stands where the ellipse's own plane cuts the
+        // cylinder's ruling at that angle: `n·p = n·c` with
+        // `p = O + r·radial(θ) + d·v` gives `v` as a cosine of `θ`, whose
+        // amplitude is how far the plane leans and whose phase is which way it
+        // leans.
+        (Surface::Cylinder(tube), Curve::Ellipse(oval)) => {
+            let axis = tube.axis;
+            let normal = oval.axis.direction;
+            let leaning = normal.dot(axis.direction);
+            // An ellipse at all means the plane leans on the axis: square to it
+            // the crossing is a circle, and along it two lines.
+            debug_assert!(
+                !predicate::touching(leaning.abs(), ALIGNED),
+                "{oval:?} lies square to {axis:?} and is no ellipse on it",
+            );
+            let across = DVec2::new(
+                normal.dot(axis.reference) * tube.radius,
+                normal.dot(axis.quarter()) * tube.radius,
+            );
+            Some(Cut::Wave {
+                level: normal.dot(oval.axis.origin - axis.origin) / leaning,
+                swing: -across.length() / leaning,
+                phase: across.y.atan2(across.x),
+                above: true,
+                run: run.expect("an ellipse is numbered"),
+            })
+        }
+        // Everything else.
         _ => None,
     }
 }

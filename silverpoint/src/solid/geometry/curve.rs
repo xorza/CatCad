@@ -37,7 +37,16 @@ impl Curve {
         match self {
             Self::Line(line) => (at - line.origin).dot(line.direction),
             Self::Circle(circle) => circle.axis.angle_of(at),
-            Self::Ellipse(ellipse) => ellipse.axis.angle_of(at),
+            // **Not the bearing**, which is what an axis answers and what a
+            // circle's parameter happens to be. An ellipse sweeps its frame —
+            // see [`Ellipse`] — so the parameter is the bearing of the place
+            // with each half divided out, and reading the bearing itself would
+            // give a `t` that [`Curve::at`] sends somewhere else entirely.
+            Self::Ellipse(ellipse) => {
+                let out = at - ellipse.axis.origin;
+                (out.dot(ellipse.axis.quarter()) / ellipse.minor)
+                    .atan2(out.dot(ellipse.axis.reference) / ellipse.major)
+            }
         }
     }
 

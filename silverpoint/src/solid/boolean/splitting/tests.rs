@@ -242,11 +242,23 @@ fn chorded(radius: f64) -> f64 {
     std::f64::consts::TAU * radius * radius * ROUNDED
 }
 
+/// A wave `v = level + swing·cos(θ − phase)`, keeping what stands above it.
+fn wave(level: f64, swing: f64, phase: f64, run: u32) -> Cut {
+    Cut::Wave {
+        level,
+        swing,
+        phase,
+        above: true,
+        run,
+    }
+}
+
 /// A circular cut about `middle` of `radius`, keeping the disc.
 fn disc(middle: (f64, f64), radius: f64, run: u32) -> Cut {
     Cut::Round {
         middle: DVec2::new(middle.0, middle.1),
-        radius,
+        along: DVec2::X,
+        half: DVec2::splat(radius),
         inward: true,
         run,
     }
@@ -519,4 +531,59 @@ fn a_loop_walked_the_other_way_steps_its_marks_round() {
     // same loop rather than a shuffle.
     turned(&mut walk);
     assert_eq!(walk, [stood(0.0, 0), stood(1.0, 1), stood(2.0, 2)]);
+}
+
+/// **A wave cuts a region into what stands over it and what stands under**,
+/// which is what an ellipse is in a cylinder's own parameters and the last
+/// shape the splitter had no answer for.
+///
+/// A patch of cylinder half a turn wide and four tall — `θ` from nought to `π`,
+/// `v` from nought to four — cut by `v = 2 + sin θ`, which is what a plane
+/// leaning on the axis writes there. Under it stands `∫₀^π (2 + sin θ) dθ =
+/// 2π + 2`; over it the rest of the `4π` the patch covers, `2π − 2`. The two
+/// differ, which is the point of leaning the phase over: a cut through the
+/// middle would let a splitter that swapped the sides pass.
+///
+/// Open rather than closed, so it divides like a line: one region either side
+/// and no hole punched anywhere. Where it parts company with a line is that a
+/// straight run of boundary can dip across it and back — which the walk over
+/// the top edge does *not* do here, `v = 4` standing clear of a wave that
+/// reaches three.
+#[test]
+fn a_wave_cuts_a_region_into_what_stands_over_it_and_under() {
+    let patch = boxed(&[(0.0, 0.0), (PI, 0.0), (PI, 4.0), (0.0, 4.0)]);
+    let cut = wave(2.0, 1.0, std::f64::consts::FRAC_PI_2, 0);
+    // A chord of the wave sits at most `ROUNDED` of its swing inside it, over a
+    // boundary `π` long — generous by three, like [`chorded`] beside it.
+    let slack = 3.0 * PI * ROUNDED;
+    let under = 2.0 * PI + 2.0;
+
+    let mut splitting = Splitting::default();
+    let (mut over, mut below) = (Cells::default(), Cells::default());
+    assert!(splitting.halve(&patch, cut, &mut over));
+    assert!(splitting.halve(&patch, cut.turned(), &mut below));
+
+    assert_eq!(over.len(), 1, "what stands over came back in pieces");
+    assert_eq!(below.len(), 1);
+    assert!(
+        (covered(&below, 0) - under).abs() < slack,
+        "under the wave covers {} rather than {under}",
+        covered(&below, 0),
+    );
+    assert!(
+        (covered(&over, 0) - (4.0 * PI - under)).abs() < slack,
+        "over it covers {}",
+        covered(&over, 0),
+    );
+    // One loop apiece: an open cut divides rather than punches, whatever it
+    // bends like on the way across.
+    assert_eq!(over.cell(0).count(), 1);
+    assert_eq!(below.cell(0).count(), 1);
+
+    // And both sides at once are the patch they came from, to the last bit —
+    // the chording each gives up is the chording the other takes on.
+    let mut both = Cells::default();
+    assert!(splitting.split(&patch, cut, &mut both));
+    assert_eq!(both.len(), 2);
+    assert!((total(&both) - 4.0 * PI).abs() < 1e-12, "{}", total(&both));
 }
