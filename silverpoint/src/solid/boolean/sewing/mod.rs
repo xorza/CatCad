@@ -18,10 +18,11 @@
 use crate::loops::Loops;
 use crate::number::predicate;
 use crate::number::tolerance::{EXACT, PLACED};
-use crate::solid::boolean::splitting::{self, Came, Corner, Marked};
+use crate::solid::boolean::splitting::{self, Came, Corner};
 use crate::solid::boolean::{CHORDED, Kept};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
 use crate::solid::mesh::{Mesher, Patch};
 use crate::solid::topology::body::Body;
@@ -33,6 +34,7 @@ use crate::solid::topology::shell::{Shell, ShellId};
 use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
 use glam::DVec3;
+use std::f64::consts::{PI, TAU};
 
 use std::ops::Range;
 
@@ -40,8 +42,8 @@ use std::ops::Range;
 #[derive(Debug)]
 struct Join {
     ends: [VertexId; 2],
-    /// What the edge runs along — see [`Came`].
-    along: Came,
+    /// What the edge runs along — see [`Runs`].
+    along: Runs,
     /// The faces that have claimed it. Exactly two by the end, or the regions
     /// did not close and there is no body to be had.
     between: [Option<FaceId>; 2],
@@ -66,13 +68,65 @@ struct Join {
 #[derive(Debug, Clone, Copy, PartialEq)]
 struct Stepped {
     vertex: VertexId,
-    along: Came,
+    along: Runs,
 }
 
-impl Marked for Stepped {
-    fn mark(&mut self) -> &mut Came {
-        &mut self.along
+/// What the stretch leaving one vertex of a loop runs along.
+///
+/// [`Came`] with the arc's *extent* filled in, which is the one thing a mark
+/// cannot carry and an edge cannot do without: two places on a circle say
+/// nothing about which of the two ways round between them the edge goes, and
+/// the corners that would have said were dropped on the way here. Worked out
+/// while they are still to hand — see [`swept`].
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Runs {
+    /// Straight to the next vertex.
+    Straight,
+    /// Along the imprint at this index, over these parameters — see
+    /// [`Edge::bounds`], whose convention this is: a start and a finish, the
+    /// second free to be the smaller where the walk runs backwards.
+    Arc { imprint: u32, bounds: [f64; 2] },
+}
+
+/// Which corners of a loop are places rather than passings, in order.
+///
+/// **A loop that is one arc the whole way round is split in two**, and that is
+/// the whole of why this is not just [`splitting::passing`] read off each
+/// corner. A circle bored through a face has no corner where one stretch meets
+/// a different one, so every one of them is a passing and the loop would come
+/// back empty; and an edge that ran the whole way round would begin and end at
+/// one vertex and say nothing about which way it went. §4.4 gives a *face* that
+/// wraps the same answer — split it, and say where — and half way round is
+/// where, for the same reason it is where a cylinder is split: nowhere in
+/// particular, so anywhere will do, so take the middle.
+fn kept(walk: &[Corner], into: &mut Vec<usize>) {
+    into.extend((0..walk.len()).filter(|&step| !splitting::passing(walk, step)));
+    if into.is_empty() && walk.len() > 1 {
+        into.extend([0, walk.len() / 2]);
     }
+}
+
+/// How far round `curve` the stretch from corner `from` to corner `to` goes,
+/// as the bounds of an edge.
+///
+/// **Summed a chord at a time**, because the two ends alone cannot say: an
+/// inversion answers in a half turn either side of the reference, so a stretch
+/// of three quarters of a turn and one of a quarter clockwise give the same
+/// pair of angles. Every chord is a small step at [`CHORDED`], so the shortest
+/// way round each of them is the way the boundary actually went, and the sum of
+/// those is the sweep.
+fn swept(walk: &[Corner], from: usize, to: usize, on: Surface, curve: Curve) -> [f64; 2] {
+    let angle = |step: usize| curve.along(on.at(walk[step].at));
+    let start = angle(from);
+    let (mut sweep, mut last) = (0.0, start);
+    let mut step = from;
+    while step != to {
+        step = (step + 1) % walk.len();
+        let next = angle(step);
+        sweep += (next - last + PI).rem_euclid(TAU) - PI;
+        last = next;
+    }
+    [start, start + sweep]
 }
 
 /// One step of one loop: the edge it walks and which way.
@@ -117,6 +171,10 @@ pub(super) struct Sewing {
     /// calls like everything else here.
     mesher: Mesher,
     patch: Patch,
+    /// One loop of one region, wound the way the topology wants it — see
+    /// [`Sewing::raise`] — and which of its corners are places.
+    turning: Vec<Corner>,
+    kept: Vec<usize>,
     /// The room the validity check works in, held for the reason the rest is.
     checking: Checking,
 }
@@ -140,7 +198,7 @@ impl Sewing {
         into.clear();
         self.reset();
         for region in kept {
-            self.raise(region, loops, into);
+            self.raise(region, loops, imprints, into);
         }
         if !self.join() {
             into.clear();
@@ -178,30 +236,55 @@ impl Sewing {
     /// its say bounds nothing, and is dropped: a cut running exactly through a
     /// corner leaves two places a hair apart that are one place, and the loop
     /// they were both in is shorter than it looks.
-    fn raise(&mut self, region: &Kept, loops: &Loops<Corner>, into: &mut Body) {
+    fn raise(&mut self, region: &Kept, loops: &Loops<Corner>, imprints: &[Curve], into: &mut Body) {
         let from = self.starts.len() - 1;
         let held = self.walks.len();
         for run in region.loops.clone() {
             let at = self.walks.len();
-            let walk = loops.get(run);
-            for (step, corner) in walk.iter().enumerate() {
-                // **A run of corners along one arc is one edge, not a
-                // hundred.** A closed cut is flattened to be classified, so an
-                // imprinted circle arrives here as a crowd of corners standing
-                // on it — and dropping the ones the boundary merely passes
-                // through is what leaves the arc's two ends to be joined by the
-                // curve the meeting gave rather than by a chord. See
-                // [`splitting::passing`].
-                if splitting::passing(walk, step) {
+            // **Turned before it is walked, not after.** Every region was cut
+            // in parameters made counterclockwise for the cutting, whichever
+            // way its face looks; a loop of a body is wound counterclockwise
+            // about the face's *outward* normal, which is the other way round
+            // when the material is on the far side. Left as they were, the two
+            // faces across an edge would walk it the same way and no shell
+            // would close.
+            //
+            // Turning the *corners* rather than the vertices afterwards is what
+            // keeps an arc's bounds honest: they say which way round the edge
+            // goes, so they have to be worked out in the order the edge is
+            // finally walked rather than turned over along with everything
+            // else.
+            self.turning.clear();
+            self.turning.extend_from_slice(loops.get(run));
+            if !region.outward {
+                splitting::turned(&mut self.turning);
+            }
+            // Which corners are places rather than passings — see [`kept`].
+            self.kept.clear();
+            kept(&self.turning, &mut self.kept);
+            for which in 0..self.kept.len() {
+                let step = self.kept[which];
+                let corner = self.turning[step];
+                let vertex = self.vertex(region.surface.at(corner.at), into);
+                if self.walks[at..].last().map(|it| it.vertex) == Some(vertex) {
                     continue;
                 }
-                let vertex = self.vertex(region.surface.at(corner.at), into);
-                if self.walks[at..].last().map(|it| it.vertex) != Some(vertex) {
-                    self.walks.push(Stepped {
-                        vertex,
-                        along: corner.came,
-                    });
-                }
+                // The stretch leaving this place runs to the next one kept, and
+                // where it runs along an arc that is the whole of the arc: the
+                // corners between were dropped, so nothing else will say how
+                // far round it goes.
+                let along = match corner.came {
+                    Came::Edge => Runs::Straight,
+                    Came::Arc(imprint) => {
+                        let ends = self.kept[(which + 1) % self.kept.len()];
+                        let curve = imprints[imprint as usize];
+                        Runs::Arc {
+                            imprint,
+                            bounds: swept(&self.turning, step, ends, region.surface, curve),
+                        }
+                    }
+                };
+                self.walks.push(Stepped { vertex, along });
             }
             // The loop closes, so its last vertex meeting its first is the same
             // doubling read round the end.
@@ -209,7 +292,17 @@ impl Sewing {
             if self.walks[at..].len() > 1 && ends(&self.walks) == ends(&self.walks[at..=at]) {
                 self.walks.pop();
             }
-            if self.walks.len() - at < 3 {
+            // **Three places, or two and something curved between them.** Three
+            // is what a loop of straight edges needs to bound anything, and it
+            // was the whole rule while every edge was straight; a bore's rim is
+            // two arcs and two vertices and bounds a disc perfectly well. Read
+            // the old way, the rim of every hole a curved tool cuts is dropped
+            // and the block comes back whole.
+            let bounds = self.walks.len() - at >= 3
+                || self.walks[at..]
+                    .iter()
+                    .any(|it| matches!(it.along, Runs::Arc { .. }));
+            if !bounds {
                 self.walks.truncate(at);
                 // The outline is the first loop, and a face without one is not
                 // a face with fewer holes — the loop after it would be read as
@@ -220,16 +313,6 @@ impl Sewing {
                     return;
                 }
                 continue;
-            }
-            // **Back the way the topology winds them.** Every region was cut in
-            // parameters made counterclockwise for the cutting, whichever way
-            // its face looks; a loop of a body is wound counterclockwise about
-            // the face's *outward* normal, which is the other way round when
-            // the material is on the far side of the surface. Left as they
-            // were, the two faces across an edge would walk it the same way
-            // and no shell would close.
-            if !region.outward {
-                splitting::turned(&mut self.walks[at..]);
             }
             self.starts.push(self.walks.len());
         }
@@ -292,7 +375,7 @@ impl Sewing {
     }
 
     /// Claim the edge between `ends` for `face`, finding it or starting it.
-    fn claim(&mut self, ends: [VertexId; 2], along: Came, face: FaceId) -> Step {
+    fn claim(&mut self, ends: [VertexId; 2], along: Runs, face: FaceId) -> Step {
         let found = self
             .joins
             .iter()
@@ -348,11 +431,8 @@ impl Sewing {
             // out. Everything else is straight: a face's own boundary is, and
             // so is a plane imprinted on a plane.
             let (curve, bounds) = match join.along {
-                Came::Arc(which) => {
-                    let curve = imprints[which as usize];
-                    (curve, [curve.along(here), curve.along(there)])
-                }
-                Came::Edge => (
+                Runs::Arc { imprint, bounds } => (imprints[imprint as usize], bounds),
+                Runs::Straight => (
                     Curve::Line(Line {
                         origin: here,
                         direction: (there - here).normalize(),

@@ -491,6 +491,7 @@ fn imprinted(on: Surface, along: Curve, imprint: u32) -> Option<Imprint> {
                 cut: Cut::Straight {
                     at,
                     along: (plane.flatten(line.origin + line.direction) - at).normalize(),
+                    imprint: None,
                 },
                 curve: None,
             })
@@ -525,6 +526,7 @@ fn imprinted(on: Surface, along: Curve, imprint: u32) -> Option<Imprint> {
                 cut: Cut::Straight {
                     at: DVec2::new(0.0, tube.axis.along(circle.axis.origin)),
                     along: DVec2::X,
+                    imprint: Some(imprint),
                 },
                 curve: Some(Curve::Circle(circle)),
             })

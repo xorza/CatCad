@@ -1269,13 +1269,36 @@ imprinted the same circle twice and punched the same hole through a block twice
 over. Fixed, and it is the sort of thing only a curved body could have shown:
 every planar body the matrix uses has one face per plane.
 
-**A closed imprint has nowhere to begin.** A circle bored through a face is a
-loop of corners all marked with one arc, so every one of them is a place the
-boundary merely passes through and the run collapses to nothing; and an arc that
-does come back has two angles and no way to say which of its two ways round the
-edge walks. Both want the answer §4.4 already gives a wrapping *face* — split
-it, and say where. That is the next piece, and `flat` is what holds the door
-until it lands.
+**A closed imprint has nowhere to begin — answered.** A loop that is one arc
+the whole way round is split in two at its middle, for the reason §4.4 splits a
+wrapping face: nowhere in particular is the seam, so anywhere will do. And a
+stretch now carries the *extent* of its arc and not merely which arc — two
+places on a circle say nothing about which of the two ways round between them
+the edge goes, so the sweep is summed a chord at a time while the corners that
+know it are still to hand. A loop is turned round *before* it is walked rather
+than after, which is what keeps those bounds honest.
+
+**And a straight cut is not always a straight edge.** A circle square to a
+cylinder's axis is the line `v = that` in its parameters, and a cut that
+answered `Came::Edge` because it was straight *in parameters* made the rim of a
+bore a chord across it. `Cut::Straight` carries an imprint number now, `None`
+only for a plane meeting a plane.
+
+**And a loop of two arcs bounds a disc.** A loop was dropped below three
+places, which is what a loop of *straight* edges needs to bound anything and was
+the whole rule while every edge was one. A bore's rim is two arcs and two
+vertices: read the old way, the rim of every hole a curved tool cuts was thrown
+away and the block came back whole. That was the missing hole, and it was in the
+sewing rather than in `punch`.
+
+Still shut, and the door is now held by one thing rather than by "curved". A
+bore reaches `Sewing::gather` and is refused there — every edge claimed exactly
+twice, so the regions do close, but the faces do not come out as one shell with
+one lump. The two candidates are the shell walk not crossing from the block to
+the wall, and the block's rim being split at its own middle while the wall's is
+split at the cylinder's seam, which puts four vertices on one circle where there
+should be two. Splitting a closed imprint *where the surface is already split*
+rather than at its middle would settle both.
 
 Cylinders, cones and spheres, all of them, because they are one algebra.
 

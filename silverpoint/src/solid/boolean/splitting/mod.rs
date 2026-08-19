@@ -56,6 +56,15 @@ pub(super) enum Cut {
         at: DVec2,
         /// Unit, the way it runs.
         along: DVec2,
+        /// Which of the caller's imprints this is, where the curve it came from
+        /// is worth remembering.
+        ///
+        /// **A straight cut is not always a straight edge**, which is the whole
+        /// reason this is here: a circle square to a cylinder's axis is the line
+        /// `v = that` in the cylinder's parameters, and an edge along it that
+        /// came back straight would be a chord across the bore rather than its
+        /// rim. `None` only for a genuine line — a plane meeting a plane.
+        imprint: Option<u32>,
     },
     /// A circular cut, the inside kept where `inward`.
     ///
@@ -85,7 +94,11 @@ impl Cut {
     /// The same cut with the other side kept.
     pub(super) fn turned(self) -> Self {
         match self {
-            Self::Straight { at, along } => Self::Straight { at, along: -along },
+            Self::Straight { at, along, imprint } => Self::Straight {
+                at,
+                along: -along,
+                imprint,
+            },
             Self::Round {
                 middle,
                 radius,
@@ -107,8 +120,12 @@ impl Cut {
     /// numbered.
     fn came(self) -> Came {
         match self {
-            Self::Straight { .. } => Came::Edge,
-            Self::Round { imprint, .. } => Came::Arc(imprint),
+            Self::Straight {
+                imprint: Some(imprint),
+                ..
+            }
+            | Self::Round { imprint, .. } => Came::Arc(imprint),
+            Self::Straight { imprint: None, .. } => Came::Edge,
         }
     }
 
@@ -121,7 +138,7 @@ impl Cut {
     /// How far off the cut `point` stands, positive on the side being kept.
     fn side(self, point: DVec2) -> f64 {
         match self {
-            Self::Straight { at, along } => along.perp_dot(point - at),
+            Self::Straight { at, along, .. } => along.perp_dot(point - at),
             Self::Round {
                 middle,
                 radius,
@@ -142,7 +159,7 @@ impl Cut {
     /// [`Splitting::close`], which reassembles by it and by nothing else.
     fn down(self, point: DVec2) -> f64 {
         match self {
-            Self::Straight { at, along } => along.dot(point - at),
+            Self::Straight { at, along, .. } => along.dot(point - at),
             Self::Round { middle, inward, .. } => {
                 let off = point - middle;
                 let turned = off.y.atan2(off.x).rem_euclid(std::f64::consts::TAU);

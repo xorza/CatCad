@@ -3,7 +3,6 @@ use crate::Plane;
 use crate::math::winding;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
-use crate::solid::boolean::Boolean;
 use crate::solid::build::extrusion::Extrusion;
 use crate::solid::grown::Grown;
 use crate::solid::named::Step;
@@ -285,26 +284,3 @@ fn a_curved_body_is_refused_by_a_planar_boolean() {
 
 // Already inside a `cfg(test)` module, so it needs no gate of its own.
 mod matrix;
-
-#[test]
-fn scratch_bore() {
-    let mut sketch = Sketch::default();
-    let middle = sketch.add_point(DVec2::new(2.0, 2.0));
-    sketch.add_circle(middle, 1.0);
-    let found = Arrangement::of(&sketch);
-    let under = Plane {
-        origin: Plane::GROUND.origin - Plane::GROUND.normal(),
-        ..Plane::GROUND
-    };
-    let rod = Extrusion::new(&found, 0, under, 6.0, TOOL).body();
-    let mut body = Body::default();
-    let done = Boolean::default().combine(&cube(), &rod, Operation::Cut, &mut body);
-    eprintln!("done {done} faces {}", body.topology().faces().count());
-    if done {
-        eprintln!(
-            "volume {}",
-            crate::solid::mesh::Mesher::default().volume(&body, 1e-5)
-        );
-        eprintln!("want {}", 64.0 - std::f64::consts::PI * 4.0);
-    }
-}

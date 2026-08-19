@@ -30,6 +30,7 @@ fn leftward(x: f64) -> Cut {
     Cut::Straight {
         at: DVec2::new(x, 0.0),
         along: DVec2::Y,
+        imprint: None,
     }
 }
 
@@ -468,4 +469,32 @@ fn a_cut_reaching_the_boundary_stamps_only_its_own_stretch() {
         .position(|it| it.at.abs_diff_eq(DVec2::ZERO, 1e-12))
         .expect("the quarter disc keeps the square's corner");
     assert!(!passing(walk, corner), "the square's corner was swallowed");
+}
+
+/// **A loop walked the other way turns its marks over and steps them round by
+/// one.**
+///
+/// The rule a face grown the other way off its plane depends on: its loops are
+/// wound clockwise in their own parameters and the sewing turns them over
+/// before it walks them — and a mark says what the stretch *leaving* its corner
+/// runs along, so reversing alone would hand each corner the mark of the
+/// stretch that used to enter it. An arc would come back off by one corner at
+/// each end, which for a bore is a rim that does not close.
+#[test]
+fn a_loop_walked_the_other_way_steps_its_marks_round() {
+    // Three corners, the stretches leaving them along imprints 0, 1 and 2.
+    // Reversed the loop is `C B A`: C to B is what B to C was, B to A is what
+    // A to B was, and A round to C is what C to A was.
+    let stood = |x: f64, along: u32| Corner {
+        at: DVec2::new(x, 0.0),
+        came: Came::Arc(along),
+    };
+    let mut walk = [stood(0.0, 0), stood(1.0, 1), stood(2.0, 2)];
+    turned(&mut walk);
+    assert_eq!(walk, [stood(2.0, 1), stood(1.0, 0), stood(0.0, 2)]);
+
+    // Twice round is where it started, which is what says it is a walk of the
+    // same loop rather than a shuffle.
+    turned(&mut walk);
+    assert_eq!(walk, [stood(0.0, 0), stood(1.0, 1), stood(2.0, 2)]);
 }
