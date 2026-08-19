@@ -29,7 +29,7 @@ use silverpoint::{Bound, Entity};
 /// anything else outright rather than guessing at it: a format that changes
 /// shape and keeps its number is one where a wrong answer looks like a right
 /// one, and the whole point of the stamp is to make the mismatch loud.
-const VERSION: u32 = 3;
+const VERSION: u32 = 4;
 
 /// A document as it is written down: what was done, and where it is being
 /// looked at from.
@@ -57,6 +57,14 @@ pub(crate) struct Saved {
     /// one rule a property of the file rather than a check on it — a step can
     /// only name an earlier one, so a cycle cannot be written down.
     steps: Vec<Step>,
+    /// How far the recipe was built, as a step's position, or `None` for all of
+    /// it.
+    ///
+    /// Written for the reason the camera is: reopening a drawing rolled forward
+    /// is not reopening it. A position like every other reference here, and the
+    /// one that is not *backwards* — it names where the reader stopped rather
+    /// than what a step is built on.
+    rolled: Option<usize>,
 }
 
 impl Saved {
@@ -80,6 +88,7 @@ impl Saved {
         Self {
             version: VERSION,
             camera: Camera::of(camera),
+            rolled: timeline.rolled().map(|at| steps.of(at)),
             steps: timeline
                 .steps()
                 .map(|(_, feature)| Step::of(feature, &steps, &handles))
@@ -142,6 +151,15 @@ impl Saved {
         // `Timeline::first_sketch` expects there to be one to open.
         if timeline.sketches().next().is_none() {
             return Err(Fault::NoSketch);
+        }
+        // Last, because it names a step by position and every one of them has to
+        // be there to be named. A bar past the end is a file saying the recipe
+        // stopped somewhere it does not reach.
+        if let Some(rolled) = self.rolled {
+            let at = *added
+                .get(rolled)
+                .ok_or(Fault::UnknownRollback { names: rolled })?;
+            timeline.roll_to(Some(at));
         }
         Ok(timeline)
     }

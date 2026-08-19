@@ -571,6 +571,18 @@ impl Document {
                 self.timeline.shift(step, to);
                 build.revised();
             }
+            // Nothing is solved and nothing is rebuilt: every step says exactly
+            // what it said, and which regions the extrudes resolve to is worked
+            // out for all of them whatever the bar. What changes is only how
+            // much of the answer is *read* — see
+            // [`Models::at`](crate::model::Models).
+            //
+            // Revised all the same, unlike the camera below it: what is drawn
+            // has changed, so a picture laid out before this is out of date.
+            Change::RollTo { through } => {
+                self.timeline.roll_to(through);
+                build.revised();
+            }
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),

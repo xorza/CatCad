@@ -484,3 +484,76 @@ fn a_step_cannot_be_moved_past_what_is_built_on_it() {
     });
     timeline.shift(ground, 1);
 }
+
+/// The bar builds a prefix, and every step at or before it is built.
+///
+/// **A prefix is what makes rolling back cost nothing.** A step's referents come
+/// earlier than it, so anything built has everything it is built on built too —
+/// there is no dangling reference to describe and no reader that has to ask
+/// whether the plane under a sketch is there. Which is what this asserts by
+/// walking the whole chain either side of the bar.
+///
+/// The bar does not decide what the timeline *holds*: a rolled-back step is
+/// still there, still deletable and still a row of the tree. That half is what
+/// keeps [`Timeline::feature`] answering for one.
+#[test]
+fn the_bar_builds_a_prefix_and_leaves_the_rest_where_they_are() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let held = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: 1.0,
+    }));
+    let drawn = timeline.add(Feature::Sketch {
+        on: held,
+        sketch: Sketch::default(),
+    });
+    let whole = [ground, held, drawn];
+
+    // Nothing rolled back is every document until somebody moves the bar.
+    assert!(whole.iter().all(|&at| timeline.built(at)));
+    assert_eq!(timeline.rolled(), None);
+
+    // Rolled to the middle: the chain up to it is built, the tail is not — and
+    // "up to it" includes it, because the bar rests *on* a step.
+    timeline.roll_to(Some(held));
+    assert!(timeline.built(ground) && timeline.built(held));
+    assert!(!timeline.built(drawn));
+    // Still held, all the same. What is rolled back is not gone.
+    assert!(timeline.holds(drawn));
+    assert!(timeline.removable(drawn));
+
+    // Rolled to the first, which is as far up as the bar goes — `None` means
+    // the whole recipe rather than none of it, so there is no way to say that
+    // nothing is built.
+    timeline.roll_to(Some(ground));
+    assert!(timeline.built(ground));
+    assert!(!timeline.built(held) && !timeline.built(drawn));
+
+    // **Deleting the step the bar rests on carries the bar** rather than
+    // clearing it — clearing would build the whole recipe, which is the
+    // opposite of what rolling back said. It goes to whichever step now stands
+    // where that one stood.
+    let beside = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: Sketch::default(),
+    });
+    timeline.roll_to(Some(drawn));
+    timeline.uproot(drawn);
+    assert_eq!(
+        timeline.rolled(),
+        Some(beside),
+        "the bar did not follow the step it rested on being taken out"
+    );
+
+    // And to the one *before*, where the step it rested on was the last.
+    timeline.uproot(beside);
+    assert_eq!(
+        timeline.rolled(),
+        Some(held),
+        "the bar fell off the end of the recipe"
+    );
+
+    timeline.roll_to(None);
+    assert!(timeline.built(ground) && timeline.built(held));
+}

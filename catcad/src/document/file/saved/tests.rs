@@ -78,6 +78,23 @@ fn the_demo_comes_back_the_way_it_went_in() {
     // Through `sane`, as opening one does. The demo's camera is the default,
     // which is already inside every limit, so nothing is clamped on the way.
     assert_eq!(saved.camera(), document.camera);
+
+    // **And the bar comes back where it was**, which is not a fact about the
+    // steps: it is written as a position, so a file that lost it would open a
+    // rolled-back document built to the end and one that miscounted would open
+    // it built to the wrong step — and every step would be present either way.
+    let mut rolled = document.timeline.clone();
+    let through = rolled
+        .sketches()
+        .next()
+        .expect("the demo draws a sketch to roll to");
+    rolled.roll_to(Some(through));
+    let read = Saved::parse(&written(&rolled))
+        .expect("the text is a document")
+        .timeline()
+        .expect("the document makes sense");
+    assert_eq!(read.rolled(), Some(through));
+    assert_eq!(read, rolled, "a rolled-back document came back different");
 }
 
 /// A document is exactly this on the page.
@@ -156,7 +173,7 @@ fn a_document_is_written_exactly_like_this() {
         written(&timeline),
         "\
 (
-    version: 3,
+    version: 4,
     camera: (
         projection: Perspective,
         target: (0.0, 0.0, 0.0),
@@ -204,6 +221,7 @@ fn a_document_is_written_exactly_like_this() {
             distance: 1.5,
         ),
     ],
+    rolled: None,
 )"
     );
 }

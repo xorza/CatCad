@@ -558,3 +558,73 @@ fn ctrl_arrows_move_the_picked_step_and_stop_at_the_ends_of_its_run() {
         "one undo did not take back the last move that happened"
     );
 }
+
+/// Rolling back stops the tail being built, takes you out of a sketch that is no
+/// longer there to be in, and rolling forward puts it all back.
+///
+/// **What one field on the timeline reaches.** The bar is applied in
+/// [`Models::at`](crate::model::Models) and in the walks beside it, so nothing
+/// else was told about it: what is drawn, what is open, what a pick opens and
+/// what a prune keeps all come through those. The half worth pinning is being
+/// dropped *out* of a sketch — that is the guard `Session::prune` grew when a
+/// sketch first became deletable, reached here by a second route and by a
+/// gesture that takes nothing away.
+///
+/// Rolling to the first sketch rather than to a step chosen by position, so the
+/// claim is "its solid is not built" rather than a count the demo happens to
+/// have.
+#[test]
+fn rolling_back_stops_the_tail_being_built_and_rolling_forward_restores_it() {
+    let mut raised = Raised::new();
+    let sketches = raised.models().iter().count();
+    let solids = raised.solids();
+    assert!(solids > 0 && sketches > 1, "the demo has no tail to lose");
+
+    // The sketch the demo opens in, with a solid grown from it further down.
+    let drawn = raised.app.editing();
+    raised.choose(Choice::Select(Some(Part::Step(drawn))));
+    raised.frame();
+    raised.ctrl(Key::Char('R'));
+    raised.frame();
+
+    // The sketch itself is still built — the bar rests *on* it — and everything
+    // after it is not.
+    assert_eq!(
+        raised.models().iter().count(),
+        1,
+        "a sketch after the bar was still drawn"
+    );
+    assert_eq!(raised.solids(), 0, "a solid after the bar was still grown");
+    // And it is still in the recipe, still a row, still deletable: rolled back
+    // is not gone.
+    assert_eq!(
+        raised.models().steps().count(),
+        raised.app.document.recipe().len()
+    );
+
+    // Rolled to the plane it is drawn on, which puts the sketch itself behind
+    // the bar — so there is no longer a drawing to be in.
+    let on = raised
+        .models()
+        .open_plane()
+        .expect("a fixture opens the sketch it names");
+    raised.choose(Choice::Select(Some(Part::Step(on))));
+    raised.frame();
+    raised.ctrl(Key::Char('R'));
+    raised.frame();
+    assert_eq!(
+        raised.models().iter().count(),
+        0,
+        "the sketch the bar was rolled above was still drawn"
+    );
+    assert!(
+        raised.models().open().is_none(),
+        "the session stayed in a sketch that is not built"
+    );
+
+    // Forward again, and the whole recipe is back — geometry, solids and all.
+    raised.ctrl_shift(Key::Char('R'));
+    raised.frame();
+    assert_eq!(raised.models().iter().count(), sketches);
+    assert_eq!(raised.solids(), solids);
+}

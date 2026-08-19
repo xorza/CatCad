@@ -90,6 +90,18 @@ const DELETE: Shortcut = Shortcut::key(Key::Delete);
 /// and needs nothing held between frames.
 ///
 /// Ctrl rather than bare arrows, which the view will want for nudging geometry.
+/// Build the recipe only as far as the picked step, and build the whole of it
+/// again.
+///
+/// A pair rather than one chord that toggles, because rolling *forward* is not
+/// undoing a roll back: what it wants is the end of the recipe whatever the bar
+/// currently rests on, and a toggle would have to remember where it had been.
+///
+/// The same shape as the reorder chords beside them and for the same reason —
+/// the bar is a thing to drag, and a drag wants live feedback. See
+/// [`REORDER_UP`].
+const ROLL_TO: Shortcut = Shortcut::ctrl('R');
+const ROLL_FORWARD: Shortcut = Shortcut::ctrl_shift('R');
 const REORDER_UP: Shortcut = Shortcut::new(Mods::CTRL, Key::ArrowUp);
 const REORDER_DOWN: Shortcut = Shortcut::new(Mods::CTRL, Key::ArrowDown);
 const NEW: Shortcut = Shortcut::ctrl('N');
@@ -242,10 +254,21 @@ impl CatCad {
                 _ => Choice::Hold(Tool::Pointer).into(),
             });
         }
+        // Whatever is picked out, so this reaches a step nothing else can: the
+        // bar is the one thing that answers for a step *below* it, and a step
+        // below the bar is not built and so is not drawn.
+        if ui.key_pressed(ROLL_FORWARD) {
+            self.intents.push(Change::RollTo { through: None });
+        }
         // One step and no more, because a move puts *a* step somewhere: two at
         // once would be two moves whose second is measured against what the
         // first left, which is a thing to ask for twice if it is wanted.
         if let [Part::Step(step)] = *self.session.selection().picked() {
+            if ui.key_pressed(ROLL_TO) {
+                self.intents.push(Change::RollTo {
+                    through: Some(step),
+                });
+            }
             for (chord, by) in [(REORDER_UP, -1), (REORDER_DOWN, 1)] {
                 // Clamped here rather than refused there, so the document is
                 // never asked for a position a step may not take — see

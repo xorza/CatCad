@@ -398,6 +398,7 @@ impl<'a> Models<'a> {
     pub(crate) fn iter(self) -> impl Iterator<Item = Model<'a>> {
         self.timeline
             .sketches()
+            .filter(move |&at| self.timeline.built(at))
             .map(move |at| self.at(at).expect("the timeline called this a sketch"))
     }
 
@@ -419,6 +420,11 @@ impl<'a> Models<'a> {
     /// which is why it is not folded into `open`: a form deciding over a region
     /// names the sketch it came from, whichever is open.
     pub(crate) fn at(self, sketch: FeatureId) -> Option<Model<'a>> {
+        // **Nothing where the bar is above it**, which is what makes rolling
+        // back reach everything without anything else being told: what is open,
+        // what is drawn, what a pick opens and what a prune keeps all come
+        // through here — see [`Timeline::rolled`](crate::timeline::Timeline).
+        self.timeline.built(sketch).then_some(())?;
         Some(Model {
             of: sketch,
             live: Some(sketch) == self.editing,
@@ -451,12 +457,15 @@ impl<'a> Models<'a> {
     /// [`write::curves`](crate::paint::write::curves)'s.
     pub(crate) fn planes(self) -> impl Iterator<Item = Sheeted> {
         let timeline = self.timeline;
-        timeline.planes().map(move |at| Sheeted {
-            at,
-            plane: timeline.plane(at),
-            world: timeline.world_at(at),
-            movable: timeline.movable(at).is_some(),
-        })
+        timeline
+            .planes()
+            .filter(move |&at| timeline.built(at))
+            .map(move |at| Sheeted {
+                at,
+                plane: timeline.plane(at),
+                world: timeline.world_at(at),
+                movable: timeline.movable(at).is_some(),
+            })
     }
 
     /// Every step the document holds, in the order they are built.
@@ -486,8 +495,21 @@ impl<'a> Models<'a> {
     /// for any: what is picked out or listed is a step, and being told its kind
     /// first is what a caller should not have to arrange.
     pub(crate) fn lost_at(self, at: FeatureId) -> bool {
-        matches!(self.timeline.feature(at), Feature::Extrude { .. })
+        self.timeline.built(at)
+            && matches!(self.timeline.feature(at), Feature::Extrude { .. })
             && self.build.modelled(at).is_none()
+    }
+
+    /// The last step currently built, or `None` for all of them — see
+    /// [`Timeline::rolled`](crate::timeline::Timeline).
+    ///
+    /// **The one place being rolled back is answered rather than applied.**
+    /// Every other reader has the bar applied for it: a step below it is simply
+    /// not among what is drawn, which is what the walks above already say. The
+    /// tree is the one that has to show what is *not* there, and what it shows
+    /// is where the tail starts rather than a mark on each step in it.
+    pub(crate) fn rolled(self) -> Option<FeatureId> {
+        self.timeline.rolled()
     }
 
     /// Which sketch picking `part` puts you in, or `None` where it says nothing
@@ -534,6 +556,7 @@ impl<'a> Models<'a> {
     pub(crate) fn lost(self) -> usize {
         self.timeline
             .extrudes()
+            .filter(|step| self.timeline.built(step.at))
             .filter(|step| self.build.modelled(step.at).is_none())
             .count()
     }
@@ -590,13 +613,16 @@ impl<'a> Models<'a> {
         let Self {
             timeline, build, ..
         } = self;
-        timeline.extrudes().filter_map(move |step| {
-            let region = build.modelled(step.at)?;
-            let of = step.profile.sketch();
-            let arrangement = build.settled(of).arrangement();
-            let prism = Prism::new(arrangement, region, timeline.plane_of(of), step.distance);
-            Some((step.at, prism))
-        })
+        timeline
+            .extrudes()
+            .filter(move |step| timeline.built(step.at))
+            .filter_map(move |step| {
+                let region = build.modelled(step.at)?;
+                let of = step.profile.sketch();
+                let arrangement = build.settled(of).arrangement();
+                let prism = Prism::new(arrangement, region, timeline.plane_of(of), step.distance);
+                Some((step.at, prism))
+            })
     }
 }
 

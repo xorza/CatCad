@@ -66,6 +66,29 @@ pub(crate) struct Timeline {
     filed: Vec<u32>,
     /// What the next step will be called. Only ever counts up.
     next: u32,
+    /// The last step currently built, or `None` for all of them.
+    ///
+    /// **The rollback bar**, and a prefix rather than a set — which is the whole
+    /// of what makes it cheap. A step's referents come earlier than it, so
+    /// everything built has everything it is built on built too: there is no
+    /// dangling reference to describe, no partial state to represent, and no
+    /// reader that has to ask whether the plane under a sketch is there.
+    ///
+    /// `None` rather than a count of steps, so the whole document is the cheap
+    /// default and [`Timeline::default`] needs nothing said about it. A handle
+    /// rather than a position for the reason everything here is named by one: a
+    /// position shifts under every insertion above it.
+    ///
+    /// **The bar cannot rise above the first step**, and the type is what says
+    /// so — `Some` names a step that *is* built. Rolling past the first would
+    /// leave a document with nothing to draw on and nothing to see.
+    ///
+    /// Not part of what the timeline *holds*: a rolled-back step is still there,
+    /// still deletable and still a row of the tree. What it is not is *built*,
+    /// which is a question about the drawing rather than about the recipe — so
+    /// the gate is in [`Models`](crate::model::Models) and not in
+    /// [`Timeline::held`].
+    rolled: Option<FeatureId>,
 }
 
 /// What [`Timeline::filed`] holds for a handle whose step is not there.
@@ -272,6 +295,21 @@ impl Timeline {
             "a step still built on cannot be taken out"
         );
         let Step { id, feature } = self.steps.remove(position);
+        // The bar rests *on* a step, so taking that step out has to move it —
+        // to whichever now stands where it stood, or to the one before where
+        // there is none. It cannot simply be cleared: `None` means the whole
+        // recipe is built, which is the opposite of what rolling back said.
+        //
+        // Not put back by an undo, and that is the camera's rule rather than an
+        // oversight: how much of a recipe you are looking at is not a step of
+        // the history — see [`Change::RollTo`](crate::intent::change::Change).
+        if self.rolled == Some(id) {
+            self.rolled = self
+                .steps
+                .get(position)
+                .or_else(|| self.steps.get(position.checked_sub(1)?))
+                .map(|step| step.id);
+        }
         // Leaving `GONE` where the handle was — see [`Timeline::filed`], on a
         // dead handle being a value rather than a search coming up empty.
         self.refile();
@@ -375,6 +413,32 @@ impl Timeline {
         let step = self.steps.remove(from);
         self.steps.insert(to, step);
         self.refile();
+    }
+
+    /// Whether the step at `at` is built — that is, at or before the bar.
+    ///
+    /// `true` for everything where nothing is rolled back, which is every
+    /// document until somebody drags the bar. See [`Timeline::rolled`].
+    pub(crate) fn built(&self, at: FeatureId) -> bool {
+        let Some(through) = self.rolled else {
+            return true;
+        };
+        self.position(at)
+            .is_some_and(|held| held <= self.position_of(through))
+    }
+
+    /// The last step currently built, or `None` for all of them.
+    pub(crate) fn rolled(&self) -> Option<FeatureId> {
+        self.rolled
+    }
+
+    /// Build the recipe as far as `through`, or the whole of it for `None`.
+    pub(crate) fn roll_to(&mut self, through: Option<FeatureId>) {
+        assert!(
+            through.is_none_or(|at| self.holds(at)),
+            "the bar cannot rest on a step the timeline does not hold"
+        );
+        self.rolled = through;
     }
 
     /// Where the step at `at` sits among the rest.

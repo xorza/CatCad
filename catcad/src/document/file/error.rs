@@ -68,6 +68,13 @@ pub(crate) enum Fault {
     NotASketch { at: usize, names: usize },
     /// Something in a sketch names geometry the sketch does not hold.
     Unknown { at: usize, what: Missing },
+    /// The bar says the recipe was built as far as a step the file has not got.
+    ///
+    /// Its own variant rather than [`Fault::UnknownStep`], which is about a
+    /// *step* naming another and carries the position of the one complaining.
+    /// The bar is not a step and has no position of its own, so there would be
+    /// nothing honest to put in that field.
+    UnknownRollback { names: usize },
     /// A coordinate, a radius or a dimension that is not a number.
     ///
     /// Infinities and NaN parse perfectly well and would poison the first
@@ -118,6 +125,9 @@ impl fmt::Display for Fault {
                     f,
                     "step {at} is built on step {names}, which is not before it"
                 )
+            }
+            Fault::UnknownRollback { names } => {
+                write!(f, "was built as far as step {names}, which it has not got")
             }
             Fault::NotAPlane { at, names } => {
                 write!(

@@ -208,6 +208,20 @@ pub(crate) enum Change {
     /// Signed, so this is also how a solid is flipped to the other side of its
     /// plane — see [`Feature::Extrude`](crate::timeline::feature::Feature).
     Carry { extrude: FeatureId, to: f64 },
+    /// Build the recipe only as far as `through`, or the whole of it for `None`.
+    ///
+    /// **Not a step of the history**, which is the camera's category rather than
+    /// the drawing's: how much of a recipe you are looking at is a way of
+    /// looking at it. Dragging the bar would otherwise fill the undo stack, and
+    /// Ctrl+Z after rolling back would take back the rolling rather than the
+    /// last thing you *did* — which is what a user means by it. It is saved with
+    /// the document all the same, for the reason the camera is: reopening a
+    /// drawing rolled forward is not reopening it.
+    ///
+    /// Names where the bar should end up rather than a direction to drag it,
+    /// like everything else here, so a replayed pass leaves it in the same
+    /// place.
+    RollTo { through: Option<FeatureId> },
     /// Turn the camera about what it is looking at, in radians.
     Orbit { yaw: f32, pitch: f32 },
     /// Move the camera in or out by a multiple of how far off it is.
@@ -287,12 +301,15 @@ impl Change {
             // rewrite is recorded by comparing what a step held on either side
             // and this leaves every one of them holding exactly what it did.
             Change::Reorder { step, .. } => About::Moves { at: step },
-            // The camera is not the drawing. Turning it names no step, so there
-            // is nothing to take back and nothing to solve again.
+            // The camera is not the drawing, and neither is how much of the
+            // recipe you are looking at. Neither names a step, so there is
+            // nothing to take back and nothing to solve again — though rolling
+            // does change what is *drawn*, and says so where it lands.
             Change::Orbit { .. }
             | Change::Dolly { .. }
             | Change::Pan { .. }
-            | Change::Project(_) => About::Nothing,
+            | Change::Project(_)
+            | Change::RollTo { .. } => About::Nothing,
         }
     }
 }
@@ -349,7 +366,12 @@ pub(crate) enum About {
         /// recorded at all.
         coalesces: bool,
     },
-    /// It is about no step of the timeline: the camera, which is not the
-    /// drawing.
+    /// It is about no step of the timeline.
+    ///
+    /// Two things are: the camera, which is not the drawing, and the rollback
+    /// bar, which is how much of the drawing you are looking at. Neither is a
+    /// step to take back, which is the whole of what this arm decides — and
+    /// neither is a claim that nothing changed on screen. Rolling does change
+    /// what is drawn and says so where it lands.
     Nothing,
 }

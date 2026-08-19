@@ -159,6 +159,16 @@ impl Hud {
                     // [`Models::opens`](crate::model::Models).
                     intents.push(Choice::Select(Some(Part::Step(at))));
                 }
+                // **The bar, drawn between the rows it divides.** One marker
+                // rather than a mark on every row below it: what is rolled back
+                // is a *tail*, so where it starts is the whole of what there is
+                // to show, and a suffix repeated down the list would be saying
+                // it once per step.
+                if models.rolled() == Some(at) {
+                    Text::new(ui.intern("── rolled back ──"))
+                        .id_salt(at)
+                        .show(ui);
+                }
             }
         });
     }
