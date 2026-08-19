@@ -13,5 +13,6 @@ pub(crate) mod dense;
 pub(crate) mod direction;
 pub(crate) mod intersect;
 pub(crate) mod plane;
+pub(crate) mod quadratic;
 pub(crate) mod triangulate;
 pub(crate) mod winding;

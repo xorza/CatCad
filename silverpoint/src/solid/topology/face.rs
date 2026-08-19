@@ -4,6 +4,7 @@ use crate::arena::Id;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::named::Named;
 use glam::{DVec2, DVec3};
+use std::f64::consts::TAU;
 use std::ops::Range;
 
 pub(crate) type FaceId = Id<Face>;
@@ -56,6 +57,38 @@ impl Face {
             "a face is outlined before it is asked what it is missing",
         );
         self.loops.len() - 1
+    }
+
+    /// Read a traced loop into this face's own parameters.
+    ///
+    /// **Unwrapped as it goes** where the surface runs round: an inversion
+    /// answers in a half-turn either side of the reference direction, so a face
+    /// straddling the far side of a cylinder would otherwise come back as two
+    /// pieces of parameter space with a whole turn between them. Nothing is
+    /// decided by the absolute offset, only by the loop being continuous.
+    ///
+    /// **Appends**, and one corner per traced place: how finely the loop was
+    /// traced is whoever traced it's business — see
+    /// [`Topology::walk`](crate::solid::topology::Topology). Both readers want
+    /// the same answer and for different reasons, which is why it is here
+    /// rather than in either: a mesher asks so it can cut triangles, and a
+    /// sounder asks so it can say whether a ray came through the face or missed
+    /// it, and a face drawn to one boundary and picked against another is a
+    /// hairline nobody can find by reading either.
+    pub(crate) fn flatten(&self, traced: &[DVec3], into: &mut Vec<DVec2>) {
+        into.reserve_exact(traced.len());
+        let round = self.surface.round();
+        let mut last = 0.0;
+        for (at, &corner) in traced.iter().enumerate() {
+            let mut uv = self.surface.uv(corner);
+            if round {
+                if at > 0 {
+                    uv.x += TAU * ((last - uv.x) / TAU).round();
+                }
+                last = uv.x;
+            }
+            into.push(uv);
+        }
     }
 
     /// Which way the body faces at the parameters `uv` — out of the material,

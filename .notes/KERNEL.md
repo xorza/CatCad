@@ -1212,8 +1212,29 @@ boundary already had two corners on that circle, which is why they are carried.
 knows more than its shape is still one polyline to the three rules that ask what
 it encloses.
 
-Still to come: ray-surface sounding; `shut_in` over curved faces; and lifting
-`flat`, which is the moment any of this runs.
+**In: the sounder asks the surface.** A ray is held against the quadric itself
+— `Surface::met_by`, which is a quadratic for the three curved ones and the
+degenerate linear for a plane — so where it crosses is exact. Whether the
+crossing landed *on the face* is a containment question, and a boundary with a
+curved edge is chorded at `CHORDED` to be one: the same bargain the splitter
+strikes, on the same terms, and the sounder's own doc no longer claims that
+flattening is a tolerance it has no business choosing.
+
+`quadratic::roots` is the one rule the three quadrics share, in its stable form
+and answering **two or none, never one** — a double root is a graze, and a count
+of crossings that turned on which side of nought a discriminant landed would
+flip a solid inside out for a ray a hair either way.
+
+The bug worth recording, because nothing else would have found it: a face on a
+round surface is *unwrapped* when it is flattened, so its loop comes out
+continuous across the branch cut — and a place inverted afterwards comes back in
+`(-π, π]`. Held apart, the two disagree by a whole turn for every face
+straddling the far side of a cylinder, and disagree silently: the containment
+simply answers that nothing is on the face, and a cylinder reads as hollow. The
+branch now travels with the loops it was laid out in.
+
+Still to come: `shut_in` over curved faces, and lifting `flat` — which is the
+moment any of this runs.
 
 Cylinders, cones and spheres, all of them, because they are one algebra.
 

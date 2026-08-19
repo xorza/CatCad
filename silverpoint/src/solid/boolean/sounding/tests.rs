@@ -162,3 +162,58 @@ fn a_block_grown_the_other_way_is_sounded_the_same() {
     faces(&body, (1.0, 1.0), -3.0, DVec3::NEG_Y);
     faces(&body, (1.0, 1.0), 0.0, DVec3::Y);
 }
+
+/// **A cylinder holds what is within it**, which nothing could ask before the
+/// ray was cast at the surface itself.
+///
+/// A circle of radius one on the ground carried two up: the wall is a true
+/// cylinder, the two ends are planes, and every answer below is one anybody can
+/// work out from `r = 1` and `0 ≤ y ≤ 2`. What it exercises that the blocks
+/// above cannot is the whole of the new path — a ray held against a quadric
+/// rather than a plane, and a face's boundary chorded to be asked what it
+/// covers rather than read off its corners.
+///
+/// The faces it is asked about are a *pair* of half cylinders, because no face
+/// here may wrap — see `.notes/KERNEL.md` §4.4 — so a place on the seam between
+/// them is on two faces at once and a ray through it crosses two. That is the
+/// same double count an edge gives, and the same four directions escape it.
+#[test]
+fn a_cylinder_holds_what_is_within_it() {
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::ZERO);
+    sketch.add_circle(middle, 1.0);
+    let found = Arrangement::of(&sketch);
+    let body = Extrusion::new(&found, 0, Plane::GROUND, 2.0, STEP).body();
+
+    // On the axis, and well outside it either way — radially and past the ends.
+    assert_eq!(standing(&body, (0.0, 0.0), 1.0), Standing::Inside);
+    assert_eq!(
+        standing(&body, (3.0, 0.0), 1.0),
+        Standing::Outside,
+        "beside it"
+    );
+    assert_eq!(
+        standing(&body, (0.0, 0.0), 5.0),
+        Standing::Outside,
+        "above it"
+    );
+    assert_eq!(
+        standing(&body, (0.0, 0.0), -1.0),
+        Standing::Outside,
+        "below it"
+    );
+    // Just inside the wall and just outside it, a hundredth either side — which
+    // is what says the boundary is the *cylinder* and not some polygon standing
+    // in for it.
+    assert_eq!(standing(&body, (0.99, 0.0), 1.0), Standing::Inside);
+    assert_eq!(standing(&body, (1.01, 0.0), 1.0), Standing::Outside);
+
+    // On the wall, facing straight out of it: the drawing's +u is world +X, so
+    // a place at `u = 1` faces that way.
+    faces(&body, (1.0, 0.0), 1.0, DVec3::X);
+    // And a quarter turn round, where the drawing's +v is world −Z.
+    faces(&body, (0.0, 1.0), 1.0, -DVec3::Z);
+    // On the two ends, which are planes like any other.
+    faces(&body, (0.0, 0.0), 0.0, DVec3::NEG_Y);
+    faces(&body, (0.0, 0.0), 2.0, DVec3::Y);
+}

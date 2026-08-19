@@ -6,7 +6,7 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::sphere::Sphere;
-use crate::solid::geometry::surface::Surface;
+use crate::solid::geometry::surface::{Crossings, Surface};
 use glam::{DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, SQRT_2, TAU};
 
@@ -316,4 +316,108 @@ fn a_curve_is_cut_finely_enough_to_meet_its_sagitta() {
     }
     // Half the circle wants about half the chords of the whole of it.
     assert_eq!(circle.steps(PI, 0.01), circle.steps(TAU, 0.01).div_ceil(2));
+}
+
+/// **A ray meets each quadric where the arithmetic says**, hand-computed, and
+/// a graze is a miss.
+///
+/// Every surface is built on [`upright`] — the world origin running up +Y — so
+/// each answer below is a distance anybody can work out on paper. The rays are
+/// unit, so a distance along one is a distance in the world.
+///
+/// A graze is asked of each in turn because it is the one answer that is a
+/// *choice* rather than arithmetic — see
+/// [`quadratic::roots`](crate::math::quadratic::roots) — and a surface that
+/// answered a tangency with one crossing would make every ray past it flip a
+/// solid inside out.
+#[test]
+fn a_ray_meets_each_quadric_where_the_arithmetic_says() {
+    let hits = |along: Crossings| along.along().to_vec();
+    let near = |got: Vec<f64>, want: &[f64], what: &str| {
+        assert_eq!(got.len(), want.len(), "{what}: {got:?} against {want:?}");
+        for (got, want) in got.iter().zip(want) {
+            assert!(
+                (got - want).abs() < NEAR,
+                "{what}: {got} rather than {want}"
+            );
+        }
+    };
+
+    // A sphere of radius two: straight through the middle from four out is two
+    // and six, and the same ray four to the side of the centre grazes it.
+    let ball = Surface::Sphere(Sphere {
+        axis: upright(),
+        radius: 2.0,
+    });
+    near(
+        hits(ball.met_by(DVec3::new(-4.0, 0.0, 0.0), DVec3::X)),
+        &[2.0, 6.0],
+        "through a sphere",
+    );
+    near(
+        hits(ball.met_by(DVec3::new(-4.0, 2.0, 0.0), DVec3::X)),
+        &[],
+        "grazing a sphere",
+    );
+    near(
+        hits(ball.met_by(DVec3::new(-4.0, 9.0, 0.0), DVec3::X)),
+        &[],
+        "missing a sphere",
+    );
+
+    // A cylinder of radius two about +Y: the same ray answers the same, because
+    // a cylinder is a circle and the height is nothing to it. Along the axis it
+    // meets nothing at all, however far inside it starts.
+    let tube = Surface::Cylinder(Cylinder {
+        axis: upright(),
+        radius: 2.0,
+    });
+    near(
+        hits(tube.met_by(DVec3::new(-4.0, 7.0, 0.0), DVec3::X)),
+        &[2.0, 6.0],
+        "through a cylinder",
+    );
+    near(
+        hits(tube.met_by(DVec3::ZERO, DVec3::Y)),
+        &[],
+        "along a cylinder's axis",
+    );
+    near(
+        hits(tube.met_by(DVec3::new(-4.0, 0.0, 2.0), DVec3::X)),
+        &[],
+        "grazing a cylinder",
+    );
+
+    // A cone at forty-five degrees about +Y, apex at the origin: its radius at
+    // height `h` is `h`, so a ray straight up at one out from the axis meets it
+    // at height one — and again at minus one, on the far nappe.
+    let horn = Surface::Cone(Cone {
+        axis: upright(),
+        half_angle: FRAC_PI_4,
+    });
+    near(
+        hits(horn.met_by(DVec3::new(1.0, -3.0, 0.0), DVec3::Y)),
+        &[2.0, 4.0],
+        "both nappes of a cone",
+    );
+    // Across it at height two, where its radius is two: two and six, exactly
+    // the circle the sphere gave.
+    near(
+        hits(horn.met_by(DVec3::new(-4.0, 2.0, 0.0), DVec3::X)),
+        &[2.0, 6.0],
+        "across a cone",
+    );
+
+    // A plane answers once, and never where the ray lies in it.
+    let flat = Surface::Plane(Plane::GROUND);
+    near(
+        hits(flat.met_by(DVec3::new(0.0, 3.0, 0.0), -DVec3::Y)),
+        &[3.0],
+        "down onto a plane",
+    );
+    near(
+        hits(flat.met_by(DVec3::ZERO, DVec3::X)),
+        &[],
+        "along a plane",
+    );
 }

@@ -1,5 +1,6 @@
 //! A surface at a fixed distance from a point.
 
+use crate::math::quadratic;
 use crate::solid::geometry::axis::Axis;
 use glam::{DVec2, DVec3};
 
@@ -19,7 +20,22 @@ pub(crate) struct Sphere {
 }
 
 impl Sphere {
-    /// Where it stands.
+    /// How far along a ray from `from` running `way` it meets this, in order.
+    ///
+    /// The plainest of the four: how far a place stands from the centre is one
+    /// number whichever way it lies, so the ray's distance is a quadratic
+    /// outright and there is nothing to reduce first. `None` where the ray
+    /// misses or merely grazes.
+    pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Option<[f64; 2]> {
+        let start = from - self.axis.origin;
+        quadratic::roots(
+            way.length_squared(),
+            2.0 * start.dot(way),
+            start.length_squared() - self.radius * self.radius,
+        )
+    }
+
+    /// Where it stands.    /// Where it stands.
     ///
     /// Named, because [`Axis::origin`] is where it is kept and not what it is
     /// called — a reader of `sphere.axis.origin` has to know that a sphere's

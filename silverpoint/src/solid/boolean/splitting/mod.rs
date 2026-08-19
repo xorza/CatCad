@@ -19,6 +19,7 @@
 
 use crate::loops::Loops;
 use crate::math::arc;
+use crate::math::quadratic;
 use crate::math::winding::{self, holds};
 use crate::number::predicate;
 use crate::number::tolerance::{ENCLOSED, PLACED};
@@ -262,23 +263,20 @@ impl Cut {
 
     /// Where along the run from `from` to `to` it meets the circle, in order.
     ///
-    /// `None` where it misses, or where the cut is straight and has no two
-    /// roots to speak of.
+    /// `None` where it misses or merely grazes, and where the cut is straight
+    /// and has no two roots to speak of. The same rule the surfaces are met by
+    /// one dimension up — see [`roots`](crate::math::quadratic::roots), which
+    /// is also where a graze is argued to be a miss.
     fn roots(self, from: DVec2, to: DVec2) -> Option<[f64; 2]> {
         let Self::Round { middle, radius, .. } = self else {
             return None;
         };
         let (run, start) = (to - from, from - middle);
-        let (a, b, c) = (
+        quadratic::roots(
             run.length_squared(),
             2.0 * run.dot(start),
             start.length_squared() - radius * radius,
-        );
-        let under = b * b - 4.0 * a * c;
-        (under > 0.0 && a > 0.0).then(|| {
-            let root = under.sqrt();
-            [(-b - root) / (2.0 * a), (-b + root) / (2.0 * a)]
-        })
+        )
     }
 }
 

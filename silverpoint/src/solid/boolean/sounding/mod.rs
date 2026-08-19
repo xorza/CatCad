@@ -11,13 +11,23 @@
 //! A ray leaves the place in some direction and is counted against every face
 //! of the body: an odd number of crossings and it started inside. See
 //! `.notes/KERNEL.md` §7.4.
+//!
+//! **Exact where it meets a surface and chorded where it asks what a face
+//! covers**, which are two different questions and get two different answers. A
+//! ray is held against the surface itself — every one of them is a quadric, so
+//! that is a quadratic and nothing is approximated. Whether the crossing landed
+//! *on the face* is a containment question about a boundary, and a boundary
+//! with a curved edge in it has to be walked as corners to be one; that is the
+//! same bargain the splitter strikes next door, and for the same reason. What
+//! comes out of here decides which regions a boolean keeps, not what shape any
+//! of them is.
 
 use crate::math::winding;
 use crate::number::predicate;
-use crate::number::tolerance::{ALIGNED, PLACED};
-use crate::solid::boolean::planar;
+use crate::number::tolerance::PLACED;
 use crate::solid::topology::body::Body;
 use glam::{DVec2, DVec3};
+use std::f64::consts::TAU;
 use std::ops::Range;
 
 /// Where a place stands in relation to a body.
@@ -47,12 +57,58 @@ pub(super) enum Standing {
 /// along the axes — so the obvious directions are the bad ones. Small whole
 /// numbers, chosen rather than derived, and four because a place defeating the
 /// first has no reason to defeat the rest.
+/// How far a chord of a curved edge may fall from it, in world units, when a
+/// face is asked what it covers.
+///
+/// **A classification tolerance and not a geometry one**, exactly like the
+/// splitter's `ROUNDED`: what this polyline decides is whether a ray came
+/// through a face or missed it, and no part of the body is ever built from it.
+/// The surfaces themselves are met exactly — see `Surface::met_by` — so the
+/// only thing this can get wrong is a crossing within a chord's sagitta of a
+/// face's own edge, which is a ray grazing an edge, which is what four
+/// directions are cast to escape.
+///
+/// Absolute, which carries an assumption about scale: a model measured in
+/// millionths would be chorded coarsely by it and one in millions finely. The
+/// same debt `paint::SOLID_SAGITTA` carries in the application, and the same
+/// answer — take it off the thing being measured — waits on the same decision.
+const CHORDED: f64 = 1e-3;
+
 const CASTS: [DVec3; 4] = [
     DVec3::new(1.0, 2.0, 3.0),
     DVec3::new(-2.0, 3.0, 1.0),
     DVec3::new(3.0, -1.0, 2.0),
     DVec3::new(1.0, -3.0, 2.0),
 ];
+
+/// One face's boundary as the containment test reads it.
+///
+/// The loops and the branch they were laid out in, which have to travel
+/// together: [`Face::flatten`](crate::solid::topology::face::Face::flatten)
+/// unwraps the angle of a face on a round surface
+/// so the loop comes out continuous, and a place asked about afterwards is
+/// inverted into `(-π, π]` like any other. Held apart, the two disagree by a
+/// whole turn for every face that straddles the far side of a cylinder — and
+/// disagree *silently*, the containment simply answering that nothing is on the
+/// face.
+#[derive(Debug)]
+struct Covered {
+    /// Which of the sounder's loops are this face's — the outline first, then
+    /// its holes.
+    loops: Range<usize>,
+    /// Somewhere on the boundary's own branch, or `None` where the surface does
+    /// not run round and there are no branches to be in.
+    anchor: Option<f64>,
+    /// Whether the place being sounded stands on this face's surface.
+    ///
+    /// **Asked once for the whole query**, because it is asked twice over
+    /// otherwise and by two readers who have to agree: whether the place is on
+    /// the boundary at all, and whether a ray from it lies *in* a surface it
+    /// cannot be counted against. Two spellings of one tolerance is two chances
+    /// for a place to be on a face for the first and off it for the second,
+    /// which is a body that is solid to one question and hollow to the other.
+    on: bool,
+}
 
 /// Sounds a body to find out what is inside it, keeping the room it works in.
 ///
@@ -61,6 +117,9 @@ const CASTS: [DVec3; 4] = [
 /// the drawing under it.
 #[derive(Debug, Default)]
 pub(super) struct Sounding {
+    /// One face's boundary in the world, on its way into that face's own
+    /// parameters.
+    traced: Vec<DVec3>,
     /// Every face's boundary in its own parameters, loop after loop.
     ///
     /// Laid out once per question rather than once per look, which is what
@@ -70,20 +129,14 @@ pub(super) struct Sounding {
     walk: Vec<DVec2>,
     /// Where each of those loops begins, with a sentinel on the end.
     starts: Vec<usize>,
-    /// Which of those loops each face owns, in the order the body holds them —
-    /// the outline first, then its holes.
-    faces: Vec<Range<usize>>,
+    /// What each face of the body came to, in the order it holds them.
+    faces: Vec<Covered>,
 }
 
 impl Sounding {
     /// Where `at` stands in relation to `body`.
-    ///
-    /// Planar only: every face of `body` has to lie on a plane, which is what
-    /// M4 is. A curved one would want its boundary flattened before it could be
-    /// asked what it holds, and flattening is a tolerance this has no business
-    /// choosing.
     pub(super) fn standing(&mut self, at: DVec3, body: &Body) -> Standing {
-        self.flatten(body);
+        self.flatten(at, body);
         if let Some(facing) = self.facing(at, body) {
             return Standing::On(facing);
         }
@@ -111,13 +164,12 @@ impl Sounding {
             .faces()
             .enumerate()
             .find_map(|(which, (_, face))| {
-                let plane = planar(face);
-                if !predicate::touching((at - plane.origin).dot(plane.normal()).abs(), PLACED) {
+                if !self.faces[which].on {
                     return None;
                 }
                 // On the face, or on an edge of it: both are the boundary, and
                 // the second is what `covers` declines to call either way.
-                let uv = plane.flatten(at);
+                let uv = face.surface.uv(at);
                 self.covers(which, uv)
                     .unwrap_or(true)
                     .then(|| face.normal(uv))
@@ -129,23 +181,29 @@ impl Sounding {
     fn count(&self, at: DVec3, way: DVec3, body: &Body) -> Option<usize> {
         let mut crossings = 0;
         for (which, (_, face)) in body.topology().faces().enumerate() {
-            let plane = planar(face);
-            let normal = plane.normal();
-            let leaning = way.dot(normal);
-            if predicate::touching(leaning.abs(), ALIGNED) {
-                // The ray runs along this plane. It cannot cross it — but if it
-                // *lies* in it, it may run along an edge of the face, and no
-                // count taken this way can be trusted.
-                if predicate::touching((at - plane.origin).dot(normal).abs(), PLACED) {
-                    return None;
+            let met = face.surface.met_by(at, way);
+            // **A ray lying *in* the surface cannot be counted against it.** It
+            // crosses nothing, and it may run along an edge of the face — which
+            // is the miscount every direction in [`CASTS`] is chosen to avoid
+            // and this is the last guard against.
+            //
+            // Read as "it starts on the surface and never meets it", which is
+            // the only way both can be true: a ray that merely grazes does not
+            // start on what it grazes, and one running parallel and clear of a
+            // plane does not start on that either. A sphere cannot hold a line
+            // at all, so this never fires for one.
+            if met.along().is_empty() && self.faces[which].on {
+                return None;
+            }
+            for &along in met.along() {
+                // Behind, or where the ray began. A crossing at nought is a
+                // place standing on the surface, which the guard above has
+                // already refused to count from.
+                if along <= PLACED {
+                    continue;
                 }
-                continue;
+                crossings += usize::from(self.covers(which, face.surface.uv(at + way * along))?);
             }
-            let along = (plane.origin - at).dot(normal) / leaning;
-            if along <= PLACED {
-                continue;
-            }
-            crossings += usize::from(self.covers(which, plane.flatten(at + way * along))?);
         }
         Some(crossings)
     }
@@ -154,8 +212,20 @@ impl Sounding {
     /// `uv`, or `None` where that place sits on the face's own boundary and the
     /// answer is neither.
     fn covers(&self, which: usize, uv: DVec2) -> Option<bool> {
+        let Covered { loops, anchor, .. } = &self.faces[which];
+        // **Into the branch the boundary was laid out in.** A face on a round
+        // surface is unwrapped so its loop comes out continuous, and an
+        // inversion answers in a half turn either side of the reference — so a
+        // face straddling the far side of a cylinder is a whole turn away from
+        // where this place would be asked about. No face may wrap
+        // (`.notes/KERNEL.md` §4.4), so there is exactly one branch it could
+        // be in and the nearest is it.
+        let uv = match anchor {
+            Some(anchor) => DVec2::new(uv.x + TAU * ((anchor - uv.x) / TAU).round(), uv.y),
+            None => uv,
+        };
         let mut within = false;
-        for (at, run) in self.faces[which].clone().enumerate() {
+        for (at, run) in loops.clone().enumerate() {
             let loop_ = &self.walk[self.starts[run]..self.starts[run + 1]];
             if winding::off(loop_, uv) <= PLACED {
                 return None;
@@ -174,13 +244,18 @@ impl Sounding {
 
     /// Lay every face's boundary out in its own parameters, loop after loop.
     ///
-    /// A corner per coedge, which is the whole of a planar face's boundary: a
-    /// straight edge is described by the two vertices it runs between, so
-    /// nothing here has to decide how finely to flatten anything.
+    /// Traced at [`CHORDED`] and flattened, which for a straight edge is the
+    /// two vertices it runs between and nothing more — see
+    /// [`Topology::walk`](crate::solid::topology::Topology), which chords only
+    /// what curves.
+    ///
+    /// Takes the place being sounded as well as the body, for the one thing
+    /// about a face that both readers below need and neither should decide
+    /// twice — see [`Covered::on`].
     ///
     /// In the order the body holds its faces, which is what lets everything
     /// afterwards name one by where it fell in that walk.
-    fn flatten(&mut self, body: &Body) {
+    fn flatten(&mut self, at: DVec3, body: &Body) {
         let topology = body.topology();
         self.walk.clear();
         self.starts.clear();
@@ -188,11 +263,26 @@ impl Sounding {
         self.faces.clear();
         for (_, face) in topology.faces() {
             let from = self.starts.len() - 1;
+            let began = self.walk.len();
             for round in topology.loops_of(face) {
-                topology.corners(face, round, &mut self.walk);
+                self.traced.clear();
+                for coedge in round {
+                    topology.walk(*coedge, CHORDED, &mut self.traced);
+                }
+                face.flatten(&self.traced, &mut self.walk);
                 self.starts.push(self.walk.len());
             }
-            self.faces.push(from..self.starts.len() - 1);
+            self.faces.push(Covered {
+                on: predicate::touching(face.surface.off(at), PLACED),
+                loops: from..self.starts.len() - 1,
+                // Somewhere on the boundary's own branch, which is any corner
+                // of it: the loops were laid out continuously, so they are all
+                // in the one branch.
+                anchor: match face.surface.round() {
+                    true => self.walk.get(began).map(|corner| corner.x),
+                    false => None,
+                },
+            });
         }
     }
 }

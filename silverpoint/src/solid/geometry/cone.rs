@@ -1,5 +1,6 @@
 //! A surface whose distance from a line grows with the distance along it.
 
+use crate::math::quadratic;
 use crate::solid::geometry::axis::Axis;
 use glam::{DVec2, DVec3};
 
@@ -29,7 +30,29 @@ impl Cone {
         self.axis.origin + self.axis.direction * uv.y + self.axis.radial(uv.x) * radius
     }
 
-    /// Which parameters `at` stands at, its angle read in `(-π, π]`.
+    /// How far along a ray from `from` running `way` it meets this, in order.
+    ///
+    /// **Both nappes**, like everything else here reads this surface: a place
+    /// is on the cone where the angle it makes with the axis is the half angle,
+    /// and that says nothing about which side of the apex it fell. A caller
+    /// that wants one nappe reads the `v` of what it got and drops the negative
+    /// — see [`Cone::uv`], which is where that sign lives.
+    ///
+    /// Squared, so the cosine is squared and the sign goes with it, which is
+    /// exactly why both nappes come back: `(p·w)² = cos²θ · |p|²` about the
+    /// apex.
+    pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Option<[f64; 2]> {
+        let start = from - self.axis.origin;
+        let (leaning, aimed) = (start.dot(self.axis.direction), way.dot(self.axis.direction));
+        let narrow = self.half_angle.cos() * self.half_angle.cos();
+        quadratic::roots(
+            aimed * aimed - narrow * way.length_squared(),
+            2.0 * (leaning * aimed - narrow * start.dot(way)),
+            leaning * leaning - narrow * start.length_squared(),
+        )
+    }
+
+    /// Which parameters `at` stands at, its angle read in `(-π, π]`.    /// Which parameters `at` stands at, its angle read in `(-π, π]`.
     ///
     /// Read off the axis rather than off the surface: a point on the cone has
     /// one `v`, and one off it is answered for by the parameters of the point

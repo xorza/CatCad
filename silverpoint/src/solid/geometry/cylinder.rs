@@ -1,5 +1,6 @@
 //! A surface at a fixed distance from a line.
 
+use crate::math::quadratic;
 use crate::solid::geometry::axis::Axis;
 use glam::{DVec2, DVec3};
 
@@ -20,7 +21,25 @@ impl Cylinder {
         self.axis.origin + self.axis.radial(uv.x) * self.radius + self.axis.direction * uv.y
     }
 
-    /// Which parameters `at` stands at, its angle read in `(-π, π]`.
+    /// How far along a ray from `from` running `way` it meets this, in order.
+    ///
+    /// **Square to the axis and nothing else.** A cylinder is a circle extruded,
+    /// so a ray meets it exactly where the ray's own shadow on the plane square
+    /// to the axis meets that circle — and taking both the ray and the point out
+    /// of the axis direction is the whole of the reduction. `None` where the ray
+    /// runs along the axis, which has no shadow to speak of, and where it misses
+    /// or merely grazes.
+    pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Option<[f64; 2]> {
+        let off = |at: DVec3| at - self.axis.direction * at.dot(self.axis.direction);
+        let (start, along) = (off(from - self.axis.origin), off(way));
+        quadratic::roots(
+            along.length_squared(),
+            2.0 * start.dot(along),
+            start.length_squared() - self.radius * self.radius,
+        )
+    }
+
+    /// Which parameters `at` stands at, its angle read in `(-π, π]`.    /// Which parameters `at` stands at, its angle read in `(-π, π]`.
     ///
     /// Exact for anything on the surface and the nearest point of it for
     /// anything off, which is what makes this an inversion rather than a

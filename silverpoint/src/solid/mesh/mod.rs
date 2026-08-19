@@ -13,7 +13,6 @@ use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::Face;
 use glam::{DVec2, DVec3};
-use std::f64::consts::TAU;
 
 /// One face of a body, cut into triangles.
 ///
@@ -95,7 +94,7 @@ impl Mesher {
         for &coedge in topology.outline_of(face) {
             topology.walk(coedge, sagitta, traced);
         }
-        flatten(face, &traced[..], outline);
+        face.flatten(&traced[..], outline);
         let mut done = traced.len();
         for hole in topology.holes_of(face) {
             for &coedge in hole {
@@ -103,7 +102,7 @@ impl Mesher {
             }
             let from = done;
             done = traced.len();
-            holes.add(|into| flatten(face, &traced[from..done], into));
+            holes.add(|into| face.flatten(&traced[from..done], into));
         }
 
         cutter.polygon(outline, holes, fill);
@@ -134,29 +133,6 @@ impl Mesher {
                     [first + a, first + c, first + b]
                 }
             }));
-    }
-}
-
-/// Read a traced loop into the parameters of the surface it lies on.
-///
-/// **Unwrapped as it goes** where the surface runs round: an inversion answers
-/// in a half-turn either side of the reference direction, so a face straddling
-/// the far side of a cylinder would otherwise come back as two pieces of
-/// parameter space with a whole turn between them. Nothing is decided by the
-/// absolute offset, only by the loop being continuous.
-fn flatten(face: &Face, traced: &[DVec3], into: &mut Vec<DVec2>) {
-    into.reserve_exact(traced.len());
-    let round = face.surface.round();
-    let mut last = 0.0;
-    for (at, &corner) in traced.iter().enumerate() {
-        let mut uv = face.surface.uv(corner);
-        if round {
-            if at > 0 {
-                uv.x += TAU * ((last - uv.x) / TAU).round();
-            }
-            last = uv.x;
-        }
-        into.push(uv);
     }
 }
 

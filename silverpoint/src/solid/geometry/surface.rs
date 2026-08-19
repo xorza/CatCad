@@ -1,6 +1,8 @@
 //! What a face is a piece of.
 
 use crate::math::plane::Plane;
+use crate::number::predicate;
+use crate::number::tolerance::ALIGNED;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::sphere::Sphere;
@@ -23,6 +25,26 @@ use glam::{DVec2, DVec3};
 /// Every one of them is exact: the parameters below are the surface, not a fit
 /// to one, and nothing evaluated off them carries a tolerance. See
 /// `.notes/KERNEL.md` §4.1 for where that stops.
+/// Where a ray met a surface, as distances along it.
+///
+/// Inline rather than a list, for the reason
+/// [`Curves`](crate::solid::meeting::Curves) beside it is one: a boolean sounds
+/// a body once per region and a document is rebuilt on every frame of a drag
+/// through the drawing under it, so an answer that reached the heap would reach
+/// it a few thousand times a second.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub(crate) struct Crossings {
+    along: [f64; 2],
+    count: u8,
+}
+
+impl Crossings {
+    /// How far along the ray each was, in order.
+    pub(crate) fn along(&self) -> &[f64] {
+        &self.along[..self.count as usize]
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Surface {
     /// The same [`Plane`] a sketch is carried into the world by, which is what
@@ -74,6 +96,52 @@ impl Surface {
             Self::Cylinder(cylinder) => cylinder.normal(uv),
             Self::Cone(cone) => cone.normal(uv),
             Self::Sphere(sphere) => sphere.normal(uv),
+        }
+    }
+
+    /// How far along a ray from `from` running `way` it meets this, in order,
+    /// and how many times.
+    ///
+    /// **At most twice, because every surface here is a quadric.** A plane is
+    /// the degenerate one and answers once; the other three answer twice or
+    /// not at all — a graze counts as not at all, for the reason
+    /// [`roots`](crate::math::quadratic::roots) gives.
+    ///
+    /// Distances along `way` rather than places, because what asks is a ray
+    /// cast counting crossings ahead of where it started: which of them are
+    /// ahead is a comparison on this and nothing else. Unnormalized `way` is
+    /// fine and the answer is in units of it.
+    pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Crossings {
+        let two = |along: Option<[f64; 2]>| match along {
+            Some(along) => Crossings { along, count: 2 },
+            None => Crossings::default(),
+        };
+        match self {
+            Self::Plane(plane) => {
+                let leaning = way.dot(plane.normal());
+                // Along the plane, so it meets it nowhere or everywhere — and
+                // a ray *in* a plane crosses out of nothing, which is the
+                // answer either way.
+                //
+                // **To within [`ALIGNED`] rather than exactly**, which is not
+                // caution but arithmetic: a ray a hair off parallel crosses the
+                // plane genuinely, at a distance of one over that hair, and a
+                // place read off the ray that far out has no significant digits
+                // left in it. The crossing is real and unusable, so it is not
+                // reported. A caller that leans on this is a caller casting
+                // rays along a body's own faces, which is what four directions
+                // are for.
+                if predicate::touching(leaning.abs(), ALIGNED) {
+                    return Crossings::default();
+                }
+                Crossings {
+                    along: [(plane.origin - from).dot(plane.normal()) / leaning, 0.0],
+                    count: 1,
+                }
+            }
+            Self::Cylinder(cylinder) => two(cylinder.met_by(from, way)),
+            Self::Cone(cone) => two(cone.met_by(from, way)),
+            Self::Sphere(sphere) => two(sphere.met_by(from, way)),
         }
     }
 
