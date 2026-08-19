@@ -25,6 +25,7 @@
 use crate::loops::Loops;
 use crate::math::approx::{ApproxEq, SLIVER, TOUCHING};
 use crate::math::intersect::{self, Span};
+use crate::math::winding;
 use glam::DVec2;
 
 /// A polygon cut into triangles.
@@ -148,20 +149,9 @@ fn wound(loop_: &[DVec2], counterclockwise: bool, corners: &mut Vec<DVec2>, into
     corners.extend_from_slice(loop_);
     let from = into.len();
     into.extend(first..first + loop_.len() as u32);
-    if (sweep(loop_) > 0.0) != counterclockwise {
+    if (winding::swept(loop_) > 0.0) != counterclockwise {
         into[from..].reverse();
     }
-}
-
-/// Twice the signed area, positive where the corners run counterclockwise —
-/// the shoelace sum, which is what says which way a loop is wound.
-fn sweep(loop_: &[DVec2]) -> f64 {
-    let mut total = 0.0;
-    for (at, corner) in loop_.iter().enumerate() {
-        let next = loop_[(at + 1) % loop_.len()];
-        total += corner.perp_dot(next);
-    }
-    total
 }
 
 /// Where in `loop_` its rightmost corner sits, or `None` for an empty one.
@@ -529,7 +519,8 @@ fn triangle(corners: &[DVec2], contour: &[u32], at: usize) -> [DVec2; 3] {
 
 #[cfg(test)]
 mod measuring {
-    use crate::math::triangulate::{Fill, sweep};
+    use crate::math::triangulate::Fill;
+    use crate::math::winding::swept;
     use glam::DVec2;
 
     impl Fill {
@@ -545,7 +536,7 @@ mod measuring {
         /// measured by the same reading that decided which way its outline was
         /// walked in the first place.
         pub(super) fn sweep_of(&self, at: usize) -> f64 {
-            sweep(&self.corners_of(at))
+            swept(&self.corners_of(at))
         }
 
         /// Where the middle of one triangle falls.

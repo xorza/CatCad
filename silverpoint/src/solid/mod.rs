@@ -17,6 +17,7 @@
 //! never the solver, never the constraints, never `Sketch` itself. A profile
 //! arrives as an arrangement and a position in it.
 
+pub(crate) mod boolean;
 pub(crate) mod build;
 pub(crate) mod geometry;
 pub(crate) mod grown;

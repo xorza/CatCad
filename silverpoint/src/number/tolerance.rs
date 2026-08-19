@@ -1,6 +1,6 @@
 //! How much room each kind of comparison is given.
 
-use crate::math::approx::{PARALLEL, TOUCHING};
+use crate::math::approx::{PARALLEL, SLIVER, TOUCHING};
 
 /// What an exact construction is worth.
 ///
@@ -58,3 +58,13 @@ pub(crate) const PLACED: f64 = TOUCHING;
 /// wrong one to ask of two places. A second name for [`PARALLEL`], like
 /// [`PLACED`] above.
 pub(crate) const ALIGNED: f64 = PARALLEL;
+
+/// How much a loop has to shut in to be a region rather than a sliver, in
+/// square world units.
+///
+/// **An area, and so not [`PLACED`] however alike the two numbers look.** A
+/// bound on a length and a bound on an area answer differently the moment
+/// anything is rescaled, and one constant standing for both hides that — which
+/// is the argument [`SLIVER`] makes for the drawing, and it is the same
+/// argument here. A cut that leaves a region of no width leaves no region.
+pub(crate) const ENCLOSED: f64 = SLIVER;

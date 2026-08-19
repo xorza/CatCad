@@ -1,4 +1,5 @@
 use super::*;
+use crate::math::winding::swept;
 
 /// One polygon cut, through a cutter stood up for the call.
 ///
@@ -272,7 +273,7 @@ fn two_holes_in_a_notched_outline_are_tiled_like_anything_else() {
     // winding went wrong, so on its own it says nothing, and it is here to
     // catch the opposite mistake rather than this one.
     let want =
-        sweep(&outline).abs() / 2.0 - holes.iter().map(|h| sweep(h).abs() / 2.0).sum::<f64>();
+        swept(&outline).abs() / 2.0 - holes.iter().map(|h| swept(h).abs() / 2.0).sum::<f64>();
     assert!(
         (fill.covered() - want).abs() < 1e-9,
         "tiled {} of the {want} it encloses",
@@ -352,7 +353,7 @@ fn a_notched_outline_is_tiled_whatever_is_punched_out_of_it() {
             "seed {seed}: {sides} sides and {holes} holes wound a triangle backwards"
         );
         let want =
-            sweep(&outline).abs() / 2.0 - punched.iter().map(|h| sweep(h).abs() / 2.0).sum::<f64>();
+            swept(&outline).abs() / 2.0 - punched.iter().map(|h| swept(h).abs() / 2.0).sum::<f64>();
         assert!(
             (fill.covered() - want).abs() < 1e-9,
             "seed {seed}: tiled {} of the {want} it encloses",
