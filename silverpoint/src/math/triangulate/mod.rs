@@ -345,19 +345,21 @@ fn clip(
 /// neighbours being the ones it had. These two have lost one each and gained the
 /// other.
 ///
-/// And it can only ever answer one way. Cutting an ear puts the edge
-/// `before → after` where the path `before → at → after` was, which is a corner
-/// taken off a loop rather than added to one — so the turn at each of the two
-/// can only close, never open. A corner standing in the loop may come to stand
-/// proud of it and never the reverse, which is what makes this an optimisation
-/// on [`ear`]'s walk rather than a thing it depends on: leaving it out would
-/// leave corners in the set that no longer need testing, and cost only the
-/// testing.
+/// **Either way, and that is not the tidy half of the story.** Cutting an *ear*
+/// puts the edge `before → after` where the path `before → at → after` was,
+/// which is a corner taken off a loop rather than added to one — so the turn at
+/// each of the two can only close, and a corner standing in the loop can only
+/// come to stand proud of it. But an ear is not the only thing cut: a contour
+/// that is no simple loop has none anywhere, and [`clip`] cuts its
+/// sharpest corner regardless to keep the loop shrinking. That cut can put a
+/// corner *back* into the loop, and a count that only ever came down would
+/// drift the moment it did — which is a convex contour's fast path taken on one
+/// that is not.
 ///
-/// Written down as an assert because it cannot be seen from outside. A
-/// triangulation cut with this left out is the same triangulation, so no test
-/// of what comes back can tell the two apart — deleting the loop below passes
-/// every one of them.
+/// A bowtie is the shortest thing that does it, and a boolean makes plenty
+/// longer: a face clipped by a cut tangent to its own boundary comes out as a
+/// loop that touches itself, and a triangulator handed one has to answer rather
+/// than trip.
 fn retest(
     corners: &[DVec2],
     contour: &[u32],
@@ -372,12 +374,12 @@ fn retest(
     // a corner taken from the front leaves its predecessor at the back.
     for beside in [(at + contour.len() - 1) % contour.len(), at % contour.len()] {
         let now = turn(corners, contour, beside) <= SLIVER;
-        debug_assert!(
-            standing[beside] || !now,
-            "a corner standing proud of the loop was left standing in it"
-        );
-        if standing[beside] && !now {
-            *proud -= 1;
+        if now != standing[beside] {
+            if now {
+                *proud += 1;
+            } else {
+                *proud -= 1;
+            }
         }
         standing[beside] = now;
     }

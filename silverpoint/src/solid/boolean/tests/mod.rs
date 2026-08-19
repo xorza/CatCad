@@ -523,28 +523,31 @@ fn a_pocket_takes_its_wall_from_the_tool_and_turns_it_over() {
 }
 
 /// A crossing no face's own parameters can write down is refused rather than
-/// guessed at — and it is that crossing that is refused, not roundness.
+/// guessed at — **and only where it would have divided something**.
 ///
 /// Two of them, and both are shapes a modeller will ask for. A plane along a
 /// cylinder's axis meets it in two ruling lines, which are cuts at a constant
-/// angle in a parameter that *wraps* — see [`imprinted`]. Two cylinders across
-/// each other meet in a quartic, which arrives as
+/// angle in a parameter that wraps and nothing yet writes one down. Two
+/// cylinders across each other meet in a quartic, which arrives as
 /// [`Meeting::Algebraic`](crate::solid::meeting::Meeting::Algebraic). Neither
 /// has anything to do with the bore above, which is round from end to end and
 /// comes out exact.
+///
+/// **The same slab, lifted clear, is not refused** — which is the half that
+/// makes this a statement about the crossing rather than about the shape. A
+/// body is cut by the other's *surfaces*, and a plane is unbounded where the
+/// wall standing on it is not, so the two ruling lines are there whether the
+/// slab is up against the rod or a model's width away. Refusing for them either
+/// way turns away two solids that never touch.
 #[test]
-fn a_crossing_no_face_can_carry_is_refused() {
+fn a_crossing_no_face_can_carry_is_refused_only_where_it_divides() {
     let upright = through();
     let mut boolean = Boolean::default();
     let mut into = Body::default();
 
     // A slab whose side runs up the rod, half way across it.
-    let slab = block(
-        Plane::GROUND,
-        &[(1.5, -1.0), (5.0, -1.0), (5.0, 5.0), (1.5, 5.0)],
-        4.0,
-        TOOL,
-    );
+    let wall = &[(1.5, -1.0), (5.0, -1.0), (5.0, 5.0), (1.5, 5.0)][..];
+    let slab = block(Plane::GROUND, wall, 4.0, TOOL);
     assert!(!boolean.combine(&upright.body, &slab, Operation::Cut, &mut into));
     assert!(into.is_empty(), "a refusal left half a body behind");
 
@@ -561,6 +564,28 @@ fn a_crossing_no_face_can_carry_is_refused() {
     );
     assert!(!boolean.combine(&upright.body, &across.body, Operation::Cut, &mut into));
     assert!(into.is_empty());
+
+    // And the slab again, ten above the rod's far end. Its wall lies on the
+    // same plane, which crosses the same cylinder in the same two lines.
+    let aloft = block(raised(10.0), wall, 4.0, TOOL);
+    assert!(
+        boolean.combine(&upright.body, &aloft, Operation::Join, &mut into),
+        "two solids a model's width apart were turned away",
+    );
+    // Ten faces: the rod's four and the slab's six, not one of them cut. Which
+    // is the stronger claim — a cut that divided nothing would still show here
+    // as pieces, and it is the *cutting* that has to stop rather than the
+    // refusal that follows it.
+    assert_eq!(into.topology().faces().count(), 10);
+    // `3.5 × 6 × 4` of slab and `π·1²·6` of rod, standing clear so they add.
+    let want = 84.0 + PI * 6.0;
+    let sagitta = 1e-6;
+    let slack = (2.0 / 3.0) * sagitta * TAU * 6.0 * 2.0;
+    let shut_in = Mesher::default().volume(&into, sagitta);
+    assert!(
+        (shut_in - want).abs() < slack,
+        "the two together shut in {shut_in} rather than {want}",
+    );
 }
 
 // Already inside a `cfg(test)` module, so it needs no gate of its own.

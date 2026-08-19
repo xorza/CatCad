@@ -150,13 +150,18 @@ fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
 ///
 /// Two sketches rather than one, because a square drawn over a circle is *cut*
 /// by it: what would come out is three regions and neither operand whole.
+///
+/// The square's other two sides are laid *tangent* to the disc, and that is
+/// deliberate: a cut touching a region's boundary at one place leaves a contour
+/// pinched there, and pinched is the shape the kernel's ear clipper used to
+/// trip over on the way to the refusal this asks about.
 #[test]
 fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
-        sketch: square_at(0.5, -0.5),
+        sketch: square_at(0.0, -1.0),
     });
     let round = timeline.add(Feature::Sketch {
         on: ground,

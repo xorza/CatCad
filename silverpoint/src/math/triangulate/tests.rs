@@ -370,3 +370,97 @@ fn a_notched_outline_is_tiled_whatever_is_punched_out_of_it() {
         }
     }
 }
+
+/// **A contour that is no simple loop is cut rather than tripping over**, and
+/// what comes back covers what the contour encloses.
+///
+/// No ear can be taken from one — every corner's triangle holds another corner
+/// — so every cut leaves through [`clip`]'s fallback, which is the path that can
+/// put a corner *back* into the loop. Which the bookkeeping in [`retest`] said
+/// could not happen, and asserted; a bowtie is the shortest thing that does it.
+///
+/// Three shapes, because they are three ways of not being a loop and each fails
+/// somewhere else: a corner sitting on an edge, a corner written twice, and a
+/// spur run out and back. A boolean reaches them by cutting a face tangent to
+/// its own boundary.
+///
+/// Held against the shoelace over the same corners, which is what the polygon
+/// encloses whatever it does with itself — and against a hand-computed figure
+/// beside it, so that a fill and a winding rule agreeing on the wrong answer
+/// still fails.
+#[test]
+fn a_contour_that_is_no_simple_loop_is_still_cut() {
+    let cases = [
+        // A square with a spike from its far side run down onto its base, which
+        // takes the upper half out and leaves two triangles of four apiece.
+        (
+            "a spike onto an edge",
+            &[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (2.0, 0.0), (0.0, 4.0)][..],
+            8.0,
+        ),
+        // A square of two by two whose second corner is written twice.
+        (
+            "a corner written twice",
+            &[(0.0, 0.0), (2.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)],
+            4.0,
+        ),
+        // The same square with a spur run down to its base and back, which
+        // shuts in nothing and leaves the four the square covers.
+        (
+            "a spur out and back",
+            &[
+                (0.0, 0.0),
+                (2.0, 0.0),
+                (2.0, 2.0),
+                (1.0, 2.0),
+                (1.0, 0.0),
+                (1.0, 2.0),
+                (0.0, 2.0),
+            ],
+            4.0,
+        ),
+    ];
+    for (name, shape, want) in cases {
+        let places = corners(shape);
+        let encloses = swept(&places) / 2.0;
+        assert!(
+            (encloses - want).abs() < 1e-12,
+            "{name} encloses {encloses} rather than the {want} it was written to",
+        );
+        let fill = polygon(&places, &[]);
+        assert!(
+            (fill.covered() - want).abs() < 1e-12,
+            "{name} filled to {} rather than {want}",
+            fill.covered(),
+        );
+    }
+}
+
+/// **A contour that crosses itself is answered rather than refused**, and what
+/// it is answered with is every lobe of it, each counted once.
+///
+/// A bowtie is the shortest one: two lobes of a unit each, meeting at their
+/// middle, wound against each other. The shoelace over it comes to nought
+/// because the two cancel — and the fill comes to two, because the fallback
+/// takes each lobe as it finds it and nothing here recovers the sign of the one
+/// that runs backwards.
+///
+/// Worth pinning rather than leaving as whatever it happens to do. Two says the
+/// area is neither lost nor doubled, which is what makes the answer a *drawing*
+/// of the contour rather than a mess; nought would say the crossing had been
+/// resolved, and it has not. Resolving one wants the boolean's own machinery,
+/// and nothing yet hands a self-crossing contour here on purpose.
+#[test]
+fn a_contour_that_crosses_itself_is_drawn_lobe_by_lobe() {
+    let bowtie = corners(&[(0.0, 0.0), (2.0, 2.0), (2.0, 0.0), (0.0, 2.0)]);
+    // The two lobes are `(0,0) (1,1) (0,2)` and `(1,1) (2,2) (2,0)`, a unit
+    // each, and they cancel.
+    assert!(swept(&bowtie).abs() < 1e-12);
+
+    let fill = polygon(&bowtie, &[]);
+    assert!(
+        (fill.covered() - 2.0).abs() < 1e-12,
+        "the bowtie filled to {} rather than to both of its lobes",
+        fill.covered(),
+    );
+}

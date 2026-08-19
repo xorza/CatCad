@@ -9,6 +9,7 @@
 
 pub(crate) mod approx;
 pub(crate) mod arc;
+pub(crate) mod bounds;
 pub(crate) mod dense;
 pub(crate) mod direction;
 pub(crate) mod intersect;

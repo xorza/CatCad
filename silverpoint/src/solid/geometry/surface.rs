@@ -1,5 +1,6 @@
 //! What a face is a piece of.
 
+use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::number::tolerance::ALIGNED;
@@ -152,6 +153,27 @@ impl Surface {
             Self::Cylinder(cylinder) => cylinder.off(at),
             Self::Cone(cone) => cone.off(at),
             Self::Sphere(sphere) => sphere.off(at),
+        }
+    }
+
+    /// The box a face on this surface fills, given the box its boundary fills.
+    ///
+    /// **The boundary is enough for three of the four**, on one argument. Every
+    /// world coordinate of a plane, a cylinder or a cone runs monotonically
+    /// along one of its two parameters — a plane along both, a cylinder along
+    /// its height, a cone along its ruling — so the extreme of one over a region
+    /// is taken somewhere on that region's edge. Where a coordinate is *not*
+    /// monotone, which is one square to a cylinder's axis peaking at a single
+    /// angle, the region's boundary crosses that angle anyway: a region spanning
+    /// it is connected, so its edge is somewhere on every angle it covers.
+    ///
+    /// A sphere has no such parameter and the argument fails on it — the top of
+    /// a dome is interior, and the box of the rim below misses it entirely. So a
+    /// face on one is given the whole sphere, which is coarse and is not wrong.
+    pub(crate) fn fills(&self, boundary: Bounds) -> Bounds {
+        match self {
+            Self::Plane(_) | Self::Cylinder(_) | Self::Cone(_) => boundary,
+            Self::Sphere(sphere) => Bounds::about(sphere.centre(), sphere.radius),
         }
     }
 

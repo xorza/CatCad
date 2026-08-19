@@ -1,3 +1,4 @@
+use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
@@ -420,4 +421,48 @@ fn a_ray_meets_each_quadric_where_the_arithmetic_says() {
         &[],
         "along a plane",
     );
+}
+
+/// **A face's boundary bounds the face itself, except on a sphere** — which is
+/// the one thing [`Surface::fills`] decides, and it has to decide it
+/// differently for the two or it is deciding nothing.
+///
+/// A cylinder of radius two about the origin, and the box the rim of a face on
+/// it fills: that box is the face's own, because every world coordinate of a
+/// cylinder is taken at its extreme somewhere on a region's edge. A sphere of
+/// the same radius is handed the same box and widens it to the whole sphere,
+/// because the top of a dome is interior to its rim and the box below misses
+/// it.
+///
+/// The rim used is the circle `z = 1` of both, flattened to its own box — a
+/// square of two by two at that height. On the sphere that leaves the cap above
+/// it outside, and the answer says so by reaching the full radius on every
+/// axis.
+#[test]
+fn a_boundary_bounds_its_face_on_everything_but_a_sphere() {
+    let rim = Bounds {
+        low: DVec3::new(-2.0, 1.0, -2.0),
+        high: DVec3::new(2.0, 1.0, 2.0),
+    };
+    let tube = Surface::Cylinder(Cylinder {
+        axis: upright(),
+        radius: 2.0,
+    });
+    let ball = Surface::Sphere(Sphere {
+        axis: upright(),
+        radius: 2.0,
+    });
+
+    assert_eq!(
+        tube.fills(rim),
+        rim,
+        "a cylinder was given more than its rim"
+    );
+    let widened = ball.fills(rim);
+    assert_ne!(widened, rim, "a sphere was left with the box of its rim");
+    assert_eq!(widened.low, DVec3::splat(-2.0));
+    assert_eq!(widened.high, DVec3::splat(2.0));
+    // Which is what it is for: the pole at `(0, 2, 0)` is on the sphere and
+    // outside the rim's own box, and a cull reading that box would miss it.
+    assert!(widened.high.y >= 2.0 && rim.high.y < 2.0);
 }

@@ -16,6 +16,7 @@
 //! [`imprinted`] — which is a narrower thing and says so where it happens.
 
 use crate::loops::Loops;
+use crate::math::bounds::Bounds;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::math::winding;
 use crate::number::predicate;
@@ -191,18 +192,32 @@ struct Combining {
     /// places, having nothing to do with where a stretch came from.
     outline: Vec<DVec2>,
     holes: Loops<DVec2>,
-    /// One loop of one face in the world, on its way into that face's own
-    /// parameters, and then into the region being cut. `marks` is in step with
-    /// `traced`, saying which edge put each place there.
+    /// A face's boundary in the world, walked as chords: one loop of it on its
+    /// way into that face's own parameters, or the whole of it on its way into
+    /// the box the face fills. `marks` is in step with `traced` for the first
+    /// of those, saying which edge put each place there.
     traced: Vec<DVec3>,
     marks: Vec<Came>,
     walk: Vec<DVec2>,
     laid: Vec<Corner>,
     /// Every loop of every region kept, laid end to end.
     loops: Loops<Corner>,
-    /// The distinct surfaces of the body being cut against — see
-    /// [`Combining::against`], which says why they are not its faces.
+    /// The distinct surfaces of the body being cut against that reach it at all
+    /// — see [`Combining::against`], which says why they are surfaces rather
+    /// than faces, and why "reach it" is asked of the whole body.
     met: Vec<Surface>,
+    /// The box each face of the two bodies fills, one body's run after the
+    /// other's, and where the second run begins.
+    ///
+    /// **Both bodies at once, because each is wanted twice.** Cutting one
+    /// against the other asks how far the *first* reaches, to know which of the
+    /// second's surfaces are worth cutting by; and cutting the other way round
+    /// asks the same of each face of the first. A body's own reach is the union
+    /// of its faces' — so measured a call at a time, every boundary of both
+    /// bodies is traced twice over, on the path a document is rebuilt down
+    /// sixty times a second.
+    boxed: Vec<Bounds>,
+    between: usize,
     /// Every curve an imprint runs along that is not a straight line, in the
     /// order they were numbered — which is the order [`Came::Arc`] reads them
     /// in.
@@ -229,7 +244,19 @@ impl Combining {
         self.loops.clear();
         self.kept.clear();
         self.imprints.clear();
+        self.boxed.clear();
+        self.box_up(one);
+        self.between = self.boxed.len();
+        self.box_up(two);
         self.against(one, two, doing, true) && self.against(two, one, doing, false)
+    }
+
+    /// Take in the box every face of `body` fills — see [`Combining::boxed`].
+    fn box_up(&mut self, body: &Body) {
+        for (_, face) in body.topology().faces() {
+            let fills = self.reach(body, face);
+            self.boxed.push(fills);
+        }
     }
 
     /// What the last combine kept.
@@ -267,8 +294,38 @@ impl Combining {
         // computed the same surface separately would fall a rounding apart and
         // be imprinted twice again, which is a reason to go on handing them the
         // one value rather than a reason to compare loosely here.
+        //
+        // **And only the ones that reach this body at all.** A surface is
+        // unbounded where the faces standing on it are not, so a wall at the
+        // far end of a model meets a surface here whether or not anything of
+        // that body is anywhere near — which costs pieces where the crossing
+        // can be carried and costs the whole boolean where it cannot, a plane
+        // parallel to a cylinder's axis meeting it in two ruling lines wherever
+        // the two stand. What decides is the *face's* reach, and what it is
+        // asked against is the whole of this body rather than the face being
+        // cut. That is not conservatism: a cut that divides one face and not
+        // the face beside it leaves a vertex on one side of the edge they share
+        // and none on the other, and the sewing then finds three edges where it
+        // wanted two. Cutting further than necessary is not merely tolerated —
+        // see [`splitting`] — it has to be uniform.
+        //
+        // Which run of the boxes is whose follows from `first`, the two calls
+        // being the two ways round — see [`Combining::boxed`].
+        let split = self.between..self.boxed.len();
+        let (here, there) = if first {
+            (0..self.between, split)
+        } else {
+            (split, 0..self.between)
+        };
+        let mut reach = Bounds::default();
+        for at in here {
+            reach.swallow(self.boxed[at]);
+        }
         self.met.clear();
-        for (_, other) in theirs.topology().faces() {
+        for ((_, other), at) in theirs.topology().faces().zip(there) {
+            if !self.boxed[at].meets(reach, CHORDED) {
+                continue;
+            }
             if !self.met.contains(&other.surface) {
                 self.met.push(other.surface);
             }
@@ -311,6 +368,24 @@ impl Combining {
             self.sift(face, theirs, doing, first);
         }
         true
+    }
+
+    /// The box `face` fills, walked as chords at [`CHORDED`].
+    ///
+    /// Off the boundary, which is enough for every surface but a sphere — see
+    /// [`Surface::fills`], where that argument is written down and where the
+    /// one it is not enough for is widened.
+    fn reach(&mut self, body: &Body, face: &Face) -> Bounds {
+        let topology = body.topology();
+        self.traced.clear();
+        for coedge in topology.loops_of(face).flatten() {
+            topology.walk(*coedge, CHORDED, &mut self.traced);
+        }
+        let mut boundary = Bounds::default();
+        for &at in &self.traced {
+            boundary.hold(at);
+        }
+        face.surface.fills(boundary)
     }
 
     /// Lay one face out in its own parameters as the one region to cut.

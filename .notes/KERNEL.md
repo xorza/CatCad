@@ -1330,6 +1330,24 @@ had. Which is the round answer to what a coplanar pair of faces is in the flat
 one: the surface is described twice and the region is whole on one side of it
 and absent from the other. The demo reaches this on its second extrude.
 
+**And a surface is not cut by unless it reaches.** A body is divided by the
+other's *surfaces*, which is right — a whole cylinder is two faces of one
+surface — and a surface is unbounded where the faces on it are not, so a wall at
+the far end of a model met a face nothing of it came near. Which cost pieces
+while every crossing could be carried and costs a *refusal* now that some
+cannot: two solids standing clear of each other were turned away because a plane
+parallel to a cylinder's axis meets it in ruling lines wherever the two stand.
+Each face is boxed off the boundary it was traced along, and a surface whose
+faces reach no part of the other body is dropped.
+
+Read against the whole body and not against the face being cut, which is the
+part worth remembering: a cut that divides one face and not the face beside it
+leaves a vertex on one side of the edge they share and none on the other, and
+the sewing then finds three edges where it wanted two. "Cutting further than
+necessary" is not merely tolerated, it has to be *uniform* — so the finer cull
+is unavailable and a bracket with a bore at one end is still refused by a wall
+at the other.
+
 **What is refused, and it is no longer "curved".** A ruling line on a cylinder —
 a plane parallel to its axis — is a cut at a constant angle in a parameter that
 *wraps*, and `imprinted` turns it away; an ellipse is a sinusoid and likewise;
