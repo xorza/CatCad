@@ -187,14 +187,21 @@ impl World {
 
     /// What to call it where a person reads it.
     ///
-    /// The words a modeller already knows, which is the whole of why they are
-    /// these three and not the axes they lie in: "Ground" says what you draw a
-    /// plan on where "XZ" says which numbers are free.
+    /// **The pair of world axes it spans**, which is what every modeller labels
+    /// these three by. A role — "Ground", "Front" — reads as a claim about which
+    /// way up the model is, and nothing here decides that: a part is as often
+    /// modelled lying down as standing, so the plane called the front would be
+    /// the top of half the documents that used it. The axes are true whatever
+    /// the part turns out to be.
+    ///
+    /// Two letters and never three, which is why they are worth the room: at a
+    /// square this size the name is longer than the thing it names, so a word
+    /// would be a label with a square attached rather than the other way about.
     pub(crate) fn named(self) -> &'static str {
         match self {
-            World::Ground => "Ground",
-            World::Front => "Front",
-            World::Side => "Side",
+            World::Ground => "XZ",
+            World::Front => "XY",
+            World::Side => "YZ",
         }
     }
 }

@@ -384,14 +384,14 @@ pub(super) fn texts(
 /// are [`Turn`](aperture::Turn)'s own, so nothing here has to know where the eye
 /// is.
 ///
-/// **At the top-left corner of the plane's square**, running along that plane's
-/// own +x — a title's place, and the corner a reader's eye starts from. Reached
-/// by anchoring the run centred on the plane's origin, where the square is, and
-/// carrying it out with a lift: a lift is stated in logical pixels and resolved
-/// where the run is drawn, so it agrees with a square that is itself a fixed
-/// number of pixels without this having to know how far one reaches. It is also
-/// the only one of the three that survives the two rules above — see
-/// [`SHEET_NAME_LIFT`](crate::paint).
+/// **Inside the top-left corner of the plane's square**, running along that
+/// plane's own +x — a title's place, and the corner a reader's eye starts from.
+/// Reached by anchoring the run centred on the plane's origin, where the square
+/// is, and carrying it out with a lift: the lift is stated in logical pixels and
+/// resolved where the run is drawn, so it lands in the same corner of a square
+/// that is itself a fixed number of pixels, at any zoom and whatever that
+/// number becomes. It is also the only one of the three ways to shift a run that
+/// survives the two rules above — see [`SHEET_NAME_LIFT`](crate::paint).
 ///
 /// A plane somebody put there carries no name: until steps have names of their
 /// own every one of them would read the same word — see

@@ -564,7 +564,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
         .iter()
         .map(|text| text.content.as_str())
         .collect();
-    assert_eq!(said, ["Ground", "Front", "Side"]);
+    assert_eq!(said, ["XZ", "XY", "YZ"]);
 
     // **Laid into the plane each names**, rather than pinned over it: a name
     // advances along that plane's own +x and takes its depth from it, so the
@@ -652,7 +652,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
         "a plane stood in front of the model"
     );
     assert!(
-        worked.texts.iter().all(|text| text.content != "Front"),
+        worked.texts.iter().all(|text| text.content != "XY"),
         "a plane named itself over the drawing"
     );
 }

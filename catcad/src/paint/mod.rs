@@ -166,24 +166,32 @@ fn sheet_ink(world: Option<World>) -> Vec3 {
 /// What it costs is the fill: a sheet built against the camera is rewritten when
 /// the camera moves, and nothing that fills is written on that schedule. So a
 /// plane is an outline and a name.
-const SHEET_REACH: f64 = 64.0;
+const SHEET_REACH: f64 = 40.0;
 
-/// How far past its square's top-left corner a plane's name sits, in logical
-/// pixels across and down that plane's own axes.
+/// How far in from the top-left corner of its square the *middle* of a plane's
+/// name sits, in logical pixels across and down that plane's own axes.
 ///
-/// **Outside the corner rather than tucked within it**, which is what keeps
-/// three of them apart. Every square is centred on the same origin — that is
-/// the point of them — so what separates the names is only the direction each
-/// is carried in, and the further each goes the further apart they land. Inside
-/// a square this small they overlapped into one smear.
+/// **In from the corner rather than the corner itself**, because what the lift
+/// below carries is the middle of the run: a name set at the corner exactly
+/// would straddle both edges and hang half of itself outside the square. So
+/// this is the padding that holds it clear of the two edges, plus half the run
+/// it has to hold clear of them.
 ///
-/// Enough to clear half a name and half a line of it at [`MARK_SIZE`], so a run
-/// clears the corner rather than straddling it. Both are known here because the
-/// square is a fixed number of pixels and the names are three fixed words.
-const SHEET_NAME_OUTSET: Vec2 = Vec2::new(30.0, 10.0);
+/// Half a run is a number that can be written down here only because every name
+/// is two characters of one mono face — so half of one is a single character's
+/// body, and [`MARK_FONT`] fixes what that is. Nothing here can *measure* a run:
+/// a [`Text`](aperture::Text) is measured by the pass that paints it, and this
+/// is decided before there is a frame. A third character or a proportional face
+/// and this stops being knowable.
+const SHEET_NAME_INSET: Vec2 = Vec2::new(16.0, 13.0);
 
 /// Where a plane's name sits, as a displacement from the middle of its square in
 /// logical pixels along that plane's own +x and +y.
+///
+/// **Off the square's own reach**, so the name follows it: the two used to be
+/// set apart from each other, and shrinking the square left the names orbiting
+/// where its corners had been — far enough out that one plane's name landed
+/// inside another plane's square and read as labelling it.
 ///
 /// Carried as a [`Turn`](aperture::Turn)'s lift rather than as a position or an
 /// anchor fraction, and none of the three is interchangeable. A *position* would
@@ -191,11 +199,12 @@ const SHEET_NAME_OUTSET: Vec2 = Vec2::new(30.0, 10.0);
 /// the drawing is deliberately not on. An offset written into the *anchor* rides
 /// in a frame two camera-dependent rules settle — the mirror that keeps a run
 /// readable from behind its plane, and the half turn that keeps it upright — so
-/// a name tucked in from one side sticks out from the other, which is exactly
-/// what a look from behind showed. A lift is stated in the plane and holds.
+/// a name tucked into a corner from one side sticks out of it from the other,
+/// which is exactly what a look from behind showed. A lift is stated in the
+/// plane and holds.
 const SHEET_NAME_LIFT: Vec2 = Vec2::new(
-    -(SHEET_REACH as f32) - SHEET_NAME_OUTSET.x,
-    SHEET_REACH as f32 + SHEET_NAME_OUTSET.y,
+    -(SHEET_REACH as f32) + SHEET_NAME_INSET.x,
+    SHEET_REACH as f32 - SHEET_NAME_INSET.y,
 );
 
 /// How wide a plane's outline is, in logical pixels.
