@@ -25,6 +25,7 @@
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::PLACED;
+use crate::solid::boolean::CHORDED;
 use crate::solid::topology::body::Body;
 use glam::{DVec2, DVec3};
 use std::f64::consts::TAU;
@@ -57,23 +58,6 @@ pub(super) enum Standing {
 /// along the axes — so the obvious directions are the bad ones. Small whole
 /// numbers, chosen rather than derived, and four because a place defeating the
 /// first has no reason to defeat the rest.
-/// How far a chord of a curved edge may fall from it, in world units, when a
-/// face is asked what it covers.
-///
-/// **A classification tolerance and not a geometry one**, exactly like the
-/// splitter's `ROUNDED`: what this polyline decides is whether a ray came
-/// through a face or missed it, and no part of the body is ever built from it.
-/// The surfaces themselves are met exactly — see `Surface::met_by` — so the
-/// only thing this can get wrong is a crossing within a chord's sagitta of a
-/// face's own edge, which is a ray grazing an edge, which is what four
-/// directions are cast to escape.
-///
-/// Absolute, which carries an assumption about scale: a model measured in
-/// millionths would be chorded coarsely by it and one in millions finely. The
-/// same debt `paint::SOLID_SAGITTA` carries in the application, and the same
-/// answer — take it off the thing being measured — waits on the same decision.
-const CHORDED: f64 = 1e-3;
-
 const CASTS: [DVec3; 4] = [
     DVec3::new(1.0, 2.0, 3.0),
     DVec3::new(-2.0, 3.0, 1.0),

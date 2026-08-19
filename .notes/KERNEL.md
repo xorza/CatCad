@@ -1233,8 +1233,32 @@ straddling the far side of a cylinder, and disagree silently: the containment
 simply answers that nothing is on the face, and a cylinder reads as hollow. The
 branch now travels with the loops it was laid out in.
 
-Still to come: `shut_in` over curved faces, and lifting `flat` — which is the
-moment any of this runs.
+**In: a shell is measured by its triangles.** `shut_in` read a plane's constant
+`p · n` times how much the face covered, which is true of a plane and of nothing
+else — a cylinder's normal turns as you walk across it, and a body with one in
+it came back with a number that meant nothing. It goes through the mesher now,
+which is the one form of the divergence theorem that does not care what a face
+lies on. Chorded, and that costs nothing: the answer is compared to nought and
+to nothing else — a cavity's faces point into it, so it shuts in the negative of
+its own — and no chording turns a sign over. `Mesher::volume` is the same call
+over every face rather than a second copy of the sum.
+
+**And a hole closed.** `crossing` answered `None` for anything that was not a
+line or a circle, and `None` meant *no crossing* — so a plane meeting a cylinder
+at an angle, which crosses it in an ellipse, left the face uncut. That is a body
+that closes, validates, and is the wrong shape, which is the one outcome
+everything else here is arranged to prevent. Three answers now: nowhere, along a
+curve it can carry, or **beyond** — an ellipse, a pair of lines off a chord, or
+`Meeting::Algebraic`, whose own doc already said that saying so is better than
+saying the surfaces are apart.
+
+Still to come, and it is one piece rather than a switch: **`Combining` works in
+a plane's parameters** — `planar(face)`, `Surface::Plane` on every `Kept`,
+`plane.point(within)` — so lifting `flat` means generalising it to a face's own
+surface, and teaching `crossing` to flatten a meeting into *that* surface's
+parameters. A circle square to a cylinder's axis is a straight line in its
+`(θ, v)`, which is the bore the milestone's first test bores; a plane at an
+angle is a sinusoid, which is beyond and will say so.
 
 Cylinders, cones and spheres, all of them, because they are one algebra.
 

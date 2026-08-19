@@ -28,6 +28,26 @@ use crate::solid::topology::face::Face;
 use glam::{DVec2, DVec3};
 use std::ops::Range;
 
+/// How far a chord of a curved edge may fall from it, in world units, wherever
+/// a stage here has to walk one as corners.
+///
+/// **A classification tolerance and not a geometry one**, which is the bargain
+/// the whole of a curved boolean rests on: what these corners decide is which
+/// regions to keep and which way a shell faces, and no part of the body is ever
+/// built from them — a surface is met exactly and an edge takes its curve from
+/// the meeting. See `.notes/KERNEL.md` §7.4.
+///
+/// One value for every stage that needs it, because they are answering about
+/// the same body in the same breath: a face chorded one way to be sounded and
+/// another to be measured is two boundaries, and a place could fall inside one
+/// and outside the other.
+///
+/// Absolute, which carries an assumption about scale: a model measured in
+/// millionths would be chorded coarsely by it and one in millions finely. The
+/// same debt `paint::SOLID_SAGITTA` carries in the application, and the same
+/// answer — take it off the thing being measured — waits on the same decision.
+const CHORDED: f64 = 1e-3;
+
 mod sewing;
 mod sounding;
 mod splitting;
@@ -231,14 +251,18 @@ impl Combining {
                 // [`Cut::Round`] — so it has to be numbered before it is built,
                 // and only a cut that turns out to be round spends the number.
                 let next = self.imprints.len() as u32;
-                if let Some(Imprint { cut, curve }) = crossing(plane, other.surface, next) {
-                    if let Some(curve) = curve {
-                        self.imprints.push(curve);
+                match crossing(plane, other.surface, next) {
+                    Meets::Nowhere => {}
+                    Meets::Beyond => return false,
+                    Meets::Along { cut, curve } => {
+                        if let Some(curve) = curve {
+                            self.imprints.push(curve);
+                        }
+                        if !self.splitting.split(&self.cells, cut, &mut self.spare) {
+                            return false;
+                        }
+                        std::mem::swap(&mut self.cells, &mut self.spare);
                     }
-                    if !self.splitting.split(&self.cells, cut, &mut self.spare) {
-                        return false;
-                    }
-                    std::mem::swap(&mut self.cells, &mut self.spare);
                 }
             }
             self.sift(plane, face, theirs, doing, first);
@@ -346,41 +370,61 @@ impl Combining {
     }
 }
 
-/// A cut in a surface's own parameters, and the world curve it was imprinted
-/// from where that is worth remembering.
+/// What one surface does to a plane a face lies on.
 ///
-/// The two together because they are one answer: the cut is what divides the
-/// face and the curve is what the edge along it will lie on, and a caller given
-/// one without the other would have to work the second out from the first —
-/// which is precisely what parameters cannot be asked, a plane's uv being the
-/// same whichever body drew on it.
+/// **Three answers and not two**, which is the whole reason this is an enum: a
+/// crossing this cannot carry is not the same as no crossing, and reading it as
+/// one leaves a face uncut that should have been divided — a body that closes,
+/// validates, and is the wrong shape. Every refusal in this module exists so
+/// that no answer is quietly wrong, and `None` for "an ellipse" would have been
+/// exactly that.
 #[derive(Debug)]
-struct Imprint {
-    cut: Cut,
-    /// `None` for a straight imprint: a line between two places is determined
-    /// by the places, so nothing about it has to be carried.
-    curve: Option<Curve>,
+enum Meets {
+    /// Nowhere that divides anything.
+    ///
+    /// Apart, the same surface — two faces on one plane are told apart by where
+    /// each region *stands*, not by a cut — or grazing at a point, which is a
+    /// place rather than a line and divides no face.
+    Nowhere,
+    /// Along a curve this can carry, in the plane's own parameters.
+    ///
+    /// The cut and the world curve together because they are one answer: the
+    /// cut is what divides the face and the curve is what the edge along it
+    /// will lie on, and parameters cannot be asked for the second — a plane's
+    /// uv is the same whichever body drew on it.
+    Along {
+        cut: Cut,
+        /// `None` for a straight imprint: a line between two places is
+        /// determined by the places, so nothing about it has to be carried.
+        curve: Option<Curve>,
+    },
+    /// Along one it cannot carry yet.
+    ///
+    /// An ellipse, where a plane meets a cylinder at an angle; a pair of lines,
+    /// where one cuts a chord off it; or a quartic, which is
+    /// [`Meeting::Algebraic`] and waits on M3b. Each of them is a real crossing
+    /// that would really divide the face, so each is refused.
+    Beyond,
 }
 
 /// Where `other` cuts `plane`, in the plane's own parameters — or `None` where
 /// it does not cut it at all.
-fn crossing(plane: Plane, other: Surface, imprint: u32) -> Option<Imprint> {
-    let Meeting::Along(along) = Meeting::of(&Surface::Plane(plane), &other) else {
-        // Apart, or the same plane. Neither cuts anything: two faces lying on
-        // one plane are told apart by where each region *stands*, not by a cut
-        // between them.
-        return None;
+fn crossing(plane: Plane, other: Surface, imprint: u32) -> Meets {
+    let along = match Meeting::of(&Surface::Plane(plane), &other) {
+        Meeting::Apart | Meeting::Same | Meeting::Touching(_) => return Meets::Nowhere,
+        Meeting::Algebraic => return Meets::Beyond,
+        Meeting::Along(along) => along,
     };
     match along.curves() {
         [Curve::Line(line)] => {
             let at = plane.flatten(line.origin);
-            Some(Imprint {
+            Meets::Along {
                 cut: Cut::Straight {
                     at,
                     along: (plane.flatten(line.origin + line.direction) - at).normalize(),
                 },
                 curve: None,
-            })
+            }
         }
         // A circle lies in the plane it cuts, so its own frame carries into the
         // plane's parameters whole: the centre flattens and the radius is a
@@ -388,7 +432,7 @@ fn crossing(plane: Plane, other: Surface, imprint: u32) -> Option<Imprint> {
         // kept first is the disc — the caller cuts both ways round and reads
         // each side by where it stands, so which of the two is asked first says
         // nothing about the answer.
-        [Curve::Circle(circle)] => Some(Imprint {
+        [Curve::Circle(circle)] => Meets::Along {
             cut: Cut::Round {
                 middle: plane.flatten(circle.axis.origin),
                 radius: circle.radius,
@@ -396,8 +440,8 @@ fn crossing(plane: Plane, other: Surface, imprint: u32) -> Option<Imprint> {
                 imprint,
             },
             curve: Some(Curve::Circle(*circle)),
-        }),
-        _ => None,
+        },
+        _ => Meets::Beyond,
     }
 }
 

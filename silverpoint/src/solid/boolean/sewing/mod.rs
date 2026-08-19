@@ -16,14 +16,14 @@
 //! than rediscovered — buys an exactness nothing here can use.
 
 use crate::loops::Loops;
-use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::{EXACT, PLACED};
 use crate::solid::boolean::splitting::{self, Came, Corner};
-use crate::solid::boolean::{Kept, planar};
+use crate::solid::boolean::{CHORDED, Kept};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
 use crate::solid::meeting::Meeting;
+use crate::solid::mesh::{Mesher, Patch};
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
@@ -32,7 +32,8 @@ use crate::solid::topology::lump::Lump;
 use crate::solid::topology::shell::{Shell, ShellId};
 use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
-use glam::{DVec2, DVec3};
+use glam::DVec3;
+
 use std::ops::Range;
 
 /// One edge as it is being found.
@@ -125,8 +126,10 @@ pub(super) struct Sewing {
     /// The shells that shut something in, and the ones that are cavities.
     outer: Vec<ShellId>,
     voids: Vec<ShellId>,
-    /// One face's boundary, flattened to measure how much it covers.
-    corners: Vec<DVec2>,
+    /// The room measuring a shell takes — see [`Sewing::shut_in`]. Held across
+    /// calls like everything else here.
+    mesher: Mesher,
+    patch: Patch,
     /// The room the validity check works in, held for the reason the rest is.
     checking: Checking,
 }
@@ -513,24 +516,19 @@ impl Sewing {
 
     /// How much a shell shuts in, signed.
     ///
-    /// The divergence theorem over a closed surface, taken a face at a time: a
-    /// plane's own `p · n` is the same everywhere on it, so each face
-    /// contributes a third of that times how much it covers.
+    /// **Through the mesher**, which is the one form of the divergence theorem
+    /// that does not care what the faces lie on — see [`Mesher::shut_in`]. What
+    /// this was, a plane's constant `p · n` times how much the face covers, is
+    /// true of a plane and of nothing else: a cylinder's normal turns as you
+    /// walk across it, and a body with one in it came back with a volume that
+    /// meant nothing.
+    ///
+    /// Read for its sign alone — a cavity's faces point into it, so it shuts in
+    /// the negative of its own — which is why the chording the mesher does
+    /// costs this nothing.
     fn shut_in(&mut self, into: &Body, shell: ShellId) -> f64 {
-        let topology = into.topology();
-        let mut total = 0.0;
-        for &at in topology.faces_of(shell) {
-            let face = topology.face(at);
-            let plane = planar(face);
-            let mut covered = 0.0;
-            for walk in topology.loops_of(face) {
-                self.corners.clear();
-                topology.corners(face, walk, &mut self.corners);
-                covered += winding::swept(&self.corners) / 2.0;
-            }
-            total += plane.origin.dot(face.normal(DVec2::ZERO)) * covered.abs() / 3.0;
-        }
-        total
+        let Self { mesher, patch, .. } = self;
+        mesher.shut_in(into, into.topology().faces_of(shell), CHORDED, patch)
     }
 }
 

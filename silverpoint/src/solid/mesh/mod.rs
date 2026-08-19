@@ -11,7 +11,7 @@ use crate::math::triangulate::{Cutter, Fill};
 use crate::solid::named::Named;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
-use crate::solid::topology::face::Face;
+use crate::solid::topology::face::{Face, FaceId};
 use glam::{DVec2, DVec3};
 
 /// One face of a body, cut into triangles.
@@ -78,6 +78,44 @@ impl Mesher {
         }
     }
 
+    /// How much space the faces at `held` shut in, signed.
+    ///
+    /// **The divergence theorem over triangles**, which is the one form of it
+    /// that does not care what the faces lie on: a sixth of the sum of
+    /// `a · (b × c)`, and a plane, a cylinder and a sphere are all just
+    /// triangles by the time they reach it. Signed, so a shell built inside out
+    /// comes back negative rather than merely wrong by a bit — which is the one
+    /// thing the caller reads it for.
+    ///
+    /// **Chorded, and that is enough**, because what asks compares this to
+    /// nought and to nothing else: a cavity's faces point into it, so its
+    /// volume is the negative of its own, and no chording turns a sign over.
+    /// The same bargain the sounder and the splitter strike, one more time —
+    /// classify with a polyline, build with the curve.
+    /// `into` is the room it cuts in, emptied a face at a time and left holding
+    /// the last of them — the caller's, like [`Mesher::cut`]'s, because a
+    /// boolean measures every shell it sews and a document is sewn on every
+    /// frame of a drag. Standing one up here would reach the heap per shell per
+    /// frame, which is what the mesher holding its own room exists to avoid.
+    pub(crate) fn shut_in(
+        &mut self,
+        of: &Body,
+        held: &[FaceId],
+        sagitta: f64,
+        into: &mut Patch,
+    ) -> f64 {
+        let mut total = 0.0;
+        for &at in held {
+            into.clear();
+            self.patch(of.topology(), of.topology().face(at), sagitta, into);
+            let corner = |at: u32| into.corners[at as usize];
+            for &[a, b, c] in &into.triangles {
+                total += corner(a).dot(corner(b).cross(corner(c)));
+            }
+        }
+        total / 6.0
+    }
+
     /// One face, appended to whatever is already there.
     fn patch(&mut self, topology: &Topology, face: &Face, sagitta: f64, into: &mut Patch) {
         let Self {
@@ -140,6 +178,7 @@ impl Mesher {
 pub(crate) mod internals {
     use crate::solid::mesh::{Mesher, Patch};
     use crate::solid::topology::body::Body;
+    use crate::solid::topology::face::FaceId;
 
     impl Mesher {
         /// How much space `of` shuts in, read off its triangles alone.
@@ -155,16 +194,8 @@ pub(crate) mod internals {
         /// Independent of where the origin sits, which is what lets a solid on
         /// a plane away from it be checked against the same arithmetic.
         pub(crate) fn volume(&mut self, of: &Body, sagitta: f64) -> f64 {
-            let mut patch = Patch::default();
-            let mut total = 0.0;
-            for named in of.names() {
-                self.cut(of, named, sagitta, &mut patch);
-                let corner = |at: u32| patch.corners[at as usize];
-                for &[a, b, c] in &patch.triangles {
-                    total += corner(a).dot(corner(b).cross(corner(c)));
-                }
-            }
-            total / 6.0
+            let held: Vec<FaceId> = of.topology().faces().map(|(at, _)| at).collect();
+            self.shut_in(of, &held, sagitta, &mut Patch::default())
         }
     }
 }
