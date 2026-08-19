@@ -31,13 +31,21 @@ small diff.
 Cargo workspace, edition 2024: four members, plus the `palantir` submodule and
 the `anim-derive` it brings.
 
-| Crate | Library | Role |
-| --- | --- | --- |
-| `silverpoint` | `silverpoint` | The parametric core. `sketch/` is 2D — entities, constraints, solver, and the arrangement that says what curves enclose. `solid/` beside it is the b-rep kernel ([`.notes/KERNEL.md`](.notes/KERNEL.md)); it may reach `arena`, `loops`, `number`, `math` and `sketch::arrangement`, and nothing else — never `sketch::solver`, `sketch::constraint`, or `Sketch` itself. |
-| `aperture3d` | `aperture` | Retained 3D scene renderer, drawing into a palantir `GpuView`. |
-| `catcad` | — (bin) | The application: window, viewport, input. |
-| `common` | `common` | Unpublished. Scaffolding no member should keep its own copy of — today the allocation-bench harness. |
-| `palantir` | `palantir` | Submodule (`github.com/xorza/palantir`) — the GUI framework. |
+- **`silverpoint`** — the parametric core. `sketch/` is 2D: entities,
+  constraints, solver, and the arrangement that says what curves enclose.
+  `solid/` beside it is the b-rep kernel ([`.notes/KERNEL.md`](.notes/KERNEL.md));
+  it may reach `arena`, `loops`, `number`, `math` and `sketch::arrangement`, and
+  nothing else — never `sketch::solver`, `sketch::constraint`, or `Sketch`
+  itself.
+- **`aperture3d`** — retained 3D scene renderer, drawing into a palantir
+  `GpuView`. Imported as `aperture`; the `3d` is only there because the
+  crates.io name was taken.
+- **`catcad`** — the application, and the workspace's only binary: window,
+  viewport, input.
+- **`common`** — unpublished scaffolding no member should keep its own copy of,
+  today the allocation-bench harness.
+- **`palantir`** — the GUI framework, a submodule of
+  `github.com/xorza/palantir`.
 
 `catcad → {aperture3d, silverpoint, palantir}` and `aperture3d → palantir`;
 `common` hangs off the other three's `bench` feature, absent from an ordinary
