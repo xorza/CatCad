@@ -11,8 +11,11 @@
 //! refused rather than approximated, because a curved face cut by a plane meets
 //! it in a curve this has no way to carry.
 
-// No caller yet: what reads the regions the pipeline keeps is the sewing that
-// follows it, which is not written. This line goes when it is.
+// No caller outside this module yet: what a boolean is *for* is a step of a
+// timeline saying "cut", and the feature that carries that word is the last
+// piece of M4. The pipeline and its sewing check each other end to end in the
+// meantime — see the tests beside them. This line goes when the document can
+// ask for one.
 #![allow(dead_code)]
 
 use crate::loops::Loops;
@@ -30,6 +33,7 @@ use crate::solid::topology::face::Face;
 use glam::DVec2;
 use std::ops::Range;
 
+pub(crate) mod sewing;
 pub(crate) mod sounding;
 pub(crate) mod splitting;
 
@@ -185,10 +189,7 @@ impl Combining {
             let mut turned = false;
             for (at, round) in topology.loops_of(face).enumerate() {
                 walk.clear();
-                walk.extend(round.iter().map(|&coedge| {
-                    let [from, _] = topology.ends(coedge);
-                    face.surface.uv(topology.vertex(from).at)
-                }));
+                topology.corners(face, round, walk);
                 if at == 0 {
                     turned = winding::swept(walk) < 0.0;
                 }

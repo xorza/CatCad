@@ -180,11 +180,8 @@ impl Sounding {
         self.faces.clear();
         for (_, face) in topology.faces() {
             let from = self.starts.len() - 1;
-            for loop_ in topology.loops_of(face) {
-                for &coedge in loop_ {
-                    let [start, _] = topology.ends(coedge);
-                    self.walk.push(face.surface.uv(topology.vertex(start).at));
-                }
+            for round in topology.loops_of(face) {
+                topology.corners(face, round, &mut self.walk);
                 self.starts.push(self.walk.len());
             }
             self.faces.push(from..self.starts.len() - 1);
