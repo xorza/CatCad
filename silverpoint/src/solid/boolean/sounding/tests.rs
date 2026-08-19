@@ -3,13 +3,18 @@ use crate::Plane;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::extrusion::Extrusion;
+use crate::solid::named::Step;
+
+/// The step every block below is grown by. Sounding asks where a place stands
+/// and never what a face is called, so which one it is says nothing here.
+const STEP: Step = Step(0);
 
 /// A block from `corners`, carried `deep` off the ground.
 fn block(corners: &[(f64, f64)], deep: f64) -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(corners);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, Plane::GROUND, deep).body()
+    Extrusion::new(&found, 0, Plane::GROUND, deep, STEP).body()
 }
 
 /// Where `at` stands in `body`, in the plane's own coordinates lifted by `up`.
@@ -123,7 +128,7 @@ fn a_place_down_a_bore_is_outside_the_block_it_is_bored_through() {
         .iter()
         .position(|face| face.holes() == 1)
         .expect("the bore is a hole of the block");
-    let body = Extrusion::new(&found, ring, Plane::GROUND, 5.0).body();
+    let body = Extrusion::new(&found, ring, Plane::GROUND, 5.0, STEP).body();
 
     assert_eq!(
         standing(&body, (3.0, 3.0), 2.5),

@@ -4,14 +4,25 @@ use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::boolean::{Combining, Operation};
 use crate::solid::build::extrusion::Extrusion;
+use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
+use crate::solid::named::{Named, Step};
 
-/// A block from `corners`, carried `deep` off `plane`.
-fn block(plane: Plane, corners: &[(f64, f64)], deep: f64) -> Body {
+/// The two steps the blocks below are grown by.
+///
+/// Two, and that is the point: a boolean's answer holds faces of both operands,
+/// and which feature grew a face is half of what names it — see
+/// [`Named`](crate::solid::named::Named). Both bodies calling their base
+/// `Grown::Base` is exactly the collision the other half is for.
+const CUBE: Step = Step(1);
+const TOOL: Step = Step(2);
+
+/// A block from `corners`, carried `deep` off `plane`, grown by `by`.
+fn block(plane: Plane, corners: &[(f64, f64)], deep: f64, by: Step) -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(corners);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, plane, deep).body()
+    Extrusion::new(&found, 0, plane, deep, by).body()
 }
 
 /// The four-by-four-by-four block everything below is cut against.
@@ -20,6 +31,7 @@ fn cube() -> Body {
         Plane::GROUND,
         &[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
         4.0,
+        CUBE,
     )
 }
 
@@ -33,6 +45,7 @@ fn corner() -> Body {
         raised,
         &[(3.0, 3.0), (5.0, 3.0), (5.0, 5.0), (3.0, 5.0)],
         2.0,
+        TOOL,
     )
 }
 
@@ -43,6 +56,7 @@ fn flush() -> Body {
         Plane::GROUND,
         &[(3.0, 3.0), (5.0, 3.0), (5.0, 5.0), (3.0, 5.0)],
         2.0,
+        TOOL,
     )
 }
 
@@ -53,7 +67,12 @@ fn stacked() -> Body {
         origin: Plane::GROUND.origin + Plane::GROUND.normal() * 4.0,
         ..Plane::GROUND
     };
-    block(onto, &[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)], 2.0)
+    block(
+        onto,
+        &[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)],
+        2.0,
+        TOOL,
+    )
 }
 
 /// Combine two bodies and sew the answer, or say it would not.
@@ -200,6 +219,39 @@ fn two_solids_meeting_face_to_face_fuse_into_one_lump() {
     assert!(empty.is_empty(), "two blocks touching share a volume");
 }
 
+/// **The answer's faces say which feature grew each of them**, which is the
+/// half of a name a body made of two bodies cannot do without.
+///
+/// A cut of the cube by the corner block. Both operands call their own ends
+/// `Base` and `Far`, so without the step half the answer would hold four faces
+/// answering to two names — and clicking the floor of the notch would light the
+/// base of the block it was cut out of.
+///
+/// Ten names over the two: the cube's six, whole; and four of the tool's — its
+/// two ends, and the two of its four walls that reach inside the cube at all.
+/// The other two stood clear and are no part of the notch. Which is
+/// `.notes/KERNEL.md` §5's rule that a cut's new surfaces are named by the
+/// tool, read off the body.
+#[test]
+fn every_face_of_the_answer_says_which_of_the_two_bodies_grew_it() {
+    let body = combined(&cube(), &corner(), Operation::Cut).expect("a cut of two blocks");
+    let names: Vec<Named> = body.names().collect();
+
+    let mine = |by| move |named: &&Named| named.by == by;
+    assert_eq!(names.iter().filter(mine(CUBE)).count(), 6, "{names:?}");
+    assert_eq!(names.iter().filter(mine(TOOL)).count(), 4, "{names:?}");
+
+    // And the walls of the notch are the tool's own two, not the cube's: a cut
+    // leaves the tool's surface behind facing the other way, and the name says
+    // which surface rather than which side of it.
+    let walls = names
+        .iter()
+        .filter(mine(TOOL))
+        .filter(|named| matches!(named.grown, Grown::Side(_)))
+        .count();
+    assert_eq!(walls, 2, "{names:?}");
+}
+
 /// **A body swallowed whole leaves a cavity**, which is the one case a boolean
 /// of two solids has for a shell inside a shell.
 #[test]
@@ -212,6 +264,7 @@ fn cutting_a_block_out_of_the_middle_leaves_a_cavity_inside_it() {
         inner,
         &[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)],
         2.0,
+        TOOL,
     );
     let body = combined(&cube(), &middle, Operation::Cut).expect("a block out of the middle");
 
@@ -231,6 +284,7 @@ fn joining_two_blocks_that_never_meet_leaves_a_body_in_two_lumps() {
         Plane::GROUND,
         &[(9.0, 9.0), (11.0, 9.0), (11.0, 11.0), (9.0, 11.0)],
         2.0,
+        TOOL,
     );
     let body = combined(&cube(), &away, Operation::Join).expect("two blocks apart");
 

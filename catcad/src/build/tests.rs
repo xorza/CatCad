@@ -8,7 +8,7 @@ use crate::model::Models;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
 use glam::{DVec2, Vec3};
-use silverpoint::{Entity, Plane};
+use silverpoint::{Entity, Operation, Plane};
 
 /// A square: four free points and the edges between them, which shuts one
 /// region in and leaves eight degrees of freedom.
@@ -42,6 +42,155 @@ fn two_rings() -> Sketch {
 /// below has to spell out that the ground's own +y runs along world −Z.
 fn world(x: f64, y: f64) -> Vec3 {
     Plane::GROUND.point(DVec2::new(x, y)).as_vec3()
+}
+
+/// A square of side two with its near corner at `(x, y)`.
+fn square_at(x: f64, y: f64) -> Sketch {
+    let mut sketch = Sketch::default();
+    let corners: Vec<_> = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]
+        .map(|(u, v)| sketch.add_point(DVec2::new(x + u, y + v)))
+        .into();
+    for at in 0..corners.len() {
+        sketch.add_segment(corners[at], corners[(at + 1) % corners.len()]);
+    }
+    sketch
+}
+
+/// **A second extrude joins the solid the first left standing**, which is what
+/// makes a timeline a recipe rather than a pile of prisms.
+///
+/// Two squares on the ground, overlapping in a one-by-one corner, each carried
+/// two up. What comes back is one body, and it is the second step's — the first
+/// is the workings.
+///
+/// **Read off the names its faces carry**, which is the claim this layer owns:
+/// twelve of them, six grown by each step, because the union is made of both
+/// blocks and every face of both survives some part of itself. A second step
+/// that had merely replaced the first would carry six, all its own. How much
+/// the union shuts in is the boolean's claim and is asserted where the boolean
+/// is — what this adds is that the *document* asks for it, the second step
+/// building on what the first left and nothing reaching the kernel except
+/// through the timeline.
+#[test]
+fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let near = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: square_at(0.0, 0.0),
+    });
+    let far = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: square_at(1.0, 1.0),
+    });
+
+    let mut build = Build::default();
+    timeline.edit(near).opened(&mut build);
+    timeline.edit(far).opened(&mut build);
+    let profile = |timeline: &Timeline, build: &Build, of| {
+        Models::new(timeline, build, Some(of))
+            .open()
+            .expect("a fixture opens the sketch it names")
+            .profile(0)
+    };
+    let one = profile(&timeline, &build, near);
+    let two = profile(&timeline, &build, far);
+    let first = timeline.add(Feature::Extrude {
+        profile: one,
+        distance: 2.0,
+        operation: Operation::Join,
+    });
+    let second = timeline.add(Feature::Extrude {
+        profile: two,
+        distance: 2.0,
+        operation: Operation::Join,
+    });
+
+    let document = Document::new(&mut build, timeline);
+    let models = document.models(&build, Some(near));
+    assert_eq!(models.lost(), 0, "a step went wrong");
+    assert_eq!(build.bodied(first).built(), Built::Made);
+    assert_eq!(build.bodied(second).built(), Built::Made);
+
+    // One body, and it is the second step's: the first is the workings.
+    let solids: Vec<_> = models.solids().map(|(at, _)| at).collect();
+    assert_eq!(solids, [second], "the union came back in pieces");
+
+    let (_, body) = models.solids().next().expect("the union");
+    let names: Vec<_> = body.names().collect();
+    let by = |of: FeatureId| names.iter().filter(|it| it.by == of.step()).count();
+    assert_eq!(names.len(), 12, "{names:?}");
+    assert_eq!(
+        by(first),
+        6,
+        "the first block is not in the union: {names:?}"
+    );
+    assert_eq!(by(second), 6, "the second block is not in it: {names:?}");
+}
+
+/// **A step the kernel will not merge stands beside the model rather than
+/// vanishing**, which is the whole of what a refusal costs.
+///
+/// Two rings far enough apart to miss each other, each carried up into a
+/// cylinder. The boolean is planar — M4, and M5 is what widens it — so joining
+/// the second onto the first is refused, and what the document shows is both
+/// solids side by side: exactly the picture it showed before there were
+/// booleans at all. The tree says which step could not be merged, because
+/// [`Models::lost`] counts a refusal among what went wrong.
+#[test]
+fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let drawn = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: two_rings(),
+    });
+
+    let mut build = Build::default();
+    timeline.edit(drawn).opened(&mut build);
+    let open = |timeline: &Timeline, build: &Build, region| {
+        Models::new(timeline, build, Some(drawn))
+            .open()
+            .expect("a fixture opens the sketch it names")
+            .profile(region)
+    };
+    let one = open(&timeline, &build, 0);
+    let two = open(&timeline, &build, 1);
+    let first = timeline.add(Feature::Extrude {
+        profile: one,
+        distance: 2.0,
+        operation: Operation::Join,
+    });
+    let second = timeline.add(Feature::Extrude {
+        profile: two,
+        distance: 2.0,
+        operation: Operation::Join,
+    });
+
+    let document = Document::new(&mut build, timeline);
+    let models = document.models(&build, Some(drawn));
+    assert_eq!(build.bodied(first).built(), Built::Made);
+    assert_eq!(
+        build.bodied(second).built(),
+        Built::Refused,
+        "a planar boolean joined two cylinders",
+    );
+
+    // Both on screen, each still its own solid, and each still knowing which
+    // step grew it — which is what keeps a face of either pickable.
+    let solids: Vec<_> = models.solids().map(|(at, _)| at).collect();
+    assert_eq!(
+        solids,
+        [first, second],
+        "a refused step left nothing behind"
+    );
+    for (at, body) in models.solids() {
+        assert!(
+            body.names().all(|named| named.by == at.step()),
+            "a solid standing alone holds a face another step grew",
+        );
+    }
+    assert_eq!(models.lost(), 1, "the refusal went unreported");
 }
 
 /// **A profile holds while the geometry moves, and is lost when the region is
@@ -85,6 +234,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     let solid = timeline.add(Feature::Extrude {
         profile,
         distance: 1.0,
+        operation: Operation::Join,
     });
 
     let mut document = Document::new(&mut build, timeline);
@@ -213,6 +363,7 @@ fn reopening_forgets_what_the_last_document_built() {
     let solid = timeline.add(Feature::Extrude {
         profile,
         distance: 1.0,
+        operation: Operation::Join,
     });
     let _document = Document::new(&mut build, timeline);
     // Built, so this answers.
@@ -390,6 +541,7 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
             timeline.add(Feature::Extrude {
                 profile,
                 distance: 1.0,
+                operation: Operation::Join,
             })
         })
         .into();

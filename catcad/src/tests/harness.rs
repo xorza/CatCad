@@ -80,10 +80,10 @@ impl Raised {
         self.app.models()
     }
 
-    /// How many solids the document holds, which is what growing one and
-    /// taking it back are counted by.
+    /// How many of the document's steps grew a solid, which is what growing one
+    /// and taking it back are counted by — see [`Models::grown`].
     pub(super) fn solids(&self) -> usize {
-        self.models().solids().count()
+        self.models().grown()
     }
 
     /// Ask the session for `choice` — see [`CatCad::choose`](crate::CatCad).

@@ -4,13 +4,24 @@ use crate::math::winding;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::extrusion::Extrusion;
+use crate::solid::grown::Grown;
+use crate::solid::named::Step;
 
-/// A block from `corners`, carried `deep` off `plane`.
-fn block(plane: Plane, corners: &[(f64, f64)], deep: f64) -> Body {
+/// The two steps the blocks below are grown by.
+///
+/// Two, and that is the point: a boolean's answer holds faces of both operands,
+/// and which feature grew a face is half of what names it — see
+/// [`Named`](crate::solid::named::Named). Both bodies calling their base
+/// `Grown::Base` is exactly the collision the other half is for.
+const CUBE: Step = Step(1);
+const TOOL: Step = Step(2);
+
+/// A block from `corners`, carried `deep` off `plane`, grown by `by`.
+fn block(plane: Plane, corners: &[(f64, f64)], deep: f64, by: Step) -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(corners);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, plane, deep).body()
+    Extrusion::new(&found, 0, plane, deep, by).body()
 }
 
 /// The four-by-four-by-four block everything below is cut against.
@@ -19,6 +30,7 @@ fn cube() -> Body {
         Plane::GROUND,
         &[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)],
         4.0,
+        CUBE,
     )
 }
 
@@ -36,6 +48,7 @@ fn corner() -> Body {
         raised,
         &[(3.0, 3.0), (5.0, 3.0), (5.0, 5.0), (3.0, 5.0)],
         2.0,
+        TOOL,
     )
 }
 
@@ -48,6 +61,7 @@ fn flush() -> Body {
         Plane::GROUND,
         &[(3.0, 3.0), (5.0, 3.0), (5.0, 5.0), (3.0, 5.0)],
         2.0,
+        TOOL,
     )
 }
 
@@ -60,7 +74,12 @@ fn stacked() -> Body {
         origin: Plane::GROUND.origin + Plane::GROUND.normal() * 4.0,
         ..Plane::GROUND
     };
-    block(onto, &[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)], 2.0)
+    block(
+        onto,
+        &[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)],
+        2.0,
+        TOOL,
+    )
 }
 
 /// How much surface a combine kept.
@@ -148,7 +167,7 @@ fn a_cut_turns_the_tools_faces_over_and_leaves_the_cubes_alone() {
     let base: Vec<&Kept> = combining
         .kept()
         .iter()
-        .filter(|kept| matches!(kept.name, Grown::Base) && !kept.outward)
+        .filter(|kept| kept.name == CUBE.grew(Grown::Base) && !kept.outward)
         .collect();
     let covered: f64 = base
         .iter()
@@ -171,6 +190,7 @@ fn combining_with_a_body_that_holds_nothing_leaves_the_other_alone() {
         Plane::GROUND,
         &[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
         0.0,
+        TOOL,
     );
     assert!(nothing.is_empty());
 
@@ -255,7 +275,7 @@ fn a_curved_body_is_refused_by_a_planar_boolean() {
     let middle = sketch.add_point(DVec2::new(2.0, 2.0));
     sketch.add_circle(middle, 1.0);
     let found = Arrangement::of(&sketch);
-    let round = Extrusion::new(&found, 0, Plane::GROUND, 4.0).body();
+    let round = Extrusion::new(&found, 0, Plane::GROUND, 4.0, TOOL).body();
 
     let mut combining = Combining::default();
     assert!(!combining.combine(&cube(), &round, Operation::Cut));

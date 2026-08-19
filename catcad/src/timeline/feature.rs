@@ -1,6 +1,6 @@
 //! One step of a timeline, and the kinds there are.
 
-use silverpoint::{Plane, Sketch};
+use silverpoint::{Operation, Plane, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::FeatureId;
@@ -35,7 +35,19 @@ pub(crate) enum Feature {
     /// Signed, which is what makes which way it grows the one number rather than
     /// a second field: a negative distance is the same extrude on the other side
     /// of the plane, and that is what a modeller offers as a flip.
-    Extrude { profile: Profile, distance: f64 },
+    ///
+    /// **What it does with the solid standing before it is a field and not a
+    /// third kind of step.** A cut and a boss differ in one word and share a
+    /// profile, a distance, a drag handle, a form and a file record — see
+    /// `.notes/KERNEL.md` §8 — so the word is what varies and everything else
+    /// is written once. The first extrude of a document has nothing standing
+    /// before it, which makes a join the whole of itself and the other two
+    /// nothing at all.
+    Extrude {
+        profile: Profile,
+        distance: f64,
+        operation: Operation,
+    },
 }
 
 // Written out for `clone_from`, which `derive(Clone)` leaves at the trait's
@@ -50,9 +62,14 @@ impl Clone for Feature {
                 on: *on,
                 sketch: sketch.clone(),
             },
-            Feature::Extrude { profile, distance } => Feature::Extrude {
+            Feature::Extrude {
+                profile,
+                distance,
+                operation,
+            } => Feature::Extrude {
                 profile: profile.clone(),
                 distance: *distance,
+                operation: *operation,
             },
         }
     }
@@ -70,14 +87,20 @@ impl Clone for Feature {
                 sketch.clone_from(source);
             }
             (
-                Feature::Extrude { profile, distance },
+                Feature::Extrude {
+                    profile,
+                    distance,
+                    operation,
+                },
                 Feature::Extrude {
                     profile: from,
                     distance: to,
+                    operation: doing,
                 },
             ) => {
                 profile.clone_from(from);
                 *distance = *to;
+                *operation = *doing;
             }
             // A plane is a handful of numbers, and two steps of different kinds
             // share nothing there would be any point writing over.

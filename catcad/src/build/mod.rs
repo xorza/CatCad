@@ -1,9 +1,9 @@
 //! The room an edit works in, and everything replaying the timeline leaves
 //! behind.
 
-use silverpoint::{Builder, Drive, PointId, Removed, Sketch, Solver};
+use silverpoint::{Body, Boolean, Builder, Drive, PointId, Removed, Sketch, Solver};
 
-use crate::build::bodied::{Bodied, Digest};
+use crate::build::bodied::{Bodied, Digest, Rebuilding};
 use crate::build::settled::Settled;
 use crate::timeline::{Extruded, FeatureId};
 
@@ -70,6 +70,16 @@ pub(crate) struct Build {
     /// moving, sixty times a second, and the buffers come out the same size
     /// every time.
     builder: Builder,
+    /// The room putting two of them together works in, kept for the same
+    /// reason.
+    boolean: Boolean,
+    /// Where one step's own solid is raised, before it is combined with what
+    /// the steps before it left standing.
+    ///
+    /// One between every step rather than one apiece: what a step *keeps* is
+    /// the model as of itself, and the prism it contributed is finished with
+    /// the moment that is worked out.
+    raised: Body,
     /// Last rebuild's entries while this one takes what it wants from them.
     ///
     /// A field rather than a local, so that the two lists swap their room back
@@ -233,6 +243,8 @@ impl Build {
             settled,
             bodied,
             builder,
+            boolean,
+            raised,
             standing,
             ..
         } = self;
@@ -244,19 +256,45 @@ impl Build {
         // carried across to be rebuilt over rather than replaced.
         std::mem::swap(bodied, standing);
         bodied.clear();
+        // What the first step stands on. Empty rather than absent, because a
+        // step combining with nothing is a real answer and not a case: a join
+        // with it is the step's own solid, and the other two come to nothing.
+        // Costs no allocation — an empty body holds empty buffers.
+        let nothing = Body::default();
+        // **The last step whose body is the model**, which is not simply the
+        // one before: a step that found no region and one the kernel would not
+        // combine both leave the model where it was, so the step after them
+        // builds on what *they* were handed. By position because the list it
+        // points into is being pushed to — see [`Built::merged`].
+        let mut model: Option<usize> = None;
         for step in extrudes {
             let settled = filed_under(settled, step.profile.sketch(), Settled::of, UNSETTLED);
+            let on = model.map(|at| &bodied[at]);
             let digest = Digest::new(
                 settled.revision(),
                 step.plane,
                 step.profile.face_in(settled.arrangement()),
                 step.distance,
+                step.operation,
+                on.map(Bodied::version).unwrap_or_default(),
             );
             let mut had = match standing.iter().position(|had| had.of() == step.at) {
                 Some(at) => standing.swap_remove(at),
                 None => Bodied::new(step.at),
             };
-            had.rebuild(builder, digest, settled.arrangement());
+            had.rebuild(
+                Rebuilding {
+                    builder,
+                    boolean,
+                    raised,
+                    arrangement: settled.arrangement(),
+                },
+                digest,
+                on.map(Bodied::body).unwrap_or(&nothing),
+            );
+            if had.built().merged() {
+                model = Some(bodied.len());
+            }
             bodied.push(had);
         }
         // **Put in handle order, because the walk above is not in one.** It is

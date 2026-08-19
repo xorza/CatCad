@@ -592,9 +592,12 @@ impl<'a> Models<'a> {
             // of its own — a wall goes when the curve it was swept from stops
             // bounding the region, which is a thing drawing across a sketch can
             // do without taking the solid away.
-            Part::Solid { of, face } => {
-                self.solids().any(|(at, body)| at == of && body.holds(face))
-            }
+            // Asked of the full name rather than of which body it came from:
+            // a face carries the step that grew it, so the name answers on its
+            // own and goes on answering once the answer is one body.
+            Part::Solid { of, face } => self
+                .solids()
+                .any(|(_, body)| body.holds(of.step().grew(face))),
             _ => part
                 .sketch()
                 .and_then(|sketch| self.at(sketch))
@@ -602,11 +605,22 @@ impl<'a> Models<'a> {
         }
     }
 
-    /// Every solid the document holds, as it currently stands.
+    /// Every solid the document stands as, which is normally one.
     ///
-    /// One per extrude whose profile still names a region — an extrude that has
-    /// lost its footing is not half a solid, it is no solid, and what says so is
-    /// its absence here. [`Models::lost`] is what counts those.
+    /// **One body per run of steps that merged, and not one per extrude.** A
+    /// timeline is a recipe: each step joins its own solid to what the steps
+    /// before it left standing or cuts it out of them, so what the document
+    /// *is* is what the last of them left, and the bodies before it are the
+    /// workings rather than the answer.
+    ///
+    /// More than one only where a step could not be put into the model —
+    /// [`Built::Refused`](crate::build::bodied::Built), which today is most
+    /// often a body with a curved face
+    /// in it, planar being as far as the boolean goes. Such a step's own solid
+    /// stands beside the model instead of in it, and [`Models::lost`] counts
+    /// it. Where every step merges this yields exactly one body; where none of
+    /// them can, it yields what the document showed before there were booleans
+    /// at all, which is one solid per extrude.
     ///
     /// A [`Body`] is a thing the document holds where a prism was a reading of
     /// one: it is built once by [`Build::rebuild`](crate::build::Build) and
@@ -616,13 +630,47 @@ impl<'a> Models<'a> {
         let Self {
             timeline, build, ..
         } = self;
+        // Which of them is the model, worked out first because a step only
+        // knows it is the last to have merged once the rest have been walked.
+        let model = timeline
+            .extrudes()
+            .filter(|step| timeline.built(step.at))
+            .filter(|step| build.bodied(step.at).built().merged())
+            .map(|step| step.at)
+            .last();
         timeline
             .extrudes()
             .filter(move |step| timeline.built(step.at))
             .filter_map(move |step| {
                 let bodied = build.bodied(step.at);
-                bodied.built().made().then(|| (step.at, bodied.body()))
+                let shown = Some(step.at) == model || bodied.built().refused();
+                (shown && !bodied.body().is_empty()).then(|| (step.at, bodied.body()))
             })
+    }
+}
+
+#[cfg(test)]
+mod internals {
+    use crate::model::Models;
+    use crate::timeline::feature::Feature;
+
+    impl Models<'_> {
+        /// How many of the document's steps grew a solid of their own.
+        ///
+        /// Not how many solids there are — there is one, and it is what the
+        /// last step left standing. What this counts is the steps that put
+        /// something into it, which is what growing one and taking it back are
+        /// read by: the model of two blocks joined is one body whether they are
+        /// two lumps or one, and it is the *recipe* those tests are about.
+        pub(crate) fn grown(self) -> usize {
+            self.steps()
+                .filter(|(at, feature)| {
+                    matches!(feature, Feature::Extrude { .. })
+                        && self.timeline.built(*at)
+                        && self.build.bodied(*at).built().raised()
+                })
+                .count()
+        }
     }
 }
 

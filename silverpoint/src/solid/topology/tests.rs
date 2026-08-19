@@ -2,6 +2,7 @@ use crate::math::plane::Plane;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::extrusion::Extrusion;
+use crate::solid::named::Step;
 use crate::solid::topology::body::Body;
 
 /// A two-by-two block three deep — the simplest thing the checker has an
@@ -10,7 +11,7 @@ fn block() -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, Plane::GROUND, 3.0).body()
+    Extrusion::new(&found, 0, Plane::GROUND, 3.0, Step::default()).body()
 }
 
 /// A body that was built properly passes every check, and asking twice changes

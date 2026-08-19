@@ -13,6 +13,7 @@ use crate::solid::geometry::line::Line;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::meeting::Meeting;
+use crate::solid::named::{Named, Step};
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
@@ -43,6 +44,9 @@ pub struct Extrusion<'a> {
     at: usize,
     plane: Plane,
     distance: f64,
+    /// Which of the caller's steps this is, so the faces it raises say which
+    /// feature grew them and not merely what of it they are.
+    by: Step,
 }
 
 impl<'a> Extrusion<'a> {
@@ -51,12 +55,13 @@ impl<'a> Extrusion<'a> {
     /// `at` has to be one of `of`'s faces, and `plane` the one the drawing it
     /// came from lies on — a face names its edges by where they fall in the
     /// arrangement that cut them, so neither travels to another.
-    pub fn new(of: &'a Arrangement, at: usize, plane: Plane, distance: f64) -> Self {
+    pub fn new(of: &'a Arrangement, at: usize, plane: Plane, distance: f64, by: Step) -> Self {
         Self {
             of,
             at,
             plane,
             distance,
+            by,
         }
     }
 }
@@ -113,6 +118,7 @@ pub struct Builder {
 struct Raising {
     plane: Plane,
     distance: f64,
+    by: Step,
     /// The direction the plane faces, unit — the way the solid grows where the
     /// distance is positive and the way it grows back where it is not.
     normal: DVec3,
@@ -165,20 +171,21 @@ impl Builder {
         // In this order and before anything else, because the order faces are
         // made is the order their names come back in — and a caller writing one
         // drawable per name relies on that not moving between rebuilds. See
-        // [`Body::grown`].
-        let base = Self::cap(into, of.plane, Grown::Base, !along);
+        // [`Body::names`].
+        let base = Self::cap(into, of.plane, of.by.grew(Grown::Base), !along);
         let far = Self::cap(
             into,
             Plane {
                 origin: of.plane.origin + normal * of.distance,
                 ..of.plane
             },
-            Grown::Far,
+            of.by.grew(Grown::Far),
             along,
         );
         let raising = Raising {
             plane: of.plane,
             distance: of.distance,
+            by: of.by,
             normal,
             along,
             base,
@@ -194,7 +201,7 @@ impl Builder {
     }
 
     /// One of the two ends: the region itself, lying flat.
-    fn cap(into: &mut Body, plane: Plane, name: Grown, outward: bool) -> FaceId {
+    fn cap(into: &mut Body, plane: Plane, name: Named, outward: bool) -> FaceId {
         into.named(name);
         into.topology_mut().add_face(Face {
             surface: Surface::Plane(plane),
@@ -213,7 +220,7 @@ impl Builder {
         self.walls.clear();
         for at in 0..self.strips.all().len() {
             let strip = self.strips.all()[at];
-            let name = Grown::Side(strip.bound);
+            let name = raising.by.grew(Grown::Side(strip.bound));
             let Walled { surface, outward } = self.wall_of(raising, strip);
             into.named(name);
             let wall = into.topology_mut().add_face(Face {

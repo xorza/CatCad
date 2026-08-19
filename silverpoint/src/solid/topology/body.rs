@@ -1,6 +1,6 @@
 //! A whole solid.
 
-use crate::solid::grown::Grown;
+use crate::solid::named::Named;
 use crate::solid::topology::Topology;
 use crate::solid::topology::face::{Face, FaceId};
 
@@ -32,7 +32,7 @@ pub struct Body {
     /// what lets a renderer's batch be refilled in place rather than
     /// renumbered — the same reasoning as
     /// [`Arrangement::faces`](crate::Arrangement).
-    names: Vec<Grown>,
+    names: Vec<Named>,
 }
 
 impl Body {
@@ -41,17 +41,17 @@ impl Body {
     /// The base, the far end, then one wall per curve bounding the region —
     /// which is the order a prism answered in before there was a body, so that
     /// everything naming a face of a solid goes on naming the same one.
-    pub fn grown(&self) -> impl Iterator<Item = Grown> + '_ {
+    pub fn names(&self) -> impl Iterator<Item = Named> + '_ {
         self.names.iter().copied()
     }
 
-    /// Whether `grown` names one of its faces.
+    /// Whether `named` is one of its faces.
     ///
     /// What anything keeping hold of a face across an edit has to ask. Answered
     /// off the list above rather than by a rule of its own, so what a body
     /// *has* and what it answers for cannot come to differ.
-    pub fn holds(&self, grown: Grown) -> bool {
-        self.names.contains(&grown)
+    pub fn holds(&self, named: Named) -> bool {
+        self.names.contains(&named)
     }
 
     /// Whether it shuts in nothing at all.
@@ -59,12 +59,12 @@ impl Body {
         self.names.is_empty()
     }
 
-    /// The pieces of surface `grown` names — several where one face of the body
-    /// comes in disjoint patches.
-    pub(crate) fn patches(&self, grown: Grown) -> impl Iterator<Item = (FaceId, &Face)> {
+    /// The pieces of surface `named` covers — several where one face of the
+    /// body comes in disjoint patches.
+    pub(crate) fn patches(&self, named: Named) -> impl Iterator<Item = (FaceId, &Face)> {
         self.topology
             .faces()
-            .filter(move |(_, face)| face.name == grown)
+            .filter(move |(_, face)| face.name == named)
     }
 
     pub(crate) fn topology(&self) -> &Topology {
@@ -86,13 +86,13 @@ impl Body {
         self.names.clear();
     }
 
-    /// Record that `grown` names a face of this body, if it does not already.
+    /// Record that `named` is a face of this body, if it is not already.
     ///
     /// Called by whatever adds a face rather than derived afterwards, so the
     /// order the names come back in is the order the faces were made in.
-    pub(crate) fn named(&mut self, grown: Grown) {
-        if !self.names.contains(&grown) {
-            self.names.push(grown);
+    pub(crate) fn named(&mut self, named: Named) {
+        if !self.names.contains(&named) {
+            self.names.push(named);
         }
     }
 }

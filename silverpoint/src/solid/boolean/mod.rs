@@ -11,32 +11,26 @@
 //! refused rather than approximated, because a curved face cut by a plane meets
 //! it in a curve this has no way to carry.
 
-// No caller outside this module yet: what a boolean is *for* is a step of a
-// timeline saying "cut", and the feature that carries that word is the last
-// piece of M4. The pipeline and its sewing check each other end to end in the
-// meantime — see the tests beside them. This line goes when the document can
-// ask for one.
-#![allow(dead_code)]
-
 use crate::loops::Loops;
 use crate::math::plane::Plane;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::math::winding;
 use crate::number::predicate;
+use crate::solid::boolean::sewing::Sewing;
 use crate::solid::boolean::sounding::{Sounding, Standing};
 use crate::solid::boolean::splitting::{Cells, Cut, Splitting};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::surface::Surface;
-use crate::solid::grown::Grown;
 use crate::solid::meeting::Meeting;
+use crate::solid::named::Named;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::Face;
 use glam::{DVec2, DVec3};
 use std::ops::Range;
 
-pub(crate) mod sewing;
-pub(crate) mod sounding;
-pub(crate) mod splitting;
+mod sewing;
+mod sounding;
+mod splitting;
 
 /// What a boolean does with the two bodies it is given.
 ///
@@ -103,25 +97,58 @@ impl Operation {
     }
 }
 
+/// Puts two bodies together, keeping the room it works in.
+///
+/// The public face of the four stages below, and what a caller holds: like
+/// [`Builder`](crate::Builder) beside it, one of these is kept for the length
+/// of a session rather than stood up per call, because a document is rebuilt on
+/// every frame of a drag through the drawing under it and every buffer the
+/// stages want comes out the same size each time.
+#[derive(Debug, Default)]
+pub struct Boolean {
+    combining: Combining,
+    sewing: Sewing,
+}
+
+impl Boolean {
+    /// Put `one` and `two` together as `doing` says, into `into`.
+    ///
+    /// `false`, with `into` emptied, where it will not — and a refusal is an
+    /// answer rather than a failure. Three things are refused: a body with a
+    /// curved face in it, which is beyond what a planar boolean can say
+    /// anything about; a result whose regions do not close into a solid, which
+    /// two bodies meeting along nothing but an edge or a corner genuinely do
+    /// not; and a cavity with more than one lump to hang it on. Guessing at any
+    /// of them would hand back something that reads as a solid and is not.
+    pub fn combine(&mut self, one: &Body, two: &Body, doing: Operation, into: &mut Body) -> bool {
+        if !self.combining.combine(one, two, doing) {
+            into.clear();
+            return false;
+        }
+        self.sewing
+            .sew(self.combining.kept(), self.combining.loops(), into)
+    }
+}
+
 /// One region of one face that a boolean kept, and what it inherited.
 ///
 /// In the surface's own parameters rather than in the world, because that is
 /// where it was cut and where it is still exact — lifting it back out is the
 /// sewing's, and it does that once.
 #[derive(Debug)]
-pub(crate) struct Kept {
-    pub(crate) surface: Surface,
+struct Kept {
+    surface: Surface,
     /// Whether material lies on the side the surface's normal points at, after
     /// whatever the operation did to it.
-    pub(crate) outward: bool,
-    pub(crate) name: Grown,
+    outward: bool,
+    name: Named,
     /// Which of the boolean's loops are its: the outline first, then holes.
-    pub(crate) loops: Range<usize>,
+    loops: Range<usize>,
 }
 
 /// Combines bodies, keeping the room it works in.
 #[derive(Debug, Default)]
-pub(crate) struct Combining {
+struct Combining {
     splitting: Splitting,
     sounding: Sounding,
     cutter: Cutter,
@@ -147,7 +174,7 @@ impl Combining {
     /// `false` where it will not: a body with a curved face in it is beyond
     /// what a planar boolean can say anything about, and refusing is the honest
     /// answer — see `.notes/KERNEL.md` §8's `Built::Refused`.
-    pub(crate) fn combine(&mut self, one: &Body, two: &Body, doing: Operation) -> bool {
+    fn combine(&mut self, one: &Body, two: &Body, doing: Operation) -> bool {
         if !flat(one) || !flat(two) {
             return false;
         }
@@ -159,12 +186,12 @@ impl Combining {
     }
 
     /// What the last combine kept.
-    pub(crate) fn kept(&self) -> &[Kept] {
+    fn kept(&self) -> &[Kept] {
         &self.kept
     }
 
     /// The loops of the regions kept, laid end to end.
-    pub(crate) fn loops(&self) -> &Loops<DVec2> {
+    fn loops(&self) -> &Loops<DVec2> {
         &self.loops
     }
 
@@ -296,7 +323,7 @@ fn crossing(plane: Plane, other: Surface) -> Option<Cut> {
 ///
 /// Every face a planar boolean touches lies on one, which [`flat`] is what
 /// makes sure of before anything here looks at a body at all.
-pub(super) fn planar(face: &Face) -> Plane {
+fn planar(face: &Face) -> Plane {
     match face.surface {
         Surface::Plane(plane) => plane,
         other => unreachable!("a planar boolean was handed {other:?}"),

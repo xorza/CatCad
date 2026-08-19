@@ -1,8 +1,14 @@
-//! What a face of a body was made from.
+//! What of one extrusion a face of a body is.
 
 use crate::sketch::arrangement::bound::Bound;
 
 /// What a face of an extrusion was grown from.
+///
+/// Half of a face's name and not the whole of it — see [`Named`], which carries
+/// the step this is *of*. Two extrusions each have a base, so this alone stops
+/// telling faces apart the moment a boolean puts two bodies together.
+///
+/// [`Named`]: crate::solid::named::Named
 ///
 /// The whole of an extrusion's topology, and it is three words because an
 /// extrusion has no more to it: the region it started as, the region carried to

@@ -8,9 +8,16 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
+use crate::solid::named::{Named, Step};
 use crate::solid::topology::body::Body;
 use glam::{DVec2, DVec3};
 use std::f64::consts::PI;
+
+/// The step every body below is grown by.
+///
+/// Which one it is says nothing here: what a step tells apart is one feature's
+/// faces from another's, and every test in this file raises one body.
+const STEP: Step = Step(0);
 
 /// How fine the walls and caps below are cut when a volume is read off them.
 ///
@@ -44,18 +51,18 @@ fn an_extrusion_closes_the_right_way_out_whichever_way_it_grows() {
     let found = Arrangement::of(&sketch);
     assert_eq!(found.faces().len(), 1);
 
-    let up = Extrusion::new(&found, 0, Plane::GROUND, 3.0).body();
-    let faces: Vec<Grown> = up.grown().collect();
+    let up = Extrusion::new(&found, 0, Plane::GROUND, 3.0, STEP).body();
+    let faces: Vec<Named> = up.names().collect();
     assert_eq!(faces.len(), 6, "{faces:?}");
-    assert_eq!(faces[0], Grown::Base);
-    assert_eq!(faces[1], Grown::Far);
+    assert_eq!(faces[0], STEP.grew(Grown::Base));
+    assert_eq!(faces[1], STEP.grew(Grown::Far));
     assert!(
         (volume(&up) - 12.0).abs() < 1e-9,
         "it shut in {}",
         volume(&up)
     );
 
-    let down = Extrusion::new(&found, 0, Plane::GROUND, -3.0).body();
+    let down = Extrusion::new(&found, 0, Plane::GROUND, -3.0, STEP).body();
     assert!(
         (volume(&down) - 12.0).abs() < 1e-9,
         "grown against the normal it shut in {}, so it is inside out",
@@ -66,7 +73,7 @@ fn an_extrusion_closes_the_right_way_out_whichever_way_it_grows() {
         origin: DVec3::new(-7.0, 4.0, 11.0),
         ..Plane::FRONT
     };
-    let elsewhere = Extrusion::new(&found, 0, raised, 3.0).body();
+    let elsewhere = Extrusion::new(&found, 0, raised, 3.0, STEP).body();
     assert!((volume(&elsewhere) - 12.0).abs() < 1e-9);
 }
 
@@ -88,7 +95,7 @@ fn a_box_counts_up_to_a_sphere_and_knows_which_edges_nobody_drew() {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 3.0).body();
+    let body = Extrusion::new(&found, 0, Plane::GROUND, 3.0, STEP).body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.characteristic, 2, "{reckoning:?}");
@@ -128,7 +135,7 @@ fn a_hole_is_carried_through_and_its_walls_face_into_it() {
         .position(|face| face.holes() == 1)
         .expect("the bore is a hole of the block");
 
-    let body = Extrusion::new(&found, ring, Plane::GROUND, 5.0).body();
+    let body = Extrusion::new(&found, ring, Plane::GROUND, 5.0, STEP).body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.characteristic, 0, "{reckoning:?}");
@@ -136,7 +143,7 @@ fn a_hole_is_carried_through_and_its_walls_face_into_it() {
     assert_eq!(body.topology().faces().count(), 10, "two caps, eight walls");
 
     // Ten faces and ten names: every wall is one whole curve of the drawing.
-    assert_eq!(body.grown().count(), 10);
+    assert_eq!(body.names().count(), 10);
     let want = (36.0 - 4.0) * 5.0;
     assert!(
         (volume(&body) - want).abs() < 1e-9,
@@ -162,15 +169,16 @@ fn a_circle_raises_two_walls_with_one_name_on_one_exact_cylinder() {
     let middle = sketch.add_point(DVec2::new(3.0, 1.0));
     let ring = sketch.add_circle(middle, 2.0);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0).body();
+    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0, STEP).body();
 
     // Three names — a base, a far end and one wall — over four faces.
-    let named: Vec<Grown> = body.grown().collect();
-    let wall = Grown::Side(Bound {
+    let named: Vec<Named> = body.names().collect();
+    let wall = STEP.grew(Grown::Side(Bound {
         of: Entity::Circle(ring),
         along: true,
-    });
-    assert_eq!(named, [Grown::Base, Grown::Far, wall], "{named:?}");
+    }));
+    let (base, far) = (STEP.grew(Grown::Base), STEP.grew(Grown::Far));
+    assert_eq!(named, [base, far, wall], "{named:?}");
     assert_eq!(body.topology().faces().count(), 4, "the wall was not split");
     assert_eq!(body.patches(wall).count(), 2, "one face covers the turn");
 
@@ -228,7 +236,7 @@ fn a_corner_drawn_straight_through_leaves_no_crease() {
     // Four by three, with the bottom drawn as two segments end to end.
     sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (4.0, 0.0), (4.0, 3.0), (0.0, 3.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 2.0).body();
+    let body = Extrusion::new(&found, 0, Plane::GROUND, 2.0, STEP).body();
 
     let smooth: Vec<_> = body
         .topology()
@@ -247,7 +255,7 @@ fn a_corner_drawn_straight_through_leaves_no_crease() {
 
     // Five walls, because the drawing has five curves — one name each, and the
     // straight-through corner takes none of them away.
-    assert_eq!(body.grown().count(), 7, "two caps and five walls");
+    assert_eq!(body.names().count(), 7, "two caps and five walls");
     assert!((volume(&body) - 24.0).abs() < 1e-9);
 }
 
@@ -265,16 +273,16 @@ fn a_corner_drawn_straight_through_leaves_no_crease() {
 fn a_spur_dangling_into_a_region_raises_no_wall() {
     let mut sketch = Sketch::default();
     let corners = sketch.outline(&[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (0.0, 4.0)]);
-    let plain = Extrusion::new(&Arrangement::of(&sketch), 0, Plane::GROUND, 2.0).body();
+    let plain = Extrusion::new(&Arrangement::of(&sketch), 0, Plane::GROUND, 2.0, STEP).body();
 
     let tip = sketch.add_point(DVec2::new(2.0, 2.0));
     sketch.add_segment(corners[0], tip);
     let found = Arrangement::of(&sketch);
     assert_eq!(found.faces().len(), 1, "the spur enclosed something");
-    let spurred = Extrusion::new(&found, 0, Plane::GROUND, 2.0).body();
+    let spurred = Extrusion::new(&found, 0, Plane::GROUND, 2.0, STEP).body();
 
-    let before: Vec<Grown> = plain.grown().collect();
-    let after: Vec<Grown> = spurred.grown().collect();
+    let before: Vec<Named> = plain.names().collect();
+    let after: Vec<Named> = spurred.names().collect();
     assert_eq!(before, after, "the spur changed what the solid is made of");
     assert_eq!(spurred.topology().faces().count(), 6);
     assert!((volume(&spurred) - 32.0).abs() < 1e-9);
@@ -305,7 +313,7 @@ fn a_curve_cut_in_two_raises_one_wall_out_of_two_patches() {
     // Both regions together are the whole bar, which is what says neither lost
     // a piece of the boundary it shares.
     let together: f64 = (0..2)
-        .map(|at| volume(&Extrusion::new(&found, at, Plane::GROUND, 3.0).body()))
+        .map(|at| volume(&Extrusion::new(&found, at, Plane::GROUND, 3.0, STEP).body()))
         .sum();
     assert!(
         (together - 72.0).abs() < 1e-9,
@@ -313,15 +321,15 @@ fn a_curve_cut_in_two_raises_one_wall_out_of_two_patches() {
     );
 
     let bar = (0..2)
-        .map(|at| Extrusion::new(&found, at, Plane::GROUND, 3.0).body())
-        .find(|body| body.grown().any(|name| body.patches(name).count() == 2))
+        .map(|at| Extrusion::new(&found, at, Plane::GROUND, 3.0, STEP).body())
+        .find(|body| body.names().any(|name| body.patches(name).count() == 2))
         .expect("no region is walled by a curve in two pieces");
-    let doubled: Vec<Grown> = bar
-        .grown()
+    let doubled: Vec<Named> = bar
+        .names()
         .filter(|&name| bar.patches(name).count() == 2)
         .collect();
     assert_eq!(doubled.len(), 1, "{doubled:?}");
-    assert!(matches!(doubled[0], Grown::Side(_)), "{doubled:?}");
+    assert!(matches!(doubled[0].grown, Grown::Side(_)), "{doubled:?}");
 
     // Two patches, one surface: both lie in the plane of the bottom edge and
     // face the same way out of it, which is what makes them one wall rather
@@ -346,11 +354,14 @@ fn an_extrusion_of_no_depth_is_a_body_with_nothing_in_it() {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 0.0).body();
+    let body = Extrusion::new(&found, 0, Plane::GROUND, 0.0, STEP).body();
 
     assert!(body.is_empty());
-    assert_eq!(body.grown().count(), 0);
-    assert!(!body.holds(Grown::Base), "it holds a face it has not got");
+    assert_eq!(body.names().count(), 0);
+    assert!(
+        !body.holds(STEP.grew(Grown::Base)),
+        "it holds a face it has not got"
+    );
     assert_eq!(body.topology().faces().count(), 0);
     assert_eq!(volume(&body), 0.0);
 }

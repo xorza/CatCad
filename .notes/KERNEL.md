@@ -1084,7 +1084,7 @@ the published classification, and every result is asserted to be in the exact
 tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
 not a warning.
 
-### M4 — boolean, planar only — pipeline **done**; document and matrix **open**
+### M4 — boolean, planar only — pipeline and document **done**; matrix **open**
 
 `solid/boolean/`, in the four stages of §7.4. Every face of each body is cut by
 every plane of the other that reaches it (`splitting/`); each region that falls
@@ -1125,14 +1125,34 @@ hole in the skin or four faces on one edge; a body swallowed whole leaving a
 cavity; two blocks apart leaving two lumps; and the registry's own claim, that
 no two vertices of a sewn body stand in one place.
 
-Open: **the document side** — `Feature::Extrude` gains its `Operation`, a step's
-body depends on the one before it, and `Models::solids` becomes the body after
-the last step rather than one per extrude. And **the matrix**, which is what the
-milestone is measured by: for each operator, disjoint, overlapping, one inside
-the other, sharing a face, an edge, a vertex, coincident, with hand-computed
-volumes throughout; plus the boolean identities as property tests — `A∪B = B∪A`,
-`A∪A = A`, `A−(A−B) = A∩B`, `(A∪B)−B = A−B`, and associativity of union over
-three boxes.
+**It has landed in CatCad**, per §10's first rule. `Feature::Extrude` carries an
+`Operation`; each step builds on the model the step before it left, and
+`Models::solids` is what the last of them made rather than one body per extrude.
+The document's own vocabulary crosses at one point — `FeatureId::step` — and a
+face of a body now carries the step that grew it as well as what of that step it
+is, which §5 always said it must and a merged body cannot do without: two
+extrusions both call their end `Base`.
+
+A step the kernel will not merge is **not** dropped. Its own solid stands beside
+the model, the tree counts it among what went wrong, and the step after it goes
+on building from the model that was worked out. That matters today rather than
+in principle: a body with a curved face in it is beyond a planar boolean, so a
+document with a circle in it refuses every join — and dropping the step would
+have made the application worse than it was before there were booleans at all.
+Where every step merges the answer is one body; where none can, it is one solid
+per extrude, which is exactly the old picture. M5 is what shrinks the second
+case to nothing.
+
+Open: **the form does not offer the choice yet.** Every extrude the application
+makes says `Join`, which is what a second one means nine times in ten and the
+only operation whose answer is the extrude itself where nothing stands. A cut
+reaches the kernel only through a test until the form has a control for it.
+
+And **the matrix**, which is what the milestone is measured by: for each
+operator, disjoint, overlapping, one inside the other, sharing a face, an edge,
+a vertex, coincident, with hand-computed volumes throughout; plus the boolean
+identities as property tests — `A∪B = B∪A`, `A∪A = A`, `A−(A−B) = A∩B`,
+`(A∪B)−B = A−B`, and associativity of union over three boxes.
 
 ### M5 — boolean over the whole exact tier — **roadmap item 2 delivered**
 

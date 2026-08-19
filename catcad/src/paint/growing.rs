@@ -1,12 +1,20 @@
 //! A solid the user is still deciding the depth of.
 
-use silverpoint::{Body, Builder, Extrusion};
+use silverpoint::{Body, Builder, Extrusion, Step};
 
 use crate::lens::Lens;
 use crate::model::Models;
 use crate::paint::cut::Cut;
 use crate::paint::gizmos::Carried;
 use crate::timeline::FeatureId;
+
+/// The step a solid nobody has taken one for is grown by.
+///
+/// A body names its faces by which feature grew each of them, and there is no
+/// feature here — so this names one no [`FeatureId`] will ever be. Nothing
+/// reads it back: a face of this body carries no tag at all, because there is
+/// nothing yet for a tag to point at.
+const UNTAKEN: Step = Step(u32::MAX);
 
 /// A solid being decided: a region, and how deep it currently reads.
 ///
@@ -82,7 +90,13 @@ impl Growing {
             return false;
         };
         let arrangement = model.arrangement();
-        let extrusion = Extrusion::new(arrangement, self.region, model.plane(), self.distance);
+        let extrusion = Extrusion::new(
+            arrangement,
+            self.region,
+            model.plane(),
+            self.distance,
+            UNTAKEN,
+        );
         builder.extrude(&extrusion, into);
         true
     }

@@ -566,10 +566,10 @@ pub(super) fn solids(
     // whether or not a form is open.
     let faces = models
         .solids()
-        .map(|(at, body)| (Some(at), body))
-        .chain(shown.then_some((None, &*deciding)))
-        .flat_map(|(at, body)| body.grown().map(move |face| (at, body, face)));
-    into.refill(faces, |object, (at, body, face)| {
+        .map(|(_, body)| (true, body))
+        .chain(shown.then_some((false, &*deciding)))
+        .flat_map(|(taken, body)| body.names().map(move |face| (taken, body, face)));
+    into.refill(faces, |object, (taken, body, face)| {
         mesher.cut(body, face, SOLID_SAGITTA, patch);
         remesh(
             &mut object.mesh,
@@ -591,7 +591,12 @@ pub(super) fn solids(
         // hovered, picked out, or built on, because there is nothing yet to
         // name. What *is* grabbable is the arrow that carries it, which is a
         // control rather than the solid.
-        object.tag = at.map(|of| names.tag(Part::Solid { of, face }));
+        object.tag = taken.then(|| {
+            names.tag(Part::Solid {
+                of: face.by.into(),
+                face: face.grown,
+            })
+        });
     });
 }
 

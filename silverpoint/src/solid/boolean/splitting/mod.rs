@@ -119,11 +119,6 @@ impl Cells {
         self.owned[at].clone().map(|run| self.loops.get(run))
     }
 
-    /// The outline of the region at `at`.
-    pub(super) fn outline(&self, at: usize) -> &[DVec2] {
-        self.loops.get(self.owned[at].start)
-    }
-
     /// Add a region, its loops written by `write` — the outline first.
     ///
     /// A region that writes no loop is no region, and is dropped rather than
@@ -181,16 +176,6 @@ impl Splitting {
         into.clear();
         self.append(from, cut, into);
         self.append(from, cut.turned(), into);
-    }
-
-    /// Cut every region of `from` along `cut`, keeping the left of it, and
-    /// write what survives into `into`.
-    ///
-    /// `into` is emptied first. Cutting the other way is the same call with
-    /// [`Cut::turned`].
-    pub(super) fn halve(&mut self, from: &Cells, cut: Cut, into: &mut Cells) {
-        into.clear();
-        self.append(from, cut, into);
     }
 
     /// The same, onto whatever `into` already holds.
@@ -395,3 +380,32 @@ impl Splitting {
         }
     }
 }
+
+#[cfg(test)]
+mod internals {
+    use super::*;
+
+    impl Cells {
+        /// The outline of the region at `at`.
+        pub(super) fn outline(&self, at: usize) -> &[DVec2] {
+            self.loops.get(self.owned[at].start)
+        }
+    }
+
+    impl Splitting {
+        /// Cut every region of `from` along `cut`, keeping the left of it, and
+        /// write what survives into `into`.
+        ///
+        /// `into` is emptied first. Cutting the other way is the same call with
+        /// [`Cut::turned`]. What production wants is both sides at once, which
+        /// is [`Splitting::split`]; one side is what a test asks for, to say
+        /// which of the two a given piece ended up in.
+        pub(super) fn halve(&mut self, from: &Cells, cut: Cut, into: &mut Cells) {
+            into.clear();
+            self.append(from, cut, into);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

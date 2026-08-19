@@ -6,16 +6,23 @@ use crate::sketch::entity::Entity;
 use crate::solid::build::extrusion::Extrusion;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::{Mesher, Patch};
+use crate::solid::named::Step;
 use crate::solid::topology::body::Body;
 use glam::{DVec2, DVec3};
 use std::f64::consts::PI;
+
+/// The step every body below is grown by.
+///
+/// Which one it is says nothing here: what a step tells apart is one feature's
+/// faces from another's, and every test in this file meshes one body.
+const STEP: Step = Step(0);
 
 /// A two-by-two block three deep, standing with one corner on the origin.
 fn block() -> Body {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    Extrusion::new(&found, 0, Plane::GROUND, 3.0).body()
+    Extrusion::new(&found, 0, Plane::GROUND, 3.0, STEP).body()
 }
 
 /// **Every corner faces out of the solid**, in position and in winding alike.
@@ -33,19 +40,19 @@ fn every_corner_and_every_triangle_faces_out_of_the_solid() {
     let mut mesher = Mesher::default();
     let mut patch = Patch::default();
 
-    for grown in body.grown() {
-        mesher.cut(&body, grown, 1e-3, &mut patch);
+    for named in body.names() {
+        mesher.cut(&body, named, 1e-3, &mut patch);
         assert_eq!(patch.corners.len(), patch.normals.len());
-        assert!(!patch.triangles.is_empty(), "{grown:?} cut to nothing");
+        assert!(!patch.triangles.is_empty(), "{named:?} cut to nothing");
 
         for (&corner, &normal) in patch.corners.iter().zip(&patch.normals) {
             assert!(
                 (normal.length() - 1.0).abs() < 1e-12,
-                "{grown:?} is not unit"
+                "{named:?} is not unit"
             );
             assert!(
                 (corner - middle).dot(normal) > 0.0,
-                "{grown:?} faces inward at {corner:?}",
+                "{named:?} faces inward at {corner:?}",
             );
         }
         for &[a, b, c] in &patch.triangles {
@@ -53,7 +60,7 @@ fn every_corner_and_every_triangle_faces_out_of_the_solid() {
             let wound = (corner(b) - corner(a)).cross(corner(c) - corner(a));
             assert!(
                 wound.dot(patch.normals[a as usize]) > 0.0,
-                "{grown:?} is wound against its own normals",
+                "{named:?} is wound against its own normals",
             );
         }
     }
@@ -72,17 +79,17 @@ fn a_wall_lands_on_the_cap_it_was_raised_from() {
     let middle = sketch.add_point(DVec2::new(3.0, 1.0));
     let ring = sketch.add_circle(middle, 2.0);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0).body();
+    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0, STEP).body();
 
     let mut mesher = Mesher::default();
     let (mut base, mut wall) = (Patch::default(), Patch::default());
-    mesher.cut(&body, Grown::Base, 1e-2, &mut base);
+    mesher.cut(&body, STEP.grew(Grown::Base), 1e-2, &mut base);
     mesher.cut(
         &body,
-        Grown::Side(Bound {
+        STEP.grew(Grown::Side(Bound {
             of: Entity::Circle(ring),
             along: true,
-        }),
+        })),
         1e-2,
         &mut wall,
     );
@@ -119,14 +126,14 @@ fn a_finer_sagitta_cuts_more_finely_and_reads_nearer_the_truth() {
     let middle = sketch.add_point(DVec2::ZERO);
     sketch.add_circle(middle, 2.0);
     let found = Arrangement::of(&sketch);
-    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0).body();
+    let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0, STEP).body();
 
     let true_volume = PI * 4.0 * 4.0;
     let mut mesher = Mesher::default();
     let mut patch = Patch::default();
     let mut last = (0usize, f64::INFINITY);
     for sagitta in [0.5, 0.05, 5e-3, 5e-5] {
-        mesher.cut(&body, Grown::Base, sagitta, &mut patch);
+        mesher.cut(&body, STEP.grew(Grown::Base), sagitta, &mut patch);
         let cut = patch.triangles.len();
         let read = mesher.volume(&body, sagitta);
         let off = true_volume - read;
@@ -155,17 +162,17 @@ fn a_name_the_body_does_not_hold_cuts_to_nothing() {
     let mut mesher = Mesher::default();
     let mut patch = Patch::default();
 
-    mesher.cut(&body, Grown::Base, 1e-3, &mut patch);
+    mesher.cut(&body, STEP.grew(Grown::Base), 1e-3, &mut patch);
     assert!(!patch.corners.is_empty());
 
     // A circle of another drawing entirely. Every wall of a block is swept off
     // a segment, so no name it holds could be this one.
     let mut elsewhere = Sketch::default();
     let middle = elsewhere.add_point(DVec2::ZERO);
-    let stranger = Grown::Side(Bound {
+    let stranger = STEP.grew(Grown::Side(Bound {
         of: Entity::Circle(elsewhere.add_circle(middle, 1.0)),
         along: true,
-    });
+    }));
     assert!(!body.holds(stranger));
     mesher.cut(&body, stranger, 1e-3, &mut patch);
     assert!(patch.corners.is_empty(), "it cut a face it does not have");

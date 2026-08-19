@@ -56,7 +56,7 @@ struct Step {
 
 /// Sews regions into a body, keeping the room it works in.
 #[derive(Debug, Default)]
-pub(crate) struct Sewing {
+pub(super) struct Sewing {
     /// Where each vertex made so far stands, and which one it is.
     placed: Vec<DVec3>,
     made: Vec<VertexId>,
@@ -91,7 +91,7 @@ impl Sewing {
     /// one face, or three, is a boolean that has met a case it does not handle
     /// — two solids flush against each other, most likely — and a body half
     /// sewn is worse than none.
-    pub(crate) fn sew(&mut self, kept: &[Kept], loops: &Loops<DVec2>, into: &mut Body) -> bool {
+    pub(super) fn sew(&mut self, kept: &[Kept], loops: &Loops<DVec2>, into: &mut Body) -> bool {
         into.clear();
         self.reset();
         for region in kept {

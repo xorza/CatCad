@@ -6,7 +6,7 @@
 
 use std::ops::Range;
 
-use silverpoint::Plane;
+use silverpoint::{Operation, Plane, Step};
 
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
@@ -42,7 +42,7 @@ pub(crate) struct Timeline {
     /// is asserted at every line that writes here, and it is what makes
     /// [`Timeline::plane`]'s walk terminate and what the file format's
     /// backwards references encode.
-    steps: Vec<Step>,
+    steps: Vec<Taken>,
     /// Where the step each handle names sits in `steps`, indexed by the handle
     /// itself, and [`GONE`] for a handle the timeline no longer holds.
     ///
@@ -133,7 +133,7 @@ impl Timeline {
         );
         let id = FeatureId(self.next);
         self.next += 1;
-        self.steps.push(Step { id, feature });
+        self.steps.push(Taken { id, feature });
         self.refile();
         id
     }
@@ -294,7 +294,7 @@ impl Timeline {
                 .all(|step| step.feature.referents().all(|on| on != at)),
             "a step still built on cannot be taken out"
         );
-        let Step { id, feature } = self.steps.remove(position);
+        let Taken { id, feature } = self.steps.remove(position);
         // The bar rests *on* a step, so taking that step out has to move it —
         // to whichever now stands where it stood, or to the one before where
         // there is none. It cannot simply be cleared: `None` means the whole
@@ -351,7 +351,7 @@ impl Timeline {
                 .all(|on| self.position(on).is_some_and(|was| was < position)),
             "a step can only be built on one that comes earlier"
         );
-        self.steps.insert(position, Step { id: at, feature });
+        self.steps.insert(position, Taken { id: at, feature });
         self.refile();
     }
 
@@ -652,10 +652,15 @@ impl Timeline {
     /// walk has already ruled out.
     pub(crate) fn extrudes(&self) -> impl Iterator<Item = Extruded<'_>> {
         self.steps().filter_map(|(at, feature)| match feature {
-            Feature::Extrude { profile, distance } => Some(Extruded {
+            Feature::Extrude {
+                profile,
+                distance,
+                operation,
+            } => Some(Extruded {
                 at,
                 profile,
                 distance: *distance,
+                operation: *operation,
                 plane: self.plane_of(profile.sketch()),
             }),
             Feature::Plane(_) | Feature::Sketch { .. } => None,
@@ -768,6 +773,8 @@ pub(crate) struct Extruded<'a> {
     pub(crate) profile: &'a Profile,
     /// How far it is carried off its region's plane, and which way.
     pub(crate) distance: f64,
+    /// What it does with the solid the steps before it left standing.
+    pub(crate) operation: Operation,
     /// Where in the world the drawing it was grown from lies.
     ///
     /// Most readers here do not want it, and it is carried anyway, because the
@@ -783,8 +790,14 @@ pub(crate) struct Extruded<'a> {
 }
 
 /// One step of a timeline, and the handle that names it.
+///
+/// Named for having been taken rather than for being a step, which
+/// [`Uprooted`] above is the other half of: this is a step the timeline holds
+/// and that is what is left once it does not. It also leaves the word `Step`
+/// to [`silverpoint::Step`], which is the *handle* to one of these as a body's
+/// faces carry it — see [`FeatureId::step`].
 #[derive(Debug, Clone, PartialEq)]
-struct Step {
+struct Taken {
     id: FeatureId,
     feature: Feature,
 }
@@ -809,6 +822,28 @@ struct Step {
 /// the steps by looking each one up rather than by scanning for it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) struct FeatureId(u32);
+
+impl FeatureId {
+    /// This handle as a body's faces carry it.
+    ///
+    /// **The crossing where a step becomes half of a name.** A body names each
+    /// face by which feature grew it and what of that feature it is — see
+    /// [`Named`](silverpoint::Named) — and the kernel mints neither half: it is
+    /// handed this and
+    /// carries it, so that a face of one solid and the same-shaped face of
+    /// another are told apart once a boolean puts the two together.
+    pub(crate) fn step(self) -> Step {
+        Step(self.0)
+    }
+}
+
+// The way back, for a reader holding a face of a body and wanting the step that
+// grew it. Foreign trait, local type, and in the local type's own file.
+impl From<Step> for FeatureId {
+    fn from(step: Step) -> Self {
+        Self(step.0)
+    }
+}
 
 /// What a fixture reaches past the timeline for.
 ///

@@ -20,7 +20,7 @@ use palantir::{
     Align, Button, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing, Text,
     TextEdit, TextRun, TextWrap, Ui, VAlign, WidgetId,
 };
-use silverpoint::Entity;
+use silverpoint::{Entity, Operation};
 use std::fmt::Write;
 
 use crate::drawing::anchor::Anchor;
@@ -626,6 +626,11 @@ impl Prompt {
                     sketch,
                     region,
                     distance,
+                    // Added to what stands, always, until the form offers the
+                    // choice: a boss is what a second extrude is for nine
+                    // documents in ten, and it is the one operation whose
+                    // answer is the extrude itself where nothing stands yet.
+                    operation: Operation::Join,
                 });
             }
         }

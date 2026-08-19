@@ -2,7 +2,7 @@
 
 use aperture::Projection;
 use glam::Vec3;
-use silverpoint::{Constraint, ConstraintId, Entity};
+use silverpoint::{Constraint, ConstraintId, Entity, Operation};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -133,6 +133,8 @@ pub(crate) enum Change {
         sketch: FeatureId,
         region: usize,
         distance: f64,
+        /// What it does with the solid the steps before it left standing.
+        operation: Operation,
     },
     /// Start a sketch on a plane.
     ///

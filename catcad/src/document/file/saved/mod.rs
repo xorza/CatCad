@@ -29,7 +29,7 @@ use silverpoint::{Bound, Entity};
 /// anything else outright rather than guessing at it: a format that changes
 /// shape and keeps its number is one where a wrong answer looks like a right
 /// one, and the whole point of the stamp is to make the mismatch loud.
-const VERSION: u32 = 4;
+const VERSION: u32 = 5;
 
 /// A document as it is written down: what was done, and where it is being
 /// looked at from.

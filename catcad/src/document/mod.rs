@@ -497,6 +497,7 @@ impl Document {
                 sketch,
                 region,
                 distance,
+                operation,
             } => {
                 // By name rather than through [`Models::open`], which lands on
                 // the same model here: which sketch is being *worked in* is the
@@ -506,7 +507,11 @@ impl Document {
                     .at(sketch)
                     .expect("a change names a sketch the timeline holds")
                     .profile(region);
-                shaped = Shaped::Made(self.timeline.add(Feature::Extrude { profile, distance }));
+                shaped = Shaped::Made(self.timeline.add(Feature::Extrude {
+                    profile,
+                    distance,
+                    operation,
+                }));
                 build.revised();
             }
             // The other step-adder, and the simpler of the two: a sketch is

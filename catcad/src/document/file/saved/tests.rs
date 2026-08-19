@@ -6,7 +6,7 @@ use crate::document::file::error::Missing;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, World};
 use glam::DVec2;
-use silverpoint::{Constraint, Dimension};
+use silverpoint::{Constraint, Dimension, Operation};
 
 /// The text `timeline` is written as.
 ///
@@ -201,13 +201,14 @@ fn a_document_is_written_exactly_like_this() {
             ],
         ),
         distance: 1.5,
+        operation: Operation::Join,
     });
 
     assert_eq!(
         written(&timeline),
         "\
 (
-    version: 4,
+    version: 5,
     camera: (
         projection: Perspective,
         target: (0.0, 0.0, 0.0),
@@ -253,6 +254,7 @@ fn a_document_is_written_exactly_like_this() {
                 ],
             ),
             distance: 1.5,
+            operation: Join,
         ),
     ],
     rolled: None,
@@ -474,7 +476,8 @@ fn a_document_that_says_something_impossible_is_refused() {
                 VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
-                     Extrude(profile: (sketch: 0, bounds: []), distance: 1.0)"
+                     Extrude(profile: (sketch: 0, bounds: []), distance: 1.0, \
+                     operation: Join)"
                 ),
             ),
             Fault::NotASketch { at: 2, names: 0 },
@@ -488,7 +491,7 @@ fn a_document_that_says_something_impossible_is_refused() {
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
                      Extrude(profile: (sketch: 1, bounds: [Segment(at: 3, along: true)]), \
-                     distance: 1.0)"
+                     distance: 1.0, operation: Join)"
                 ),
             ),
             Fault::Unknown {
@@ -503,7 +506,7 @@ fn a_document_that_says_something_impossible_is_refused() {
                 VERSION,
                 &format!(
                     "Ground, Sketch(on: 0, {A_SKETCH}), \
-                     Extrude(profile: (sketch: 1, bounds: []), distance: inf)"
+                     Extrude(profile: (sketch: 1, bounds: []), distance: inf, operation: Join)"
                 ),
             ),
             Fault::NotFinite { at: 2 },

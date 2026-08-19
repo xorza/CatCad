@@ -8,7 +8,7 @@
 
 use crate::loops::Loops;
 use crate::math::triangulate::{Cutter, Fill};
-use crate::solid::grown::Grown;
+use crate::solid::named::Named;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::Face;
@@ -65,16 +65,16 @@ pub struct Mesher {
 }
 
 impl Mesher {
-    /// Cut the face of `of` that `grown` names into triangles, its curves
+    /// Cut the face of `of` that `named` names into triangles, its curves
     /// flattened no further than `sagitta` from the true surface.
     ///
     /// **A face of a body may come in several patches**, so this cuts all of
-    /// them into one answer — see [`Grown`]. A name that no face of the body
+    /// them into one answer — see [`Named`]. A name that no face of the body
     /// carries comes back empty rather than wrong: there is nothing to cut, and
     /// answering with nothing is what that means.
-    pub fn cut(&mut self, of: &Body, grown: Grown, sagitta: f64, into: &mut Patch) {
+    pub fn cut(&mut self, of: &Body, named: Named, sagitta: f64, into: &mut Patch) {
         into.clear();
-        for (_, face) in of.patches(grown) {
+        for (_, face) in of.patches(named) {
             self.patch(of.topology(), face, sagitta, into);
         }
     }
@@ -181,8 +181,8 @@ pub(crate) mod internals {
         pub(crate) fn volume(&mut self, of: &Body, sagitta: f64) -> f64 {
             let mut patch = Patch::default();
             let mut total = 0.0;
-            for grown in of.grown() {
-                self.cut(of, grown, sagitta, &mut patch);
+            for named in of.names() {
+                self.cut(of, named, sagitta, &mut patch);
                 let corner = |at: u32| patch.corners[at as usize];
                 for &[a, b, c] in &patch.triangles {
                     total += corner(a).dot(corner(b).cross(corner(c)));

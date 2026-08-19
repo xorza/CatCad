@@ -10,6 +10,7 @@ use crate::document::file::saved::sketch::Sketch;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, Feature, World};
 use crate::timeline::{FeatureId, Timeline};
+use silverpoint::Operation;
 
 /// One step, as a file holds it.
 ///
@@ -31,8 +32,50 @@ pub(super) enum Step {
     Plane { from: usize, by: f64 },
     /// A sketch, and the plane it is drawn on.
     Sketch { on: usize, sketch: Sketch },
-    /// A solid grown off a region of an earlier sketch.
-    Extrude { profile: Profiled, distance: f64 },
+    /// A solid grown off a region of an earlier sketch, and what it does with
+    /// the solid the steps before it left standing.
+    Extrude {
+        profile: Profiled,
+        distance: f64,
+        operation: Operated,
+    },
+}
+
+/// What an extrude does with what stands before it, as a file holds it.
+///
+/// A mirror of [`Operation`] for the reason [`Step`] is one of [`Feature`]:
+/// the type belongs to
+/// silverpoint, a file's vocabulary belongs here, and the match between them
+/// being exhaustive both ways is what makes a fourth operation a compile error
+/// rather than a step that quietly writes as something else.
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) enum Operated {
+    Join,
+    Cut,
+    Intersect,
+}
+
+impl Operated {
+    /// `operation` as a file would hold it.
+    fn of(operation: Operation) -> Self {
+        match operation {
+            Operation::Join => Operated::Join,
+            Operation::Cut => Operated::Cut,
+            Operation::Intersect => Operated::Intersect,
+        }
+    }
+
+    /// The same, as a timeline holds one.
+    ///
+    /// Nothing to fault: every value it can be read as is one the timeline can
+    /// hold, which is not true of a handle or a number.
+    fn operation(&self) -> Operation {
+        match self {
+            Operated::Join => Operation::Join,
+            Operated::Cut => Operation::Cut,
+            Operated::Intersect => Operation::Intersect,
+        }
+    }
 }
 
 /// A region of a sketch, as a file holds it.
@@ -119,9 +162,14 @@ impl Step {
                 on: steps.of(*on),
                 sketch: Sketch::of(sketch),
             },
-            Feature::Extrude { profile, distance } => Step::Extrude {
+            Feature::Extrude {
+                profile,
+                distance,
+                operation,
+            } => Step::Extrude {
                 profile: Profiled::of(profile, steps, handles),
                 distance: *distance,
+                operation: Operated::of(*operation),
             },
         }
     }
@@ -160,11 +208,16 @@ impl Step {
                     handles: numbering,
                 })
             }
-            Step::Extrude { profile, distance } => {
+            Step::Extrude {
+                profile,
+                distance,
+                operation,
+            } => {
                 finite(at, *distance)?;
                 Ok(Loaded::plain(Feature::Extrude {
                     profile: profile.profile(at, timeline, added, handles)?,
                     distance: *distance,
+                    operation: operation.operation(),
                 }))
             }
         }

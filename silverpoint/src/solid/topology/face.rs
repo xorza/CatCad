@@ -2,7 +2,7 @@
 
 use crate::arena::Id;
 use crate::solid::geometry::surface::Surface;
-use crate::solid::grown::Grown;
+use crate::solid::named::Named;
 use glam::{DVec2, DVec3};
 use std::ops::Range;
 
@@ -39,9 +39,9 @@ pub(crate) struct Face {
     /// solid is rebuilt on every frame of a drag through the drawing under it,
     /// which is what makes that worth arranging.
     pub(crate) loops: Range<usize>,
-    /// What made it — see [`Grown`], and `.notes/KERNEL.md` §5 for why several
+    /// What made it — see [`Named`], and `.notes/KERNEL.md` §5 for why several
     /// faces may honestly share one name.
-    pub(crate) name: Grown,
+    pub(crate) name: Named,
     /// Zero, always: a surface here is exact in both tiers, and only curves and
     /// points are ever fitted. Carried anyway so the ladder in
     /// `.notes/KERNEL.md` §4.3 has a bottom rung to be measured against.

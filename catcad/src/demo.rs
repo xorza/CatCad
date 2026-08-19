@@ -6,7 +6,7 @@
 //! test fixture as it is the startup content.
 
 use glam::DVec2;
-use silverpoint::{Along, Constraint, Dimension, Sketch};
+use silverpoint::{Along, Constraint, Dimension, Operation, Sketch};
 
 use crate::build::Build;
 use crate::document::Document;
@@ -89,6 +89,7 @@ pub(crate) fn document(build: &mut Build) -> Document {
             sketch: drawn,
             region: HUB,
             distance: DEPTH,
+            operation: Operation::Join,
         },
     );
     document
