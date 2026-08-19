@@ -1084,7 +1084,7 @@ the published classification, and every result is asserted to be in the exact
 tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
 not a warning.
 
-### M4 — boolean, planar only — pipeline and document **done**; matrix **open**
+### M4 — boolean, planar only — **done** but for the form's own control
 
 `solid/boolean/`, in the four stages of §7.4. Every face of each body is cut by
 every plane of the other that reaches it (`splitting/`); each region that falls
@@ -1148,11 +1148,20 @@ makes says `Join`, which is what a second one means nine times in ten and the
 only operation whose answer is the extrude itself where nothing stands. A cut
 reaches the kernel only through a test until the form has a control for it.
 
-And **the matrix**, which is what the milestone is measured by: for each
-operator, disjoint, overlapping, one inside the other, sharing a face, an edge,
-a vertex, coincident, with hand-computed volumes throughout; plus the boolean
-identities as property tests — `A∪B = B∪A`, `A∪A = A`, `A−(A−B) = A∩B`,
-`(A∪B)−B = A−B`, and associativity of union over three boxes.
+**The matrix is in** — `boolean/tests/matrix.rs` — and it is what the milestone
+is measured by: seven placements against three operators, every volume worked
+out by hand, plus the five identities as property tests where a refusal fails a
+law rather than satisfying it.
+
+It found the one thing it was written to find. Two solids meeting along nothing
+but an **edge** are refused, as expected: the edge would want four faces and
+there is nowhere to put them. Two meeting at nothing but a **corner** were not
+— the registry welds the two corners into one vertex, because it is one place,
+and what came back was two closed shells sharing it. Every check made a shell at
+a time passed, and had to: each walks its own edges twice and satisfies Euler on
+its own. What was wrong was the vertex, whose faces come in two cones with no
+edge between them, and only a walk across *shells* can see that. `Sewing` now
+claims a shell's corners as it gathers it and refuses a second claim.
 
 ### M5 — boolean over the whole exact tier — **roadmap item 2 delivered**
 

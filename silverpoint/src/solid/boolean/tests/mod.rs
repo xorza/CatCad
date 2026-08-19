@@ -281,3 +281,6 @@ fn a_curved_body_is_refused_by_a_planar_boolean() {
     assert!(!combining.combine(&cube(), &round, Operation::Cut));
     assert!(!combining.combine(&round, &cube(), Operation::Cut));
 }
+
+// Already inside a `cfg(test)` module, so it needs no gate of its own.
+mod matrix;

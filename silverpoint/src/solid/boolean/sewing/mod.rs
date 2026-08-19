@@ -73,6 +73,13 @@ pub(super) struct Sewing {
     edges: Vec<EdgeId>,
     /// A walk over faces, gathering the ones a shell holds.
     standing: Vec<bool>,
+    /// Which shell has claimed each vertex, by slot, while they are gathered.
+    ///
+    /// What says a body is manifold at its corners, which nothing else here
+    /// can: a shell closes on its own — every edge of it walked twice, Euler
+    /// satisfied — whatever else touches the vertices it stands on, so two
+    /// lumps welded at one corner pass every check made a shell at a time.
+    cornered: Vec<Option<ShellId>>,
     waiting: Vec<FaceId>,
     gathered: Vec<FaceId>,
     /// The shells that shut something in, and the ones that are cavities.
@@ -87,10 +94,12 @@ pub(super) struct Sewing {
 impl Sewing {
     /// Sew `kept` into `into`, emptying whatever was there.
     ///
-    /// `false` where the regions do not close into a body: an edge left with
-    /// one face, or three, is a boolean that has met a case it does not handle
-    /// — two solids flush against each other, most likely — and a body half
-    /// sewn is worse than none.
+    /// `false` where the regions do not close into a body, and a body half sewn
+    /// is worse than none. Three ways they can fail to: an edge left with one
+    /// face or three, which is two solids meeting along nothing but that edge;
+    /// shells sharing a corner, which is two meeting at nothing but a point —
+    /// see [`Sewing::claim_corners`]; and a cavity with more than one lump to
+    /// hang it on.
     pub(super) fn sew(&mut self, kept: &[Kept], loops: &Loops<DVec2>, into: &mut Body) -> bool {
         into.clear();
         self.reset();
@@ -327,6 +336,8 @@ impl Sewing {
     fn gather(&mut self, into: &mut Body) -> bool {
         self.standing.clear();
         self.standing.resize(into.topology().face_slots(), false);
+        self.cornered.clear();
+        self.cornered.resize(into.topology().vertex_slots(), None);
         self.outer.clear();
         self.voids.clear();
         for at in 0..self.raised.len() {
@@ -341,6 +352,9 @@ impl Sewing {
             }
             let to = into.topology().faces_shelled();
             let shell = into.topology_mut().add_shell(Shell { faces: from..to });
+            if !self.claim_corners(into, shell) {
+                return false;
+            }
             if self.shut_in(into, shell) > 0.0 {
                 self.outer.push(shell);
             } else {
@@ -363,6 +377,38 @@ impl Sewing {
                 outer: shell,
                 voids: std::mem::take(&mut cavities),
             });
+        }
+        true
+    }
+
+    /// Claim every vertex `shell` stands on, and say whether they were all
+    /// free.
+    ///
+    /// **Where a body is checked for being manifold at a corner.** Two solids
+    /// that meet along nothing but a point are welded into one by the registry
+    /// — the corner is one place, so it is one vertex — and what comes out is
+    /// two closed shells sharing it. Every check made a shell at a time passes:
+    /// each walks its own edges twice and satisfies Euler on its own. What is
+    /// wrong is the vertex, whose faces come in two cones with no edge between
+    /// them, and nothing but a walk across *shells* can see it.
+    ///
+    /// Refused rather than kept, for the reason the rest of `.notes/KERNEL.md`
+    /// §8's refusals are: what a fillet or a second boolean would do at such a
+    /// corner is undefined, and a body that reads as valid and is not is the
+    /// worse answer. Two solids touching at a point is a placement a modeller
+    /// can nudge apart; a body nothing downstream can trust is not.
+    fn claim_corners(&mut self, into: &Body, shell: ShellId) -> bool {
+        let topology = into.topology();
+        for &at in topology.faces_of(shell) {
+            for coedge in topology.loops_of(topology.face(at)).flatten() {
+                for end in topology.ends(*coedge) {
+                    let claimed = &mut self.cornered[end.slot()];
+                    if claimed.is_some_and(|by| by != shell) {
+                        return false;
+                    }
+                    *claimed = Some(shell);
+                }
+            }
         }
         true
     }
