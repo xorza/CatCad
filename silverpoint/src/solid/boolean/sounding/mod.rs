@@ -21,20 +21,22 @@ use glam::{DVec2, DVec3};
 use std::ops::Range;
 
 /// Where a place stands in relation to a body.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(super) enum Standing {
     /// Within the material.
     Inside,
     /// Clear of it.
     Outside,
-    /// On the boundary itself.
+    /// On the boundary itself, and the way the body faces there — out of its
+    /// own material.
     ///
     /// **An answer, not a failure to give one.** A region of one body lying
     /// flat against a face of the other is how two solids placed flush meet,
-    /// and which of the two faces survives depends on whether they face the
-    /// same way — which is a question about the pair rather than about this
-    /// place, and is asked where the pair is known.
-    On,
+    /// and which of the two faces survives depends on whether the two hold
+    /// their material on the same side. That is a question about the pair, and
+    /// only one side of it is known here — so the side is what comes back, and
+    /// the operator puts the two together.
+    On(DVec3),
 }
 
 /// The directions a ray is cast in, in the order they are tried.
@@ -82,8 +84,8 @@ impl Sounding {
     /// choosing.
     pub(super) fn standing(&mut self, at: DVec3, body: &Body) -> Standing {
         self.flatten(body);
-        if self.on_boundary(at, body) {
-            return Standing::On;
+        if let Some(facing) = self.facing(at, body) {
+            return Standing::On(facing);
         }
         for way in CASTS {
             if let Some(crossings) = self.count(at, way.normalize(), body) {
@@ -102,17 +104,23 @@ impl Sounding {
         panic!("every ray out of {at:?} grazed an edge of the body it was sounding");
     }
 
-    /// Whether `at` lies on a face of `body` rather than to either side of it.
-    fn on_boundary(&self, at: DVec3, body: &Body) -> bool {
+    /// Which way `body` faces where it passes through `at` — out of its
+    /// material — or `None` where `at` is not on its boundary at all.
+    fn facing(&self, at: DVec3, body: &Body) -> Option<DVec3> {
         body.topology()
             .faces()
             .enumerate()
-            .any(|(which, (_, face))| {
+            .find_map(|(which, (_, face))| {
                 let plane = planar(face);
-                predicate::touching((at - plane.origin).dot(plane.normal()).abs(), PLACED)
+                if !predicate::touching((at - plane.origin).dot(plane.normal()).abs(), PLACED) {
+                    return None;
+                }
                 // On the face, or on an edge of it: both are the boundary, and
                 // the second is what `covers` declines to call either way.
-                && self.covers(which, plane.flatten(at)).unwrap_or(true)
+                let uv = plane.flatten(at);
+                self.covers(which, uv)
+                    .unwrap_or(true)
+                    .then(|| face.normal(uv))
             })
     }
 

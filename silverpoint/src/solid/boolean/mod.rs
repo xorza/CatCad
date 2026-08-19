@@ -22,6 +22,7 @@ use crate::loops::Loops;
 use crate::math::plane::Plane;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::math::winding;
+use crate::number::predicate;
 use crate::solid::boolean::sounding::{Sounding, Standing};
 use crate::solid::boolean::splitting::{Cells, Cut, Splitting};
 use crate::solid::geometry::curve::Curve;
@@ -30,7 +31,7 @@ use crate::solid::grown::Grown;
 use crate::solid::meeting::Meeting;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::Face;
-use glam::DVec2;
+use glam::{DVec2, DVec3};
 use std::ops::Range;
 
 pub(crate) mod sewing;
@@ -53,12 +54,13 @@ pub enum Operation {
 }
 
 impl Operation {
-    /// Whether a region of the body at `first` that stands `where` is kept.
+    /// Whether a region of the body at `first`, facing `facing` and standing
+    /// where `standing` says, is kept.
     ///
     /// The whole of what tells the three apart, and it is a table rather than
     /// three routines because that is what it is: every stage before this one
     /// is the same work whichever operation asked for it.
-    fn keeps(self, standing: Standing, first: bool) -> bool {
+    fn keeps(self, standing: Standing, facing: DVec3, first: bool) -> bool {
         match (self, standing, first) {
             // What is outside the other body is the outside of a join, and
             // what is inside it is the inside of an intersection.
@@ -69,13 +71,22 @@ impl Operation {
             // way the tool's own wall faced away from.
             (Self::Cut, Standing::Outside, true) => true,
             (Self::Cut, Standing::Inside, false) => true,
-            // **Flush against the other body, and undecided.** Two solids
-            // placed face to face is a case with rules of its own — a join has
-            // to keep one of the two skins or leave a hole where they met, and
-            // which one turns on whether they face the same way. Dropping both
-            // is right for a cut and wrong for a join, and saying so here is
-            // better than letting it fall through the answers below.
-            (_, Standing::On, _) => false,
+            // **Flush against the other body.** The two faces pressed together
+            // describe one piece of surface, so at most one of them survives —
+            // and it is the first body's, always: keeping both would leave the
+            // answer a doubled skin, and choosing between two copies of the
+            // same surface is a choice without a difference.
+            (_, Standing::On(_), false) => false,
+            // Whether that one piece bounds anything is what is left. Held
+            // against each other with the material on the same side, a join and
+            // an intersection both still have material there and none opposite,
+            // so the surface stands; a cut takes that material away and leaves
+            // nothing for it to bound. Held back to back it is the other way
+            // round — the join buries the surface in material and the
+            // intersection in empty space, while the cut leaves the first
+            // body's own face standing where it always was.
+            (Self::Join | Self::Intersect, Standing::On(theirs), true) => agree(theirs, facing),
+            (Self::Cut, Standing::On(theirs), true) => !agree(theirs, facing),
             // Inside for a join, outside for an intersection, and the halves
             // of a cut that belong to the other operand.
             (Self::Join, Standing::Inside, _)
@@ -208,7 +219,7 @@ impl Combining {
                 continue;
             };
             let standing = self.sounding.standing(plane.point(within), theirs);
-            if !doing.keeps(standing, first) {
+            if !doing.keeps(standing, face.normal(within), first) {
                 continue;
             }
             let from = self.loops.len();
@@ -290,6 +301,24 @@ pub(super) fn planar(face: &Face) -> Plane {
         Surface::Plane(plane) => plane,
         other => unreachable!("a planar boolean was handed {other:?}"),
     }
+}
+
+/// Whether two faces pressed against each other hold their material on the same
+/// side of the surface they share.
+///
+/// A sign test rather than a comparison against a tolerance, which is sound
+/// only because the two are coplanar: a region whose interior touched a plane
+/// of the other body would have been cut *by* that plane, and would have no
+/// interior left on it to sound. So the two directions are parallel and the dot
+/// product is ±1 — which is the case [`predicate::parallel`] tells a caller to
+/// take the dot product for itself, and the assert is what says the reasoning
+/// still holds.
+fn agree(theirs: DVec3, facing: DVec3) -> bool {
+    debug_assert!(
+        predicate::parallel(theirs, facing),
+        "{theirs:?} and {facing:?} are flush against each other and not parallel",
+    );
+    theirs.dot(facing) > 0.0
 }
 
 /// Whether every face of `body` lies on a plane.

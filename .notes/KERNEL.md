@@ -1084,17 +1084,55 @@ the published classification, and every result is asserted to be in the exact
 tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
 not a warning.
 
-### M4 — boolean, planar only
+### M4 — boolean, planar only — pipeline **done**; document and matrix **open**
 
-Imprint, classify, sew, regularize. Box minus box, box union box, box intersect
-box.
+`solid/boolean/`, in the four stages of §7.4. Every face of each body is cut by
+every plane of the other that reaches it (`splitting/`); each region that falls
+out is asked where it stands (`sounding/`, by ray casting, four directions
+because a ray along an edge is counted twice or not at all); the operator says
+which to keep (`Operation::keeps`, one table); and what is kept is sewn back
+into a body (`sewing/`) by a registry that finds a vertex by *where it is*
+rather than by who made it — which is the tolerance model of §4.3 doing what it
+is for, and why carrying provenance through the cutting would buy an exactness
+nothing downstream could use.
 
-**Tests** — the matrix is the milestone. For each operator: disjoint,
-overlapping, one inside the other, sharing a face, sharing an edge, sharing a
-vertex, coincident. Hand-computed volumes for all of them. Plus the boolean
-identities as property tests: `A∪B = B∪A`, `A∪A = A`, `A−(A−B) = A∩B`,
-`(A∪B)−B = A−B`, and associativity of union over three boxes. Validity asserted
-after every one.
+Cutting by whole planes rather than by clipped segments is the decision the rest
+rests on: it makes every region wholly inside or wholly outside, so classifying
+is one question per region rather than a walk over pieces. It cuts further than
+necessary — a face comes back in more pieces than the answer needs — and that
+costs nothing, because §4.4's smooth-edge flag and §5's naming already handle a
+face arriving in several.
+
+**The coincident-face rules are in.** Two faces pressed flush describe one piece
+of surface, so at most one survives and it is the first body's; which operators
+keep it turns on whether the two hold their material on the same side. Same
+side, a join and an intersection keep it and a cut takes the material out from
+under it; back to back, the join buries it in material and the intersection in
+empty space, and the cut leaves the first body's own face standing.
+`Standing::On` carries the *other* body's outward direction for that comparison,
+because where the question is answered only one side of the pair is known.
+
+Refused rather than guessed at, in three places: a body with a curved face in
+it, an edge claimed by other than exactly two faces, and a cavity with more than
+one lump to hang it on.
+
+**Tests.** Hand-computed surface totals for the three operators over a corner
+overlap, read as areas rather than counts because how many pieces a face comes
+apart into is the splitter's business; the same three as volumes off the sewn
+body, every one through the validity check; both flush placements — two bases on
+one plane, and a block standing on the other's far end — where a wrong rule is a
+hole in the skin or four faces on one edge; a body swallowed whole leaving a
+cavity; two blocks apart leaving two lumps; and the registry's own claim, that
+no two vertices of a sewn body stand in one place.
+
+Open: **the document side** — `Feature::Extrude` gains its `Operation`, a step's
+body depends on the one before it, and `Models::solids` becomes the body after
+the last step rather than one per extrude. And **the matrix**, which is what the
+milestone is measured by: for each operator, disjoint, overlapping, one inside
+the other, sharing a face, an edge, a vertex, coincident, with hand-computed
+volumes throughout; plus the boolean identities as property tests — `A∪B = B∪A`,
+`A∪A = A`, `A−(A−B) = A∩B`, `(A∪B)−B = A−B`, and associativity of union over
+three boxes.
 
 ### M5 — boolean over the whole exact tier — **roadmap item 2 delivered**
 

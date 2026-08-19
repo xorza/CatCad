@@ -39,6 +39,30 @@ fn corner() -> Body {
     )
 }
 
+/// The same two-by-two-by-two block, sitting on the ground the cube stands on.
+///
+/// Which puts the two bases on one plane, both with their material above it —
+/// the case [`corner`] is raised a unit to avoid.
+fn flush() -> Body {
+    block(
+        Plane::GROUND,
+        &[(3.0, 3.0), (5.0, 3.0), (5.0, 5.0), (3.0, 5.0)],
+        2.0,
+    )
+}
+
+/// A two-by-two-by-two block standing on the cube's far end.
+///
+/// Which puts one of its faces on one of the cube's the other way up: material
+/// below the plane they share and material above it.
+fn stacked() -> Body {
+    let onto = Plane {
+        origin: Plane::GROUND.origin + Plane::GROUND.normal() * 4.0,
+        ..Plane::GROUND
+    };
+    block(onto, &[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)], 2.0)
+}
+
 /// How much surface a combine kept.
 fn covered(combining: &Combining) -> f64 {
     combining
@@ -166,6 +190,62 @@ fn combining_with_a_body_that_holds_nothing_leaves_the_other_alone() {
     assert!((covered(&combining) - 96.0).abs() < 1e-9);
     assert!(combining.combine(&nothing, &cube, Operation::Cut));
     assert!(covered(&combining).abs() < 1e-9);
+}
+
+/// **Held flush against each other, exactly one of the two faces that meet is
+/// kept** — and whether it is kept at all turns on which side each body holds
+/// its material.
+///
+/// The same corner overlap as above in two placements. Dropped onto the cube's
+/// own base plane, the two bases are one plane with material above both of
+/// them; stood on the cube's far end, the square the two share has material
+/// below it and material above. Surface totals rather than volumes, because
+/// they are what count the shared square: a join keeping both copies of it
+/// reads a unit high and keeping neither reads a unit low, where a sewn body
+/// would only refuse.
+///
+/// Flush, sharing a base — the square covers 1:
+///
+/// - the join keeps `92 + 18 = 110`, the same as the raised block: the square
+///   is on the union's skin and exactly one of the two copies of it is;
+/// - the cut keeps `91 + 5 = 96` — the square is buried on neither side, so the
+///   cube's base gives it up along with the two wall pieces the notch
+///   swallowed, and the notch is left open at the base with two walls and a
+///   roof where the raised block's had two walls, a roof and a floor. That this
+///   comes to the cube's own 96 is arithmetic rather than the cube coming
+///   through untouched: what it gave up and what the tool put back are the
+///   same 5;
+/// - the intersection keeps the notch's own 10, floored now by one body's base
+///   rather than by two.
+///
+/// Face to face, one standing on the other — the square covers 4:
+///
+/// - the join keeps `96 − 4 + 24 − 4 = 112`: neither copy survives, the union
+///   having material on both sides of the square;
+/// - the cut keeps the cube's own 96 whole, the tool standing entirely clear of
+///   its material — which is the placement where dropping both would be wrong;
+/// - the intersection keeps nothing, two solids touching sharing no volume.
+#[test]
+fn two_solids_held_flush_keep_one_of_the_two_faces_that_meet() {
+    let cube = cube();
+    let mut combining = Combining::default();
+    for (placing, tool, wants) in [
+        ("sharing a base", flush(), [96.0, 110.0, 10.0]),
+        ("face to face", stacked(), [96.0, 112.0, 0.0]),
+    ] {
+        let doings = [Operation::Cut, Operation::Join, Operation::Intersect];
+        for (doing, want) in doings.into_iter().zip(wants) {
+            assert!(
+                combining.combine(&cube, &tool, doing),
+                "{placing}, {doing:?}"
+            );
+            let covered = covered(&combining);
+            assert!(
+                (covered - want).abs() < 1e-9,
+                "{placing}, {doing:?} kept {covered} of surface rather than {want}",
+            );
+        }
+    }
 }
 
 /// A body with anything curved in it is refused rather than guessed at.

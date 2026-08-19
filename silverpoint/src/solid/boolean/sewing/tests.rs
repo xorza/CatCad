@@ -36,6 +36,26 @@ fn corner() -> Body {
     )
 }
 
+/// The same block sitting on the ground the cube stands on, so that the two
+/// bases lie on one plane with their material on the same side of it.
+fn flush() -> Body {
+    block(
+        Plane::GROUND,
+        &[(3.0, 3.0), (5.0, 3.0), (5.0, 5.0), (3.0, 5.0)],
+        2.0,
+    )
+}
+
+/// The same block standing on the cube's far end, so that the two faces that
+/// meet hold their material on opposite sides of one plane.
+fn stacked() -> Body {
+    let onto = Plane {
+        origin: Plane::GROUND.origin + Plane::GROUND.normal() * 4.0,
+        ..Plane::GROUND
+    };
+    block(onto, &[(1.0, 1.0), (3.0, 1.0), (3.0, 3.0), (1.0, 3.0)], 2.0)
+}
+
 /// Combine two bodies and sew the answer, or say it would not.
 fn combined(one: &Body, two: &Body, doing: Operation) -> Option<Body> {
     let mut combining = Combining::default();
@@ -114,6 +134,70 @@ fn the_two_bodies_meet_along_edges_they_share_rather_than_edges_they_both_made()
     // And the body knows its own shape: one shell, no cavities, genus nought.
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 0, "{reckoning:?}");
+}
+
+/// **Two solids flush against each other sew into a body all the same**, which
+/// is what the coincident-face rules are for and what nothing before them could
+/// have produced.
+///
+/// The same corner overlap as above, sitting on the cube's own base plane
+/// instead of a unit above it, so the two bases are one plane held from the
+/// same side. The volumes are the ones already hand-computed — the overlap is
+/// the same one-by-one-by-two notch either way — reached down the path where
+/// two faces meet rather than the one where none do.
+///
+/// Every answer goes through the validity check on the way out, which is what
+/// makes this worth asking twice: keeping *neither* of the two faces would
+/// leave the join's base with a hole in it, and keeping *both* would hand the
+/// edges around the square four faces each. Either is a shell that does not
+/// close, and either is a refusal rather than a number.
+#[test]
+fn two_solids_flush_against_each_other_sew_into_a_body_all_the_same() {
+    let (cube, flush) = (cube(), flush());
+    for (doing, want) in [
+        (Operation::Cut, 62.0),
+        (Operation::Join, 70.0),
+        (Operation::Intersect, 2.0),
+    ] {
+        let body = combined(&cube, &flush, doing).unwrap_or_else(|| panic!("{doing:?} refused"));
+        let held = volume(&body);
+        assert!(
+            (held - want).abs() < 1e-9,
+            "{doing:?} shut in {held} rather than {want}",
+        );
+        assert_eq!(body.topology().lumps().count(), 1, "{doing:?}");
+    }
+}
+
+/// **Two solids meeting face to face fuse into one lump**, the surface between
+/// them buried rather than kept.
+///
+/// A block standing on the cube's far end, touching it over a two-by-two square
+/// and sharing no volume at all. The join is the case that says the rule is
+/// right: were either copy of that square kept, the answer would be two lumps
+/// with a membrane between them rather than one solid of `64 + 8`, and the
+/// walk that gathers a shell would never cross from one to the other.
+#[test]
+fn two_solids_meeting_face_to_face_fuse_into_one_lump() {
+    let (cube, stacked) = (cube(), stacked());
+
+    let joined = combined(&cube, &stacked, Operation::Join).expect("two blocks stacked");
+    let held = volume(&joined);
+    assert!((held - 72.0).abs() < 1e-9, "the join shut in {held}");
+    assert_eq!(joined.topology().lumps().count(), 1, "stacked, not fused");
+
+    // A cut takes nothing away, the tool standing entirely off the far end, and
+    // what comes back is the cube — in more pieces than it went in as, and
+    // shutting in what it always did.
+    let cut = combined(&cube, &stacked, Operation::Cut).expect("a cut that cuts nothing");
+    let held = volume(&cut);
+    assert!((held - 64.0).abs() < 1e-9, "the cut shut in {held}");
+    let reckoning = cut.reckoning();
+    assert_eq!(reckoning.genus, 0, "{reckoning:?}");
+
+    // And touching is not overlapping: they share no volume to intersect.
+    let empty = combined(&cube, &stacked, Operation::Intersect).expect("nothing in common");
+    assert!(empty.is_empty(), "two blocks touching share a volume");
 }
 
 /// **A body swallowed whole leaves a cavity**, which is the one case a boolean

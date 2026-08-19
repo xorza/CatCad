@@ -41,6 +41,10 @@ struct Join {
     /// The faces that have claimed it. Exactly two by the end, or the regions
     /// did not close and there is no body to be had.
     between: [Option<FaceId>; 2],
+    /// How many have claimed it, which is not how many are recorded above: a
+    /// third face reaching for an edge two already share has nowhere to be put
+    /// and is exactly the failure this counts.
+    claims: usize,
 }
 
 /// One step of one loop: the edge it walks and which way.
@@ -224,9 +228,7 @@ impl Sewing {
                 }
             }
         }
-        self.joins
-            .iter()
-            .all(|join| join.between.iter().all(Option::is_some))
+        self.joins.iter().all(|join| join.claims == 2)
     }
 
     /// Claim the edge between `ends` for `face`, finding it or starting it.
@@ -239,6 +241,7 @@ impl Sewing {
             self.joins.push(Join {
                 ends,
                 between: [Some(face), None],
+                claims: 1,
             });
             return Step {
                 join: self.joins.len() - 1,
@@ -247,7 +250,9 @@ impl Sewing {
         };
         // A third face reaching for an edge two already share is a body that
         // will not close, and [`Sewing::join`] is what says so — the claim is
-        // still recorded, so the count it reads is the true one.
+        // counted whether or not there is room to record it, so the number it
+        // reads is the true one.
+        self.joins[join].claims += 1;
         if self.joins[join].between[1].is_none() {
             self.joins[join].between[1] = Some(face);
         }
