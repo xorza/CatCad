@@ -189,13 +189,7 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
 #[test]
 fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
     let mut raised = Raised::new();
-    let rings = |app: &CatCad| {
-        app.document
-            .drawing_at(app.editing())
-            .sketch()
-            .circles()
-            .count()
-    };
+    let rings = |app: &CatCad| app.document.drawn(app.editing()).sketch().circles().count();
     let before = rings(&raised.app);
 
     let plane = raised.drawing().plane();
@@ -290,7 +284,7 @@ fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
     );
     let open = raised.app.session.prompt().expect("the form is open");
     assert_eq!(
-        open.typed(0),
+        open.value(0),
         None,
         "nobody has typed, so nobody is driving"
     );
@@ -304,7 +298,7 @@ fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
     raised.harness.type_text("5");
     raised.frame();
     assert_eq!(
-        raised.app.session.prompt().and_then(|open| open.typed(0)),
+        raised.app.session.prompt().and_then(|open| open.value(0)),
         Some(5.0)
     );
     let elsewhere = raised.cursor_on(plane.point(DVec2::new(3.0, 2.5)).as_vec3());
@@ -338,7 +332,7 @@ fn the_radius_offer_hands_the_dimension_tool_a_circle_to_place() {
     let sketch = raised.app.editing();
     // One the drawing does not already hold to a size — a circle whose radius
     // is stated admits no second one, and the demo draws one of each.
-    let drawing = raised.app.document.drawing_at(sketch);
+    let drawing = raised.app.document.drawn(sketch);
     let held_to = |circle| {
         drawing.sketch().constraints().any(|(_, held)| {
             matches!(held, silverpoint::Constraint::Radius { circle: at, .. } if at == circle)
@@ -358,7 +352,7 @@ fn the_radius_offer_hands_the_dimension_tool_a_circle_to_place() {
 
     let radii = |app: &CatCad| {
         app.document
-            .drawing_at(sketch)
+            .drawn(sketch)
             .sketch()
             .constraints()
             .filter(|(_, held)| matches!(held, silverpoint::Constraint::Radius { .. }))
@@ -394,7 +388,7 @@ fn the_radius_offer_hands_the_dimension_tool_a_circle_to_place() {
     );
 
     // Clear of the circle, which for a radius says only where the number sits.
-    let plane = raised.app.document.drawing_at(sketch).plane();
+    let plane = raised.app.document.drawn(sketch).plane();
     let out = raised.cursor_on(plane.point(DVec2::new(8.0, 8.0)).as_vec3());
     raised.harness.move_to(out);
     raised.frame();
@@ -411,7 +405,7 @@ fn the_radius_offer_hands_the_dimension_tool_a_circle_to_place() {
     // and where the circle settled. The circle alone would pass for a radius
     // stated at zero that never converged, and the number alone for one the
     // solver ignored.
-    let drawn = raised.app.document.drawing_at(sketch);
+    let drawn = raised.app.document.drawn(sketch);
     // Exactly one, because this circle is the one the demo left unheld and the
     // count above says a single radius was added.
     let (_, stated) = drawn

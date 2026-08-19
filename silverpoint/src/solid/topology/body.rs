@@ -80,7 +80,7 @@ impl Body {
     /// What a rebuild does before it fills one, so that a solid redrawn as the
     /// drawing moves under it reaches the heap once rather than every frame.
     /// Every handle minted before this stops resolving — see
-    /// [`Topology::clear`](crate::solid::topology::Topology).
+    /// `Topology::clear`, which this is the public half of.
     pub fn clear(&mut self) {
         self.topology.clear();
         self.names.clear();

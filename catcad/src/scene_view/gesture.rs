@@ -153,7 +153,7 @@ impl Held {
         // a datum, a solid's far end and a depth being decided are none of them
         // the open sketch's — see [`Grabbed`]. Only the two arms that *are* read
         // a drawing, and neither is reachable without one.
-        let drawing = session.editing().map(|at| document.drawing_at(at));
+        let drawing = session.editing().and_then(|at| document.drawing_at(at));
         let grabbed = Grabbed::under(part, hit.at, drawing, document, session)?;
         let motion = grabbed.motion(drawing, hit.world);
         let carried = grabbed.carried(hit.world, drawing, picture, lens);
@@ -297,7 +297,7 @@ impl Grabbed {
             Part::Growing => {
                 let carrying = session.prompt().and_then(Prompt::carrying)?;
                 Grabbed::Growing {
-                    along: Along::on(document.drawing_at(carrying.sketch).plane()),
+                    along: Along::on(document.drawing_at(carrying.sketch)?.plane()),
                     depth: carrying.depth,
                 }
             }

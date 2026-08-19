@@ -11,7 +11,7 @@ use aperture::Projection;
 /// A panel that floats on the view rather than boxing part of it off, pinned to
 /// `align`.
 ///
-/// Salted rather than left to `auto_id`, for the reason [`Hud::tool`] is:
+/// Salted rather than left to `auto_id`, for the reason [`Hud::tool`](super::Hud) is:
 /// `auto_id` reads the line it is written on, so one called here would hand
 /// every panel built from this recipe the same id.
 pub(super) fn floating(panel: Panel, salt: &str, align: Align) -> Panel {

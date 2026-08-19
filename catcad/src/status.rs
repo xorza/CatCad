@@ -36,6 +36,15 @@ pub(crate) struct Status<'a> {
     /// feature that has lost its footing says nothing until someone asks it to
     /// build. See [`Models::lost`](crate::model::Models::lost).
     pub(crate) lost: usize,
+    /// How many solids the kernel would not put into the model.
+    ///
+    /// Beside the count above rather than folded into it, because a person does
+    /// something different about each: a lost profile is the drawing having
+    /// moved out from under a step, and this is a boolean the kernel cannot do
+    /// yet — the solid is on screen and whole, standing apart from the rest of
+    /// the model instead of joined into it. See
+    /// [`Models::unmerged`](crate::model::Models::unmerged).
+    pub(crate) unmerged: usize,
     pub(crate) hovered: Option<Part>,
     /// What the last cleanup took out, where that was the last thing done.
     ///
@@ -47,7 +56,7 @@ pub(crate) struct Status<'a> {
     /// Whether the document has been changed since it was last written.
     pub(crate) unsaved: bool,
     /// What the last thing asked of the filing came to, where anything has
-    /// been. Already a sentence — see [`Filing::report`] — because there is
+    /// been. Already a sentence — see [`Filing::report`](crate::filing::Filing::report) — because there is
     /// nothing here that could word one: a path is not a number and this line
     /// is built sixty times a second.
     pub(crate) filed: Option<&'a str>,
@@ -132,6 +141,16 @@ impl fmt::Display for Status<'_> {
                 f.write_str("s")?;
             }
             f.write_str(" lost")?;
+        }
+        if self.unmerged > 0 {
+            // Named for the solid rather than for the step, like the clause
+            // above: what a person sees is a solid standing apart from the
+            // rest, and the step it came from is intact.
+            write!(f, " · {} solid", self.unmerged)?;
+            if self.unmerged != 1 {
+                f.write_str("s")?;
+            }
+            f.write_str(" not merged")?;
         }
         if self.unsaved {
             f.write_str(" · unsaved")?;

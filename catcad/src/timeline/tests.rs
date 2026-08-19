@@ -126,12 +126,12 @@ fn a_sketch_lands_where_its_plane_says_and_stores_none_of_it() {
     // The ground's own axes are world +X and −Z, so (3, 4) on it is (3, 0, −4).
     assert_eq!(timeline.plane_of(at), Plane::GROUND);
     assert_eq!(
-        timeline.drawing(at).at(Anchor::On(corner)),
+        timeline.drawn(at).at(Anchor::On(corner)),
         Vec3::new(3.0, 0.0, -4.0)
     );
     // And the sketch itself holds the flat pair it was given, unchanged.
     assert_eq!(
-        timeline.drawing(at).sketch().point(corner).position,
+        timeline.drawn(at).sketch().point(corner).position,
         DVec2::new(3.0, 4.0)
     );
 }
@@ -330,7 +330,7 @@ fn an_edit_through_the_timeline_reaches_the_sketch_it_names() {
 
     // Reached rather than written: a drag pulls toward the cursor through the
     // constraints, so it arrives to the solver's tolerance.
-    let landed = timeline.drawing(at).sketch().point(b).position;
+    let landed = timeline.drawn(at).sketch().point(b).position;
     assert!(
         (landed - DVec2::new(5.0, 0.0)).length() < 1e-7,
         "{landed:?}"

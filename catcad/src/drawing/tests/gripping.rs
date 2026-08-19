@@ -70,7 +70,7 @@ fn a_grip_reads_both_what_was_hit_and_where_on_it() {
     let hole = sketch.add_circle(hub, 1.0);
     sketch.fix(pinned);
     let timeline = Timeline::of(sketch);
-    let drawing = timeline.drawing(timeline.first_sketch());
+    let drawing = timeline.drawn(timeline.first_sketch());
 
     assert_eq!(
         drawing.grip(Entity::Point(free), HitAt::Point),
@@ -170,10 +170,10 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
         "{:?}",
         build.settled(at).outcome()
     );
-    let circle = timeline.drawing(at).sketch().circle(hole);
+    let circle = timeline.drawn(at).sketch().circle(hole);
     assert!((circle.radius - 5.0).abs() < 1e-9, "{}", circle.radius);
     assert_eq!(
-        timeline.drawing(at).sketch().point(hub).position,
+        timeline.drawn(at).sketch().point(hub).position,
         DVec2::new(1.0, 2.0),
         "resizing walked the circle"
     );
@@ -182,7 +182,7 @@ fn dragging_a_rim_drives_the_radius_and_holds_the_centre() {
     timeline
         .edit(at)
         .drag_to(&mut build, Grip::Rim(hole), on(plane, DVec2::new(3.0, 2.0)));
-    assert!((timeline.drawing(at).sketch().circle(hole).radius - 2.0).abs() < 1e-9);
+    assert!((timeline.drawn(at).sketch().circle(hole).radius - 2.0).abs() < 1e-9);
 }
 
 /// A rewrite renames the drawing from scratch, so the tags have to come out

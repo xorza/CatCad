@@ -586,18 +586,6 @@ impl Timeline {
         self.feature_mut(at).clone_from(was);
     }
 
-    /// The sketch `at` names, and the plane it lies on.
-    ///
-    /// Panics where `at` names anything else, which is what every caller of
-    /// this one wants: each of them names the sketch it is working *in*, so a
-    /// handle to something that is not one is a mistake in the caller rather
-    /// than a state to report. A caller that is asking rather than telling
-    /// wants [`Timeline::sketched`].
-    pub(crate) fn drawing(&self, at: FeatureId) -> Drawing<'_> {
-        self.sketched(at)
-            .unwrap_or_else(|| wrong_kind(at, "a sketch", self.feature(at)))
-    }
-
     /// The same, where there may be nothing of the kind there to read.
     ///
     /// What [`Models::at`](crate::model::Models::at) asks, being the one caller
@@ -853,6 +841,7 @@ impl From<Step> for FeatureId {
 /// shape in files that are not testing it.
 #[cfg(any(test, feature = "internals"))]
 mod internals {
+    use crate::drawing::Drawing;
     #[cfg(test)]
     use crate::timeline::feature::{Datum, Feature, World};
     use crate::timeline::{FeatureId, Timeline};
@@ -860,6 +849,19 @@ mod internals {
     use silverpoint::Sketch;
 
     impl Timeline {
+        /// The sketch at `at`, which a fixture knows is there.
+        ///
+        /// [`Timeline::sketched`] with the answer unwrapped. That one is an
+        /// `Option` because a handle to a sketch outlives the edits that can
+        /// take it away — see [`Models::new`](crate::model::Models) — and a
+        /// fixture naming a step it just made is in no such position. One
+        /// helper rather than the same `expect` written at forty call sites,
+        /// and the message says which assumption broke.
+        pub(crate) fn drawn(&self, at: FeatureId) -> Drawing<'_> {
+            self.sketched(at)
+                .expect("a fixture names a sketch the timeline holds")
+        }
+
         /// The first sketch it holds.
         ///
         /// A fixture's reading and no longer the application's: a document is

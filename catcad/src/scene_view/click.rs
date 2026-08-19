@@ -97,10 +97,15 @@ pub(super) fn clicked(click: Click, document: &Document, session: &Session, inte
     // sketch for a click to build in and every click is the pointer's — which
     // is [`picking`], the same answer the last arm below reaches. See
     // [`Session::editing`](crate::session::Session).
-    let Some(sketch) = session.editing() else {
+    // A handle the document no longer holds answers the same way, and has to:
+    // an undo can take the step out from under whoever was inside it, and the
+    // session is not pruned until later in the frame.
+    let Some((sketch, drawing)) = session
+        .editing()
+        .and_then(|at| Some((at, document.drawing_at(at)?)))
+    else {
         return picking(adding, under, intents);
     };
-    let drawing = document.drawing_at(sketch);
     match (session.tool(), anchor(at, sketch, under)) {
         // One click. On a point already there it adds nothing, and the drawing
         // comes out of it unchanged.
@@ -286,7 +291,7 @@ pub(super) fn dimension(part: Part, document: &Document) -> Option<Opening> {
         return None;
     };
     let from = document
-        .drawing_at(sketch)
+        .drawing_at(sketch)?
         .sketch()
         .constraint(id)
         .value()?;

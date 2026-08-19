@@ -296,7 +296,7 @@ fn what_is_drawn_on_a_face_takes_the_click_over_it() {
 fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
     let raised = RaisedView::new();
     let sketch = raised.editing();
-    let drawing = raised.document.drawing_at(sketch);
+    let drawing = raised.document.drawn(sketch);
 
     let mut dimensions = 0;
     let mut relations = 0;
@@ -508,7 +508,7 @@ fn a_tool_in_hand_refuses_to_take_hold_of_a_dimension() {
     let sketch = raised.editing();
     let (id, _) = raised
         .document
-        .drawing_at(sketch)
+        .drawn(sketch)
         .sketch()
         .constraints()
         .find(|(_, c)| c.value().is_some())
@@ -517,7 +517,7 @@ fn a_tool_in_hand_refuses_to_take_hold_of_a_dimension() {
         sketch,
         entity: id.into(),
     };
-    let drawing = raised.document.drawing_at(sketch);
+    let drawing = raised.document.drawn(sketch);
 
     // With the pointer, that number is a handle.
     assert_eq!(

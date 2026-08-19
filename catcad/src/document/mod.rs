@@ -283,8 +283,8 @@ impl Document {
     /// Named rather than implied. A document holds several and every reader
     /// wants a particular one — which is the one open, and that is the
     /// session's to say.
-    pub(crate) fn drawing_at(&self, at: FeatureId) -> Drawing<'_> {
-        self.timeline.drawing(at)
+    pub(crate) fn drawing_at(&self, at: FeatureId) -> Option<Drawing<'_>> {
+        self.timeline.sketched(at)
     }
 
     /// The plane at `at` as something that can be moved, or `None` where it is
@@ -432,7 +432,7 @@ impl Document {
     ///
     /// One of exactly four ways a document changes, and the only one anybody
     /// *asks* for. [`Document::restore`] is what the history puts back, and
-    /// [`Document::take_back`] and [`Document::put_again`] are how it undoes and
+    /// [`Document::pulled`] and [`Document::put_again`] are how it undoes and
     /// redoes a step being added — which this call is what performs, since a
     /// creation is asked for like anything else and only its *recording* is
     /// special. Everything else a document hands out is `&self`.
@@ -679,11 +679,25 @@ pub(crate) mod internals {
     use crate::document::Document;
     #[cfg(test)]
     use crate::document::Edits;
+    use crate::drawing::Drawing;
     use crate::timeline::FeatureId;
     use aperture::Camera;
     use glam::Vec3;
 
     impl Document {
+        /// The sketch at `at`, which a fixture knows is there.
+        ///
+        /// [`Document::drawing_at`] with the answer unwrapped. That one is an
+        /// `Option` because a handle to the sketch being edited outlives the
+        /// edits that can take it away — see
+        /// [`Models::new`](crate::model::Models) — and a fixture naming a step
+        /// it just made is in no such position. One helper rather than the same
+        /// `expect` written at forty call sites, and the message says which
+        /// assumption broke.
+        pub(crate) fn drawn(&self, at: FeatureId) -> Drawing<'_> {
+            self.timeline.drawn(at)
+        }
+
         /// The first sketch the timeline holds, which is the one every fixture
         /// here is about.
         ///
@@ -744,7 +758,7 @@ pub(crate) mod internals {
         /// named a point three sketches over, and the bench's dragging step
         /// spent a release measuring a gesture that never solved.
         pub(crate) fn wrist(&self, sketch: FeatureId) -> Vec3 {
-            let drawing = self.drawing_at(sketch);
+            let drawing = self.drawn(sketch);
             let (_, wrist) = drawing
                 .sketch()
                 .points()
@@ -769,7 +783,7 @@ pub(crate) mod internals {
         /// [`wrist`]: Document::wrist
         #[cfg(test)]
         pub(crate) fn empty_spot(&self, sketch: FeatureId) -> Vec3 {
-            self.drawing_at(sketch)
+            self.drawn(sketch)
                 .plane()
                 .point(glam::DVec2::new(-1.5, 2.5))
                 .as_vec3()

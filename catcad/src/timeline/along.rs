@@ -6,7 +6,7 @@ use silverpoint::Plane;
 
 /// The line a number travels along, and the base it is measured off.
 ///
-/// Apart from [`Movable`] because it is the half that has nothing to do with
+/// Apart from [`Movable`](crate::timeline::Movable) because it is the half that has nothing to do with
 /// the timeline: a plane, and two answers given in its frame. What a *step* is
 /// being moved is the other half, and there is a number here that belongs to no
 /// step at all — the depth of a solid still being decided, which is drawn from a

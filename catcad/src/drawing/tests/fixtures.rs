@@ -52,7 +52,7 @@ impl Linkage {
 
     /// The sketch and its plane, as a reader of the drawing wants them.
     pub(super) fn drawing(&self) -> Drawing<'_> {
-        self.timeline.drawing(self.timeline.first_sketch())
+        self.timeline.drawn(self.timeline.first_sketch())
     }
 
     /// The two halves as a reader of the model wants them.

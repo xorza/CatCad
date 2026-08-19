@@ -39,7 +39,7 @@ impl Raised {
     /// where. Its own call because reaching it is three fields and a handle, and
     /// spelling that out is a paragraph wherever a test wants a line.
     pub(super) fn drawing(&self) -> Drawing<'_> {
-        self.app.document.drawing_at(self.app.editing())
+        self.app.document.drawn(self.app.editing())
     }
 
     pub(super) fn new() -> Self {
@@ -232,7 +232,7 @@ impl Raised {
     /// on — see [`Placed`](crate::paint::marks::Placed).
     fn a_dimension_set(&self, wanted: impl Fn(DVec2) -> bool) -> Option<Stated> {
         let sketch = self.app.editing();
-        let drawing = self.app.document.drawing_at(sketch);
+        let drawing = self.app.document.drawn(sketch);
         drawing.sketch().constraints().find_map(|(id, constraint)| {
             let value = constraint.value()?;
             wanted(self.app.view.marked(id)?.along).then_some(Stated {

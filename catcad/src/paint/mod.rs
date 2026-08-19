@@ -451,7 +451,7 @@ pub(crate) const DECIMALS: usize = 2;
 
 /// The mark a relation is drawn as.
 ///
-/// Read off [`wording`](crate::wording), which is where a relation's word and
+/// Read off [`wording`], which is where a relation's word and
 /// its mark are stated together — the bar captions what this draws, and the two
 /// were a table apiece.
 ///

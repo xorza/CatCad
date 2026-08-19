@@ -407,7 +407,7 @@ fn saving_compacts_the_holes_an_edit_left() {
     );
 
     let reopened = read(&text);
-    let drawing = reopened.drawing(reopened.first_sketch());
+    let drawing = reopened.drawn(reopened.first_sketch());
     let sketch = drawing.sketch();
     let points: Vec<DVec2> = sketch.points().map(|(_, point)| point.position).collect();
     assert_eq!(points, [DVec2::new(1.0, 1.0), DVec2::new(3.0, 3.0)]);

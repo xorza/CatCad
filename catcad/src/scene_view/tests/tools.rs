@@ -249,14 +249,20 @@ fn a_point_clicked_near_an_edge_moves_itself_onto_it_and_not_the_edge() {
 
     // Three pixels off the middle of it, square to it on screen: near enough to
     // light, and nowhere near on it.
+    //
+    // **Either side, whichever is clear.** A dimension's number is drawn to one
+    // side of what it measures and is a target like anything else, so a cursor
+    // fixed to one side lands on the number about as often as on the bar — see
+    // [`Picture::labels_reach`](crate::scene_view::picture::Picture), which is
+    // what gave the marks boxes in this harness and what makes that true here
+    // rather than only in the application.
     let on_screen = ends.map(|end| raised.cursor_on(plane.point(end).as_vec3()));
     let across = (on_screen[1] - on_screen[0]).normalize().perp();
-    let cursor = (on_screen[0] + on_screen[1]) / 2.0 + across * 3.0;
-    assert_eq!(
-        raised.named_at(cursor),
-        Some(Entity::Segment(edge)),
-        "the cursor did not land near the bar it was aimed at"
-    );
+    let middle = (on_screen[0] + on_screen[1]) / 2.0;
+    let cursor = [middle + across * 3.0, middle - across * 3.0]
+        .into_iter()
+        .find(|&at| raised.named_at(at) == Some(Entity::Segment(edge)))
+        .expect("neither side of the bar was clear of what is drawn over it");
 
     raised.hold(Tool::Point);
     raised.harness.click_at(cursor);
@@ -386,20 +392,14 @@ fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
     let mut raised = RaisedView::new();
     raised.frame();
     let sketch = raised.editing();
-    let relations = |raised: &RaisedView| {
-        raised
-            .document
-            .drawing_at(sketch)
-            .sketch()
-            .constraints()
-            .count()
-    };
+    let relations =
+        |raised: &RaisedView| raised.document.drawn(sketch).sketch().constraints().count();
     let stated = relations(&raised);
 
     // Two points of the open sketch, far enough apart that every reading of
     // them measures something.
     let places = {
-        let drawing = raised.document.drawing_at(sketch);
+        let drawing = raised.document.drawn(sketch);
         let mut points = drawing.sketch().points();
         let (_, first) = points.next().expect("the demo draws points");
         let (_, second) = points
@@ -439,7 +439,7 @@ fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
     // stood — so the reading the pointer asks for is the one the number lands
     // as, rather than whichever the tool would have chosen anyway.
     let midpoint = places[0].midpoint(places[1]);
-    let plane = raised.document.drawing_at(sketch).plane();
+    let plane = raised.document.drawn(sketch).plane();
     let out = midpoint + (plane.x * 6.0).as_vec3();
     raised.harness.move_to(raised.cursor_on(out));
     raised.frame();
@@ -461,7 +461,7 @@ fn the_dimension_tool_states_the_distance_its_preview_was_showing() {
     // and where its number went.
     let (_, landed) = raised
         .document
-        .drawing_at(sketch)
+        .drawn(sketch)
         .sketch()
         .constraints()
         .last()
@@ -513,7 +513,7 @@ fn placing_a_number_moves_it_and_settles_nothing() {
     let sketch = raised.editing();
     let (constraint, _) = raised
         .document
-        .drawing_at(sketch)
+        .drawn(sketch)
         .sketch()
         .constraints()
         .find(|(_, constraint)| constraint.value().is_some())
@@ -522,7 +522,7 @@ fn placing_a_number_moves_it_and_settles_nothing() {
     let drawn = open_markers(&raised);
     let stated: Vec<Option<f64>> = raised
         .document
-        .drawing_at(sketch)
+        .drawn(sketch)
         .sketch()
         .constraints()
         .map(|(_, constraint)| constraint.value())
@@ -531,7 +531,7 @@ fn placing_a_number_moves_it_and_settles_nothing() {
 
     // Somewhere the number is plainly not, and off both of the frame's axes so a
     // placement that dropped a component would land short of it.
-    let plane = raised.document.drawing_at(sketch).plane();
+    let plane = raised.document.drawn(sketch).plane();
     let put = plane.point(DVec2::new(-3.25, 4.75)).as_vec3();
     let mut intents = Intents::default();
     intents.push(Change::Place {
@@ -545,7 +545,7 @@ fn placing_a_number_moves_it_and_settles_nothing() {
 
     // The number is where it was put, read back through the drawing rather than
     // through anything this test worked out.
-    let drawing = raised.document.drawing_at(sketch);
+    let drawing = raised.document.drawn(sketch);
     let label = Measurement::of(drawing.sketch(), drawing.sketch().constraint(constraint))
         .expect("a dimension has a measurement")
         .label;
@@ -570,7 +570,7 @@ fn placing_a_number_moves_it_and_settles_nothing() {
     assert_eq!(
         raised
             .document
-            .drawing_at(sketch)
+            .drawn(sketch)
             .sketch()
             .constraints()
             .map(|(_, constraint)| constraint.value())

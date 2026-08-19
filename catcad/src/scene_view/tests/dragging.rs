@@ -8,6 +8,7 @@ use crate::scene_view::tests::harness::{RaisedView, open_markers, unmoved};
 use crate::timeline::feature::Feature;
 use aperture::Motion;
 use glam::{DVec2, Vec2};
+use silverpoint::Measurement;
 
 /// Pressing on something and moving takes it with the pointer, and leaves the
 /// camera alone.
@@ -414,5 +415,71 @@ fn a_drag_keeps_naming_what_it_holds_rather_than_what_it_passes_over() {
     assert!(
         after.is_some() && after != Some(held),
         "after the drag the pointer reported {after:?} rather than what it now sits on"
+    );
+}
+
+/// **A dimension's number can be pressed and dragged**, which is the one thing
+/// on screen that could not be asked about at all before the labels in this
+/// harness had boxes.
+///
+/// A mark is not geometry: it has no grip, it is found through its *text*, and
+/// the box that text is picked against is filled by the pass that lays its
+/// glyphs out — see [`Picture::labels_reach`](crate::scene_view::picture::Picture).
+/// This harness records and never rasterizes, so every mark on screen used to
+/// be unreachable and every sweep for one silently found nothing. The gap did
+/// not show as a failing test; it showed as no test.
+///
+/// Two halves, and both are needed. That a press *finds* one is the pick, and
+/// it is what a missing box breaks. That dragging it *moves the mark and not
+/// the geometry* is what a dimension's number is for: a figure is placed on the
+/// sketch's own plane, so carrying it restates where the number sits and says
+/// nothing about what it measures.
+#[test]
+fn a_dimensions_number_is_pressed_and_carried_without_moving_what_it_measures() {
+    let mut raised = RaisedView::new();
+    raised.frame();
+
+    let cursor = raised
+        .over_mark()
+        .expect("no cursor found a dimension's number to take hold of");
+    raised.harness.move_to(cursor);
+    raised.frame();
+    let before = raised.markers();
+    // Where every number currently sits, in the sketch's own coordinates.
+    let labels = |raised: &RaisedView| -> Vec<DVec2> {
+        let drawing = raised.drawing();
+        drawing
+            .sketch()
+            .constraints()
+            .filter_map(|(_, constraint)| Measurement::of(drawing.sketch(), constraint))
+            .map(|measured| measured.label)
+            .collect()
+    };
+    let placed = labels(&raised);
+    assert!(!placed.is_empty(), "the demo states no dimension");
+
+    raised.harness.press_at(cursor);
+    raised.frame();
+    raised.harness.drag_to(cursor + Vec2::new(30.0, 20.0));
+    raised.frame();
+    raised.harness.release();
+    raised.frame();
+
+    // The geometry stayed exactly where it was: a figure is where the number is
+    // written, not what it states.
+    assert!(
+        unmoved(&raised.markers(), &before),
+        "carrying a dimension's number moved the drawing under it"
+    );
+    // And one number travelled, which is what says the press took hold of the
+    // mark rather than falling through to the camera.
+    let carried = labels(&raised);
+    assert_eq!(carried.len(), placed.len(), "a dimension went missing");
+    assert!(
+        carried
+            .iter()
+            .zip(&placed)
+            .any(|(now, was)| now.distance(*was) > 1e-6),
+        "the press found a number and carried none of them",
     );
 }

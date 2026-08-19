@@ -279,7 +279,7 @@ mod tests {
         // so the region it encloses is a different shape at the same position in
         // the same sketch — everything a cut is keyed on but the revision.
         let far = document
-            .drawing_at(here)
+            .drawn(here)
             .sketch()
             .points()
             .nth(2)

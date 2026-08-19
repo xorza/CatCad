@@ -368,7 +368,7 @@ impl Build {
     /// every edit — so an extrude with no answer here is one nothing has
     /// replayed, which is a mistake in whatever raised the document rather than
     /// a state a reader has to handle. That the build *failed* is a different
-    /// thing and a fair answer: see [`Built`].
+    /// thing and a fair answer: see [`Built`](crate::build::bodied::Built).
     pub(crate) fn bodied(&self, of: FeatureId) -> &Bodied {
         filed_under(&self.bodied, of, Bodied::of, UNBUILT)
     }
@@ -402,7 +402,7 @@ impl Build {
 ///
 /// A free function over the slice rather than a method on [`Build`], because one
 /// caller has the build taken apart to write one of its fields while reading
-/// another — see [`Build::remodel`] — and cannot borrow the whole of one.
+/// another — see [`Build::rebuild`] — and cannot borrow the whole of one.
 ///
 /// `key` is a closure rather than a trait over the two entry types: one method
 /// apiece is not a trait's worth of agreement between them.

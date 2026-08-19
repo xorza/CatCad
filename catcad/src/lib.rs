@@ -543,6 +543,7 @@ impl CatCad {
                 }
             }),
             lost: models.lost(),
+            unmerged: models.unmerged(),
             hovered: self.view.hovered(),
             cleaned: self.build.cleaned(),
             unsaved: self.filing.unsaved(self.document.edits()),

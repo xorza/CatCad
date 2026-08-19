@@ -167,7 +167,7 @@ impl Pointing {
         // plane seen edge-on already answers: there is no plane for a click to
         // mean a place on. What can still be done without one — orbiting,
         // picking out, dragging a datum — asks the picture rather than the ray.
-        let drawing = sketch.map(|at| document.drawing_at(at));
+        let drawing = sketch.and_then(|at| document.drawing_at(at));
         let landing = drawing.and_then(|drawing| aimed::landing(aimed, lens, drawing.motion()));
 
         // The press settles which gesture this is, before any travel has
@@ -476,7 +476,7 @@ fn previewing(
     let drawing = drawing?;
     let tool = session.tool();
     let asking = session.prompt();
-    let typed = asking.and_then(|open| open.typed(0));
+    let typed = asking.and_then(|open| open.value(0));
     // The dimension being placed, which is a preview of a different kind: every
     // other band is two world places, and this is the whole relation the next
     // click states — see [`Preview::Dimension`].

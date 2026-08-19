@@ -423,7 +423,7 @@ impl Builder {
     /// Each is wound counterclockwise about its own face's outward normal, an
     /// outline and its holes opposite ways round. That one rule is what makes
     /// every edge come out walked once each way — which is exactly what
-    /// [`Body::check`] asks, so getting it wrong is loud rather than subtle.
+    /// `Body::check` asks, so getting it wrong is loud rather than subtle.
     ///
     /// A face at a time rather than a loop at a time, because a face keeps the
     /// *stretch* of the body's buffer its loops occupy, and a stretch has to be

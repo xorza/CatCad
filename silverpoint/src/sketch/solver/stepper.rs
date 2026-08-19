@@ -14,7 +14,7 @@
 //! pair of parameters some equation names together, and the Cholesky it is
 //! handed reads it by index. What that matrix *is* sparse in is how far from the
 //! diagonal a row reaches, which is spent as an envelope rather than as a list —
-//! see [`solve_in_place`](crate::math::dense::solve_in_place).
+//! see [`solve_in_place`].
 //!
 //! A drag adds `w·(p − t)` per driven parameter to that same objective — see
 //! [`Pull`]. One equation in one parameter apiece, so they need no rows of their
@@ -112,7 +112,7 @@ pub(super) struct Stepper {
     step: Vec<f64>,
     /// How far left each row of the normal equations reaches, which is what the
     /// factorisation is spared walking — see
-    /// [`solve_in_place`](crate::math::dense::solve_in_place).
+    /// [`solve_in_place`].
     ///
     /// Taken off the rows as they are folded in rather than found by scanning
     /// the matrix afterwards: the walk that fills a cell is the walk that knows

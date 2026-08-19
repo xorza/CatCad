@@ -381,7 +381,7 @@ pub(super) fn texts(
 /// +x and takes its depth from it, so the plane can hide it and turning the
 /// model turns it. The two rules that keep a laid run legible — the mirror that
 /// answers a camera behind the plane, and the half turn that keeps it upright —
-/// are [`Turn`](aperture::Turn)'s own, so nothing here has to know where the eye
+/// are [`Turn`]'s own, so nothing here has to know where the eye
 /// is.
 ///
 /// **Inside the top-left corner of the plane's square**, running along that

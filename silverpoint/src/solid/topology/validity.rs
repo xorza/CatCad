@@ -15,7 +15,7 @@ use crate::solid::topology::shell::ShellId;
 /// path a drag runs is every frame. Held, they cost nothing after the first
 /// body; stood up per call they would be the only thing on that path reaching
 /// the heap. A [`Builder`](crate::Builder) keeps one, and a test that reaches
-/// for [`Body::check`] makes a throwaway.
+/// for `Body::check` makes a throwaway.
 ///
 /// Everything here is indexed by arena slot rather than hashed. A slot is what
 /// a handle already carries, so a side table costs a vector and an index where

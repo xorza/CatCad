@@ -355,6 +355,7 @@ mod internals {
             let sketch = document.first_sketch();
             let (entity, _) = document
                 .drawing_at(sketch)
+                .expect("a document is raised on a sketch")
                 .sketch()
                 .points()
                 .next()

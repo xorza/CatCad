@@ -4,7 +4,7 @@ use crate::document::Document;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
 use crate::intent::change::Change;
-use crate::model::Models;
+use crate::model::{Broken, Models};
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
 use glam::{DVec2, Vec3};
@@ -190,7 +190,13 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
             "a solid standing alone holds a face another step grew",
         );
     }
-    assert_eq!(models.lost(), 1, "the refusal went unreported");
+    // Reported as what it is. A refusal is not a lost profile — both profiles
+    // are intact and still name their rings — and the two are counted apart so
+    // the status line can say which happened.
+    assert_eq!(models.unmerged(), 1, "the refusal went unreported");
+    assert_eq!(models.lost(), 0, "a refusal was counted as a lost profile");
+    assert_eq!(models.broken_at(second), Some(Broken::Unmerged));
+    assert_eq!(models.broken_at(first), None);
 }
 
 /// **A profile holds while the geometry moves, and is lost when the region is
@@ -221,7 +227,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     let mut build = Build::default();
     timeline.edit(drawn).opened(&mut build);
     let corner = timeline
-        .drawing(drawn)
+        .drawn(drawn)
         .sketch()
         .points()
         .next()
@@ -414,7 +420,7 @@ fn two_sketches_settle_into_two_answers_that_do_not_overwrite_each_other() {
     // ends no edge is still free, and one of its two freedoms went with the
     // edge that named it.
     let edge = timeline
-        .drawing(boxy)
+        .drawn(boxy)
         .sketch()
         .segments()
         .next()

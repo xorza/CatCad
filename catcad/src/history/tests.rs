@@ -54,7 +54,7 @@ fn markers(document: &Document, build: &Build) -> Vec<Vec3> {
 /// point a drag can take anywhere.
 fn point(document: &Document, index: usize) -> PointId {
     document
-        .drawing_at(document.first_sketch())
+        .drawn(document.first_sketch())
         .sketch()
         .points()
         .nth(index)
@@ -66,7 +66,7 @@ fn point(document: &Document, index: usize) -> PointId {
 /// by whatever a drag gives it and nothing pulls back.
 fn hole(document: &Document) -> CircleId {
     document
-        .drawing_at(document.first_sketch())
+        .drawn(document.first_sketch())
         .sketch()
         .circles()
         .next()
@@ -81,7 +81,7 @@ fn hole(document: &Document) -> CircleId {
 /// drag, so this is the one edit in the demo that moves a single parameter and
 /// leaves everything else exactly where it stands.
 fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
-    let sketch = document.drawing_at(document.first_sketch()).sketch();
+    let sketch = document.drawn(document.first_sketch()).sketch();
     let centre = sketch.point(sketch.circle(circle).center).position;
     Plane::GROUND
         .point(centre + DVec2::new(radius, 0.0))
@@ -89,7 +89,7 @@ fn rim_at(document: &Document, circle: CircleId, radius: f64) -> Vec3 {
 }
 
 fn radius(document: &Document) -> f64 {
-    let sketch = document.drawing_at(document.first_sketch()).sketch();
+    let sketch = document.drawn(document.first_sketch()).sketch();
     sketch.circle(hole(document)).radius
 }
 
@@ -131,7 +131,7 @@ fn shifted(document: &Document, id: PointId, by: DVec2) -> Vec3 {
     Plane::GROUND
         .point(
             document
-                .drawing_at(document.first_sketch())
+                .drawn(document.first_sketch())
                 .sketch()
                 .point(id)
                 .position
@@ -469,9 +469,8 @@ fn a_drag_in_one_sketch_does_not_extend_a_step_opened_in_another() {
     let (there, other) = lone();
     let mut document = Document::new(&mut build, timeline);
 
-    let at = |document: &Document, sketch, point| {
-        document.drawing_at(sketch).sketch().point(point).position
-    };
+    let at =
+        |document: &Document, sketch, point| document.drawn(sketch).sketch().point(point).position;
     let mut history = History::default();
     // Neither drag is released, so the first leaves a step open — which is the
     // whole point: the second must not join it.
@@ -544,7 +543,7 @@ fn moving_a_plane_carries_what_is_drawn_on_it_and_solves_nothing() {
 
     // The ground's own axes are world +X and −Z and its normal is +Y, so a
     // point at (3, 4) on a plane two above it lands at (3, 2, −4).
-    let landed = |document: &Document| document.drawing_at(drawn).at(Anchor::On(corner));
+    let landed = |document: &Document| document.drawn(drawn).at(Anchor::On(corner));
     assert_eq!(landed(&document), Vec3::new(3.0, 2.0, -4.0));
 
     let was = build.revision();
@@ -569,7 +568,7 @@ fn moving_a_plane_carries_what_is_drawn_on_it_and_solves_nothing() {
     // And the sketch itself says exactly what it said, down to the bits — the
     // move never reached it.
     assert_eq!(
-        document.drawing_at(drawn).sketch().point(corner).position,
+        document.drawn(drawn).sketch().point(corner).position,
         DVec2::new(3.0, 4.0)
     );
     // Nothing was solved and nothing arranged: the report is the one the open

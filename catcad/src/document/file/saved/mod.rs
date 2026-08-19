@@ -76,7 +76,7 @@ impl Saved {
         // What each step's geometry is numbered as, gathered before any step is
         // written: an extrude names the curves bounding its region, those belong
         // to a sketch that may be any earlier step, and a file says "edge 3"
-        // where a sketch says [`SegmentId`]. A step holding no geometry takes an
+        // where a sketch says [`SegmentId`](silverpoint::SegmentId). A step holding no geometry takes an
         // empty numbering rather than none, because this is read by position.
         let handles: Vec<Handles> = timeline
             .steps()
@@ -170,7 +170,7 @@ impl Saved {
 ///
 /// The two together because a later step may name this one's geometry — an
 /// extrude names the curves bounding the region it is grown from — and a file
-/// says "edge 3" where a sketch says [`SegmentId`]. What crosses between the two
+/// says "edge 3" where a sketch says [`SegmentId`](silverpoint::SegmentId). What crosses between the two
 /// is [`Handles`], and it is only knowable while the sketch is being built, so
 /// it is handed out here rather than worked out a second time by whoever wants
 /// it.

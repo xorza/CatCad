@@ -231,34 +231,34 @@ fn constraining_settles_the_drawing_and_deleting_cascades() {
         "{:?}",
         build.settled(at).outcome()
     );
-    let apart = timeline.drawing(at).sketch().point(pa).position.y
-        - timeline.drawing(at).sketch().point(pb).position.y;
+    let apart = timeline.drawn(at).sketch().point(pa).position.y
+        - timeline.drawn(at).sketch().point(pb).position.y;
     assert!(apart.abs() < 1e-9, "{apart}");
 
     // The constraint is a thing the drawing holds, and taking it away leaves
     // the geometry where the solve had put it.
     let stated = timeline
-        .drawing(at)
+        .drawn(at)
         .sketch()
         .constraints()
         .map(|(id, _)| id)
         .last()
         .expect("the relation was stated");
-    assert!(timeline.drawing(at).holds(stated));
+    assert!(timeline.drawn(at).holds(stated));
     timeline
         .edit(at)
         .remove(&mut build, Entity::Constraint(stated));
-    assert!(!timeline.drawing(at).holds(stated));
-    assert!(timeline.drawing(at).holds(a) && timeline.drawing(at).holds(b));
+    assert!(!timeline.drawn(at).holds(stated));
+    assert!(timeline.drawn(at).holds(a) && timeline.drawn(at).holds(b));
 
     // Removing a point takes the edges it ends with it, and leaves the rest.
     timeline.edit(at).remove(&mut build, a);
-    assert!(!timeline.drawing(at).holds(a));
+    assert!(!timeline.drawn(at).holds(a));
     assert!(
-        !timeline.drawing(at).holds(first),
+        !timeline.drawn(at).holds(first),
         "the edge outlived its endpoint"
     );
-    assert!(timeline.drawing(at).holds(b) && timeline.drawing(at).holds(circle));
+    assert!(timeline.drawn(at).holds(b) && timeline.drawn(at).holds(circle));
 }
 
 /// An edge drawn onto a point already there gets its own point and a
@@ -289,10 +289,10 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
 
     // Two new points, not one: the corner is two points that agree, and the
     // agreement is written down.
-    assert_eq!(timeline.drawing(at).sketch().points().count(), 4);
-    assert_eq!(timeline.drawing(at).sketch().segments().count(), 2);
+    assert_eq!(timeline.drawn(at).sketch().points().count(), 4);
+    assert_eq!(timeline.drawn(at).sketch().segments().count(), 2);
     let ends: Vec<PointId> = timeline
-        .drawing(at)
+        .drawn(at)
         .sketch
         .segments()
         .flat_map(|(_, edge)| [edge.a, edge.b])
@@ -303,7 +303,7 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
         "the new edge took the point that was already there: {ends:?}"
     );
     let (tie, coincidence) = timeline
-        .drawing(at)
+        .drawn(at)
         .sketch
         .constraints()
         .find(|(_, c)| matches!(c, Constraint::Coincident { .. }))
@@ -317,16 +317,16 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     // neither is spare however exactly they sit on each other — which is what
     // stops the command from quietly undoing every join in the drawing.
     let before = (
-        timeline.drawing(at).sketch().points().count(),
-        timeline.drawing(at).sketch().segments().count(),
-        timeline.drawing(at).sketch().constraints().count(),
+        timeline.drawn(at).sketch().points().count(),
+        timeline.drawn(at).sketch().segments().count(),
+        timeline.drawn(at).sketch().constraints().count(),
     );
     timeline.edit(at).remove_duplicates(&mut build);
     assert_eq!(
         (
-            timeline.drawing(at).sketch().points().count(),
-            timeline.drawing(at).sketch().segments().count(),
-            timeline.drawing(at).sketch().constraints().count(),
+            timeline.drawn(at).sketch().points().count(),
+            timeline.drawn(at).sketch().segments().count(),
+            timeline.drawn(at).sketch().constraints().count(),
         ),
         before,
         "a cleanup pulled a join apart"
@@ -337,21 +337,21 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     timeline
         .edit(at)
         .drag_to(&mut build, Grip::Point(b), on(ground, DVec2::new(2.5, 0.5)));
-    let moved = timeline.drawing(at).sketch().point(b).position;
+    let moved = timeline.drawn(at).sketch().point(b).position;
     assert!(
         timeline
-            .drawing(at)
+            .drawn(at)
             .sketch
             .point(corner)
             .position
             .abs_diff_eq(moved, 1e-6),
         "the corner came apart under a drag: {:?} against {moved:?}",
-        timeline.drawing(at).sketch().point(corner).position
+        timeline.drawn(at).sketch().point(corner).position
     );
 
     // Deleted, it does not. This is the whole point: the second edge is now
     // free of the first and stays where it was left.
-    let parted = timeline.drawing(at).sketch().point(corner).position;
+    let parted = timeline.drawn(at).sketch().point(corner).position;
     timeline
         .edit(at)
         .remove(&mut build, Entity::Constraint(tie));
@@ -362,7 +362,7 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     );
     assert!(
         timeline
-            .drawing(at)
+            .drawn(at)
             .sketch
             .point(corner)
             .position
@@ -371,7 +371,7 @@ fn an_edge_started_on_a_point_is_tied_to_it_and_can_be_untied() {
     );
     assert!(
         !timeline
-            .drawing(at)
+            .drawn(at)
             .sketch()
             .point(b)
             .position
@@ -536,7 +536,7 @@ fn a_point_held_to_an_edge_lands_on_the_line_it_runs_along() {
     let mut timeline = Timeline::of(placed);
     let at = timeline.first_sketch();
     timeline.edit(at).opened(&mut build);
-    let settled = timeline.drawing(at).sketch().point(held).position;
+    let settled = timeline.drawn(at).sketch().point(held).position;
     assert!(
         settled.abs_diff_eq(DVec2::new(6.0, 0.0), 1e-9),
         "the solve moved the point to {settled:?}, so the anchor and the \

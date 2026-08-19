@@ -43,7 +43,7 @@ impl Camera {
     }
 
     /// This as the renderer's camera, exactly as written — putting it back in
-    /// range is [`Saved::camera`]'s, which is the one call anything outside
+    /// range is [`Saved::camera`](super::Saved::camera)(super::Saved::camera)'s, which is the one call anything outside
     /// makes.
     pub(super) fn camera(&self) -> aperture::Camera {
         aperture::Camera {

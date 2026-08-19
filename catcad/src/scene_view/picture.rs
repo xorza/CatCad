@@ -299,8 +299,31 @@ pub(crate) mod internals {
 
     use crate::part::Part;
     use crate::scene_view::picture::Picture;
+    #[cfg(test)]
+    use glam::Vec2;
 
     impl Picture {
+        /// Say how far every label in the scene reaches, as a paint would.
+        ///
+        /// **What makes a dimension pickable without a GPU.** A run's box is
+        /// filled by the pass that lays its glyphs out, so a scene recorded and
+        /// never painted holds no boxes and no label in it answers a pick — see
+        /// [`Text::pick`](aperture::Text). An application paints every frame and
+        /// never meets that; a harness driving the view alone meets it for every
+        /// mark it has, which is why picking or dragging a dimension could not
+        /// be asked about at all until this existed.
+        ///
+        /// One box for all of them, and a made-up one: what is under test is
+        /// what a *pick* does with a box, where the metrics a real shaper
+        /// answers with are the renderer's business and differ between machines.
+        /// The size is the caller's so a test that cares can say.
+        #[cfg(test)]
+        pub(crate) fn labels_reach(&self, extent: Vec2) {
+            for text in self.renderer.borrow().scene().texts.iter() {
+                text.reaches(extent);
+            }
+        }
+
         /// The renderer being drawn, for a harness that wants to edit the scene
         /// or move the camera without going through a pointer.
         ///

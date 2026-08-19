@@ -286,6 +286,14 @@ impl Text {
     /// Outside it, the distance to the nearest edge is what the reach is
     /// measured against, which is what lets a cursor a pixel off a small label
     /// still find it.
+    ///
+    /// **`None` for a run nothing has measured**, which is a coupling worth
+    /// stating outright: a box is filled by the pass that lays the glyphs out —
+    /// [`Text::measure`] — so a run that has been recorded and never drawn is
+    /// on screen in no sense and cannot be clicked in. An application paints
+    /// every frame and never meets it; a harness that records without painting
+    /// meets it for every label it has, and `Text::reaches` is how it stands
+    /// one up.
     pub(crate) fn pick(&self, aim: &Aim) -> Option<Hit> {
         let tag = self.tag?;
         let reach = self.reach_from(aim)?;
@@ -388,20 +396,42 @@ impl Styled for Text {
 
 /// Standing in for the renderer, which is the only thing that lays a run out.
 ///
-#[cfg(test)]
-mod measuring {
+/// The seam a caller that does not paint stands a run's box up through.
+///
+/// **What ties picking to laying out.** A run's box is filled by the pass that
+/// lays its glyphs — [`Text::measure`] — so a scene that has been recorded and
+/// never painted holds no boxes, and [`Text::pick`] answers `None` for every
+/// run in it. That is right for an application, which paints every frame; it is
+/// a wall for a harness that does not, and until this was reachable from
+/// outside the crate it meant no label anywhere could be picked in a test.
+///
+/// Gated, because an application has no business writing an extent: what a run
+/// reaches is the shaper's answer, and a caller that wrote one would be drawing
+/// in one box and picking in another.
+///
+/// The module is private and the methods on it are not: an inherent `impl` of a
+/// public type carries its own visibility, so `Text::reaches` leaves the crate
+/// while nothing has to reach the module it is written in.
+#[cfg(any(test, feature = "internals"))]
+pub(crate) mod measuring {
     use crate::text::Text;
     use glam::Vec2;
 
     impl Text {
-        /// A run whose box is already known, without a shaper having filled it.
+        /// Say how far this run reaches, in place of a shaper having measured
+        /// it.
         ///
-        /// `cfg(test)` rather than the `internals` feature: a caller outside the
-        /// crate gets its extents the honest way, by having the run drawn. What
-        /// this is for is asking what a *pick* does about a box, which wants a
-        /// box and no GPU.
-        pub(crate) fn measured(self, extent: Vec2) -> Self {
+        /// A [`Cell`](std::cell::Cell) write like the real measurement, so it
+        /// takes `&self` and can be applied to a run already sitting in a
+        /// [`Batch`](crate::Batch) — which is where a harness finds the ones it
+        /// wants pickable.
+        pub fn reaches(&self, extent: Vec2) {
             self.extent.set(extent);
+        }
+
+        /// The same, as a builder, for a run being stood up rather than found.
+        pub fn measured(self, extent: Vec2) -> Self {
+            self.reaches(extent);
             self
         }
     }

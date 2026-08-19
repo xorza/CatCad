@@ -4,6 +4,7 @@
 use glam::Vec3;
 use silverpoint::{Arrangement, Body, Constraint, Entity, Outcome, Plane, Sketch};
 
+use crate::build::bodied::Built;
 use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
 use crate::drawing::Drawing;
@@ -349,6 +350,23 @@ pub(crate) struct Sheeted {
     pub(crate) movable: bool,
 }
 
+/// What went wrong with one step of the recipe.
+///
+/// Two states and not one bool, because they are different things to a person
+/// and mended differently: a lost profile is the drawing having moved out from
+/// under a step, and is mended by drawing; an unmerged solid is the kernel
+/// refusing a boolean it cannot do yet, and is mended by moving the solid or by
+/// waiting for the kernel to widen. A reader handed `true` would have to go
+/// back to the build to find out which it had.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Broken {
+    /// Its profile no longer names a region of the drawing it was grown from.
+    Profile,
+    /// The kernel would not put its solid into the model, so the solid stands
+    /// beside one — see [`Models::solids`].
+    Unmerged,
+}
+
 /// Every sketch a document holds, as it currently stands.
 ///
 /// The plural of [`Model`], and what anything drawing or pruning a *document*
@@ -383,7 +401,17 @@ impl<'a> Models<'a> {
         Self {
             timeline,
             build,
-            editing,
+            // **Forgotten here where the timeline no longer holds it**, which
+            // is what makes every reading below safe to take without knowing
+            // what ran before it. The handle is only what somebody was last
+            // inside: an undo or a delete can take that step out from under
+            // them, and until the session is pruned it goes on naming one that
+            // is gone. Most readings of such a handle down the timeline are a
+            // panic rather than an empty answer — see
+            // [`Timeline::feature`](crate::timeline::Timeline) — so the check
+            // belongs at the one place a `Models` is made rather than at each
+            // of the dozen that read one.
+            editing: editing.filter(|&at| timeline.sketched(at).is_some()),
         }
     }
 
@@ -454,7 +482,7 @@ impl<'a> Models<'a> {
     /// What is drawn as a sheet — all of them, because a plane is somewhere a
     /// drawing could be started whether or not one has been and whether or not
     /// it goes anywhere. *When* each is drawn is
-    /// [`write::curves`](crate::paint::write::curves)'s.
+    /// [`write::curves`](crate::paint::write)'s.
     pub(crate) fn planes(self) -> impl Iterator<Item = Sheeted> {
         let timeline = self.timeline;
         timeline
@@ -482,13 +510,18 @@ impl<'a> Models<'a> {
         self.timeline.steps()
     }
 
-    /// Whether the step at `at` failed to build.
+    /// What went wrong with the step at `at`, where anything did.
     ///
-    /// One kind can, today: an extrude whose profile no longer names a region,
-    /// because somebody drew across the one it was grown from — see
-    /// [`Models::lost`], which counts them. Every other kind answers `false`,
-    /// and not for want of asking: a plane and a sketch are what they say they
-    /// are, and there is nothing for either to fail at.
+    /// **The one place a step's trouble is read**, which is why it answers with
+    /// which trouble rather than with a bool: the two are different states with
+    /// different things to say to a person, and a reader handed `true` would
+    /// have to go back to the build to find out which it had. Both counts below
+    /// come through here, so what the tree marks and what the status line
+    /// totals cannot come to disagree.
+    ///
+    /// Only an extrude can, today. Every other kind answers `None`, and not for
+    /// want of asking: a plane and a sketch are what they say they are, and
+    /// there is nothing for either to fail at.
     ///
     /// **Failing and coming to nothing are different.** An extrusion of no
     /// depth leaves no solid and is not broken — the depth is a number somebody
@@ -498,10 +531,21 @@ impl<'a> Models<'a> {
     /// for the reason [`Timeline::movable`](crate::timeline::Timeline) answers
     /// for any: what is picked out or listed is a step, and being told its kind
     /// first is what a caller should not have to arrange.
-    pub(crate) fn lost_at(self, at: FeatureId) -> bool {
-        self.timeline.built(at)
-            && matches!(self.timeline.feature(at), Feature::Extrude { .. })
-            && self.build.bodied(at).built().failed()
+    pub(crate) fn broken_at(self, at: FeatureId) -> Option<Broken> {
+        if !self.timeline.built(at) || !matches!(self.timeline.feature(at), Feature::Extrude { .. })
+        {
+            return None;
+        }
+        // A table rather than two predicates asked in order, which is what it
+        // was: `Built::failed` answers for both of these, so reading it second
+        // worked only because the first had already taken one away. Matched
+        // whole, a fifth thing a step can come to is a compile error here
+        // instead of a step that quietly reads as fine.
+        match self.build.bodied(at).built() {
+            Built::LostProfile => Some(Broken::Profile),
+            Built::Refused => Some(Broken::Unmerged),
+            Built::Made | Built::Empty => None,
+        }
     }
 
     /// The last step currently built, or `None` for all of them — see
@@ -537,8 +581,17 @@ impl<'a> Models<'a> {
     }
 
     /// Which plane the open sketch is drawn on, where one is open.
+    ///
+    /// **Through [`Models::open`] rather than off the handle**, so that `None`
+    /// here means what it means everywhere else: no live sketch, for any of the
+    /// reasons there are. Read straight, the handle is only what somebody was
+    /// last editing — a step an undo or a delete may have taken out from under
+    /// them — and asking the timeline what such a step is drawn on is a panic
+    /// rather than an answer. That there is a
+    /// [`Session::prune`](crate::session::Session) a frame earlier is not the
+    /// same as this being safe to ask.
     pub(crate) fn open_plane(self) -> Option<FeatureId> {
-        Some(self.timeline.drawn_on(self.editing?))
+        Some(self.timeline.drawn_on(self.open()?.of()))
     }
 
     /// How many extrudes no longer know which region they are grown from.
@@ -556,10 +609,26 @@ impl<'a> Models<'a> {
     /// steps currently below the rollback bar, and only the timeline knows
     /// where that is.
     pub(crate) fn lost(self) -> usize {
+        self.broken(Broken::Profile)
+    }
+
+    /// How many steps the kernel would not put into the model.
+    ///
+    /// The other thing a step can come to — see [`Broken::Unmerged`], and
+    /// [`Models::solids`], which is where those solids end up. A count for the
+    /// same reason [`Models::lost`] is one, and told apart from it because a
+    /// person can act on the difference: a lost profile is the drawing having
+    /// moved under a step, and this is the kernel not being able to do what was
+    /// asked yet.
+    pub(crate) fn unmerged(self) -> usize {
+        self.broken(Broken::Unmerged)
+    }
+
+    /// How many of the steps currently built came to `trouble`.
+    fn broken(self, trouble: Broken) -> usize {
         self.timeline
             .extrudes()
-            .filter(|step| self.timeline.built(step.at))
-            .filter(|step| self.build.bodied(step.at).built().failed())
+            .filter(|step| self.broken_at(step.at) == Some(trouble))
             .count()
     }
 

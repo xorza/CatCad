@@ -46,7 +46,7 @@ fn grown() -> Prompt {
         Asking::Extrude {
             profile: Profile::new(sketch, Vec::new()),
         },
-        &[("Depth", Seed::Offered(0.0))],
+        [("Depth", Seed::Offered(0.0))],
     )
 }
 
@@ -61,7 +61,7 @@ fn grown() -> Prompt {
 #[test]
 fn a_form_opens_on_the_value_the_dimension_states() {
     let part = dimension();
-    let prompt = Prompt::on(Asking::Dimension { part }, &[("", Seed::Stated(125.4))]);
+    let prompt = Prompt::on(Asking::Dimension { part }, [("", Seed::Stated(125.4))]);
     assert_eq!(prompt.marks(), Some(part));
     assert_eq!(
         prompt.fields[0].draft, "125.40",
@@ -81,7 +81,7 @@ fn a_form_opens_on_the_value_the_dimension_states() {
 fn a_draft_that_is_not_a_number_has_no_value() {
     let mut prompt = Prompt::on(
         Asking::Dimension { part: dimension() },
-        &[("", Seed::Stated(12.0))],
+        [("", Seed::Stated(12.0))],
     );
     for (draft, value) in [
         ("40", Some(40.0)),
@@ -99,42 +99,63 @@ fn a_draft_that_is_not_a_number_has_no_value() {
     }
 }
 
-/// **A form hands over the depth it shows, never one of its own.**
+/// **What a form means and what it draws come apart on exactly one draft**, and
+/// each has to be asked by name.
 ///
-/// [`Prompt::carrying`] is read at the press that grabs the depth arrow and
-/// [`Prompt::says`] at the commit, on different schedules — so a `carrying`
-/// that substituted a value where the draft said nothing would have the arrow
-/// travelling against a depth the solid was never drawn at.
+/// [`Prompt::says`] is read at the commit and [`Prompt::shows`] by the drawing
+/// — through [`Prompt::carrying`], which is what the depth arrow travels
+/// against. They agree everywhere except a draft that is not a number:
 ///
-/// Which is also what the sweep pins about the *placeholder*: where the draft
-/// does not read as a number the seed speaks, and it has to speak to both. A
-/// field opened on an offer is never short of an answer, so there is no draft
-/// at all for which this reports nothing — see [`Seed::Offered`].
+/// - somebody typed one, so the draft speaks to both;
+/// - nobody has typed, so the offer the form opened on speaks to both — the
+///   number is on screen as the placeholder, and a form refusing to commit what
+///   it is showing would be a form arguing with itself;
+/// - somebody is *part way* through typing one. There is nothing to commit,
+///   because the only number to hand is one nobody typed and the field is
+///   showing something else. There is still something to draw, because a solid
+///   blinking out between the two keystrokes of `-2` would be worse than one
+///   that waits where the pointer left it.
+///
+/// The third is the whole reason there are two readings. A single one has to be
+/// wrong about a commit or wrong about a frame.
 #[test]
-fn a_form_hands_over_the_depth_it_shows() {
+fn what_a_form_means_and_what_it_draws_come_apart_on_a_draft_mid_word() {
     let mut grown = grown();
-    for (draft, says) in [
-        // Nobody has typed, so the placeholder the form opened on speaks — a
-        // solid at no depth rather than no solid. See [`Seed::Offered`].
-        ("", Some(0.0)),
-        ("3.5", Some(3.5)),
+    for (draft, says, shows) in [
+        ("", Some(0.0), Some(0.0)),
+        ("3.5", Some(3.5), Some(3.5)),
         // Signed, which is how a solid is flipped to the other side of its
-        // plane.
-        ("-2", Some(-2.0)),
-        ("1.", Some(1.0)),
-        // Nothing a number can be read out of, so the placeholder speaks again
-        // rather than the solid vanishing between two keystrokes.
-        (".", Some(0.0)),
+        // plane — and `-` on its own is the draft the split is about.
+        ("-2", Some(-2.0), Some(-2.0)),
+        ("1.", Some(1.0), Some(1.0)),
+        ("-", None, Some(0.0)),
+        (".", None, Some(0.0)),
+        ("40mm", None, Some(0.0)),
     ] {
         grown.fields[0].draft.clear();
         grown.fields[0].draft.push_str(draft);
-        assert_eq!(grown.says(0), says, "{draft:?}");
+        assert_eq!(grown.says(0), says, "committed, at {draft:?}");
+        assert_eq!(grown.shows(0), shows, "drawn, at {draft:?}");
         assert_eq!(
             grown.carrying().map(|carrying| carrying.depth),
-            says,
-            "the depth a press reads is not the one the form says, at {draft:?}"
+            shows,
+            "the depth the arrow travels against is not the one drawn, at {draft:?}"
         );
     }
+
+    // **And the offer is not read back where somebody has typed.** The pointer
+    // moving over the drawing writes a suggestion whatever the field holds, so
+    // a draft that means nothing must not quietly come to mean that instead —
+    // which is the failure a fallback would reintroduce.
+    grown.suggest(0, 7.0);
+    grown.fields[0].draft.clear();
+    grown.fields[0].draft.push_str("abc");
+    assert_eq!(
+        grown.says(0),
+        None,
+        "a commit read the pointer's own number"
+    );
+    assert_eq!(grown.shows(0), Some(7.0), "the drawing lost its depth");
 }
 
 /// **A form is dismissed by its buttons or by clicking away, never by both.**
@@ -148,7 +169,7 @@ fn a_form_hands_over_the_depth_it_shows() {
 fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
     let typed = Prompt::on(
         Asking::Dimension { part: dimension() },
-        &[("", Seed::Stated(1.0))],
+        [("", Seed::Stated(1.0))],
     );
     assert!(typed.blurs(), "a dimension form has no other way out");
     assert_eq!(
@@ -235,7 +256,7 @@ fn a_form_is_about_exactly_the_mark_it_stands_over() {
 
     // A dimension being retyped stands over its own mark.
     let part = dimension();
-    let typed = Prompt::on(Asking::Dimension { part }, &[("", Seed::Stated(1.0))]);
+    let typed = Prompt::on(Asking::Dimension { part }, [("", Seed::Stated(1.0))]);
     assert_eq!(typed.marks(), Some(part));
 
     // A circle still being drawn names nothing the document holds at all, which
@@ -245,7 +266,7 @@ fn a_form_is_about_exactly_the_mark_it_stands_over() {
             sketch: at,
             center: crate::drawing::anchor::Anchor::On(middle),
         },
-        &[("Radius", Seed::Offered(0.0))],
+        [("Radius", Seed::Offered(0.0))],
     );
     assert_eq!(drawing.marks(), None);
 }

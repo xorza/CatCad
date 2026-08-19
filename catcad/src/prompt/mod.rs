@@ -59,7 +59,7 @@ pub(crate) enum Asking {
     /// A solid being grown off a region, *before* it reaches the timeline.
     ///
     /// Held here rather than created at zero and carried, because a
-    /// [`Prism`](silverpoint::Prism) is a reading rather than a thing the
+    /// a prism was a reading rather than a thing the
     /// document holds — an arrangement, a region, a plane and a distance, all
     /// four of which this has without a step existing. So the solid can be
     /// drawn while it is still being decided, the document is not touched until
@@ -209,6 +209,32 @@ struct Field {
     suggested: String,
 }
 
+impl Field {
+    /// Whether the keyboard is driving this field rather than the pointer.
+    ///
+    /// **Exactly when the draft is not empty** — see [`Field::suggested`],
+    /// which is where that state machine is stated. One method rather than the
+    /// test written out at each reader, because a reader that spelled it as a
+    /// *fallback* — try the draft, take the suggestion if it does not parse —
+    /// would hand the pointer back the moment a draft stopped reading as a
+    /// number, so a half-typed `1.` would show the value the pointer last
+    /// offered and a draft of `abc` would read as the offer outright.
+    fn driving(&self) -> bool {
+        !self.draft.trim().is_empty()
+    }
+
+    /// The number the pointer is offering, where it is offering one.
+    ///
+    /// Read straight rather than through [`Prompt::value`], which reads a
+    /// *draft*. The two look alike today and are not the same question: a draft
+    /// is what somebody typed and is where a formula will one day be evaluated,
+    /// where this is what [`Prompt::suggest`] wrote with `{:.*}` and is a
+    /// literal by construction.
+    fn offered(&self) -> Option<f64> {
+        self.suggested.trim().parse().ok()
+    }
+}
+
 /// A form open against the drawing: what it is about, and what has been typed.
 #[derive(Debug)]
 pub(crate) struct Prompt {
@@ -294,14 +320,14 @@ impl Prompt {
     pub(crate) fn opening(opening: Opening, models: Models<'_>) -> Option<Self> {
         Some(match opening {
             Opening::Dimension { part, from } => {
-                Self::on(Asking::Dimension { part }, &[("", Seed::Stated(from))])
+                Self::on(Asking::Dimension { part }, [("", Seed::Stated(from))])
             }
             // Offered rather than stated, like every form that *makes*
             // something: the pointer has the value until somebody types one,
             // and the field shows whichever is speaking. See [`Seed`].
             Opening::Circle { sketch, center } => Self::on(
                 Asking::Circle { sketch, center },
-                &[("Radius", Seed::Offered(0.0))],
+                [("Radius", Seed::Offered(0.0))],
             ),
             // At no depth at all, which is where the ask starts: the solid is on
             // screen from the moment the form opens, and a zero-depth prism is a
@@ -310,7 +336,7 @@ impl Prompt {
                 Asking::Extrude {
                     profile: models.at(sketch)?.profile(region),
                 },
-                &[("Depth", Seed::Offered(0.0))],
+                [("Depth", Seed::Offered(0.0))],
             ),
         })
     }
@@ -322,12 +348,17 @@ impl Prompt {
     /// kind of form; each arm stands up its own rather than answering with a
     /// pair the match then builds from, because the seeds are arrays and two
     /// arms of different *lengths* would not agree on a type.
-    fn on(about: Asking, values: &[(&'static str, Seed)]) -> Self {
-        // A form that asked for nothing would stand on the drawing with nothing
-        // to type into and no way to be answered, so every form has a first
-        // field — which is what lets [`Prompt::over`] and [`Prompt::run`] index
-        // one rather than carry an `Option` for a case that would be a bug.
-        debug_assert!(!values.is_empty(), "a form that asks for nothing");
+    ///
+    /// **An array rather than a slice, so that a form asking for nothing is a
+    /// compile error.** One that did would stand on the drawing with nothing to
+    /// type into and no way to be answered — and it is what lets
+    /// [`Prompt::over`] and [`Prompt::run`] index the first field rather than
+    /// carry an `Option` for a state that cannot arise. The length is in the
+    /// type, so the check below runs when this is monomorphised and costs
+    /// nothing at all afterwards; a `debug_assert` here would have left the
+    /// release build believing a promise nothing kept.
+    fn on<const N: usize>(about: Asking, values: [(&'static str, Seed); N]) -> Self {
+        const { assert!(N > 0, "a form that asks for nothing") };
         Self {
             about,
             fields: values
@@ -372,7 +403,7 @@ impl Prompt {
     pub(crate) fn carrying(&self) -> Option<Carrying> {
         Some(Carrying {
             sketch: self.about.extruding()?.sketch(),
-            depth: self.says(0)?,
+            depth: self.shows(0)?,
         })
     }
 
@@ -397,10 +428,12 @@ impl Prompt {
 
     /// The solid this form is deciding, as the drawing should show it now.
     ///
-    /// `None` for a form about anything else, for one whose depth does not read
-    /// as a number yet — a half-typed "1." is not a depth, and a solid that
-    /// flickered away between the digits of one would be worse than a solid
-    /// that waits — and for one whose region the drawing no longer holds.
+    /// `None` for a form about anything else, and for one whose region the
+    /// drawing no longer holds. **Not** for a depth mid-word: a form opened on
+    /// an offer always has a number to draw at, because a solid flickering away
+    /// between the two keystrokes of `-2` would be worse than one that waits.
+    /// That is [`Prompt::shows`]'s doing, and it is why this reads that rather
+    /// than [`Prompt::says`].
     ///
     /// Resolved against `models` every time rather than remembered, which is
     /// what the [`Profile`] is for: a position is only good for the arrangement
@@ -410,7 +443,7 @@ impl Prompt {
         Some(Growing {
             sketch: profile.sketch(),
             region: profile.face_of(models)?,
-            distance: self.says(0)?,
+            distance: self.shows(0)?,
         })
     }
 
@@ -426,6 +459,14 @@ impl Prompt {
     /// Where a formula goes. Today a field holds a literal and this is
     /// [`str::parse`]; when it holds an expression this is where it is
     /// evaluated, and every caller already treats `None` as "not yet".
+    ///
+    /// **The draft and nothing else**, which is what tells it from
+    /// [`Prompt::says`] and [`Prompt::shows`] below: an empty draft reads as no
+    /// number here like any other text that is not one, so a caller asking
+    /// whether somebody has typed a number is asking exactly this. What asks is
+    /// whatever the number *moves* — a band that went on following the cursor
+    /// after a radius was typed would be showing one number while the form
+    /// showed another.
     pub(crate) fn value(&self, nth: usize) -> Option<f64> {
         self.fields.get(nth)?.draft.trim().parse().ok()
     }
@@ -463,35 +504,39 @@ impl Prompt {
         let _ = write!(field.suggested, "{to:.*}", DECIMALS);
     }
 
-    /// What the `nth` field says, where somebody has typed it.
-    ///
-    /// `None` while the draft is empty, which is the pointer still driving —
-    /// see [`Field::suggested`]. What asks is whatever the number *moves*: a
-    /// band that went on following the cursor after a radius was typed would be
-    /// showing one number while the form showed another.
-    pub(crate) fn typed(&self, nth: usize) -> Option<f64> {
-        let field = self.fields.get(nth)?;
-        if field.draft.trim().is_empty() {
-            return None;
-        }
-        self.value(nth)
-    }
-
     /// What the `nth` field currently means, whoever put it there.
     ///
-    /// [`Prompt::typed`] where somebody has typed, and the pointer's own
-    /// suggestion where nobody has. What *commits* asks this rather than the
-    /// draft: a form showing a number and refusing to accept it because the
-    /// number came from the pointer would be a form arguing with what it says.
+    /// The draft where somebody has typed, and the pointer's own suggestion
+    /// where nobody has. What *commits* asks this rather than the draft: a form
+    /// showing a number and refusing to accept it because the number came from
+    /// the pointer would be a form arguing with what it says.
+    ///
+    /// **Which of the two, and then that one** — never one and then the other
+    /// if the first came back empty. [`Field::driving`] is what decides, and
+    /// asking the other way round is what would let Enter on a draft of `abc`
+    /// commit whatever the pointer last offered: a number nobody typed, behind
+    /// text that is on screen and says otherwise.
+    ///
+    /// So a draft that does not read as a number means *nothing yet*, and a
+    /// commit reading `None` leaves the form open. What the drawing shows
+    /// meanwhile is a different question — see [`Prompt::shows`].
     pub(crate) fn says(&self, nth: usize) -> Option<f64> {
-        self.typed(nth).or_else(|| {
-            // Read straight rather than through [`Prompt::value`], which reads a
-            // *draft*. The two look alike today and are not the same question:
-            // a draft is what somebody typed and is where a formula will one day
-            // be evaluated, where a suggestion is what [`Prompt::suggest`] wrote
-            // with `{:.*}` and is a literal by construction.
-            self.fields.get(nth)?.suggested.trim().parse().ok()
-        })
+        let field = self.fields.get(nth)?;
+        if field.driving() {
+            return self.value(nth);
+        }
+        field.offered()
+    }
+
+    /// What the drawing shows for the `nth` field while the form is open.
+    ///
+    /// [`Prompt::says`] where the field means something, and the pointer's own
+    /// offer where it does not — which is the one place the two questions come
+    /// apart, and each has to be asked by name. A draft mid-word means nothing
+    /// to *commit*; a solid that blinked out between the two keystrokes of `-2`
+    /// would be worse than one that waits where the pointer left it.
+    pub(crate) fn shows(&self, nth: usize) -> Option<f64> {
+        self.says(nth).or_else(|| self.fields.get(nth)?.offered())
     }
 
     /// Show the form, and put what it asked for in `intents`.

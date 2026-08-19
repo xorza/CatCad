@@ -115,7 +115,7 @@ fn a_gesture_reaches_the_document_as_an_intent_rather_than_as_an_edit() {
 fn a_second_click_on_a_plane_starts_a_sketch_and_on_anything_else_starts_none() {
     let raised = RaisedView::new();
     let sketch = raised.editing();
-    let drawing = raised.document.drawing_at(sketch);
+    let drawing = raised.document.drawn(sketch);
     let (point, _) = drawing
         .sketch()
         .points()

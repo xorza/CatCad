@@ -20,7 +20,7 @@ pub(crate) struct Vertex {
     ///
     /// Parasolid's sphere. Zero for everything an exact construction raises,
     /// and widened by whatever admits a coincidence into it — see
-    /// [`widened`](crate::number::predicate::widened). The top rung of the
+    /// [`slack`](crate::number::predicate::slack). The top rung of the
     /// ladder in `.notes/KERNEL.md` §4.3: no edge or face meeting here may
     /// claim to be looser than this.
     pub(crate) tolerance: f64,

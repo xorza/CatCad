@@ -37,7 +37,7 @@ fn typing_a_dimension_restates_it_as_one_step() {
     };
     let stated = |app: &CatCad| {
         app.document
-            .drawing_at(sketch)
+            .drawn(sketch)
             .sketch()
             .constraint(id)
             .value()
@@ -266,13 +266,7 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
         value: was,
     } = raised.a_dimension();
     let sketch = dimension.sketch().expect("a dimension is in a sketch");
-    let relations = |app: &CatCad| {
-        app.document
-            .drawing_at(sketch)
-            .sketch()
-            .constraints()
-            .count()
-    };
+    let relations = |app: &CatCad| app.document.drawn(sketch).sketch().constraints().count();
     let stated = relations(&raised.app);
 
     // Picked out as well as opened, which is what the double-click leaves — the
@@ -374,7 +368,7 @@ fn a_field_takes_the_keys_it_edits_with_and_leaves_the_rest() {
     );
     assert_eq!(relations(&raised.app), stated);
     // The dimension is exactly as it was: a draft abandoned never happened.
-    let after = raised.app.document.drawing_at(sketch).sketch();
+    let after = raised.app.document.drawn(sketch).sketch();
     let Some(Entity::Constraint(id)) = dimension.entity() else {
         panic!("not a constraint");
     };
@@ -407,7 +401,7 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
     let open = raised.app.session.prompt().expect("the form is open");
     assert_eq!(open.says(0), Some(0.0));
     assert_eq!(
-        open.typed(0),
+        open.value(0),
         None,
         "nobody has typed, so nobody is driving"
     );
@@ -526,7 +520,7 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
     let edge = raised
         .app
         .document
-        .drawing_at(sketch)
+        .drawn(sketch)
         .sketch()
         .segments()
         .map(|(id, _)| id)

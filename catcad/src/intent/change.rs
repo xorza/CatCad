@@ -17,7 +17,7 @@ use crate::timeline::FeatureId;
 /// here reaches
 /// [`Document::apply`](crate::document::Document), which matches it exhaustively
 /// — so a new one added to this enum is a compile error until the document says
-/// what to do with it, where a new one added beside it in [`Intent`] cannot
+/// what to do with it, where a new one added beside it in [`Intent`](crate::intent::Intent) cannot
 /// reach the document at all.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Change {

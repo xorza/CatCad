@@ -9,7 +9,7 @@ use palantir::{
 
 use crate::intent::change::Change;
 use crate::intent::{Choice, Intent, Intents, Opening, Step};
-use crate::model::{Model, Models};
+use crate::model::{Broken, Model, Models};
 use crate::paint::DECIMALS;
 use crate::part::Part;
 use crate::selection::Selection;
@@ -117,10 +117,14 @@ impl Hud {
         floating(Panel::vstack(), "tree", Align::TOP_RIGHT).show(ui, |ui| {
             let (mut planes, mut sketches, mut solids) = (0, 0, 0);
             for (at, feature) in models.steps() {
-                // The suffix the status line already uses for the same state, so
+                // The same words the status line uses for the same states, so
                 // the two say it the same way — see
                 // [`Status`](crate::status::Status).
-                let lost = if models.lost_at(at) { " · lost" } else { "" };
+                let broken = match models.broken_at(at) {
+                    Some(Broken::Profile) => " · lost",
+                    Some(Broken::Unmerged) => " · apart",
+                    None => "",
+                };
                 let (named, nth) = match feature {
                     Feature::Plane(Datum::World(world)) => (world.named(), None),
                     Feature::Plane(Datum::Offset { .. }) => {
@@ -137,8 +141,8 @@ impl Hud {
                     }
                 };
                 let label = match nth {
-                    Some(nth) => ui.fmt(format_args!("{named} {nth}{lost}")),
-                    None => ui.fmt(format_args!("{named}{lost}")),
+                    Some(nth) => ui.fmt(format_args!("{named} {nth}{broken}")),
+                    None => ui.fmt(format_args!("{named}{broken}")),
                 };
                 let mut row = Button::new()
                     // By the handle, which is what makes a row's identity

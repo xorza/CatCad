@@ -21,6 +21,14 @@ use glam::{Vec2, Vec3};
 use palantir::internals::UiHarness;
 use silverpoint::{Entity, Grown, Plane};
 
+/// How far a dimension's number is taken to reach, in logical pixels.
+///
+/// Stood up rather than measured, because nothing here rasterizes — see
+/// [`RaisedView::frame`]. Wide enough that a coarse sweep four pixels apart
+/// cannot step over one and narrow enough that two marks do not overlap into
+/// each other at the demo's scale.
+const MARK_BOX: Vec2 = Vec2::new(28.0, 14.0);
+
 /// The demo with the *view* raised over it and no application around it.
 ///
 /// Everything a [`SceneView`] needs to be driven, which is the application
@@ -106,6 +114,14 @@ impl RaisedView {
             // the drawing this frame's gestures have already reached.
             view.draw(ui);
             view.settle(document, build, session);
+            // **The paint the application would have done, in the one respect a
+            // pick depends on it.** A label's box is filled by the pass that
+            // lays its glyphs out, and this harness records without ever
+            // rasterizing — so without this no dimension mark on screen can be
+            // clicked in, and every sweep for one quietly finds nothing. See
+            // [`Picture::labels_reach`](crate::scene_view::picture::Picture),
+            // which says why the size is made up.
+            view.picture.labels_reach(MARK_BOX);
         });
     }
 
@@ -194,13 +210,44 @@ impl RaisedView {
     /// than a miss, which is the opposite of what the test below asks about.
     pub(super) fn over_pinned(&self) -> Option<Vec2> {
         let editing = self.editing();
-        let drawing = self.document.drawing_at(editing);
+        let drawing = self.document.drawn(editing);
         self.scan(move |part, _| {
             part.filter(|part| part.sketch() == Some(editing))
                 .and_then(Part::entity)
                 .is_some_and(|entity| {
                     matches!(entity, Entity::Point(id) if drawing.sketch().point(id).fixed)
                 })
+        })
+    }
+
+    /// A cursor position that lands on a dimension's number.
+    ///
+    /// A *dimension* and not any mark: a relation without a number is drawn as
+    /// a glyph and is a text like any other, so a sweep that took the first one
+    /// it met would land on a symbol nothing can carry — see
+    /// [`gesture::label`](crate::scene_view::gesture::label), which is what
+    /// tells the two apart and answers `None` for the second.
+    ///
+    /// The one thing a press can find that has a place of its own without being
+    /// geometry, so it is swept for by what it *is* rather than by a grip: a
+    /// mark has none — see [`Drawing::grip`], which answers `None` for every
+    /// relation — and what a press makes of one is
+    /// [`Grabbed::Label`](crate::scene_view::gesture::Grabbed).
+    ///
+    /// Needs the labels to have been measured, which in this harness is
+    /// [`RaisedView::frame`]'s doing rather than a paint's.
+    pub(super) fn over_mark(&self) -> Option<Vec2> {
+        let editing = self.editing();
+        let drawing = self.document.drawn(editing);
+        self.scan(move |part, at| {
+            at == HitAt::Text
+                && part
+                    .filter(|part| part.sketch() == Some(editing))
+                    .and_then(Part::entity)
+                    .is_some_and(|entity| match entity {
+                        Entity::Constraint(id) => drawing.sketch().constraint(id).value().is_some(),
+                        _ => false,
+                    })
         })
     }
 
@@ -245,7 +292,7 @@ impl RaisedView {
     /// where. Its own call because reaching it is two fields and a handle, and
     /// spelling that out is a paragraph wherever a test wants a line.
     pub(super) fn drawing(&self) -> Drawing<'_> {
-        self.document.drawing_at(self.editing())
+        self.document.drawn(self.editing())
     }
 
     /// The demo's one plane that can be moved.

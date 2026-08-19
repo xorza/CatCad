@@ -80,12 +80,12 @@ pub(super) enum Relation {
 /// A dimension as a file holds it: what it states, and where its number sits.
 ///
 /// The mirror of [`Dimension`], and its own record rather than two more fields
-/// on each relation carrying one, for the reason [`Profiled`] and [`Camera`] are
+/// on each relation carrying one, for the reason [`Profiled`](super::step::Profiled) and [`Camera`](super::camera::Camera) are
 /// theirs: it is what the model holds, spelled the way a file spells it. Four
 /// relations carry one, and four spellings would be four chances to disagree.
 ///
 /// One level deeper than a relation's own fields and so still on the same line —
-/// see [`SKETCH_DEPTH`].
+/// see [`SKETCH_DEPTH`](super::handles::SKETCH_DEPTH).
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct Figure {
     value: f64,

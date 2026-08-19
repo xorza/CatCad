@@ -628,3 +628,51 @@ fn rolling_back_stops_the_tail_being_built_and_rolling_forward_restores_it() {
     assert_eq!(raised.models().iter().count(), sketches);
     assert_eq!(raised.solids(), solids);
 }
+
+/// **Deleting the sketch you are in leaves the frame standing**, which is what
+/// [`Session::prune`](crate::session::Session) is for and what nothing else
+/// checks.
+///
+/// Every reader of the picture holds a handle to the sketch being edited, and a
+/// step taken out from under one is the only way that handle can name nothing.
+/// Until a step could be *removed* it could not happen at all, so nothing had
+/// ever asked. A whole frame is drawn rather than a reading taken, because what
+/// would go wrong is a panic somewhere down the picture and the only way to
+/// find one is to draw it.
+///
+/// **The prune is what leaves the sketch, not what keeps the frame up.** Those
+/// were one thing and are now two: every reading of a dead handle answers
+/// rather than panicking — [`Models::new`](crate::model::Models) forgets one
+/// the timeline no longer holds, and `Document::drawing_at` hands back an
+/// `Option` where `Timeline::drawing` used to panic — so a frame drawn before
+/// the prune ran is a frame that draws nothing rather than one that dies. What
+/// is left to the prune is the behaviour: you should not still be inside a
+/// sketch that is gone.
+#[test]
+fn deleting_the_sketch_you_are_in_leaves_the_frame_standing() {
+    let mut raised = Raised::new();
+    let open = raised
+        .models()
+        .open()
+        .expect("the fixture opens a sketch")
+        .of();
+
+    raised.choose(Choice::Select(Some(Part::Step(open))));
+    raised.frame();
+    raised.harness.key(Key::Delete);
+    raised.frame();
+
+    assert!(
+        raised.models().open().is_none(),
+        "the session is still in a sketch the timeline does not hold"
+    );
+    // And the solid grown off it went with it, because the extrude stood on it.
+    assert_eq!(raised.solids(), 0, "a solid outlived the drawing under it");
+
+    // Another frame, and then the undo that puts it all back: the frame after a
+    // restore reads a sketch that was settled, forgotten and settled again.
+    raised.frame();
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(raised.solids(), 1, "the undo left the solid off");
+}

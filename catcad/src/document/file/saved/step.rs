@@ -81,7 +81,7 @@ impl Operated {
 /// A region of a sketch, as a file holds it.
 ///
 /// The mirror of [`Profile`], and its own record rather than two more fields on
-/// the step above for the reason [`Sketch`] and [`Camera`] are their own: it is
+/// the step above for the reason [`Sketch`] and [`Camera`](super::camera::Camera) are their own: it is
 /// what the model holds, spelled the way a file spells it.
 ///
 /// Named by what bounds it rather than by where it fell among the faces, which
@@ -90,7 +90,7 @@ impl Operated {
 /// drawn across the sketch.
 ///
 /// Being a record also puts each bound one level deeper than a step's own
-/// fields, which is what keeps them to a line apiece: see [`SKETCH_DEPTH`].
+/// fields, which is what keeps them to a line apiece: see [`SKETCH_DEPTH`](super::handles::SKETCH_DEPTH).
 #[derive(Debug, Serialize, Deserialize)]
 pub(super) struct Profiled {
     /// Which step of the file holds the sketch the region belongs to.

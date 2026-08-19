@@ -213,16 +213,6 @@ impl Built {
     pub(crate) fn refused(self) -> bool {
         self == Self::Refused
     }
-
-    /// Whether the step failed, as against merely coming to nothing.
-    ///
-    /// An extrusion of no depth is not a failure: the depth is a number
-    /// somebody is still typing, and a solid appearing the moment it stops
-    /// being zero is what the form is for. A lost profile and a refusal are
-    /// failures, and say so in the tree.
-    pub(crate) fn failed(self) -> bool {
-        matches!(self, Self::LostProfile | Self::Refused)
-    }
 }
 
 /// Everything one extrude's body was built from.

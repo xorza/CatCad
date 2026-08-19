@@ -178,6 +178,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
                 redundant_constraints: 0,
             }),
             lost: 0,
+            unmerged: 0,
             hovered: None,
             cleaned: None,
             unsaved: false,
@@ -221,6 +222,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
                     redundant_constraints: 0,
                 }),
                 lost: 0,
+                unmerged: 0,
                 hovered: Some(hovered),
                 cleaned: None,
                 unsaved: false,
@@ -241,6 +243,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
                 redundant_constraints: 2,
             }),
             lost: 0,
+            unmerged: 0,
             hovered: None,
             cleaned: None,
             unsaved: false,
@@ -262,6 +265,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
                 redundant_constraints: 0,
             }),
             lost: 0,
+            unmerged: 0,
             hovered: None,
             cleaned: Some(cleaned),
             unsaved: false,
@@ -405,7 +409,7 @@ fn the_dof_count_stays_the_sketchs_own_through_a_drag() {
 fn the_demo_is_drawn_on_the_ground_plane() {
     let document = demo::document(&mut Build::default());
     assert_eq!(
-        document.drawing_at(document.first_sketch()).plane(),
+        document.drawn(document.first_sketch()).plane(),
         Plane::GROUND
     );
 }
