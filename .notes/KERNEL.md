@@ -1196,9 +1196,24 @@ Refused, and carried out to `Boolean::combine`: a circle clipping a region
 between two of its corners, where every corner is on the kept side and the walk
 has no corner that fell away to start from. Nothing upstream makes one yet.
 
-Still to come: the provenance a loop's stretches need so the sewing emits an arc
-rather than a hundred straight edges; ray-surface sounding; `shut_in` over
-curved faces; and lifting `flat`.
+**In: the curve builds.** A region's boundary is a run of `Corner`s rather than
+of places, each saying what the stretch *leaving* it runs along — the face's own
+edge, or imprint number *n*. The splitter stamps what it puts down, the sewing
+drops every corner the boundary merely passes through (`splitting::passing`) and
+gives the surviving edge the curve the meeting gave, and `crossing` builds a
+round cut with its circle where a plane meets a cylinder or a sphere. So an
+imprinted circle arrives as a hundred corners, is classified as a hundred
+corners, and leaves as **one** edge on **one** exact circle.
+
+Recovering the marks instead — asking of each corner whether it happens to lie
+on a cut — reads a *chord* of the imprint as an arc of it wherever the face's own
+boundary already had two corners on that circle, which is why they are carried.
+`winding` reads a place off anything rather than off a `DVec2`, so a loop that
+knows more than its shape is still one polyline to the three rules that ask what
+it encloses.
+
+Still to come: ray-surface sounding; `shut_in` over curved faces; and lifting
+`flat`, which is the moment any of this runs.
 
 Cylinders, cones and spheres, all of them, because they are one algebra.
 

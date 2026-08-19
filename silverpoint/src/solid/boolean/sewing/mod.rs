@@ -19,6 +19,7 @@ use crate::loops::Loops;
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::{EXACT, PLACED};
+use crate::solid::boolean::splitting::{self, Came, Corner};
 use crate::solid::boolean::{Kept, planar};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
@@ -38,6 +39,8 @@ use std::ops::Range;
 #[derive(Debug)]
 struct Join {
     ends: [VertexId; 2],
+    /// What the edge runs along — see [`Came`].
+    along: Came,
     /// The faces that have claimed it. Exactly two by the end, or the regions
     /// did not close and there is no body to be had.
     between: [Option<FaceId>; 2],
@@ -45,6 +48,43 @@ struct Join {
     /// third face reaching for an edge two already share has nowhere to be put
     /// and is exactly the failure this counts.
     claims: usize,
+}
+
+/// One vertex of one loop, and what the stretch leaving it runs along.
+///
+/// **One buffer rather than two kept in step**, which is the same argument
+/// [`Corner`] makes one stage earlier: the walk is truncated, popped and
+/// reversed in four places, and a second list beside it would be four chances
+/// to do one and forget the other.
+///
+/// The mark cannot be worked out from the vertices later, which is why it is
+/// carried at all: by the time an edge is made, the flattened corners it was
+/// collapsed out of are gone, and two vertices standing on one circle say
+/// nothing about which of the two arcs between them is the edge — or whether
+/// the edge is an arc at all.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct Stepped {
+    vertex: VertexId,
+    along: Came,
+}
+
+/// Walk one loop the other way round, marks and all.
+///
+/// **Not simply reversed**, which is the whole reason this is written down. A
+/// mark says what the stretch *leaving* its vertex runs along; walked the other
+/// way, the stretch leaving a vertex is the one that used to *enter* it — so
+/// the marks step round by one as well as turning over, where the vertices only
+/// turn over.
+///
+/// Over three vertices `A B C` marked `a b c`, the loop reversed is `C B A` and
+/// its stretches are `b a c`: turning the marks over gives `c b a`, and
+/// stepping them round by one gives `b a c`.
+fn turned(walk: &mut [Stepped]) {
+    walk.reverse();
+    let marks: Vec<Came> = walk.iter().map(|it| it.along).collect();
+    for (step, it) in walk.iter_mut().enumerate() {
+        it.along = marks[(step + 1) % marks.len()];
+    }
 }
 
 /// One step of one loop: the edge it walks and which way.
@@ -61,7 +101,7 @@ pub(super) struct Sewing {
     placed: Vec<DVec3>,
     made: Vec<VertexId>,
     /// Every loop of every face, as vertices, laid end to end.
-    walks: Vec<VertexId>,
+    walks: Vec<Stepped>,
     /// Where each of those loops begins, with a sentinel on the end.
     starts: Vec<usize>,
     /// The face each region became, and which of those loops are its.
@@ -100,7 +140,13 @@ impl Sewing {
     /// shells sharing a corner, which is two meeting at nothing but a point —
     /// see [`Sewing::claim_corners`]; and a cavity with more than one lump to
     /// hang it on.
-    pub(super) fn sew(&mut self, kept: &[Kept], loops: &Loops<DVec2>, into: &mut Body) -> bool {
+    pub(super) fn sew(
+        &mut self,
+        kept: &[Kept],
+        loops: &Loops<Corner>,
+        imprints: &[Curve],
+        into: &mut Body,
+    ) -> bool {
         into.clear();
         self.reset();
         for region in kept {
@@ -110,7 +156,7 @@ impl Sewing {
             into.clear();
             return false;
         }
-        self.link(into);
+        self.link(imprints, into);
         self.write(into);
         if !self.gather(into) {
             into.clear();
@@ -142,20 +188,35 @@ impl Sewing {
     /// its say bounds nothing, and is dropped: a cut running exactly through a
     /// corner leaves two places a hair apart that are one place, and the loop
     /// they were both in is shorter than it looks.
-    fn raise(&mut self, region: &Kept, loops: &Loops<DVec2>, into: &mut Body) {
+    fn raise(&mut self, region: &Kept, loops: &Loops<Corner>, into: &mut Body) {
         let from = self.starts.len() - 1;
         let held = self.walks.len();
         for run in region.loops.clone() {
             let at = self.walks.len();
-            for &uv in loops.get(run) {
-                let vertex = self.vertex(region.surface.at(uv), into);
-                if self.walks[at..].last() != Some(&vertex) {
-                    self.walks.push(vertex);
+            let walk = loops.get(run);
+            for (step, corner) in walk.iter().enumerate() {
+                // **A run of corners along one arc is one edge, not a
+                // hundred.** A closed cut is flattened to be classified, so an
+                // imprinted circle arrives here as a crowd of corners standing
+                // on it — and dropping the ones the boundary merely passes
+                // through is what leaves the arc's two ends to be joined by the
+                // curve the meeting gave rather than by a chord. See
+                // [`splitting::passing`].
+                if splitting::passing(walk, step) {
+                    continue;
+                }
+                let vertex = self.vertex(region.surface.at(corner.at), into);
+                if self.walks[at..].last().map(|it| it.vertex) != Some(vertex) {
+                    self.walks.push(Stepped {
+                        vertex,
+                        along: corner.came,
+                    });
                 }
             }
             // The loop closes, so its last vertex meeting its first is the same
             // doubling read round the end.
-            if self.walks[at..].len() > 1 && self.walks.last() == self.walks.get(at) {
+            let ends = |walk: &[Stepped]| walk.last().map(|it| it.vertex);
+            if self.walks[at..].len() > 1 && ends(&self.walks) == ends(&self.walks[at..=at]) {
                 self.walks.pop();
             }
             if self.walks.len() - at < 3 {
@@ -178,7 +239,7 @@ impl Sewing {
             // were, the two faces across an edge would walk it the same way
             // and no shell would close.
             if !region.outward {
-                self.walks[at..].reverse();
+                turned(&mut self.walks[at..]);
             }
             self.starts.push(self.walks.len());
         }
@@ -231,8 +292,8 @@ impl Sewing {
                     } else {
                         step + 1
                     };
-                    let ends = [self.walks[step], self.walks[next]];
-                    let claimed = self.claim(ends, face);
+                    let ends = [self.walks[step].vertex, self.walks[next].vertex];
+                    let claimed = self.claim(ends, self.walks[step].along, face);
                     self.steps.push(claimed);
                 }
             }
@@ -241,7 +302,7 @@ impl Sewing {
     }
 
     /// Claim the edge between `ends` for `face`, finding it or starting it.
-    fn claim(&mut self, ends: [VertexId; 2], face: FaceId) -> Step {
+    fn claim(&mut self, ends: [VertexId; 2], along: Came, face: FaceId) -> Step {
         let found = self
             .joins
             .iter()
@@ -249,6 +310,7 @@ impl Sewing {
         let Some(join) = found else {
             self.joins.push(Join {
                 ends,
+                along,
                 between: [Some(face), None],
                 claims: 1,
             });
@@ -272,7 +334,7 @@ impl Sewing {
     }
 
     /// Make the edges, now that each knows both the faces that use it.
-    fn link(&mut self, into: &mut Body) {
+    fn link(&mut self, imprints: &[Curve], into: &mut Body) {
         self.edges.clear();
         for join in &self.joins {
             let between = join
@@ -288,12 +350,29 @@ impl Sewing {
                 let [one, two] = between.map(|face| topology.face(face).surface);
                 Meeting::of(&one, &two) == Meeting::Same
             };
+            // **The curve the imprint was, where the stretch ran along one.**
+            // A run of corners along an arc was collapsed to its two ends by
+            // [`Sewing::raise`], so what is left here is the arc's endpoints
+            // and no way to tell them from the ends of a chord — which is why
+            // the stretch said what it ran along rather than this working it
+            // out. Everything else is straight: a face's own boundary is, and
+            // so is a plane imprinted on a plane.
+            let (curve, bounds) = match join.along {
+                Came::Arc(which) => {
+                    let curve = imprints[which as usize];
+                    (curve, [curve.along(here), curve.along(there)])
+                }
+                Came::Edge => (
+                    Curve::Line(Line {
+                        origin: here,
+                        direction: (there - here).normalize(),
+                    }),
+                    [0.0, here.distance(there)],
+                ),
+            };
             let edge = into.topology_mut().add_edge(Edge {
-                curve: Curve::Line(Line {
-                    origin: here,
-                    direction: (there - here).normalize(),
-                }),
-                bounds: [0.0, here.distance(there)],
+                curve,
+                bounds,
                 from,
                 to,
                 between,

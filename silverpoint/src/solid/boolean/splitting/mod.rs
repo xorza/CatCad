@@ -69,6 +69,14 @@ pub(super) enum Cut {
         radius: f64,
         /// Whether the disc is kept rather than everything but it.
         inward: bool,
+        /// Which of the caller's imprints this is — see [`Came::Arc`].
+        ///
+        /// **Bookkeeping on a piece of geometry, and it earns its place.** What
+        /// a round cut puts down has to be marked with the curve it came from,
+        /// and carried beside the cut instead it would be a second value
+        /// threaded through six calls in step with the first — which is six
+        /// chances to split by one cut and stamp another's number.
+        imprint: u32,
     },
 }
 
@@ -81,11 +89,25 @@ impl Cut {
                 middle,
                 radius,
                 inward,
+                imprint,
             } => Self::Round {
                 middle,
                 radius,
                 inward: !inward,
+                imprint,
             },
+        }
+    }
+
+    /// What the corners this cut puts down are marked with.
+    ///
+    /// A straight imprint needs nothing remembered about it — a line between
+    /// two places is the same line whoever drew it — so only a circle is
+    /// numbered.
+    fn came(self) -> Came {
+        match self {
+            Self::Straight { .. } => Came::Edge,
+            Self::Round { imprint, .. } => Came::Arc(imprint),
         }
     }
 
@@ -103,6 +125,7 @@ impl Cut {
                 middle,
                 radius,
                 inward,
+                ..
             } => {
                 let off = radius - middle.distance(point);
                 if inward { off } else { -off }
@@ -183,6 +206,7 @@ impl Cut {
             middle,
             radius,
             inward,
+            ..
         } = self
         else {
             return DVec2::ZERO;
@@ -202,13 +226,16 @@ impl Cut {
     /// which whatever closes the loop has already got. A circle's is not, and a
     /// loop closed without this cuts the corner with a chord — a quarter disc
     /// coming back as the triangle under it.
-    fn between(self, from: f64, to: f64, into: &mut Vec<DVec2>) {
+    fn between(self, from: f64, to: f64, into: &mut Vec<Corner>) {
         let Self::Round { radius, .. } = self else {
             return;
         };
         let sweep = (to - from).rem_euclid(TAU);
         let count = arc::chords(radius, sweep, radius * ROUNDED);
-        into.extend((1..count).map(|step| self.at(from + sweep * step as f64 / count as f64)));
+        into.extend((1..count).map(|step| Corner {
+            at: self.at(from + sweep * step as f64 / count as f64),
+            came: self.came(),
+        }));
     }
 
     /// The cut as a loop of corners, wound so the side kept is on its left.
@@ -221,13 +248,16 @@ impl Cut {
     /// falls in and how much one covers; the *body* takes its curve from the
     /// meeting that produced the cut and never from here — see
     /// `.notes/KERNEL.md` §7.4.
-    fn walk(self, into: &mut Vec<DVec2>) {
+    fn walk(self, into: &mut Vec<Corner>) {
         let Self::Round { radius, .. } = self else {
             return;
         };
         let count = arc::chords(radius, TAU, radius * ROUNDED);
         into.reserve_exact(count);
-        into.extend((0..count).map(|step| self.at(TAU * step as f64 / count as f64)));
+        into.extend((0..count).map(|step| Corner {
+            at: self.at(TAU * step as f64 / count as f64),
+            came: self.came(),
+        }));
     }
 
     /// Where along the run from `from` to `to` it meets the circle, in order.
@@ -250,6 +280,62 @@ impl Cut {
             [(-b - root) / (2.0 * a), (-b + root) / (2.0 * a)]
         })
     }
+}
+
+/// One corner of a region, and where the stretch of boundary *leaving* it came
+/// from.
+///
+/// **Carried rather than worked out again later**, which is the whole of what
+/// makes a curved boolean exact where its regions are not. A closed cut is
+/// flattened to be classified — see [`ROUNDED`] — so a circle imprinted on a
+/// face arrives here as a hundred corners; without this the sewing would lift
+/// every one of them into a vertex and hang a hundred straight edges off them,
+/// and a body whose faces are exact would be bounded by a polygon. With it the
+/// sewing collapses the run back into the arc it came from and asks the meeting
+/// for the curve.
+///
+/// Recovering it instead — asking, of each corner, whether it happens to lie on
+/// one of the cuts — reads a *chord* of the imprint circle as an arc of it
+/// wherever the face's own boundary already had two corners on that circle.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(super) struct Corner {
+    pub(super) at: DVec2,
+    pub(super) came: Came,
+}
+
+impl winding::Place for Corner {
+    fn place(self) -> DVec2 {
+        self.at
+    }
+}
+
+/// Whether the corner at `step` is one the boundary merely passes through.
+///
+/// **The rule that turns a flattened arc back into an arc.** True where the
+/// stretch entering a corner and the stretch leaving it run along the same
+/// imprint: the corner is then a place the flattening put there rather than a
+/// place anything meets, and a body that kept it would have a vertex in the
+/// middle of a circular edge and two straight edges either side of it.
+///
+/// Only an arc, never [`Came::Edge`]: two straight stretches meeting at a
+/// corner are two edges however straight they both are, because what a face's
+/// own boundary calls a corner is a corner.
+pub(super) fn passing(walk: &[Corner], step: usize) -> bool {
+    let before = walk[(step + walk.len() - 1) % walk.len()].came;
+    matches!(walk[step].came, Came::Arc(_)) && walk[step].came == before
+}
+
+/// Where one stretch of a region's boundary came from.
+///
+/// Two, and a straight cut is the first rather than a third: a line between two
+/// places is the same line whoever drew it, so an imprint that is straight
+/// needs nothing remembered about it. Only an arc does.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Came {
+    /// A straight run — of the face's own boundary, or of a straight imprint.
+    Edge,
+    /// A run along the imprint at this index, which is the caller's to number.
+    Arc(u32),
 }
 
 /// Which side of a cut a corner fell.
@@ -284,7 +370,7 @@ impl Side {
 /// reaches the heap for none of them.
 #[derive(Debug, Default)]
 pub(super) struct Cells {
-    loops: Loops<DVec2>,
+    loops: Loops<Corner>,
     /// Which runs each region owns: the outline first, then its holes.
     owned: Vec<Range<usize>>,
 }
@@ -301,7 +387,7 @@ impl Cells {
     }
 
     /// Every loop of the region at `at`, the outline first.
-    pub(super) fn cell(&self, at: usize) -> impl Iterator<Item = &[DVec2]> + Clone {
+    pub(super) fn cell(&self, at: usize) -> impl Iterator<Item = &[Corner]> + Clone {
         self.owned[at].clone().map(|run| self.loops.get(run))
     }
 
@@ -310,7 +396,7 @@ impl Cells {
     /// A region that writes no loop is no region, and is dropped rather than
     /// recorded: a cut that keeps nothing has to leave nothing behind, or every
     /// reader afterwards has to know about regions that are not there.
-    pub(super) fn add(&mut self, write: impl FnOnce(&mut Loops<DVec2>)) {
+    pub(super) fn add(&mut self, write: impl FnOnce(&mut Loops<Corner>)) {
         let from = self.loops.len();
         write(&mut self.loops);
         if self.loops.len() > from {
@@ -319,7 +405,7 @@ impl Cells {
     }
 }
 
-/// Cuts regions along straight lines, keeping the room it works in.
+/// Cuts regions along a line or a circle, keeping the room it works in.
 #[derive(Debug, Default)]
 pub(super) struct Splitting {
     /// Whether the last split met a shape it does not handle.
@@ -331,23 +417,23 @@ pub(super) struct Splitting {
     /// Which side of the cut each corner of the loop being walked fell.
     sides: Vec<Side>,
     /// A closed cut as a loop of its own, flattened — see [`Cut::walk`].
-    round: Vec<DVec2>,
+    round: Vec<Corner>,
     /// The stretches of boundary that survived, laid end to end.
     ///
     /// Open, unlike everything else here: each runs from where the boundary
     /// entered the kept side to where it left again, and closing them is what
     /// the reassembly below is for.
-    chains: Loops<DVec2>,
+    chains: Loops<Corner>,
     /// Where each chain of `chains` begins and ends along the cut.
     ends: Vec<Ends>,
     /// The loops the cut never reached, which come through whole.
-    whole: Loops<DVec2>,
+    whole: Loops<Corner>,
     /// The chains in the order the cut meets them, and whether each has been
     /// taken into a loop yet.
     order: Vec<usize>,
     taken: Vec<bool>,
     /// One reassembled loop, before it is known to be an outline or a hole.
-    closed: Loops<DVec2>,
+    closed: Loops<Corner>,
     areas: Vec<f64>,
 }
 
@@ -384,7 +470,7 @@ impl Splitting {
     /// One region, cut.
     fn region<'a>(
         &mut self,
-        region: impl Iterator<Item = &'a [DVec2]> + Clone,
+        region: impl Iterator<Item = &'a [Corner]> + Clone,
         cut: Cut,
         into: &mut Cells,
     ) {
@@ -429,13 +515,13 @@ impl Splitting {
     /// nothing punched out of it.
     fn punch<'a>(
         &mut self,
-        held: impl Iterator<Item = &'a [DVec2]> + Clone,
+        held: impl Iterator<Item = &'a [Corner]> + Clone,
         cut: Cut,
         into: &mut Cells,
     ) {
         self.round.clear();
         cut.walk(&mut self.round);
-        let Some(&somewhere) = self.round.first() else {
+        let Some(somewhere) = self.round.first().map(|corner| corner.at) else {
             return;
         };
         let mut loops = held.clone();
@@ -448,7 +534,7 @@ impl Splitting {
         let within = holds(outline, somewhere) && !loops.any(|walk| holds(walk, somewhere));
         // Which side the region is on, off any corner of it — the cut met no
         // boundary, so they are all on the one side.
-        let kept = cut.side(outline[0]) > 0.0;
+        let kept = cut.side(outline[0].at) > 0.0;
         let round = &self.round;
         match (kept, within) {
             // The region, with one more hole in it.
@@ -467,7 +553,7 @@ impl Splitting {
             // The disc, and the region's own holes that fell in it.
             (false, true) => into.add(|write| {
                 write.push(round);
-                for walk in held.skip(1).filter(|walk| holds(round, walk[0])) {
+                for walk in held.skip(1).filter(|walk| holds(round, walk[0].at)) {
                     write.push(walk);
                 }
             }),
@@ -482,10 +568,11 @@ impl Splitting {
     /// does cross comes through as open chains, each recorded with where along
     /// the cut it began and ended, because that is what says which chain
     /// carries on from which.
-    fn chain(&mut self, walk: &[DVec2], cut: Cut) {
+    fn chain(&mut self, walk: &[Corner], cut: Cut) {
         let count = walk.len();
         self.sides.clear();
-        self.sides.extend(walk.iter().map(|&at| Side::of(cut, at)));
+        self.sides
+            .extend(walk.iter().map(|corner| Side::of(cut, corner.at)));
         if !self.sides.contains(&Side::Dropped) {
             // **Every corner on the kept side, and the boundary still able to
             // dip across a closed cut between two of them.** The walk below
@@ -494,7 +581,7 @@ impl Splitting {
             // refused rather than answered wrongly. A circle clipping the side
             // of a region between two of its corners, which nothing upstream
             // produces yet.
-            if (0..count).any(|at| cut.grazes(walk[at], walk[(at + 1) % count]).is_some()) {
+            if (0..count).any(|at| cut.grazes(walk[at].at, walk[(at + 1) % count].at).is_some()) {
                 self.beyond = true;
                 return;
             }
@@ -511,12 +598,23 @@ impl Splitting {
         // Walked from a corner that fell away, so the first chain opened is a
         // chain the boundary genuinely entered on rather than one it was
         // already inside when the walk began.
-        let mut open: Option<(f64, Vec<DVec2>)> = None;
+        let mut open: Option<(f64, Vec<Corner>)> = None;
         for step in 0..count {
             let here = (start + step) % count;
             let next = (start + step + 1) % count;
             let (from, to) = (walk[here], walk[next]);
             let (leaving, arriving) = (self.sides[here], self.sides[next]);
+            // A place the cut put there, and so a place the boundary leaves
+            // along the cut — where a corner of the region's own boundary
+            // carries whatever it already carried.
+            let onto = |at: DVec2| Corner {
+                at,
+                came: cut.came(),
+            };
+            let back = |at: DVec2| Corner {
+                at,
+                came: from.came,
+            };
             if leaving == Side::Kept
                 && let Some((_, held)) = open.as_mut()
             {
@@ -526,29 +624,32 @@ impl Splitting {
                 // Onto the kept side, across the line or off a corner standing
                 // on it. Either way the chain begins where the cut is met.
                 (Side::Dropped, Side::Kept) => {
-                    let at = cut.crossing(from, to);
-                    open = Some((cut.down(at), vec![at]));
+                    let at = cut.crossing(from.at, to.at);
+                    open = Some((cut.down(at), vec![back(at)]));
                 }
                 (Side::On, Side::Kept) => {
-                    open = Some((cut.down(from), vec![from]));
+                    open = Some((cut.down(from.at), vec![from]));
                 }
                 // And off it again.
-                (Side::Kept, Side::Dropped) => self.shut(&mut open, cut.crossing(from, to), cut),
-                (Side::Kept, Side::On) => self.shut(&mut open, to, cut),
+                (Side::Kept, Side::Dropped) => {
+                    let at = cut.crossing(from.at, to.at);
+                    self.shut(&mut open, onto(at), cut);
+                }
+                (Side::Kept, Side::On) => self.shut(&mut open, onto(to.at), cut),
                 // Both ends on one side, with the run between them dipping
                 // across the cut and back. Only a closed cut can be met twice
                 // by one straight run — see [`Cut::grazes`] — and stepping over
                 // it would lose a whole stretch of boundary.
                 (Side::Kept, Side::Kept) => {
-                    if let Some([out, back]) = cut.grazes(from, to) {
-                        self.shut(&mut open, out, cut);
-                        open = Some((cut.down(back), vec![back]));
+                    if let Some([out, again]) = cut.grazes(from.at, to.at) {
+                        self.shut(&mut open, onto(out), cut);
+                        open = Some((cut.down(again), vec![back(again)]));
                     }
                 }
                 (Side::Dropped, Side::Dropped) => {
-                    if let Some([entered, out]) = cut.grazes(from, to) {
-                        open = Some((cut.down(entered), vec![entered]));
-                        self.shut(&mut open, out, cut);
+                    if let Some([entered, out]) = cut.grazes(from.at, to.at) {
+                        open = Some((cut.down(entered), vec![back(entered)]));
+                        self.shut(&mut open, onto(out), cut);
                     }
                 }
                 // Both ends away from it, or an edge lying along it — neither
@@ -565,13 +666,13 @@ impl Splitting {
     /// so every stretch on the kept side was entered before it could be left.
     /// Reaching here with nothing open would mean the walk had lost count of
     /// which side it was on.
-    fn shut(&mut self, open: &mut Option<(f64, Vec<DVec2>)>, at: DVec2, cut: Cut) {
+    fn shut(&mut self, open: &mut Option<(f64, Vec<Corner>)>, at: Corner, cut: Cut) {
         let (entered, mut held) = open.take().expect("a chain is left only once entered");
         held.push(at);
         self.chains.push(&held);
         self.ends.push(Ends {
             entered,
-            left: cut.down(at),
+            left: cut.down(at.at),
         });
     }
 
@@ -675,7 +776,7 @@ impl Splitting {
                     // Every outline that holds it, which is at most one: the
                     // regions one cut leaves are disjoint, so nothing here has
                     // to decide which of two containers is the tighter.
-                    if holds(outline, punched[0]) {
+                    if holds(outline, punched[0].at) {
                         loops.push(punched);
                     }
                 }
@@ -690,7 +791,7 @@ mod internals {
 
     impl Cells {
         /// The outline of the region at `at`.
-        pub(super) fn outline(&self, at: usize) -> &[DVec2] {
+        pub(super) fn outline(&self, at: usize) -> &[Corner] {
             self.loops.get(self.owned[at].start)
         }
     }

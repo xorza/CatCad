@@ -24,6 +24,23 @@ pub(crate) enum Curve {
 }
 
 impl Curve {
+    /// Which parameter puts the curve at `at`, which is [`Curve::at`] read
+    /// backwards.
+    ///
+    /// **The place has to be on the curve**, which every caller has: what asks
+    /// is an edge being given the stretch of curve it covers, and the two
+    /// places it runs between are places the curve was cut at. A point off the
+    /// curve answers with the parameter of the nearest place on it that shares
+    /// its bearing, which is a wrong answer rather than no answer — so this is
+    /// not a projection and must not be used as one.
+    pub(crate) fn along(&self, at: DVec3) -> f64 {
+        match self {
+            Self::Line(line) => (at - line.origin).dot(line.direction),
+            Self::Circle(circle) => circle.axis.angle_of(at),
+            Self::Ellipse(ellipse) => ellipse.axis.angle_of(at),
+        }
+    }
+
     /// Where the parameter `t` lands.
     pub(crate) fn at(&self, t: f64) -> DVec3 {
         match self {

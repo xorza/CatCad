@@ -13,8 +13,13 @@ fn boxed(outline: &[(f64, f64)]) -> Cells {
     cells
 }
 
-fn corners(of: &[(f64, f64)]) -> Vec<DVec2> {
-    of.iter().map(|&(x, y)| DVec2::new(x, y)).collect()
+fn corners(of: &[(f64, f64)]) -> Vec<Corner> {
+    of.iter()
+        .map(|&(x, y)| Corner {
+            at: DVec2::new(x, y),
+            came: Came::Edge,
+        })
+        .collect()
 }
 
 /// An upright cut at `x`, keeping everything to the left of it.
@@ -59,7 +64,7 @@ fn a_square_cut_across_gives_two_regions_that_add_up_to_it() {
     // Every corner of the left half is at or left of the cut, and it is a
     // closed loop of four.
     assert_eq!(left.outline(0).len(), 4);
-    assert!(left.outline(0).iter().all(|at| at.x <= 0.25 + 1e-12));
+    assert!(left.outline(0).iter().all(|it| it.at.x <= 0.25 + 1e-12));
 }
 
 /// A cut that misses leaves one side whole and the other with nothing on it.
@@ -195,9 +200,10 @@ fn a_cut_through_two_corners_halves_the_region_at_them() {
     }
     // Both halves keep the two corners the cut ran through, so the seam between
     // them is one edge and not two.
+    let stands = |side: &Cells, at: DVec2| side.outline(0).iter().any(|it| it.at == at);
     for at in [DVec2::new(1.0, 0.0), DVec2::new(1.0, 2.0)] {
-        assert!(left.outline(0).contains(&at), "the left lost {at:?}");
-        assert!(right.outline(0).contains(&at), "the right lost {at:?}");
+        assert!(stands(&left, at), "the left lost {at:?}");
+        assert!(stands(&right, at), "the right lost {at:?}");
     }
 }
 
@@ -236,11 +242,12 @@ fn chorded(radius: f64) -> f64 {
 }
 
 /// A circular cut about `middle` of `radius`, keeping the disc.
-fn disc(middle: (f64, f64), radius: f64) -> Cut {
+fn disc(middle: (f64, f64), radius: f64, imprint: u32) -> Cut {
     Cut::Round {
         middle: DVec2::new(middle.0, middle.1),
         radius,
         inward: true,
+        imprint,
     }
 }
 
@@ -261,7 +268,7 @@ fn disc(middle: (f64, f64), radius: f64) -> Cut {
 fn a_circle_inside_a_region_takes_a_disc_out_of_its_middle() {
     let mut splitting = Splitting::default();
     let (mut inside, mut outside) = (Cells::default(), Cells::default());
-    let cut = disc((0.5, 0.5), 0.25);
+    let cut = disc((0.5, 0.5), 0.25, 0);
     assert!(splitting.halve(&square(), cut, &mut inside));
     assert!(splitting.halve(&square(), cut.turned(), &mut outside));
 
@@ -297,7 +304,7 @@ fn a_circle_that_misses_leaves_the_region_whole_or_absent() {
     let mut splitting = Splitting::default();
     let (mut inside, mut outside) = (Cells::default(), Cells::default());
 
-    for cut in [disc((5.0, 5.0), 0.25), disc((0.5, 0.5), 9.0)] {
+    for cut in [disc((5.0, 5.0), 0.25, 0), disc((0.5, 0.5), 9.0, 0)] {
         assert!(splitting.halve(&square(), cut, &mut inside));
         assert!(splitting.halve(&square(), cut.turned(), &mut outside));
         // Whichever way round, one side has the square and the other nothing —
@@ -331,7 +338,7 @@ fn a_circle_that_misses_leaves_the_region_whole_or_absent() {
 fn a_circle_reaching_the_boundary_cuts_the_region_in_two() {
     let mut splitting = Splitting::default();
     let (mut inside, mut outside) = (Cells::default(), Cells::default());
-    let cut = disc((0.0, 0.0), 0.5);
+    let cut = disc((0.0, 0.0), 0.5, 0);
     assert!(splitting.halve(&square(), cut, &mut inside));
     assert!(splitting.halve(&square(), cut.turned(), &mut outside));
 
@@ -374,9 +381,91 @@ fn a_circle_clipping_an_edge_between_two_corners_is_refused() {
     // perfectly well, and it is keeping everything else — every corner kept,
     // the boundary still dipping in and out — that has no start.
     let mut spare = Cells::default();
-    assert!(!splitting.split(&square(), disc((-0.1, 0.5), 0.2), &mut into));
+    assert!(!splitting.split(&square(), disc((-0.1, 0.5), 0.2, 0), &mut into));
     assert!(
-        splitting.halve(&square(), disc((-0.1, 0.5), 0.2), &mut spare),
+        splitting.halve(&square(), disc((-0.1, 0.5), 0.2, 0), &mut spare),
         "the side with a corner to start from is the side that walks",
     );
+}
+
+/// **A round cut stamps what it puts down, and stamps nothing else.**
+///
+/// The half of a curved boolean that keeps the *body* exact while its regions
+/// are not: the corners the flattening put on the circle say so, the region's
+/// own corners go on saying what they said, and the sewing reads the difference
+/// — see [`passing`], which is where the two meet.
+///
+/// Asked of both sides. The disc is made entirely of the cut and the square
+/// with a hole in it is made of both, so between them they cover every way a
+/// mark can arrive.
+#[test]
+fn a_round_cut_stamps_the_corners_it_puts_down_and_no_others() {
+    let mut splitting = Splitting::default();
+    let (mut inside, mut outside) = (Cells::default(), Cells::default());
+    // Numbered, and the number is the cut's own — see [`Cut::Round`]. A
+    // stamping that always wrote nought would pass an arc of nought.
+    let cut = disc((0.5, 0.5), 0.25, 7);
+    let arc = Came::Arc(7);
+    assert!(splitting.halve(&square(), cut, &mut inside));
+    assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+
+    // The disc is nothing but the cut.
+    assert!(
+        inside.outline(0).iter().all(|it| it.came == arc),
+        "the disc holds a corner the cut did not put there",
+    );
+    // And the square with a hole in it is its own four corners and the cut.
+    let mut loops = outside.cell(0);
+    let held = loops.next().expect("an outline");
+    assert_eq!(held.len(), 4, "the square grew corners");
+    assert!(
+        held.iter().all(|it| it.came == Came::Edge),
+        "the square's own corners were stamped by a cut that never touched them",
+    );
+    let hole = loops.next().expect("the punched hole");
+    assert!(
+        hole.iter().all(|it| it.came == arc),
+        "the hole is not the cut"
+    );
+
+    // **What the sewing will make of it**: every corner of the hole but the
+    // first is one the boundary passes through, so the hole is one edge — where
+    // the square's four are four, however straight each of them is.
+    let passed = |walk: &[Corner]| (0..walk.len()).filter(|&at| passing(walk, at)).count();
+    assert_eq!(
+        passed(hole),
+        hole.len(),
+        "the hole would come back in pieces"
+    );
+    assert_eq!(passed(held), 0, "a corner of the square would be swallowed");
+}
+
+/// **A cut that reaches the boundary stamps only the stretch along itself.**
+///
+/// The mixed case, and the one that says the mark travels with the corner
+/// rather than with the loop: a quarter disc is two straight stretches of the
+/// square and one arc, and the corner where the arc *ends* carries the square's
+/// mark because the stretch leaving it is the square's.
+#[test]
+fn a_cut_reaching_the_boundary_stamps_only_its_own_stretch() {
+    let mut splitting = Splitting::default();
+    let mut inside = Cells::default();
+    let arc = Came::Arc(3);
+    assert!(splitting.halve(&square(), disc((0.0, 0.0), 0.5, 3), &mut inside));
+
+    let walk = inside.outline(0);
+    let arcs = walk.iter().filter(|it| it.came == arc).count();
+    assert!(arcs > 1, "the arc came back as {arcs} corners");
+    assert!(
+        walk.iter().any(|it| it.came == Came::Edge),
+        "the two straight stretches lost their own mark",
+    );
+    // One corner of the loop is the square's own, at the origin: both stretches
+    // meeting there are straight, so it is a corner and not a place passed
+    // through.
+    let corner = walk
+        .iter()
+        .position(|it| it.at.abs_diff_eq(DVec2::ZERO, 1e-12))
+        .expect("the quarter disc keeps the square's corner");
+    assert!(!passing(walk, corner), "the square's corner was swallowed");
 }

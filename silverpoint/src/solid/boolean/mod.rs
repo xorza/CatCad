@@ -18,7 +18,7 @@ use crate::math::winding;
 use crate::number::predicate;
 use crate::solid::boolean::sewing::Sewing;
 use crate::solid::boolean::sounding::{Sounding, Standing};
-use crate::solid::boolean::splitting::{Cells, Cut, Splitting};
+use crate::solid::boolean::splitting::{Came, Cells, Corner, Cut, Splitting};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
@@ -127,8 +127,12 @@ impl Boolean {
             into.clear();
             return false;
         }
-        self.sewing
-            .sew(self.combining.kept(), self.combining.loops(), into)
+        self.sewing.sew(
+            self.combining.kept(),
+            self.combining.loops(),
+            self.combining.imprints(),
+            into,
+        )
     }
 }
 
@@ -160,13 +164,24 @@ struct Combining {
     cells: Cells,
     spare: Cells,
     /// One region taken apart for the cutter, which wants an outline and its
-    /// holes separately where a region holds them together.
+    /// holes separately where a region holds them together — and wants bare
+    /// places, having nothing to do with where a stretch came from.
     outline: Vec<DVec2>,
     holes: Loops<DVec2>,
     /// One loop of one face, on its way into the parameters it is cut in.
     walk: Vec<DVec2>,
+    /// The same, stamped as the face's own boundary.
+    laid: Vec<Corner>,
     /// Every loop of every region kept, laid end to end.
-    loops: Loops<DVec2>,
+    loops: Loops<Corner>,
+    /// Every curve a cut imprinted that is not a straight line, in the order
+    /// they were made — which is the order [`Came::Arc`] numbers them in.
+    ///
+    /// Held for the whole combine rather than per face, because the loops above
+    /// are too: a region of one face and a region of another both point in
+    /// here, and a list emptied between faces would have them pointing at each
+    /// other's curves.
+    imprints: Vec<Curve>,
     kept: Vec<Kept>,
 }
 
@@ -182,6 +197,7 @@ impl Combining {
         }
         self.loops.clear();
         self.kept.clear();
+        self.imprints.clear();
         self.against(one, two, doing, true) && self.against(two, one, doing, false)
     }
 
@@ -191,8 +207,13 @@ impl Combining {
     }
 
     /// The loops of the regions kept, laid end to end.
-    fn loops(&self) -> &Loops<DVec2> {
+    fn loops(&self) -> &Loops<Corner> {
         &self.loops
+    }
+
+    /// The curves those loops' arcs run along.
+    fn imprints(&self) -> &[Curve] {
+        &self.imprints
     }
 
     /// Cut every face of `mine` against `theirs` and keep what survives.
@@ -205,7 +226,15 @@ impl Combining {
             let plane = planar(face);
             self.lay(mine, face);
             for (_, other) in theirs.topology().faces() {
-                if let Some(cut) = crossing(plane, other.surface) {
+                // The number the imprint *would* take, handed down rather than
+                // handed back: a round cut carries its own — see
+                // [`Cut::Round`] — so it has to be numbered before it is built,
+                // and only a cut that turns out to be round spends the number.
+                let next = self.imprints.len() as u32;
+                if let Some(Imprint { cut, curve }) = crossing(plane, other.surface, next) {
+                    if let Some(curve) = curve {
+                        self.imprints.push(curve);
+                    }
                     if !self.splitting.split(&self.cells, cut, &mut self.spare) {
                         return false;
                     }
@@ -228,7 +257,9 @@ impl Combining {
     /// `outward`, which is where it belongs.
     fn lay(&mut self, body: &Body, face: &Face) {
         let topology = body.topology();
-        let Self { cells, walk, .. } = self;
+        let Self {
+            cells, walk, laid, ..
+        } = self;
         cells.clear();
         cells.add(|loops| {
             let mut turned = false;
@@ -241,7 +272,15 @@ impl Combining {
                 if turned {
                     walk.reverse();
                 }
-                loops.push(walk);
+                // Every stretch of a face's own boundary is straight — a corner
+                // per coedge is exact for one, which is what
+                // [`Topology::corners`] is allowed to assume.
+                laid.clear();
+                laid.extend(walk.iter().map(|&at| Corner {
+                    at,
+                    came: Came::Edge,
+                }));
+                loops.push(laid);
             }
         });
     }
@@ -288,9 +327,9 @@ impl Combining {
         outline.clear();
         holes.clear();
         let mut walks = cells.cell(at);
-        outline.extend_from_slice(walks.next()?);
+        outline.extend(walks.next()?.iter().map(|corner| corner.at));
         for walk in walks {
-            holes.push(walk);
+            holes.add(|into| into.extend(walk.iter().map(|corner| corner.at)));
         }
         cutter.polygon(outline, holes, fill);
         let widest = fill.triangles.iter().copied().max_by(|&a, &b| {
@@ -307,23 +346,59 @@ impl Combining {
     }
 }
 
+/// A cut in a surface's own parameters, and the world curve it was imprinted
+/// from where that is worth remembering.
+///
+/// The two together because they are one answer: the cut is what divides the
+/// face and the curve is what the edge along it will lie on, and a caller given
+/// one without the other would have to work the second out from the first —
+/// which is precisely what parameters cannot be asked, a plane's uv being the
+/// same whichever body drew on it.
+#[derive(Debug)]
+struct Imprint {
+    cut: Cut,
+    /// `None` for a straight imprint: a line between two places is determined
+    /// by the places, so nothing about it has to be carried.
+    curve: Option<Curve>,
+}
+
 /// Where `other` cuts `plane`, in the plane's own parameters — or `None` where
 /// it does not cut it at all.
-fn crossing(plane: Plane, other: Surface) -> Option<Cut> {
+fn crossing(plane: Plane, other: Surface, imprint: u32) -> Option<Imprint> {
     let Meeting::Along(along) = Meeting::of(&Surface::Plane(plane), &other) else {
         // Apart, or the same plane. Neither cuts anything: two faces lying on
         // one plane are told apart by where each region *stands*, not by a cut
         // between them.
         return None;
     };
-    let [Curve::Line(line)] = along.curves() else {
-        return None;
-    };
-    let at = plane.flatten(line.origin);
-    Some(Cut::Straight {
-        at,
-        along: (plane.flatten(line.origin + line.direction) - at).normalize(),
-    })
+    match along.curves() {
+        [Curve::Line(line)] => {
+            let at = plane.flatten(line.origin);
+            Some(Imprint {
+                cut: Cut::Straight {
+                    at,
+                    along: (plane.flatten(line.origin + line.direction) - at).normalize(),
+                },
+                curve: None,
+            })
+        }
+        // A circle lies in the plane it cuts, so its own frame carries into the
+        // plane's parameters whole: the centre flattens and the radius is a
+        // length, which a plane's parameters keep. **Inward**, so that what is
+        // kept first is the disc — the caller cuts both ways round and reads
+        // each side by where it stands, so which of the two is asked first says
+        // nothing about the answer.
+        [Curve::Circle(circle)] => Some(Imprint {
+            cut: Cut::Round {
+                middle: plane.flatten(circle.axis.origin),
+                radius: circle.radius,
+                inward: true,
+                imprint,
+            },
+            curve: Some(Curve::Circle(*circle)),
+        }),
+        _ => None,
+    }
 }
 
 /// The plane a face lies on.
