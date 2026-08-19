@@ -32,26 +32,11 @@ use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::layout::{Framed, Layout, Made};
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::showing::Showing;
-use crate::paint::{EDGE_WIDTH, GHOST, MARK};
+use crate::paint::{EDGE_WIDTH, GHOST, MARK, SHEET_WIDTH, sheet_ink};
 use crate::part::Part;
 
 mod dimension;
 mod shape;
-
-/// What a datum's two axis arrows are drawn in.
-///
-/// The convention every modeller shares — x red, y green — which is worth
-/// having because it is the one thing about a gizmo a user already knows.
-///
-/// It collides, and knowingly: [`PINNED`](crate::paint::PINNED) is a red and
-/// [`FREE`](crate::paint::FREE) is close to it, so a red arrow and a pinned
-/// point are two things saying different things in one hue. What keeps them
-/// apart for now is that they are never the same
-/// *shape* — an axis is a great flat arrow and a pinned point is a small disc —
-/// and both of these are muted well below the drawing's own, so they read as
-/// chrome rather than as state. A palette is where this gets settled properly.
-const AXIS_X: Vec3 = Vec3::new(0.62, 0.20, 0.18);
-const AXIS_Y: Vec3 = Vec3::new(0.24, 0.52, 0.24);
 
 /// What the arrow carrying a solid's depth is drawn in.
 ///
@@ -60,31 +45,18 @@ const AXIS_Y: Vec3 = Vec3::new(0.24, 0.52, 0.24);
 /// had a state, and the axis colours would say it was an axis.
 const DEPTH_ARROW: Vec3 = Vec3::new(0.78, 0.76, 0.70);
 
-/// What the square joining the two is drawn in.
+/// Write every control the drawing wants — the square standing for each plane,
+/// and the arrow that carries a solid still being decided — and the lines its
+/// dimensions are drawn with.
 ///
-/// Neither hue, because it belongs to neither axis — it is the corner they make
-/// rather than a third direction, and giving it one of theirs would say it was.
-const AXIS_CORNER: Vec3 = Vec3::new(0.50, 0.52, 0.55);
-
-/// Write every control the drawing wants — a datum's axes, and the arrow that
-/// carries a solid still being decided — and the lines its dimensions are drawn
-/// with.
+/// A plane's square is named as the plane itself, which makes it the whole of
+/// what there is to point at: the outline used to be written with the drawing
+/// and world-measured, and a datum's handles were arrows laid beside it. Both
+/// are gone — one square says where a plane is, and grabbing it grabs the plane.
 ///
-/// A control is named as the plane itself, every piece of it. Several tags
-/// reporting one [`Part`] is what [`Names`](crate::paint::names::Names) is already
-/// built to allow — a tag is a position in a list and nothing assumes the list
-/// holds each part once — so grabbing any of them grabs the datum, and lighting
-/// the datum lights them all. The plane's own outline is named the same way and
-/// written with the drawing, being world-measured — see
-/// [`write::curves`](crate::paint::write::curves).
-///
-/// **Not every plane, unlike the outlines.** Handles are drawn where there is
-/// something to take hold of, which is a plane with an offset to restate — see
-/// [`Models::movable_planes`](crate::model::Models::movable_planes). The three
-/// the world comes with have none, and a gizmo apiece would put six arrows
-/// through the origin, which is where a model is built: a control that cannot be
-/// used but can still be clicked is worse than no control, because it takes the
-/// click.
+/// **Not every plane.** Which ones show a square is a question about what you
+/// are working on rather than about what the document holds — see
+/// [`Piece::Sheet`].
 ///
 /// **A dimension's lines are named nothing.** What a dimension offers a click is
 /// its number, which is a label and outranks any stroke running under it — see
@@ -129,6 +101,7 @@ pub(crate) fn write(
     // it and rewritten far more often, so without this the list would grow by a
     // gizmo's worth every frame the camera moved.
     names.truncate_to_drawn();
+    let open = models.open_plane();
     // The region is cut only where the last cut was of another one — see
     // [`Cut`](crate::paint::cut::Cut), which is what keeps the filler off the
     // camera's schedule.
@@ -137,16 +110,15 @@ pub(crate) fn write(
         growing.carried(models, cut, lens)
     });
     into.refill(
+        // Which planes show a square — see [`Piece::Sheet`].
         models
-            .movable_planes()
-            .flat_map(|(at, plane)| {
-                [
-                    Piece::Axis(plane, DVec2::X, AXIS_X),
-                    Piece::Axis(plane, DVec2::Y, AXIS_Y),
-                    Piece::Hub(plane),
-                    Piece::Corner(plane),
-                ]
-                .map(move |piece| (Some(Part::Plane(at)), piece))
+            .planes()
+            .filter(move |sheeted| sheeted.movable || open.is_none_or(|on| on == sheeted.at))
+            .map(move |sheeted| {
+                (
+                    Some(Part::Plane(sheeted.at)),
+                    Piece::Sheet(sheeted.plane, sheet_ink(sheeted.world)),
+                )
             })
             .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))
             .chain(ruled(models, placed, *proposed, lens)),
@@ -254,12 +226,25 @@ const GIZMO_WIDTH: f32 = 2.0;
 /// One stroke a gizmo is made of.
 #[derive(Debug, Clone, Copy)]
 enum Piece {
-    /// An arrow along one of a plane's axes, in that axis's colour.
-    Axis(Plane, DVec2, Vec3),
-    /// The block the two axes cross at.
-    Hub(Plane),
-    /// The square in the quadrant the two axes shut in.
-    Corner(Plane),
+    /// The square that stands for a whole plane, at its origin and in the ink
+    /// its world axis wears.
+    ///
+    /// **At the origin and not over the drawing.** The square is a symbol for a
+    /// plane rather than a backdrop under one — it holds its size on screen, so
+    /// it could not cover a drawing at every zoom in any case — and put at the
+    /// origin the three the world comes with cross there, which is the mark
+    /// every modeller draws for an origin and reads at a glance. One that
+    /// followed whatever was sketched on it would leave them crossing nowhere.
+    ///
+    /// **A plane is drawn where it is what you are working with.** With no
+    /// sketch open every one of them is, because picking a plane is then the
+    /// whole of what there is to do. With one open it is the plane under it —
+    /// which is what says where you are — and any plane that can be *moved*,
+    /// whose square is the only thing there is to take hold of it by. The rest
+    /// stay away: the three the world comes with are square to one another and
+    /// cross at the origin, so two of them would stand across whatever is built
+    /// there.
+    Sheet(Plane, Vec3),
     /// The arrow carrying a solid's depth, which stands out of its plane rather
     /// than lying in one.
     Depth(Carried),
@@ -280,40 +265,45 @@ impl Piece {
     /// **One match rather than one per property.** What a piece answers — the
     /// depth it takes, whether it closes, how wide, in what ink, how hard it
     /// competes for a click, and the corners themselves — is not six questions
-    /// about five kinds but two families that share almost nothing: four handles
-    /// differing only in their outline and their colour, and a dimension's
-    /// stroke sharing none of it. Asked a property at a time, every answer had
-    /// to spell out all five kinds to say that.
+    /// about three kinds but two families that share almost nothing: the flat
+    /// outlines a control is cut from, differing in little but their shape and
+    /// their colour, and a dimension's stroke sharing none of it. Asked a
+    /// property at a time, every answer had to spell out all three kinds to say
+    /// that.
     ///
     /// The tag is not here: a name is minted out of the list the caller is
     /// appending to, and this is handed a `Curve` rather than the walk.
     fn stroke(self, curve: &mut Curve, lens: Lens) {
         curve.points.clear();
         match self {
-            Piece::Axis(plane, along, ink) => {
+            Piece::Sheet(plane, ink) => {
                 control(curve, ink, Some(plane));
-                lay(curve, plane, &shape::arrow(along), lens);
-            }
-            Piece::Hub(plane) => {
-                control(curve, AXIS_CORNER, Some(plane));
-                lay(curve, plane, &shape::hub(), lens);
-            }
-            Piece::Corner(plane) => {
-                control(curve, AXIS_CORNER, Some(plane));
-                lay(curve, plane, &shape::corner(), lens);
+                // Hairline, where a handle is a shade heavier than the drawing:
+                // the square is a symbol for a plane before it is something to
+                // grab, and at a handle's weight it would read as a thing to
+                // take hold of everywhere it passed.
+                curve.width = SHEET_WIDTH;
+                // **Aside**, so it yields a click to anything drawn on the plane
+                // it stands for. Not a frame: a frame does not merely lose the
+                // click, it *hides* what is behind it from a pick — right for a
+                // backdrop drawn round a drawing, and wrong for a small square
+                // standing at the origin, where a model is built. Tagged and
+                // framed, it swallowed dimension marks lying a little further
+                // back.
+                curve.precedence = Precedence::Aside;
+                lay(curve, plane, &shape::sheet(), lens);
             }
             Piece::Depth(carried) => {
                 // Standing out of a plane rather than lying in one, so it takes
                 // no plane's depth — see [`Carried`].
                 control(curve, DEPTH_ARROW, None);
-                // **The one control that does not yield.** A datum stands as a
-                // frame: it is what the drawing is done *on*, so it gives up a
-                // click to anything drawn on it. This is what the gesture is
-                // *for* — a form is open and the arrow is the thing being
-                // dragged — so it has to take the click over the geometry it
-                // stands over. Ranking it as a frame would also enter it among
-                // the occluders, so it would go on to hide what is behind it
-                // from a pick as well as losing to it.
+                // **The one control that does not yield.** A plane's square
+                // stands aside, being what the drawing is done *on*. This is
+                // what the gesture is *for* — a form is open and the arrow is
+                // the thing being dragged — so it has to take the click over
+                // the geometry it stands over. Ranking it as a frame would also
+                // enter it among the occluders, so it would go on to hide what
+                // is behind it from a pick as well as losing to it.
                 curve.precedence = Precedence::Shaped;
                 // Sized where it stands, like every control — see [`lay`] — but
                 // laid out in a frame of its own rather than on a plane.
@@ -364,11 +354,14 @@ impl Piece {
 
 /// Set `curve` up as a control in `ink`, lying in `plane` where it lies in one.
 ///
-/// What the four handles share, which is everything but their outline and their
-/// colour: the width a handle is stroked at — see [`GIZMO_WIDTH`] — closed,
-/// because every control is a filled outline, and ranked as a frame, being
-/// furniture the drawing is done *on*. The depth arrow overrides that last one,
-/// and says why where it does.
+/// What the controls share, which is everything but their outline, their colour
+/// and how hard they compete for a click: the width a handle is stroked at — see
+/// [`GIZMO_WIDTH`] — and closed, because every control is a filled outline.
+///
+/// **Not the standing.** No two controls here want the same one and each says
+/// why where it sets it, so a default set here would be a value every caller
+/// overwrote — which reads as the rule while being the one thing that never
+/// holds.
 ///
 /// A control lies in a plane and is widened in screen space, so it takes that
 /// plane's depth rather than its anchor's — the same thing every stroke of the
@@ -378,7 +371,6 @@ fn control(curve: &mut Curve, ink: Vec3, plane: Option<Plane>) {
     curve.width = GIZMO_WIDTH;
     curve.closed = true;
     curve.plane_normal = plane.map(|plane| plane.normal().as_vec3());
-    curve.precedence = Precedence::Frame;
 }
 
 /// Put `outline` on `plane`, at the scale a pixel is worth where that plane
@@ -389,8 +381,7 @@ fn control(curve: &mut Curve, ink: Vec3, plane: Option<Plane>) {
 /// plane built to the target's scale would come out the wrong size.
 ///
 /// The outline arrives in logical pixels and in coordinates of its own — see
-/// [`shape`] — so this is the one step that turns one into geometry, and the
-/// three flat pieces of a datum differ in nothing else.
+/// [`shape`] — so this is the one step that turns one into geometry.
 fn lay(curve: &mut Curve, plane: Plane, outline: &[DVec2], lens: Lens) {
     let scale = f64::from(lens.world_per_pixel(plane.origin.as_vec3()));
     curve

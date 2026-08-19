@@ -3,14 +3,15 @@
 use crate::build::Build;
 use crate::demo;
 use crate::document::Document;
+use crate::lens::Lens;
 use crate::paint::tests::fixtures::{drawn, every_statable};
 use crate::paint::*;
 use crate::part::Part;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
-use aperture::{Curve, Facing, Scene, Turn};
-use glam::{DVec2, Vec2, Vec3};
-use silverpoint::{Along, Dimension, Sketch};
+use aperture::{Facing, Scene, Turn, Viewport};
+use glam::{DVec2, UVec2, Vec2, Vec3};
+use silverpoint::{Along, Dimension, Plane, Sketch};
 
 /// The demo drawing lays out to exactly what it holds, and every part of it is
 /// named.
@@ -26,10 +27,9 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let mut layout = Layout::default();
     redraw(one.models(), &mut layout, Showing::default(), &mut scene);
 
-    // Seven segments — four sides, the rail, and the arm's two bars — plus the
-    // outline of the one plane this fixture draws on; two circles, and a marker
-    // on each of the nine points.
-    assert_eq!(scene.curves.len(), 8);
+    // Seven segments — four sides, the rail, and the arm's two bars — two
+    // circles, and a marker on each of the nine points.
+    assert_eq!(scene.curves.len(), 7);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
 
@@ -53,7 +53,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
         Showing::default(),
         &mut scene,
     );
-    assert_eq!(scene.curves.len(), 8);
+    assert_eq!(scene.curves.len(), 7);
     assert_eq!(scene.rings.len(), 2);
     assert_eq!(scene.points.len(), 9);
 }
@@ -84,10 +84,9 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
     // cylinder.
     assert_eq!(picture.solids.len(), 3);
     // And both sketches: the frame's seven edges and the triangle's three, two
-    // rims, nine markers and three — with one outline, for the plane the open
-    // sketch is drawn on. The other three planes the demo holds are not drawn
-    // while a drawing stands on one of them.
-    assert_eq!(picture.curves.len(), 11);
+    // rims, nine markers and three. The planes are no part of this batch — they
+    // hold their size on screen, so they are cut with the handles.
+    assert_eq!(picture.curves.len(), 10);
     assert_eq!(picture.rings.len(), 2);
     assert_eq!(picture.points.len(), 12);
     // And no controls, which are not the document's: they are built against a
@@ -339,8 +338,7 @@ fn only_the_open_sketch_shows_its_constraints() {
         "a sketch nobody is in put its constraints on screen"
     );
     // Both sketches are still *drawn* — it is the marks alone that go.
-    // Both sketches and the one plane they are drawn on.
-    assert_eq!(scene.curves.len(), 3, "the picture is of both sketches");
+    assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
 
     // The same layout, so the only thing that has changed is which sketch is
     // open — and the marks have to follow it.
@@ -475,8 +473,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
         Showing::default(),
         &mut scene,
     );
-    // Both sketches and the one plane they are drawn on.
-    assert_eq!(scene.curves.len(), 3, "the picture is of both sketches");
+    assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
     // Two free ends are two degrees of freedom apiece, so the live one is drawn
     // in what a wholly free edge is drawn in.
     assert_eq!(drawn(&scene, &layout, here), [FREE]);
@@ -498,141 +495,62 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     assert_eq!(drawn(&scene, &layout, there), [FREE]);
 }
 
-/// The plane being drawn on is outlined, and the outline encloses the drawing
-/// with room to spare.
+/// With no sketch open every plane shows a square, and with one open only the
+/// planes that square still says something about.
 ///
-/// **The whole of what a sheet has to do**, and the two ways of getting it wrong
-/// both pass a count. One sized off how *wide* the drawing is leaves an edge
-/// running through the model, because a drawing need not be centred on anything;
-/// one centred on the plane's own origin, which a drawing need not be near
-/// either, is four times the size it has to be and off to one side. Either reads
-/// as a stray line rather than as the edge of the ground.
+/// **The whole of the rule the squares follow**, and the two halves are one rule
+/// seen from either side: a plane is drawn where it is what you are working
+/// with. With none open picking a plane is the whole of what there is to do, so
+/// all of them show; with one open the rest would be furniture standing in front
+/// of the model — the three the world comes with cross at the origin, which is
+/// where a model is built. What still says something then is the plane under the
+/// drawing, and any plane that can be *moved*, whose square is the only thing
+/// there is to take hold of it by.
 ///
-/// Read back through the plane the sheet lies in rather than in the world, which
-/// is the frame the claim is actually about: the demo draws on the ground, so a
-/// square measured in world x and z would happen to agree, and one drawn on the
-/// shelf would not.
-#[test]
-fn the_plane_being_drawn_on_is_outlined_round_its_drawing() {
-    let mut build = Build::default();
-    let document = demo::document(&mut build);
-    let models = document.models(&build, Some(document.first_sketch()));
-    let mut layout = Layout::default();
-    let mut scene = Scene::default();
-    redraw(models, &mut layout, Showing::default(), &mut scene);
-
-    // One, and it names the plane the open sketch is drawn on. The other three
-    // planes the demo holds are not drawn while a drawing stands on one of them.
-    let named = |curve: &Curve| curve.tag.and_then(|tag| layout.names().get(tag));
-    let outlines: Vec<_> = scene
-        .curves
-        .iter()
-        .filter(|curve| matches!(named(curve), Some(Part::Plane(_))))
-        .collect();
-    let [outline] = outlines[..] else {
-        panic!("{} planes were outlined, not one", outlines.len());
-    };
-    assert_eq!(named(outline), models.open_plane().map(Part::Plane));
-    assert!(outline.closed, "a sheet's outline does not close");
-
-    // Its corners in the plane's own coordinates, which is where the drawing's
-    // are.
-    let plane = models
-        .open()
-        .expect("a fixture opens the sketch it names")
-        .plane();
-    let corners: Vec<DVec2> = outline
-        .points
-        .iter()
-        .map(|&at| plane.flatten(at.as_dvec3()))
-        .collect();
-    let low = corners.iter().copied().fold(DVec2::INFINITY, DVec2::min);
-    let high = corners
-        .iter()
-        .copied()
-        .fold(DVec2::NEG_INFINITY, DVec2::max);
-    let side = high - low;
-    // To a fraction of itself rather than exactly: a corner crosses into the
-    // renderer's `f32` and back on its way here, so demanding the decimal would
-    // be asserting how that rounded.
-    assert!(
-        (side.x - side.y).abs() < side.x * 1e-5,
-        "a sheet is {side:?} rather than square",
-    );
-
-    // Every point of the drawing inside it, and none of them on the edge: the
-    // margin is what keeps the outline off the geometry.
-    let clear = side.x * 0.01;
-    for (_, point) in models
-        .open()
-        .expect("a fixture opens the sketch it names")
-        .sketch()
-        .points()
-    {
-        let at = point.position;
-        assert!(
-            at.cmpgt(low + clear).all() && at.cmplt(high - clear).all(),
-            "{at:?} is not inside the sheet running {low:?} to {high:?}",
-        );
-    }
-
-    // And not so far outside it as to be a square about the origin grown until
-    // it happened to reach: the demo draws from (0, 0) out to (8, 5), so a sheet
-    // centred on the plane's origin would run past −8 on both axes.
-    assert!(
-        low.x > -4.0 && low.y > -4.0,
-        "the sheet starts at {low:?}, so it is centred on the origin rather than \
-         on the drawing",
-    );
-}
-
-/// With no sketch open every plane shows itself, and with one open only the
-/// plane under it does.
-///
-/// **The whole of what phase the sheets follow**, and the two halves are one
-/// rule seen from either side: a plane is drawn where it is what you are working
-/// with. While a sketch is open the rest would be furniture standing in front of
-/// the model — the three the world comes with cross at the origin, which is
-/// where a model is built — and with none open there is no model to stand in
-/// front of and picking a plane is the whole of what there is to do.
-///
-/// The fill goes further still: it says there is nothing here *yet*, so it wants
-/// a plane nothing has been drawn on as well as no drawing to be in front of.
-/// The demo's ground and shelf both carry a sketch, so the two upright world
-/// planes are the two that fill.
+/// The names follow a narrower rule again and are asserted here with them: they
+/// share a batch with the marks, so they are written only while there are no
+/// marks to write — see [`write::texts`](crate::paint::write::texts).
 #[test]
 fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
     let mut build = Build::default();
     let document = demo::document(&mut build);
-    let named = |curve: &Curve, layout: &Layout| curve.tag.and_then(|tag| layout.names().get(tag));
-
-    // Nothing open: all four planes the demo holds, and the two empty ones
-    // filled. A name apiece for the three the world comes with; the shelf is one
-    // somebody put there and has none to carry.
-    let mut idle = Layout::default();
-    let mut looked = Scene::default();
-    redraw(
-        document.models(&build, None),
-        &mut idle,
-        Showing::default(),
-        &mut looked,
-    );
-    let planes = |scene: &Scene, layout: &Layout| {
+    // A plane's square holds its size on screen, so it is cut against the camera
+    // with the other handles — which is why a lens is wanted here where the
+    // drawing alone needed none.
+    let lens = Lens::new(document.camera(), Viewport::new(UVec2::new(800, 600)));
+    // Counted by what each names rather than by the width it is stroked at,
+    // which is the claim: a square answers for its plane, and a dimension's rule
+    // and the depth arrow in the same batch answer for other things or for
+    // nothing.
+    let squares = |scene: &Scene, layout: &Layout| {
         scene
-            .curves
+            .gizmos
             .iter()
-            .filter(|curve| matches!(named(curve, layout), Some(Part::Plane(_))))
+            .filter(|gizmo| {
+                let named = gizmo.tag.and_then(|tag| layout.names().get(tag));
+                matches!(named, Some(Part::Plane(_)))
+            })
             .count()
     };
-    assert_eq!(planes(&looked, &idle), 4, "a document shows all its planes");
+
+    // Nothing open: all four planes the demo holds show a square, and the three
+    // the world comes with name themselves. The shelf is one somebody put there
+    // and has no name to carry.
+    let mut idle = Layout::default();
+    let mut looked = Scene::default();
+    let models = document.models(&build, None);
+    redraw(models, &mut idle, Showing::default(), &mut looked);
+    gizmos::write(
+        models,
+        &mut idle,
+        Showing::default(),
+        lens,
+        &mut looked.gizmos,
+    );
     assert_eq!(
-        looked
-            .faces
-            .iter()
-            .filter(|face| face.tag.is_none())
-            .count(),
-        2,
-        "only the planes nothing is drawn on are filled"
+        squares(&looked, &idle),
+        4,
+        "a document shows all its planes"
     );
     assert_eq!(
         looked.texts.len(),
@@ -648,25 +566,90 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
         .collect();
     assert_eq!(said, ["Ground", "Front", "Side"]);
 
-    // Opened on the first sketch: its plane alone, no fill anywhere, and the
-    // names give the batch back to the marks.
+    // **Laid into the plane each names**, rather than pinned over it: a name
+    // advances along that plane's own +x and takes its depth from it, so the
+    // sheet can hide it and turning the model turns it. Read off the turn rather
+    // than off the pixels, because what a projection does with it is the
+    // renderer's — what is decided here is which frame it was set in.
+    for (text, plane) in looked
+        .texts
+        .iter()
+        .zip([Plane::GROUND, Plane::FRONT, Plane::SIDE])
+    {
+        let Facing::Turned(turn) = text.facing else {
+            panic!("{} is pinned over its plane, not set in it", text.content);
+        };
+        assert_eq!(
+            turn.right,
+            plane.x.as_vec3(),
+            "{} runs the wrong way",
+            text.content
+        );
+        assert_eq!(turn.normal, plane.normal().as_vec3());
+        // **Centred on its own box**, with the whole offset in the lift. A box
+        // hung off any other fraction is reflected through its point by the half
+        // turn, so a name tucked into a corner from one side sticks out of it
+        // from the other — which is what a look from behind showed. A centred
+        // box is mapped onto itself and holds.
+        assert_eq!(text.anchor, Vec2::splat(0.5));
+        // Out to the square's top-left corner, in the plane's own axes: left
+        // along +x and up along +y.
+        assert!(
+            turn.lift.x < 0.0 && turn.lift.y > 0.0,
+            "{} is carried to the wrong corner",
+            text.content
+        );
+    }
+
+    // **Every one of them anchored on the origin**, which is where the three the
+    // world comes with cross and the whole of what makes them read as an origin
+    // at all. A square that followed whatever was sketched on its plane would
+    // leave them crossing nowhere, which is not a thing a modeller draws.
+    assert!(
+        looked.texts.iter().all(|text| text.position == Vec3::ZERO),
+        "a world plane's name left the origin its square is drawn at"
+    );
+
+    // What carries them apart is the lift, stated in each plane's own axes — so
+    // three names anchored on one point still land in three places. No two share
+    // a plane, which is what says the lifts differ.
+    for (nth, text) in looked.texts.iter().enumerate() {
+        let Facing::Turned(turn) = text.facing else {
+            unreachable!("every name was matched as turned above");
+        };
+        for other in &looked.texts[nth + 1..] {
+            let Facing::Turned(theirs) = other.facing else {
+                unreachable!("every name was matched as turned above");
+            };
+            assert_ne!(
+                turn.normal, theirs.normal,
+                "{} and {} are set in one plane",
+                text.content, other.content
+            );
+        }
+    }
+
+    // Opened on the first sketch: its plane alone shows a square, and the names
+    // give the batch back to the marks.
     let mut drawn = Layout::default();
     let mut worked = Scene::default();
-    let editing = Some(document.first_sketch());
-    redraw(
-        document.models(&build, editing),
+    let models = document.models(&build, Some(document.first_sketch()));
+    redraw(models, &mut drawn, Showing::default(), &mut worked);
+    gizmos::write(
+        models,
         &mut drawn,
         Showing::default(),
-        &mut worked,
+        lens,
+        &mut worked.gizmos,
     );
+    // Two: the plane the drawing stands on, and the demo's one movable plane —
+    // which shows a square whatever is open, that square being the only thing
+    // there is to take hold of it by. The other two the world comes with are
+    // neither, so they are not drawn.
     assert_eq!(
-        planes(&worked, &drawn),
-        1,
+        squares(&worked, &drawn),
+        2,
         "a plane stood in front of the model"
-    );
-    assert!(
-        worked.faces.iter().all(|face| face.tag.is_some()),
-        "a plane was filled under a drawing"
     );
     assert!(
         worked.texts.iter().all(|text| text.content != "Front"),

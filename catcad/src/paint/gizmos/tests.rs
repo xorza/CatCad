@@ -55,38 +55,34 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
             )
         })
         .collect();
-    // Four strokes for the demo's one movable plane — two arrows, the hub they
-    // cross at and the corner square — and all four naming that plane, which is
-    // what makes the whole of it one thing to point at.
-    //
-    // Four and not sixteen. Every plane is *drawn* now, as an outline written
-    // with the drawing, but only one of them has anything to take hold of: the
-    // three the world comes with cannot be moved, and arrows on them would put
-    // six shafts through the origin, where a model is built.
-    assert_eq!(named.len(), 4);
-    let Some(Part::Plane(at)) = named[0].tag.and_then(|tag| layout.names().get(tag)) else {
-        unreachable!("the arrows were found by their tags naming a plane");
-    };
-
-    // The plane the arrows named, not whichever the first sketch happens to be
-    // drawn on: the demo sketches on the ground as well, and measuring against
-    // that one would be asking whether the arrows lie in a plane they were
-    // never on.
+    // Two squares, each naming its own plane: the one the drawing is standing
+    // on, and the demo's one movable plane — which shows a square whatever is
+    // open, because that square is the only thing there is to take hold of it
+    // by. The other two the world comes with are neither, so while a sketch is
+    // open they are not drawn.
+    assert_eq!(named.len(), 2);
     let models = document.models(&build, Some(document.first_sketch()));
-    let (_, plane) = models
-        .movable_planes()
-        .find(|(id, _)| *id == at)
-        .expect("the arrows name a plane the document holds");
-    let origin = plane.point(DVec2::ZERO).as_vec3();
-    let normal = plane.normal().as_vec3();
-    for piece in &named {
-        assert!(piece.closed, "a control is drawn as an open run of strokes");
-        // Every corner lies in the plane, which is the whole of what makes it
-        // flat *in* the datum rather than a shape hung in front of it.
-        for &corner in &piece.points {
-            let off = (corner - origin).dot(normal);
-            assert!(off.abs() < 1e-5, "a corner stands {off} off its own plane");
-        }
+    let movable = models
+        .planes()
+        .find(|sheeted| sheeted.movable)
+        .expect("the demo draws a datum that can be moved");
+    // That plane's square, not whichever came first: the demo sketches on the
+    // ground as well, and measuring against that one would be asking whether a
+    // square lies in a plane it was never on.
+    let square = named
+        .iter()
+        .find(|piece| {
+            piece.tag.and_then(|tag| layout.names().get(tag)) == Some(Part::Plane(movable.at))
+        })
+        .expect("the movable plane shows a square");
+    let origin = movable.plane.point(DVec2::ZERO).as_vec3();
+    let normal = movable.plane.normal().as_vec3();
+    assert!(square.closed, "a plane's square does not close");
+    // Every corner lies in the plane, which is the whole of what makes it flat
+    // *in* the datum rather than a shape hung in front of it.
+    for &corner in &square.points {
+        let off = (corner - origin).dot(normal);
+        assert!(off.abs() < 1e-5, "a corner stands {off} off its own plane");
     }
 
     // **Measured in pixels, not in the drawing.** Pulling the camera back makes
@@ -117,7 +113,17 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         let middle = lens
             .screen_of(origin)
             .expect("the datum the gizmo stands on is behind the camera");
-        scene.gizmos[0]
+        // *That* plane's square, found by its tag: two are drawn while a sketch
+        // is open, and one measured against the other plane's origin would be
+        // measuring how far apart the two stand — a world length, which is
+        // exactly what a control does not have.
+        scene
+            .gizmos
+            .iter()
+            .find(|gizmo| {
+                gizmo.tag.and_then(|tag| layout.names().get(tag)) == Some(Part::Plane(movable.at))
+            })
+            .expect("the movable plane shows a square")
             .points
             .iter()
             .map(|&at| {
@@ -196,11 +202,9 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
             })
             .expect("a solid being grown has no arrow to carry it");
         // The arrow is what the gesture is *for* while a form is open, so it
-        // takes the click over the geometry it stands over — where a datum is
-        // furniture the drawing is done on and yields to everything drawn on
-        // it. Ranking the arrow as a frame costs twice: it would lose the click
-        // it exists for, and it would go on to hide whatever is behind it from
-        // a pick, frames being what `Scene::frame_front` walks.
+        // takes the click over the geometry it stands over — where a plane's
+        // square stands aside and yields to everything drawn on it. Ranking the
+        // arrow aside would lose it the click it exists for.
         assert_eq!(arrow.precedence, Precedence::Shaped);
         assert!(
             scene
@@ -210,8 +214,8 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
                     piece.tag.and_then(|tag| layout.names().get(tag)),
                     Some(Part::Plane(_))
                 ))
-                .all(|piece| piece.precedence == Precedence::Frame),
-            "a datum stopped standing as furniture the drawing is done on"
+                .all(|piece| piece.precedence == Precedence::Aside),
+            "a plane's square stopped yielding to what is drawn on it"
         );
         // The two corners the head is widest between. Across the arrow rather
         // than along it, because the tip and the tail sit on its axis whichever
@@ -364,14 +368,22 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     assert_eq!(figure.color, GHOST, "a proposal reads as a rubber band");
     assert_eq!(figure.tag, None, "a proposal can be picked out");
 
-    // The rule under it: an extension line from each foot, the dimension line
-    // itself, and a head at each end — see [`dimension::strokes`].
+    // The rule under it — an extension line from each foot, the dimension line
+    // itself, and a head at each end, see [`dimension::strokes`] — and the
+    // square standing for the plane the whole of it is drawn on.
     assert_eq!(
         scene.gizmos.len(),
-        5,
-        "the rule under the figure is missing"
+        6,
+        "the rule and the square do not both stand"
     );
-    for stroke in scene.gizmos.iter() {
+    // The rule alone. A plane's square is in this batch too, and unlike the
+    // rule it is both tagged and drawn in its plane's own ink — so what tells
+    // the two apart is the width each is stroked at.
+    for stroke in scene
+        .gizmos
+        .iter()
+        .filter(|stroke| stroke.width != SHEET_WIDTH)
+    {
         assert_eq!(stroke.color, GHOST, "the rule and the figure disagree");
         assert_eq!(stroke.tag, None, "a proposal's rule can be picked out");
     }

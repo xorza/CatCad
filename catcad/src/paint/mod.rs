@@ -20,7 +20,7 @@
 
 use crate::timeline::feature::World;
 use aperture::{Precedence, Scene};
-use glam::Vec3;
+use glam::{Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::{Constraint, Freedom};
 
@@ -128,31 +128,20 @@ const GHOST: Vec3 = Vec3::new(0.72, 0.74, 0.78);
 ///
 /// **Hued by the axis its normal runs along**: the ground faces +Y, the front
 /// +Z and the side +X, so green, blue and red. The convention every gizmo cube
-/// uses, and it already agrees with the [`AXIS_X`](gizmos) red and
-/// [`AXIS_Y`](gizmos) green a datum's arrows are drawn in. A plane measured off
-/// another has no world axis to claim, so it takes a neutral — which also tells
-/// a plane the world gave you from one you made, without a label doing it.
+/// uses, which is worth having because it is the one thing about a plane a user
+/// already knows. A plane measured off another has no world axis to claim, so it
+/// takes a neutral — which also tells a plane the world gave you from one you
+/// made, without a label doing it.
 ///
-/// Cool and low, all of them, because an outline runs right round the geometry
-/// and has to read as the edge of the ground rather than as another stroke. The
-/// collision with the freedom ladder is the one the axis arrows already have:
-/// what keeps them apart is that these are long faint lines where a pinned point
-/// is a small saturated disc. A palette is where that gets settled properly.
+/// Cool and low, all of them, so a square standing at the origin reads as chrome
+/// rather than as something drawn there. They collide with the freedom ladder —
+/// [`PINNED`] is a red and [`FREE`] is close to it — and what keeps them apart
+/// is shape and weight: these are hairline squares where a pinned point is a
+/// small saturated disc. A palette is where that gets settled properly.
 const SHEET_GROUND: Vec3 = Vec3::new(0.30, 0.46, 0.32);
 const SHEET_FRONT: Vec3 = Vec3::new(0.30, 0.40, 0.56);
 const SHEET_SIDE: Vec3 = Vec3::new(0.52, 0.34, 0.32);
 const SHEET_DATUM: Vec3 = Vec3::new(0.42, 0.46, 0.54);
-
-/// What a plane with nothing drawn on it is filled with.
-///
-/// Seen through `FACE_OPACITY` like every other sheet, so what lands is a
-/// fraction of this — and dimmer than [`FACE`] to begin with, because a region
-/// is something a drawing *made* and this is only where one could be made.
-///
-/// One colour for all of them where the outlines are hued, and that is the
-/// division: the outline says *which* plane, the fill says there is nothing on
-/// it yet. Hueing both would say the second thing twice and drown the first.
-const SHEET_FACE: Vec3 = Vec3::new(0.14, 0.16, 0.20);
 
 /// What a plane's outline is drawn in.
 fn sheet_ink(world: Option<World>) -> Vec3 {
@@ -164,38 +153,56 @@ fn sheet_ink(world: Option<World>) -> Vec3 {
     }
 }
 
+/// How far a plane's square reaches from its middle, in logical pixels.
+///
+/// **On screen rather than in the world**, which is what a plane's square is
+/// *for*: a plane has no edges, so the square is a symbol for one rather than a
+/// measurement of it, and one sized off the drawing moved every time the drawing
+/// did. Sized here it holds still while a sketch is edited, and holds its size
+/// as the camera pulls back — which is what every other handle a drawing puts on
+/// screen already does, and why the square is cut with them in
+/// [`gizmos::shape`](gizmos).
+///
+/// What it costs is the fill: a sheet built against the camera is rewritten when
+/// the camera moves, and nothing that fills is written on that schedule. So a
+/// plane is an outline and a name.
+const SHEET_REACH: f64 = 64.0;
+
+/// How far past its square's top-left corner a plane's name sits, in logical
+/// pixels across and down that plane's own axes.
+///
+/// **Outside the corner rather than tucked within it**, which is what keeps
+/// three of them apart. Every square is centred on the same origin — that is
+/// the point of them — so what separates the names is only the direction each
+/// is carried in, and the further each goes the further apart they land. Inside
+/// a square this small they overlapped into one smear.
+///
+/// Enough to clear half a name and half a line of it at [`MARK_SIZE`], so a run
+/// clears the corner rather than straddling it. Both are known here because the
+/// square is a fixed number of pixels and the names are three fixed words.
+const SHEET_NAME_OUTSET: Vec2 = Vec2::new(30.0, 10.0);
+
+/// Where a plane's name sits, as a displacement from the middle of its square in
+/// logical pixels along that plane's own +x and +y.
+///
+/// Carried as a [`Turn`](aperture::Turn)'s lift rather than as a position or an
+/// anchor fraction, and none of the three is interchangeable. A *position* would
+/// have to be worked out in the world against the camera, which is the schedule
+/// the drawing is deliberately not on. An offset written into the *anchor* rides
+/// in a frame two camera-dependent rules settle — the mirror that keeps a run
+/// readable from behind its plane, and the half turn that keeps it upright — so
+/// a name tucked in from one side sticks out from the other, which is exactly
+/// what a look from behind showed. A lift is stated in the plane and holds.
+const SHEET_NAME_LIFT: Vec2 = Vec2::new(
+    -(SHEET_REACH as f32) - SHEET_NAME_OUTSET.x,
+    SHEET_REACH as f32 + SHEET_NAME_OUTSET.y,
+);
+
 /// How wide a plane's outline is, in logical pixels.
 ///
 /// Under [`EDGE_WIDTH`], so a plane's own edge cannot be taken for something
 /// drawn on it.
 const SHEET_WIDTH: f32 = 1.0;
-
-/// How much room a plane's sheet leaves beyond the drawing standing on it, and
-/// the least it ever reaches, in sketch units.
-///
-/// Measured in the world rather than on screen, unlike the handles that sit on a
-/// plane: a plane is a *place*, and a sheet sized in pixels would swim as the
-/// camera pulled back and would be claiming the plane is small.
-///
-/// Over one, and that is the whole of what the margin is for: a sheet has to
-/// *enclose* the drawing standing on it. One that fell short is a square with an
-/// edge running across the model, which reads as a stray line rather than as the
-/// edge of the ground.
-///
-/// Floored, because a sketch with one point in it — or none — has no size of its
-/// own to ask for, and a sheet the width of nothing is not a plane anybody can
-/// see they are drawing on.
-const SHEET_MARGIN: f64 = 1.15;
-const SHEET_LEAST: f64 = 3.0;
-
-/// How far a sheet reaches, for a document whose widest drawing reaches
-/// `reach` — see [`Models::reach`](crate::model::Models::reach).
-///
-/// The whole of what this module decides about where a sheet goes: the middle
-/// is the plane's, and how far past the drawing to run is appearance.
-fn sheeted(reach: f64) -> f64 {
-    (SHEET_MARGIN * reach).max(SHEET_LEAST)
-}
 
 /// What geometry with this much freedom left is drawn in.
 fn colour(freedom: Freedom) -> Vec3 {
@@ -362,7 +369,6 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         sheets,
         placed,
         proposed,
-        reach,
         ..
     } = &mut *layout;
     names.wind_back(from);
@@ -375,12 +381,8 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
     // list, so it says the same thing twice rather than being a case of its own.
     if from <= Stage::Drawing {
         names.opened(Stage::Drawing);
-        // Worked out with the drawing rather than with the strokes that spend
-        // it, because it is a walk of every point the document holds and they
-        // are written a stage later — see [`Layout::reach`].
-        *reach = sheeted(models.reach());
         write::points(models, names, &mut into.points);
-        write::faces(models, names, sheets, *reach, &mut into.faces);
+        write::faces(models, names, sheets, &mut into.faces);
     }
     if from <= Stage::Solid {
         names.opened(Stage::Solid);
@@ -400,7 +402,6 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
             .and_then(|(open, constraint)| marks::Proposed::of(open.sketch(), constraint));
         write::texts(
             models,
-            *reach,
             names,
             placed,
             *proposed,
@@ -418,7 +419,6 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
             models,
             names,
             write::Band::new(models, showing.band.and_then(Preview::line)),
-            *reach,
             &mut into.curves,
         );
         write::rings(

@@ -18,12 +18,14 @@
 //! [`paint`](crate::paint): what a drawing looks like is one set of choices, and
 //! these are the calls that spend them.
 
-use aperture::{Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Styled, Text, Vertex};
-use glam::{DVec2, Mat4, Vec2, Vec3};
-use silverpoint::{Circle, CircleId, Constraint, Plane, Segment, SegmentId, Sketch};
+use aperture::{
+    Batch, Curve, Facing, Mesh, Object, Point, Precedence, Ring, Styled, Text, Turn, Vertex,
+};
+use glam::{Mat4, Vec2, Vec3};
+use silverpoint::{Circle, CircleId, Constraint, Segment, SegmentId, Sketch};
 use std::fmt::Write;
 
-use crate::model::{Model, Models, Sheeted};
+use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::layout::Sheets;
 use crate::paint::marks::mark::Mark;
@@ -31,8 +33,8 @@ use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::{
     DECIMALS, DORMANT_FACE, EDGE_WIDTH, FACE, FACE_SAGITTA, FIXED_MARKER, FREE_MARKER, GHOST, MARK,
-    MARK_FONT, PINNED, REDUNDANT, SHEET_FACE, SHEET_WIDTH, SOLID, SOLID_SAGITTA, colour, ink,
-    marks, sheet_ink, standing, symbol,
+    MARK_FONT, PINNED, REDUNDANT, SHEET_NAME_LIFT, SOLID, SOLID_SAGITTA, colour, ink, marks,
+    sheet_ink, standing, symbol,
 };
 use crate::part::Part;
 use crate::preview::Ends;
@@ -81,20 +83,8 @@ pub(super) fn curves(
     models: Models<'_>,
     names: &mut Names,
     band: Option<Band>,
-    reach: f64,
     into: &mut Batch<Curve>,
 ) {
-    // **Which planes are drawn**, which is the whole of the rule: while a
-    // sketch is open, the one it is drawn on and no other; with none open,
-    // every one of them. See [`Stroke::Sheet`].
-    let open = models.open_plane();
-    let outlines = models
-        .planes()
-        .filter(move |sheeted| open.is_none_or(|on| on == sheeted.at))
-        .map(move |sheeted| Stroke::Sheet {
-            sheeted,
-            middle: models.middle_on(sheeted.at),
-        });
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
     // one that does not — see `Batch::refill`. That is also why all three kinds
@@ -103,16 +93,19 @@ pub(super) fn curves(
     // and allocated afresh by the one after, once a frame for as long as a line
     // is being drawn.
     //
-    // Back to front, so the order reads the way the picture does: the plane a
-    // drawing is done on, then the drawing, then what is being drawn now.
+    // The drawing, then what is being drawn now. What it is drawn *on* is no
+    // part of this batch: a plane's square holds its size on screen, so it is
+    // cut against the camera with the other handles — see
+    // [`gizmos::write`](crate::paint::gizmos::write).
     into.refill(
-        outlines
-            .chain(models.iter().flat_map(|model| {
+        models
+            .iter()
+            .flat_map(|model| {
                 model
                     .sketch()
                     .segments()
                     .map(move |(id, edge)| Stroke::Edge(model, id, edge))
-            }))
+            })
             .chain(band.map(Stroke::Band)),
         |curve, stroke| {
             curve.width = EDGE_WIDTH;
@@ -138,45 +131,9 @@ pub(super) fn curves(
                     curve.plane_normal = Some(band.normal);
                     curve.tag = None;
                 }
-                // The one stroke here that is not part of a drawing but of
-                // what a drawing is done *on*, which is the whole of why it
-                // stands as a frame: it runs right round the geometry, and
-                // ranked as a shape it would take clicks meant for whatever it
-                // encircled. Standing as a frame is also what keeps it from
-                // deciding where the camera goes — see
-                // [`Scene::extent`](aperture::Scene), which leaves the furniture
-                // out because furniture is sized to what it stands around.
-                //
-                // Written over the points already there rather than into a
-                // fresh list, like the two above and for the same reason — a
-                // closed outline is four `Vec3`s, and a rewrite that allocated
-                // them would do it on every frame a band moves.
-                Stroke::Sheet { sheeted, middle } => {
-                    curve.points.clear();
-                    curve.points.extend(corners(sheeted.plane, middle, reach));
-                    curve.closed = true;
-                    curve.width = SHEET_WIDTH;
-                    curve.color = sheet_ink(sheeted.world);
-                    curve.precedence = Precedence::Frame;
-                    curve.plane_normal = Some(sheeted.plane.normal().as_vec3());
-                    curve.tag = Some(names.tag(Part::Plane(sheeted.at)));
-                }
             }
         },
     );
-}
-
-/// The four corners of the sheet reaching `reach` about `middle` in `plane`,
-/// wound the way they are stroked.
-///
-/// In the world rather than in logical pixels, which is what tells a sheet from
-/// the handles that sit on the same plane: a plane is a place, where a handle is
-/// a thing to grab and holds its size on screen. So this is here with the
-/// drawing rather than in [`gizmos::shape`](crate::paint::gizmos), whose shapes
-/// are all measured on screen.
-fn corners(plane: Plane, middle: DVec2, reach: f64) -> [Vec3; 4] {
-    [(-1.0, -1.0), (1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
-        .map(|(x, y)| plane.point(middle + DVec2::new(x, y) * reach).as_vec3())
 }
 
 /// One stroke to write: an edge the sketch holds, or the band a tool is in the
@@ -185,29 +142,6 @@ fn corners(plane: Plane, middle: DVec2, reach: f64) -> [Vec3; 4] {
 enum Stroke<'a> {
     Edge(Model<'a>, SegmentId, Segment),
     Band(Band),
-    /// The outline of a plane.
-    ///
-    /// **A plane is drawn where it is what you are working with.** While a
-    /// sketch is open that is the plane under it and no other: the rest would be
-    /// furniture standing in front of the model — the three the world comes with
-    /// are square to one another and cross at the origin, so two of them cut
-    /// across whatever is built there, taking presses meant for it and drawing
-    /// over the solids it hides behind.
-    ///
-    /// With no sketch open there is no drawing to stand in front of, and every
-    /// plane wants showing, because picking one is then the whole of what there
-    /// is to do — see [`Session::editing`](crate::session::Session).
-    Sheet {
-        sheeted: Sheeted,
-        /// The middle of what is drawn on it, in its own coordinates.
-        ///
-        /// Here rather than on [`Sheeted`], which
-        /// [`Models::planes`](crate::model::Models) mints for *every* plane out
-        /// of three lookups apiece: a middle is a walk of the sketches standing
-        /// on one, and carrying it there would pay that walk for the planes this
-        /// then filters away.
-        middle: DVec2,
-    },
 }
 
 /// The sketch's circles, one ring apiece.
@@ -329,7 +263,6 @@ pub(super) fn points(models: Models<'_>, names: &mut Names, into: &mut Batch<Poi
 /// sketch gets un-stuck.
 pub(super) fn texts(
     models: Models<'_>,
-    reach: f64,
     names: &mut Names,
     placed: &mut Vec<Placed>,
     proposed: Option<Proposed>,
@@ -350,7 +283,7 @@ pub(super) fn texts(
     // [`gizmos::ruled`](crate::paint::gizmos).
     let Some(live) = models.open() else {
         placed.clear();
-        return named_planes(models, reach, names, into);
+        return named_planes(models, names, into);
     };
     // Laid out whole, before anything is left out. What lane a mark rises in
     // depends on how many share its place, so a stack that was worked out from
@@ -443,11 +376,27 @@ pub(super) fn texts(
 /// which there is none. So the two are one batch's two contents rather than two
 /// batches, and the refill that writes either is the one that clears the other.
 ///
-/// At the corner where the plane's own +x and +y meet, so a name says which way
-/// its axes run as well as what it is called. A plane somebody put there carries
-/// none: until steps have names of their own every one of them would read the
-/// same word — see [`World::named`](crate::timeline::feature::World).
-fn named_planes(models: Models<'_>, reach: f64, names: &mut Names, into: &mut Batch<Text>) {
+/// **Laid into the plane rather than pinned over it**, which is what makes a
+/// name read as belonging to the sheet it is on: it runs along that plane's own
+/// +x and takes its depth from it, so the plane can hide it and turning the
+/// model turns it. The two rules that keep a laid run legible — the mirror that
+/// answers a camera behind the plane, and the half turn that keeps it upright —
+/// are [`Turn`](aperture::Turn)'s own, so nothing here has to know where the eye
+/// is.
+///
+/// **At the top-left corner of the plane's square**, running along that plane's
+/// own +x — a title's place, and the corner a reader's eye starts from. Reached
+/// by anchoring the run centred on the plane's origin, where the square is, and
+/// carrying it out with a lift: a lift is stated in logical pixels and resolved
+/// where the run is drawn, so it agrees with a square that is itself a fixed
+/// number of pixels without this having to know how far one reaches. It is also
+/// the only one of the three that survives the two rules above — see
+/// [`SHEET_NAME_LIFT`](crate::paint).
+///
+/// A plane somebody put there carries no name: until steps have names of their
+/// own every one of them would read the same word — see
+/// [`World::named`](crate::timeline::feature::World).
+fn named_planes(models: Models<'_>, names: &mut Names, into: &mut Batch<Text>) {
     into.refill(
         models
             .planes()
@@ -457,17 +406,19 @@ fn named_planes(models: Models<'_>, reach: f64, names: &mut Names, into: &mut Ba
             // for the same reason: a `Text` owns its content on the heap.
             text.content.clear();
             text.content.push_str(named);
-            text.position = corners(sheeted.plane, models.middle_on(sheeted.at), reach)[2];
+            let plane = sheeted.plane;
+            text.position = plane.origin.as_vec3();
             text.font = MARK_FONT;
-            // Tucked back inside the corner it names rather than centred on it,
-            // so the name sits on the sheet instead of straddling its edge.
-            text.anchor = Vec2::new(1.0, 1.0);
+            text.anchor = Vec2::splat(0.5);
+            text.facing = Facing::Turned(
+                Turn::new(plane.x.as_vec3(), plane.normal().as_vec3()).lifted(SHEET_NAME_LIFT),
+            );
             text.color = sheet_ink(sheeted.world);
-            // A frame like the sheet it names, which does two things and both
-            // matter. It yields a click to anything ordinary, so a name lying
-            // over the model cannot take one; and it is left out of how far the
-            // scene reaches — so a camera is not framed on a label that was
-            // placed at the corner of a square that was sized to the model.
+            // A frame, which does two things and both matter. It yields a
+            // click to anything ordinary, so a name lying over the model cannot
+            // take one; and it is left out of how far the scene reaches — so a
+            // camera is not framed on a label whose distance from the origin is
+            // a number of pixels rather than anything the model said.
             text.precedence = Precedence::Frame;
             text.tag = Some(names.tag(Part::Plane(sheeted.at)));
         },
@@ -543,97 +494,34 @@ pub(super) fn faces(
     models: Models<'_>,
     names: &mut Names,
     sheets: &mut Sheets,
-    reach: f64,
     into: &mut Batch<Object>,
 ) {
     let Sheets { filler, fill, .. } = sheets;
-    // The planes worth filling, which is a narrower question than which are
-    // *drawn*: a fill says there is nothing here yet and that this is a thing
-    // you can click, so it wants a plane nothing has been drawn on — and it
-    // wants no drawing to be in front of, which is what having none open says.
-    // While one is open the outline stands alone.
-    let bare = models
-        .open()
-        .is_none()
-        .then(|| {
-            models
-                .planes()
-                .filter(move |sheeted| !models.carries(sheeted.at))
-        })
-        .into_iter()
-        .flatten();
     into.refill(
         models
             .iter()
-            .flat_map(|model| {
-                (0..model.arrangement().faces().len()).map(move |at| Sheet::Region(model, at))
-            })
-            .chain(bare.map(Sheet::Plane)),
-        |object, sheet| {
+            .flat_map(|model| (0..model.arrangement().faces().len()).map(move |at| (model, at))),
+        |object, (model, at)| {
+            let plane = model.plane();
+            let normal = plane.normal().as_vec3();
+            let arrangement = model.arrangement();
+            let face = &arrangement.faces()[at];
+            filler.fill(arrangement, face, FACE_SAGITTA, fill);
+            remesh(
+                &mut object.mesh,
+                fill.corners.iter().map(|&corner| Vertex {
+                    position: plane.point(corner).as_vec3(),
+                    normal,
+                }),
+                &fill.triangles,
+            );
             object.transform = Mat4::IDENTITY;
-            match sheet {
-                Sheet::Region(model, at) => {
-                    let plane = model.plane();
-                    let normal = plane.normal().as_vec3();
-                    let arrangement = model.arrangement();
-                    let face = &arrangement.faces()[at];
-                    filler.fill(arrangement, face, FACE_SAGITTA, fill);
-                    remesh(
-                        &mut object.mesh,
-                        fill.corners.iter().map(|&corner| Vertex {
-                            position: plane.point(corner).as_vec3(),
-                            normal,
-                        }),
-                        &fill.triangles,
-                    );
-                    object.color = if model.live() { FACE } else { DORMANT_FACE };
-                    object.precedence = standing(model);
-                    object.tag = Some(names.tag(model.region(at)));
-                }
-                // **Untagged**, which is what keeps a sheet out of the way. A
-                // pick skips a primitive with no tag, so a plane standing
-                // between the camera and the model cannot take a click meant
-                // for the model — and the three the world comes with all pass
-                // through the origin, which is where a model is built. What
-                // answers for a plane is its *outline*, which runs round the
-                // edge of the sheet and so is nowhere near the geometry.
-                //
-                // The same trick the rubber band is drawn with, and for the
-                // same reason: this is something to see rather than to aim at.
-                Sheet::Plane(sheeted) => {
-                    let normal = sheeted.plane.normal().as_vec3();
-                    remesh(
-                        &mut object.mesh,
-                        corners(sheeted.plane, DVec2::ZERO, reach)
-                            .into_iter()
-                            .map(|corner| Vertex {
-                                position: corner,
-                                normal,
-                            }),
-                        &SHEET_TRIANGLES,
-                    );
-                    object.color = SHEET_FACE;
-                    object.precedence = Precedence::Frame;
-                    object.tag = None;
-                }
-            }
+            object.color = if model.live() { FACE } else { DORMANT_FACE };
+            object.precedence = standing(model);
+            object.tag = Some(names.tag(model.region(at)));
         },
     );
 }
-
-/// One flat sheet to write: a region a drawing shuts in, or a whole plane
-/// nothing has been drawn on.
-#[derive(Debug)]
-enum Sheet<'a> {
-    Region(Model<'a>, usize),
-    Plane(Sheeted),
-}
-
-/// How a plane's four corners are tiled, wound to face along its normal.
-///
-/// A constant because a square is always the same two triangles, where every
-/// other mesh here comes out of a filler that has to be asked.
-const SHEET_TRIANGLES: [[u32; 3]; 2] = [[0, 1, 2], [0, 2, 3]];
 
 /// An object per face of every solid the document has grown.
 ///

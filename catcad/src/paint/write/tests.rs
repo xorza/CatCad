@@ -1,18 +1,9 @@
 use super::*;
 use crate::paint::marks::mark::STACK_STEP;
 use crate::paint::tests::fixtures::drawn;
-use crate::paint::{DETERMINED, FREE, PARTLY, SHEET_GROUND};
+use crate::paint::{DETERMINED, FREE, PARTLY};
 use glam::{DVec2, Vec3};
 use silverpoint::{Along, Dimension, Entity};
-
-/// How far a plane's sheet reaches in these fixtures.
-///
-/// Its own number rather than what the drawing would ask for: what is under
-/// test here is what a writer does with a reach, where arriving at one is
-/// [`Models::reach`](crate::model::Models::reach)'s and widening it is
-/// `paint::sheeted`'s. A fixture that read either would be asserting two things
-/// at once.
-const REACH: f64 = 5.0;
 
 #[test]
 fn every_entity_becomes_a_curve() {
@@ -23,18 +14,13 @@ fn every_entity_becomes_a_curve() {
     sketch.add_segment(a, b);
     sketch.add_circle(b, 2.0);
 
-    // One edge, and the outline of the plane it is drawn on. Circles are rings
-    // now, and markers were never strokes.
+    // One edge. Circles are rings now, markers were never strokes, and the
+    // plane it is drawn on is no part of this batch — it holds its size on
+    // screen, so it is cut with the handles against the camera.
     let mut strokes = Batch::default();
     let one = drawn(sketch);
-    curves(
-        one.models(),
-        &mut Names::default(),
-        None,
-        REACH,
-        &mut strokes,
-    );
-    assert_eq!(strokes.len(), 2);
+    curves(one.models(), &mut Names::default(), None, &mut strokes);
+    assert_eq!(strokes.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
     // it lies in so the renderer can take its depth off the surface rather
@@ -47,40 +33,9 @@ fn every_entity_becomes_a_curve() {
         "the ground plane faces +Y"
     );
 
-    let edge = &strokes[1];
+    let edge = &strokes[0];
     assert_eq!(edge.points, [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)]);
     assert!(!edge.closed);
-
-    // The plane the drawing is done *on*, written first: a closed square
-    // reaching REACH either way along both of the ground's own axes, which are
-    // +X and −Z. It stands as a frame rather than as a shape, because an
-    // outline running right round the geometry would otherwise take clicks meant
-    // for the geometry — and because a frame is left out of how far the scene
-    // reaches, so a plane cannot decide where the camera goes.
-    //
-    // **About the drawing rather than about the origin.** The two points above
-    // run from (0, 0) to (10, 0), so their middle is (5, 0) and a square of
-    // reach 5 about it runs 0 to 10 across and ±5 along — which is what puts
-    // the drawing inside it. Centred on the plane's own origin it would start
-    // at −5 and stop at 5, with half the drawing outside and one edge through
-    // the middle of it.
-    let outline = &strokes[0];
-    assert!(outline.closed, "a plane's outline does not close");
-    assert_eq!(
-        outline.points,
-        [
-            Vec3::new(0.0, 0.0, 5.0),
-            Vec3::new(10.0, 0.0, 5.0),
-            Vec3::new(10.0, 0.0, -5.0),
-            Vec3::new(0.0, 0.0, -5.0),
-        ]
-    );
-    assert_eq!(outline.precedence, Precedence::Frame);
-    assert_eq!(outline.width, SHEET_WIDTH);
-    assert_eq!(
-        outline.color, SHEET_GROUND,
-        "a plane is drawn in the drawing's ink"
-    );
 
     // Written again into the buffer it already filled, which is what every
     // frame of a drag does. The curves are rewritten where they lie rather
@@ -94,41 +49,26 @@ fn every_entity_becomes_a_curve() {
     fewer.add_segment(c, d);
     fewer.add_segment(d, c);
     let two = drawn(fewer);
-    curves(
-        two.models(),
-        &mut Names::default(),
-        None,
-        REACH,
-        &mut strokes,
-    );
-    assert_eq!(strokes.len(), 3, "the list did not grow to the new sketch");
+    curves(two.models(), &mut Names::default(), None, &mut strokes);
+    assert_eq!(strokes.len(), 2, "the list did not grow to the new sketch");
     // The ground plane's +y runs to world −Z, so a sketch x-axis stays x.
     assert_eq!(
-        strokes[1].points,
+        strokes[0].points,
         [Vec3::new(1.0, 0.0, 0.0), Vec3::new(4.0, 0.0, 0.0)]
     );
     assert_eq!(
-        strokes[2].points,
+        strokes[1].points,
         [Vec3::new(4.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]
     );
 
-    curves(
-        one.models(),
-        &mut Names::default(),
-        None,
-        REACH,
-        &mut strokes,
-    );
-    assert_eq!(strokes.len(), 2, "the list did not shrink back");
+    curves(one.models(), &mut Names::default(), None, &mut strokes);
+    assert_eq!(strokes.len(), 1, "the list did not shrink back");
     assert_eq!(
-        strokes[1].points,
+        strokes[0].points,
         [Vec3::ZERO, Vec3::new(10.0, 0.0, 0.0)],
         "a reused curve kept an endpoint from the drawing before it"
     );
-    assert_eq!(strokes[1].plane_normal, Some(Vec3::Y));
-    // And the slot that held a two-point edge closes again, which is the same
-    // hazard the other way about.
-    assert!(strokes[0].closed, "a reused curve kept the last one's ends");
+    assert_eq!(strokes[0].plane_normal, Some(Vec3::Y));
 
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
@@ -232,13 +172,7 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     let mut strokes = Batch::default();
     let mut rims = Batch::default();
     points(one.models(), &mut Names::default(), &mut markers);
-    curves(
-        one.models(),
-        &mut Names::default(),
-        None,
-        REACH,
-        &mut strokes,
-    );
+    curves(one.models(), &mut Names::default(), None, &mut strokes);
     rings(one.models(), &mut Names::default(), None, &mut rims);
 
     // Three markers, three different things to say about them.
@@ -247,12 +181,9 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     assert_eq!(markers[2].color, FREE, "nothing constrains it at all");
 
     // The first edge joins a pinned end to a sliding one, so it slides; the
-    // second reaches a point that can go anywhere, so it can too. Past the one
-    // plane this fixture stands on, whose outline is written before the drawing
-    // — see [`curves`].
-    let edges = &strokes[1..];
-    assert_eq!(edges[0].color, PARTLY);
-    assert_eq!(edges[1].color, FREE);
+    // second reaches a point that can go anywhere, so it can too.
+    assert_eq!(strokes[0].color, PARTLY);
+    assert_eq!(strokes[1].color, FREE);
 
     // A circle on a determined centre is only as settled as its radius.
     assert_eq!(rims[0].color, DETERMINED, "centre pinned, radius stated");
@@ -300,7 +231,6 @@ fn a_relation_drawn_twice_is_named_once() {
     let mut placed = Vec::new();
     texts(
         one.models(),
-        REACH,
         &mut names,
         &mut placed,
         None,
@@ -384,7 +314,7 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
         }
     };
     let laid = |names: &mut Names, placed: &mut Vec<_>, figures: &mut Batch<Text>, typed| {
-        texts(one.models(), REACH, names, placed, None, typed, figures);
+        texts(one.models(), names, placed, None, typed, figures);
         figures
             .iter()
             .map(|mark| (mark.content.clone(), mark.position, clearance(mark)))

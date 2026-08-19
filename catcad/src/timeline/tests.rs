@@ -156,7 +156,6 @@ fn a_started_timeline_holds_three_world_planes_and_moves_none_of_them() {
         assert!(timeline.movable(at).is_none(), "{world:?} can be moved");
     }
     assert_eq!(timeline.steps().count(), 3, "a started timeline holds more");
-    assert_eq!(timeline.movable_planes().count(), 0);
     // Nothing drawn on any of them, which is what an empty document is.
     assert_eq!(timeline.sketches().count(), 0);
 

@@ -70,14 +70,6 @@ pub(crate) struct Layout {
     /// Where the one region anything asks about lies, cut when the drawing
     /// moves and read on the camera's schedule — see [`Cut`].
     pub(super) cut: Cut,
-    /// How far a plane's sheet reaches from its middle, in sketch units.
-    ///
-    /// Kept rather than worked out where it is spent, for the reason everything
-    /// here is kept: it is a walk of every point the document holds, and the
-    /// strokes that spend it are written at [`Stage::Band`] — the stage a rubber
-    /// band moving reaches. Worked out there, a drawing would be measured on
-    /// every frame of a line being drawn.
-    pub(super) reach: f64,
     /// What this was drawn from, or `None` where it describes nothing because
     /// nothing has been drawn into it yet.
     ///

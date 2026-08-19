@@ -1,7 +1,7 @@
 //! The drawing as it currently stands: what is written down, and what the last
 //! solve made of it.
 
-use glam::{DVec2, Vec3};
+use glam::Vec3;
 use silverpoint::{Arrangement, Constraint, Entity, Outcome, Plane, Prism, Sketch};
 
 use crate::build::settled::Settled;
@@ -343,6 +343,10 @@ pub(crate) struct Sheeted {
     pub(crate) at: FeatureId,
     pub(crate) plane: Plane,
     pub(crate) world: Option<World>,
+    /// Whether it has an offset to restate, which is what makes its square a
+    /// *handle* rather than only a symbol — see
+    /// [`Timeline::movable`](crate::timeline::Timeline::movable).
+    pub(crate) movable: bool,
 }
 
 /// Every sketch a document holds, as it currently stands.
@@ -451,116 +455,13 @@ impl<'a> Models<'a> {
             at,
             plane: timeline.plane(at),
             world: timeline.world_at(at),
+            movable: timeline.movable(at).is_some(),
         })
-    }
-
-    /// Whether anything is drawn on the plane at `at`.
-    ///
-    /// What decides whether a plane is *filled* rather than merely outlined: a
-    /// fill says there is nothing here yet, and one under a drawing would be
-    /// saying it under the drawing — as well as putting a second translucent
-    /// surface in the very plane the first lies in.
-    pub(crate) fn carries(self, at: FeatureId) -> bool {
-        self.drawn_on(at).next().is_some()
-    }
-
-    /// Every drawing on the plane at `at`.
-    ///
-    /// **Off the timeline rather than through [`Models::iter`]**, which is the
-    /// same walk with a [`Model`] built at every step — a binary search for what
-    /// the last solve made of that sketch, and a second for the sketch itself.
-    /// Nothing that asks this wants the solve: what is drawn on a plane is a
-    /// question about where the geometry *lies*, and the three readings below
-    /// take only points off it.
-    fn drawn_on(self, at: FeatureId) -> impl Iterator<Item = Drawing<'a>> {
-        let timeline = self.timeline;
-        timeline
-            .sketches()
-            .filter(move |&sketch| timeline.drawn_on(sketch) == at)
-            .map(move |sketch| timeline.drawing(sketch))
-    }
-
-    /// The middle of what is drawn on the plane at `at`, in that plane's own
-    /// coordinates — or its origin, where nothing is.
-    ///
-    /// Half of where a sheet goes, and the half that is the *plane's*: how far
-    /// one reaches is one number for the whole document — see
-    /// [`Models::reach`] — so that four planes drawn at once come out the same
-    /// size rather than each sized to whatever happens to lie on it.
-    pub(crate) fn middle_on(self, at: FeatureId) -> DVec2 {
-        let mut low = DVec2::splat(f64::INFINITY);
-        let mut high = DVec2::splat(f64::NEG_INFINITY);
-        for drawing in self.drawn_on(at) {
-            for (_, point) in drawing.sketch().points() {
-                low = low.min(point.position);
-                high = high.max(point.position);
-            }
-        }
-        if low.x > high.x {
-            return DVec2::ZERO;
-        }
-        (low + high) * 0.5
-    }
-
-    /// Every plane that can be moved, with where it lies.
-    ///
-    /// **What has handles drawn on it**, which is a narrower question than what
-    /// is drawn: a gizmo is the thing you take hold of, so a plane with no
-    /// offset to restate has nothing for one to do. The three the world comes
-    /// with would also put six arrows through the origin, where a model is
-    /// built — and a control that cannot be used but can be clicked is worse
-    /// than no control, because it takes the click.
-    pub(crate) fn movable_planes(self) -> impl Iterator<Item = (FeatureId, Plane)> {
-        let timeline = self.timeline;
-        timeline
-            .movable_planes()
-            .map(move |at| (at, timeline.plane(at)))
     }
 
     /// Which plane the open sketch is drawn on, where one is open.
     pub(crate) fn open_plane(self) -> Option<FeatureId> {
         Some(self.timeline.drawn_on(self.editing?))
-    }
-
-    /// How far the widest drawing reaches from its own middle, along either of
-    /// its plane's axes.
-    ///
-    /// **How far every sheet reaches**, and one number for the whole document
-    /// rather than one per plane: the planes are drawn together and read as a
-    /// set, and three squares at three sizes would be saying that one plane is
-    /// bigger than another, which is not a thing a plane is.
-    ///
-    /// A half-width from a *middle* rather than from the origin, because a sheet
-    /// is centred on what is drawn on it — see [`Models::middle_on`]. A drawing
-    /// need not be anywhere near the origin its plane counts from, so a reach
-    /// measured from there would be as large as the drawing is far away, and the
-    /// sheet four times the size it had to be.
-    ///
-    /// In the planes' own coordinates, so the answer is the same wherever they
-    /// are: a datum held clear of the ground carries its drawing along, and a
-    /// reach worked out in the world would grow with the offset as though the
-    /// drawing had moved.
-    ///
-    /// Zero for a document with nothing drawn in it, which is a floor away from
-    /// what is drawn — see `paint::sheeted`. Not what a *camera* is aimed at
-    /// either: [`Scene::extent`](aperture::Scene) leaves the sheets out for
-    /// being furniture, so a plane is never sized against a reach that counted
-    /// it.
-    pub(crate) fn reach(self) -> f64 {
-        let mut reach = 0.0f64;
-        // Walked plane by plane rather than sketch by sketch, so a middle is
-        // worked out once for the drawings it is the middle *of*: asked inside
-        // a walk of the sketches it would be worked out afresh for each, and a
-        // middle is itself a walk of them.
-        for at in self.timeline.planes() {
-            let middle = self.middle_on(at);
-            for drawing in self.drawn_on(at) {
-                for (_, point) in drawing.sketch().points() {
-                    reach = reach.max((point.position - middle).abs().max_element());
-                }
-            }
-        }
-        reach
     }
 
     /// How many extrudes no longer know which region they are grown from.

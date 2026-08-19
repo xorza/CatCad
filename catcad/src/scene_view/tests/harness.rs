@@ -8,6 +8,7 @@ use crate::history::History;
 use crate::intent::{Choice, Intent, Intents};
 use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
+use crate::model::Sheeted;
 use crate::paint;
 use crate::part::Part;
 use crate::scene_view::SceneView;
@@ -254,21 +255,20 @@ impl RaisedView {
     /// everything else is measured from rather than anything a drag can take
     /// anywhere.
     pub(super) fn shelf(&self) -> FeatureId {
-        self.movable().0
+        self.movable().at
     }
 
     /// Where it lies.
     pub(super) fn shelf_plane(&self) -> Plane {
-        self.movable().1
+        self.movable().plane
     }
 
-    /// Both halves, which the two above are the readings of. Private, because a
-    /// caller wanting both is a caller that has to remember which is which.
-    fn movable(&self) -> (FeatureId, Plane) {
+    /// It as the drawing reads it, which the two above name the halves of.
+    fn movable(&self) -> Sheeted {
         self.document
             .models(&self.build, self.session.editing())
-            .movable_planes()
-            .next()
+            .planes()
+            .find(|sheeted| sheeted.movable)
             .expect("the demo draws a datum that can be moved")
     }
 

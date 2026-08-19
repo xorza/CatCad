@@ -136,7 +136,12 @@ impl Scene {
         reach.cover(&self.rings);
         reach.cover(&self.points);
         reach.cover(&self.texts);
-        reach.cover(&self.gizmos);
+        // Not the controls. Everything in that batch is built against the camera
+        // and holds its size on screen — see [`Scene::gizmos`] — so its world
+        // coordinates are an *answer* to where the camera stands, and aiming the
+        // camera at them would be aiming it at its own output. Structural rather
+        // than left to [`Reach::cover`]'s standing filter, because it is true of
+        // the batch whatever a control says it is for.
         reach.extent()
     }
 

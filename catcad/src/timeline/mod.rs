@@ -237,29 +237,18 @@ impl Timeline {
     /// comes earlier, so a reference is only ever backwards.
     ///
     /// The one walk of the store, which [`Timeline::sketches`] and
-    /// [`Timeline::movable_planes`] narrow rather than repeat — so what a step
-    /// is made of is known in one place.
+    /// [`Timeline::planes`] narrow rather than repeat — so what a step is made
+    /// of is known in one place.
     pub(crate) fn steps(&self) -> impl Iterator<Item = (FeatureId, &Feature)> {
         self.steps.iter().map(|step| (step.id, &step.feature))
     }
 
-    /// Every plane that can be moved, in the order they were put there.
-    ///
-    /// The three the world comes with are not among them. They are what
-    /// everything else is measured *from* rather than anything anybody put
-    /// anywhere, so there is no offset on one to restate — which is a different
-    /// question from whether one is drawn.
-    pub(crate) fn movable_planes(&self) -> impl Iterator<Item = FeatureId> {
-        self.steps()
-            .filter(|(_, feature)| matches!(feature, Feature::Plane(Datum::Offset { .. })))
-            .map(|(id, _)| id)
-    }
-
     /// Every plane the timeline holds, in the order they were put there.
     ///
-    /// All of them, unlike [`Timeline::movable_planes`]: what is *drawn* is
-    /// every plane a document has, where what has a handle on it is only the
-    /// ones that go anywhere.
+    /// All of them, including the three the world comes with. Which of those get
+    /// *drawn* is a question about what you are working on rather than about
+    /// what the document holds — see [`Piece::Sheet`](crate::paint::gizmos) —
+    /// and whether one can be taken hold of is [`Timeline::movable`].
     pub(crate) fn planes(&self) -> impl Iterator<Item = FeatureId> {
         self.steps()
             .filter(|(_, feature)| matches!(feature, Feature::Plane(_)))

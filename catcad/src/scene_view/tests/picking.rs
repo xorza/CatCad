@@ -10,7 +10,7 @@ use crate::scene_view::gesture::{Gesture, label};
 use crate::scene_view::tests::harness::RaisedView;
 use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
-use glam::{DVec2, Vec2, Vec3};
+use glam::{DVec2, Vec2};
 use palantir::Modifiers;
 use silverpoint::Entity;
 
@@ -372,65 +372,62 @@ fn a_dimension_is_the_only_relation_a_double_click_or_a_press_finds() {
     );
 }
 
-/// Hovering one arrow of a datum's gizmo lights the whole gizmo, and lights it
-/// without taking its colours away.
+/// Hovering a plane's square reports that plane and lights it without taking
+/// its colour away.
 ///
-/// Two failures, both of which looked like working code. A hover lights what
-/// the *tag* under the cursor named, and a datum is drawn as two arrows with a
-/// tag apiece — so pointing at one lit one, and the gizmo came apart under the
-/// cursor into a thing that was half highlighted. And the look every other part
-/// takes replaces the colour outright, which for an axis erases the one thing
-/// it is saying: which axis it is.
-///
+/// The look every other part takes replaces the colour outright, which for a
+/// plane erases the one thing it is saying: which of the three the world comes
+/// with it is. They are told apart by hue and nothing else — there is no shape
+/// to tell a Front from a Side — so a highlight that spent that colour would
+/// leave three identical squares crossing at the origin.
 #[test]
-fn hovering_one_axis_lights_the_whole_gizmo_without_recolouring_it() {
+fn hovering_a_plane_lights_it_without_recolouring_it() {
     let mut raised = RaisedView::new();
     raised.frame();
 
     // Aimed at geometry that was actually drawn rather than at coordinates
-    // worked out here: the middle of the first arrow's shaft quad, which is its
-    // four corners averaged and therefore inside it whatever the shape's
-    // proportions become.
-    let (on_shaft, handles) = {
+    // worked out here: a point along one edge of the square, a little in from
+    // the corner so a neighbouring stroke cannot claim it.
+    // Found by what it names rather than by the width it is stroked at, which is
+    // also the tag the hover below is weighed against: the same batch carries a
+    // dimension's rule and the arrow that grows a solid.
+    let (on_edge, drawn) = {
         let renderer = raised.view.renderer().borrow();
-        let gizmos = &renderer.scene().gizmos;
-        let corners = &gizmos[0].points;
-        let middle = corners.iter().fold(Vec3::ZERO, |sum, &at| sum + at) / corners.len() as f32;
-        let tags: Vec<_> = gizmos.iter().filter_map(|gizmo| gizmo.tag).collect();
-        (middle, tags)
+        let square = renderer
+            .scene()
+            .gizmos
+            .iter()
+            .find(|gizmo| {
+                let named = gizmo.tag.and_then(|tag| raised.view.part(tag));
+                matches!(named, Some(Part::Plane(_)))
+            })
+            .expect("a plane shows a square that answers for it");
+        let corners = &square.points;
+        (
+            corners[0].lerp(corners[1], 0.4),
+            square.tag.expect("found by the part its tag names"),
+        )
     };
-    assert_eq!(
-        handles.len(),
-        4,
-        "the demo's one datum is two arrows, a hub and a corner"
-    );
 
-    raised.harness.move_to(raised.cursor_on(on_shaft));
+    raised.harness.move_to(raised.cursor_on(on_edge));
     raised.frame();
     let hovered = raised.view.hovered();
     assert!(
         matches!(hovered, Some(Part::Plane(_))),
-        "the cursor on a datum's axis reported {hovered:?}"
+        "the cursor on a plane's square reported {hovered:?}"
     );
 
-    // The whole gizmo, not the one piece that answered the pick. Nothing else
-    // on screen names this plane: it is not the one the drawing stands on, so
-    // no outline is drawn round it — see [`Stroke::Sheet`](crate::paint::write).
+    // The square it landed on, and nothing else: one plane is one stroke now,
+    // where a datum used to be four pieces that had to light together.
     let lit: Vec<_> = raised.view.lit().iter().map(|lit| lit.tag).collect();
-    assert_eq!(
-        lit,
-        handles,
-        "hovering one axis lit {} of the gizmo's {} pieces",
-        lit.len(),
-        handles.len(),
-    );
-    // And each keeps its own colour, brightened. `Tint::Ink` here would be the
-    // hover's yellow on both, which is also how it would look if the two arrows
-    // had stopped being told apart.
+    assert_eq!(lit, [drawn], "hovering a plane lit {} strokes", lit.len());
+    // And it keeps its own colour, brightened. `Tint::Ink` here would be the
+    // hover's yellow, which is also how it would look if the three planes had
+    // stopped being told apart.
     for entry in raised.view.lit() {
         assert!(
             matches!(entry.look.tint, aperture::Tint::Lift(by) if by > 1.0),
-            "an axis was lit with {:?}, which spends the colour it is made of",
+            "a plane was lit with {:?}, which spends the colour it is made of",
             entry.look.tint,
         );
     }
