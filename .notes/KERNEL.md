@@ -1172,6 +1172,34 @@ claims a shell's corners as it gathers it and refuses a second claim.
 
 ### M5 — boolean over the whole exact tier — **roadmap item 2 delivered**
 
+**How a curved cut is carried, decided.** The polyline classifies and the curve
+builds: `Cells` goes on holding points in a surface's parameters, a closed cut
+is flattened at [`ROUNDED`](../silverpoint/src/solid/boolean/splitting/mod.rs) —
+a thousandth of its radius — and what those corners are for is saying which
+region a place falls in and how much one covers. The *body* takes its curve from
+the meeting that produced the cut, so it stays in the exact tier and only the
+classification is tolerant, which it already was. The alternative was a second,
+richer parameter-space model beside the 2D arrangement's, which made the opposite
+choice in the same crate.
+
+**In: the splitter cuts by a circle.** `Cut` is a line or a circle, told apart by
+four questions — which side, how far along, where a run crosses, and whether it
+closes. Two shapes come with the last one and a straight cut has neither: a run
+of boundary can cross a circle *twice* between two corners, and a circle can
+divide a region without touching its boundary at all — which is what a plane
+meeting a cylinder does to the end of a block bored through. The second is four
+answers off two questions, tabled at `Splitting::punch`, and the reassembly now
+walks the arc between two chains where before it joined them straight and a
+quarter disc came back as the triangle under it.
+
+Refused, and carried out to `Boolean::combine`: a circle clipping a region
+between two of its corners, where every corner is on the kept side and the walk
+has no corner that fell away to start from. Nothing upstream makes one yet.
+
+Still to come: the provenance a loop's stretches need so the sewing emits an arc
+rather than a hundred straight edges; ray-surface sounding; `shut_in` over
+curved faces; and lifting `flat`.
+
 Cylinders, cones and spheres, all of them, because they are one algebra.
 
 **Tests.** Cube minus a concentric cylinder: volume `a³ − πr²h`, and the body

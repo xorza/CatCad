@@ -22,7 +22,7 @@ fn corners(of: &[(f64, f64)]) -> Vec<DVec2> {
 /// Running *up*, because the side kept is the left of the way the cut runs and
 /// the left of up is the side with the smaller `x`.
 fn leftward(x: f64) -> Cut {
-    Cut {
+    Cut::Straight {
         at: DVec2::new(x, 0.0),
         along: DVec2::Y,
     }
@@ -221,4 +221,162 @@ fn a_cut_along_an_edge_keeps_the_whole_region_on_one_side() {
     );
     assert!((covered(&left, 0) - 1.0).abs() < 1e-12);
     assert_eq!(right.len(), 0, "nothing of it lies to the right");
+}
+
+/// How far a chorded circle of `radius` can fall inside the true one, in area.
+///
+/// Derived rather than guessed, because the whole of the difference is
+/// [`ROUNDED`]: a chord sits at most `radius * ROUNDED` inside its arc, over a
+/// boundary at most `TAU * radius` long. Generous by a factor of three — the
+/// deficit is nearer a third of that — and generous on purpose, so a test that
+/// fails is one where the *region* is wrong rather than one where the circle
+/// was cut a little finer than the arithmetic here allows for.
+fn chorded(radius: f64) -> f64 {
+    std::f64::consts::TAU * radius * radius * ROUNDED
+}
+
+/// A circular cut about `middle` of `radius`, keeping the disc.
+fn disc(middle: (f64, f64), radius: f64) -> Cut {
+    Cut::Round {
+        middle: DVec2::new(middle.0, middle.1),
+        radius,
+        inward: true,
+    }
+}
+
+/// **A circle inside a region takes a disc out of its middle**, which is the
+/// one way a cut divides something without touching its boundary.
+///
+/// The case a straight cut has not got, and the one a plane meeting a cylinder
+/// makes of the end of a block it is bored through. Both sides are asked,
+/// because they are not the same answer written twice: keeping the disc gives a
+/// region with one loop and keeping everything else gives one with two, the
+/// circle now a hole in it.
+///
+/// Areas rather than corner counts, because how finely the circle is flattened
+/// is [`ROUNDED`]'s business and no part of the claim — and read to a tenth of
+/// a percent for the same reason, a chorded circle falling just inside the true
+/// one.
+#[test]
+fn a_circle_inside_a_region_takes_a_disc_out_of_its_middle() {
+    let mut splitting = Splitting::default();
+    let (mut inside, mut outside) = (Cells::default(), Cells::default());
+    let cut = disc((0.5, 0.5), 0.25);
+    assert!(splitting.halve(&square(), cut, &mut inside));
+    assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+
+    let area = std::f64::consts::PI * 0.25 * 0.25;
+    let slack = chorded(0.25);
+    assert_eq!(inside.len(), 1, "the disc came back in pieces");
+    assert!(
+        (covered(&inside, 0) - area).abs() < slack,
+        "the disc covers {} rather than {area}",
+        covered(&inside, 0),
+    );
+    assert_eq!(outside.len(), 1);
+    assert!(
+        (covered(&outside, 0) - (1.0 - area)).abs() < slack,
+        "what is left covers {}",
+        covered(&outside, 0),
+    );
+    // Two loops, which is what says the circle came back as a *hole* rather
+    // than as a second region standing beside the square.
+    assert_eq!(outside.cell(0).count(), 2, "the disc was not punched out");
+    // And the two together are the square, whichever way it was cut.
+    assert!((total(&inside) + total(&outside) - 1.0).abs() < 1e-9);
+}
+
+/// **A circle clear of a region leaves it whole on one side and absent on the
+/// other**, exactly as a straight cut that misses does.
+///
+/// Two ways to miss where a line has one: the circle can lie outside the
+/// region, and it can lie inside a hole of it. Both are the region standing
+/// wholly outside the disc.
+#[test]
+fn a_circle_that_misses_leaves_the_region_whole_or_absent() {
+    let mut splitting = Splitting::default();
+    let (mut inside, mut outside) = (Cells::default(), Cells::default());
+
+    for cut in [disc((5.0, 5.0), 0.25), disc((0.5, 0.5), 9.0)] {
+        assert!(splitting.halve(&square(), cut, &mut inside));
+        assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+        // Whichever way round, one side has the square and the other nothing —
+        // a circle far away leaves it outside, and one that swallows it leaves
+        // it inside.
+        let (held, missed) = if inside.len() == 1 {
+            (&inside, &outside)
+        } else {
+            (&outside, &inside)
+        };
+        assert_eq!(missed.len(), 0, "a cut that missed left a region behind");
+        assert_eq!(held.len(), 1);
+        assert!(
+            (covered(held, 0) - 1.0).abs() < 1e-12,
+            "{}",
+            covered(held, 0)
+        );
+        assert_eq!(held.cell(0).count(), 1, "a cut that missed punched a hole");
+    }
+}
+
+/// **A circle reaching the boundary cuts the region in two**, which is the
+/// ordinary crossing the walk already knew how to do — asked of a curve.
+///
+/// A circle of radius `½` about the square's own corner: the boundary meets it
+/// at `(½, 0)` and `(0, ½)`, each strictly along an edge, and what is kept is
+/// the quarter disc `πr²/4 = π/16`. Placed at a corner rather than across an
+/// edge because a circle crossing one edge twice leaves every corner of the
+/// square on one side, which is the shape the walk refuses — see below.
+#[test]
+fn a_circle_reaching_the_boundary_cuts_the_region_in_two() {
+    let mut splitting = Splitting::default();
+    let (mut inside, mut outside) = (Cells::default(), Cells::default());
+    let cut = disc((0.0, 0.0), 0.5);
+    assert!(splitting.halve(&square(), cut, &mut inside));
+    assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+
+    let quarter = std::f64::consts::PI * 0.25 / 4.0;
+    let slack = chorded(0.5);
+    assert_eq!(inside.len(), 1, "the quarter disc came back in pieces");
+    assert!(
+        (covered(&inside, 0) - quarter).abs() < slack,
+        "the quarter disc covers {} rather than {quarter}",
+        covered(&inside, 0),
+    );
+    assert_eq!(outside.len(), 1);
+    assert!(
+        (covered(&outside, 0) - (1.0 - quarter)).abs() < slack,
+        "what is left covers {}",
+        covered(&outside, 0),
+    );
+    // One loop apiece: a cut that reaches the boundary divides rather than
+    // punches, so neither side has a hole in it.
+    assert_eq!(inside.cell(0).count(), 1);
+    assert_eq!(outside.cell(0).count(), 1);
+}
+
+/// A circle clipping a region between two of its corners is refused rather
+/// than answered wrongly.
+///
+/// The one shape the walk has no start for: it needs a corner that fell away so
+/// that no chain is closed before it was opened, and here every corner is on
+/// the kept side while the boundary still dips across the cut and back. Nothing
+/// upstream produces it yet — a plane meets a cylinder in a circle that either
+/// reaches a face's boundary or lies clear of it — and a wrong answer would be
+/// a region quietly missing a bite.
+#[test]
+fn a_circle_clipping_an_edge_between_two_corners_is_refused() {
+    let mut splitting = Splitting::default();
+    let mut into = Cells::default();
+    // Centred a hair outside the left edge, small enough that both corners of
+    // that edge stand outside it. Asked of the whole split rather than of one
+    // side: keeping the *disc* leaves a corner on the dropped side and walks
+    // perfectly well, and it is keeping everything else — every corner kept,
+    // the boundary still dipping in and out — that has no start.
+    let mut spare = Cells::default();
+    assert!(!splitting.split(&square(), disc((-0.1, 0.5), 0.2), &mut into));
+    assert!(
+        splitting.halve(&square(), disc((-0.1, 0.5), 0.2), &mut spare),
+        "the side with a corner to start from is the side that walks",
+    );
 }

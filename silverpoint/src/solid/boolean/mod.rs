@@ -182,9 +182,7 @@ impl Combining {
         }
         self.loops.clear();
         self.kept.clear();
-        self.against(one, two, doing, true);
-        self.against(two, one, doing, false);
-        true
+        self.against(one, two, doing, true) && self.against(two, one, doing, false)
     }
 
     /// What the last combine kept.
@@ -198,18 +196,25 @@ impl Combining {
     }
 
     /// Cut every face of `mine` against `theirs` and keep what survives.
-    fn against(&mut self, mine: &Body, theirs: &Body, doing: Operation, first: bool) {
+    ///
+    /// `false` where a cut met a shape the splitter does not handle, which is a
+    /// refusal like any other here: what is kept would be a region quietly
+    /// missing a bite of itself.
+    fn against(&mut self, mine: &Body, theirs: &Body, doing: Operation, first: bool) -> bool {
         for (_, face) in mine.topology().faces() {
             let plane = planar(face);
             self.lay(mine, face);
             for (_, other) in theirs.topology().faces() {
                 if let Some(cut) = crossing(plane, other.surface) {
-                    self.splitting.split(&self.cells, cut, &mut self.spare);
+                    if !self.splitting.split(&self.cells, cut, &mut self.spare) {
+                        return false;
+                    }
                     std::mem::swap(&mut self.cells, &mut self.spare);
                 }
             }
             self.sift(plane, face, theirs, doing, first);
         }
+        true
     }
 
     /// Lay one face out in its own parameters as the one region to cut.
@@ -315,7 +320,7 @@ fn crossing(plane: Plane, other: Surface) -> Option<Cut> {
         return None;
     };
     let at = plane.flatten(line.origin);
-    Some(Cut {
+    Some(Cut::Straight {
         at,
         along: (plane.flatten(line.origin + line.direction) - at).normalize(),
     })
