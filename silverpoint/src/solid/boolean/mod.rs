@@ -12,4 +12,5 @@
 // not. This line goes when the pipeline above it lands.
 #![allow(dead_code)]
 
+pub(crate) mod sounding;
 pub(crate) mod splitting;

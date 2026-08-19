@@ -1,5 +1,13 @@
-//! Which way round a closed run of corners goes, and how much it shuts in.
+//! Which way round a closed run of corners goes, how much it shuts in, and
+//! what falls within it.
+//!
+//! Three readings of one closed polyline, kept together because every caller
+//! that wants one wants another: a cut asks what its pieces enclose and which
+//! of them hold which hole, and a body asks whether a ray came through a face
+//! or grazed its edge.
 
+use crate::math::approx::NO_DIRECTION;
+use crate::math::intersect::{self, Span};
 use glam::DVec2;
 
 /// Twice the area a closed run of corners shuts in, positive counterclockwise.
@@ -17,4 +25,52 @@ pub(crate) fn swept(walk: &[DVec2]) -> f64 {
         total += here.perp_dot(walk[(at + 1) % walk.len()]);
     }
     total
+}
+
+/// Whether `at` falls within the closed run `walk`, by counting how many times
+/// a ray cast to the right of it crosses.
+///
+/// Odd is within, which is the Jordan curve theorem and nothing more. Through
+/// [`intersect::rightward`], so that the one place a ray is held against a
+/// straight run is the one the drawing's own containment already goes through
+/// — see [`Arrangement`](crate::Arrangement).
+///
+/// Says nothing useful about a place *on* the run. A caller that cares whether
+/// it is on one asks [`off`] first.
+pub(crate) fn holds(walk: &[DVec2], at: DVec2) -> bool {
+    let crossings = walk
+        .iter()
+        .enumerate()
+        .filter(|&(step, &from)| {
+            let to = walk[(step + 1) % walk.len()];
+            intersect::rightward(Span { from, to }, at).is_some_and(|x| x > at.x)
+        })
+        .count();
+    crossings % 2 == 1
+}
+
+/// How far `at` stands from the closed run `walk` itself.
+///
+/// What tells a place safely within a region from one sitting on its edge,
+/// which is the question a ray cast has to ask before it trusts its own count:
+/// a ray through a corner is counted twice or not at all, and either way the
+/// answer is not the one wanted.
+///
+/// Zero for a run with nothing in it, because there is nothing to be far from.
+pub(crate) fn off(walk: &[DVec2], at: DVec2) -> f64 {
+    let mut nearest = f64::INFINITY;
+    for (step, &from) in walk.iter().enumerate() {
+        let to = walk[(step + 1) % walk.len()];
+        let along = to - from;
+        let reach = along.length_squared();
+        // A run may double back on a corner; there is no direction in that and
+        // the corner itself is as near as anything on it.
+        let nearby = if reach < NO_DIRECTION * NO_DIRECTION {
+            from
+        } else {
+            from.lerp(to, ((at - from).dot(along) / reach).clamp(0.0, 1.0))
+        };
+        nearest = nearest.min(nearby.distance(at));
+    }
+    if nearest.is_finite() { nearest } else { 0.0 }
 }

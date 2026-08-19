@@ -18,8 +18,7 @@
 //! `.notes/KERNEL.md` §4.4 and §5.
 
 use crate::loops::Loops;
-use crate::math::intersect::{self, Span};
-use crate::math::winding;
+use crate::math::winding::{self, holds};
 use crate::number::predicate;
 use crate::number::tolerance::{ENCLOSED, PLACED};
 use glam::DVec2;
@@ -379,25 +378,3 @@ impl Splitting {
         }
     }
 }
-
-/// Whether `at` falls inside `walk`, by counting how many times a ray cast to
-/// the right of it crosses.
-///
-/// Odd is in, which is the Jordan curve theorem and nothing more. Through
-/// [`intersect::rightward`], so the one place a ray is held against a straight
-/// run is the one the drawing's own containment already goes through — see
-/// [`Arrangement`](crate::Arrangement).
-fn holds(walk: &[DVec2], at: DVec2) -> bool {
-    let crossings = walk
-        .iter()
-        .enumerate()
-        .filter(|&(step, &from)| {
-            let to = walk[(step + 1) % walk.len()];
-            intersect::rightward(Span { from, to }, at).is_some_and(|x| x > at.x)
-        })
-        .count();
-    crossings % 2 == 1
-}
-
-#[cfg(test)]
-mod tests;
