@@ -130,6 +130,70 @@ impl Document {
         self.edits = self.edits.next();
     }
 
+    /// Take each of `steps` out, and forget whatever was solved for them.
+    ///
+    /// **Newest first**, which is what makes each removal legal in its turn:
+    /// nothing may be taken out from under something built on it — see
+    /// [`Timeline::uproot`] — and walking back down the list means everything
+    /// standing on a step has already gone by the time the step does.
+    ///
+    /// Handed back in the order they *sat*, not the order they came out, because
+    /// that is the order they go back in. Every position is the one it had in
+    /// the whole recipe: taking the last one first means each removal only ever
+    /// shifts steps that have already been taken.
+    ///
+    /// The timeline alone, so the two callers can each say what follows —
+    /// [`Document::apply`] lets its own tail rebuild, and
+    /// [`Document::uproot_all`] rebuilds for itself.
+    fn pulled(&mut self, build: &mut Build, steps: &[FeatureId]) -> Vec<Uprooted> {
+        let mut pulled: Vec<Uprooted> = steps
+            .iter()
+            .rev()
+            .map(|&at| self.timeline.uproot(at))
+            .collect();
+        pulled.reverse();
+        build.forgot(steps);
+        pulled
+    }
+
+    /// Take `steps` out again, which is the redo of a delete.
+    ///
+    /// The same cascade the delete worked out rather than a fresh one, and it is
+    /// the same either way: nothing can have touched the document between an
+    /// undo and its redo, because anything at all throws away what there was to
+    /// redo. Replaying the list is the shorter of the two ways to say it.
+    pub(crate) fn uproot_all(&mut self, build: &mut Build, steps: &[FeatureId]) {
+        self.pulled(build, steps);
+        build.revised();
+        self.remodel(build);
+        self.edits = self.edits.next();
+    }
+
+    /// Put `steps` back, each where it sat, which is the undo of a delete.
+    ///
+    /// **Oldest first**, the mirror of the order they came out in: each lands in
+    /// a recipe the ones before it have already been put back into, so the
+    /// position each recorded is the position it takes.
+    ///
+    /// Settled afterwards rather than as each lands, and measured rather than
+    /// solved — the same reading [`Document::restore`] takes. What comes back is
+    /// the geometry that went away, so there is nothing to fix and a solve would
+    /// be free to wander off it. Every sketch among them needs it: the build
+    /// forgot what it knew of them when they went.
+    pub(crate) fn replant_all(&mut self, build: &mut Build, steps: &[Uprooted]) {
+        for uprooted in steps {
+            self.timeline.replant(uprooted.clone());
+        }
+        for uprooted in steps {
+            if matches!(uprooted.feature, Feature::Sketch { .. }) {
+                self.sketching(uprooted.at).measured(build);
+            }
+        }
+        build.revised();
+        self.remodel(build);
+        self.edits = self.edits.next();
+    }
+
     /// Work out afresh which region each extrude is grown from.
     ///
     /// Every way a document changes ends here, which is what keeps a feature
@@ -356,11 +420,10 @@ impl Document {
     /// for the length of the call. An edit that could happen without one in
     /// hand would be an edit that left its report stale.
     ///
-    /// Hands back the step it *made*, where the change was one that makes one —
-    /// see [`About::Makes`]. Every other change rewrites a step that is already
-    /// there, or is the camera's, and answers `None`.
-    pub(crate) fn apply(&mut self, build: &mut Build, change: Change) -> Option<FeatureId> {
-        let mut made = None;
+    /// Hands back what it did to the shape of the recipe — see [`Shaped`], which
+    /// is the whole of what an edit cannot be asked about afterwards.
+    pub(crate) fn apply(&mut self, build: &mut Build, change: Change) -> Shaped {
+        let mut shaped = Shaped::Same;
         match change {
             Change::Drag { sketch, grip, to } => self.sketching(sketch).drag_to(build, grip, to),
             Change::AddPoint { sketch, at } => self.sketching(sketch).add_point(build, at),
@@ -419,7 +482,7 @@ impl Document {
                     .at(sketch)
                     .expect("a change names a sketch the timeline holds")
                     .profile(region);
-                made = Some(self.timeline.add(Feature::Extrude { profile, distance }));
+                shaped = Shaped::Made(self.timeline.add(Feature::Extrude { profile, distance }));
                 build.revised();
             }
             // The other step-adder, and the simpler of the two: a sketch is
@@ -443,8 +506,32 @@ impl Document {
                 // one is a panic rather than an empty drawing. Empty is the
                 // easiest case of the same call and not a case of its own.
                 self.sketching(at).opened(build);
-                made = Some(at);
+                shaped = Shaped::Made(at);
                 build.revised();
+            }
+            // **The step named, and everything standing on it.** Which those
+            // are is worked out here rather than named by the intent, because a
+            // replayed pass naming them would be naming steps the first pass had
+            // already taken — see [`Change::DeleteStep`].
+            //
+            // Nothing is solved. Every sketch that is left says exactly what it
+            // said; what has changed is only which of them there are, and where
+            // the ones downstream of a removed plane now land.
+            Change::DeleteStep { step } => {
+                // **Refused rather than asserted.** A world plane is a step
+                // somebody can point at and press Delete on, so this is a state
+                // to answer for rather than a caller's mistake — and the answer
+                // is nothing done, which is what an empty [`Shaped::Took`] says.
+                // Nothing is revised either: a document that did not move has no
+                // reason to be drawn again.
+                shaped = Shaped::Took(if self.timeline.removable(step) {
+                    let doomed = self.timeline.doomed(step);
+                    let pulled = self.pulled(build, &doomed);
+                    build.revised();
+                    pulled
+                } else {
+                    Vec::new()
+                });
             }
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
@@ -462,12 +549,37 @@ impl Document {
         // is careful about elsewhere for the same reason — see [`Edits`], on why
         // turning the camera must not move the revision.
         match change.about() {
-            About::Makes | About::Rewrites { .. } => self.remodel(build),
+            About::Makes | About::Removes | About::Rewrites { .. } => self.remodel(build),
             About::Nothing => {}
         }
         self.edits = self.edits.next();
-        made
+        shaped
     }
+}
+
+/// What applying a change did to the *shape* of the recipe.
+///
+/// **What the history cannot work out for itself**, and the only thing an edit
+/// hands back. A rewrite is a value the history can read on either side of the
+/// call; a step made and steps taken away are not — one has no name until it
+/// lands, and the others have no place to go back to once they are gone.
+///
+/// Three arms because [`About`] has three, and this carries what each of them is
+/// short of. That they line up is checked at the two call sites in
+/// [`History`](crate::history::History), which ask for the arm the change
+/// promised.
+#[derive(Debug)]
+pub(crate) enum Shaped {
+    /// No step came or went: a value rewritten, or the camera turned.
+    Same,
+    /// A step made, under the name the document minted for it.
+    Made(FeatureId),
+    /// Steps taken out, in the order they sat — so putting them back is walking
+    /// this forwards, and taking them out again is walking it back.
+    ///
+    /// Empty where the document refused: a world plane is not a step anybody may
+    /// take out, and a refusal is nothing done rather than an error to report.
+    Took(Vec<Uprooted>),
 }
 
 /// How many times a document has been changed.
@@ -517,6 +629,22 @@ pub(crate) mod internals {
         /// down an assumption about the session in a test that is not about one.
         pub(crate) fn first_sketch(&self) -> FeatureId {
             self.timeline.first_sketch()
+        }
+
+        /// Every step, in the order they are built.
+        ///
+        /// What a *structural* edit is about, and the whole of what a test can
+        /// hold on to across one: which steps there are and what order they run
+        /// in. A document compared by what it draws would pass a delete that put
+        /// the right steps back in the wrong places, because most of them land
+        /// in the same world either way.
+        ///
+        /// Narrower than the mod around it, like [`Edits::stepped`] above: no
+        /// harness links this, and only the unit tests about structural edits
+        /// ask it.
+        #[cfg(test)]
+        pub(crate) fn recipe(&self) -> Vec<FeatureId> {
+            self.timeline.steps().map(|(at, _)| at).collect()
         }
     }
 

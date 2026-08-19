@@ -320,6 +320,52 @@ impl Timeline {
         self.steps.len()
     }
 
+    /// Whether the step at `at` may be taken out at all.
+    ///
+    /// The three the world comes with may not. They are what everything else is
+    /// measured *from* — a plane is offset from one of them, however many links
+    /// back — so a document without them is one nothing can be started on, and
+    /// taking one out would cascade away most of what is drawn for the sake of a
+    /// step nobody put there.
+    pub(crate) fn removable(&self, at: FeatureId) -> bool {
+        !matches!(self.feature(at), Feature::Plane(Datum::World(_)))
+    }
+
+    /// The step at `at` and everything built on it, in the order they sit.
+    ///
+    /// **What deleting one step really takes.** A step's referents come earlier
+    /// than it, so what stands on a doomed step is doomed too, all the way down:
+    /// a plane carries the sketches drawn on it, and those carry the solids
+    /// grown from them. Leaving them behind is the other reading and it is the
+    /// wrong one — what is left has to be a timeline that still builds, for the
+    /// same reason what is left of a sketch has to be one that still solves. See
+    /// [`Sketch::remove_point`](silverpoint::Sketch), which cascades one level
+    /// down for that reason.
+    ///
+    /// **One forward pass**, and that is what the ordering buys: everything a
+    /// step is built on has already been decided by the time the step is
+    /// reached, so nothing has to be walked twice and no graph has to be built.
+    ///
+    /// In the order they sit, which is what the caller needs both ways round:
+    /// they come *out* newest-first, so each in its turn has nothing standing on
+    /// it — see [`Timeline::uproot`] — and go *back* oldest-first, so each lands
+    /// in a list the ones before it have already been put back into.
+    ///
+    /// Membership by scanning the answer rather than by hashing it. A cascade is
+    /// the handful of steps standing on one, walked against the steps after it;
+    /// a set would cost an allocation and a hash apiece to save a comparison
+    /// against a list that is nearly always one long.
+    pub(crate) fn doomed(&self, at: FeatureId) -> Vec<FeatureId> {
+        let from = self.position(at).expect(REMOVED_STEP);
+        let mut doomed = vec![at];
+        for step in &self.steps[from + 1..] {
+            if step.feature.referents().any(|on| doomed.contains(&on)) {
+                doomed.push(step.id);
+            }
+        }
+        doomed
+    }
+
     /// Every step, in the order they are built, each with the handle that names
     /// it.
     ///
@@ -552,7 +598,7 @@ pub(crate) struct Movable {
 /// Owned rather than borrowed, unlike [`Movable`] and [`Extruded`] above: those
 /// are ways of looking at a step the timeline still holds, and this is what is
 /// left once it does not.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(crate) struct Uprooted {
     pub(crate) at: FeatureId,
     /// Where it sat among the rest, so it can go back there rather than on the

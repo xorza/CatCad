@@ -1,11 +1,11 @@
 //! What has been done to the document, and how to take it back.
 
 use crate::build::Build;
-use crate::document::Document;
+use crate::document::{Document, Shaped};
 use crate::intent::change::{About, Change};
 use crate::intent::{Intent, Intents, Step};
-use crate::timeline::FeatureId;
 use crate::timeline::feature::Feature;
+use crate::timeline::{FeatureId, Uprooted};
 
 /// How many steps back the history goes.
 ///
@@ -136,12 +136,31 @@ impl History {
             // creation has only one side.
             About::Makes => {
                 self.close();
-                let at = document
-                    .apply(build, change)
-                    .expect("a change that makes a step says which one it made");
+                let Shaped::Made(at) = document.apply(build, change) else {
+                    panic!("a change that makes a step says which one it made");
+                };
                 let feature = document.feature(at).clone();
                 self.record(Edit::Added { at, feature });
                 Some(at)
+            }
+            // A removal, and it is answered on its own for the reason the
+            // creation above is: there is no *after* to compare against, only
+            // the steps' absence. What it takes back is several at once, and
+            // which several is the document's answer — see
+            // [`Change::DeleteStep`].
+            About::Removes => {
+                self.close();
+                let Shaped::Took(steps) = document.apply(build, change) else {
+                    panic!("a change that removes steps says which ones it took");
+                };
+                // Nothing where the document refused — a world plane is not a
+                // step anybody may take out. A refusal is nothing done, so there
+                // is nothing to take back, and an empty step on the stack would
+                // be an undo that looked broken.
+                if !steps.is_empty() {
+                    self.record(Edit::Removed { steps });
+                }
+                None
             }
             // The camera, which is not the drawing: it lands and is not
             // recorded, so there is nothing here to take back.
@@ -210,6 +229,9 @@ impl History {
             // Undoing a creation puts back the step's *absence*, which is the
             // one thing a restore cannot say.
             Edit::Added { at, .. } => document.take_back(build, *at),
+            // And undoing a removal is the opposite again: the steps come back,
+            // each where it sat.
+            Edit::Removed { steps } => document.replant_all(build, steps),
         }
     }
 
@@ -222,8 +244,16 @@ impl History {
         match &self.edits[self.applied] {
             Edit::Wrote { at, after, .. } => document.restore(build, *at, after),
             // The same step returning under the same name — see
-            // [`Timeline::append`](crate::timeline::Timeline).
+            // [`Timeline::replant`](crate::timeline::Timeline).
             Edit::Added { at, feature } => document.put_again(build, *at, feature.clone()),
+            Edit::Removed { steps } => {
+                // Gathered rather than walked in place, because taking them out
+                // borrows the document this list is not part of — the history
+                // holds it, and holding a borrow of one across the other is what
+                // the collect avoids. A keypress, and a handful of handles.
+                let steps: Vec<FeatureId> = steps.iter().map(|uprooted| uprooted.at).collect();
+                document.uproot_all(build, &steps);
+            }
         }
         self.applied += 1;
     }
@@ -306,6 +336,22 @@ pub(crate) enum Edit {
     /// The feature travels with it because a redo puts the *same* step back
     /// under the same name, and by then the timeline no longer has it to copy.
     Added { at: FeatureId, feature: Feature },
+    /// Steps taken out together, in the order they sat.
+    ///
+    /// **Several, because a delete takes several**: what a user names is one
+    /// step, and what goes is that step and everything built on it — see
+    /// [`Timeline::doomed`](crate::timeline::Timeline). One `Edit` for the whole
+    /// cascade, so one press of undo brings the whole of it back, which is also
+    /// what makes the command safe to offer without asking first.
+    ///
+    /// Each carries where it *sat* and not only what it held, which is the whole
+    /// of why this is [`Uprooted`] rather than the pair the arm above uses: a
+    /// step put back on the end would be a different recipe.
+    ///
+    /// In the order they sat, so an undo walks it forwards and a redo walks it
+    /// back. Neither has to work the cascade out again, and neither could: by
+    /// the time an undo runs, the steps it would have been read from are gone.
+    Removed { steps: Vec<Uprooted> },
 }
 
 #[cfg(test)]

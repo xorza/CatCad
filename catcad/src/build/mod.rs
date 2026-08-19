@@ -244,6 +244,27 @@ impl Build {
         modelled.sort_unstable_by_key(Modelled::of);
     }
 
+    /// Forget what was solved for each of `gone`.
+    ///
+    /// What a step being taken out of the timeline leaves behind here. A
+    /// `Settled` is made on first use and never removed otherwise, so a session
+    /// of deleting and undoing would grow this list without bound — and every
+    /// entry in it is a report about a sketch nothing can reach.
+    ///
+    /// A redo settles the sketch again, which is one solve on a keypress and
+    /// cheaper than keeping every sketch a session ever held. See
+    /// [`Document::replant_all`](crate::document::Document).
+    ///
+    /// Handles that never had an entry — a plane, an extrude, a sketch nothing
+    /// settled — pass through, because what a caller has is the whole cascade
+    /// rather than the sketches among it.
+    ///
+    /// `modelled` needs nothing: it is emptied and refilled whole by the
+    /// [`Build::remodel`] that follows every edit.
+    pub(crate) fn forgot(&mut self, gone: &[FeatureId]) {
+        self.settled.retain(|settled| !gone.contains(&settled.of()));
+    }
+
     /// Note that the document has moved without anything being solved.
     ///
     /// What moving a plane leaves behind. A sketch's coordinates are its

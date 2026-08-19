@@ -9,6 +9,7 @@ use palantir::Key;
 
 use crate::hud::internals::{EXTRUDE_BUTTON, TIDY_BUTTON};
 use crate::intent::Choice;
+use crate::part::Part;
 use crate::tool::Tool;
 
 /// The clean-up button takes out geometry a deletion left behind, and leaves
@@ -352,4 +353,57 @@ fn escape_puts_down_the_tool_before_it_closes_the_sketch() {
     raised.enter_first_sketch();
     raised.frame();
     assert_eq!(raised.app.session.editing(), Some(sketch));
+}
+
+/// Delete on a picked plane takes the plane and the drawing standing on it, and
+/// Ctrl+Z brings the whole of it back.
+///
+/// **One key, two commands, and which one follows from what is picked.** The
+/// binding already walked the selection to delete geometry; a plane is not
+/// geometry but a step of the recipe, so what it takes is every step built on it
+/// — see [`Change::DeleteStep`](crate::intent::change::Change).
+///
+/// The wiring is what this is for. That the cascade is right, that it is one
+/// thing to take back and that every step goes back where it sat are the
+/// history's own tests; here the question is only whether the key reaches them.
+#[test]
+fn delete_on_a_picked_plane_takes_it_and_what_is_drawn_on_it() {
+    let mut raised = Raised::new();
+    let before = raised.models().iter().count();
+    let planes = raised.models().planes().count();
+
+    // The demo's one movable plane, which carries a sketch — so this is a
+    // cascade rather than a lone step.
+    let shelf = raised
+        .models()
+        .planes()
+        .find(|sheeted| sheeted.movable)
+        .expect("the demo draws a datum that can be moved")
+        .at;
+    raised.choose(Choice::Select(Some(Part::Plane(shelf))));
+    raised.frame();
+
+    raised.harness.key(Key::Delete);
+    raised.frame();
+    assert_eq!(
+        raised.models().planes().count(),
+        planes - 1,
+        "the plane outlived the key"
+    );
+    assert!(
+        raised.models().iter().count() < before,
+        "the sketch drawn on it stayed behind"
+    );
+    // And it is not picked out any more, because it is not there to be picked —
+    // which is `Session::prune`'s, reached by the same frame.
+    assert!(
+        !raised.app.session.selection().contains(Part::Plane(shelf)),
+        "a step that is gone is still picked out"
+    );
+
+    // One press of undo, whatever it took.
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(raised.models().planes().count(), planes);
+    assert_eq!(raised.models().iter().count(), before);
 }

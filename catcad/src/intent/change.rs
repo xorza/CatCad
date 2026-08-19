@@ -154,6 +154,23 @@ pub(crate) enum Change {
     /// nothing raises it a frame at a time — a button press and a double-click
     /// are each one frame's asking, where a drag is sixty.
     AddSketch { on: FeatureId },
+    /// Take a step out of the recipe, with everything built on it.
+    ///
+    /// **Not [`Change::Delete`]**, which takes geometry out of a *drawing*. The
+    /// two are the same gesture one level apart — a key press on what is picked
+    /// out, taking the thing and whatever stood on it — and they are two changes
+    /// because they name two different kinds of thing. Which one a press comes
+    /// out as follows from what is picked.
+    ///
+    /// Names the head of the cascade and not the cascade, because what goes with
+    /// it is the document's to work out — see
+    /// [`Timeline::doomed`](crate::timeline::Timeline). A replayed pass would
+    /// otherwise name steps the first pass had already taken away.
+    ///
+    /// The three planes the world comes with are refused, which is a rule about
+    /// the document rather than about this: everything is measured from them,
+    /// however many links back.
+    DeleteStep { step: FeatureId },
     /// Take a plane to a new offset from the one it is measured off.
     ///
     /// Names the offset it wants rather than a step to take, like everything
@@ -245,6 +262,9 @@ impl Change {
             // not exist until it lands, so there is nothing here for a history
             // to record a *before* against.
             Change::Extrude { .. } | Change::AddSketch { .. } => About::Makes,
+            // And the one that takes steps away, which has no *after* for the
+            // same reason a creation has no before.
+            Change::DeleteStep { .. } => About::Removes,
             // The camera is not the drawing. Turning it names no step, so there
             // is nothing to take back and nothing to solve again.
             Change::Orbit { .. }
@@ -273,6 +293,20 @@ pub(crate) enum About {
     /// recording it is [`Edit::Added`](crate::history::Edit)'s shape — a step
     /// that was not there has no *before* to put back, only its absence.
     Makes,
+    /// It takes steps out of the timeline.
+    ///
+    /// *Steps*, plural, and that is the arm rather than a detail of it: what a
+    /// delete really takes is the step named and everything built on it, and
+    /// putting them back is putting each where it sat. Which ones is not said
+    /// here for the reason the arm above says nothing either — it is the
+    /// document's answer, and [`Edit::Removed`](crate::history::Edit) is its
+    /// shape.
+    ///
+    /// Its own arm and not [`About::Makes`] read backwards, because the history
+    /// does opposite things with them and the match is what makes a third kind
+    /// of structural change a compile error rather than a step nothing can take
+    /// back.
+    Removes,
     /// It rewrites the step at `at`, which the timeline already holds.
     Rewrites {
         at: FeatureId,

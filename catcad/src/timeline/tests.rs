@@ -334,3 +334,58 @@ fn a_step_still_built_on_cannot_be_taken_out() {
     });
     timeline.uproot(ground);
 }
+
+/// Deleting a step takes everything built on it, however far down, and nothing
+/// standing beside it.
+///
+/// **The whole of what a cascade is**, and both halves matter. What is left has
+/// to be a timeline that still builds — a sketch on a plane that has gone is a
+/// reference pointing at nothing — and a cascade that took a step's *neighbours*
+/// would be a delete nobody could predict.
+///
+/// The chain is three deep so the walk has to be transitive rather than direct:
+/// the sketch names the plane it is drawn on and has never heard of the plane
+/// that one is measured from. And a sibling sits in the middle of the chain
+/// rather than after it, which is what makes the answer more than "everything
+/// later": a pass that took the tail would take the sibling too.
+///
+/// Hand-listed, in the order they sit — which is the order they go back in, and
+/// the reverse of the order they come out in.
+#[test]
+fn deleting_a_step_takes_everything_built_on_it_and_nothing_beside_it() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let held = timeline.add(Feature::Plane(Datum::Offset {
+        from: ground,
+        by: 1.0,
+    }));
+    // On the ground rather than on the chain, and in the middle of it.
+    let beside = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: Sketch::default(),
+    });
+    let higher = timeline.add(Feature::Plane(Datum::Offset {
+        from: held,
+        by: 2.0,
+    }));
+    let drawn = timeline.add(Feature::Sketch {
+        on: higher,
+        sketch: Sketch::default(),
+    });
+
+    assert_eq!(timeline.doomed(held), [held, higher, drawn]);
+    assert_eq!(timeline.doomed(higher), [higher, drawn]);
+    assert_eq!(timeline.doomed(drawn), [drawn]);
+    // The sibling is nobody's dependent, and the ground is everybody's referent.
+    assert_eq!(timeline.doomed(beside), [beside]);
+    assert_eq!(
+        timeline.doomed(ground),
+        [ground, held, beside, higher, drawn],
+        "the ground carries the whole document"
+    );
+
+    // Which is why it may not be taken out at all: everything is measured from
+    // the three the world comes with, however many links back.
+    assert!(!timeline.removable(ground));
+    assert!(timeline.removable(held) && timeline.removable(drawn));
+}

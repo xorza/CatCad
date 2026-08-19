@@ -596,3 +596,130 @@ fn moving_a_plane_carries_what_is_drawn_on_it_and_solves_nothing() {
     history.apply(&mut document, &mut build, &once(Step::Undo));
     assert_eq!(landed(&document), Vec3::new(3.0, 2.0, -4.0));
 }
+
+/// A delete takes its whole cascade in one step, and one undo puts every one of
+/// them back where it sat.
+///
+/// **The claim a count would pass and a position would not.** Every step here
+/// comes back whatever order it is put back in — a plane is a plane — so what
+/// says the undo worked is the *recipe*: which steps there are and what order
+/// they run in. Compared against what was there before rather than against a
+/// list written out here, so the test says "unchanged" rather than restating the
+/// demo.
+///
+/// One `Edit` for the cascade and not one apiece, which is what makes the
+/// command safe to offer without asking first: whatever it took, Ctrl+Z is the
+/// whole of getting it back.
+///
+/// Redone as well, because the two are not one claim. A redo has to take the
+/// same steps out again, and it cannot work the cascade out afresh — by the time
+/// it runs, the steps it would have read it from are back, but the *document*
+/// has moved on in neither direction, so replaying the list is what has to be
+/// right.
+#[test]
+fn deleting_a_step_is_one_thing_to_take_back_and_puts_the_whole_cascade_where_it_sat() {
+    let Opened {
+        mut build,
+        mut document,
+        mut history,
+        at,
+    } = Opened::new();
+    let whole = document.recipe();
+    let markers_before = markers(&document, &build);
+
+    // The plane the demo holds off the ground, which carries the sketch drawn on
+    // it — so this is a cascade rather than a single step.
+    let shelf = document
+        .models(&build, Some(at))
+        .planes()
+        .find(|sheeted| sheeted.movable)
+        .expect("the demo draws a datum that can be moved")
+        .at;
+    let doomed: Vec<FeatureId> = whole
+        .iter()
+        .copied()
+        .filter(|&step| step == shelf || document.feature(step).referents().any(|on| on == shelf))
+        .collect();
+    assert!(
+        doomed.len() > 1,
+        "the demo builds nothing on its datum, so this asks half a question"
+    );
+
+    history.apply(
+        &mut document,
+        &mut build,
+        &once(Change::DeleteStep { step: shelf }),
+    );
+    let left = document.recipe();
+    assert_eq!(
+        left,
+        whole
+            .iter()
+            .copied()
+            .filter(|step| !doomed.contains(step))
+            .collect::<Vec<_>>(),
+        "the delete took the wrong steps"
+    );
+    assert_eq!(
+        history.edits.len(),
+        1,
+        "a cascade is one thing to take back"
+    );
+
+    // One undo, and the recipe is the one the document opened with — every step
+    // back, and every one of them where it sat.
+    assert!(relaid(&mut history, &mut document, &mut build, Step::Undo));
+    assert_eq!(document.recipe(), whole, "the undo rebuilt another recipe");
+    // And what the sketches say, which is the half the recipe cannot show: the
+    // build forgot them when they went and had to settle them again.
+    assert_eq!(
+        markers(&document, &build),
+        markers_before,
+        "a sketch came back somewhere else"
+    );
+
+    // Out again, by the list rather than by working the cascade out afresh.
+    assert!(relaid(&mut history, &mut document, &mut build, Step::Redo));
+    assert_eq!(document.recipe(), left, "the redo took different steps");
+
+    // And back a second time, which is what says neither direction consumed
+    // what the other needed.
+    assert!(relaid(&mut history, &mut document, &mut build, Step::Undo));
+    assert_eq!(document.recipe(), whole);
+    assert_eq!(markers(&document, &build), markers_before);
+}
+
+/// The three planes the world comes with are refused, and a refusal is nothing
+/// done rather than a step to take back.
+///
+/// The second half is the one worth pinning. An `Edit` recorded for a change
+/// that changed nothing is an undo that looks broken: the user presses Ctrl+Z,
+/// the drawing does not move, and the step they meant to take back is still
+/// there behind it.
+#[test]
+fn a_world_plane_is_refused_and_leaves_nothing_to_take_back() {
+    let Opened {
+        mut build,
+        mut document,
+        mut history,
+        at,
+    } = Opened::new();
+    let whole = document.recipe();
+    let ground = document
+        .models(&build, Some(at))
+        .planes()
+        .find(|sheeted| sheeted.world.is_some())
+        .expect("a document holds the three planes the world comes with")
+        .at;
+
+    history.apply(
+        &mut document,
+        &mut build,
+        &once(Change::DeleteStep { step: ground }),
+    );
+    assert_eq!(document.recipe(), whole, "a world plane was taken out");
+    assert!(
+        !history.can_undo(),
+        "a refusal left a step on the undo stack"
+    );
+}

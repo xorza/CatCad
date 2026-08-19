@@ -48,6 +48,7 @@ use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Errand, Intent, Intents, Step};
+use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::session::Session;
 use crate::status::{Solved, Status};
@@ -232,12 +233,25 @@ impl CatCad {
         // selection again would find it already gone. Landing twice is harmless
         // — the second removal finds nothing to remove.
         if ui.key_pressed(DELETE) {
-            // Entities only. Deleting a face would mean deleting whatever
-            // draws it, which is a different command and not this one — so a
-            // face picked out alongside an edge lets the edge go and stays.
             for part in self.session.selection().picked() {
-                if let (Some(sketch), Some(entity)) = (part.sketch(), part.entity()) {
-                    self.intents.push(Change::Delete { sketch, entity });
+                match part {
+                    // **One key, and what it takes follows from what is
+                    // picked.** A plane is a step of the recipe rather than
+                    // anything drawn, so what goes with it is every step built
+                    // on it — see [`Change::DeleteStep`]. A world plane is
+                    // refused, and the refusal is the document's: the key says
+                    // what was asked for, and what may be answered is decided
+                    // where the answer is.
+                    Part::Plane(step) => self.intents.push(Change::DeleteStep { step: *step }),
+                    // Entities otherwise. Deleting a face would mean deleting
+                    // whatever draws it, which is a different command and not
+                    // this one — so a face picked out alongside an edge lets the
+                    // edge go and stays.
+                    part => {
+                        if let (Some(sketch), Some(entity)) = (part.sketch(), part.entity()) {
+                            self.intents.push(Change::Delete { sketch, entity });
+                        }
+                    }
                 }
             }
         }
