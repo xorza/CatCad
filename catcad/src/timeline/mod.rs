@@ -243,49 +243,81 @@ impl Timeline {
         }
     }
 
-    /// Take the newest step off the end, which has to be `at`.
+    /// Take the step at `at` out, and hand back what it takes to put it back.
     ///
-    /// What undoing a *creation* does. Only the newest, and the assertion is
-    /// what says so rather than a search: a history is walked back in the order
-    /// it was written, and nothing between an add and its undo can have added
-    /// another — so the step being taken back is always the last one on.
+    /// **From anywhere, not only the end.** What undoing a *creation* does, and
+    /// what a delete will do to each step of a cascade. Both want the same call
+    /// for the same reason: the position is not a detail of where the step
+    /// happened to be, it is the thing that has to be restored — see
+    /// [`Uprooted`].
+    ///
+    /// Nothing may be built on it. A step's referents come earlier than it, so
+    /// taking one out from under something that names it would leave a reference
+    /// pointing at nothing — the one shape this whole file is arranged to make
+    /// impossible. A caller taking several out does it in reverse order, so each
+    /// in its turn has nothing left standing on it.
     ///
     /// The handle is not handed back to the counter. A redo puts the same step
-    /// back under the same name — see [`Timeline::append`] — and everything else
-    /// that ever held one is watching for it to go rather than for it to be
+    /// back under the same name — see [`Timeline::replant`] — and everything
+    /// else that ever held one is watching for it to go rather than for it to be
     /// reissued.
-    pub(crate) fn drop_newest(&mut self, at: FeatureId) {
-        let newest = self.steps.pop().expect("the timeline holds a step to drop");
-        assert_eq!(newest.id, at, "only the newest step can be taken back");
+    pub(crate) fn uproot(&mut self, at: FeatureId) -> Uprooted {
+        let position = self.position(at).expect(REMOVED_STEP);
+        assert!(
+            self.steps[position + 1..]
+                .iter()
+                .all(|step| step.feature.referents().all(|on| on != at)),
+            "a step still built on cannot be taken out"
+        );
+        let Step { id, feature } = self.steps.remove(position);
         // Leaving `GONE` where the handle was — see [`Timeline::filed`], on a
         // dead handle being a value rather than a search coming up empty.
         self.refile();
+        Uprooted {
+            at: id,
+            position,
+            feature,
+        }
     }
 
-    /// Put a step back on the end under the name it already had.
+    /// Put a step back exactly where it came from.
     ///
-    /// The other half of [`Timeline::drop_newest`], and the reason that one does
-    /// not reissue its handle: a redo is the same step returning, so anything
-    /// that kept its name is right to find it again.
+    /// The other half of [`Timeline::uproot`], and the reason that one does
+    /// not reissue its handle: what comes back is the same step returning, so
+    /// anything that kept its name is right to find it again.
     ///
-    /// On the end, and named more recently than anything already there. Both
-    /// hold only because nothing can *move* a step yet: what a redo puts back is
-    /// what the undo just took off, and neither could have been anywhere but
-    /// last. Once one can be moved, this and the assertion in
-    /// [`Timeline::drop_newest`] are the two lines that stop being true — see
-    /// `.notes/PLAN-editable-timeline.md`, where they become a position rather
-    /// than an end.
-    pub(crate) fn append(&mut self, at: FeatureId, feature: Feature) {
+    /// Everything it is built on has to be there *and earlier*, which is the
+    /// same rule [`Timeline::add`] states and the only one there is. Putting one
+    /// back shifts everything at or after its place along, so a referent before
+    /// it stays before it and a dependent after it stays after — which is what
+    /// lets a cascade come back by replanting in the order it was written down.
+    pub(crate) fn replant(&mut self, uprooted: Uprooted) {
+        let Uprooted {
+            at,
+            position,
+            feature,
+        } = uprooted;
+        assert!(!self.holds(at), "a step put back is already there");
+        // One side of the rule and not both, which is worth saying because the
+        // other side looks missing: nothing checks that a step already built on
+        // `at` ends up after it. Nothing has to. A held step always has its
+        // referents held — [`Timeline::uproot`] refuses to take one out from
+        // under a dependent, and this refuses to put one in without them — so a
+        // step naming `at` cannot be standing here while `at` is not. The case
+        // is unreachable rather than unguarded.
         assert!(
-            self.steps.last().is_none_or(|last| last.id < at),
-            "a step put back has to be the newest again"
+            feature
+                .referents()
+                .all(|on| self.position(on).is_some_and(|was| was < position)),
+            "a step can only be built on one that comes earlier"
         );
-        assert!(
-            feature.referents().all(|on| self.holds(on)),
-            "a step can only be built on one the timeline already has"
-        );
-        self.steps.push(Step { id: at, feature });
+        self.steps.insert(position, Step { id: at, feature });
         self.refile();
+    }
+
+    /// How many steps there are.
+    pub(crate) fn count(&self) -> usize {
+        self.steps.len()
     }
 
     /// Every step, in the order they are built, each with the handle that names
@@ -508,6 +540,29 @@ pub(crate) struct Movable {
     pub(crate) at: FeatureId,
     /// The line it runs along, and the base it is measured off.
     pub(crate) along: Along,
+}
+
+/// A step taken out, and everything it takes to put it back.
+///
+/// **The position is the point.** A handle says which step and a [`Feature`]
+/// says what it holds, and neither says *when* — which is the whole of what a
+/// timeline is. Undoing a delete that put its steps back on the end would put
+/// them back in a different recipe.
+///
+/// Owned rather than borrowed, unlike [`Movable`] and [`Extruded`] above: those
+/// are ways of looking at a step the timeline still holds, and this is what is
+/// left once it does not.
+#[derive(Debug)]
+pub(crate) struct Uprooted {
+    pub(crate) at: FeatureId,
+    /// Where it sat among the rest, so it can go back there rather than on the
+    /// end.
+    ///
+    /// [`Timeline::count`] is what a caller with no step to take out puts here:
+    /// one past the last is the end, which is where a redo of a creation wants
+    /// it.
+    pub(crate) position: usize,
+    pub(crate) feature: Feature,
 }
 
 /// One extrude the timeline holds: which step it is, what it is grown from, and

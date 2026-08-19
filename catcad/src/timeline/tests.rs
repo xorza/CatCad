@@ -34,20 +34,23 @@ fn a_step_is_built_only_on_earlier_ones_and_handles_are_never_reused() {
     assert!(!Timeline::default().holds(ground));
 }
 
-/// Every handle finds its own step, across a step being taken off the end and
-/// put back.
+/// A step taken out of the *middle* goes back into the middle, and every handle
+/// finds its own step throughout.
 ///
-/// **What [`Timeline::filed`] has to get right**, and the reason it is asked of
-/// more than one step: the index is rewritten whole every time the steps move,
-/// so an entry left over from before would be a handle quietly answering with
-/// its neighbour — which is a step drawn in another's place rather than a crash.
+/// **The two halves of what a delete and its undo are**, asked of the position
+/// nothing could reach before: taking the newest off the end shifts nothing, so
+/// it could never have caught an index that was wrong about where a step sits.
+/// Out of the middle, everything after it moves.
 ///
 /// The planes are held at different offsets so each is a different answer. Told
 /// apart by where each *lands* rather than by comparing features, which is what
 /// makes a wrong lookup visible: two planes at one offset would be the same
-/// step as far as any assertion here could tell.
+/// step as far as any assertion here could tell. And the recipe order is read
+/// back alongside, because landing in the right place and being in the right
+/// place are two claims — a step put back on the end would resolve to exactly
+/// the same plane.
 #[test]
-fn every_handle_finds_its_own_step_across_a_step_going_and_coming_back() {
+fn a_step_taken_out_of_the_middle_goes_back_into_the_middle() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let held: Vec<FeatureId> = (1..=3)
@@ -65,25 +68,34 @@ fn every_handle_finds_its_own_step_across_a_step_going_and_coming_back() {
         assert_eq!(lands(&timeline, at), nth as f64 + 1.0, "{at:?} is misfiled");
     }
 
-    // The newest off the end. Its own handle stops naming anything, and the
-    // rest go on naming exactly what they did — which is the half a rewritten
-    // index gets wrong, because every entry is written afresh and only the
-    // three that should move are meant to.
-    let newest = held[2];
-    let feature = timeline.feature(newest).clone();
-    timeline.drop_newest(newest);
+    let order =
+        |timeline: &Timeline| -> Vec<FeatureId> { timeline.steps().map(|(at, _)| at).collect() };
+    let whole = order(&timeline);
+    assert_eq!(whole, [ground, held[0], held[1], held[2]]);
+
+    // The middle one out, which is the second of the three and sits at position
+    // two. Nothing is built on it — the other two are measured off the ground,
+    // not off each other — so it comes out on its own.
+    let middle = held[1];
+    let uprooted = timeline.uproot(middle);
+    assert_eq!(uprooted.position, 2, "the middle plane was found elsewhere");
     assert!(
-        !timeline.holds(newest),
-        "a dropped handle still names a step"
+        !timeline.holds(middle),
+        "a step taken out still names something"
     );
-    assert!(timeline.holds(ground));
-    for (nth, &at) in held[..2].iter().enumerate() {
-        assert_eq!(lands(&timeline, at), nth as f64 + 1.0, "{at:?} moved");
+    assert_eq!(order(&timeline), [ground, held[0], held[2]]);
+    // The step *after* it moved, and its handle has to have moved with it —
+    // which is the whole of what an index rewritten whole is for.
+    for at in [held[0], held[2]] {
+        let nth = held.iter().position(|&held| held == at).unwrap();
+        assert_eq!(lands(&timeline, at), nth as f64 + 1.0, "{at:?} is misfiled");
     }
 
-    // And back under the same name, which is what a redo is.
-    timeline.append(newest, feature);
-    assert!(timeline.holds(newest), "a step put back is not there");
+    // And back where it was, which is what an undo of a delete is. On the end
+    // would resolve to the same plane and be a different recipe.
+    timeline.replant(uprooted);
+    assert!(timeline.holds(middle), "a step put back is not there");
+    assert_eq!(order(&timeline), whole, "a step came back somewhere else");
     for (nth, &at) in held.iter().enumerate() {
         assert_eq!(
             lands(&timeline, at),
@@ -302,4 +314,23 @@ fn an_edit_through_the_timeline_reaches_the_sketch_it_names() {
         "{landed:?}"
     );
     assert_ne!(build.revision(), was, "the edit went unrecorded");
+}
+
+/// A step something is built on cannot be taken out from under it.
+///
+/// The invariant the whole file is arranged around — a step's referents come
+/// earlier than it — stated at the one call that could break it. A cascade takes
+/// several out at once and is what makes this reachable; it does it in reverse
+/// order so that each in its turn has nothing standing on it, and this is what
+/// says so.
+#[test]
+#[should_panic = "a step still built on cannot be taken out"]
+fn a_step_still_built_on_cannot_be_taken_out() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: Sketch::default(),
+    });
+    timeline.uproot(ground);
 }

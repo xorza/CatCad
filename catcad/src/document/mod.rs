@@ -15,7 +15,7 @@ use crate::drawing::sketching::Sketching;
 use crate::intent::change::{About, Change};
 use crate::model::Models;
 use crate::timeline::feature::Feature;
-use crate::timeline::{FeatureId, Movable, Timeline};
+use crate::timeline::{FeatureId, Movable, Timeline, Uprooted};
 use silverpoint::Sketch;
 
 /// A drawing and how it is being looked at — everything a session would have to
@@ -91,14 +91,19 @@ impl Document {
         Self::new(build, Timeline::started())
     }
 
-    /// Take the newest step off the end, which has to be `at`.
+    /// Take the step at `at` out.
     ///
     /// What an undo of a creation is, and the third and last way a document
     /// changes — beside [`Document::apply`], which asks for something, and
     /// [`Document::restore`], which puts a value back. This puts back a step's
     /// *absence*, which is the one thing neither of those can say.
+    ///
+    /// What it takes to put the step back is dropped rather than handed on,
+    /// because the history is already holding a copy: an undo of a creation
+    /// reads its `Edit`, which kept the feature for exactly this. A *delete* is
+    /// what really wants that answer — see [`Timeline::uproot`].
     pub(crate) fn take_back(&mut self, build: &mut Build, at: FeatureId) {
-        self.timeline.drop_newest(at);
+        self.timeline.uproot(at);
         build.revised();
         self.remodel(build);
         self.edits = self.edits.next();
@@ -108,8 +113,18 @@ impl Document {
     ///
     /// The redo of the above, and the reason a dropped handle is never reissued:
     /// this is the same step returning rather than another one taking its place.
+    ///
+    /// **On the end, and that is right rather than merely what it used to do.**
+    /// A creation puts a step last, and nothing can have moved it since: any
+    /// edit at all throws away what an undo left to redo — see
+    /// [`History::record`](crate::history::History) — so between taking this
+    /// step off and putting it back the recipe cannot have changed at all.
     pub(crate) fn put_again(&mut self, build: &mut Build, at: FeatureId, feature: Feature) {
-        self.timeline.append(at, feature);
+        self.timeline.replant(Uprooted {
+            at,
+            position: self.timeline.count(),
+            feature,
+        });
         build.revised();
         self.remodel(build);
         self.edits = self.edits.next();
