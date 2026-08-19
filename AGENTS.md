@@ -28,25 +28,17 @@ small diff.
 
 ## Workspace
 
-Cargo workspace, edition 2024, four members plus a submodule that brings two
-more of its own:
+Cargo workspace, edition 2024: four members, plus the `palantir` submodule and
+the `anim-derive` it brings.
 
-| Crate | Library name | Role |
+| Crate | Library | Role |
 | --- | --- | --- |
-| `silverpoint` | `silverpoint` | Geometry for CAD. `sketch/` is 2D — entities, constraints, solver, the arrangement that says what curves enclose. `solid/` is the b-rep kernel beside it, sharing `math/` and `number/`. The parametric core. |
-| `aperture3d` | `aperture` | Retained 3D scene renderer drawing into a palantir `GpuView`. |
-| `catcad` | — (bin) | The application: palantir window, viewport, input. |
-| `common` | `common` | Unpublished. What more than one member would otherwise each keep a copy of — today the allocation-bench harness, behind a feature. |
-| `palantir` | `palantir` | Git submodule (`github.com/xorza/palantir`) — the GUI framework. |
+| `silverpoint` | `silverpoint` | The parametric core. `sketch/` is 2D — entities, constraints, solver, and the arrangement that says what curves enclose. `solid/` beside it is the b-rep kernel ([`.notes/KERNEL.md`](.notes/KERNEL.md)); it may reach `arena`, `loops`, `number`, `math` and `sketch::arrangement`, and nothing else — never `sketch::solver`, `sketch::constraint`, or `Sketch` itself. |
+| `aperture3d` | `aperture` | Retained 3D scene renderer, drawing into a palantir `GpuView`. |
+| `catcad` | — (bin) | The application: window, viewport, input. |
+| `common` | `common` | Unpublished. Scaffolding no member should keep its own copy of — today the allocation-bench harness. |
+| `palantir` | `palantir` | Submodule (`github.com/xorza/palantir`) — the GUI framework. |
 
-Dependency direction is `catcad → {aperture3d, silverpoint, palantir}` and
-`aperture3d → palantir`. `common` is an optional dependency of the other three,
-on behind each one's `bench` feature and absent from an ordinary build.
-
-The kernel lives *in* silverpoint rather than beside it because everything it
-reuses — `Arena`, `Loops`, `Cutter`, the tolerance constants, the arrangement's
-edge walk — is `pub(crate)`, and because `number/`'s exact predicates are as
-useful to the 2D arrangement as to the 3D kernel. `solid/` may reach `arena`,
-`loops`, `number`, `math` and `sketch::arrangement`, and nothing else — never
-`sketch::solver`, `sketch::constraint`, or `Sketch` itself. See
-[`.notes/KERNEL.md`](.notes/KERNEL.md).
+`catcad → {aperture3d, silverpoint, palantir}` and `aperture3d → palantir`;
+`common` hangs off the other three's `bench` feature, absent from an ordinary
+build.
