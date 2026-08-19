@@ -276,26 +276,29 @@ fn two_solids_held_flush_keep_one_of_the_two_faces_that_meet() {
     }
 }
 
-/// A round tool, and the name the wall it sweeps carries.
+/// A rod, and the name the wall it sweeps carries.
 ///
 /// The name as well as the body, because half of what a boolean has to get
 /// right about a pocket is whose face its wall is — and a circle's `Side` is
 /// named by the entity of the *drawing*, which only whoever drew it knows.
+///
+/// Either operand: the tool that bores a block, and the body a second rod is
+/// joined onto.
 #[derive(Debug)]
 struct Rod {
     body: Body,
     wall: Named,
 }
 
-/// A cylinder of `radius` about `at`, carried `deep` off `plane`.
-fn rod(plane: Plane, at: DVec2, radius: f64, deep: f64) -> Rod {
+/// A cylinder of `radius` about `at`, carried `deep` off `plane`, grown by `by`.
+fn rod(plane: Plane, at: DVec2, radius: f64, deep: f64, by: Step) -> Rod {
     let mut sketch = Sketch::default();
     let middle = sketch.add_point(at);
     let ring = sketch.add_circle(middle, radius);
     let found = Arrangement::of(&sketch);
     Rod {
-        body: Extrusion::new(&found, 0, plane, deep, TOOL).body(),
-        wall: TOOL.grew(Grown::Side(Bound {
+        body: Extrusion::new(&found, 0, plane, deep, by).body(),
+        wall: by.grew(Grown::Side(Bound {
             of: Entity::Circle(ring),
             along: true,
         })),
@@ -304,7 +307,7 @@ fn rod(plane: Plane, at: DVec2, radius: f64, deep: f64) -> Rod {
 
 /// A unit rod up the cube's middle, standing clear of both its ends.
 fn through() -> Rod {
-    rod(raised(-1.0), DVec2::new(2.0, 2.0), 1.0, 6.0)
+    rod(raised(-1.0), DVec2::new(2.0, 2.0), 1.0, 6.0, TOOL)
 }
 
 /// The circle a bore of [`through`] leaves in the cube's face `by` along.
@@ -430,13 +433,13 @@ fn a_round_tool_leaves_the_volume_the_arithmetic_says() {
         ("bored through", through(), Operation::Cut, 64.0 - PI * 4.0),
         (
             "stopped half way",
-            rod(raised(2.0), DVec2::new(2.0, 2.0), 1.0, 4.0),
+            rod(raised(2.0), DVec2::new(2.0, 2.0), 1.0, 4.0, TOOL),
             Operation::Cut,
             64.0 - PI * 2.0,
         ),
         (
             "stood on the end",
-            rod(raised(4.0), DVec2::new(2.0, 2.0), 1.0, 2.0),
+            rod(raised(4.0), DVec2::new(2.0, 2.0), 1.0, 2.0, TOOL),
             Operation::Join,
             64.0 + PI * 2.0,
         ),
@@ -479,7 +482,7 @@ fn a_round_tool_leaves_the_volume_the_arithmetic_says() {
 /// with a hole in it is the same face.
 #[test]
 fn a_pocket_takes_its_wall_from_the_tool_and_turns_it_over() {
-    let tool = rod(raised(2.0), DVec2::new(2.0, 2.0), 1.0, 4.0);
+    let tool = rod(raised(2.0), DVec2::new(2.0, 2.0), 1.0, 4.0, TOOL);
     let mut boolean = Boolean::default();
     let mut into = Body::default();
     assert!(boolean.combine(&cube(), &tool.body, Operation::Cut, &mut into));
@@ -522,36 +525,72 @@ fn a_pocket_takes_its_wall_from_the_tool_and_turns_it_over() {
     );
 }
 
-/// A crossing no face's own parameters can write down is refused rather than
-/// guessed at — **and only where it would have divided something**.
+/// **A flat milled down a shaft**, which is a plane parallel to a cylinder's
+/// axis and was the last crossing refused for being one.
 ///
-/// Two of them, and both are shapes a modeller will ask for. A plane along a
-/// cylinder's axis meets it in two ruling lines, which are cuts at a constant
-/// angle in a parameter that wraps and nothing yet writes one down. Two
-/// cylinders across each other meet in a quartic, which arrives as
-/// [`Meeting::Algebraic`](crate::solid::meeting::Meeting::Algebraic). Neither
-/// has anything to do with the bore above, which is round from end to end and
-/// comes out exact.
+/// A ruling line is a cut at a constant angle in a parameter that *wraps*, so
+/// which turn of it the face was laid out in decides whether the face is
+/// divided at all — and a face may not wrap, so at most one turn falls inside
+/// its own range. That is the whole of what `imprinted` needed and could not
+/// ask; it asks now.
 ///
-/// **The same slab, lifted clear, is not refused** — which is the half that
-/// makes this a statement about the crossing rather than about the shape. A
-/// body is cut by the other's *surfaces*, and a plane is unbounded where the
-/// wall standing on it is not, so the two ruling lines are there whether the
-/// slab is up against the rod or a model's width away. Refusing for them either
-/// way turns away two solids that never touch.
+/// The slab reaches from `x = 1.5` outward and stands four deep off the ground,
+/// so it takes a bite out of the middle of a rod running from `y = −1` to
+/// `y = 5`. A chord half a unit off the centre of a unit circle leaves the minor
+/// segment `r²·acos(d/r) − d·√(r² − d²)` = `π/3 − ½√¾`, which stands over the
+/// four the slab is deep; above and below it the rod is round and whole.
+///
+/// Seventeen faces, and every one of them accounted: two caps, each cut in two
+/// by the chord where the flat's plane crosses it; ten of wall, each half of the
+/// cylinder cut by the ruling into two and by the slab's two ends into three,
+/// less the one piece of each that the slab swallowed; the flat itself; and two
+/// shoulders where the slab's ends stand inside the rod.
 #[test]
-fn a_crossing_no_face_can_carry_is_refused_only_where_it_divides() {
+fn a_flat_milled_down_a_shaft_leaves_the_segment_the_arithmetic_says() {
     let upright = through();
+    let slab = block(
+        Plane::GROUND,
+        &[(1.5, -1.0), (5.0, -1.0), (5.0, 5.0), (1.5, 5.0)],
+        4.0,
+        TOOL,
+    );
     let mut boolean = Boolean::default();
     let mut into = Body::default();
+    assert!(boolean.combine(&upright.body, &slab, Operation::Cut, &mut into));
 
-    // A slab whose side runs up the rod, half way across it.
-    let wall = &[(1.5, -1.0), (5.0, -1.0), (5.0, 5.0), (1.5, 5.0)][..];
-    let slab = block(Plane::GROUND, wall, 4.0, TOOL);
-    assert!(!boolean.combine(&upright.body, &slab, Operation::Cut, &mut into));
-    assert!(into.is_empty(), "a refusal left half a body behind");
+    assert_eq!(into.topology().faces().count(), 17);
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "{reckoning:?}");
 
-    // The same rod laid on its side, driven through the standing one.
+    let minor = (0.5f64).acos() - 0.5 * (0.75f64).sqrt();
+    let want = minor * 4.0 + PI * 2.0;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-4, 1e-5, 1e-6] {
+        let slack = (2.0 / 3.0) * sagitta * TAU * 6.0 * 2.0;
+        let off = mesher.volume(&into, sagitta) - want;
+        assert!(
+            off.abs() < slack,
+            "the flatted shaft shut in {off} off {want} at a sagitta of {sagitta}",
+        );
+        assert!(
+            off.abs() < last,
+            "no closer at a sagitta of {sagitta}: {off}"
+        );
+        last = off.abs();
+    }
+}
+
+/// A crossing no face's own parameters can write down is refused rather than
+/// guessed at.
+///
+/// Two cylinders across each other meet in a quartic, which arrives as
+/// [`Meeting::Algebraic`](crate::solid::meeting::Meeting::Algebraic) — a curve
+/// this parameterizes nowhere, rather than one it parameterizes and cannot
+/// carry. Nothing is left behind: a body half sewn is worse than none.
+#[test]
+fn a_crossing_no_face_can_carry_is_refused() {
+    let upright = through();
     let across = rod(
         Plane {
             origin: Plane::GROUND.origin,
@@ -561,23 +600,44 @@ fn a_crossing_no_face_can_carry_is_refused_only_where_it_divides() {
         DVec2::ZERO,
         1.0,
         6.0,
+        TOOL,
     );
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
     assert!(!boolean.combine(&upright.body, &across.body, Operation::Cut, &mut into));
-    assert!(into.is_empty());
+    assert!(into.is_empty(), "a refusal left half a body behind");
+}
 
-    // And the slab again, ten above the rod's far end. Its wall lies on the
-    // same plane, which crosses the same cylinder in the same two lines.
-    let aloft = block(raised(10.0), wall, 4.0, TOOL);
+/// **A surface reaching no part of the other body cuts none of it**, which is
+/// what keeps a wall at the far end of a model out of a face it never touches.
+///
+/// A body is divided by the other's *surfaces*, and a plane is unbounded where
+/// the wall standing on it is not — so the slab's own plane crosses the rod's
+/// cylinder in two ruling lines whether the slab is up against the rod or ten
+/// above its far end. Read as pieces, that costs faces for nothing; the answer
+/// is to ask how far the faces on a surface actually reach.
+///
+/// Ten faces, which is the rod's four and the slab's six with not one of them
+/// cut — the stronger claim, a cut that divided nothing still showing here as
+/// pieces. And `3.5 × 6 × 4` of slab beside `π·1²·6` of rod, standing clear so
+/// that they add.
+#[test]
+fn a_surface_reaching_no_part_of_the_other_body_cuts_none_of_it() {
+    let upright = through();
+    let aloft = block(
+        raised(10.0),
+        &[(1.5, -1.0), (5.0, -1.0), (5.0, 5.0), (1.5, 5.0)],
+        4.0,
+        TOOL,
+    );
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
     assert!(
         boolean.combine(&upright.body, &aloft, Operation::Join, &mut into),
         "two solids a model's width apart were turned away",
     );
-    // Ten faces: the rod's four and the slab's six, not one of them cut. Which
-    // is the stronger claim — a cut that divided nothing would still show here
-    // as pieces, and it is the *cutting* that has to stop rather than the
-    // refusal that follows it.
     assert_eq!(into.topology().faces().count(), 10);
-    // `3.5 × 6 × 4` of slab and `π·1²·6` of rod, standing clear so they add.
+
     let want = 84.0 + PI * 6.0;
     let sagitta = 1e-6;
     let slack = (2.0 / 3.0) * sagitta * TAU * 6.0 * 2.0;
@@ -586,6 +646,58 @@ fn a_crossing_no_face_can_carry_is_refused_only_where_it_divides() {
         (shut_in - want).abs() < slack,
         "the two together shut in {shut_in} rather than {want}",
     );
+}
+
+/// **Two rods run alongside each other join into one**, which is a boolean with
+/// a round body on both sides of it and the strongest thing the ruling line
+/// buys.
+///
+/// Cylinders whose axes are parallel meet in two lines, and a line on a cylinder
+/// is a cut at a constant angle — so each wall is divided where the other tube
+/// passes through it, and each cap loses the lens the other covers.
+///
+/// Grown by the two steps everything here is, neither of them a cube: what a
+/// name has to tell apart is which feature made a face, not what shape it made.
+/// Two unit rods a unit apart, two deep. What they cover between them is the
+/// two circles less the lens they share once over: `2πr² − (2r²·acos(d/2r) −
+/// (d/2)√(4r² − d²))`, which at `r = 1` and `d = 1` is `2π − (2·π/3 − ½√3)`.
+/// Genus nought, because two overlapping rods shut in one lump with nothing
+/// through it — a pair that met in a ring rather than a lens would not.
+#[test]
+fn two_rods_alongside_each_other_join_into_one() {
+    let one = rod(Plane::GROUND, DVec2::ZERO, 1.0, 2.0, CUBE);
+    let two = rod(Plane::GROUND, DVec2::new(1.0, 0.0), 1.0, 2.0, TOOL);
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(boolean.combine(&one.body, &two.body, Operation::Join, &mut into));
+
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "{reckoning:?}");
+    // Each tube's wall is still its own, and still one name over the pieces
+    // §4.4 cut it into — the boolean took a bite out of each and renamed
+    // neither.
+    for wall in [one.wall, two.wall] {
+        assert!(into.holds(wall), "{wall:?} was lost");
+        assert_eq!(into.patches(wall).count(), 2, "{wall:?} came apart");
+    }
+
+    let lens = 2.0 * (0.5f64).acos() - 0.5 * (3.0f64).sqrt();
+    let want = (TAU - lens) * 2.0;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-4, 1e-5, 1e-6] {
+        let slack = (2.0 / 3.0) * sagitta * TAU * 2.0 * 4.0;
+        let off = mesher.volume(&into, sagitta) - want;
+        assert!(
+            off.abs() < slack,
+            "the pair shut in {off} off {want} at a sagitta of {sagitta}",
+        );
+        assert!(
+            off.abs() < last,
+            "no closer at a sagitta of {sagitta}: {off}"
+        );
+        last = off.abs();
+    }
 }
 
 // Already inside a `cfg(test)` module, so it needs no gate of its own.

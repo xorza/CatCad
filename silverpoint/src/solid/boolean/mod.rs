@@ -20,6 +20,7 @@ use crate::math::bounds::Bounds;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::math::winding;
 use crate::number::predicate;
+use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::sewing::Sewing;
 use crate::solid::boolean::sounding::{Sounding, Standing};
 use crate::solid::boolean::splitting::{Came, Cells, Corner, Cut, Splitting};
@@ -30,6 +31,7 @@ use crate::solid::named::Named;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::Face;
 use glam::{DVec2, DVec3};
+use std::f64::consts::TAU;
 use std::ops::Range;
 
 /// How far a chord of a curved edge may fall from it, in world units, wherever
@@ -52,6 +54,7 @@ use std::ops::Range;
 /// answer — take it off the thing being measured — waits on the same decision.
 const CHORDED: f64 = 1e-3;
 
+mod imprints;
 mod sewing;
 mod sounding;
 mod splitting;
@@ -202,6 +205,14 @@ struct Combining {
     laid: Vec<Corner>,
     /// Every loop of every region kept, laid end to end.
     loops: Loops<Corner>,
+    /// Which turn of a wrapping parameter the face being cut was laid out in —
+    /// see [`imprinted`], the one thing that needs it.
+    ///
+    /// The middle of the range its loops cover. A face may not wrap, so that
+    /// range is less than a whole turn wide and at most one turn of a wrapping
+    /// cut falls inside it: the one nearest this. Meaningless for a plane,
+    /// whose parameters do not wrap, and read by nothing for one.
+    about: f64,
     /// The distinct surfaces of the body being cut against that reach it at all
     /// — see [`Combining::against`], which says why they are surfaces rather
     /// than faces, and why "reach it" is asked of the whole body.
@@ -218,19 +229,14 @@ struct Combining {
     /// sixty times a second.
     boxed: Vec<Bounds>,
     between: usize,
-    /// Every curve an imprint runs along that is not a straight line, in the
-    /// order they were numbered — which is the order [`Came::Arc`] reads them
-    /// in.
+    /// Every curve a stretch of boundary runs along, and the run each stretch
+    /// was marked with — see [`Imprints`], which says why those are two things.
     ///
     /// Held for the whole combine rather than per face, because the loops above
     /// are too: a region of one face and a region of another both point in
     /// here, and a list emptied between faces would have them pointing at each
     /// other's curves.
-    ///
-    /// **One number per curve**, which is what lets the sewing tell that an arc
-    /// of one region and an arc of another are the same arc — see
-    /// [`numbered`].
-    imprints: Vec<Curve>,
+    imprints: Imprints,
     kept: Vec<Kept>,
 }
 
@@ -269,8 +275,8 @@ impl Combining {
         &self.loops
     }
 
-    /// The curves those loops' arcs run along.
-    fn imprints(&self) -> &[Curve] {
+    /// The curves those loops' arcs run along, and which run is which.
+    fn imprints(&self) -> &Imprints {
         &self.imprints
     }
 
@@ -354,9 +360,9 @@ impl Combining {
                     // A straight imprint carries none and spends none.
                     let next = match curve {
                         Curve::Line(_) => None,
-                        _ => Some(numbered(&mut self.imprints, *curve)),
+                        _ => Some(self.imprints.crossing(*curve)),
                     };
-                    let Some(cut) = imprinted(face.surface, *curve, next) else {
+                    let Some(cut) = imprinted(face.surface, *curve, next, self.about) else {
                         return false;
                     };
                     if !self.splitting.split(&self.cells, cut, &mut self.spare) {
@@ -399,6 +405,7 @@ impl Combining {
     /// `outward`, which is where it belongs.
     fn lay(&mut self, body: &Body, face: &Face) {
         let topology = body.topology();
+        let mut across = [f64::INFINITY, f64::NEG_INFINITY];
         let Self {
             cells,
             walk,
@@ -425,15 +432,20 @@ impl Combining {
                     // back together afterwards, exactly as a cut's arc does —
                     // without this the rim of a bore would be sewn as a hundred
                     // straight edges rather than as the circle it is.
+                    // A run of its own, even along a curve the face has
+                    // already run along — see [`Imprints::edge`].
                     let came = match topology.edge(coedge.edge).curve {
                         Curve::Line(_) => Came::Edge,
-                        curve => Came::Arc(numbered(imprints, curve)),
+                        curve => Came::Arc(imprints.edge(curve)),
                     };
                     topology.walk(*coedge, CHORDED, traced);
                     marks.resize(traced.len(), came);
                 }
                 walk.clear();
                 face.flatten(traced, walk);
+                for at in walk.iter() {
+                    across = [across[0].min(at.x), across[1].max(at.x)];
+                }
                 laid.clear();
                 laid.extend(
                     walk.iter()
@@ -449,6 +461,7 @@ impl Combining {
                 loops.push(laid);
             }
         });
+        self.about = (across[0] + across[1]) / 2.0;
     }
 
     /// Ask every region where it stands and keep the ones `doing` wants.
@@ -530,26 +543,6 @@ fn agree(theirs: DVec3, facing: DVec3) -> bool {
     theirs.dot(facing) > 0.0
 }
 
-/// The number `curve` imprints under, taken from wherever the same curve
-/// already has one.
-///
-/// **One number per curve, across both bodies and every face of either.** The
-/// same circle is met twice — once cutting a block's end, once cutting the
-/// tube that bores it — and the two meetings hand back the identical curve,
-/// [`Meeting::of`] being one routine whichever way round it is asked. Numbered
-/// apart, an arc of the block's rim and an arc of the bore's wall would be two
-/// curves that happen to coincide, and nothing downstream could tell that a
-/// place on one is a place on the other. Which is what the sewing has to know
-/// before it can split a closed imprint where the surface is already split —
-/// see [`Sewing::pin`](sewing::Sewing::pin).
-fn numbered(imprints: &mut Vec<Curve>, curve: Curve) -> u32 {
-    let found = imprints.iter().position(|&it| it == curve);
-    found.unwrap_or_else(|| {
-        imprints.push(curve);
-        imprints.len() - 1
-    }) as u32
-}
-
 /// `along` in `on`'s own parameters, or `None` where it cannot be carried
 /// there.
 ///
@@ -565,11 +558,13 @@ fn numbered(imprints: &mut Vec<Curve>, curve: Curve) -> u32 {
 /// would really have been divided — see [`Combining::against`], which turns
 /// that into a refusal of the whole boolean.
 ///
-/// `imprint` is the number the curve was given, and `None` where it was given
-/// none because it is a straight line — see [`numbered`]. The round arms want
-/// one and the straight-on-a-plane arm does not, which is exactly the two
-/// states of that argument.
-fn imprinted(on: Surface, along: Curve, imprint: Option<u32>) -> Option<Cut> {
+/// `run` is the run the curve was given, and `None` where it was given none
+/// because it is a straight line — see [`Imprints`]. The round arms want one
+/// and the straight arms do not, which is exactly the two states of that
+/// argument. `about` is the turn of a wrapping parameter the face was laid out in,
+/// which is the whole of what a ruling line needs and what nothing else here
+/// reads.
+fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<Cut> {
     match (on, along) {
         // A line on a plane is a line in its parameters.
         (Surface::Plane(plane), Curve::Line(line)) => {
@@ -577,7 +572,7 @@ fn imprinted(on: Surface, along: Curve, imprint: Option<u32>) -> Option<Cut> {
             Some(Cut::Straight {
                 at,
                 along: (plane.flatten(line.origin + line.direction) - at).normalize(),
-                imprint: None,
+                run: None,
             })
         }
         // A circle lying *in* a plane keeps its frame whole: the centre
@@ -589,7 +584,7 @@ fn imprinted(on: Surface, along: Curve, imprint: Option<u32>) -> Option<Cut> {
             middle: plane.flatten(circle.axis.origin),
             radius: circle.radius,
             inward: true,
-            imprint: imprint.expect("a circle is numbered"),
+            run: run.expect("a circle is numbered"),
         }),
         // A circle on a cylinder square to its axis is a *straight* cut in the
         // cylinder's own parameters: every place on it stands the same distance
@@ -606,14 +601,33 @@ fn imprinted(on: Surface, along: Curve, imprint: Option<u32>) -> Option<Cut> {
             Some(Cut::Straight {
                 at: DVec2::new(0.0, tube.axis.along(circle.axis.origin)),
                 along: DVec2::X,
-                imprint,
+                run,
             })
         }
-        // Everything else. A ruling line on a cylinder is a cut at a constant
-        // angle, which is a straight cut in a parameter that *wraps* — so it
-        // divides the face once or not at all depending which branch the face
-        // was laid out in, and that is a question this signature cannot ask.
-        // An ellipse anywhere is a sinusoid or worse.
+        // A ruling line on a cylinder is a cut at a constant angle, which is a
+        // straight cut in a parameter that *wraps*: `θ = that`, and which turn
+        // of it decides whether the face is divided at all. A face may not wrap
+        // — `.notes/KERNEL.md` §4.4 — so its own range covers less than a whole
+        // turn and at most one of them falls inside it: the one nearest the
+        // middle it was laid out about. Where none does the cut misses, and a
+        // cut that misses leaves the region whole, which is the right answer
+        // rather than a refusal.
+        //
+        // What a plane parallel to an axis does to a shaft, which is a flat, a
+        // keyway or a D — and the edges it leaves are straight in the world, a
+        // ruling of a cylinder being a straight line, so it carries no imprint.
+        (Surface::Cylinder(tube), Curve::Line(line))
+            if predicate::parallel(line.direction, tube.axis.direction) =>
+        {
+            let angle = tube.axis.angle_of(line.origin);
+            let turns = ((about - angle) / TAU).round();
+            Some(Cut::Straight {
+                at: DVec2::new(angle + turns * TAU, 0.0),
+                along: DVec2::Y,
+                run: None,
+            })
+        }
+        // Everything else. An ellipse anywhere is a sinusoid or worse.
         _ => None,
     }
 }

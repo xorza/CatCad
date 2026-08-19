@@ -379,10 +379,10 @@ fn a_notched_outline_is_tiled_whatever_is_punched_out_of_it() {
 /// put a corner *back* into the loop. Which the bookkeeping in [`retest`] said
 /// could not happen, and asserted; a bowtie is the shortest thing that does it.
 ///
-/// Three shapes, because they are three ways of not being a loop and each fails
-/// somewhere else: a corner sitting on an edge, a corner written twice, and a
-/// spur run out and back. A boolean reaches them by cutting a face tangent to
-/// its own boundary.
+/// Four shapes, because they are four ways of not being a loop and each fails
+/// somewhere else: a corner sitting on an edge, two lobes meeting at a point, a
+/// corner written twice, and a spur run out and back. A boolean reaches them by
+/// cutting a face tangent to its own boundary.
 ///
 /// Held against the shoelace over the same corners, which is what the polygon
 /// encloses whatever it does with itself — and against a hand-computed figure
@@ -397,6 +397,61 @@ fn a_contour_that_is_no_simple_loop_is_still_cut() {
             "a spike onto an edge",
             &[(0.0, 0.0), (4.0, 0.0), (4.0, 4.0), (2.0, 0.0), (0.0, 4.0)][..],
             8.0,
+        ),
+        // Two unit squares sharing nothing but the corner between them, which
+        // is the shape a cut tangent to a boundary leaves and the one an ear
+        // was taken across the middle of.
+        (
+            "pinched at a point",
+            &[
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 1.0),
+                (2.0, 1.0),
+                (2.0, 2.0),
+                (1.0, 2.0),
+                (1.0, 1.0),
+                (0.0, 1.0),
+            ],
+            2.0,
+        ),
+        // Two unit squares sharing nothing but the corner between them, which
+        // is what a cut tangent to a boundary leaves.
+        (
+            "pinched at a point",
+            &[
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 1.0),
+                (2.0, 1.0),
+                (2.0, 2.0),
+                (1.0, 2.0),
+                (1.0, 1.0),
+                (0.0, 1.0),
+            ],
+            2.0,
+        ),
+        // Three of them chained, so that clipping one lobe away leaves a
+        // remnant pinched at the *next* — which is where the leftovers a
+        // clipping makes of its own accord show up rather than the ones it was
+        // handed.
+        (
+            "two lobes chained",
+            &[
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 1.0),
+                (2.0, 1.0),
+                (2.0, 2.0),
+                (1.0, 2.0),
+                (1.0, 1.0),
+                (0.0, 1.0),
+                (0.0, 2.0),
+                (-1.0, 2.0),
+                (-1.0, 1.0),
+                (0.0, 1.0),
+            ],
+            3.0,
         ),
         // A square of two by two whose second corner is written twice.
         (
@@ -433,6 +488,10 @@ fn a_contour_that_is_no_simple_loop_is_still_cut() {
             "{name} filled to {} rather than {want}",
             fill.covered(),
         );
+        // Covering the right amount is not enough on its own: a triangle wound
+        // backwards subtracts, so a pair that overlapped and a pair that
+        // reversed could add to the same figure.
+        assert!(all_wound_forward(&fill), "{name} came back wound both ways");
     }
 }
 

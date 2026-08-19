@@ -1192,9 +1192,13 @@ answers off two questions, tabled at `Splitting::punch`, and the reassembly now
 walks the arc between two chains where before it joined them straight and a
 quarter disc came back as the triangle under it.
 
-Refused, and carried out to `Boolean::combine`: a circle clipping a region
-between two of its corners, where every corner is on the kept side and the walk
-has no corner that fell away to start from. Nothing upstream makes one yet.
+A circle clipping a region between two of its corners has no start: every
+corner is on the kept side, and the walk wants one that fell away so that
+nothing is closed before it was opened. A place is put in the middle of the dip
+and the loop walked again — the two crossings are a chord of the circle, so
+halfway between them is inside it, which is the dropped side exactly when every
+corner is on the kept one. What a flat milled down a shaft does to the face the
+flat is cut by.
 
 **In: the curve builds.** A region's boundary is a run of `Corner`s rather than
 of places, each saying what the stretch *leaving* it runs along — the face's own
@@ -1333,28 +1337,61 @@ and absent from the other. The demo reaches this on its second extrude.
 **And a surface is not cut by unless it reaches.** A body is divided by the
 other's *surfaces*, which is right — a whole cylinder is two faces of one
 surface — and a surface is unbounded where the faces on it are not, so a wall at
-the far end of a model met a face nothing of it came near. Which cost pieces
-while every crossing could be carried and costs a *refusal* now that some
-cannot: two solids standing clear of each other were turned away because a plane
-parallel to a cylinder's axis meets it in ruling lines wherever the two stand.
-Each face is boxed off the boundary it was traced along, and a surface whose
-faces reach no part of the other body is dropped.
+the far end of a model met a face nothing of it came near. Each face is boxed
+off the boundary it was traced along, and a surface whose faces reach no part of
+the other body is dropped.
 
 Read against the whole body and not against the face being cut, which is the
 part worth remembering: a cut that divides one face and not the face beside it
 leaves a vertex on one side of the edge they share and none on the other, and
 the sewing then finds three edges where it wanted two. "Cutting further than
-necessary" is not merely tolerated, it has to be *uniform* — so the finer cull
-is unavailable and a bracket with a bore at one end is still refused by a wall
-at the other.
+necessary" is not merely tolerated — it has to be *uniform*, so the finer cull
+is unavailable.
 
-**What is refused, and it is no longer "curved".** A ruling line on a cylinder —
-a plane parallel to its axis — is a cut at a constant angle in a parameter that
-*wraps*, and `imprinted` turns it away; an ellipse is a sinusoid and likewise;
-two cylinders across each other are `Meeting::Algebraic`. So M5 delivers the
-bore, the pocket, the boss and the rod, and turns away the cross drilling.
+**And a ruling line is carried, not refused.** A plane parallel to a cylinder's
+axis meets it in two lines, and a line on a cylinder is `θ = that` — a straight
+cut in a parameter that *wraps*, so which turn of it decides whether the face is
+divided at all. No face may wrap, so a face's own range is less than a whole turn
+wide and at most one turn falls inside it: the one nearest the middle it was laid
+out about. That was the whole of what `imprinted` could not ask, and the layout
+already knew it. A flat, a keyway and a D come out of it, and so does a join of
+two rods running alongside each other — a boolean with a round body on *both*
+sides, which is the first.
+
+Two things fell out of carrying it, and both were older than the cut. A mark on
+a stretch of boundary has to answer two questions that want opposite things of
+it: *is this the same stretch*, which drops the corner between two arcs of one
+circle if they are marked alike — and a disc is built as two arcs, no face being
+allowed to wrap — and *is this the same curve*, which is how a place another
+face put on it is found at all. So the mark is a **run**, one per stretch, and
+`Imprints` says which curve each run lies on: crossings of two surfaces share a
+run because the same circle met from either side is one edge, a face's own edges
+take one apiece, and all of them answer with the one curve. And an open run has
+to be broken wherever another face has already broken it, which is what
+`Sewing::encircle` was doing for a closed one — the wall of a shaft is split at
+its seam and the face across the rim from it met the circle as one uninterrupted
+cut, so left alone the two meet along one edge and two.
+
+**What is refused, and it is no longer "curved" nor "parallel".** An ellipse is a
+sinusoid in a cylinder's parameters and `imprinted` turns it away; two cylinders
+across each other are `Meeting::Algebraic`. So M5 delivers the bore, the pocket,
+the boss, the rod, the flat and the pair, and turns away the cross drilling.
 Steinmetz waits on cylinder ∩ cylinder, which wants parameter-space sinusoids
 and is the next thing in this milestone rather than the last thing in it.
+
+**And the triangulator answers for a loop that is not simple.** Which it has to:
+a drawing hands it a face with an edge dangling into it every time, and a
+boolean hands it a region pinched at a point whenever a cut runs tangent to a
+boundary. Two rules, both exact. A corner that bounds nothing — standing where a
+neighbour stands, or with its two neighbours in one place — is pared off as soon
+as clipping makes one, because what a pinch comes down to once both its lobes
+are gone is exactly that, and there both visits have the *same* wedge: the
+boundary looks locally like a corner with material inside it and an ear cut
+there takes area the contour never covered. And a corner standing where the ear
+already has one of its own blocks nothing, which now holds rather than being
+hoped for — every visit to a pinch of a weakly simple contour is reflex, the
+walk having to swing out through the far side to cross between lobes, so such a
+corner is never one an ear could span into.
 
 Cylinders, cones and spheres, all of them, because they are one algebra.
 
@@ -1365,7 +1402,15 @@ sagittas, because a single reading would pass against a body whose wall really
 was the polygon. The same four ways round — bored through, stopped half way, a
 boss on the end, and the rod kept on its own. The pocket's wall is the tool's
 `Side(circle)` over both halves and every face of the tool comes through facing
-the other way. A crossing no face can carry is refused with nothing left behind.
+the other way.
+
+A flat milled down a shaft: seventeen faces every one of which is accounted for
+in the test's own doc, and the minor segment `π/3 − ½√¾` over the four the tool
+is deep. Two rods alongside each other joined into one, `2π − (2·π/3 − ½√3)`
+across and genus nought, each wall still one name over the pieces §4.4 cut it
+into. A surface reaching no part of the other body cuts none of it — ten faces,
+not one of them divided. And two cylinders *across* each other are refused, with
+nothing left behind.
 
 **Tests, waiting on the rest of the milestone.** Two equal perpendicular
 cylinders give the Steinmetz solid, whose intersection volume is exactly

@@ -30,7 +30,7 @@ fn leftward(x: f64) -> Cut {
     Cut::Straight {
         at: DVec2::new(x, 0.0),
         along: DVec2::Y,
-        imprint: None,
+        run: None,
     }
 }
 
@@ -243,12 +243,12 @@ fn chorded(radius: f64) -> f64 {
 }
 
 /// A circular cut about `middle` of `radius`, keeping the disc.
-fn disc(middle: (f64, f64), radius: f64, imprint: u32) -> Cut {
+fn disc(middle: (f64, f64), radius: f64, run: u32) -> Cut {
     Cut::Round {
         middle: DVec2::new(middle.0, middle.1),
         radius,
         inward: true,
-        imprint,
+        run,
     }
 }
 
@@ -363,30 +363,52 @@ fn a_circle_reaching_the_boundary_cuts_the_region_in_two() {
     assert_eq!(outside.cell(0).count(), 1);
 }
 
-/// A circle clipping a region between two of its corners is refused rather
-/// than answered wrongly.
+/// **A circle clipping a region between two of its corners divides it**, which
+/// is what a shaft with a flat milled down it does to the face the flat is cut
+/// by, and what the sides of a block do to the end of a bore breaking out of
+/// one of them.
 ///
-/// The one shape the walk has no start for: it needs a corner that fell away so
-/// that no chain is closed before it was opened, and here every corner is on
-/// the kept side while the boundary still dips across the cut and back. Nothing
-/// upstream produces it yet — a plane meets a cylinder in a circle that either
-/// reaches a face's boundary or lies clear of it — and a wrong answer would be
-/// a region quietly missing a bite.
+/// The one shape the walk has no start of its own for. It wants a corner that
+/// fell away, so that no chain is closed before it was opened — and here every
+/// corner of the square is on the kept side while the boundary still dips
+/// across the cut and back between two of them. A place is put in the middle of
+/// the dip and the loop walked again: see [`Splitting::dip`], and the argument
+/// there for why the middle of a dip is always on the side that fell away.
+///
+/// A circle of a fifth about a place a tenth outside the left edge, so that
+/// both corners of that edge stand clear of it. What it bites out is the
+/// segment beyond a chord a tenth off centre — `r²·acos(d/r) − d·√(r² − d²)`,
+/// which is `0.04·π/3 − 0.1·√0.03` — and the two sides together are the whole
+/// square, which is the claim that says nothing was quietly lost.
 #[test]
-fn a_circle_clipping_an_edge_between_two_corners_is_refused() {
+fn a_circle_clipping_an_edge_between_two_corners_divides_it() {
+    let bite = 0.04 * (0.5f64).acos() - 0.1 * (0.03f64).sqrt();
+    let cut = disc((-0.1, 0.5), 0.2, 0);
+    let slack = chorded(0.2);
     let mut splitting = Splitting::default();
-    let mut into = Cells::default();
-    // Centred a hair outside the left edge, small enough that both corners of
-    // that edge stand outside it. Asked of the whole split rather than of one
-    // side: keeping the *disc* leaves a corner on the dropped side and walks
-    // perfectly well, and it is keeping everything else — every corner kept,
-    // the boundary still dipping in and out — that has no start.
-    let mut spare = Cells::default();
-    assert!(!splitting.split(&square(), disc((-0.1, 0.5), 0.2, 0), &mut into));
+
+    let (mut inside, mut outside) = (Cells::default(), Cells::default());
+    assert!(splitting.halve(&square(), cut, &mut inside));
+    assert!(splitting.halve(&square(), cut.turned(), &mut outside));
+    assert_eq!(inside.len(), 1, "the bite came back in pieces");
     assert!(
-        splitting.halve(&square(), disc((-0.1, 0.5), 0.2, 0), &mut spare),
-        "the side with a corner to start from is the side that walks",
+        (covered(&inside, 0) - bite).abs() < slack,
+        "the bite covers {} rather than {bite}",
+        covered(&inside, 0),
     );
+    assert_eq!(outside.len(), 1);
+    assert!(
+        (covered(&outside, 0) - (1.0 - bite)).abs() < slack,
+        "what is left covers {}",
+        covered(&outside, 0),
+    );
+    // One loop apiece, the cut having reached the boundary rather than punched
+    // a hole clear of it — and between them the square they came from.
+    assert_eq!(inside.cell(0).count(), 1);
+    assert_eq!(outside.cell(0).count(), 1);
+    let mut both = Cells::default();
+    assert!(splitting.split(&square(), cut, &mut both));
+    assert!((total(&both) - 1.0).abs() < 1e-12, "{}", total(&both));
 }
 
 /// **A round cut stamps what it puts down, and stamps nothing else.**

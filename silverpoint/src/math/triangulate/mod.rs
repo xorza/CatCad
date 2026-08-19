@@ -307,26 +307,43 @@ fn clip(
     // out entirely. A bridged hole always leaves a corner standing, so this is
     // an answer about the easy case rather than a guess about any case.
     let mut proud = standing.iter().filter(|&&it| it).count();
+    // Whatever came in already bare, before an ear is looked for anywhere.
+    //
+    // The cursor holds where it is on a round that took something out, the
+    // corner standing at that place afterwards being a different one that has
+    // not been asked yet. A range measured before any of it would step past one
+    // for every corner taken.
+    let mut at = 0;
+    while at < contour.len() {
+        let was = contour.len();
+        pare(corners, contour, standing, &mut proud, at);
+        if contour.len() == was {
+            at += 1;
+        }
+    }
     while contour.len() > 3 {
-        let Some(at) = best(corners, contour, standing, proud) else {
-            // No ear anywhere means the contour is not the simple loop this
-            // takes it for — corners doubled back on themselves, most likely.
-            // Cutting the sharpest corner anyway makes progress and keeps the
-            // loop shrinking, where giving up would hand back a hole in the
-            // drawing.
-            let sharpest = (0..contour.len())
+        let at = match best(corners, contour, standing, proud) {
+            Some(at) => at,
+            // No ear anywhere, and nothing bare either — [`pare`] has had those
+            // already. So the contour is not the simple loop this takes it for:
+            // crossing itself, most likely. Cutting the sharpest corner anyway
+            // makes progress and keeps the loop shrinking, where giving up would
+            // hand back a hole in the drawing.
+            None => (0..contour.len())
                 .min_by(|&a, &b| {
                     turn(corners, contour, a)
                         .partial_cmp(&turn(corners, contour, b))
                         .expect("corner coordinates are finite")
                 })
-                .expect("a contour of four or more has a corner");
-            into.extend(cut(contour, sharpest));
-            retest(corners, contour, standing, &mut proud, sharpest);
-            continue;
+                .expect("a contour of four or more has a corner"),
         };
+        // One place a corner leaves from, ear or guess alike — because what
+        // follows it has to hold of both. A guess cut leaves the loop bare as
+        // readily as an ear does, and the claim above is only true if every
+        // corner taken is pared after.
         into.extend(cut(contour, at));
         retest(corners, contour, standing, &mut proud, at);
+        pare(corners, contour, standing, &mut proud, at);
     }
     // On the same terms every ear was cut on. Nothing tests the last three the
     // way [`ear`] tests all the rest, so this is the one place a sliver could
@@ -338,8 +355,12 @@ fn clip(
     }
 }
 
-/// Cut `at` out of the standing set too, and ask the two it stood between
+/// Take `at` out of the standing set too, and ask the two it stood between
 /// afresh.
+///
+/// For a corner cut as an ear and for one [`pare`] took out because it bounded
+/// nothing alike: what the set holds is which corners turn which way, and that
+/// is the same question however the corner left.
 ///
 /// **Only those two**: every other corner turns exactly as it did, its
 /// neighbours being the ones it had. These two have lost one each and gained the
@@ -391,6 +412,52 @@ fn retest(
         standing.iter().filter(|&&it| it).count(),
         "the count of corners standing proud has come adrift"
     );
+}
+
+/// Take out the corners beside `at` that bound nothing, and any the taking
+/// makes of their neighbours.
+///
+/// **Two shapes, and both are a corner with no boundary at it.** A corner
+/// standing where a neighbour stands has an edge of no length leaving it; a
+/// corner whose two neighbours stand in one place is the tip of a run out and
+/// back. Either way there is no triangle to cut there — but the loop left
+/// behind is not the simple one an ear test reads it as, and that is what makes
+/// this necessary rather than tidy.
+///
+/// What a contour pinched at a point comes down to, once both its lobes have
+/// been clipped away, is exactly one of the two. Both visits to the pinch then
+/// have the *same* wedge, so the boundary looks locally like a corner with
+/// material inside it and an ear cut there takes area the contour never
+/// covered. No test at the corner can see that, which is why they are taken out
+/// before one can form.
+///
+/// Beside `at` and no further, because a clipping makes them nowhere else: what
+/// it took joined the two corners either side of it, and nothing else about the
+/// loop moved. Taking one of *those* out joins two more, so it walks back along
+/// whatever it unravels. Asked of every place in turn, which is what [`clip`]
+/// does before it starts, that covers a contour that arrived bare.
+fn pare(
+    corners: &[DVec2],
+    contour: &mut Vec<u32>,
+    standing: &mut Vec<bool>,
+    proud: &mut usize,
+    mut at: usize,
+) {
+    while contour.len() > 2 {
+        let len = contour.len();
+        let bare = [(at + len - 1) % len, at % len].into_iter().find(|&step| {
+            let [before, corner, after] = triangle(corners, contour, step);
+            before.approx_eq(after, TOUCHING)
+                || corner.approx_eq(after, TOUCHING)
+                || corner.approx_eq(before, TOUCHING)
+        });
+        let Some(bare) = bare else {
+            return;
+        };
+        contour.remove(bare);
+        retest(corners, contour, standing, proud, bare);
+        at = bare;
+    }
 }
 
 /// Take the corner at `at` out, answering with the triangle it cut — or with
@@ -499,6 +566,21 @@ fn ear(corners: &[DVec2], contour: &[u32], at: usize, standing: &[bool], proud: 
         // three [`ApproxEq`] comparisons on every one of them to find out the
         // same thing later. Measured on a 256-corner outline at 83.6µs against
         // 53.5µs for the same walk asked the other way round.
+        // **A corner in the same place is not a corner in the way**, and that
+        // holds rather than being hoped for. A place a weakly simple contour
+        // visits twice is one it is pinched at, and every visit to a pinch is
+        // reflex — the walk has to swing out through the far side to get from
+        // one lobe to the other — so the ear's own apex is never one of them,
+        // and a visit standing at the ear's `before` or `after` has its wedge
+        // outside that corner's, the lobes not overlapping. Which leaves its
+        // edges outside the triangle. A bridge end is the same place twice for
+        // a different reason and wants the same answer: the two visits lie
+        // either side of a slit of no width.
+        //
+        // Where the reasoning does not hold is a contour that is not weakly
+        // simple, and [`pare`] takes the reachable half of those out before an
+        // ear is looked for. The rest crosses itself, and is best-effort by way
+        // of the fallback in [`clip`].
         inside(before, corner, after, candidate)
             && ![before, corner, after]
                 .iter()

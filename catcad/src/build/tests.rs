@@ -23,10 +23,10 @@ fn square() -> Sketch {
     sketch
 }
 
-/// One circle of unit radius about the origin.
-fn ring() -> Sketch {
+/// One circle of unit radius about `(x, 0)`.
+fn ring(x: f64) -> Sketch {
     let mut sketch = Sketch::default();
-    let center = sketch.add_point(DVec2::ZERO);
+    let center = sketch.add_point(DVec2::new(x, 0.0));
     sketch.add_circle(center, 1.0);
     sketch
 }
@@ -139,33 +139,29 @@ fn a_second_extrude_joins_the_solid_the_first_one_left_standing() {
 /// **A step the kernel will not merge stands beside the model rather than
 /// vanishing**, which is the whole of what a refusal costs.
 ///
-/// A square and a disc drawn on one plane, overlapping, each carried up two.
-/// The square's walls run *along* the disc's cylinder — a plane parallel to an
-/// axis meets it in two ruling lines, which are cuts at a constant angle in a
-/// parameter that wraps and nothing yet writes one down. So joining the second
-/// onto the first is refused, and what the document shows is both solids side
-/// by side: exactly the picture it showed before there were booleans at all.
-/// The tree says which step could not be merged, because [`Models::unmerged`]
-/// counts a refusal apart from a lost profile.
+/// Two rods driven through each other at a right angle, one drawn on the ground
+/// and one on the plane square to it. Their walls are two cylinders *across*
+/// each other, which meet in a quartic nothing yet parameterizes — so joining
+/// the second onto the first is refused, and what the document shows is both
+/// solids side by side: exactly the picture it showed before there were
+/// booleans at all. The tree says which step could not be merged, because
+/// [`Models::unmerged`] counts a refusal apart from a lost profile.
 ///
-/// Two sketches rather than one, because a square drawn over a circle is *cut*
-/// by it: what would come out is three regions and neither operand whole.
-///
-/// The square's other two sides are laid *tangent* to the disc, and that is
-/// deliberate: a cut touching a region's boundary at one place leaves a contour
-/// pinched there, and pinched is the shape the kernel's ear clipper used to
-/// trip over on the way to the refusal this asks about.
+/// Across and not alongside, which is the whole of the fixture: two cylinders
+/// whose axes run parallel meet in ruling *lines*, and those the kernel writes
+/// down and carries.
 #[test]
 fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let upright = timeline.add(Feature::Plane(Datum::World(World::Front)));
     let drawn = timeline.add(Feature::Sketch {
         on: ground,
-        sketch: square_at(0.0, -1.0),
+        sketch: ring(0.0),
     });
     let round = timeline.add(Feature::Sketch {
-        on: ground,
-        sketch: ring(),
+        on: upright,
+        sketch: ring(0.0),
     });
 
     let mut build = Build::default();
@@ -196,7 +192,7 @@ fn a_step_the_kernel_will_not_merge_stands_beside_the_model() {
     assert_eq!(
         build.bodied(second).built(),
         Built::Refused,
-        "a cut along a cylinder's ruling was carried through",
+        "a quartic crossing was carried through",
     );
 
     // Both on screen, each still its own solid, and each still knowing which

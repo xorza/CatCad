@@ -62,15 +62,15 @@ pub(super) enum Cut {
         at: DVec2,
         /// Unit, the way it runs.
         along: DVec2,
-        /// Which of the caller's imprints this is, where the curve it came from
-        /// is worth remembering.
+        /// Which of the caller's runs this is, where the curve it came from is
+        /// worth remembering.
         ///
         /// **A straight cut is not always a straight edge**, which is the whole
         /// reason this is here: a circle square to a cylinder's axis is the line
         /// `v = that` in the cylinder's parameters, and an edge along it that
         /// came back straight would be a chord across the bore rather than its
         /// rim. `None` only for a genuine line — a plane meeting a plane.
-        imprint: Option<u32>,
+        run: Option<u32>,
     },
     /// A circular cut, the inside kept where `inward`.
     ///
@@ -85,14 +85,14 @@ pub(super) enum Cut {
         radius: f64,
         /// Whether the disc is kept rather than everything but it.
         inward: bool,
-        /// Which of the caller's imprints this is — see [`Came::Arc`].
+        /// Which of the caller's runs this is — see [`Came::Arc`].
         ///
         /// **Bookkeeping on a piece of geometry, and it earns its place.** What
         /// a round cut puts down has to be marked with the curve it came from,
         /// and carried beside the cut instead it would be a second value
         /// threaded through six calls in step with the first — which is six
         /// chances to split by one cut and stamp another's number.
-        imprint: u32,
+        run: u32,
     },
 }
 
@@ -100,21 +100,21 @@ impl Cut {
     /// The same cut with the other side kept.
     pub(super) fn turned(self) -> Self {
         match self {
-            Self::Straight { at, along, imprint } => Self::Straight {
+            Self::Straight { at, along, run } => Self::Straight {
                 at,
                 along: -along,
-                imprint,
+                run,
             },
             Self::Round {
                 middle,
                 radius,
                 inward,
-                imprint,
+                run,
             } => Self::Round {
                 middle,
                 radius,
                 inward: !inward,
-                imprint,
+                run,
             },
         }
     }
@@ -126,12 +126,8 @@ impl Cut {
     /// numbered.
     fn came(self) -> Came {
         match self {
-            Self::Straight {
-                imprint: Some(imprint),
-                ..
-            }
-            | Self::Round { imprint, .. } => Came::Arc(imprint),
-            Self::Straight { imprint: None, .. } => Came::Edge,
+            Self::Straight { run: Some(run), .. } | Self::Round { run, .. } => Came::Arc(run),
+            Self::Straight { run: None, .. } => Came::Edge,
         }
     }
 
@@ -400,7 +396,9 @@ pub(super) fn turned(walk: &mut [impl Marked]) {
 pub(super) enum Came {
     /// A straight run — of the face's own boundary, or of a straight imprint.
     Edge,
-    /// A run along the imprint at this index, which is the caller's to number.
+    /// A run along the curve at this index, which is the caller's to number —
+    /// see [`Imprints`](super::imprints::Imprints), where one number per
+    /// *stretch* and one per *curve* are held apart.
     Arc(u32),
 }
 
@@ -515,6 +513,9 @@ pub(super) struct Splitting {
     sides: Vec<Side>,
     /// A closed cut as a loop of its own, flattened — see [`Cut::walk`].
     round: Vec<Corner>,
+    /// One loop with a place put in each dip the cut takes out of it — see
+    /// [`Splitting::dip`].
+    dipped: Vec<Corner>,
     /// The stretches of boundary that survived, laid end to end.
     ///
     /// Open, unlike everything else here: each runs from where the boundary
@@ -683,6 +684,48 @@ impl Splitting {
         }
     }
 
+    /// Walk `walk` again with a place put in the middle of every dip the cut
+    /// takes out of it, and say whether there was one to put.
+    ///
+    /// **What gives the walk a corner that fell away.** A closed cut can bite
+    /// into a straight run of boundary and come out again without either end of
+    /// that run leaving the kept side — see [`Cut::grazes`] — and then no corner
+    /// of the loop is on the dropped side for [`Splitting::chain`] to begin at.
+    /// The bite's two crossings are the chord of a circle, so the place halfway
+    /// between them lies inside it, which is the dropped side exactly when the
+    /// corners are all on the kept one: a run between two places *inside* a
+    /// circle never leaves it, so a dip at all means the outside is what is
+    /// being kept.
+    ///
+    /// `false` where the place put there is on the cut rather than across it,
+    /// which is a bite shallower than [`PLACED`] and no bite at all. Walking
+    /// again would find the same thing and put the same place, so it is refused
+    /// instead — the one thing here that must not be a loop that never ends.
+    fn dip(&mut self, walk: &[Corner], cut: Cut) -> bool {
+        let count = walk.len();
+        // Lent out and handed back, because [`Splitting::chain`] writes the
+        // buffers beside it and cannot be called while this one is borrowed.
+        let mut dipped = std::mem::take(&mut self.dipped);
+        dipped.clear();
+        for at in 0..count {
+            dipped.push(walk[at]);
+            if let Some([out, again]) = cut.grazes(walk[at].at, walk[(at + 1) % count].at) {
+                dipped.push(Corner {
+                    at: (out + again) / 2.0,
+                    came: walk[at].came,
+                });
+            }
+        }
+        let fell = dipped
+            .iter()
+            .any(|corner| Side::of(cut, corner.at) == Side::Dropped);
+        if fell {
+            self.chain(&dipped, cut);
+        }
+        self.dipped = dipped;
+        fell
+    }
+
     /// Break one loop into the stretches of it that lie on the kept side.
     ///
     /// A loop the cut never crosses comes through whole or not at all. One it
@@ -695,15 +738,17 @@ impl Splitting {
         self.sides
             .extend(walk.iter().map(|corner| Side::of(cut, corner.at)));
         if !self.sides.contains(&Side::Dropped) {
-            // **Every corner on the kept side, and the boundary still able to
-            // dip across a closed cut between two of them.** The walk below
-            // needs a corner that fell away to start from, so that nothing is
-            // closed before it was opened, and there is none — so this is
-            // refused rather than answered wrongly. A circle clipping the side
-            // of a region between two of its corners, which nothing upstream
-            // produces yet.
+            // **Every corner on the kept side, and the boundary still dipping
+            // across a closed cut between two of them.** A circle clipping the
+            // side of a region between two of its corners, which is what a
+            // shaft with a flat milled down it does to the face the flat is
+            // cut by. The walk below needs a corner that fell away to start
+            // from, so that nothing is closed before it was opened — so one is
+            // put where the dip is and the loop walked again.
             if (0..count).any(|at| cut.grazes(walk[at].at, walk[(at + 1) % count].at).is_some()) {
-                self.beyond = true;
+                if !self.dip(walk, cut) {
+                    self.beyond = true;
+                }
                 return;
             }
             // Nothing of it fell away. A loop lying wholly *on* the cut is the
