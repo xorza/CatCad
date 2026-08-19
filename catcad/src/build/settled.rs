@@ -2,7 +2,7 @@
 
 use silverpoint::{Arrangement, Outcome, Sketch, Solver};
 
-use crate::build::Settling;
+use crate::build::{Revision, Settling};
 use crate::timeline::FeatureId;
 
 /// Everything that follows from one sketch by running the solver over it.
@@ -35,6 +35,18 @@ pub(crate) struct Settled {
     /// on purpose — half a circle, the ring between two others — exists exactly
     /// as much as one that traces edges the user placed.
     arrangement: Arrangement,
+    /// How many times this sketch has been settled.
+    ///
+    /// What anything built on it compares against to tell whether it is out of
+    /// date. Per sketch rather than per document — see
+    /// [`Build::revision`](super::Build), which is the document's own and moves
+    /// whenever *any* sketch does: a drag of one drawing would rebuild every
+    /// solid in the file if that were the number a body was cached against.
+    ///
+    /// Conservative like the document's: it counts having been solved rather
+    /// than having moved, because a solve that changed nothing is cheap to
+    /// rebuild after and a change that went unnoticed is a wrong picture.
+    revision: Revision,
 }
 
 impl Settled {
@@ -44,6 +56,7 @@ impl Settled {
             of,
             outcome: Outcome::default(),
             arrangement: Arrangement::default(),
+            revision: Revision::default(),
         }
     }
 
@@ -77,6 +90,7 @@ impl Settled {
         // replaced, which is what keeps a drag off the heap: the lists it works
         // in come out the same size every frame.
         self.arrangement.rebuild(sketch);
+        self.revision = self.revision.next();
     }
 
     /// How the last run went, and what the constraints have and have not
@@ -92,5 +106,10 @@ impl Settled {
     /// What the sketch's curves shut in.
     pub(crate) fn arrangement(&self) -> &Arrangement {
         &self.arrangement
+    }
+
+    /// How many times it has been settled.
+    pub(super) fn revision(&self) -> Revision {
+        self.revision
     }
 }

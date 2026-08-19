@@ -121,7 +121,7 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
     // rename it and everything built on it would be lost.
     let base = sketch.add_point(DVec2::new(0.0, 1.0));
     let tip = sketch.add_point(DVec2::new(0.0, 1.5));
-    let spur = sketch.add_segment(base, tip);
+    sketch.add_segment(base, tip);
 
     let found = Arrangement::of(&sketch);
     assert_eq!(found.faces().len(), 2, "the spur enclosed something");
@@ -136,23 +136,8 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
         );
     }
 
-    // And a spur raises no wall either, which is the same rule read the other
-    // way: a solid grown from the cap has the faces it had before the line was
-    // drawn, so nothing built on one of them is lost. Both sides are asked,
-    // because a spur is walked out and back and it is having *both* that makes
-    // it bound nothing.
-    let dangling = &found.faces()[covering(&found, cap)];
-    for along in [true, false] {
-        let bound = Bound {
-            of: Entity::Segment(spur),
-            along,
-        };
-        assert!(
-            !dangling.walls().contains(&bound),
-            "{bound:?} raised a wall"
-        );
-        assert!(dangling.pieces_of(bound).is_empty(), "{bound:?} has pieces");
-    }
+    // That a spur raises no *wall* either is the same rule read the other way,
+    // and it is asserted where walls are now raised — see `solid::build`.
 }
 
 /// **A name holds where a position does not.**
@@ -302,22 +287,6 @@ fn a_reused_arrangement_answers_exactly_as_a_fresh_one_would() {
                     is.named(),
                     "{before} then {after}: face {at} is named differently"
                 );
-                // The walls and their pieces are two more lists emptied and
-                // written over rather than dropped, so a face that used to have
-                // a bore is exactly where one would come back holding a wall it
-                // no longer has.
-                assert_eq!(
-                    was.walls(),
-                    is.walls(),
-                    "{before} then {after}: face {at} is walled differently"
-                );
-                for &wall in was.walls() {
-                    assert_eq!(
-                        was.pieces_of(wall),
-                        is.pieces_of(wall),
-                        "{before} then {after}: face {at} sweeps {wall:?} from other pieces"
-                    );
-                }
             }
 
             // And the fills agree, which is the other half kept across a

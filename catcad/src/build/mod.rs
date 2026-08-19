@@ -1,13 +1,13 @@
 //! The room an edit works in, and everything replaying the timeline leaves
 //! behind.
 
-use silverpoint::{Drive, PointId, Removed, Sketch, Solver};
+use silverpoint::{Builder, Drive, PointId, Removed, Sketch, Solver};
 
-use crate::build::modelled::Modelled;
+use crate::build::bodied::{Bodied, Digest};
 use crate::build::settled::Settled;
 use crate::timeline::{Extruded, FeatureId};
 
-pub(crate) mod modelled;
+pub(crate) mod bodied;
 pub(crate) mod settled;
 
 /// The solver, and everything derived from a [`Timeline`] rather than written
@@ -50,18 +50,31 @@ pub(crate) struct Build {
     /// that way, which is the one thing this costs: a sketch is settled for the
     /// first time once per document, and read on every frame that draws one.
     settled: Vec<Settled>,
-    /// Which region each extrude is currently grown from, **in handle order**,
-    /// and searched as such like the list above.
+    /// The solid each extrude stands for, **in handle order**, and searched as
+    /// such like the list above.
     ///
-    /// Emptied and refilled whole by [`Build::remodel`] rather than kept in step
-    /// entry by entry: an extrude names its region by what bounds it, and every
-    /// edit to a sketch is an edit that could have taken one of those away.
+    /// Rewritten whole by [`Build::rebuild`] rather than kept in step entry by
+    /// entry: an extrude names its region by what bounds it, and every edit to
+    /// a sketch is an edit that could have taken one of those away. Whole, but
+    /// not from scratch — an entry whose [`Digest`] has not moved keeps the
+    /// body it already had, which is what makes an edit to one drawing cost
+    /// nothing to the solids grown off another.
     ///
-    /// **Put in order rather than arriving in it**, unlike the list above, which
-    /// is why `remodel` ends in a sort: the walk that fills this is the order the
-    /// steps are *built* in, and that is the order they were taken in only until
-    /// something moves one.
-    modelled: Vec<Modelled>,
+    /// **Put in order rather than arriving in it**, unlike the list above,
+    /// which is why `rebuild` ends in a sort: the walk that fills this is the
+    /// order the steps are *built* in, and that is the order they were taken in
+    /// only until something moves one.
+    bodied: Vec<Bodied>,
+    /// The room raising a body works in, kept across calls for the reason the
+    /// solver is: a drag rebuilds every solid grown off the drawing it is
+    /// moving, sixty times a second, and the buffers come out the same size
+    /// every time.
+    builder: Builder,
+    /// Last rebuild's entries while this one takes what it wants from them.
+    ///
+    /// A field rather than a local, so that the two lists swap their room back
+    /// and forth rather than one of them being grown from nothing every time.
+    standing: Vec<Bodied>,
     /// Which version of the document this describes, so anything holding a
     /// layout of it can tell whether that layout is still current.
     revision: Revision,
@@ -191,57 +204,69 @@ impl Build {
     /// drawn, and leave the old picture on screen with no way to notice.
     pub(crate) fn reopened(&mut self) {
         self.settled.clear();
-        self.modelled.clear();
+        self.bodied.clear();
         self.cleaned = None;
         self.revision = self.revision.next();
     }
 
-    /// Work out afresh which region each extrude is grown from.
+    /// Build the solid each extrude stands for afresh.
     ///
     /// After a settle rather than inside one, because the two are about
     /// different things: a solve is about one sketch, and this is about every
-    /// step standing downstream of whichever moved. Which is also why it replays
-    /// the whole list rather than the part the last edit could have reached —
-    /// what an edit reaches is a graph the timeline does not keep, and resolving
-    /// one extrude is a walk of a few faces comparing a few handles. Measured at
+    /// step standing downstream of whichever moved. Which is also why it
+    /// replays the whole list rather than the part the last edit could have
+    /// reached — what an edit reaches is a graph the timeline does not keep.
+    ///
+    /// **What it replays and what it rebuilds are different lists.** Resolving
+    /// a profile is a walk of a few faces comparing a few handles, measured at
     /// 1.11µs against a 144-face arrangement with sixteen extrudes hanging off
-    /// it, on a path a drag runs every frame — the walk per extrude compares
-    /// bound counts before it compares bounds, and nearly every face is refused
-    /// on the count. Narrowing it is worth doing when a document is large enough
-    /// for that to stop being true, and there is nothing to narrow *by* until
-    /// then.
+    /// it; building a body is dearer by far. So every step is resolved and only
+    /// the ones whose [`Digest`] moved are built, which is what keeps a drag in
+    /// one drawing from rebuilding the solids grown off every other.
     ///
     /// Takes the walk rather than the timeline, because the timeline is
     /// [`Document`](crate::document::Document)'s: what crosses between the two
-    /// is the pair each step names and nothing else, which is the same line
+    /// is what each step names and nothing else, which is the same line
     /// [`Models`](crate::model::Models) sits on.
-    pub(crate) fn remodel<'a>(&mut self, extrudes: impl Iterator<Item = Extruded<'a>>) {
+    pub(crate) fn rebuild<'a>(&mut self, extrudes: impl Iterator<Item = Extruded<'a>>) {
         let Self {
-            settled, modelled, ..
+            settled,
+            bodied,
+            builder,
+            standing,
+            ..
         } = self;
-        // Emptied and refilled rather than written over in place: a step may
+        // Taken out and refilled rather than written over in place: a step may
         // have been added or taken away since the last time, and there is no
-        // position here worth keeping — a caller names an extrude by its handle.
-        modelled.clear();
+        // position here worth keeping — a caller names an extrude by its
+        // handle. What the old list is still good for is the bodies in it, so
+        // it is emptied into a scratch rather than dropped, and each entry is
+        // carried across to be rebuilt over rather than replaced.
+        std::mem::swap(bodied, standing);
+        bodied.clear();
         for step in extrudes {
             let settled = filed_under(settled, step.profile.sketch(), Settled::of, UNSETTLED);
-            modelled.push(Modelled::new(
-                step.at,
+            let digest = Digest::new(
+                settled.revision(),
+                step.plane,
                 step.profile.face_in(settled.arrangement()),
-            ));
+                step.distance,
+            );
+            let mut had = match standing.iter().position(|had| had.of() == step.at) {
+                Some(at) => standing.swap_remove(at),
+                None => Bodied::new(step.at),
+            };
+            had.rebuild(builder, digest, settled.arrangement());
+            bodied.push(had);
         }
         // **Put in handle order, because the walk above is not in one.** It is
-        // the order the steps are *built* in, which is the order they were taken
-        // in only until something moves one — and this list is read by halving
-        // it, which an unsorted list answers wrongly rather than slowly. The
-        // walk cannot simply be taken in handle order instead: which region an
-        // extrude is grown from has to be worked out in the order the recipe
-        // runs, and the two are about to differ.
-        //
-        // Sorted rather than inserted in place, and it is the cheap half of this
-        // call: a sort of the extrudes against a resolve per extrude, each of
-        // which walks an arrangement's faces.
-        modelled.sort_unstable_by_key(Modelled::of);
+        // the order the steps are *built* in, which is the order they were
+        // taken in only until something moves one — and this list is read by
+        // halving it, which an unsorted list answers wrongly rather than
+        // slowly. The walk cannot simply be taken in handle order instead:
+        // which region an extrude is grown from has to be worked out in the
+        // order the recipe runs, and the two are about to differ.
+        bodied.sort_unstable_by_key(Bodied::of);
     }
 
     /// Forget what was solved for each of `gone`.
@@ -259,8 +284,9 @@ impl Build {
     /// settled — pass through, because what a caller has is the whole cascade
     /// rather than the sketches among it.
     ///
-    /// `modelled` needs nothing: it is emptied and refilled whole by the
-    /// [`Build::remodel`] that follows every edit.
+    /// `bodied` needs nothing: it is refilled whole by the [`Build::rebuild`]
+    /// that follows every edit, and an entry no extrude claims is dropped
+    /// there.
     pub(crate) fn forgot(&mut self, gone: &[FeatureId]) {
         self.settled.retain(|settled| !gone.contains(&settled.of()));
     }
@@ -297,17 +323,16 @@ impl Build {
         filed_under(&self.settled, of, Settled::of, UNSETTLED)
     }
 
-    /// Which region the extrude at `of` is grown from, or `None` where its
-    /// profile no longer names one.
+    /// What building the extrude at `of` came to.
     ///
-    /// Every extrude the document holds has been through [`Build::remodel`] by
-    /// the time anything asks — raising a document remodels it, and so does
+    /// Every extrude the document holds has been through [`Build::rebuild`] by
+    /// the time anything asks — raising a document rebuilds it, and so does
     /// every edit — so an extrude with no answer here is one nothing has
     /// replayed, which is a mistake in whatever raised the document rather than
-    /// a state a reader has to handle. The `None` inside is the other question,
-    /// and is a fair answer: see [`Modelled`].
-    pub(crate) fn modelled(&self, of: FeatureId) -> Option<usize> {
-        filed_under(&self.modelled, of, Modelled::of, UNMODELLED).at()
+    /// a state a reader has to handle. That the build *failed* is a different
+    /// thing and a fair answer: see [`Built`].
+    pub(crate) fn bodied(&self, of: FeatureId) -> &Bodied {
+        filed_under(&self.bodied, of, Bodied::of, UNBUILT)
     }
 
     /// Which version of the document this describes.
@@ -363,7 +388,7 @@ fn filed_under<'a, T>(
 // which is a mistake in whatever raised it rather than anything a reader can
 // handle.
 const UNSETTLED: &str = "this sketch has not been settled";
-const UNMODELLED: &str = "this extrude has not been modelled";
+const UNBUILT: &str = "this extrude has not been built";
 
 /// Which of the solver's entry points an edit is settled through.
 ///
@@ -405,7 +430,7 @@ pub(crate) struct Revision(u64);
 
 impl Revision {
     /// The one after this.
-    fn next(self) -> Self {
+    pub(super) fn next(self) -> Self {
         Self(self.0 + 1)
     }
 }

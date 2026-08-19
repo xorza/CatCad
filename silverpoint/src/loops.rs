@@ -106,6 +106,24 @@ impl Run {
     }
 }
 
+/// Reaching into a loop to break it, which only a test wants.
+///
+/// Nothing that fills one needs it: a loop is written once, by the closure
+/// [`Loops::add`] hands the buffer to. What this is for is taking a *valid*
+/// body apart one way at a time, so that its checker can be shown to catch each
+/// thing it claims to.
+#[cfg(test)]
+pub(crate) mod internals {
+    use super::*;
+
+    impl<T> Loops<T> {
+        pub(crate) fn get_mut(&mut self, at: usize) -> &mut [T] {
+            let Run { at, len } = self.runs[at];
+            &mut self.items[at..at + len]
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

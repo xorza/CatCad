@@ -545,26 +545,32 @@ pub(super) fn solids(
     growing: Option<Growing>,
     into: &mut Batch<Object>,
 ) {
-    let Sheets { skinner, patch, .. } = sheets;
-    // One walk and nothing gathered: a prism is `Copy` and hands out its faces
-    // as an iterator, so the whole of a document's solids is written straight
-    // into the batch. A list of them first would be an allocation a frame, which
-    // is exactly what a rubber band's redraw would pay every frame it lasts.
-    // The one being decided is chained on rather than pushed after, so a depth
-    // typed a digit at a time rewrites the batch it is already in — see
-    // `Batch::refill`. Last, so the tags of everything the document holds come
-    // out the same whether or not a form is open.
+    let Sheets {
+        mesher,
+        patch,
+        deciding,
+        builder,
+        ..
+    } = sheets;
+    // Raised here rather than borrowed off the document, unlike every solid
+    // there is a step for: the one being decided has no step to be held
+    // against. See [`Growing::body`](crate::paint::growing::Growing).
+    let shown = growing.is_some_and(|growing| growing.body(models, builder, deciding));
+    // One walk and nothing gathered: a body hands out its faces as an iterator,
+    // so the whole of a document's solids is written straight into the batch. A
+    // list of them first would be an allocation a frame, which is exactly what
+    // a rubber band's redraw would pay every frame it lasts. The one being
+    // decided is chained on rather than pushed after, so a depth typed a digit
+    // at a time rewrites the batch it is already in — see `Batch::refill`.
+    // Last, so the tags of everything the document holds come out the same
+    // whether or not a form is open.
     let faces = models
         .solids()
-        .map(|(at, prism)| (Some(at), prism))
-        .chain(
-            growing
-                .and_then(|growing| growing.prism(models))
-                .map(|prism| (None, prism)),
-        )
-        .flat_map(|(at, prism)| prism.grown().map(move |face| (at, prism, face)));
-    into.refill(faces, |object, (at, prism, face)| {
-        skinner.cut(&prism, face, SOLID_SAGITTA, patch);
+        .map(|(at, body)| (Some(at), body))
+        .chain(shown.then_some((None, &*deciding)))
+        .flat_map(|(at, body)| body.grown().map(move |face| (at, body, face)));
+    into.refill(faces, |object, (at, body, face)| {
+        mesher.cut(body, face, SOLID_SAGITTA, patch);
         remesh(
             &mut object.mesh,
             patch

@@ -1,6 +1,6 @@
 //! The picture the view last wrote, and the room it was written in.
 
-use silverpoint::{ConstraintId, Fill, Filler, Patch, Skinner};
+use silverpoint::{Body, Builder, ConstraintId, Fill, Filler, Mesher, Patch};
 
 use crate::build::Revision;
 use crate::lens::Lens;
@@ -318,7 +318,15 @@ pub(crate) struct Sheets {
     /// One region's triangles, overwritten by the next — a sheet reads its fill
     /// into a mesh and is done with it, so one is all that is ever live.
     pub(super) fill: Fill,
-    pub(super) skinner: Skinner,
+    pub(super) mesher: Mesher,
     /// One solid face's triangles, overwritten by the next, for the same reason.
     pub(super) patch: Patch,
+    /// The solid a form is deciding the depth of, and the room to raise it in.
+    ///
+    /// Here rather than in the document because there is no step for it yet —
+    /// see [`Growing::body`](crate::paint::growing::Growing) — and here rather
+    /// than made per frame because a depth typed a digit at a time rebuilds it
+    /// on every frame the form is open.
+    pub(super) deciding: Body,
+    pub(super) builder: Builder,
 }

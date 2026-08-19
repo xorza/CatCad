@@ -8,12 +8,15 @@
 //! [`ear`], which is where what the quadratic below could be traded for is
 //! weighed.
 //!
-//! Quadratic in the number of corners, and paid on every frame a solid is drawn:
-//! a 128-corner outline cuts in 5.6µs and a 256-corner one in 16.3µs. How many
-//! corners there are is the caller's to decide rather than the drawing's — a
-//! face bounded by lines has one per line, where one bounded by anything curved
-//! has as many as the flattening was asked for. The alternative is a sweep-line,
-//! which is harder to be sure of.
+//! Quadratic in the number of corners, and paid on every frame a solid is
+//! drawn: a 128-corner outline cuts in 14.5µs and a 256-corner one in 48.5µs.
+//! Both are about twice what taking the first ear found cost, and the second
+//! ear this pays for is the difference between a mesh that follows a curved
+//! surface and one that spans it — see [`best`]. How many corners there are is
+//! the caller's to decide rather than the drawing's: a face bounded by lines
+//! has one per line, where one bounded by anything curved has as many as the
+//! flattening was asked for. The alternative is a sweep-line, which is harder
+//! to be sure of.
 //!
 //! Corners rather than curves. An arc reaches here already flattened, because
 //! how finely to flatten it depends on how large it lands on screen and that is
@@ -308,8 +311,14 @@ fn clip(
     standing.clear();
     standing.reserve_exact(contour.len());
     standing.extend((0..contour.len()).map(|at| turn(corners, contour, at) <= SLIVER));
+    // How many of them stand proud, kept rather than counted. A contour with
+    // none is convex, and every corner of a convex contour is an ear — so the
+    // containment test in [`ear`], which is the innermost loop there is, drops
+    // out entirely. A bridged hole always leaves a corner standing, so this is
+    // an answer about the easy case rather than a guess about any case.
+    let mut proud = standing.iter().filter(|&&it| it).count();
     while contour.len() > 3 {
-        let Some(at) = (0..contour.len()).find(|&at| ear(corners, contour, at, standing)) else {
+        let Some(at) = best(corners, contour, standing, proud) else {
             // No ear anywhere means the contour is not the simple loop this
             // takes it for — corners doubled back on themselves, most likely.
             // Cutting the sharpest corner anyway makes progress and keeps the
@@ -323,11 +332,11 @@ fn clip(
                 })
                 .expect("a contour of four or more has a corner");
             into.extend(cut(contour, sharpest));
-            retest(corners, contour, standing, sharpest);
+            retest(corners, contour, standing, &mut proud, sharpest);
             continue;
         };
         into.extend(cut(contour, at));
-        retest(corners, contour, standing, at);
+        retest(corners, contour, standing, &mut proud, at);
     }
     // On the same terms every ear was cut on. Nothing tests the last three the
     // way [`ear`] tests all the rest, so this is the one place a sliver could
@@ -359,8 +368,16 @@ fn clip(
 /// triangulation cut with this left out is the same triangulation, so no test
 /// of what comes back can tell the two apart — deleting the loop below passes
 /// every one of them.
-fn retest(corners: &[DVec2], contour: &[u32], standing: &mut Vec<bool>, at: usize) {
-    standing.remove(at);
+fn retest(
+    corners: &[DVec2],
+    contour: &[u32],
+    standing: &mut Vec<bool>,
+    proud: &mut usize,
+    at: usize,
+) {
+    if standing.remove(at) {
+        *proud -= 1;
+    }
     // The two the cut joined: where `at` now points, and the place before it —
     // a corner taken from the front leaves its predecessor at the back.
     for beside in [(at + contour.len() - 1) % contour.len(), at % contour.len()] {
@@ -369,8 +386,19 @@ fn retest(corners: &[DVec2], contour: &[u32], standing: &mut Vec<bool>, at: usiz
             standing[beside] || !now,
             "a corner standing proud of the loop was left standing in it"
         );
+        if standing[beside] && !now {
+            *proud -= 1;
+        }
         standing[beside] = now;
     }
+    // Kept in step rather than counted, so it is worth saying that it is: the
+    // count is what lets [`ear`] skip its innermost loop on a convex contour,
+    // and one that drifted would skip it on a contour that is not.
+    debug_assert_eq!(
+        *proud,
+        standing.iter().filter(|&&it| it).count(),
+        "the count of corners standing proud has come adrift"
+    );
 }
 
 /// Take the corner at `at` out, answering with the triangle it cut — or with
@@ -401,10 +429,71 @@ fn cut(contour: &mut Vec<u32>, at: usize) -> Option<[u32; 3]> {
 /// than a likeness of it: every triangle wound the way the outline is, none
 /// over a hole, and the lot covering exactly what the outline encloses less
 /// what its holes take out.
-fn ear(corners: &[DVec2], contour: &[u32], at: usize, standing: &[bool]) -> bool {
+/// The ear whose new edge is shortest, or `None` where the contour has none.
+///
+/// **The shortest new edge, rather than the first ear found.** Any ear may be
+/// cut and the answer is a triangulation either way, so this is a choice about
+/// the *shape* of the answer — and one that matters far more than it looks
+/// like it should. Taking the first cuts every ear near the front of the
+/// contour before moving on, which turns a long thin loop into a fan off
+/// whichever corner happened to be first. In the plane that is merely ugly.
+/// Over a curved surface it is wrong: a triangle spanning half the contour
+/// leaves the surface altogether, and the sagitta the caller asked for buys
+/// nothing. Shortest-first joins each corner to its neighbours instead, so the
+/// same loop comes out as a strip.
+///
+/// Costs a pass over the corners rather than a stop at the first hit, and
+/// scores only the corners that could be ears at all — a reflex or straight
+/// one never can, and skipping them is what keeps a contour with long straight
+/// runs from testing every corner in it.
+fn best(corners: &[DVec2], contour: &[u32], standing: &[bool], proud: usize) -> Option<usize> {
+    let len = contour.len();
+    let mut shortest = (len, f64::INFINITY);
+    // Walked with the neighbours carried along rather than looked up, because
+    // this runs once per corner per ear cut and a wrap taken with `%` is a
+    // division in the innermost loop of the whole triangulation.
+    let mut before = corners[contour[len - 1] as usize];
+    let mut after = 1;
+    for at in 0..len {
+        let corner = corners[contour[at] as usize];
+        let beyond = corners[contour[after] as usize];
+        after += 1;
+        if after == len {
+            after = 0;
+        }
+        // A reflex or straight corner is never an ear, so it is never scored —
+        // which is what keeps a contour with long straight runs in it from
+        // costing a measurement per corner of them.
+        if !standing[at] {
+            // Squared, because only the order of these matters.
+            let reach = before.distance_squared(beyond);
+            if reach < shortest.1 {
+                shortest = (at, reach);
+            }
+        }
+        before = corner;
+    }
+    let shortest = (shortest.0 < len).then_some((shortest.0, shortest.1));
+    if let Some((at, _)) = shortest
+        && ear(corners, contour, at, standing, proud)
+    {
+        return Some(at);
+    }
+    // The shortest was not an ear after all — something stands inside it. Rare
+    // enough to pay for by walking from the front, where keeping every score to
+    // reconsider would cost a pass on every round for the sake of a few.
+    (0..len).find(|&at| ear(corners, contour, at, standing, proud))
+}
+
+fn ear(corners: &[DVec2], contour: &[u32], at: usize, standing: &[bool], proud: usize) -> bool {
     // Twice the area of that corner's triangle, so again half of [`SLIVER`].
     if turn(corners, contour, at) <= SLIVER {
         return false;
+    }
+    if proud == 0 {
+        // Nothing stands proud anywhere, so the contour is convex and there is
+        // nothing that could be inside this. See [`clip`].
+        return true;
     }
     let [before, corner, after] = triangle(corners, contour, at);
     !(0..contour.len()).any(|other| {

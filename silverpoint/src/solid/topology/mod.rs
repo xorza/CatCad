@@ -1,0 +1,275 @@
+//! What a body is made of, and how the pieces name each other.
+//!
+//! Body → lump → shell → face → loop → coedge → edge → vertex, which is ACIS's
+//! hierarchy and everyone else's. Structure only: what a face lies *on* is
+//! [`geometry`](crate::solid::geometry)'s, and the two meet at exactly three
+//! places — a face's surface, an edge's curve, a vertex's position.
+//!
+//! Stored in generational arenas with [`Copy`] handles, which is what
+//! `silverpoint`'s own [`Arena`] already is. Two `u32`s per handle, side tables
+//! that index by slot, and a stale handle refused rather than silently
+//! resolving to whatever took its place. See `.notes/KERNEL.md` §4.5 for the
+//! alternatives and why they lose.
+
+use crate::arena::Arena;
+use crate::loops::Loops;
+use crate::solid::topology::coedge::Coedge;
+use crate::solid::topology::edge::{Edge, EdgeId};
+use crate::solid::topology::face::{Face, FaceId};
+use crate::solid::topology::lump::{Lump, LumpId};
+use crate::solid::topology::shell::{Shell, ShellId};
+use crate::solid::topology::vertex::{Vertex, VertexId};
+use glam::DVec3;
+use std::ops::Range;
+
+pub(crate) mod body;
+pub(crate) mod coedge;
+pub(crate) mod edge;
+pub(crate) mod face;
+pub(crate) mod lump;
+pub(crate) mod shell;
+pub(crate) mod validity;
+pub(crate) mod vertex;
+
+/// Every entity a body is made of, each in an arena of its own.
+///
+/// One store per kind rather than one tagged store, so a handle says what it
+/// names in its type and a walk over faces is a walk over faces. The arenas are
+/// what make a boolean's edits local: removing a face frees its slot and
+/// refuses every handle minted for it, where a vector would renumber whatever
+/// came after.
+#[derive(Debug, Default)]
+pub(crate) struct Topology {
+    vertices: Arena<Vertex>,
+    edges: Arena<Edge>,
+    faces: Arena<Face>,
+    shells: Arena<Shell>,
+    lumps: Arena<Lump>,
+    /// Every loop of every face, laid end to end, each face's runs together.
+    ///
+    /// **Flat, so that nothing in an arena owns a heap block.** A body is
+    /// rebuilt whole on every frame of a drag through the drawing under it, and
+    /// what makes that free is that emptying it is a handful of `clear`s
+    /// keeping every buffer — where a vector per face would hand the room back
+    /// and ask for it again sixty times a second. See
+    /// [`Face::loops`](face::Face).
+    walks: Loops<Coedge>,
+    /// Every face of every shell, the same way — see [`Shell::faces`].
+    shelled: Vec<FaceId>,
+}
+
+impl Topology {
+    pub(crate) fn add_vertex(&mut self, vertex: Vertex) -> VertexId {
+        self.vertices.insert(vertex)
+    }
+
+    pub(crate) fn add_edge(&mut self, edge: Edge) -> EdgeId {
+        self.edges.insert(edge)
+    }
+
+    pub(crate) fn add_face(&mut self, face: Face) -> FaceId {
+        self.faces.insert(face)
+    }
+
+    pub(crate) fn add_shell(&mut self, shell: Shell) -> ShellId {
+        self.shells.insert(shell)
+    }
+
+    /// Record one loop, filled by `write` into the buffer it is handed, and say
+    /// which run it landed in.
+    ///
+    /// A face's loops have to be added together and in order — the outline
+    /// first — because what a face keeps is the stretch of runs they occupy.
+    pub(crate) fn add_loop(&mut self, write: impl FnOnce(&mut Vec<Coedge>)) -> usize {
+        self.walks.add(write);
+        self.walks.len() - 1
+    }
+
+    /// How many loops have been recorded, which is where the next one lands.
+    pub(crate) fn loops_added(&self) -> usize {
+        self.walks.len()
+    }
+
+    /// Record that `face` belongs to the shell being gathered.
+    pub(crate) fn add_shelled(&mut self, face: FaceId) {
+        self.shelled.push(face);
+    }
+
+    /// How many faces have been gathered into shells, which is where the next
+    /// shell starts.
+    pub(crate) fn faces_shelled(&self) -> usize {
+        self.shelled.len()
+    }
+
+    /// Every loop bounding `face`, the outline first.
+    pub(crate) fn loops_of(&self, face: &Face) -> impl Iterator<Item = &[Coedge]> + Clone {
+        face.loops.clone().map(|at| self.walks.get(at))
+    }
+
+    /// The loop around the outside of `face`.
+    pub(crate) fn outline_of(&self, face: &Face) -> &[Coedge] {
+        self.walks.get(face.loops.start)
+    }
+
+    /// The loop around each hole punched out of `face`.
+    pub(crate) fn holes_of(&self, face: &Face) -> impl Iterator<Item = &[Coedge]> + Clone {
+        (face.loops.start + 1..face.loops.end).map(|at| self.walks.get(at))
+    }
+
+    /// Every face of `shell`.
+    pub(crate) fn faces_of(&self, shell: ShellId) -> &[FaceId] {
+        let Range { start, end } = self.shell(shell).faces;
+        &self.shelled[start..end]
+    }
+
+    /// Empty it, keeping every buffer it holds.
+    ///
+    /// Every position is freed and every generation bumped, so a handle minted
+    /// before this is refused rather than answering with whatever refills its
+    /// slot — which is the whole reason the stores are arenas. What survives is
+    /// the room: the slots, the free list, the loops and the shelled faces all
+    /// keep the capacity they grew to.
+    pub(crate) fn clear(&mut self) {
+        self.vertices.retain(|_| false);
+        self.edges.retain(|_| false);
+        self.faces.retain(|_| false);
+        self.shells.retain(|_| false);
+        self.lumps.retain(|_| false);
+        self.walks.clear();
+        self.shelled.clear();
+    }
+
+    pub(crate) fn add_lump(&mut self, lump: Lump) -> LumpId {
+        self.lumps.insert(lump)
+    }
+
+    pub(crate) fn vertex(&self, id: VertexId) -> &Vertex {
+        self.vertices.get(id).expect(STALE)
+    }
+
+    pub(crate) fn edge(&self, id: EdgeId) -> &Edge {
+        self.edges.get(id).expect(STALE)
+    }
+
+    pub(crate) fn face(&self, id: FaceId) -> &Face {
+        self.faces.get(id).expect(STALE)
+    }
+
+    pub(crate) fn face_mut(&mut self, id: FaceId) -> &mut Face {
+        self.faces.get_mut(id).expect(STALE)
+    }
+
+    pub(crate) fn shell(&self, id: ShellId) -> &Shell {
+        self.shells.get(id).expect(STALE)
+    }
+
+    pub(crate) fn faces(&self) -> impl Iterator<Item = (FaceId, &Face)> {
+        self.faces.iter()
+    }
+
+    pub(crate) fn edges(&self) -> impl Iterator<Item = (EdgeId, &Edge)> {
+        self.edges.iter()
+    }
+
+    pub(crate) fn lumps(&self) -> impl Iterator<Item = (LumpId, &Lump)> {
+        self.lumps.iter()
+    }
+
+    /// Every shell of `lump`, the one around it first.
+    pub(crate) fn shells_of(&self, lump: &Lump) -> impl Iterator<Item = ShellId> + Clone {
+        std::iter::once(lump.outer).chain(lump.voids.iter().copied())
+    }
+
+    /// Which vertices `coedge` runs between, in the order it walks them.
+    pub(crate) fn ends(&self, coedge: Coedge) -> [VertexId; 2] {
+        self.edge(coedge.edge).ends(coedge.forward)
+    }
+
+    /// Where the `step`th of `steps` cuts along `coedge` lands.
+    ///
+    /// **The stored vertex at either end rather than the curve evaluated
+    /// there.** A vertex is shared with everything else that meets at it, and
+    /// two faces that each recomputed it could land a rounding apart — which is
+    /// a hairline between two faces that are meant to meet exactly. The same
+    /// reasoning as [`Edge::cut`](crate::sketch::arrangement::edge::Edge) one
+    /// dimension down.
+    pub(crate) fn at(&self, coedge: Coedge, step: usize, steps: usize) -> DVec3 {
+        let edge = self.edge(coedge.edge);
+        let [from, to] = edge.ends(coedge.forward);
+        if step == 0 {
+            return self.vertex(from).at;
+        }
+        if step == steps {
+            return self.vertex(to).at;
+        }
+        // At the edge's *own* parameter rather than the walk's. The two faces
+        // sharing an edge walk it opposite ways, and `start + Δ(n−k)/n` is not
+        // the same arithmetic as `end − Δk/n` — two roundings of one place,
+        // which is a hairline between two faces that are meant to meet.
+        let step = if coedge.forward { step } else { steps - step };
+        let [start, end] = edge.bounds;
+        edge.curve
+            .at(start + (end - start) * step as f64 / steps as f64)
+    }
+
+    /// The corners of a polyline following `coedge` from its start, stopping
+    /// short of its end — so a loop's coedges laid end to end name each corner
+    /// once.
+    ///
+    /// **Appends**, because a caller tracing a whole loop traces it into one
+    /// buffer.
+    pub(crate) fn walk(&self, coedge: Coedge, sagitta: f64, into: &mut Vec<DVec3>) {
+        let steps = self.edge(coedge.edge).steps(sagitta);
+        for step in 0..steps {
+            into.push(self.at(coedge, step, steps));
+        }
+    }
+
+    /// How wide each store is, which is what a side table indexed by slot has
+    /// to cover — not how many entities there are. See
+    /// [`Arena::slot_count`](crate::arena::Arena).
+    pub(crate) fn vertex_slots(&self) -> usize {
+        self.vertices.slot_count()
+    }
+
+    pub(crate) fn edge_slots(&self) -> usize {
+        self.edges.slot_count()
+    }
+
+    pub(crate) fn face_slots(&self) -> usize {
+        self.faces.slot_count()
+    }
+}
+
+// A handle that no longer resolves means a caller kept one across a removal,
+// which is a mistake in the algorithm rather than a state a reader can handle.
+const STALE: &str = "this body no longer holds what that names";
+
+/// Ways to take a body apart that only a test wants.
+///
+/// Nothing that builds a body needs them: a build writes each entity once and
+/// never goes back. What they are for is breaking a *valid* body one way at a
+/// time, so that [`Body::check`](body::Body) can be shown to catch each thing
+/// it claims to — which is the only way to know a checker is checking.
+#[cfg(test)]
+pub(crate) mod internals {
+    use super::*;
+
+    impl Topology {
+        /// One loop of one face, to be scrambled.
+        pub(crate) fn loop_mut(&mut self, at: usize) -> &mut [Coedge] {
+            self.walks.get_mut(at)
+        }
+
+        pub(crate) fn shell_mut(&mut self, id: ShellId) -> &mut Shell {
+            self.shells.get_mut(id).expect(STALE)
+        }
+
+        pub(crate) fn vertex_mut(&mut self, id: VertexId) -> &mut Vertex {
+            self.vertices.get_mut(id).expect(STALE)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests;

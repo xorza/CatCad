@@ -2,7 +2,7 @@
 //! solve made of it.
 
 use glam::Vec3;
-use silverpoint::{Arrangement, Constraint, Entity, Outcome, Plane, Prism, Sketch};
+use silverpoint::{Arrangement, Body, Constraint, Entity, Outcome, Plane, Sketch};
 
 use crate::build::settled::Settled;
 use crate::build::{Build, Revision};
@@ -490,6 +490,10 @@ impl<'a> Models<'a> {
     /// and not for want of asking: a plane and a sketch are what they say they
     /// are, and there is nothing for either to fail at.
     ///
+    /// **Failing and coming to nothing are different.** An extrusion of no
+    /// depth leaves no solid and is not broken — the depth is a number somebody
+    /// is still typing. See [`Built`].
+    ///
     /// A fair question of any step rather than of an extrude known to be one,
     /// for the reason [`Timeline::movable`](crate::timeline::Timeline) answers
     /// for any: what is picked out or listed is a step, and being told its kind
@@ -497,7 +501,7 @@ impl<'a> Models<'a> {
     pub(crate) fn lost_at(self, at: FeatureId) -> bool {
         self.timeline.built(at)
             && matches!(self.timeline.feature(at), Feature::Extrude { .. })
-            && self.build.modelled(at).is_none()
+            && self.build.bodied(at).built().failed()
     }
 
     /// The last step currently built, or `None` for all of them — see
@@ -546,18 +550,16 @@ impl<'a> Models<'a> {
     /// wrong is a question for the timeline, which nothing shows yet.
     ///
     /// Here rather than on the build, though the build could count these on its
-    /// own — every [`Modelled`](crate::build::modelled::Modelled) carries both
-    /// the step it answers for and its answer. What this is instead is the first
-    /// of the readings that join the two, and the shape the rest will take: what
-    /// *draws* a solid wants the region, the plane its sketch is on, and how far
-    /// it stands off, and only a pairing of the timeline and the build has all
-    /// three. A count that went round the back would be the one reader that did
-    /// not.
+    /// own — every [`Bodied`](crate::build::bodied::Bodied) carries both the
+    /// step it answers for and how building it went. What this is instead is
+    /// one of the readings that join the two: what a *reader* wants is the
+    /// steps currently below the rollback bar, and only the timeline knows
+    /// where that is.
     pub(crate) fn lost(self) -> usize {
         self.timeline
             .extrudes()
             .filter(|step| self.timeline.built(step.at))
-            .filter(|step| self.build.modelled(step.at).is_none())
+            .filter(|step| self.build.bodied(step.at).built().failed())
             .count()
     }
 
@@ -590,9 +592,9 @@ impl<'a> Models<'a> {
             // of its own — a wall goes when the curve it was swept from stops
             // bounding the region, which is a thing drawing across a sketch can
             // do without taking the solid away.
-            Part::Solid { of, face } => self
-                .solids()
-                .any(|(at, prism)| at == of && prism.holds(face)),
+            Part::Solid { of, face } => {
+                self.solids().any(|(at, body)| at == of && body.holds(face))
+            }
             _ => part
                 .sketch()
                 .and_then(|sketch| self.at(sketch))
@@ -606,10 +608,11 @@ impl<'a> Models<'a> {
     /// lost its footing is not half a solid, it is no solid, and what says so is
     /// its absence here. [`Models::lost`] is what counts those.
     ///
-    /// A [`Prism`] is a reading rather than a thing the document holds: it pairs
-    /// what the timeline says with where the last solve put it, which is the
-    /// same pairing every other reading here is.
-    pub(crate) fn solids(self) -> impl Iterator<Item = (FeatureId, Prism<'a>)> {
+    /// A [`Body`] is a thing the document holds where a prism was a reading of
+    /// one: it is built once by [`Build::rebuild`](crate::build::Build) and
+    /// lent out here, because a boolean is dear enough that a caller drawing a
+    /// solid must not be the one paying for it.
+    pub(crate) fn solids(self) -> impl Iterator<Item = (FeatureId, &'a Body)> {
         let Self {
             timeline, build, ..
         } = self;
@@ -617,11 +620,8 @@ impl<'a> Models<'a> {
             .extrudes()
             .filter(move |step| timeline.built(step.at))
             .filter_map(move |step| {
-                let region = build.modelled(step.at)?;
-                let of = step.profile.sketch();
-                let arrangement = build.settled(of).arrangement();
-                let prism = Prism::new(arrangement, region, timeline.plane_of(of), step.distance);
-                Some((step.at, prism))
+                let bodied = build.bodied(step.at);
+                bodied.built().made().then(|| (step.at, bodied.body()))
             })
     }
 }

@@ -25,13 +25,14 @@ is settled and written up in [`KERNEL.md`](KERNEL.md), and what a number *is*
 - **Regions.** `Arrangement` cuts a drawing into faces and names each by what
   bounds it — the sketch's own curve handles plus a side — so a name survives
   the geometry moving and being cut into pieces. `Shape::Arc` is already in the
-  arrangement, the filler and the skinner.
+  arrangement, the filler and the mesher.
 - **Solids.** One kind: `Feature::Extrude`, a region carried a signed distance,
-  whose faces are named `Grown::{Base, Far, Side(Bound)}` in the same
-  vocabulary the region was. A `Prism` is a *reading* recomputed on demand;
-  nothing is stored and nothing combines.
+  whose faces are named `Grown::{Base, Far, Side(Bound)}` in the same vocabulary
+  the region was. A `Body` out of the kernel in `silverpoint/src/solid/`: exact
+  planes and cylinders, edges with curves of their own, a validity check after
+  every build. Nothing combines yet.
 - **The document.** A `Timeline` of `Plane | Sketch | Extrude` steps, replayed
-  by `Build` into `Settled` per sketch and `Modelled` per extrude, saved as RON
+  by `Build` into `Settled` per sketch and `Bodied` per extrude, saved as RON
   and reopened onto the same drawing. Snapshot undo/redo, with a drag
   coalescing into one step. Every document starts on the three world planes —
   `Ground`, `Front` and `Side`, labelled by the axes they span — and holds them
@@ -66,15 +67,14 @@ piece of work because they share a failure mode.
   walking `Timeline::sketches` and showing is `Models::iter`; a bound read by
   both is the whole of it, because no step depends on a later one.
 
-**The shape this settles is failure.** `Modelled::at` is an `Option<usize>`
-today, and that is the only way a step can say it did not build: an extrude
-whose region has been drawn across resolves to nothing. Deleting and reordering
-make that the normal case rather than the odd one — a sketch on a plane that is
-gone, a step moved above what it is built on — and the answer wants to be one
-thing rather than an `Option` per feature kind. A build status per step, filled
-by the replay that already fills `settled` and `modelled`, is what the feature
-tree then reads to draw a step as broken, and what item 2's cut needs before it
-can be written at all.
+**The shape this settles was failure, and it is settled.** A `Built` per step,
+filled by the replay that fills `settled` and `bodied`, replaced the
+`Option<usize>` that used to be the only way a step could say it did not build.
+It already tells apart the two states that look alike from outside — a profile
+drawn across, and a depth of nothing — and the feature tree reads it to draw a
+step as broken. Deleting and reordering will add arms to it rather than
+inventing an answer: a sketch on a plane that is gone, a step moved above what
+it is built on.
 
 **A step that goes away while you are standing in it** is already reachable —
 undoing a sketch you have just started is exactly that — and `Session::prune`
@@ -96,9 +96,15 @@ pocket, a hole, a boss on an existing face — all of them are one solid *and*
 another, so the timeline's result stops being a solid per extrude and becomes a
 body built by a sequence of operations.
 
-**An exact boundary representation, written here**, in a fourth workspace crate
-that knows nothing of `FeatureId`. The design is [`KERNEL.md`](KERNEL.md); what
-follows is only why it is that and not one of the two cheaper answers.
+**An exact boundary representation, written here**, in `silverpoint/src/solid/`
+beside the sketch it is grown from. The design, and where it currently stands,
+are in [`KERNEL.md`](KERNEL.md); what follows is only why it is that and not one
+of the two cheaper answers.
+
+**Under way.** The kernel's geometry, topology, validity checker, extrusion and
+mesher are in the tree, and CatCad draws and picks bodies rather than prisms —
+milestones M1 and M2 of seven. What is left for *this item* is the exact
+arithmetic and then the intersections and booleans it is for.
 
 Evaluating on a tessellation — a mesh arrangement decided by exact predicates,
 the Manifold line of work — is robust, general and quick to reach, and it buys
@@ -128,23 +134,32 @@ re-derived from the solver on every rebuild — so exact constructions cannot
 compound across a history, and the coefficient blowup that defeats exact
 arithmetic elsewhere does not happen.
 
-**`Profile` and `Grown` are unchanged**, which is the measure of how well the
-naming was chosen. `Bound` still names a curve of the sketch; `Part::Solid {
-of, face }` still names a face of a solid; a name is allowed to resolve to
-several disjoint patches, exactly as a wall already comes in strips. What
-changes around them: `Feature::Extrude` gains an operation; `Build` grows a body
-per step beside `modelled`, cached against a digest so a rollback is a lookup;
-painting draws one object per face of a body rather than one per prism face; and
-`Prism`, `Skinner` and `Patch` are deleted, with `Grown` moving to the new crate.
+**`Profile` and `Grown` came through unchanged**, which is the measure of how
+well the naming was chosen — and is now a fact rather than a hope. `Bound` still
+names a curve of the sketch; `Part::Solid { of, face }` still names a face of a
+solid; a name resolves to several disjoint patches where a wall comes in
+strips, and a split cylinder is two faces under one name that nothing above can
+tell apart. Around them: `Build` holds a body per step, cached against a digest
+so an edit to one drawing costs the solids grown off another nothing; painting
+draws one object per named face of a body; and `Prism`, `Skinner` and `Patch`
+are gone. Still to come there: `Feature::Extrude` gains an operation when there
+is a boolean for it to name.
 
 **What it costs is time, stated plainly.** The arithmetic foundation is the
 largest single piece and shows nothing on screen; the quadric parameterization
 is research-grade, though published and complete rather than open-ended; and
 performance will be poor before it is good. Against that, the milestones are
-arranged so the project is never worse off than it is today — the first one
-swaps the kernel in underneath the current feature set and changes nothing
-visible — and roadmap item 2 is delivered two milestones before the only
-unbounded one.
+arranged so the project is never worse off than it is today — which the first
+two have now shown, having swapped the kernel in underneath the current feature
+set and changed nothing visible but a fraction of a per cent of one silhouette
+— and roadmap item 2 is delivered two milestones before the only unbounded one.
+
+One thing the swap turned up that the design had not: **a body cannot be more
+exact than the drawing it was raised from.** The arrangement folds crossings
+within a nanometre, so every vertex and edge an extrusion raises carries that,
+however exact the surfaces are. Making the *body* exact therefore reaches down
+into the sketch as well, which moves a little of item 3's arithmetic work
+forward into this one.
 
 ## 3. What a number is: parameters, expressions and units
 
@@ -181,9 +196,8 @@ fillet radius — which is the argument for not leaving it much longer.
 
 Cheaper than it looks, and the last entity kind that changes the shape of
 anything: everything downstream of the arrangement already handles arcs, because
-a circle cut by a crossing is one — the filler and the skinner today, whatever
-carries a region into three dimensions after item 2. What is missing is an arc
-*entity* in `Sketch`.
+a circle cut by a crossing is one, and the kernel raises an arc into an exact
+cylinder already. What is missing is an arc *entity* in `Sketch`.
 
 What it touches is broad rather than deep: a fourth arena and a fourth `Entity`
 arm, so every exhaustive match over entity kind; the solver's parameter layout;

@@ -1,4 +1,5 @@
 use super::*;
+use crate::build::bodied::Built;
 use crate::document::Document;
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -92,7 +93,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     // every assertion below goes through. Both halves are handed in rather than
     // captured, so the closure holds no borrow across the edits between calls.
     let covered = |document: &Document, build: &Build| {
-        let at = build.modelled(solid)?;
+        let at = build.bodied(solid).region()?;
         let faces = document
             .models(build, Some(drawn))
             .open()
@@ -102,7 +103,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         Some(faces[at].area())
     };
     // Two by two, and the one region the square shuts in.
-    assert_eq!(build.modelled(solid), Some(0));
+    assert_eq!(build.bodied(solid).region(), Some(0));
     assert_eq!(covered(&document, &build), Some(4.0));
 
     // The corner at the origin dragged out to (-1, -1). Nothing here constrains
@@ -130,6 +131,34 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         0,
         "moving the geometry lost the region"
     );
+    assert_eq!(build.bodied(solid).built(), Built::Made);
+
+    // **Coming to nothing is not failing.** Carried no distance at all, the
+    // extrude builds and encloses nothing — which is what a depth somebody is
+    // still typing looks like, so it leaves no solid and is not counted among
+    // what went wrong. Then carried back, because the rest of this is about
+    // the region rather than the depth.
+    document.apply(
+        &mut build,
+        Change::Carry {
+            extrude: solid,
+            to: 0.0,
+        },
+    );
+    assert_eq!(build.bodied(solid).built(), Built::Empty);
+    assert_eq!(
+        document.models(&build, Some(drawn)).lost(),
+        0,
+        "a depth of nothing was counted as a step that failed"
+    );
+    document.apply(
+        &mut build,
+        Change::Carry {
+            extrude: solid,
+            to: 1.0,
+        },
+    );
+    assert_eq!(build.bodied(solid).built(), Built::Made);
 
     // Now a line straight across it, from outside to outside. Both halves are
     // bounded by some of what the whole was and by the cut besides, so the name
@@ -153,11 +182,12 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         2,
         "the line did not cut the region in two"
     );
-    assert_eq!(build.modelled(solid), None);
+    assert_eq!(build.bodied(solid).region(), None);
     assert_eq!(document.models(&build, Some(drawn)).lost(), 1);
+    assert_eq!(build.bodied(solid).built(), Built::LostProfile);
 }
 
-/// What a closed document modelled is gone too.
+/// What a closed document built is gone too.
 ///
 /// The other half of [`Build::reopened`], and the same argument as its
 /// neighbour below: everything here is keyed by
@@ -165,8 +195,8 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
 /// numbers its steps from zero — so an answer left behind would be one about an
 /// extrude that no longer exists, filed under the name of one that does.
 #[test]
-#[should_panic(expected = "this extrude has not been modelled")]
-fn reopening_forgets_what_the_last_document_modelled() {
+#[should_panic(expected = "this extrude has not been built")]
+fn reopening_forgets_what_the_last_document_built() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
     let drawn = timeline.add(Feature::Sketch {
@@ -185,11 +215,11 @@ fn reopening_forgets_what_the_last_document_modelled() {
         distance: 1.0,
     });
     let _document = Document::new(&mut build, timeline);
-    // Modelled, so this answers.
-    let _ = build.modelled(solid);
+    // Built, so this answers.
+    let _ = build.bodied(solid).region();
 
     build.reopened();
-    let _ = build.modelled(solid);
+    let _ = build.bodied(solid).region();
 }
 
 /// Two sketches settle into two answers, and neither overwrites the other.
@@ -366,8 +396,8 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
 
     // Forwards first, which is what every rebuild does today.
     let walk: Vec<_> = timeline.extrudes().collect();
-    build.remodel(walk.iter().copied());
-    let found: Vec<Option<usize>> = grown.iter().map(|&at| build.modelled(at)).collect();
+    build.rebuild(walk.iter().copied());
+    let found: Vec<Option<usize>> = grown.iter().map(|&at| build.bodied(at).region()).collect();
     assert_eq!(
         found,
         [Some(0), Some(1)],
@@ -377,8 +407,8 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
     // And backwards, which is what a reordered recipe will hand it. The same
     // two answers, against the same two handles: what order the walk arrives in
     // is the recipe's business and no part of what an extrude resolves to.
-    build.remodel(walk.iter().rev().copied());
-    let reversed: Vec<Option<usize>> = grown.iter().map(|&at| build.modelled(at)).collect();
+    build.rebuild(walk.iter().rev().copied());
+    let reversed: Vec<Option<usize>> = grown.iter().map(|&at| build.bodied(at).region()).collect();
     assert_eq!(
         reversed, found,
         "an extrude resolved differently for having been walked later"

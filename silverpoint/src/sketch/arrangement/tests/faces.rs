@@ -151,30 +151,13 @@ fn a_face_fills_to_the_area_it_encloses() {
     );
     assert!(named[0].along, "the ring walks its own outline backwards");
 
-    // Its *walls* are the other reading of the same face, and the difference
-    // between the two is exactly the hole: a bore carried off the plane is as
-    // much a face of the solid as its outside, where a hole appearing or
-    // vanishing must not change which region a name means.
-    let walls = ring.walls();
-    assert_eq!(walls.len(), 2, "the bore raises no wall: {walls:?}");
-    assert_eq!(walls[0], named[0], "the outline comes first");
-    assert!(
-        !walls[1].along,
-        "the hole is walked the other way round: {walls:?}"
-    );
-
-    // And each wall knows which pieces of curve it is swept from. Nothing
-    // crosses either circle, so each is one whole arc — and the two loops the
-    // face is walked along are where those two arcs come from.
-    assert_eq!(ring.pieces_of(walls[0]), ring.outline());
-    assert_eq!(ring.pieces_of(walls[1]).len(), 1);
-    // A curve that bounds it on the other side bounds it not at all, which is
-    // what keeps a wall named by one from coming back as the far side's.
-    let far = Bound {
-        of: walls[0].of,
-        along: !walls[0].along,
-    };
-    assert!(ring.pieces_of(far).is_empty());
+    // What the region has walls on is the other reading of the same boundary,
+    // and the difference between the two is exactly the hole: a bore carried
+    // off the plane is as much a face of the solid as its outside, where a hole
+    // appearing or vanishing must not change which region a name means. That
+    // reading belongs to whatever raises the solid — see
+    // `solid::build`'s own tests, which assert it on the body.
+    assert_eq!(ring.holes(), 1, "the bore stopped being a hole");
 
     // A second hole, clear of the first, and the fill still covers exactly what
     // the face says it does.

@@ -1,6 +1,6 @@
 //! A solid the user is still deciding the depth of.
 
-use silverpoint::Prism;
+use silverpoint::{Body, Builder, Extrusion};
 
 use crate::lens::Lens;
 use crate::model::Models;
@@ -11,10 +11,10 @@ use crate::timeline::FeatureId;
 /// A solid being decided: a region, and how deep it currently reads.
 ///
 /// What a form asking for a depth hands the drawing, so the solid is on screen
-/// from the moment it is asked for. A [`Prism`] is a reading rather than a
-/// thing the document holds — an arrangement, a region, a plane and a distance
-/// — so all of this is drawable without a step existing, and cancelling the
-/// form leaves the timeline never having heard of it.
+/// from the moment it is asked for. Everything a body is built from is here —
+/// an arrangement, a region, a plane and a distance — so all of this is
+/// drawable without a step existing, and cancelling the form leaves the
+/// timeline never having heard of it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Growing {
     pub(crate) sketch: FeatureId,
@@ -58,12 +58,32 @@ impl Growing {
         ))
     }
 
-    /// What it currently reads as, or `None` where the sketch no longer holds
-    /// the region it names.
-    pub(super) fn prism(self, models: Models<'_>) -> Option<Prism<'_>> {
-        let model = models.at(self.sketch)?;
+    /// Build what it currently reads as into `into`, and say whether there was
+    /// anything to build.
+    ///
+    /// **Raised by the drawing rather than kept by the document**, unlike every
+    /// solid there is a step for: this one belongs to a form that is still
+    /// open, and it changes whenever the depth does. What the document keeps is
+    /// a [`Bodied`](crate::build::bodied::Bodied) per *step*, and there is no
+    /// step yet.
+    ///
+    /// Into a body the layout holds, for the reason the layout holds every
+    /// other buffer: a depth typed a digit at a time rebuilds this on every
+    /// frame the form is open, and a body refilled in place reaches the heap
+    /// once.
+    pub(super) fn body(self, models: Models<'_>, builder: &mut Builder, into: &mut Body) -> bool {
+        let standing = models
+            .at(self.sketch)
+            .filter(|model| self.region < model.arrangement().faces().len());
+        let Some(model) = standing else {
+            // The sketch has gone, or the region has: either way there is no
+            // solid to show and the last one must not be left on screen.
+            into.clear();
+            return false;
+        };
         let arrangement = model.arrangement();
-        (self.region < arrangement.faces().len())
-            .then(|| Prism::new(arrangement, self.region, model.plane(), self.distance))
+        let extrusion = Extrusion::new(arrangement, self.region, model.plane(), self.distance);
+        builder.extrude(&extrusion, into);
+        true
     }
 }

@@ -5,6 +5,7 @@ use crate::demo;
 use crate::drawing::Grip;
 use crate::scene_view::aimed::Aimed;
 use crate::scene_view::tests::harness::{RaisedView, open_markers, unmoved};
+use crate::timeline::feature::Feature;
 use aperture::Motion;
 use glam::{DVec2, Vec2};
 
@@ -240,15 +241,20 @@ fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
         .expect("no cursor found the far end of the demo's solid");
 
     let drawn = open_markers(&raised);
+    // The step's own depth rather than anything read off the solid: how far an
+    // extrude carries its region is what the document *says*, where the body is
+    // what that came to. A drag that moved the body and not the step would be
+    // a picture nothing could save.
     let reach = |raised: &RaisedView| {
         raised
             .document
             .models(&raised.build, raised.session.editing())
-            .solids()
-            .next()
+            .steps()
+            .find_map(|(_, feature)| match feature {
+                Feature::Extrude { distance, .. } => Some(*distance),
+                Feature::Plane(_) | Feature::Sketch { .. } => None,
+            })
             .expect("the demo grows a solid")
-            .1
-            .distance()
     };
     let camera = raised.camera();
     let before = reach(&raised);

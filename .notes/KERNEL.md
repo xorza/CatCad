@@ -4,8 +4,14 @@ The design for roadmap item 2: a solid that stops being one independent prism
 per extrude and becomes a body built by a sequence of operations, over an exact
 boundary representation written here.
 
-Written against `master`, and it says of every existing type whether it moves,
-changes, or dies.
+**M1 and M2 are in the tree** — `silverpoint/src/solid/` holds the geometry, the
+topology, the validity checker, the extrusion and the mesher, and CatCad draws
+and picks bodies rather than prisms. `Prism`, `Skinner` and `Patch` are gone.
+What is left is §9's M0-proper and everything from M3 on: the exact arithmetic,
+the intersection routines, and the booleans they are for.
+
+Each decision below says where it stands. A milestone that has landed keeps only
+what a reader still has to know; what it cost to get there is in the diff.
 
 ---
 
@@ -42,7 +48,7 @@ requirements rather than as consequences, because a later change that broke any
 of them would be a change worth refusing:
 
 - **There is no model tolerance.** How finely anything is flattened is the
-  caller's, exactly as `Filler` and `Skinner` take a sagitta today. Nothing about
+  caller's, exactly as `Filler` and `Mesher` take one. Nothing about
   display reaches the model.
 - **Tessellation is view-adaptive.** A face is flattened from its exact surface
   at whatever the camera wants, so zooming in refines.
@@ -87,7 +93,9 @@ and §7.3 says where the risk in it sits.
   `Copy`, slot-indexable, with a hand-written `clone_from` so a snapshot does
   not reach the heap. Exactly the topology store a kernel wants — §4.5.
 - **`Loops<T>`** (`silverpoint/src/loops.rs`). Flat runs with an index, already
-  the shape a face's boundary loops want.
+  the shape a face's boundary loops want — and, as it turned out, the shape
+  *every* face's boundary loops want at once: one on the topology, a range per
+  face. See §4.5.
 - **`Cutter`** (`math/triangulate`). Ear clipping with holes bridged in, for
   triangulating a trimmed face in parameter space. Stays `pub(crate)` — see §6,
   which is most of why `solid/` lives in this crate.
@@ -101,23 +109,30 @@ and §7.3 says where the risk in it sits.
 - **The `Snapshot` / `clone_from` discipline.** A body is rebuilt every frame of
   a drag; the same reasoning applies.
 
-### 2.3 What moves, changes, and dies
+### 2.3 What became of the old solids — **done**
 
-| today | tomorrow |
-| --- | --- |
-| `silverpoint::prism::Prism` | **dies.** Becomes `solid::build::extrude`, which builds a `Body`. |
-| `silverpoint::prism::Grown` | **moves** to `solid/`, unchanged. Still `Base \| Far \| Side(Bound)`. |
-| `silverpoint::prism::{Skinner, Patch}` | **die.** Replaced by `solid::mesh`, which tessellates a face from its exact surface. |
-| `silverpoint::Filler` / `Fill` | **stay.** The 2D drawing still needs them. |
-| `silverpoint::triangulate::Cutter` | **unchanged** — stays `pub(crate)`, reached from `solid/` directly. |
-| `catcad::Part::Solid { of, face }` | **unchanged.** The measure of the naming. |
-| `catcad::Profile`, `Bound` | **unchanged.** |
-| `Feature::Extrude` | gains `operation: Operation`. |
-| `build::Modelled` | becomes `build::Bodied` — a body, a digest, a status. |
-| `Models::lost_at` / `lost` | become a `Built` status per step. |
-| `paint::write::solids` | writes one object per face of a body, tessellated on demand. |
-| `paint::SOLID_SAGITTA` | **dies.** There is no model tolerance. |
-| `paint::layout::Sheets{skinner, patch}` | becomes the kernel's mesher plus its scratch. |
+`Prism`, `Skinner` and `Patch` are deleted; `Grown` moved to `solid/` unchanged
+and is still `Base | Far | Side(Bound)`. `Filler`, `Fill` and `Cutter` stayed
+where they were, and `Cutter` is reached from `solid/mesh` directly rather than
+widening. `Part::Solid { of, face }`, `Profile` and `Bound` never moved, which
+was the measure of the naming and is the one claim in this section worth
+keeping. In CatCad, `build::Modelled` became `build::Bodied` — a body, a digest
+and a status — and `Models::lost_at` / `lost` read that status rather than
+asking whether a region resolved.
+
+Two things the table here used to promise are still open, and are listed with
+the milestones that bring them: `Feature::Extrude` gains an `Operation` with the
+boolean (M4), and `paint::SOLID_SAGITTA` goes when the sagitta is taken off the
+camera rather than off a constant (§9, M2).
+
+Two things it did not foresee, both forced by the first real build:
+
+- **The arrangement's fold tolerance is the ceiling on a body's exactness.** A
+  corner is folded within `TOUCHING`, so every vertex and edge an extrusion
+  raises carries that and no better — see §4.1.
+- **The ear clipper had to learn to choose.** Taking the first ear it found fans
+  a long thin loop off one corner, which is merely ugly in the plane and *wrong*
+  over a curved surface — see §7.2.
 
 ---
 
@@ -246,6 +261,20 @@ over planes, cylinders, cones and spheres is exact, and can say so.** The claim
 not being bought: exactness once a fillet or a NURBS surface is present. That
 boundary is in the data, so nothing has to be believed.
 
+**Where the drawing underneath is the ceiling — found on the first build.** An
+[`Arrangement`] folds crossings within `TOUCHING` of each other into one corner,
+so a corner is only ever known to a nanometre, and a body raised off one cannot
+know its own vertices better than the drawing knew them. Every vertex and edge
+an extrusion raises therefore carries `TOUCHING`; the *surfaces* stay exact,
+because a wall is a true plane or a true cylinder whatever corner it was placed
+through.
+
+That does not weaken the claim above — it locates it. The kernel's own
+arithmetic is what §4.2 makes exact; what it is handed is exact only when
+`sketch/` is solved and cut exactly too. Which is the strongest argument in §6
+for `number/` being shared *downward* rather than kept up here, and it is now an
+argument with a number attached rather than a preference.
+
 Where exactness stops, the discipline takes over:
 
 > **A decision taken within tolerance must be recorded, never merely taken.**
@@ -285,6 +314,13 @@ and it is what makes exact constructions affordable here.
 exactly once, store the exact value, discard the history. Without it a long
 timeline grows an unbounded expression graph, which is `Lazy_exact_nt`'s
 well-known failure mode.
+
+**Standing today: a façade.** `number/` exists, and every comparison the kernel
+makes goes through `number::predicate` against a tolerance named in
+`number::tolerance` — which is the half of this that had to be in place from the
+first line, because retrofitting it means touching every operation. What is
+behind the façade is `f64`, and `tolerance::ROUNDING` is the width of what that
+cannot promise away. Replacing the insides is M0-proper and reaches no caller.
 
 **`number/` is written here rather than assembled from crates.** What is needed:
 
@@ -369,7 +405,14 @@ documentation. Adopting per-entity tolerance while everything is exact costs one
 `f64` per entity and a line in the checker. Adding it later costs every
 operation.
 
-### 4.4 Manifold only, regularized booleans, and no seams
+### 4.4 Manifold only, regularized booleans, and no seams — **in the tree**
+
+Every claim below is checked rather than intended: `Body::check` refuses an edge
+that is not walked exactly twice, once each way, and an extrusion splits a full
+circle into two half cylinders before it raises anything. Regularization arrives
+earlier than this section expected — a spur dangling into a profile is cancelled
+out of the boundary *before* the sweep, because a wall of no width would be an
+edge walked twice by one loop and the checker would refuse the body outright.
 
 **Manifold only.** Every edge is used by exactly two faces. No radial-edge
 structure, no sheet bodies, no wire bodies. A boolean that would produce a
@@ -423,7 +466,22 @@ Against the alternatives:
 use it. This is the one deliberate divergence from OCCT, and the reason is that
 a boolean asks "what is across this edge" in its innermost loop.
 
-### 4.6 Geometry is closed enums, not traits
+**And nothing in an arena owns a heap block** — which the first build forced.
+Every loop of every face lies end to end in one `Loops` on the topology and a
+face keeps the stretch of runs that are its; the faces of every shell likewise.
+So emptying a body is a handful of `clear`s that keep every buffer, and a solid
+rebuilt on each frame of a drag through the drawing under it reaches the heap
+not at all. The same reasoning made the [`Builder`] and the validity check hold
+their own scratch. CatCad's allocation gate is still a strict zero on all four
+of its frames, with a body being built on every dragged one.
+
+### 4.6 Geometry is closed enums, not traits — **the naturals are in the tree**
+
+All four are written, evaluated, inverted and tested. The two-level split below
+is not: with one tier there is one arm, so `Surface` is flat today and gains its
+`Natural` / `Fitted` layer with the tier that makes the distinction mean
+something (M6). `Curve` likewise holds a line and a circle, and grows the
+ellipse and the quartic with the routines that produce them (M3).
 
 ```rust
 /// The exact tier and the fitted tier, told apart by the type.
@@ -495,6 +553,12 @@ pub struct Source(u32);
 pub struct FaceName { source: Source, grown: Grown }
 ```
 
+**Standing today: `Grown` alone.** One extrusion has one source, so there is no
+provenance to lose and nothing to carry — a face keeps its `Grown` and the body
+keeps the distinct names in the order they were made. `Source` and `FaceName`
+arrive with the operation that first joins faces from two steps (M4), which is
+the first moment they say anything.
+
 The kernel does **not** maintain identity across a rebuild; naming stays the
 application's, which is what every surveyed CAD system does. What the kernel
 owes is the per-call map, so `(FeatureId, Grown)` can be carried forward.
@@ -537,7 +601,7 @@ for no reason the user caused.
 
 ---
 
-## 6. Where it lives
+## 6. Where it lives — **done**
 
 **`silverpoint/src/solid/`**, beside `sketch/`. Not a new crate — the crate's own
 module doc already says so, and has since before there was a kernel to put
@@ -569,63 +633,65 @@ free either way.
 
 What it costs, stated so it is a choice:
 
-- **silverpoint stops being "the 2D crate"** in how it is described. Its own doc
-  header never claimed to be — it says "Geometry for CAD" — but the workspace
-  table in `CLAUDE.md` does, and wants correcting.
-- **`dashu` lands in a crate with one dependency today.** That is the price of
-  exact arithmetic wherever it goes.
-- **Compile time.** `solid/` will be the bigger half, so splitting would have
-  saved recompiling the half nobody is working in. Modest.
-- **Later extraction gets harder**, unless the reach is disciplined. So state
-  the rule now: **`solid/` may reach `arena`, `loops`, `number`, `math` and
+- **`dashu` will land in a crate with one dependency today.** That is the price
+  of exact arithmetic wherever it goes, and it is still to be proposed.
+- **Compile time.** `solid/` is the bigger half, so splitting would have saved
+  recompiling the half nobody is working in. Modest.
+- **Later extraction gets harder**, unless the reach is disciplined. The rule,
+  held to so far: **`solid/` may reach `arena`, `loops`, `number`, `math` and
   `sketch::arrangement`, and nothing else** — never `sketch::solver`,
   `sketch::constraint`, or `Sketch` itself. A profile arrives as an
-  `Arrangement` and a face position, which is what `Prism` already takes.
+  `Arrangement` and a face position, which is what `Prism` used to take.
+
+What stands there, and what is still to come:
 
 ```
 silverpoint/src/
-  lib.rs
-  arena.rs
-  loops.rs
-  number/          mod.rs, rational.rs, interval.rs, expansion.rs, lazy.rs,
-                   tower.rs, predicate.rs, tolerance.rs, tests.rs
-  math/            (existing: approx, dense, direction, intersect, plane, triangulate)
-  sketch/          (existing)
+  arena.rs  loops.rs
+  number/          mod.rs, predicate.rs, tolerance.rs
+                   — to come: rational, interval, expansion, lazy, tower
+  math/            approx, dense, direction, intersect, plane, triangulate
+  sketch/          entities, constraints, solver, arrangement
   solid/
-    mod.rs
-    geometry/      mod.rs, surface.rs, curve.rs, cylinder.rs, cone.rs, sphere.rs,
-                   line.rs, circle.rs, ellipse.rs, quartic.rs, tests.rs
-    topology/      mod.rs, body.rs, lump.rs, shell.rs, face.rs, edge.rs, vertex.rs,
-                   coedge.rs, validity.rs, tests.rs
-    build/         mod.rs, extrude.rs, tests.rs
-    intersect/     mod.rs, reducible.rs, pencil.rs, march.rs, tests.rs
-    boolean/       mod.rs, imprint.rs, classify.rs, sew.rs, tests.rs
-    mesh/          mod.rs, bench.rs, tests.rs
+    mod.rs  grown.rs
+    geometry/      surface, curve, plane (in math/), cylinder, cone, sphere,
+                   line, circle, axis, tests
+                   — to come: ellipse, quartic, torus, nurbs
+    topology/      mod (Topology), body, lump, shell, face, edge, vertex,
+                   coedge, validity, tests
+    build/         mod, extrusion, strip, tests
+    mesh/          mod (Mesher, Patch), tests
+                   — to come: intersect/, boolean/
 ```
 
-`prism/` is deleted into `solid/`. The published surface grows by what `catcad`
-actually calls — `Body`, `Grown`, `Operation`, the mesher — and by nothing else.
+The published surface is `Body`, `Grown`, `Extrusion`, `Builder`, `Mesher` and
+`Patch` — what `catcad` actually calls, and nothing else. Everything under
+`topology/` and `geometry/` is `pub(crate)`.
 
-### The type sketch
+### The type sketch — **as built**
 
 ```rust
-/// A whole solid: one or more disconnected volumes.
-pub struct Body { topology: Topology, lumps: Vec<LumpId>, names: Vec<Named> }
+pub struct Body { topology: Topology, names: Vec<Grown> }
 
-/// One connected volume: an outer shell and any cavities inside it.
+pub struct Topology {
+    vertices: Arena<Vertex>, edges: Arena<Edge>, faces: Arena<Face>,
+    shells: Arena<Shell>, lumps: Arena<Lump>,
+    /// Every loop of every face, laid end to end. See §4.5.
+    walks: Loops<Coedge>,
+    /// Every face of every shell, the same way.
+    shelled: Vec<FaceId>,
+}
+
 pub struct Lump { outer: ShellId, voids: Vec<ShellId> }
+pub struct Shell { faces: Range<usize> }
 
-/// A closed, connected, oriented set of faces.
-pub struct Shell { faces: Vec<FaceId> }
-
-/// A piece of surface, bounded. Mirrors the 2D `Face` exactly.
 pub struct Face {
     surface: Surface,
     /// Whether material lies on the surface's positive-normal side.
     outward: bool,
-    outline: Vec<Coedge>,
-    holes: Loops<Coedge>,
-    name: FaceName,
+    /// The outline first, then one run per hole, into `Topology::walks`.
+    loops: Range<usize>,
+    name: Grown,
     tolerance: f64,
 }
 
@@ -634,44 +700,71 @@ pub struct Coedge { edge: EdgeId, forward: bool }
 
 pub struct Edge {
     curve: Curve,
+    /// Where along it the edge starts and stops, `from` at the first.
+    bounds: [f64; 2],
     from: VertexId,
     to: VertexId,
     /// The two faces that use it — manifold, so exactly two. Stored, not
     /// derived: the boolean's innermost question.
     between: [FaceId; 2],
-    /// Introduced to split a periodic surface rather than drawn by anyone.
+    /// Whether there is no crease here — the two faces lie on one surface.
     artificial: bool,
     tolerance: f64,
 }
 
-pub struct Vertex {
-    /// The surfaces whose intersection this is — the truth.
-    of: [Option<SurfaceRef>; 3],
-    /// A cache of `of`, re-derivable exactly. See §4.2.
-    at: DVec3,
-    tolerance: f64,
-}
+pub struct Vertex { at: DVec3, tolerance: f64 }
 ```
+
+Three differences from what this section first sketched, each earning its place.
+`Body` keeps no `lumps` list, because the arena already enumerates them.
+`Face`'s loops and `Shell`'s faces are ranges into flat buffers — §4.5.
+`Vertex` holds a position rather than the surfaces it stands at, because the
+surfaces are only worth holding once the arithmetic can re-derive the point from
+them exactly, which is M0-proper.
 
 ---
 
 ## 7. The algorithms
 
-### 7.1 Build — a profile becomes a body
+### 7.1 Build — a profile becomes a body — **done**
 
 `Arrangement` face + `Plane` + distance → a `Body` with one lump, one shell.
 Faces come out named `Base`, `Far`, `Side(bound)`, and a `Side` off a circle
 becomes two half-cylinder faces (§4.4). Exact throughout: no flattening
 anywhere.
 
-### 7.2 Tessellate — display only
+### 7.2 Tessellate — display only — **done, with one finding**
 
 Per face: trace its loops, invert the surface to parameter space, triangulate
-with silverpoint's `Cutter`, refine the interior for curvature, evaluate back to
-3D, normals from the surface.
+with silverpoint's `Cutter`, evaluate back to 3D — or rather *keep* the traced
+positions, so two faces meeting at an edge land on identical corners rather than
+two roundings of one — and take normals from the surface.
 
-Ear clipping gives slivers where a constrained Delaunay would not. Acceptable
-for display; the trigger for upgrading is a shading artifact, not a principle.
+**Ear clipping had to learn to choose which ear.** Taking the first one it found
+turned a wall's parameter rectangle into a fan off one corner: a valid
+triangulation of the domain, and over a cylinder a surface that is not the
+cylinder. A half cylinder read *half* its true volume, and the sagitta the
+caller asked for bought nothing, because one triangle spanned the whole arc.
+Choosing the ear whose new edge is shortest makes the same loop come out as the
+strip it should be, at the cost of a pass over the corners instead of a stop at
+the first hit — and it improves the two-dimensional fills next door for free.
+
+That is the general shape of the problem rather than a quirk of this contour: a
+triangulation good enough for a *plane* says nothing about whether it follows a
+curved surface. Constrained Delaunay is still the eventual answer, and the
+trigger for it is still a shading artifact rather than a principle — but the
+bar is now "no triangle spans more of the curvature than the sagitta allows"
+rather than "no slivers".
+
+**It costs about twice what taking the first ear cost**: 14.5µs for a
+128-corner outline against 10.4µs, and 48.5µs for a 256-corner one against
+20.6µs, on a path a frame walks once per face. Worth measuring rather than
+assuming — the first version of it was seven times dearer, all of it in two
+`%` operators in the innermost loop.
+
+Not yet done: **refining the interior**. Nothing here inserts a point that is
+not on the boundary, which is enough while every curved face is developable and
+its parameter domain is a rectangle. A sphere or a torus will want a grid.
 
 ### 7.3 Intersect — two routines, one per tier
 
@@ -736,23 +829,37 @@ difficulties are classification of a fragment against a curved body — ray cast
 under the same tolerance discipline — and the coincident-face cases, which are
 where booleans actually break and which get their own test matrix (M4).
 
-### 7.5 Validity — the primary debugging tool
+### 7.5 Validity — the primary debugging tool — **in the tree**
 
-A `validate()` that checks, from scratch:
+`Checking::run` checks, from scratch:
 
-- every edge used by exactly two coedges, with opposite senses;
-- every loop closed, every shell closed and orientable;
-- **Euler–Poincaré**: `V − E + F − R = 2(S − G)`;
-- every vertex within its own tolerance of every curve and surface that meets
-  it, and the tolerance ladder of §4.3;
-- every face's loops non-self-intersecting in parameter space;
-- lump volumes positive, void volumes negative;
-- every entity's tier consistent with its tolerance — zero iff exact.
+- every edge used by exactly two coedges, with opposite senses, by the two
+  faces it says it lies between;
+- every loop closed, every face in exactly one shell, every shell connected;
+- **Euler–Poincaré**: `V − E + F − R = 2(S − G)`, per shell;
+- every vertex within its own tolerance of the curve at the parameter its edge
+  says it stands at, and every edge within its own of both faces' surfaces;
+- the tolerance ladder of §4.3, and a face's tolerance still zero;
+- an edge flagged smooth exactly when its two faces lie on one surface.
 
-Called by `debug_assert!` after every operation, and directly in every test.
-This is how kernels are built — OCCT has `BRepCheck`, ACIS has `check_entity` —
-and it is the single highest-leverage habit available: **a kernel that cannot
-produce an invalid body has only local bugs.**
+Still to come, and listed so the gaps are known: **lump volumes positive, void
+volumes negative** — the one check that would catch a whole shell built inside
+out, and the reason every test in `build/` reads a volume off the mesh instead;
+and **loops non-self-intersecting in parameter space**, which wants the
+intersection routines it is meant to check.
+
+Run after every operation under `cfg!(debug_assertions)`, and directly in every
+test. This is how kernels are built — OCCT has `BRepCheck`, ACIS has
+`check_entity` — and it is the single highest-leverage habit available: **a
+kernel that cannot produce an invalid body has only local bugs.** It has already
+earned it: the winding of every loop an extrusion writes was got right by
+writing it and being told, one message at a time, exactly which edge was walked
+twice the same way.
+
+Each thing it claims to catch is caught in a test that breaks a *valid* body one
+way — a loop turned round, a coedge swapped, a face taken out of its shell, a
+vertex nudged past what it stands for — because a checker nothing has been
+proved against is a checker nobody should trust.
 
 ---
 
@@ -778,51 +885,38 @@ natively, so disjoint results are free. An operation affects **every body it
 touches by default**, with an optional scope — the capable answer and the
 convenient one at once, rather than a target picker in every form.
 
-### The build
+### The build — **done, less what the boolean adds**
 
-`Build` grows a third list beside `settled` and `modelled`, in handle order and
+`Build` holds a `Bodied` per extrude beside `settled`, in handle order and
 searched the same way:
 
 ```rust
-/// The body as it stands after one step, and what it was built from.
-pub(crate) struct Bodied {
-    of: FeatureId,
-    digest: Digest,
-    version: BodyVersion,
-    body: Body,
-    built: Built,
-}
-```
+pub(crate) struct Bodied { of: FeatureId, digest: Digest, body: Body, built: Built }
 
-**The body *after* each step, not just the final one.** Rollback then costs a
-lookup rather than a replay, scrubbing the bar is free, and re-evaluating after
-an edit starts at the first step whose digest moved rather than at the top.
-
-`remodel` becomes `rebuild`, and gains a memoized forward walk:
-
-```rust
 struct Digest {
-    incoming: BodyVersion,   // the body this step was handed
-    sketch: Revision,        // the settled sketch's own
+    sketch: Revision,        // the settled sketch's own, bumped on every settle
     plane: Plane,            // by value — a plane move settles nothing
     region: Option<usize>,   // what `Profile::face_in` currently answers
     distance: f64,
-    operation: Operation,
 }
 ```
 
-Equal digest → keep the cached body and its version. Different → re-evaluate,
-mint a new `BodyVersion`, which invalidates everything downstream by
-construction. Two supporting changes: **`Settled` gains a `Revision`**, bumped on
-every settle — coarse on purpose, since a missed invalidation is a wrong model
-and a spare one is a recomputation — and **the plane goes in the digest by
-value**, because moving a plane settles nothing and bumps no sketch revision but
-moves every solid grown off it.
+Equal digest → keep the body that is already there. Different → build over it,
+which is what keeps a drag through one drawing from rebuilding the solids grown
+off every other. **`Settled` gained a `Revision`** for that, bumped on every
+settle — coarse on purpose, since a missed invalidation is a wrong model and a
+spare one is a recomputation — and **the plane goes in by value**, because
+moving a plane settles nothing and bumps no sketch revision and moves every
+solid grown off it.
 
-Caching matters more here than it would over a mesh evaluator, because the
-operations are dearer.
+*Over* rather than into a fresh one: an entry whose digest moved keeps its body
+and has it refilled, so a drag reaches the heap not at all (§4.5).
 
-### Failure
+Two fields the boolean adds and nothing yet needs: `incoming: BodyVersion` and
+`operation`, both meaningless while a step's body depends on no other step's.
+Until then a `BodyVersion` would be a number nothing could read.
+
+### Failure — **done**
 
 A value the replay fills, replacing `Models::lost_at`'s ad-hoc question:
 
@@ -831,27 +925,32 @@ pub(crate) enum Built {
     Made,
     /// The profile no longer names a region.
     LostProfile,
-    /// The operation left nothing — a cut that removed the whole body.
+    /// It built, and what it built encloses nothing.
     Empty,
-    /// The kernel refused it.
-    Refused,
 }
 ```
 
-A failed step passes the incoming body through unchanged, so later steps still
-build. The feature tree draws the row as broken; `Models::lost` becomes a count
-over this.
+**Failing and coming to nothing are different**, which is the whole point of the
+value: an extrusion of no depth is a number somebody is still typing, and a
+profile drawn across is a step that has lost its footing. `Models::lost` counts
+only the second. `Refused` arrives when there is a kernel that can refuse
+something, which an extrusion of a resolved region cannot.
 
-### Painting and picking
+A failed step leaves an empty body, so later steps still build. The feature tree
+draws the row as broken.
 
-`paint::write::solids` walks the body's face groups and writes one `Object` per
-`(body, FaceName)` — because a tag names a primitive, and a face that is to be
-hovered, picked and built on has to be one. `object.tag =
-Some(names.tag(Part::Solid { of, face }))` is the same line it is today. Groups
-are emitted in `(Source, Grown)` order so tags are stable across a rewrite,
-which is what `Batch::refill` and `Names` already assume.
+### Painting and picking — **done**
 
-Vertex normals come from the surface, not from the mesh.
+`paint::write::solids` walks `Body::grown` and writes one `Object` per name —
+because a tag names a primitive, and a face that is to be hovered, picked and
+built on has to be one. `object.tag = Some(names.tag(Part::Solid { of, face }))`
+is the same line it always was. Names come out in the order the faces were made,
+which is the order a prism answered in, so tags are stable across a rewrite —
+what `Batch::refill` and `Names` already assume.
+
+Vertex normals come from the surface, not from the mesh. Which is what makes a
+cylinder read as one curved wall at any sagitta, and what makes the two halves
+of a split one meet without a crease.
 
 ### Preview
 
@@ -878,44 +977,61 @@ Verification per house rule, one `-p` per crate touched:
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-### M0 — exact numbers, geometry, topology, validity
+### M0 — geometry, topology, validity — **done**; exact numbers — **open**
 
-`number/` — rationals, the interval filter, the lazy construction DAG, and the
-`ℚ(√δ)(√Δ)` tower. The spike (§4.2) has walked the shape of all four; what is
-left is the non-square-δ path and making it production code. `geometry/` with **all four naturals** and the
-exact curve types. `topology/` with the arenas. `validity.rs`.
+Done: `geometry/` with all four naturals, the line and the circle, each
+evaluated, inverted, and cross-checked so that its normal is provably the way
+its own parameters wind. `topology/` over the arenas. `validity.rs`, with a test
+per thing it claims to catch. `number/` as a façade, so that every comparison
+already goes through a named predicate.
 
-The largest milestone, deliberately: the exactness tier is a claim the
+Open, and the whole of what is left here: **the arithmetic behind that façade**
+— rationals, the interval filter, the lazy construction DAG, and the `ℚ(√δ)(√Δ)`
+tower. The spike (§4.2) walked the shape of all four; what remains is the
+non-square-δ path and turning it into production code.
+
+Still the largest piece, deliberately: the exactness tier is a claim the
 arithmetic either supports or does not, and finding out at M4 would be finding
-out too late.
+out too late. Note what §4.1 now adds — the exactness of a *body* is capped by
+the exactness of the drawing it was raised from, so this milestone reaches into
+`sketch/` before it is finished.
 
-**Tests.** A box, a cylinder, a cone and a sphere built by hand validate. Volume
-and surface area match hand-computed values **exactly**, not to a tolerance,
-wherever the value is rational. Euler–Poincaré holds for the box, for a box with
-a through hole (`V−E+F−R = 16−24+10−2 = 0 = 2(1−1)`), and for a hollow box (two
-shells). Every invalid mutation the checker is meant to catch is constructed and
-caught — an edge with one face, an unclosed loop, an inside-out shell. The
-interval filter agrees with the exact fallback across a sweep of near-degenerate
-inputs, **and is shown to fire** rather than always falling through — a filter
-that never triggers the fallback is a filter that is not being tested. Algebraic
-comparison is cross-checked against high-precision floating point on roots of
-known quartics.
+**Tests still owed by it.** A cone and a sphere built by hand and validated —
+today they are tested as surfaces, not as bodies, because nothing constructs
+one. Volume and surface area matching hand-computed values **exactly** rather
+than to a tolerance, which needs the exact arithmetic to be true at all. The
+interval filter agreeing with the exact fallback across a sweep of
+near-degenerate inputs **and shown to fire**, because a filter that never
+triggers the fallback is a filter that is not being tested.
 
-### M1 — extrude, tessellate, and swap CatCad over
+### M1 — extrude, tessellate, and swap CatCad over — **done**
 
-Planar profiles only. `Prism`/`Skinner`/`Patch` deleted; `Grown` moved.
+`Prism`, `Skinner` and `Patch` are deleted, `Grown` moved, and CatCad builds,
+draws, picks and carries bodies. Every existing test passes unchanged. Three
+visual goldens moved and were re-taken: a tenth of a per cent of the pixels,
+all of them along the demo cylinder's silhouette and the shading band on its
+wall, which is the new triangulation (§7.2) and nothing else.
 
-**Tests.** Every existing solid test and visual golden passes unchanged — that
-is the whole point of this milestone. Plus: a profile with a hole gives a lump
-with one shell and genus 1; a negative distance gives the same body mirrored,
-still outward-oriented; face names match `Prism::grown()`'s old answers exactly.
+The tests are in `solid/build/tests.rs`: a box shut in the right way out
+whichever way it grows and wherever its plane stands, its shell counting up to
+`8 − 12 + 6 − 0 = 2`; a profile with a bore giving genus one and the volume of
+the block less the bore, which is what says the bore's walls face into it; a
+spur raising no wall; a curve cut in two raising one wall out of two patches; a
+depth of nothing giving a body with no faces at all.
 
-### M2 — curved walls, view-adaptive tessellation
+### M2 — curved walls — **done**; view-adaptive tessellation — **open**
 
-**Tests.** A circle's wall is two faces, both named `Side(bound)` for the same
-bound; the surface reports the true radius and axis exactly; tessellating at two
-sagittas gives different triangle counts and the same volume to within each
-bound; `SOLID_SAGITTA` is gone from the tree.
+A circle raises two half cylinders with one name between them, on a surface that
+reports its own radius and axis exactly, with the two upright edges flagged as
+no crease. Cutting the same body at four sagittas reads four volumes, each
+nearer the true `πr²h` and each within a bound the sagitta sets — which is what
+says the mesh follows the surface rather than merely being fine.
+
+Open: **`SOLID_SAGITTA` is still a constant in `paint/`.** Taking it off the
+camera means rewriting a solid's mesh when the camera moves, which today it is
+deliberately not — the drawing's cost is kept off the camera's clock. That is a
+decision about the paint layer rather than about the kernel, and it is the last
+thing M2 owes.
 
 ### M3 — quadric intersection, exact, all pairs
 
@@ -992,27 +1108,34 @@ Either true of a commit or not.
 2. **Prototype before integrating.** Each of the quadric parameterization,
    classification and marching gets a throwaway spike, outside the workspace,
    before a line of it is written in `solid/`.
-3. **Validity is asserted, not hoped for.** `debug_assert!(body.validate())`
-   after every operation.
+3. **Validity is asserted, not hoped for.** Every operation runs `Checking` over
+   what it just built, under `cfg!(debug_assertions)`. Every check it makes has
+   a test that breaks a valid body one way and shows it caught.
 4. **No silent tolerance.** §4.1.
-5. **Every milestone is a stopping point.** Abandonable at M2 with CatCad better
-   than today, at M5 with roadmap item 2 delivered. Worth preserving even when
-   it costs a milestone boundary in an awkward place.
-6. **Do not extrapolate.** M1–M2 are the comfortable part and will eat months if
-   allowed to. M3 is where the truth is; get there.
+5. **Every milestone is a stopping point.** Held: the tree stands at M2 with
+   CatCad no worse off than before, and every solid it draws sits on an exact
+   surface where none did. The next is M5, where roadmap item 2 is delivered.
+6. **Do not extrapolate.** M1–M2 were the comfortable part and are done. M3 is
+   where the truth is; get there — and M0's arithmetic is the one thing worth
+   finishing on the way, because it is what M3 is checked against.
 
 ---
 
 ## 11. Scale, and what it costs
 
-**M0 is the biggest single piece**: an exact rational stack, an interval filter,
-a lazy construction DAG and the quadratic tower, none of which shows on screen.
-Smaller than first estimated — the spike removed the general algebraic-number
-layer from the requirement — but still the bulk of the foundation.
+**What is left of M0 is the biggest single piece**: an exact rational stack, an
+interval filter, a lazy construction DAG and the quadratic tower, none of which
+shows on screen. Smaller than first estimated — the spike removed the general
+algebraic-number layer from the requirement — but still the bulk of the
+foundation, and now with a second half nobody costed: the drawing underneath has
+to go exact too, or the body's exactness is capped at the fold tolerance (§4.1).
 
-**M1–M2 stay short** and are what keeps rule 5 alive — CatCad's current feature
-set is M1's deliverable, so the project is visibly no worse off very early. They
-must not slip behind M3.
+**M1–M2 were short**, as hoped, and rule 5 held: CatCad's feature set was M1's
+deliverable and the project is visibly no worse off. What they cost that was not
+foreseen was two pieces of care rather than two pieces of work — the
+triangulation had to learn to follow a curved surface (§7.2), and everything on
+the rebuild path had to keep its own room so the allocation gate stayed at zero
+(§4.5).
 
 **M3–M5 is the real work.** M3b is research-grade but published, complete and
 proven, which is the difference between hard and open-ended.
@@ -1027,6 +1150,12 @@ than because it is scheduled.
 fallbacks, Newton inversion instead of pcurves, and live boolean preview all
 spend it. The mitigation is that the interval filter means the exact path is
 rarely taken — but "rarely" is a measurement nobody has made yet.
+
+What is measured so far is only the shape of the cost, and it is the right
+shape: a body is *made* where a prism was read, and making one on every frame of
+a drag through the drawing under it costs no allocation at all. Whether it costs
+too much *time* is a question nobody has asked yet, and the honest answer is
+that nothing above M2 has run.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, it is the only one that can say "this body is exact" and mean it, and

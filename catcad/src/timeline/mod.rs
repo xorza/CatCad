@@ -656,6 +656,7 @@ impl Timeline {
                 at,
                 profile,
                 distance: *distance,
+                plane: self.plane_of(profile.sketch()),
             }),
             Feature::Plane(_) | Feature::Sketch { .. } => None,
         })
@@ -767,6 +768,18 @@ pub(crate) struct Extruded<'a> {
     pub(crate) profile: &'a Profile,
     /// How far it is carried off its region's plane, and which way.
     pub(crate) distance: f64,
+    /// Where in the world the drawing it was grown from lies.
+    ///
+    /// Most readers here do not want it, and it is carried anyway, because the
+    /// one that does is on the far side of a boundary: what crosses into
+    /// [`Build`](crate::build::Build) is what each step names and nothing else,
+    /// so a rebuild cannot go and look this up for itself. Resolving it is two
+    /// hops — to the sketch, then to its plane — and neither reaches the heap.
+    ///
+    /// It is also what a body is cached against, and the reason that cache
+    /// needs it: a plane that moves solves no sketch and bumps no revision, and
+    /// moves every solid grown off it.
+    pub(crate) plane: Plane,
 }
 
 /// One step of a timeline, and the handle that names it.

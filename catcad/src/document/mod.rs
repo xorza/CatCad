@@ -72,7 +72,7 @@ impl Document {
         }
         // After every sketch, because an extrude is grown from a region of one
         // and a sketch nothing has settled encloses nothing.
-        document.remodel(build);
+        document.rebuilt(build);
         document
     }
 
@@ -156,7 +156,7 @@ impl Document {
     pub(crate) fn shift_to(&mut self, build: &mut Build, at: FeatureId, to: usize) {
         self.timeline.shift(at, to);
         build.revised();
-        self.remodel(build);
+        self.rebuilt(build);
         self.edits = self.edits.next();
     }
 
@@ -185,7 +185,7 @@ impl Document {
     pub(crate) fn uproot_all(&mut self, build: &mut Build, steps: &[FeatureId]) {
         self.pulled(build, steps);
         build.revised();
-        self.remodel(build);
+        self.rebuilt(build);
         self.edits = self.edits.next();
     }
 
@@ -214,23 +214,23 @@ impl Document {
             }
         }
         build.revised();
-        self.remodel(build);
+        self.rebuilt(build);
         self.edits = self.edits.next();
     }
 
-    /// Work out afresh which region each extrude is grown from.
+    /// Build afresh every solid the timeline stands for.
     ///
     /// Every way a document changes ends here, which is what keeps a feature
     /// standing downstream of a sketch honest: a profile names its region by
     /// what bounds it, and any edit at all may have drawn a line across one.
     /// Replaying is what a timeline is *for* — see
-    /// [`Build::remodel`](crate::build::Build::remodel), which is where the cost
+    /// [`Build::rebuild`](crate::build::Build::rebuild), which is where the cost
     /// of replaying the lot rather than the part is argued.
     ///
     /// Reads the document and writes only `build`, like everything derived: what
     /// an extrude says is written down, and where that currently lands is not.
-    fn remodel(&self, build: &mut Build) {
-        build.remodel(self.timeline.extrudes());
+    fn rebuilt(&self, build: &mut Build) {
+        build.rebuild(self.timeline.extrudes());
     }
 
     /// Write the document to `path`, making it if it is not there and replacing
@@ -411,7 +411,7 @@ impl Document {
             // whoever reads it.
             Feature::Plane(_) | Feature::Extrude { .. } => build.revised(),
         }
-        self.remodel(build);
+        self.rebuilt(build);
         self.edits = self.edits.next();
     }
 
@@ -600,7 +600,7 @@ impl Document {
         // turning the camera must not move the revision.
         match change.about() {
             About::Makes | About::Removes | About::Moves { .. } | About::Rewrites { .. } => {
-                self.remodel(build)
+                self.rebuilt(build)
             }
             About::Nothing => {}
         }

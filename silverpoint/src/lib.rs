@@ -39,15 +39,13 @@
 pub(crate) mod arena;
 pub(crate) mod loops;
 pub(crate) mod math;
-pub(crate) mod prism;
+pub(crate) mod number;
 pub(crate) mod sketch;
+pub(crate) mod solid;
 
 pub use arena::Id;
 pub use math::plane::Plane;
 pub use math::triangulate::Fill;
-pub use prism::Prism;
-pub use prism::grown::Grown;
-pub use prism::skinner::{Patch, Skinner};
 pub use sketch::arrangement::Arrangement;
 pub use sketch::arrangement::bound::Bound;
 pub use sketch::arrangement::face::Face;
@@ -64,3 +62,7 @@ pub use sketch::solver::freedom::Freedom;
 pub use sketch::solver::outcome::Outcome;
 pub use sketch::solver::{Drive, Solver};
 pub use sketch::{Circle, CircleId, Point, PointId, Removed, Segment, SegmentId, Sketch};
+pub use solid::build::extrusion::{Builder, Extrusion};
+pub use solid::grown::Grown;
+pub use solid::mesh::{Mesher, Patch};
+pub use solid::topology::body::Body;

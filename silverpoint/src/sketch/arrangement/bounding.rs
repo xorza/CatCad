@@ -35,8 +35,6 @@ impl Bounding {
             outline,
             holes,
             named,
-            walls,
-            pieces,
             ..
         } = face;
 
@@ -52,7 +50,6 @@ impl Bounding {
             along.extend(run.iter().map(|&half| {
                 let bound = edges[half.edge].bound(half.forward);
                 Walked {
-                    half,
                     bound,
                     key: key_of(bound),
                     on_outline,
@@ -83,8 +80,6 @@ impl Bounding {
                 key,
                 bound: along[at].bound,
                 on_outline,
-                at,
-                pieces: end - at,
             });
             at = end;
         }
@@ -95,30 +90,19 @@ impl Bounding {
         // key with the low bit flipped, and the runs are in key order, so
         // finding it is a search of the curves rather than of the pieces.
         //
-        // Which side of the drawing cancels a curve out is the reading's
-        // own. A name is made of the outline, so a spur dangling into a
-        // *hole* is no part of what names the region and cannot take an
-        // outline curve out of it — where a wall, being the whole edge of
-        // the region, is cancelled by either.
+        // A name is made of the outline, so a spur dangling into a *hole* is
+        // no part of what names the region and cannot take an outline curve
+        // out of it.
         named.clear();
-        walls.clear();
-        pieces.clear();
         for run in gathered.iter() {
             let turned = gathered
                 .binary_search_by(|had| had.key.cmp(&(run.key ^ 1)))
                 .ok()
                 .map(|found| &gathered[found]);
-            if turned.is_none() {
-                walls.push(run.bound);
-                pieces.add(|into| {
-                    into.extend(along[run.at..][..run.pieces].iter().map(|it| it.half));
-                });
-            }
             if run.on_outline && !turned.is_some_and(|had| had.on_outline) {
                 named.push(run.bound);
             }
         }
-        debug_assert_eq!(pieces.len(), walls.len(), "a wall without its pieces");
     }
 }
 
@@ -146,7 +130,6 @@ fn key_of(bound: Bound) -> u64 {
 /// would otherwise work out about it more than once.
 #[derive(Debug, Clone, Copy)]
 struct Walked {
-    half: Half,
     /// The curve it is a piece of, and the side the region is on.
     bound: Bound,
     /// That same curve and side as something to sort by — see [`key_of`].
@@ -155,18 +138,13 @@ struct Walked {
     on_outline: bool,
 }
 
-/// One curve found bounding a region, and the run of pieces it was walked
-/// along.
+/// One curve found bounding a region.
 ///
-/// The whole of what a name and a wall are decided from: which curve and side,
-/// whether the region's *outline* runs along it as against only a hole, and
-/// where its pieces sit in the sorted run of them.
+/// The whole of what a name is decided from: which curve and side, and whether
+/// the region's *outline* runs along it as against only a hole.
 #[derive(Debug, Clone, Copy)]
 struct Gathered {
     key: u64,
     bound: Bound,
     on_outline: bool,
-    /// Where this curve's pieces begin, and how many there are.
-    at: usize,
-    pieces: usize,
 }

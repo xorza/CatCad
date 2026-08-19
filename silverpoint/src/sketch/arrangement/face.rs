@@ -25,11 +25,6 @@ pub struct Face {
     pub(super) area: f64,
     /// What the outline is bounded by — see [`Face::named`].
     pub(super) named: Vec<Bound>,
-    /// What the whole of it is bounded by — see [`Face::walls`].
-    pub(super) walls: Vec<Bound>,
-    /// The pieces of each of [`Face::walls`], one run apiece and in step with
-    /// it.
-    pub(super) pieces: Loops<Half>,
 }
 
 impl Face {
@@ -50,44 +45,12 @@ impl Face {
     /// side is what tells two regions bounded by the same curves apart. Read
     /// back by [`Arrangement::face_named_by`](super::Arrangement::face_named_by).
     ///
-    /// The outline alone, where what the region has *walls* on is the whole
-    /// edge of it — and which of the two is wanted is a real choice rather than
-    /// a convenience. What *names* a region is its outline, because a hole
-    /// appearing or vanishing changes what the region is like without changing
-    /// which region it is.
+    /// The outline alone, where the whole edge of the region takes in its holes
+    /// as well — and which of the two names it is a real choice rather than a
+    /// convenience. It is the outline, because a hole appearing or vanishing
+    /// changes what the region is *like* without changing which region it is.
     pub fn named(&self) -> &[Bound] {
         &self.named
-    }
-
-    /// Every curve bounding it, each once and with the side it lies on: the
-    /// outline's and every hole's alike.
-    ///
-    /// What a region has *walls* on, where [`Face::named`] is only what names
-    /// it: a bore carried off the plane is as much a face of the solid as its
-    /// outside.
-    pub(crate) fn walls(&self) -> &[Bound] {
-        &self.walls
-    }
-
-    /// The pieces of `bound` this face is walked along, or nothing where it
-    /// bounds no part of it.
-    ///
-    /// A curve cut into several by whatever crosses the drawing bounds the
-    /// region with all of those pieces, and they are one wall — so a caller
-    /// sweeping one asks for the pieces rather than searching the boundary for
-    /// them.
-    ///
-    /// A walk rather than a lookup, and quadratic over a whole prism, one wall
-    /// asking after another's: [`Skinner::wall`](crate::Skinner) calls this once
-    /// per wall. **Which is not where the time goes.** Skinning a solid grown off
-    /// a 128-sided profile measures 49.6µs, of which this is 3.2µs and the two
-    /// end caps are 46.0µs — so a lookup here would buy six per cent of a cost
-    /// that is really the triangulator's.
-    pub(crate) fn pieces_of(&self, bound: Bound) -> &[Half] {
-        match self.walls.iter().position(|&had| had == bound) {
-            Some(at) => self.pieces.get(at),
-            None => &[],
-        }
     }
 
     /// The loop around the outside of it.

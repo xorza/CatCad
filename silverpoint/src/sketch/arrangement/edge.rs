@@ -1,9 +1,9 @@
 //! One piece of a sketch curve, and the two ways to walk it.
 
+use crate::math::arc;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
 use glam::DVec2;
-use std::f64::consts::TAU;
 
 /// A piece of one of the sketch's curves, running between two corners.
 ///
@@ -155,58 +155,16 @@ impl Edge {
         }
     }
 
-    /// Which way the region on the *left* of this walk faces at `t` along it —
-    /// the outward normal of the wall a sweep raises here.
-    ///
-    /// One rule for both shapes, which is what keeps a wall off an arc agreeing
-    /// with the wall off the segment it meets: the normal is the tangent turned
-    /// a quarter circle clockwise, since a face is walked with what it encloses
-    /// on the left and so is left behind on the right.
-    ///
-    /// Per parameter rather than per edge, because an arc's does not hold still.
-    /// That is also what makes a swept cylinder read round rather than faceted:
-    /// two pieces of one arc are handed the same normal where they meet, and a
-    /// straight edge meeting an arc is handed two different ones and creases.
-    pub(crate) fn outward(&self, corners: &[DVec2], forward: bool, t: f64) -> DVec2 {
-        match self.shape {
-            Shape::Straight => {
-                let [from, to] = self.ends(forward);
-                let along = corners[to] - corners[from];
-                DVec2::new(along.y, -along.x).normalize()
-            }
-            Shape::Arc { start, sweep, .. } => {
-                let travelled = if forward {
-                    sweep * t
-                } else {
-                    sweep * (1.0 - t)
-                };
-                let angle = start + travelled;
-                let radial = DVec2::new(angle.cos(), angle.sin());
-                // Walked counterclockwise the inside is on the left, so out is
-                // away from the centre; walked back it is the other way.
-                if forward { radial } else { -radial }
-            }
-        }
-    }
-
     /// How many straight pieces this edge is worth, flattened no further than
     /// `sagitta` from the true curve.
     ///
-    /// Shared by everything that walks an edge, so a polyline traced for a fill
-    /// and a wall swept off the same edge are cut at the same places — two rules
-    /// would leave a solid whose cap and sides did not meet.
+    /// Straight is exact however coarsely it is cut, so only an arc is asked —
+    /// see [`arc::chords`], which is where the rule lives.
     pub(crate) fn steps(&self, sagitta: f64) -> usize {
-        let Shape::Arc { radius, sweep, .. } = self.shape else {
-            return 1;
-        };
-        // A chord subtending `φ` sits `r(1 − cos(φ/2))` from the arc at its
-        // furthest, so the sagitta asks for chords no wider than this angle.
-        let widest = if sagitta >= radius {
-            TAU
-        } else {
-            2.0 * (1.0 - sagitta / radius).acos()
-        };
-        (sweep / widest.max(f64::MIN_POSITIVE)).ceil().max(1.0) as usize
+        match self.shape {
+            Shape::Straight => 1,
+            Shape::Arc { radius, sweep, .. } => arc::chords(radius, sweep, sagitta),
+        }
     }
 
     /// Where the `step`th of `steps` cuts along this edge lands, walked
