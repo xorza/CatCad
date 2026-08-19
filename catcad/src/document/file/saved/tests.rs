@@ -95,6 +95,40 @@ fn the_demo_comes_back_the_way_it_went_in() {
         .expect("the document makes sense");
     assert_eq!(read.rolled(), Some(through));
     assert_eq!(read, rolled, "a rolled-back document came back different");
+
+    // **And a reordered one comes back in the order it was written**, which is
+    // a different claim from the two above: the file numbers steps by where they
+    // stand, so what a reorder changes is every reference in it.
+    //
+    // Compared as *text* rather than as timelines, and that is the claim rather
+    // than a convenience: handles are not written down, so reopening numbers the
+    // steps afresh in the order the file holds them. Before a reorder those are
+    // the same numbers and the two timelines compare equal; after one they are
+    // not, and the recipe is unchanged all the same. Writing it again is what
+    // says so — the file is the canonical form, and every reference in it is a
+    // position that a reorder moves.
+    let mut shuffled = document.timeline.clone();
+    let free = shuffled
+        .steps()
+        .map(|(at, _)| at)
+        .find(|&at| shuffled.moves_within(at).len() > 1)
+        .expect("the demo holds a step with somewhere to go");
+    shuffled.shift(free, shuffled.moves_within(free).end - 1);
+    let text = written(&shuffled);
+    assert_ne!(
+        text,
+        written(&document.timeline),
+        "the shuffle put the recipe back the way it was, so this asks nothing"
+    );
+    let read = Saved::parse(&text)
+        .expect("the text is a document")
+        .timeline()
+        .expect("the document makes sense");
+    assert_eq!(
+        written(&read),
+        text,
+        "a reordered document came back in another order"
+    );
 }
 
 /// A document is exactly this on the page.
