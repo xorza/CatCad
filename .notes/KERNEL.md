@@ -687,7 +687,7 @@ What stands there, and what is still to come:
 silverpoint/src/
   arena.rs  loops.rs
   number/          mod.rs, predicate.rs, tolerance.rs, field.rs,
-                   rational.rs, quadratic.rs
+                   rational.rs, quadratic.rs, filtered.rs
                    — to come: rational, interval, expansion, lazy, tower
   math/            approx, dense, direction, intersect, plane, triangulate
   sketch/          entities, constraints, solver, arrangement
@@ -1068,8 +1068,8 @@ its own parameters wind. `topology/` over the arenas. `validity.rs`, with a test
 per thing it claims to catch. `number/` as a façade, so that every comparison
 already goes through a named predicate.
 
-Open: **the interval filter and the lazy construction DAG**, and then pointing
-the predicates through the lot. The spike (§4.2) walked the shape of all four.
+Open: **the lazy construction DAG**, and then pointing the predicates through
+the lot. The spike (§4.2) walked the shape of all four.
 
 Done since: **exact rationals and the whole `ℚ(√δ)(√Δ)` tower**, including the
 non-square path the spike only reasoned about — at both storeys, the upper one
@@ -1078,6 +1078,14 @@ argument for why the refusal is what the rest rests on. `dashu-ratio` is in the
 graph for the bignum layer, with `dashu-base` beside it for the traits its types
 are operated through. Nothing calls any of it yet; the first consumer is the
 pencil route in M3b.
+
+The **interval filter** is in too — `number::filtered::Filtered`, a static one
+in Shewchuk's style: the value in `f64` beside a bound on what the roundings
+could have come to, nudged up an ulp per operation because every bound is a sum
+of non-negative terms. It hands back a sign only where the bound cannot reach
+across nought, so **it can prove a number is not nought and never that it is** —
+a coincidence always costs the exact path, which is the trade the tier exists to
+make.
 
 Still the largest piece, deliberately: the exactness tier is a claim the
 arithmetic either supports or does not, and finding out at M4 would be finding
@@ -1088,10 +1096,15 @@ the exactness of the drawing it was raised from, so this milestone reaches into
 **Tests still owed by it.** A cone and a sphere built by hand and validated —
 today they are tested as surfaces, not as bodies, because nothing constructs
 one. Volume and surface area matching hand-computed values **exactly** rather
-than to a tolerance, which needs the exact arithmetic to be true at all. The
-interval filter agreeing with the exact fallback across a sweep of
-near-degenerate inputs **and shown to fire**, because a filter that never
-triggers the fallback is a filter that is not being tested.
+than to a tolerance, which needs the exact arithmetic to be true at all.
+
+Held already: the filter against the exact fallback across near-degenerate
+inputs **and shown to fire**, a filter that never triggers the fallback being a
+filter that is not being tested. Over the corner orientation predicates are
+known to fail on — a segment from `(12, 12)` to `(24, 24)` against a point
+walked over single ulps of a half — a bare double gets 128 of 289 wrong, the
+filter declines all 289, and the exact tier gets every one right. A tenth of a
+unit off the line it answers all 32 and the exact path goes unpaid.
 
 ### M1 — extrude, tessellate, and swap CatCad over — **done**
 

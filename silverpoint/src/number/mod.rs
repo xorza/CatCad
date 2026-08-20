@@ -15,15 +15,19 @@
 //! [`rational::Rational`] is an exact rational and [`quadratic::Quadratic`] is a
 //! field one square root above another, so the tower `ℚ(√δ)(√Δ)` that
 //! `.notes/KERNEL.md` §4.2 asks for is `Quadratic<Quadratic<Rational>>` and
-//! both storeys are one piece of arithmetic. Still wanted above them: an
-//! interval filter, and a lazy construction DAG, before the predicates read
-//! through the lot.
+//! both storeys are one piece of arithmetic.
+//!
+//! [`filtered::Filtered`] is the fast path in front of them: a machine float
+//! carried with a bound on how wrong it might be, which answers a sign where
+//! the bound cannot reach across nought and declines where it can. Still wanted
+//! above the lot: a lazy construction DAG.
 //!
 //! Nothing here has a caller in the kernel yet; the pencil route in M3b is the
 //! first. That the swap will reach no caller is the whole point of the façade
 //! being here from the first line.
 
 pub(crate) mod field;
+pub(crate) mod filtered;
 pub(crate) mod predicate;
 pub(crate) mod quadratic;
 pub(crate) mod rational;
