@@ -27,6 +27,19 @@ silverpoint = { path = "silverpoint" }
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.33", default-features = false, features = ["std"] }
 wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl"] }
+# The exact arithmetic behind `number/` — see `.notes/KERNEL.md` §4.2. Only the
+# rational crate, which pulls `dashu-base` and `dashu-int` and nothing else: the
+# umbrella `dashu` would bring arbitrary-precision floats and complex numbers,
+# neither of which a kernel that is exact or nothing has any use for. Pure Rust,
+# so no C toolchain — which is what rules out `rug` (GMP) and, with it, `inari`
+# for the interval filter.
+#
+# Two entries for one library: `dashu-base` holds the traits `dashu-ratio`'s
+# types are operated through, and a crate that calls a transitive dependency's
+# API without naming it is a crate that breaks when the middle one reshuffles
+# its graph.
+dashu-base = { version = "0.6", default-features = false, features = ["std"] }
+dashu-ratio = { version = "0.6", default-features = false, features = ["std"] }
 # The document format. `serde` is palantir's already and so is in the graph
 # whatever this says; what `ron` adds is the backend it is written through —
 # text that takes comments, and that writes a Rust enum as itself rather than

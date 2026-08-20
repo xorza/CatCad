@@ -11,6 +11,9 @@ repository.workspace = true
 # `f64` for DVec2: constraint residuals near a degenerate configuration don't
 # survive single precision.
 glam = { workspace = true, features = ["f64"] }
+# Exact rationals for `number/`. See the note in the workspace manifest.
+dashu-base = { workspace = true }
+dashu-ratio = { workspace = true }
 common = { workspace = true, optional = true }
 
 [features]

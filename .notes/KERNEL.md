@@ -315,12 +315,33 @@ exactly once, store the exact value, discard the history. Without it a long
 timeline grows an unbounded expression graph, which is `Lazy_exact_nt`'s
 well-known failure mode.
 
-**Standing today: a façade.** `number/` exists, and every comparison the kernel
-makes goes through `number::predicate` against a tolerance named in
-`number::tolerance` — which is the half of this that had to be in place from the
-first line, because retrofitting it means touching every operation. What is
-behind the façade is `f64`, and `tolerance::ROUNDING` is the width of what that
-cannot promise away. Replacing the insides is M0-proper and reaches no caller.
+**Standing today: a façade, with the first two storeys behind it built.** Every
+comparison the kernel makes goes through `number::predicate` against a tolerance
+named in `number::tolerance` — the half of this that had to be in place from the
+first line, because retrofitting it means touching every operation. What the
+predicates read is still `f64`, and `tolerance::ROUNDING` is the width of what
+that cannot promise away.
+
+Beside them now: `number::rational::Rational`, an exact rational over
+`dashu-ratio` that reads an `f64` for the dyadic fraction it *is* rather than
+the decimal it was written as; and `number::extension::Extension`, the field
+`ℚ(√δ)`. Neither has a caller yet — the pencil route in M3b is the first — and
+both are held up by their own tests meanwhile.
+
+**The extension refuses to exist for a square δ**, and that refusal is load
+bearing rather than fussy. Three things are false without it: a value would have
+two spellings (`1 + 1·√4` and `3 + 0·√4` are one number), so `==` would answer
+no to a question whose answer is yes; `a + b√δ = 0` would stop being the
+componentwise test, since `b ≠ 0` would only need `√δ = −a/b`; and the inverse
+`(a − b√δ)/(a² − b²δ)` would divide by nought away from the origin, because
+`a² = b²δ` would be reachable. With δ non-square all three hold, so zero-testing
+is exact with no tolerance in it and every value but nought divides — which is
+what makes the thing a field. A *negative* δ is refused separately: its root is
+not real, and a caller reaching one has found an intersection that is not there.
+
+Still to come behind the façade: the second storey `ℚ(√δ)(√Δ)`, whose radicand
+lives in the first and so needs a squares test *there*; the interval filter; the
+lazy construction DAG; and then the predicates reading through the lot.
 
 **`number/` is written here rather than assembled from crates.** What is needed:
 
@@ -648,7 +669,8 @@ What stands there, and what is still to come:
 ```
 silverpoint/src/
   arena.rs  loops.rs
-  number/          mod.rs, predicate.rs, tolerance.rs
+  number/          mod.rs, predicate.rs, tolerance.rs, rational.rs,
+                   extension.rs
                    — to come: rational, interval, expansion, lazy, tower
   math/            approx, dense, direction, intersect, plane, triangulate
   sketch/          entities, constraints, solver, arrangement
