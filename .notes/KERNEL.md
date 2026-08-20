@@ -1068,10 +1068,16 @@ its own parameters wind. `topology/` over the arenas. `validity.rs`, with a test
 per thing it claims to catch. `number/` as a façade, so that every comparison
 already goes through a named predicate.
 
-Open, and the whole of what is left here: **the arithmetic behind that façade**
-— rationals, the interval filter, the lazy construction DAG, and the `ℚ(√δ)(√Δ)`
-tower. The spike (§4.2) walked the shape of all four; what remains is the
-non-square-δ path and turning it into production code.
+Open: **the interval filter and the lazy construction DAG**, and then pointing
+the predicates through the lot. The spike (§4.2) walked the shape of all four.
+
+Done since: **exact rationals and the whole `ℚ(√δ)(√Δ)` tower**, including the
+non-square path the spike only reasoned about — at both storeys, the upper one
+needing a squares test in `ℚ(√δ)` rather than in ℚ. §4.2 has the recipe and the
+argument for why the refusal is what the rest rests on. `dashu-ratio` is in the
+graph for the bignum layer, with `dashu-base` beside it for the traits its types
+are operated through. Nothing calls any of it yet; the first consumer is the
+pencil route in M3b.
 
 Still the largest piece, deliberately: the exactness tier is a claim the
 arithmetic either supports or does not, and finding out at M4 would be finding
@@ -1251,7 +1257,7 @@ its own. What was wrong was the vertex, whose faces come in two cones with no
 edge between them, and only a walk across *shells* can see that. `Sewing` now
 claims a shell's corners as it gathers it and refuses a second claim.
 
-### M5 — boolean over the whole exact tier — the cuts **done**, measuring them **open**
+### M5 — boolean over the whole exact tier — everything reducible **done**, the quartic **open**
 
 **How a curved cut is carried, decided.** The polyline classifies and the curve
 builds: `Cells` goes on holding points in a surface's parameters, a closed cut
