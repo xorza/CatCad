@@ -324,24 +324,41 @@ that cannot promise away.
 
 Beside them now: `number::rational::Rational`, an exact rational over
 `dashu-ratio` that reads an `f64` for the dyadic fraction it *is* rather than
-the decimal it was written as; and `number::extension::Extension`, the field
-`ℚ(√δ)`. Neither has a caller yet — the pencil route in M3b is the first — and
-both are held up by their own tests meanwhile.
+the decimal it was written as; and `number::quadratic::Quadratic<T>`, a field
+one square root above another. **The tower is
+`Quadratic<Quadratic<Rational>>`** — one piece of arithmetic serving both
+storeys rather than two spellings of `(a + b√r)(c + d√r) = (ac + bdr) +
+(ad + bc)√r`, which is how two of them would come to disagree. What each storey
+needs of the one below it is `number::field::Field`, six methods and four
+operators. Nothing has a caller yet — the pencil route in M3b is the first — and
+the tests are what hold it up meanwhile.
 
-**The extension refuses to exist for a square δ**, and that refusal is load
-bearing rather than fussy. Three things are false without it: a value would have
-two spellings (`1 + 1·√4` and `3 + 0·√4` are one number), so `==` would answer
-no to a question whose answer is yes; `a + b√δ = 0` would stop being the
-componentwise test, since `b ≠ 0` would only need `√δ = −a/b`; and the inverse
-`(a − b√δ)/(a² − b²δ)` would divide by nought away from the origin, because
-`a² = b²δ` would be reachable. With δ non-square all three hold, so zero-testing
-is exact with no tolerance in it and every value but nought divides — which is
-what makes the thing a field. A *negative* δ is refused separately: its root is
-not real, and a caller reaching one has found an intersection that is not there.
+**A storey refuses to exist where its root is already downstairs**, and that
+refusal is load bearing rather than fussy. Three things are false without it: a
+value would have two spellings (`1 + 1·√4` and `3 + 0·√4` are one number), so
+`==` would answer no to a question whose answer is yes; `a + b√r = 0` would stop
+being the componentwise test, since `b ≠ 0` would only need `√r = −a/b`; and the
+inverse `(a − b√r)/(a² − b²r)` would divide by nought away from the origin,
+because `a² = b²r` would be reachable. With `r` non-square all three hold, so
+zero-testing is exact with no tolerance in it and every value but nought divides
+— which is what makes the thing a field. A *negative* `r` is refused separately:
+its root is not real, and a caller reaching one has found an intersection that
+is not there.
 
-Still to come behind the façade: the second storey `ℚ(√δ)(√Δ)`, whose radicand
-lives in the first and so needs a squares test *there*; the interval filter; the
-lazy construction DAG; and then the predicates reading through the lot.
+**Asking it a storey up is the part the spike left.** Whether `a + b√δ` is a
+square in `ℚ(√δ)` comes out of squaring `x + y√δ`: the norm `a² − b²δ` must be a
+rational square, and given its root `s`, `x² = (a ± s)/2` must be one too, with
+`y = b/2x`. Both signs of `s` are tried and what is found is squared back before
+it is believed. Two cases the recipe cannot reach are handled apart, both with
+`b = 0`: `a` may be a square below, or `a/δ` may be, the root then lying wholly
+in the other half — which is how `√2` is found to be a square in `ℚ(√2)`.
+
+Signs are exact too, and needed: a storey's radicand has to be shown positive,
+and `a + b√r` with `a` and `b` disagreeing is a race settled by squaring rather
+than by rooting — `a`'s own sign times the sign of `a² − b²r`, both ways round.
+
+Still to come behind the façade: the interval filter, the lazy construction DAG,
+and then the predicates reading through the lot.
 
 **`number/` is written here rather than assembled from crates.** What is needed:
 
@@ -669,8 +686,8 @@ What stands there, and what is still to come:
 ```
 silverpoint/src/
   arena.rs  loops.rs
-  number/          mod.rs, predicate.rs, tolerance.rs, rational.rs,
-                   extension.rs
+  number/          mod.rs, predicate.rs, tolerance.rs, field.rs,
+                   rational.rs, quadratic.rs
                    — to come: rational, interval, expansion, lazy, tower
   math/            approx, dense, direction, intersect, plane, triangulate
   sketch/          entities, constraints, solver, arrangement

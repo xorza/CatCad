@@ -1,5 +1,6 @@
 //! A number with no rounding in it.
 
+use crate::number::field::Field;
 use dashu_base::SquareRoot;
 use dashu_ratio::RBig;
 use std::cmp::Ordering;
@@ -57,24 +58,34 @@ impl Rational {
     pub(crate) fn whole(at: i64) -> Self {
         Self(RBig::from(at))
     }
+}
 
-    /// The nearest `f64`, which is a *reading* of this and not this.
-    ///
-    /// What a cache is filled from, and what a caller draws with. Every use of
-    /// it is a place the exactness stops, so there are few and each says so.
-    pub(crate) fn nearest(&self) -> f64 {
-        self.0.to_f64().value()
+/// **The ground floor of the tower**, and the only storey whose arithmetic is
+/// not the storey below it with a root bolted on.
+impl Field for Rational {
+    /// Nought and one do not depend on the value here, ℚ being one field and
+    /// not a family of them — see the note on [`Field`].
+    fn zero(&self) -> Self {
+        Self::ZERO
+    }
+
+    fn one(&self) -> Self {
+        Self::ONE
     }
 
     /// Whether it is nothing at all — exactly, there being no other kind of
     /// nothing here.
-    pub(crate) fn is_zero(&self) -> bool {
+    fn is_zero(&self) -> bool {
         self.0 == RBig::ZERO
     }
 
     /// Which side of nothing it falls.
-    pub(crate) fn sign(&self) -> Ordering {
+    fn sign(&self) -> Ordering {
         self.0.cmp(&RBig::ZERO)
+    }
+
+    fn inverse(&self) -> Option<Self> {
+        (!self.is_zero()).then(|| Self::ONE / self.clone())
     }
 
     /// Its square root, when that is rational too, and `None` when it is not.
@@ -84,7 +95,7 @@ impl Rational {
     /// step is no step and `a + b√δ` is two ways of writing one rational, so an
     /// arithmetic that carried on regardless would hold values that compare
     /// unequal and are the same number. See
-    /// [`Extension`](super::extension::Extension), which asks this before it
+    /// [`Quadratic`](super::quadratic::Quadratic), which asks this before it
     /// agrees to exist.
     ///
     /// Both halves have to be squares, and that is a complete test rather than
@@ -92,7 +103,7 @@ impl Rational {
     /// the numerator can be squared by one of the denominator. Negative is
     /// never a square, there being no rational whose square is less than
     /// nothing.
-    pub(crate) fn rooted(&self) -> Option<Self> {
+    fn rooted(&self) -> Option<Self> {
         if self.sign() == Ordering::Less {
             return None;
         }
@@ -102,6 +113,13 @@ impl Rational {
         // true root from the floor of an irrational one — and it asks the whole
         // question in one comparison rather than two.
         (root.clone() * root.clone() == *self).then_some(root)
+    }
+    /// The nearest `f64`, which is a *reading* of this and not this.
+    ///
+    /// What a cache is filled from, and what a caller draws with. Every use of
+    /// it is a place the exactness stops, so there are few and each says so.
+    fn nearest(&self) -> f64 {
+        self.0.to_f64().value()
     }
 }
 
