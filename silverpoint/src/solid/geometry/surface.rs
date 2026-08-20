@@ -1,5 +1,6 @@
 //! What a face is a piece of.
 
+use crate::math::arc;
 use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
 use crate::number::predicate;
@@ -8,6 +9,7 @@ use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::sphere::Sphere;
 use glam::{DVec2, DVec3};
+use std::f64::consts::SQRT_2;
 
 /// One of the surfaces a face may lie on.
 ///
@@ -156,6 +158,110 @@ impl Surface {
         }
     }
 
+    /// How far the flat triangle on the parameters `corners` strays from this
+    /// surface at its furthest.
+    ///
+    /// **What a mesher owes the sagitta it was asked for.** Flattening a face's
+    /// *boundary* finely says nothing about its middle: a triangle with all
+    /// three corners on a cylinder can still cut clean across it, and a
+    /// triangulation of the boundary alone is free to lay one down. This is the
+    /// number that catches it — closed form for all four, an upper bound
+    /// everywhere, and the truth exactly for three of them. Only the cone
+    /// answers wide, and only because a triangle across one covers rings of
+    /// two different radii.
+    ///
+    /// A degenerate triple is a *chord*, which is what asks about one side of a
+    /// triangle: pass a corner twice and the answer is how far that side leaves
+    /// the surface.
+    pub(crate) fn straying(&self, corners: [DVec2; 3]) -> f64 {
+        match self {
+            // Exactly nothing, and the reason a block costs the mesher no
+            // second thought: every point of a triangle whose corners are in a
+            // plane is in that plane.
+            Self::Plane(_) => 0.0,
+            Self::Cylinder(cylinder) => cylinder.radius * arc::bulge(spread(corners)),
+            // **The widest ruling the triangle reaches**, because a cone's
+            // radius grows along it: the shortfall at each height is that
+            // height's radius times the same share, so the tallest corner
+            // bounds the lot. Times the cosine, which is what turns a shortfall
+            // measured out from the axis into a distance measured square to the
+            // surface — the same turn [`Cone::off`] makes.
+            Self::Cone(cone) => {
+                let reach = corners.iter().fold(0.0_f64, |far, uv| far.max(uv.y.abs()));
+                reach * cone.half_angle.sin() * arc::bulge(spread(corners))
+            }
+            // **How far the nearest point of it passes from the centre**,
+            // which no angle in the parameters can stand in for: a small circle
+            // near a pole spans every angle there is and strays by nothing. The
+            // whole triangle lies inside the ball, so the radius less that
+            // distance is what its furthest point stands off by.
+            //
+            // Every corner is the same distance from the centre, so the centre
+            // drops onto the triangle's own *circumcentre* — inside it when the
+            // triangle is acute, and otherwise out across its longest side,
+            // where the nearest point is that side's middle. Two cases, both
+            // closed form, and the second is also the answer for a triple with
+            // no area in it: a chord's nearest point to the centre of a sphere
+            // its ends are on is its middle.
+            Self::Sphere(sphere) => {
+                let [a, b, c] = corners.map(|uv| sphere.at(uv));
+                let sides = [[b, c], [c, a], [a, b]];
+                let across = sides.map(|side| side[0].distance_squared(side[1]));
+                let at = (0..3)
+                    .max_by(|&one, &two| across[one].total_cmp(&across[two]))
+                    .expect("a triangle has three sides");
+                // Obtuse — or right, or with no area at all, where either
+                // answer is the same one.
+                let near = if across[at] >= across.iter().sum::<f64>() - across[at] {
+                    let [from, to] = sides[at];
+                    ((from + to) * 0.5).distance(sphere.centre())
+                } else {
+                    let square = (b - a).cross(c - a);
+                    (a - sphere.centre()).dot(square).abs() / square.length()
+                };
+                (sphere.radius - near).max(0.0)
+            }
+        }
+    }
+
+    /// How far apart the parameter lines of the grid a face on this surface may
+    /// be cut into cells by must stand, given that no part of the face reaches
+    /// further than `reach` along the second parameter.
+    ///
+    /// **Chosen so that a triangle inside one cell cannot stray further than
+    /// `sagitta`**, which is what lets a mesher hold itself to the sagitta by
+    /// arithmetic on the grid rather than by comparing against a tolerance —
+    /// see [`Lattice`](crate::solid::mesh::lattice::Lattice).
+    ///
+    /// Infinite where the surface does not bend that way at all: a plane both
+    /// ways, and the ruling of a cylinder or a cone the second. Any step is as
+    /// true as any other along a straight line, so there is no line to cut at
+    /// and the caller falls back on how far the face reaches.
+    ///
+    /// The two ruled surfaces take [`arc::widest`] outright: what they bend by
+    /// depends on the turn alone, and a triangle in a column of that width
+    /// covers no more turn than one chord of it. **A sphere takes it over the
+    /// square root of two**, because a cell there bends both ways and a
+    /// triangle inside one stands off by as much as the cell's own
+    /// circumcircle — so it is the cell's *diagonal* that must be no wider than
+    /// one chord, and a square of that diagonal has sides that much shorter.
+    pub(crate) fn strides(&self, reach: f64, sagitta: f64) -> DVec2 {
+        let round = |radius: f64| arc::widest(radius, sagitta);
+        match self {
+            Self::Plane(_) => DVec2::INFINITY,
+            Self::Cylinder(cylinder) => DVec2::new(round(cylinder.radius), f64::INFINITY),
+            // The circle at the far end of the face, taken square to the
+            // surface rather than out from the axis — the same turn
+            // [`Surface::straying`] makes, and for the same reason.
+            Self::Cone(cone) => DVec2::new(round(reach * cone.half_angle.sin()), f64::INFINITY),
+            // **The equator both ways**, which is as fine as anywhere and finer
+            // than the parameters need near a pole, where a whole turn of `u`
+            // covers hardly any surface. Erring that way costs corners in a cap
+            // and never costs a face that strays.
+            Self::Sphere(sphere) => DVec2::splat(round(sphere.radius) / SQRT_2),
+        }
+    }
+
     /// The box a face on this surface fills, given the box its boundary fills.
     ///
     /// **The boundary is enough for three of the four**, on one argument. Every
@@ -188,4 +294,16 @@ impl Surface {
             Self::Cylinder(_) | Self::Cone(_) | Self::Sphere(_) => true,
         }
     }
+}
+
+/// How much angle a triple of parameters covers, which for the two ruled
+/// surfaces here is the whole of what makes a triangle stray.
+///
+/// The parameters arrive *unwrapped* — see
+/// [`Face::flatten`](crate::solid::topology::face::Face) — so this is a plain
+/// difference rather than anything modular.
+fn spread(corners: [DVec2; 3]) -> f64 {
+    let round = corners.map(|uv| uv.x);
+    round.iter().fold(f64::NEG_INFINITY, |far, &at| far.max(at))
+        - round.iter().fold(f64::INFINITY, |near, &at| near.min(at))
 }

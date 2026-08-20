@@ -6,8 +6,13 @@
 //! body's. So the sagitta arrives from outside and nothing here is ever written
 //! back.
 
+mod lattice;
+mod refining;
+
 use crate::loops::Loops;
 use crate::math::triangulate::{Cutter, Fill};
+use crate::solid::mesh::lattice::Lattice;
+use crate::solid::mesh::refining::Refining;
 use crate::solid::named::Named;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
@@ -61,11 +66,21 @@ pub struct Mesher {
     holes: Loops<DVec2>,
     cutter: Cutter,
     fill: Fill,
+    refining: Refining,
 }
 
 impl Mesher {
-    /// Cut the face of `of` that `named` names into triangles, its curves
-    /// flattened no further than `sagitta` from the true surface.
+    /// Cut the face of `of` that `named` names into triangles, no further than
+    /// `sagitta` from the true surface along its edges.
+    ///
+    /// **A triangle is held to four times that, and the four is not slack.** A
+    /// face is cut between chains chorded apart from one another — a wall's
+    /// foot is a circle and its head may be an ellipse, each divided into its
+    /// own number of steps at its own places — so a triangle bridging them
+    /// reaches across a step of each, twice the angle either chord covers, and
+    /// what a chord stands off by grows as the square of the angle it covers.
+    /// Asking every triangle to be as true as a chord would mean chording the
+    /// edges finer than asked, not cutting the middle better.
     ///
     /// **A face of a body may come in several patches**, so this cuts all of
     /// them into one answer — see [`Named`]. A name that no face of the body
@@ -124,6 +139,7 @@ impl Mesher {
             holes,
             cutter,
             fill,
+            refining,
         } = self;
         traced.clear();
         outline.clear();
@@ -133,6 +149,14 @@ impl Mesher {
             topology.walk(coedge, sagitta, traced);
         }
         face.flatten(&traced[..], outline);
+        // **Measured in the cells the surface itself rules over**, which is
+        // what makes a triangulator's idea of near the same as a face's — see
+        // [`Lattice`]. Everything below runs in those units, and the corners
+        // are put back into the surface's own by the refining that follows.
+        let lattice = Lattice::of(&face.surface, &outline[..], sagitta);
+        for uv in outline.iter_mut() {
+            *uv = lattice.celled(*uv);
+        }
         let mut done = traced.len();
         for hole in topology.holes_of(face) {
             for &coedge in hole {
@@ -140,7 +164,12 @@ impl Mesher {
             }
             let from = done;
             done = traced.len();
-            holes.add(|into| face.flatten(&traced[from..done], into));
+            holes.add(|into| {
+                face.flatten(&traced[from..done], into);
+                for uv in into.iter_mut() {
+                    *uv = lattice.celled(*uv);
+                }
+            });
         }
 
         cutter.polygon(outline, holes, fill);
@@ -151,20 +180,24 @@ impl Mesher {
             return;
         }
 
-        // **The traced positions rather than the parameters evaluated back.**
-        // A corner is shared with every other face that meets there, and one
-        // recovered through an inversion and an evaluation could land a
-        // rounding away from the one its neighbour kept — which is a hairline
-        // between two faces that are meant to meet exactly.
+        // **Cut down until it follows the surface**, which the corners of the
+        // boundary alone do not buy — see [`Refining`]. It hands back the
+        // *traced* positions for every corner that came off the walk, rather
+        // than the parameters evaluated back: a corner is shared with every
+        // other face that meets there, and one recovered through an inversion
+        // and an evaluation could land a rounding away from the one its
+        // neighbour kept, which is a hairline between two faces that are meant
+        // to meet exactly.
+        refining.refine(&face.surface, &traced[..], fill, lattice, sagitta);
         let first = into.corners.len() as u32;
-        into.corners.extend(traced.iter().copied());
+        into.corners.extend_from_slice(refining.places());
         into.normals
-            .extend(fill.corners.iter().map(|&uv| face.normal(uv)));
+            .extend(refining.params().iter().map(|&uv| face.normal(uv)));
         // A fill is wound counterclockwise about `∂u × ∂v`, which is the way
         // the surface's own normal points. That is out of the solid exactly
         // when the face says the material is on that side.
         into.triangles
-            .extend(fill.triangles.iter().map(|&[a, b, c]| {
+            .extend(refining.triangles().iter().map(|&[a, b, c]| {
                 if face.outward {
                     [first + a, first + b, first + c]
                 } else {

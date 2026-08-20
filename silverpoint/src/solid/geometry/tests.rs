@@ -520,3 +520,161 @@ fn an_ellipse_reads_its_parameter_back_and_not_its_bearing() {
         assert!(curve.at(read).abs_diff_eq(curve.at(t), 1e-12));
     }
 }
+
+/// **How far a flat triangle strays from each of the four**, hand-computed, and
+/// the one thing they are all measured for.
+///
+/// Every figure below is written out rather than derived in the test: a chord
+/// covering `φ` of a circle of radius `r` stands `r(1 − cos(φ/2))` off it at its
+/// furthest, and each surface is that with the right radius put in.
+///
+/// - **A plane** strays by nothing, however far the triangle reaches — the one
+///   answer that makes a block cost a mesher no second thought.
+/// - **A cylinder** of radius two, over a third of a turn:
+///   `2(1 − cos 30°) = 0.267949192431123`.
+/// - **A cone** at forty-five degrees, three along its axis, over the same
+///   third of a turn: the ring out there has radius `3 tan 45° = 3`, and taken
+///   square to the surface rather than out from the axis that is
+///   `3 sin 45° (1 − cos 30°) = 0.284203036472259`.
+/// - **A sphere** of radius one, over a quarter turn of its equator:
+///   `1 − cos 45° = 0.292893218813452`, which is the same rule again and is
+///   asserted through the *degenerate* triple — a triangle with a corner
+///   written twice is the chord along that side, which is what a mesher asks
+///   about when it wants to know whether to halve one.
+///
+/// **The angle is not the measure on a sphere**, which is the fourth's whole
+/// point: a triangle right at a pole covers every angle of `u` there is and
+/// strays by almost nothing. Asserted, because a sphere written like the two
+/// ruled surfaces would read that as the worst triangle there could be.
+#[test]
+fn a_flat_triangle_strays_from_each_surface_by_the_arithmetic() {
+    let axis = upright();
+    let flat = Surface::Plane(Plane::GROUND);
+    let far = [
+        DVec2::new(-9.0, -9.0),
+        DVec2::new(9.0, -4.0),
+        DVec2::new(0.0, 7.0),
+    ];
+    assert_eq!(flat.straying(far), 0.0);
+
+    let third = [
+        DVec2::new(0.0, 1.0),
+        DVec2::new(PI / 6.0, 3.0),
+        DVec2::new(PI / 3.0, 2.0),
+    ];
+    let barrel = Surface::Cylinder(Cylinder { axis, radius: 2.0 });
+    assert!((barrel.straying(third) - 0.267949192431123).abs() < 1e-12);
+    // Only the turn it covers, and not how far it runs along — a cylinder does
+    // not bend that way, so a triangle twice as tall strays exactly as far.
+    let taller = third.map(|uv| DVec2::new(uv.x, uv.y * 2.0));
+    assert_eq!(barrel.straying(taller), barrel.straying(third));
+
+    let horn = Surface::Cone(Cone {
+        axis,
+        half_angle: FRAC_PI_4,
+    });
+    let reaching = [
+        DVec2::new(0.0, 1.0),
+        DVec2::new(PI / 6.0, 3.0),
+        DVec2::new(PI / 3.0, 2.0),
+    ];
+    assert!((horn.straying(reaching) - 0.284203036472259).abs() < 1e-12);
+
+    let ball = Surface::Sphere(Sphere { axis, radius: 1.0 });
+    let quarter = DVec2::new(FRAC_PI_2, 0.0);
+    let chord = [DVec2::ZERO, quarter, quarter];
+    assert!((ball.straying(chord) - 0.292893218813452).abs() < 1e-12);
+
+    // A whole turn of `u` at a hair from the pole, which is a triangle the size
+    // of a pinhead however wide its parameters read.
+    let pole = FRAC_PI_2 - 1e-4;
+    let capped = [
+        DVec2::new(0.0, pole),
+        DVec2::new(TAU / 3.0, pole),
+        DVec2::new(2.0 * TAU / 3.0, pole),
+    ];
+    assert!(ball.straying(capped) < 1e-8, "{}", ball.straying(capped));
+    assert!(barrel.straying(capped) > 1.9, "an angle is not a distance");
+}
+
+/// **The step each surface allows is the one its own arcs are chorded at**, and
+/// infinite along anything straight.
+///
+/// A cylinder of radius one at a sagitta of a thousandth allows
+/// `2 acos(1 − 1e-3) = 0.089450174...` of a turn, which is
+/// [`chords`](crate::math::arc::chords) read the other way round — the same
+/// number, so a triangle across a face and a chord along its edge are held to
+/// one rule and cannot drift apart. Along the axis it allows anything, a
+/// cylinder being straight that way, and a plane allows anything both ways.
+///
+/// A cone reads its step off the ring at the far end of the face, so a face
+/// further out is cut more finely; a sphere reads the same step both ways.
+#[test]
+fn each_surface_allows_the_step_its_own_arcs_are_chorded_at() {
+    let axis = upright();
+    let sagitta: f64 = 1e-3;
+    let step = 2.0 * (1.0 - sagitta).acos();
+    assert!((step - 0.08945017433746691).abs() < 1e-15);
+    assert_eq!(
+        crate::math::arc::chords(1.0, step, sagitta),
+        1,
+        "the step is not one chord's worth",
+    );
+
+    let flat = Surface::Plane(Plane::GROUND);
+    assert_eq!(flat.strides(5.0, sagitta), DVec2::INFINITY);
+
+    let barrel = Surface::Cylinder(Cylinder { axis, radius: 1.0 });
+    let allowed = barrel.strides(5.0, sagitta);
+    assert!((allowed.x - step).abs() < 1e-15);
+    assert_eq!(allowed.y, f64::INFINITY);
+
+    // Twice the radius allows *less* turn, not more: a chord covering a given
+    // angle of it reaches twice as far and stands twice as far off. And a whole
+    // step of whatever it allows strays exactly the sagitta asked for, which is
+    // the one thing tying the two answers together.
+    let fatter = Surface::Cylinder(Cylinder { axis, radius: 2.0 });
+    let wider = fatter.strides(5.0, sagitta);
+    assert!(wider.x < allowed.x, "{} against {}", wider.x, allowed.x);
+    let across = [
+        DVec2::ZERO,
+        DVec2::new(wider.x, 0.0),
+        DVec2::new(wider.x, 1.0),
+    ];
+    let strayed = fatter.straying(across);
+    assert!(
+        (strayed - sagitta).abs() < 1e-12,
+        "a whole step strays {strayed}"
+    );
+
+    // A cone reads the ring at the far end of the face, so reaching further
+    // asks for a finer step.
+    let horn = Surface::Cone(Cone {
+        axis,
+        half_angle: FRAC_PI_4,
+    });
+    assert!(horn.strides(9.0, sagitta).x < horn.strides(3.0, sagitta).x);
+    assert_eq!(horn.strides(3.0, sagitta).y, f64::INFINITY);
+
+    // **A sphere bends both ways, so it takes the step over the square root of
+    // two**: a cell there is square, and what a triangle inside one stands off
+    // by is set by the cell's own circumcircle — so it is the *diagonal* that
+    // may be no wider than one chord. Asserted through what it is for: a
+    // triangle spanning a whole cell corner to corner strays exactly the
+    // sagitta, where one held to `step` each way would stray twice that.
+    let ball = Surface::Sphere(Sphere { axis, radius: 1.0 });
+    let cell = ball.strides(5.0, sagitta);
+    assert_eq!(cell.x, cell.y);
+    assert!((cell.x - step / SQRT_2).abs() < 1e-15);
+    let corner = [
+        DVec2::ZERO,
+        DVec2::new(cell.x, cell.y),
+        DVec2::new(cell.x, cell.y),
+    ];
+    let across = ball.straying(corner);
+    assert!(across <= sagitta, "a cell's diagonal strays {across}");
+    assert!(
+        across > 0.999 * sagitta,
+        "and by more than it need be: {across}"
+    );
+}

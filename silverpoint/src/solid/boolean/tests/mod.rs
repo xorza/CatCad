@@ -791,6 +791,26 @@ fn a_pipe_mitred_across_keeps_the_ellipse_exact() {
         (round.abs() - TAU).abs() < 1e-12,
         "the mitre came round by {round} rather than a whole turn",
     );
+
+    // **And it shuts in what the arithmetic says.** A cylinder cut by a plane
+    // through its axis holds `πr²` times the height where the axis crosses it,
+    // the two halves of the wedge above and below cancelling exactly — three
+    // here, so `3π`. Chorded, so it reads short by about the wall inscribed in
+    // itself: two thirds of the sagitta over the circumference, along the
+    // height, which is the same bound the round tool above is held to.
+    let want = 3.0 * PI;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-2, 1e-3, 1e-4] {
+        let off = mesher.volume(&into, sagitta) - want;
+        let slack = (2.0 / 3.0) * sagitta * TAU * 3.0;
+        assert!(
+            off < 0.0 && -off < slack,
+            "the mitre shut in {off} off {want} at a sagitta of {sagitta}",
+        );
+        assert!(-off < last, "no closer at a sagitta of {sagitta}: {off}");
+        last = -off;
+    }
 }
 
 // Already inside a `cfg(test)` module, so it needs no gate of its own.

@@ -662,8 +662,7 @@ silverpoint/src/
     build/         mod, extrusion, strip, tests
     meeting/       mod (Meeting, Curves), tests
                    — to come: the algebraic route, beside it
-    mesh/          mod (Mesher, Patch), tests
-                   — to come: boolean/
+    mesh/          mod (Mesher, Patch), lattice, refining, tests
 ```
 
 The published surface is `Body`, `Grown`, `Extrusion`, `Builder`, `Mesher` and
@@ -753,10 +752,10 @@ the first hit — and it improves the two-dimensional fills next door for free.
 
 That is the general shape of the problem rather than a quirk of this contour: a
 triangulation good enough for a *plane* says nothing about whether it follows a
-curved surface. Constrained Delaunay is still the eventual answer, and the
-trigger for it is still a shading artifact rather than a principle — but the
-bar is now "no triangle spans more of the curvature than the sagitta allows"
-rather than "no slivers".
+curved surface. The bar is "no triangle spans more of the curvature than the
+sagitta allows" rather than "no slivers", and what meets it is the grid below
+rather than a better clipper — constrained Delaunay was tried and is the wrong
+objective here, for the reason recorded there.
 
 **It costs about twice what taking the first ear cost**: 14.5µs for a
 128-corner outline against 10.4µs, and 48.5µs for a 256-corner one against
@@ -764,9 +763,52 @@ rather than "no slivers".
 assuming — the first version of it was seven times dearer, all of it in two
 `%` operators in the innermost loop.
 
-Not yet done: **refining the interior**. Nothing here inserts a point that is
-not on the boundary, which is enough while every curved face is developable and
-its parameter domain is a rectangle. A sphere or a torus will want a grid.
+**A triangulation is measured in the cells the surface rules over, not in raw
+parameters.** Shortest-first only means anything if "short" means something, and
+an angle in radians against a height in millimetres is two units pretending to
+be one — a tenth of a radian reads as the smaller number, so the clipper joins
+across a cylinder in preference to along it and lays one triangle over the whole
+face. `Surface::strides` gives the step each parameter may take at the sagitta:
+what `arc::chords` cuts the boundary at where the surface bends, and the face's
+own extent where it does not, a straight direction having no step truer than
+another. Divided through by that, a wall is thirty-five cells round and one
+tall, and the strip falls out. Taking the face's own reach for a straight
+direction is also what makes the cut invariant to the units the model is drawn
+in, which the clipper's flat tolerances otherwise are not.
+
+**And the sagitta is then a promise rather than a hope** — `mesh/refining.rs`.
+Every side reaching over more than one cell is cut at the line of the grid
+nearest its middle, one axis finished before the other starts. When none does,
+the three corners of every triangle stand pairwise within a cell, so each lies
+in a box one cell across, and `Surface::strides` chose the cell so that a
+triangle in such a box cannot stray further than was asked for. Nothing compares
+a distance against a tolerance: it counts cells, and `Refining::held` is the
+`debug_assert` tying the counting back to the promise. The face's own boundary
+is never cut, a corner on an edge being one the face across it does not have —
+and nothing is lost, every curve covering any angle arriving chorded to the same
+sagitta.
+
+Two things had to be got right. A run of *exactly* one cell comes out an ulp
+over as often as an ulp under, and cutting one that is over puts a corner where
+a corner already is: the piece left has no length, still covers the cells its
+long side covers, and asks to be cut again for ever — measured, sixteen
+triangles growing by twenty-four a round without end. So the comparison carries
+`ROUNDING`, which means something bare here because the coordinates are counts
+of cells rather than lengths. And the axes have to be taken in turn: a corner
+put on a line of the second lands along a run that already fits a cell of the
+first, where doing both at once trades crossings back and forth — measured, a
+patch of a sphere sitting at ninety-seven straying triangles and gaining
+seventy-six a round for ever.
+
+Measured across the whole suite, the cutting never fires: the cells alone get
+every face the kernel builds right, and what it costs an ordinary face is one
+scan that finds nothing. It is the backstop, and it is watched working on a
+sphere and on a wall handed the fan that ear clipping used to leave.
+
+Constrained Delaunay was tried here and is *wrong*: it maximizes the minimum
+angle in whatever metric it is handed, which over a curved face is a rule
+against exactly the thin strips the surface wants. Measured, it took a mitred
+wall from a median span of 0.44 radians to 1.13.
 
 ### 7.3 Intersect — two routines, one per tier
 
@@ -1400,15 +1442,14 @@ inverses and an arc came back as a stretch it never covered.
 radius, or on axes that miss each other, are `Meeting::Algebraic` — which is
 M3b, and M3b wants M0's arithmetic. Everything reducible is carried.
 
-**What M5 still owes is a measurement, not a cut.** Its volumes — `a³ − πr²h`
-held already, `16r³/3` for the Steinmetz solid, and `πr²` times the height at
-the axis for the mitre — are read off the mesher, and the mesher refines a
-face's boundary and never its interior. A half cylinder under an oblique plane
-comes back with a triangle spanning the whole half turn at every sagitta, whose
-chord cuts across the surface: the wall reads 10.15 where it covers 11.42, and
-refining does not close it. A bore's wall is a rectangle in `(θ, v)` and happens
-to tile thin, which is why every volume held so far. The bodies are right and
-what measures them is not.
+**What M5 still owes is the Steinmetz volume**, `16r³/3`, and that waits on the
+quartic rather than on anything here. `a³ − πr²h` held already and `πr²` times
+the height at the axis holds for the mitre now: the mesher used to hand a half
+cylinder under an oblique plane one triangle spanning the whole half turn at
+every sagitta, so the wall read 10.15 where it covers 11.42 and the solid read
+6.49 where it holds 9.42. A bore's wall is a rectangle in `(θ, v)` and happened
+to tile thin, which is why every volume held before it. §7.2 is where the
+measure went wrong and what fixed it.
 
 **And the triangulator answers for a loop that is not simple.** Which it has to:
 a drawing hands it a face with an edge dangling into it every time, and a
