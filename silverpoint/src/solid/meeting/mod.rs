@@ -154,6 +154,15 @@ impl Meeting {
     /// geometry, so every pair is folded onto one order and answered once. The
     /// tests hold it to that.
     pub(crate) fn of(one: &Surface, two: &Surface) -> Self {
+        // **The same surface, bit for bit**, which is what splitting a wrap
+        // leaves behind: §4.4 gives the two halves of a cylinder or a cone one
+        // `Surface` between them, so the commonest coincidence in the kernel is
+        // also the cheapest to spot. Asked before the pairs below so that each
+        // of them answers about surfaces that are genuinely two — and so that a
+        // pair with no reduction written for it still knows itself.
+        if one == two {
+            return Self::Same;
+        }
         match (one, two) {
             (Surface::Plane(one), Surface::Plane(two)) => Self::plane_plane(one, two),
             (Surface::Plane(plane), Surface::Cylinder(cylinder))
@@ -170,10 +179,11 @@ impl Meeting {
                 Self::cylinder_sphere(cylinder, sphere)
             }
             (Surface::Sphere(one), Surface::Sphere(two)) => Self::sphere_sphere(one, two),
-            // A cone against anything curved. Coaxial pairs of these reduce to
-            // circles as readily as the rest, and are left until something can
-            // *make* a cone — a revolve, roadmap item 6 — because a case with
-            // no producer is a case with no way of knowing it is right.
+            // A cone against anything curved, the same cone twice over having
+            // been answered above. Coaxial pairs of these reduce to circles as
+            // readily as the rest, and are left until something can *make* a
+            // cone — a revolve, roadmap item 6 — because a case with no
+            // producer is a case with no way of knowing it is right.
             (Surface::Cone(_), _) | (_, Surface::Cone(_)) => Self::Algebraic,
         }
     }

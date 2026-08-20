@@ -1,9 +1,26 @@
 use crate::math::plane::Plane;
+use crate::number::tolerance::EXACT;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::extrusion::Extrusion;
+use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::circle::Circle;
+use crate::solid::geometry::cone::Cone;
+use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::line::Line;
+use crate::solid::geometry::sphere::Sphere;
+use crate::solid::geometry::surface::Surface;
+use crate::solid::grown::Grown;
 use crate::solid::named::Step;
 use crate::solid::topology::body::Body;
+use crate::solid::topology::coedge::Coedge;
+use crate::solid::topology::edge::Edge;
+use crate::solid::topology::face::{Face, FaceId};
+use crate::solid::topology::lump::Lump;
+use crate::solid::topology::shell::Shell;
+use crate::solid::topology::vertex::Vertex;
+use glam::DVec3;
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
 
 /// A two-by-two block three deep — the simplest thing the checker has an
 /// opinion about, and the fixture every mutation below breaks.
@@ -134,3 +151,286 @@ fn a_vertex_tighter_than_its_edge_is_refused() {
     body.topology_mut().vertex_mut(corner).tolerance = 0.0;
     body.check();
 }
+
+/// **A cone, built by hand and validated as a body** — which nothing in the
+/// kernel constructs, so until now the surface was tested and the *solid* was
+/// not. One of the two `.notes/KERNEL.md` M0 owes.
+///
+/// A party hat: the apex at the origin, opening up `+y` at forty-five degrees,
+/// cut off by its base two units up — so the base circle has radius two, the
+/// tangent of forty-five being one.
+///
+/// **Three faces, and the reason is §4.4.** No face may wrap, so the lateral
+/// surface is split down two rulings into halves that each cover half a turn,
+/// and the base disc closes it. Three vertices — the apex and the two places
+/// the rulings meet the base — and four edges: two arcs of the base circle and
+/// the two rulings. `3 − 4 + 3` is two, which is a sphere, which is what the
+/// boundary of a solid cone is.
+///
+/// **The apex is one vertex, not two**, and both rulings end there. It is also
+/// where the parameterization says nothing — every angle names the same place —
+/// which is what makes a cone worth building by hand rather than assuming.
+#[test]
+fn a_cone_built_by_hand_is_a_valid_body() {
+    let body = cone();
+    body.check();
+
+    let reckoning = body.reckoning();
+    assert_eq!(reckoning.characteristic, 2, "{reckoning:?}");
+    assert_eq!(reckoning.genus, 0, "{reckoning:?}");
+    assert_eq!(body.topology().faces().count(), 3);
+    assert_eq!(body.topology().edges().count(), 4);
+}
+
+/// The party hat above: apex at the origin, `+y`, forty-five degrees, two tall.
+fn cone() -> Body {
+    let upright = Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X);
+    let surface = Surface::Cone(Cone {
+        axis: upright,
+        half_angle: FRAC_PI_4,
+    });
+    let rim = Circle {
+        axis: Axis::new(DVec3::new(0.0, TALL, 0.0), DVec3::Y, DVec3::X),
+        radius: TALL,
+    };
+    let lid = Plane {
+        origin: DVec3::new(0.0, TALL, 0.0),
+        x: DVec3::X,
+        // So that `x × y` is `+y`, which is out of a solid sitting below it.
+        y: -DVec3::Z,
+    };
+
+    let mut body = Body::default();
+    let named = Step::default().grew(Grown::Base);
+    body.named(named);
+    let apex = body.topology_mut().add_vertex(Vertex {
+        at: DVec3::ZERO,
+        tolerance: EXACT,
+    });
+    let round = |angle: f64| body_place(&rim, angle);
+    let (near, far) = (
+        body.topology_mut().add_vertex(Vertex {
+            at: round(0.0),
+            tolerance: EXACT,
+        }),
+        body.topology_mut().add_vertex(Vertex {
+            at: round(PI),
+            tolerance: EXACT,
+        }),
+    );
+
+    let mut face = |surface, outward| {
+        body.topology_mut().add_face(Face {
+            surface,
+            outward,
+            loops: 0..0,
+            name: named,
+            tolerance: EXACT,
+        })
+    };
+    // Material inside, so every one of them faces away from the axis — and the
+    // lid faces up, off the top of the solid below it.
+    let (here, there) = (face(surface, true), face(surface, true));
+    let base = face(Surface::Plane(lid), true);
+
+    let mut edge = |curve, bounds: [f64; 2], from, to, between, artificial| {
+        body.topology_mut().add_edge(Edge {
+            curve,
+            bounds,
+            from,
+            to,
+            between,
+            artificial,
+            tolerance: EXACT,
+        })
+    };
+    // The two halves of the rim, and the two rulings the wrap was cut down.
+    // A ruling is smooth — the same cone on both sides of it — where an arc of
+    // the rim is a genuine crease between the cone and the lid.
+    let arcs = [
+        edge(
+            Curve::Circle(rim),
+            [0.0, PI],
+            near,
+            far,
+            [base, here],
+            false,
+        ),
+        edge(
+            Curve::Circle(rim),
+            [PI, TAU],
+            far,
+            near,
+            [base, there],
+            false,
+        ),
+    ];
+    let rulings = [PI, 0.0].map(|angle| {
+        let along = round(angle) - DVec3::ZERO;
+        let line = Line {
+            origin: DVec3::ZERO,
+            direction: along.normalize(),
+        };
+        let end = if angle == 0.0 { near } else { far };
+        edge(
+            Curve::Line(line),
+            [0.0, along.length()],
+            apex,
+            end,
+            [here, there],
+            true,
+        )
+    });
+
+    // Counterclockwise in each face's own parameters. On a lateral half that is
+    // up the ruling at the far edge of its turn, back along the rim, and down
+    // the near one — the apex being a whole side of the region collapsed to a
+    // point, so there is nothing to walk along the bottom.
+    let walks = [
+        (
+            here,
+            [(rulings[0], true), (arcs[0], false), (rulings[1], false)],
+        ),
+        (
+            there,
+            [(rulings[1], true), (arcs[1], false), (rulings[0], false)],
+        ),
+    ];
+    for (face, walk) in walks {
+        let at = body.topology_mut().add_loop(|into| {
+            into.extend(walk.map(|(edge, forward)| Coedge { edge, forward }));
+        });
+        body.topology_mut().face_mut(face).loops = at..at + 1;
+    }
+    let at = body.topology_mut().add_loop(|into| {
+        into.extend(arcs.map(|edge| Coedge {
+            edge,
+            forward: true,
+        }));
+    });
+    body.topology_mut().face_mut(base).loops = at..at + 1;
+
+    sealed(&mut body, &[here, there, base]);
+    body
+}
+
+/// Gather `faces` into one shell and that shell into one lump, which is how a
+/// closed body ends however it was built.
+fn sealed(body: &mut Body, faces: &[FaceId]) {
+    let from = body.topology().faces_shelled();
+    for &face in faces {
+        body.topology_mut().add_shelled(face);
+    }
+    let to = body.topology().faces_shelled();
+    let shell = body.topology_mut().add_shell(Shell { faces: from..to });
+    body.topology_mut().add_lump(Lump {
+        outer: shell,
+        voids: Vec::new(),
+    });
+}
+
+/// How tall the cone stands, which is also its base radius at forty-five
+/// degrees.
+const TALL: f64 = 2.0;
+
+/// Where `angle` lands on `rim`.
+fn body_place(rim: &Circle, angle: f64) -> DVec3 {
+    rim.at(angle)
+}
+
+/// **A sphere, built by hand and validated as a body** — the other of the two
+/// `.notes/KERNEL.md` M0 owes, and the harder shape.
+///
+/// **Two faces, two edges, two vertices**, and `2 − 2 + 2` is two. No face may
+/// wrap, so the ball is split down one great circle into halves that each cover
+/// half a turn; the two halves of *that* circle are the two edges, and the poles
+/// where they meet are the two vertices.
+///
+/// **Both edges lie on one circle**, which is the same thing two arcs of a
+/// bore's rim are, and both are smooth — a sphere either side of them. **Both
+/// vertices are singular points of the parameterization**: every angle round
+/// names the same pole, which is what makes this worth building rather than
+/// assuming.
+#[test]
+fn a_sphere_built_by_hand_is_a_valid_body() {
+    let body = ball();
+    body.check();
+
+    let reckoning = body.reckoning();
+    assert_eq!(reckoning.characteristic, 2, "{reckoning:?}");
+    assert_eq!(reckoning.genus, 0, "{reckoning:?}");
+    assert_eq!(body.topology().faces().count(), 2);
+    assert_eq!(body.topology().edges().count(), 2);
+    assert_eq!(body.topology().vertices().count(), 2);
+}
+
+/// A ball of radius [`ROUND`] about the origin, split down the great circle in
+/// the plane `z = 0`.
+fn ball() -> Body {
+    let surface = Surface::Sphere(Sphere {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        radius: ROUND,
+    });
+    // The seam, in the plane `z = 0`: its own frame runs `+z` so that the
+    // parameter climbs from the south pole through `+x` to the north.
+    let seam = Circle {
+        axis: Axis::new(DVec3::ZERO, DVec3::Z, DVec3::X),
+        radius: ROUND,
+    };
+
+    let mut body = Body::default();
+    let named = Step::default().grew(Grown::Base);
+    body.named(named);
+    let mut pole = |up: f64| {
+        body.topology_mut().add_vertex(Vertex {
+            at: DVec3::new(0.0, up, 0.0),
+            tolerance: EXACT,
+        })
+    };
+    let (south, north) = (pole(-ROUND), pole(ROUND));
+
+    let mut face = || {
+        body.topology_mut().add_face(Face {
+            surface,
+            outward: true,
+            loops: 0..0,
+            name: named,
+            tolerance: EXACT,
+        })
+    };
+    let (here, there) = (face(), face());
+
+    let mut meridian = |bounds: [f64; 2], from, to| {
+        body.topology_mut().add_edge(Edge {
+            curve: Curve::Circle(seam),
+            bounds,
+            from,
+            to,
+            between: [here, there],
+            // One sphere on both sides of it — see §4.4.
+            artificial: true,
+            tolerance: EXACT,
+        })
+    };
+    let up = meridian([-FRAC_PI_2, FRAC_PI_2], south, north);
+    let down = meridian([FRAC_PI_2, 3.0 * FRAC_PI_2], north, south);
+
+    // Counterclockwise in each half's own parameters: up the meridian at the
+    // far edge of its turn and down the near one, the poles being whole sides
+    // of the region collapsed to points.
+    for (face, walk) in [
+        (here, [(down, false), (up, false)]),
+        (there, [(up, true), (down, true)]),
+    ] {
+        let at = body.topology_mut().add_loop(|into| {
+            into.extend(walk.map(|(edge, forward)| Coedge { edge, forward }));
+        });
+        body.topology_mut().face_mut(face).loops = at..at + 1;
+    }
+
+    sealed(&mut body, &[here, there]);
+    body
+}
+
+/// How large the ball above is.
+const ROUND: f64 = 3.0;

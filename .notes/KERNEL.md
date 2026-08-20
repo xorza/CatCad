@@ -1093,10 +1093,19 @@ out too late. Note what §4.1 now adds — the exactness of a *body* is capped b
 the exactness of the drawing it was raised from, so this milestone reaches into
 `sketch/` before it is finished.
 
-**Tests still owed by it.** A cone and a sphere built by hand and validated —
-today they are tested as surfaces, not as bodies, because nothing constructs
-one. Volume and surface area matching hand-computed values **exactly** rather
-than to a tolerance, which needs the exact arithmetic to be true at all.
+**Tests still owed by it.** Volume and surface area matching hand-computed
+values **exactly** rather than to a tolerance, which needs the exact arithmetic
+to be true at all.
+
+Held now: **a cone and a sphere built by hand and validated as bodies**, which
+nothing in the kernel constructs, so until now the surfaces were tested and the
+solids were not. A party hat — apex, two lateral halves and a base disc, three
+vertices, four edges — and a ball split down one great circle into two halves
+over two poles. Both come to a characteristic of two. Building them turned up
+two things: `Meeting::of` did not know a surface met itself unless a reduction
+happened to be written for the pair, which now it does before anything else;
+and the mesher cannot cut either of them, a face with a side collapsed to a
+point being a shape it has no answer for — recorded in `.notes/ISSUES.md`.
 
 Held already: the filter against the exact fallback across near-degenerate
 inputs **and shown to fire**, a filter that never triggers the fallback being a

@@ -514,3 +514,35 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
     assert_eq!(Meeting::of(&leaning, &cone), Meeting::Algebraic);
     assert_eq!(Meeting::of(&cone, &upright(2.0)), Meeting::Algebraic);
 }
+
+/// **Every surface meets itself, whatever else is known about the pair.**
+///
+/// Not a curiosity: §4.4 splits a wrap into halves that share one `Surface`, so
+/// a surface against itself is the commonest coincidence the kernel has, and
+/// what a boolean reads to tell a coincident pair of faces from a crossing one.
+///
+/// For three of the four it falls out of the reduction written for the pair —
+/// two planes a nothing apart, two cylinders of one radius on one axis. For a
+/// **cone** there is no such reduction and deliberately so, curved pairs of
+/// them waiting on something that can make one; the answer here comes from
+/// asking whether the two are the same surface before asking anything else, and
+/// a cone split down its rulings has no other way to know its own seams are
+/// smooth.
+#[test]
+fn every_surface_meets_itself() {
+    let ball = Surface::Sphere(Sphere {
+        axis: Axis::new(DVec3::Y * 2.0, DVec3::Y, DVec3::X),
+        radius: 3.0,
+    });
+    let horn = Surface::Cone(Cone {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        half_angle: FRAC_PI_4,
+    });
+    for surface in [facing(DVec3::Y, DVec3::Y), upright(3.0), horn, ball] {
+        assert_eq!(
+            Meeting::of(&surface, &surface),
+            Meeting::Same,
+            "{surface:?} did not know itself",
+        );
+    }
+}
