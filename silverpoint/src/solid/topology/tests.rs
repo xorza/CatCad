@@ -180,8 +180,8 @@ fn a_lump_facing_inward_is_refused() {
 }
 
 /// **A cone, built by hand and validated as a body** — which nothing in the
-/// kernel constructs, so until now the surface was tested and the *solid* was
-/// not. One of the two `.notes/KERNEL.md` M0 owes.
+/// kernel constructs, so without this the surface is tested and the *solid* is
+/// not. The pair to the sphere below, and the easier of the two.
 ///
 /// A party hat: the apex at the origin, opening up `+y` at forty-five degrees,
 /// cut off by its base two units up — so the base circle has radius two, the
@@ -365,8 +365,8 @@ fn body_place(rim: &Circle, angle: f64) -> DVec3 {
     rim.at(angle)
 }
 
-/// **A sphere, built by hand and validated as a body** — the other of the two
-/// `.notes/KERNEL.md` M0 owes, and the harder shape.
+/// **A sphere, built by hand and validated as a body** — the pair to the cone
+/// above, and the harder shape.
 ///
 /// **Two faces, two edges, two vertices**, and `2 − 2 + 2` is two. No face may
 /// wrap, so the ball is split down one great circle into halves that each cover

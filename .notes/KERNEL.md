@@ -892,11 +892,14 @@ are in this order because the second cannot be done first:
   which is a compositum and not the two storeys §4.2 caps the tower at. That is
   the half nobody costed, and the cost is now visible.
 
-  **A nearer limit is the tolerance model itself.** `predicate::slack` gives a
-  check an absolute nanometre where a float's error is relative, so a body drawn
-  four hundred million units out fails its own validity check — see
-  `.notes/ISSUES.md`. Nothing about the crossings; everything about what a
-  rounding is worth out there.
+  **And the tolerance model allows for where a body is drawn.**
+  `predicate::slack` gave a check an absolute nanometre where a float's error is
+  a proportion, so a body a hundred million units from the origin failed its own
+  validity check. It now carries both: `ROUNDING` as the floor, and `DRIFTING`
+  as what a value of that size is written down to. The size is the *arithmetic's*
+  rather than the answer's — a line reaching back from far away lands next to
+  the origin off terms a hundred million wide — so a curve says how large it
+  works and the check asks it.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.

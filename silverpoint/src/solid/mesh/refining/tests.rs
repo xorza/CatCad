@@ -158,6 +158,19 @@ fn covered(params: &[DVec2], triangles: &[[u32; 3]]) -> f64 {
 /// every corner put in is on the cylinder, and the mesh covers exactly what
 /// it covered — the last two together saying the cut was conforming rather
 /// than merely finer.
+/// How far the furthest corner of `refining` stands from the origin.
+///
+/// What [`predicate::slack`] is asked over: the machine writes a place down to
+/// a proportion of its own size, so a check comparing places has to say how
+/// large they are.
+fn reach(refining: &Refining) -> f64 {
+    refining
+        .places()
+        .iter()
+        .map(|at| at.length())
+        .fold(0.0, f64::max)
+}
+
 #[test]
 fn however_badly_a_wall_is_tiled_it_is_cut_back_to_the_sagitta() {
     let sagitta = 1e-3;
@@ -178,7 +191,7 @@ fn however_badly_a_wall_is_tiled_it_is_cut_back_to_the_sagitta() {
     // wide — see [`Lattice::over`].
     let fine = worst(&surface, refining.params(), refining.triangles());
     assert!(
-        predicate::touching(fine, predicate::slack(sagitta)),
+        predicate::touching(fine, predicate::slack(sagitta, reach(&refining))),
         "a triangle strays {fine} of {sagitta}",
     );
     assert!(
@@ -211,7 +224,7 @@ fn however_badly_a_wall_is_tiled_it_is_cut_back_to_the_sagitta() {
     assert!(refining.triangles().len() > given.fill.triangles.len());
     let fine = worst(&surface, refining.params(), refining.triangles());
     assert!(
-        predicate::touching(fine, predicate::slack(sagitta / 10.0)),
+        predicate::touching(fine, predicate::slack(sagitta / 10.0, reach(&refining))),
         "a triangle strays {fine}",
     );
 }
@@ -248,7 +261,7 @@ fn a_face_wide_in_both_directions_is_given_corners_in_the_middle() {
     let refining = given.refined(&surface, sagitta);
     let fine = worst(&surface, refining.params(), refining.triangles());
     assert!(
-        predicate::touching(fine, predicate::slack(sagitta)),
+        predicate::touching(fine, predicate::slack(sagitta, reach(&refining))),
         "a triangle strays {fine} of {sagitta}",
     );
 

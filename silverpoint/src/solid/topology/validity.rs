@@ -265,7 +265,14 @@ impl Checking {
         for (id, edge) in topology.edges() {
             for (end, bound) in edge.ends(true).into_iter().zip(edge.bounds) {
                 let vertex = topology.vertex(end);
-                let given = slack(vertex.tolerance);
+                // Over how large the arithmetic worked, which is the curve's
+                // to say rather than the answer's: a line reaching back from
+                // far away lands next to the origin off terms a hundred
+                // million wide. See [`slack`] and [`Curve::reach`].
+                let given = slack(
+                    vertex.tolerance,
+                    edge.curve.reach(bound).max(vertex.at.length()),
+                );
                 assert!(
                     vertex.at.approx_eq(edge.curve.at(bound), given),
                     "edge {id:?} at {bound} is {} from vertex {end:?}, which stands for {given}",
@@ -288,13 +295,15 @@ impl Checking {
     fn edge_lies_on(&self, topology: &Topology, id: EdgeId, edge: &Edge, face: FaceId) {
         const SAMPLES: usize = 5;
         let surface = topology.face(face).surface;
-        let given = slack(edge.tolerance);
         let [from, to] = edge.bounds;
         for sample in 0..=SAMPLES {
-            let at = edge
-                .curve
-                .at(from + (to - from) * sample as f64 / SAMPLES as f64);
+            let t = from + (to - from) * sample as f64 / SAMPLES as f64;
+            let at = edge.curve.at(t);
             let off = surface.off(at);
+            // Per sample rather than per edge, the samples of a long edge
+            // standing at wildly different sizes and each written down to a
+            // proportion of what its own arithmetic worked in.
+            let given = slack(edge.tolerance, edge.curve.reach(t).max(at.length()));
             assert!(
                 predicate::touching(off, given),
                 "edge {id:?} leaves face {face:?} by {off} a fifth of the way at {sample}, \

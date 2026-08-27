@@ -1,5 +1,5 @@
 use crate::number::predicate::{ApproxEq, normalized, parallel, slack, square, touching, wraps};
-use crate::number::tolerance::{EXACT, ROUNDING};
+use crate::number::tolerance::{DRIFTING, EXACT, ROUNDING};
 use glam::{DVec2, DVec3};
 use std::f64::consts::TAU;
 
@@ -55,12 +55,43 @@ fn a_place_is_the_same_distance_away_every_way_round() {
 /// given the machine's own room and a loose one is not given it twice.
 #[test]
 fn slack_adds_the_rounding_rather_than_taking_the_larger() {
-    assert_eq!(slack(EXACT), ROUNDING);
-    assert_eq!(slack(ROUNDING), 2.0 * ROUNDING);
-    assert_eq!(slack(1.0), 1.0 + ROUNDING);
+    assert_eq!(slack(EXACT, 0.0), ROUNDING);
+    assert_eq!(slack(ROUNDING, 0.0), 2.0 * ROUNDING);
+    assert_eq!(slack(1.0, 0.0), 1.0 + ROUNDING);
     // Which is the whole difference from a maximum: that would have
     // answered `ROUNDING` for the middle case and checked nothing.
-    assert!(slack(ROUNDING) > ROUNDING.max(ROUNDING));
+    assert!(slack(ROUNDING, 0.0) > ROUNDING.max(ROUNDING));
+}
+
+/// **And the machine's share grows with what is being compared**, because a
+/// rounding does.
+///
+/// At the size a drawing is worked at the floor is the whole of it — the rung
+/// `tolerance`'s own const assertion pins. Out at a hundred million the drift
+/// is the wider by two decades, and a check reading only the floor refuses a
+/// body for being drawn there, which is what this is here to stop.
+///
+/// Hand-computed either way, and held to the two constants rather than to
+/// numbers written out beside them.
+#[test]
+fn slack_grows_with_the_size_it_is_asked_over() {
+    // At the size a drawing is worked at the floor is the whole of it, which
+    // is the rung `tolerance` asserts and this reads the other side of.
+    assert_eq!(slack(EXACT, 1.0), ROUNDING + DRIFTING);
+
+    let far = 1e8;
+    let out = slack(EXACT, far);
+    assert_eq!(out, ROUNDING + far * DRIFTING);
+    assert!(
+        out > 100.0 * ROUNDING,
+        "the drift out at {far} is {out}, which the floor already covers",
+    );
+    // The ulp of a coordinate that size, which is what the check has to admit:
+    // a place written down out there is not written down any better.
+    assert!(
+        out > far * f64::EPSILON,
+        "the slack at {far} is under one place in the last",
+    );
 }
 
 /// A whole turn wraps whichever way it is turned; a hair under it does not.

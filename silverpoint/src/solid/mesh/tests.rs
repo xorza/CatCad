@@ -361,8 +361,14 @@ fn a_curved_face_wider_than_it_is_tall_still_follows_its_surface() {
                 // To within a rounding, a cell being allowed to come out that
                 // much wide — the same reading `Refining::held` takes.
                 let strayed = face.surface.straying(uv);
+                // Over the triangle's own places, the machine writing one down
+                // to a proportion of its size — see [`predicate::slack`].
+                let size = [a, b, c]
+                    .into_iter()
+                    .map(|at| at.length())
+                    .fold(0.0, f64::max);
                 assert!(
-                    predicate::touching(strayed, predicate::slack(sagitta)),
+                    predicate::touching(strayed, predicate::slack(sagitta, size)),
                     "a triangle stands {strayed} off the wall at a sagitta of {sagitta}",
                 );
             }

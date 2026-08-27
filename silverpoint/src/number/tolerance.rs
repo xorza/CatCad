@@ -58,6 +58,25 @@ pub(crate) const ROUNDING: f64 = 1e-9;
 /// extent of the two bodies being put together.
 pub(crate) const CHORDED: f64 = 1e-3;
 
+/// How far a value may stand from the truth for its own size, as a proportion.
+///
+/// **A rounding is relative and [`ROUNDING`] is not.** That one is what a
+/// handful of `f64` operations cannot promise away at the size a drawing is
+/// worked at. Out where a coordinate runs to a hundred million, one place in
+/// the last is already worth sixty times the whole of it — so a check holding
+/// the machine to an absolute nanometre out there is holding it to more than it
+/// can do, and refuses a body for being drawn a long way from the origin.
+///
+/// Eight places in the last, which is the handful of operations either side of
+/// such a check goes through: a plane's point is an origin and two scaled axes,
+/// and a curve's is much the same.
+///
+/// **Only a check reads it**, exactly as [`ROUNDING`] is read. Nothing is
+/// constructed to it and nothing records having used it, because there is no
+/// decision here to record: the two answers were the same answer, and the
+/// machine wrote them down differently.
+pub(crate) const DRIFTING: f64 = 8.0 * f64::EPSILON;
+
 /// How much of a turn a face may cover before its surface wraps back onto
 /// itself, in radians.
 ///
@@ -147,4 +166,14 @@ pub(crate) const NO_DIRECTION: f64 = 1e-12;
 const _: () = assert!(
     NO_DIRECTION * 1e3 <= PLACED,
     "NO_DIRECTION is no longer three decades under PLACED",
+);
+
+// What a *unit* drifts by has to stay well under the floor, or the floor is
+// not one: a check at the size a drawing is worked at would then be reading
+// the drift, and `ROUNDING` would be saying nothing. Three decades is what is
+// pinned here and better than five is what holds — the two change places out
+// past half a million, which is the whole reason for carrying both.
+const _: () = assert!(
+    DRIFTING * 1e3 <= ROUNDING,
+    "DRIFTING is no longer three decades under ROUNDING at unit scale",
 );

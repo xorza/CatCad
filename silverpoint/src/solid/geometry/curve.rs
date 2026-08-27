@@ -79,6 +79,25 @@ impl Curve {
         }
     }
 
+    /// How large the numbers evaluating it at `t` works in.
+    ///
+    /// **Not how large the answer is.** A place on a curve can land next to the
+    /// origin off terms a hundred million wide — a line reaching back from far
+    /// away is the plain case — and what a check has to allow the machine is a
+    /// proportion of *those* rather than of what came out, cancellation having
+    /// thrown the size of them away. See
+    /// [`slack`](crate::number::predicate::slack).
+    ///
+    /// A round curve's parameter is an angle and carries no size of its own, so
+    /// only the straight one reads `t` at all.
+    pub(crate) fn reach(&self, t: f64) -> f64 {
+        match self {
+            Self::Line(line) => line.origin.length() + t.abs(),
+            Self::Circle(circle) => circle.axis.origin.length() + circle.radius,
+            Self::Ellipse(ellipse) => ellipse.axis.origin.length() + ellipse.major,
+        }
+    }
+
     /// Where the parameter `t` lands.
     pub(crate) fn at(&self, t: f64) -> DVec3 {
         match self {

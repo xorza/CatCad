@@ -5,7 +5,7 @@
 //! deciding the shape of a solid inside an expression, where the decision
 //! cannot be seen, cannot be widened, and cannot be told from a rounding.
 
-use crate::number::tolerance::{ALIGNED, ROUNDING, WRAPPING};
+use crate::number::tolerance::{ALIGNED, DRIFTING, ROUNDING, WRAPPING};
 use glam::{DVec2, DVec3};
 
 /// Equality to within a tolerance, for every kind of number geometry measures.
@@ -66,20 +66,33 @@ pub(crate) fn touching(off: f64, given: f64) -> bool {
     off <= given
 }
 
-/// What an entity's tolerance comes to once the machine is allowed for.
+/// What an entity's tolerance comes to once the machine is allowed for, over
+/// values as large as `size`.
 ///
 /// Additive rather than a maximum, and the two are different questions. A
-/// tolerance is what the *geometry* is known to; [`ROUNDING`] is what the
+/// tolerance is what the *geometry* is known to; the rest is what the
 /// arithmetic reading it cannot promise away. A check that took the larger of
 /// the two would be checking an exact entity against nothing but the rounding,
 /// and one that took the tolerance alone would fail on arithmetic rather than
 /// on geometry.
 ///
+/// **The machine's share is two terms, because a rounding has two.**
+/// [`ROUNDING`] is the floor, for a comparison whose values are small or
+/// nought; [`DRIFTING`] is what a value of `size` carries of its own. With only
+/// the first, a body drawn a hundred million units from the origin fails its
+/// own validity check — one place in the last out there is already the wider of
+/// the two, and it is the machine rather than the geometry.
+///
+/// `size` is how large the values being compared are, and the caller names it
+/// because only the caller knows: a distance handed in has already lost the
+/// magnitudes it came from.
+///
 /// Only checks read this. Nothing is *constructed* to it, because there is no
 /// decision here to record: two routes to one place answered the same answer.
-pub(crate) fn slack(tolerance: f64) -> f64 {
+pub(crate) fn slack(tolerance: f64, size: f64) -> f64 {
     debug_assert!(tolerance >= 0.0, "a negative {tolerance} admits nothing");
-    tolerance + ROUNDING
+    debug_assert!(size >= 0.0, "a size is a magnitude, not {size}");
+    tolerance + ROUNDING + size * DRIFTING
 }
 
 /// Whether `direction` has been normalized.

@@ -273,8 +273,22 @@ impl Refining {
     /// Further by more than the arithmetic reading it can promise away — see
     /// [`predicate::slack`].
     fn strays(&self, surface: &Surface, sagitta: f64, at: usize) -> bool {
-        let corners = self.triangles[at].map(|of| self.params[of as usize]);
-        !predicate::touching(surface.straying(corners), predicate::slack(sagitta))
+        let held = self.triangles[at];
+        let corners = held.map(|of| self.params[of as usize]);
+        // How large the triangle's own places are, which is what the machine's
+        // share of the slack is a proportion of — see [`predicate::slack`]. The
+        // furthest of the three, so a triangle straddling the origin is given
+        // what its widest corner is written down to.
+        //
+        // Squared until the end: this is asked of every triangle of every face
+        // of every remesh, and one root over the widest is two fewer than a
+        // root apiece.
+        let size = held
+            .iter()
+            .map(|&of| self.places[of as usize].length_squared())
+            .fold(0.0, f64::max)
+            .sqrt();
+        !predicate::touching(surface.straying(corners), predicate::slack(sagitta, size))
     }
 
     /// Whether the side at `at` in the table may be cut at all.

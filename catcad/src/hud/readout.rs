@@ -28,7 +28,7 @@ use crate::status::Solved;
 /// **The one place the overlay reports in the drawing's own colours.** How much
 /// freedom a sketch has left is painted onto the geometry itself — cool for
 /// none, warm for all of it — and the swatch is filled off the same table. See
-/// [`ink`](crate::look::ink).
+/// [`Swatch::ink`](crate::look::palette::swatch::Swatch::ink).
 pub(super) fn show(ui: &mut Ui, shown: Shown<'_>) {
     let Shown { rest, solved, .. } = shown;
     let theme = shown.theme;

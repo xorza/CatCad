@@ -12,7 +12,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 /// **Bytes rather than floats**, and that is the whole of why the type exists.
 /// A palette is authored, read and diffed as hex — `#7adcf3` is what the source
 /// says and what a person checks against it — and a float triple does not come
-/// back as the hex it was written as. [`Color`](palantir::Color) quantises to
+/// back as the hex it was written as. [`palantir::Color`] quantises to
 /// sRGB through a cubic inverse that is good to one count per channel, which is
 /// one count too many for a value that has to survive a round trip unchanged.
 ///

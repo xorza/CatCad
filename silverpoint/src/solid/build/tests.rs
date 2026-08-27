@@ -398,12 +398,17 @@ fn an_extrusion_of_no_depth_is_a_body_with_nothing_in_it() {
 /// from wrapping — both worked out exactly and neither passing through the
 /// fold at all. A square with a circle inside it has both at once.
 ///
-/// **And two whose corners nobody drew.** A run straight through a square
+/// **And three whose corners nobody drew.** A run straight through a square
 /// crosses two of its sides, and a chord across a circle comes off a quadratic
 /// — corners the arrangement worked out rather than read off the drawing, and
 /// the ones a body's exactness used to be capped by. They stand for nothing
 /// because `math::intersect` decides whether a crossing lands on what made it
 /// rather than reading it off a parameter.
+///
+/// The third is the same run a hundred million units out, where a coordinate is
+/// written down to sixty nanometres of its own size. It stands for nothing too,
+/// and it is the one that says the *check* allows for a rounding being a
+/// proportion rather than a fixed width.
 ///
 /// The edges are asked too, and for a different reason: an edge is the true
 /// intersection of the two surfaces either side of it — §4.3's own definition
@@ -452,6 +457,19 @@ fn a_drawing_that_folded_nothing_raises_a_body_that_stands_for_nothing() {
     let chord = [(0.0, 2.0), (4.0, 2.0)].map(|(x, y)| sketch.add_point(DVec2::new(x, y)));
     sketch.add_segment(chord[0], chord[1]);
     drawings.push(("a circle cut by a chord", sketch));
+
+    // The same run through a square, out where a product of two coordinates
+    // needs more bits than a float holds and one place in the last is worth
+    // sixty nanometres. Every crossing here is worked out through arithmetic
+    // that rounds, and the *check* has to allow for a rounding being a
+    // proportion — see [`slack`](crate::number::predicate::slack).
+    let far = 100000001.0;
+    let mut sketch = Sketch::default();
+    square(&mut sketch, DVec2::ZERO, 4.0 * far);
+    let across = [(-far, 2.0 * far), (5.0 * far, 2.0 * far)]
+        .map(|(x, y)| sketch.add_point(DVec2::new(x, y)));
+    sketch.add_segment(across[0], across[1]);
+    drawings.push(("a square run through, far from the origin", sketch));
 
     for (drawn, sketch) in drawings {
         let found = Arrangement::of(&sketch);

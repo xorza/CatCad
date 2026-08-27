@@ -65,7 +65,7 @@ impl Pill {
     }
 
     /// Hold it to a width, for a surface carrying text that could otherwise run
-    /// on — see [`Chrome::card`].
+    /// on — see [`Chrome::card`](crate::look::chrome::Chrome).
     pub(super) fn width(mut self, width: f32) -> Self {
         self.panel = self.panel.size((Sizing::fixed(width), Sizing::HUG));
         self

@@ -350,7 +350,8 @@ impl Piece {
 ///
 /// What the controls share, which is everything but their outline, their colour
 /// and how hard they compete for a click: the width a handle is stroked at — see
-/// [`GIZMO_WIDTH`] — and closed, because every control is a filled outline.
+/// [`Drawing::gizmo`](crate::look::drawing::Drawing) — and closed, because
+/// every control is a filled outline.
 ///
 /// **Not the standing.** No two controls here want the same one and each says
 /// why where it sets it, so a default set here would be a value every caller
