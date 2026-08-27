@@ -106,10 +106,13 @@ impl Timeline {
     /// every step the file holds: a default that seeded these would give a
     /// loaded document two sets of them.
     ///
-    /// The three are ordinary steps once they are here, so nothing downstream
-    /// treats them as a header. What that costs is that a fourth [`World`]
-    /// would have to be added to the list below by hand; the file's own
-    /// conversion is exhaustive both ways and is where that is caught.
+    /// The three are ordinary steps once they are here, and nothing in the
+    /// timeline treats them as a header: they are moved, referred to and
+    /// written to a file like any other. What tells them apart is a reading
+    /// rather than a rule — see [`Feature::chosen`], which is what the recipe
+    /// leaves them off by. What that costs is that a fourth [`World`] would
+    /// have to be added to the list below by hand; the file's own conversion is
+    /// exhaustive both ways and is where that is caught.
     pub(crate) fn started() -> Self {
         let mut timeline = Self::default();
         for world in [World::Ground, World::Front, World::Side] {
@@ -458,8 +461,11 @@ impl Timeline {
     /// back — so a document without them is one nothing can be started on, and
     /// taking one out would cascade away most of what is drawn for the sake of a
     /// step nobody put there.
+    ///
+    /// Which is [`Feature::chosen`] and not a rule of its own: what may be
+    /// taken out is what somebody put there.
     pub(crate) fn removable(&self, at: FeatureId) -> bool {
-        !matches!(self.feature(at), Feature::Plane(Datum::World(_)))
+        self.feature(at).chosen()
     }
 
     /// The step at `at` and everything built on it, in the order they sit.
@@ -569,9 +575,10 @@ impl Timeline {
                 along: Along::on(self.plane(*from)),
             }),
             // Neither is a thing a drag can take anywhere, and neither is a
-            // caller's mistake to ask about: a step is picked out by *being* a
-            // row of the tree, so what may be dragged is a question asked of
-            // whatever was picked rather than of a plane known to be one.
+            // caller's mistake to ask about: what is picked out is a row of the
+            // recipe or a square in the view, so what may be dragged is a
+            // question asked of whatever was picked rather than of a plane
+            // known to be one.
             Feature::Plane(Datum::World(_)) | Feature::Sketch { .. } | Feature::Extrude { .. } => {
                 None
             }

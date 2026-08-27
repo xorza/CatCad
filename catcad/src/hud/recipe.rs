@@ -15,7 +15,7 @@ use crate::look::icons::{Glyph, Icons};
 use crate::model::Broken;
 use crate::part::Part;
 use crate::timeline::FeatureId;
-use crate::timeline::feature::{Datum, Feature};
+use crate::timeline::feature::Feature;
 use glam::Vec3;
 
 /// A row's identity, by the handle of the step it stands for.
@@ -72,7 +72,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
             // see [`Models::rolled`](crate::model::Models::rolled), which names
             // that step rather than marking the tail below it.
             let mut built = true;
-            for (at, feature) in models.steps() {
+            for (at, feature) in models.chosen() {
                 // The same words the status line uses for the same states, so the
                 // two say it the same way — see [`Status`](crate::status::Status).
                 let broken = match models.broken_at(at) {
@@ -80,28 +80,28 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                     Some(Broken::Unmerged) => " · apart",
                     None => "",
                 };
+                // Numbered within its kind, and every row is: what the walk
+                // holds is what somebody put there, and the three the world
+                // comes with — the only steps that carry a name of their own —
+                // are not among them. See [`Models::chosen`].
                 let (glyph, named, nth) = match feature {
-                    Feature::Plane(Datum::World(world)) => (Glyph::Plane, world.named(), None),
-                    Feature::Plane(Datum::Offset { .. }) => {
+                    Feature::Plane(_) => {
                         planes += 1;
-                        (Glyph::Plane, "Plane", Some(planes))
+                        (Glyph::Plane, "Plane", planes)
                     }
                     Feature::Sketch { .. } => {
                         sketches += 1;
-                        (Glyph::Sketch, "Sketch", Some(sketches))
+                        (Glyph::Sketch, "Sketch", sketches)
                     }
                     Feature::Extrude { .. } => {
                         solids += 1;
-                        (Glyph::Extrude, "Extrude", Some(solids))
+                        (Glyph::Extrude, "Extrude", solids)
                     }
                 };
                 // Interned into the pass's own arena rather than formatted into a
                 // `String`: this is a row per step per frame, and the record pass is
                 // gated at zero allocations.
-                let label = match nth {
-                    Some(nth) => ui.fmt(format_args!("{named} {nth}{broken}")),
-                    None => ui.fmt(format_args!("{named}{broken}")),
-                };
+                let label = ui.fmt(format_args!("{named} {nth}{broken}"));
                 let showing = Row {
                     at,
                     glyph,

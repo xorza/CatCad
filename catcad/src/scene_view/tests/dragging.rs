@@ -250,7 +250,7 @@ fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
         raised
             .document
             .models(&raised.build, raised.session.editing())
-            .steps()
+            .chosen()
             .find_map(|(_, feature)| match feature {
                 Feature::Extrude { distance, .. } => Some(*distance),
                 Feature::Plane(_) | Feature::Sketch { .. } => None,

@@ -496,18 +496,33 @@ impl<'a> Models<'a> {
             })
     }
 
-    /// Every step the document holds, in the order they are built.
+    /// Every step somebody chose to put in the document, in the order they are
+    /// built.
     ///
-    /// **The whole recipe**, where everything else here narrows it: this is what
-    /// the feature tree draws, and the one reading that has to show a step of
-    /// every kind rather than the sketches or the planes among them.
+    /// **What the feature tree lists**, and the one reading here that has to
+    /// show a step of every kind rather than the sketches or the planes among
+    /// them.
+    ///
+    /// The three the world comes with are not among them — see
+    /// [`Feature::chosen`]. They are in the timeline and the file holds them,
+    /// but this is a list of what was *done* to a document and nobody did
+    /// them: they were there before anything else, and they are the one kind of
+    /// step a delete refuses.
+    ///
+    /// Nor is a row the only way to reach one. Every plane draws a square in
+    /// the view and a press on it picks the same step a row would, and the
+    /// three are the only planes whose square carries their name — see
+    /// [`named_planes`](crate::paint::write). The row was a second way to a
+    /// thing that already had one, at the head of the list, three rows deep.
     ///
     /// The step itself and not a reading of it, unlike [`Models::planes`] beside
     /// it. What a row needs is which kind and what it is called, and a `Sheeted`
     /// per step would be resolving a plane for every sketch and every solid to
     /// answer neither question.
-    pub(crate) fn steps(self) -> impl Iterator<Item = (FeatureId, &'a Feature)> {
-        self.timeline.steps()
+    pub(crate) fn chosen(self) -> impl Iterator<Item = (FeatureId, &'a Feature)> {
+        self.timeline
+            .steps()
+            .filter(|(_, feature)| feature.chosen())
     }
 
     /// What went wrong with the step at `at`, where anything did.
@@ -732,7 +747,7 @@ mod internals {
         /// read by: the model of two blocks joined is one body whether they are
         /// two lumps or one, and it is the *recipe* those tests are about.
         pub(crate) fn grown(self) -> usize {
-            self.steps()
+            self.chosen()
                 .filter(|(at, feature)| {
                     matches!(feature, Feature::Extrude { .. })
                         && self.timeline.built(*at)

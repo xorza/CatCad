@@ -425,7 +425,7 @@ fn delete_on_a_picked_plane_takes_it_and_what_is_drawn_on_it() {
 #[test]
 fn a_tree_row_picks_the_step_it_stands_for_and_delete_takes_it() {
     let mut raised = Raised::new();
-    let recipe: Vec<FeatureId> = raised.models().steps().map(|(at, _)| at).collect();
+    let recipe: Vec<FeatureId> = raised.models().chosen().map(|(at, _)| at).collect();
     // The first row is the first step, which says the list runs the way the
     // recipe does rather than in whatever order the steps were reached.
     raised.press(internals::step(recipe[0]));
@@ -493,8 +493,10 @@ fn a_tree_row_picks_the_step_it_stands_for_and_delete_takes_it() {
 #[test]
 fn ctrl_arrows_move_the_picked_step_and_stop_at_the_ends_of_its_run() {
     let mut raised = Raised::new();
-    let recipe =
-        |raised: &Raised| -> Vec<FeatureId> { raised.models().steps().map(|(at, _)| at).collect() };
+    // The document's own order and not the tree's reading of it: what a move
+    // reorders is the timeline, and the three the world comes with are in it —
+    // see [`Models::chosen`], which is the narrower list a person reads.
+    let recipe = |raised: &Raised| -> Vec<FeatureId> { raised.app.document.recipe() };
     let whole = recipe(&raised);
     let room = |raised: &Raised, at: FeatureId| raised.app.document.nudged(at, 1).is_some();
     let free = whole
@@ -590,11 +592,14 @@ fn rolling_back_stops_the_tail_being_built_and_rolling_forward_restores_it() {
         "a sketch after the bar was still drawn"
     );
     assert_eq!(raised.solids(), 0, "a solid after the bar was still grown");
-    // And it is still in the recipe, still a row, still deletable: rolled back
-    // is not gone.
-    assert_eq!(
-        raised.models().steps().count(),
-        raised.app.document.recipe().len()
+    // And what is behind the bar is still in the recipe, still a row, still
+    // deletable: rolled back is not gone.
+    assert!(
+        raised
+            .models()
+            .chosen()
+            .any(|(_, feature)| matches!(feature, Feature::Extrude { .. })),
+        "the solid's step left the recipe when it stopped being built"
     );
 
     // Rolled to the plane it is drawn on, which puts the sketch itself behind
@@ -718,7 +723,7 @@ fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
     // form: what the control set has to have crossed into the document.
     let (_, feature) = raised
         .models()
-        .steps()
+        .chosen()
         .filter(|(_, feature)| matches!(feature, Feature::Extrude { .. }))
         .last()
         .expect("committing the form grew no step");

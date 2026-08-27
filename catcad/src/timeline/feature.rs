@@ -126,6 +126,21 @@ impl Feature {
         }
     }
 
+    /// Whether somebody chose to put this step in the document.
+    ///
+    /// **False for the three the world comes with and true for everything
+    /// else.** They are in the timeline as ordinary steps — see
+    /// [`Timeline::started`](crate::timeline::Timeline::started), which argues
+    /// why — but nobody added them, nothing was decided by having them, and
+    /// they are the one kind of step a delete refuses.
+    ///
+    /// Two readings turn on it: what a delete may reach, and what the recipe
+    /// lists. Written here rather than at either, so the two cannot come to
+    /// disagree about which steps are the document's own.
+    pub(crate) fn chosen(&self) -> bool {
+        !matches!(self, Feature::Plane(Datum::World(_)))
+    }
+
     /// What to call this where a mistaken caller will read it.
     ///
     /// Which kind it *is*, rather than which kind was wanted: a caller that

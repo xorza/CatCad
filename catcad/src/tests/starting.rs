@@ -75,7 +75,7 @@ fn the_sketch_button_starts_a_sketch_on_the_plane_picked_out_and_takes_you_into_
     let before = sketches(&raised);
     let solid = raised
         .models()
-        .steps()
+        .chosen()
         .find(|(_, it)| matches!(it, Feature::Extrude { .. }))
         .expect("the demo grows a solid")
         .0;
