@@ -19,12 +19,28 @@ thread_local! {
 /// A global allocator that counts what a measured window asks for, and keeps a
 /// stack for each of them.
 ///
-/// **Per thread, not per process.** Cargo runs a binary's tests in parallel on
-/// one process, so a global counter would let another test's setup land inside
-/// this one's window. Counting only while *this* thread is inside one means a
-/// test measures itself and nothing else — and it is why the tests sharing the
-/// binary pay no tax at all: outside a window the whole of [`Self::record`] is
-/// one thread-local read.
+/// **Per thread, not per process, and that is correctness before it is speed.**
+/// Cargo runs a binary's tests in parallel on one process, so a shared counter
+/// would let one test's warmup land inside another's window. A lock does not
+/// mend that: the threads that would pollute a window never ask for the lock —
+/// the harness's own, and whatever a graphics driver keeps under a GPU gate —
+/// so a shared counter would go on counting them.
+///
+/// **And the re-entry guard has to be per thread whatever the counters are.**
+/// `RECORDING` says that *this call stack* is already inside the bookkeeping,
+/// which is what stops the trace push below from recording itself forever. A
+/// shared flag would answer for the whole process, so one thread recording
+/// would silence another thread's counting. Once that one is thread-local the
+/// rest cost nothing to keep beside it — and a shared `Vec` of stacks would
+/// have to be pushed to under a lock the pushing itself can re-enter.
+///
+/// **What it gives up**: an allocation the measured work hands to another
+/// thread is invisible. Every gate in this workspace drives its work on the
+/// thread that opened the window, and one over work that fans out would have to
+/// say so.
+///
+/// Outside a window the whole of [`Self::record`] is one thread-local read, so
+/// the tests sharing the binary pay no tax for any of it.
 ///
 /// It counts heap *operations* rather than residency, so `dealloc` is passed
 /// straight through. What a per-frame budget is about is how often the
