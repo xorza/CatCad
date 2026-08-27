@@ -1,4 +1,8 @@
 //! One square root away from whatever is below it.
+//!
+//! **No caller yet** — the pencil route in M3b is the first, and the
+//! arithmetic lands ahead of it deliberately. See [`exact`](super).
+#![allow(dead_code)]
 
 use crate::number::exact::field::Field;
 use std::cmp::Ordering;

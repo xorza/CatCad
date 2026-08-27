@@ -135,6 +135,16 @@ impl<const N: usize> Expansion<N> {
     /// for everything the tests sweep, and not proved nearest in general —
     /// Shewchuk's own estimate is an approximation too, and a caller needing
     /// the guarantee wants the terms compressed first.
+    ///
+    /// **Nothing in production reads it yet**, what asks an expansion today
+    /// wanting a sign and nothing else. Kept because it is what holds the
+    /// arithmetic up: every tier here answers with a number as well as a
+    /// decision — [`Field::nearest`](super::field::Field::nearest) and
+    /// [`Filtered::nearest`](super::filtered::Filtered::nearest) are the same
+    /// reading — and the sweep in the tests holds this one against the
+    /// rational's, which is what says the terms are the number and not only its
+    /// sign.
+    #[allow(dead_code)]
     pub(crate) fn estimate(&self) -> f64 {
         self.terms.all().iter().sum()
     }

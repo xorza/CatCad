@@ -174,15 +174,17 @@ a drawing whose curves meet where they were drawn is exact in its vertices too,
 where the whole of one used to carry a blanket nanometre.
 
 **Every decision the drawing takes within tolerance is recorded**, and there are
-four: the fold above, the slack that admits a crossing a rounding past the end
-of a span, the fold of two roots into the place between them, and the test that
-calls two circles tangent. Each hands back how far it reached, the reaches
-combine at the corner, and the corner's is what a vertex carries. Nought is the
-ordinary answer.
+four: the fold above, the slack that admits a crossing past the end of a span,
+the fold of two roots into the place between them, and the test that calls two
+circles tangent. Each hands back how far it reached, the reaches combine at the
+corner, and the corner's is what a vertex carries. Nought is the ordinary
+answer, and the first two now say so *exactly*: where two straight spans cross
+is a determinant, and `math::intersect` reads it through the filter and the
+expansions rather than through a quotient.
 
-What still rounds is the arithmetic under all four, which is `f64` — 9.1's
-remaining half, and why `number/` is shared *downward*: the drawing and the body
-read one tolerance from one file.
+What still rounds is the round half — a circle's crossing has a square root in
+it. That is 9.1's remaining work, and why `number/` is shared *downward*: the
+drawing and the body read one tolerance from one file.
 
 Where exactness stops, the discipline takes over:
 
@@ -835,13 +837,18 @@ are in this order because the second cannot be done first:
   there carries that rather than a blanket `PLACED`. A drawing whose curves meet
   where they were drawn raises a body exact in its vertices.
 
-  What is left is the *arithmetic*. `math::intersect` still works in `f64`, so a
-  crossing that ought to land exactly on a span can miss by a rounding and be
-  admitted by the slack rather than found on it. Segment against segment is
-  polynomial in the coordinates and could go through the expansions today, which
-  would take those to nought. A circle brings a square root, so its crossing is
-  not an `f64` at all once it is exact and the arrangement would have to stop
-  holding a corner as a `DVec2`. That last is the half nobody costed.
+  **Segment against segment is exact.** Every question a pair of straight spans
+  asks is a 2×2 determinant of the four places — whether they run parallel, and
+  whether the crossing falls between the ends of either — so `math::intersect`
+  asks the filter and falls to an expansion where it declines. It decides twice
+  over: a crossing that lands on both spans is *found*, which the machine alone
+  turns away when the coordinates are large enough that a determinant loses more
+  than the slack is wide; and it stands for nothing, where before it stood for
+  whatever the parameter rounded to.
+
+  What is left is the round half. A circle's crossing brings a square root, so
+  it is not an `f64` at all once it is exact and the arrangement would have to
+  stop holding a corner as a `DVec2`. That is the half nobody costed.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.

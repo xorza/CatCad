@@ -15,19 +15,15 @@
 //! reading *and* as the history that would make it again — which is what makes
 //! a construction exact rather than only a predicate.
 //!
-//! **Nothing outside these files calls any of it**, which is what the one allow
-//! below excuses. The pencil route in M3b is the first caller, and the
-//! arithmetic lands ahead of the route that needs it because the milestone it
-//! belongs to is the one whose whole point is not finding out late — see
-//! `.notes/KERNEL.md` M0. The tests in each file are what hold it up until
-//! there is a caller.
-//!
-//! The allow is drawn round this module rather than round
-//! [`number`](crate::number), so that [`predicate`](super::predicate) and
-//! [`tolerance`](super::tolerance) next door — which every comparison in the
-//! crate goes through — still say when something of theirs has stopped being
-//! called.
-#![allow(dead_code)]
+//! **Two of these have a caller and the rest do not.** [`filtered`] and
+//! [`expansion`] are what `math::intersect` decides a crossing with, so they
+//! carry no blanket allow and go on saying when something of theirs has stopped
+//! being called. The tower below them and the DAG above are waiting on the
+//! pencil route in M3b, and the arithmetic lands ahead of the route that needs
+//! it because the milestone it belongs to is the one whose whole point is not
+//! finding out late — see `.notes/KERNEL.md` M0. Each of those files excuses
+//! its own dead code where it stands, and the tests in each are what hold it up
+//! until there is a caller.
 
 pub(crate) mod expansion;
 pub(crate) mod field;

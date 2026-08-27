@@ -244,3 +244,97 @@ fn concentric_rings_share_no_place_to_point_at() {
         0
     );
 }
+
+/// **A crossing that lands on both spans is found, whatever the machine makes
+/// of the parameter.**
+///
+/// Two spans meeting at a corner a hundred million units out: the first ends
+/// there, and the second passes through its own middle. The parameters are a
+/// whole one and a half exactly — and the machine reads the first as two ulps
+/// *past* the end, where the slack it is given is a nanometre turned into a
+/// parameter and so worth seven parts in a billion of a billion. A determinant
+/// of coordinates that size loses more than the slack is wide. Read off the
+/// determinants alone the crossing is turned away, and the drawing loses a
+/// junction it was drawn with.
+///
+/// So the decision is taken exactly — `.notes/KERNEL.md` §4.2's ladder — and
+/// the crossing comes back standing for nothing, because it is on both spans
+/// and nothing had to stretch to say so.
+///
+/// **The place is still the machine's**, and a fraction of a micron out at this
+/// distance. That is the bargain the rest of the crate strikes too: decide
+/// exactly, measure approximately. What a corner is *worth* turns on the
+/// decision, and where it stands is a number nobody decides anything by.
+#[test]
+fn a_crossing_on_both_spans_is_found_however_the_parameter_reads() {
+    let corner = DVec2::new(100000001.0, 100000003.0);
+    let step = DVec2::new(100000007.0, 50000003.0);
+    let one = Span {
+        from: DVec2::ZERO,
+        to: corner,
+    };
+    let two = Span {
+        from: corner - step,
+        to: corner + step,
+    };
+
+    // The machine's own reading, which is what the crossing would be turned
+    // away on. Asserted, because a fixture that stopped rounding would go on
+    // passing and prove nothing.
+    let (r, s) = (one.to - one.from, two.to - two.from);
+    let along = (two.from - one.from).perp_dot(s) / r.perp_dot(s);
+    assert!(along > 1.0, "the reading no longer overshoots the end");
+    assert!(
+        past(along) > PLACED / r.length(),
+        "the reading is inside the slack, so nothing has to be decided exactly",
+    );
+
+    let found = spans(one, two);
+    assert_eq!(found.all().len(), 1, "the crossing was turned away");
+    let crossing = found.all()[0];
+    assert_eq!(
+        crossing.reached, 0.0,
+        "a crossing on both spans stands for something",
+    );
+    assert!(
+        crossing.at.approx_eq(corner, 1e-6),
+        "{:?} rather than the corner at {corner:?}",
+        crossing.at,
+    );
+}
+
+/// **And one genuinely past an end stands for how far.**
+///
+/// The pair to the test above, and they matter together: one alone would be
+/// passed by a routine that wrote nought into every crossing it found. An
+/// upright whose foot sits a picometre below a run across — the crossing is off
+/// its end by that much, which the slack admits and which it therefore carries.
+#[test]
+fn a_crossing_past_an_end_stands_for_how_far_past() {
+    let below = 1e-12;
+    let across = Span {
+        from: DVec2::new(0.0, 0.0),
+        to: DVec2::new(10.0, 0.0),
+    };
+    let upright = Span {
+        from: DVec2::new(5.0, -below),
+        to: DVec2::new(5.0, 5.0),
+    };
+    let found = spans(across, upright);
+    assert_eq!(found.all().len(), 1, "the crossing was turned away");
+    // The foot is `below` under the run, so the crossing sits that far before
+    // the upright begins — the whole of it, because the upright runs straight
+    // up and the overshoot is measured along it.
+    assert!(
+        found.all()[0].reached.approx_eq(below, ROUNDING),
+        "stands for {} rather than {below}",
+        found.all()[0].reached,
+    );
+
+    // The same upright standing exactly on the run reaches nothing at all.
+    let landed = Span {
+        from: DVec2::new(5.0, 0.0),
+        ..upright
+    };
+    assert_eq!(spans(across, landed).all()[0].reached, 0.0);
+}
