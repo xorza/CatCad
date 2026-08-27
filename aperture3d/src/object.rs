@@ -119,8 +119,8 @@ impl Object {
             return None;
         }
         let mut along = f32::INFINITY;
-        for triangle in self.mesh.indices().chunks_exact(3) {
-            let corners = [0, 1, 2].map(|of| self.mesh.vertices()[triangle[of] as usize].position);
+        for triangle in self.mesh.triangles() {
+            let corners = triangle.map(|index| self.mesh.vertices()[index as usize].position);
             if let Some(travelled) = crossed(origin, direction, corners) {
                 along = along.min(travelled);
             }

@@ -131,10 +131,8 @@ fn answer(ink: Color) -> ButtonTheme {
     // asking for a square and then adding to two of its sides.
     theme.padding = Spacing::ZERO;
     let face = |fill: Color| {
-        Some(
-            Background::rounded(fill, Corners::all(4.0))
-                .with_stroke(Stroke::solid(fill.lerp(Color::WHITE, 0.25), 1.0)),
-        )
+        Background::rounded(fill, Corners::all(4.0))
+            .with_stroke(Stroke::solid(fill.lerp(Color::WHITE, 0.25), 1.0))
     };
     let StatefulLook {
         normal,

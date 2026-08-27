@@ -60,6 +60,10 @@ pub struct Mesher {
     /// The boundary of the patch being cut, in the world, in the order it was
     /// traced: the outline's corners first, then each hole's.
     traced: Vec<DVec3>,
+    /// The same walk with a place the surface has no angle for written twice,
+    /// so that it reads alongside the parameters — see
+    /// [`Face::placed`](crate::solid::topology::face::Face).
+    standing: Vec<DVec3>,
     /// The same corners in the surface's own parameters — the outline.
     outline: Vec<DVec2>,
     /// One flattened loop per hole.
@@ -135,6 +139,7 @@ impl Mesher {
     fn patch(&mut self, topology: &Topology, face: &Face, sagitta: f64, into: &mut Patch) {
         let Self {
             traced,
+            standing,
             outline,
             holes,
             cutter,
@@ -142,6 +147,7 @@ impl Mesher {
             refining,
         } = self;
         traced.clear();
+        standing.clear();
         outline.clear();
         holes.clear();
 
@@ -149,6 +155,7 @@ impl Mesher {
             topology.walk(coedge, sagitta, traced);
         }
         face.flatten(&traced[..], outline);
+        face.placed(&traced[..], standing);
         // **Measured in the cells the surface itself rules over**, which is
         // what makes a triangulator's idea of near the same as a face's — see
         // [`Lattice`]. Everything below runs in those units, and the corners
@@ -164,6 +171,7 @@ impl Mesher {
             }
             let from = done;
             done = traced.len();
+            face.placed(&traced[from..done], standing);
             holes.add(|into| {
                 face.flatten(&traced[from..done], into);
                 for uv in into.iter_mut() {
@@ -173,7 +181,7 @@ impl Mesher {
         }
 
         cutter.polygon(outline, holes, fill);
-        if fill.corners.len() != traced.len() {
+        if fill.corners.len() != standing.len() {
             // Fewer than three corners anywhere: there is no triangle in it,
             // and the cutter says so by filling nothing at all.
             debug_assert!(fill.triangles.is_empty(), "a fill lost corners it used");
@@ -188,7 +196,7 @@ impl Mesher {
         // and an evaluation could land a rounding away from the one its
         // neighbour kept, which is a hairline between two faces that are meant
         // to meet exactly.
-        refining.refine(&face.surface, &traced[..], fill, lattice, sagitta);
+        refining.refine(&face.surface, &standing[..], fill, lattice, sagitta);
         let first = into.corners.len() as u32;
         into.corners.extend_from_slice(refining.places());
         into.normals

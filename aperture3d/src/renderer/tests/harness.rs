@@ -165,7 +165,9 @@ impl<'a> Framed<'a> {
             max: UVec2::ZERO,
         };
         for (at, pixel) in frame_pixels(self.gpu, &self.target)
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .enumerate()
         {
             if pixel[0].max(pixel[1]).max(pixel[2]) <= LIT {

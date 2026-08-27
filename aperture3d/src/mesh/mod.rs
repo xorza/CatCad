@@ -53,8 +53,22 @@ impl Mesh {
     }
 
     /// Three entries to the triangle, each one numbering a corner.
+    ///
+    /// Flat, because that is the shape the index buffer is uploaded in. Anything
+    /// walking the triangles themselves asks [`Mesh::triangles`].
     pub fn indices(&self) -> &[u32] {
         &self.indices
+    }
+
+    /// The same indices read three at a time, each triple one triangle.
+    pub fn triangles(&self) -> &[[u32; 3]] {
+        let (triangles, loose) = self.indices.as_chunks();
+        debug_assert!(
+            loose.is_empty(),
+            "a mesh held {} indices past its last triangle",
+            loose.len()
+        );
+        triangles
     }
 
     /// The box this fills, which a pick asks before it asks anything else.

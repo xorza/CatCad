@@ -754,12 +754,9 @@ impl Prompt {
     fn run(&self) -> TextRun<'_> {
         TextRun {
             text: &self.fields[0].draft,
-            font_size_px: MARK_FONT.size_px,
-            line_height_px: MARK_FONT.line_height_px,
+            font: MARK_FONT,
             wrap: TextWrap::Scroll,
             align: Align::CENTER,
-            family: MARK_FONT.family,
-            weight: MARK_FONT.weight,
             max_width_px: None,
         }
     }
@@ -807,7 +804,7 @@ impl Prompt {
                 }
                 let shown = TextEdit::new(&mut fields[0].draft)
                     .id(id)
-                    .style(&look::FIELD)
+                    .style(&*look::FIELD)
                     .select_all_on_focus()
                     .text_align(Align::CENTER)
                     .size((Sizing::HUG, Sizing::HUG))
@@ -885,7 +882,7 @@ impl Prompt {
                             }
                             let shown = TextEdit::new(&mut field.draft)
                                 .id(Self::field_id(nth))
-                                .style(&look::FIELD)
+                                .style(&*look::FIELD)
                                 .select_all_on_focus()
                                 // Cloned because [`TextEdit::placeholder`]
                                 // takes a `Cow<'static, str>` and this string

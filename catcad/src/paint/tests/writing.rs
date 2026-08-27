@@ -199,8 +199,10 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     // draws its second sketch on a datum held clear of it, so the two sit at
     // two heights and only the flatness is shared.
     for face in scene.faces.iter() {
-        assert!(!face.mesh.indices().is_empty(), "a face was written empty");
-        assert_eq!(face.mesh.indices().len() % 3, 0, "a face is triangles");
+        assert!(
+            !face.mesh.triangles().is_empty(),
+            "a face was written empty"
+        );
         let lies_at = face.mesh.vertices()[0].position.y;
         for vertex in face.mesh.vertices() {
             assert!(
@@ -233,16 +235,15 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
         .iter()
         .map(|face| {
             face.mesh
-                .indices()
-                .chunks_exact(3)
+                .triangles()
+                .iter()
                 .map(|triangle| {
                     // The ground plane's axes are world +X and −Z, so this
                     // reads a corner back into the coordinates it was drawn in.
-                    let at = |of: usize| {
-                        let corner = face.mesh.vertices()[triangle[of] as usize].position;
+                    let [a, b, c] = triangle.map(|index| {
+                        let corner = face.mesh.vertices()[index as usize].position;
                         Vec2::new(corner.x, -corner.z)
-                    };
-                    let (a, b, c) = (at(0), at(1), at(2));
+                    });
                     (b - a).perp_dot(c - a) / 2.0
                 })
                 .sum::<f32>()

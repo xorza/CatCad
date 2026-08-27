@@ -4,7 +4,7 @@ use crate::math::arc;
 use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
 use crate::number::predicate;
-use crate::number::tolerance::ALIGNED;
+use crate::number::tolerance::{ALIGNED, PLACED};
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::sphere::Sphere;
@@ -155,6 +155,27 @@ impl Surface {
             Self::Cylinder(cylinder) => cylinder.off(at),
             Self::Cone(cone) => cone.off(at),
             Self::Sphere(sphere) => sphere.off(at),
+        }
+    }
+
+    /// Whether the parameterization says nothing at `at` — one place that
+    /// every angle names.
+    ///
+    /// **A cone's apex and a sphere's poles**, and nothing else here: a plane
+    /// has no angle to lose, and a point on a cylinder is never on its axis.
+    /// [`Surface::uv`] answers *something* at one of these, and what it answers
+    /// is arbitrary — which is a lie a face's boundary cannot be flattened
+    /// through, a ruling ending at an apex coming back as a run across the
+    /// whole face rather than the constant-angle side it is. See
+    /// [`Face::flatten`](crate::solid::topology::face::Face), which is where
+    /// the lie is caught.
+    pub(crate) fn singular(&self, at: DVec3) -> bool {
+        match self {
+            Self::Plane(_) | Self::Cylinder(_) => false,
+            Self::Cone(cone) => predicate::coincident(at, cone.axis.origin, PLACED),
+            // On the axis, which for a sphere is the two poles and nowhere
+            // else, the centre not being on the surface.
+            Self::Sphere(sphere) => predicate::touching(sphere.axis.off(at), PLACED),
         }
     }
 

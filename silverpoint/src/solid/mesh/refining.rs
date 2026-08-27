@@ -2,6 +2,7 @@
 
 use crate::math::triangulate::Fill;
 use crate::number::predicate;
+use crate::number::tolerance::PLACED;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::mesh::lattice::Lattice;
 use glam::{DVec2, DVec3};
@@ -196,7 +197,7 @@ impl Refining {
             // The face's own boundary is never cut — see the note on
             // [`Refining`]. A run of it reaching over more than a cell is the
             // one thing that leaves a triangle standing wider than the sagitta.
-            if self.sides[at].carried < 2 {
+            if self.sides[at].carried < 2 && !self.collapsed(at) {
                 continue;
             }
             let Some(uv) = over(&self.params, self.sides[at].ends) else {
@@ -210,6 +211,26 @@ impl Refining {
         }
         self.rebuild();
         true
+    }
+
+    /// Whether the side at `at` in the table stands in one place — the side of
+    /// a region that collapsed to a point.
+    ///
+    /// **Cut like an inside one, though it lies on the boundary.** A cone's
+    /// apex and a sphere's poles are one place however far the angle runs, so
+    /// the side of the region that meets them has no length in the world: there
+    /// is no face across a point to disagree about a corner put on it, and the
+    /// corner comes back at the same place whatever angle it is given.
+    ///
+    /// Left uncut it is the one thing that will not let a face settle. Every
+    /// triangle carrying it has two more sides reaching to a third corner, and
+    /// those reach as far across the face as it does — so they are cut, and the
+    /// child that keeps the collapsed side has two more of them, for ever.
+    /// Measured on a cone, seventeen triangles growing by fifty a round without
+    /// end.
+    fn collapsed(&self, at: usize) -> bool {
+        let [from, to] = self.sides[at].ends.map(|of| self.places[of as usize]);
+        predicate::coincident(from, to, PLACED)
     }
 
     /// The two corners the side `slot` of the triangle at `at` runs between.

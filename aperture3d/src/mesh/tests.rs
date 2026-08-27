@@ -41,12 +41,8 @@ fn cube_has_one_flat_quad_per_face() {
 #[test]
 fn cube_triangles_wind_outward() {
     let cube = Mesh::cube(1.0);
-    for triangle in cube.indices.chunks_exact(3) {
-        let [a, b, c] = [
-            cube.vertices[triangle[0] as usize],
-            cube.vertices[triangle[1] as usize],
-            cube.vertices[triangle[2] as usize],
-        ];
+    for triangle in cube.triangles() {
+        let [a, b, c] = triangle.map(|index| cube.vertices[index as usize]);
         // Counter-clockwise seen from outside means the edge cross product
         // points the same way as the face normal.
         let facing = (b.position - a.position).cross(c.position - a.position);

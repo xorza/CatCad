@@ -11,6 +11,7 @@ use crate::solid::geometry::line::Line;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
+use crate::solid::mesh::Mesher;
 use crate::solid::named::Step;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
@@ -434,3 +435,28 @@ fn ball() -> Body {
 
 /// How large the ball above is.
 const ROUND: f64 = 3.0;
+
+/// **And the cone meshes to the volume the arithmetic says.**
+///
+/// `πr²h/3`, which for a base of two and a height of two is `8π/3`. It is the
+/// apex that makes this worth asserting: the side of the parameter region that
+/// collapses there has to be put back before a triangulator can read the face
+/// at all — see [`Face::flatten`](crate::solid::topology::face::Face) — and
+/// read short of that the solid came back as nothing meshable.
+///
+/// Chorded, so it reads under and closes on the true figure as the sagitta
+/// falls.
+#[test]
+fn a_cone_meshes_to_the_volume_its_arithmetic_says() {
+    let body = cone();
+    let want = PI * TALL * TALL * TALL / 3.0;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-2, 1e-3, 1e-4] {
+        let off = want - mesher.volume(&body, sagitta);
+        assert!(off > 0.0, "a chorded cone read over the true {want}");
+        assert!(off < last, "{sagitta} read no nearer than the last: {off}");
+        last = off;
+    }
+    assert!(last < 1e-3, "the cone never converged: {last} short");
+}

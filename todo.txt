@@ -1,5 +1,4 @@
-# Issues
-
+make sure this fix is proper long term solution not a hack . also investigate and address this:
 - The mesher will not cut a face that is wide both ways *and* chorded along its
   boundary more coarsely than the grid it is measured in. A sphere is both: its
   cell is the widest chord over the square root of two, a triangle inside one
