@@ -15,6 +15,7 @@ reach is in the diff.
 ---
 
 ## 1. What is being built
+
 **A kernel is a graph of faces that knows what solid it bounds.** Booleans are
 what you can do to that graph, features are what writes it, display is a reading
 of it.
@@ -72,6 +73,7 @@ written against the row of it that already works:
 ---
 
 ## 3. What the field says
+
 Condensed to what changes a decision. Sources in §12.
 
 **OCCT separates topology from geometry absolutely** — only vertex, edge and
@@ -129,6 +131,7 @@ is adjacency traversal, the wrong shape.
 Each is a one-way door. Everything after §5 is written against them.
 
 ### 4.1 The exactness tier: exact over the natural quadrics, fitted beyond, and the model says which
+
 The decision the rest of the design hangs from.
 
 **A quadric kernel can be exact — genuinely, not approximately.** The
@@ -178,6 +181,7 @@ goes through a named predicate in one module, and every predicate that can widen
 a tolerance does.
 
 ### 4.2 Numbers: exact, lazy, and ours
+
 **Constructions are exact, not just predicates.** A vertex is not a rounded
 `DVec3` — it is its defining surfaces, with coordinates as a cache, evaluated
 through an interval filter and re-evaluated exactly when the filter is
@@ -221,6 +225,7 @@ rather than three meeting at seams. The bignum layer is commodity, and is
 `dashu`.
 
 #### What the spike measured
+
 A throwaway implementation of the classification and both intersection routes,
 over `BigRational`, on quadrics built the way CAD builds them — axes and radii
 as `f64` out of a solve, held as the exact dyadic rationals they are.
@@ -276,6 +281,7 @@ documentation. Adopting per-entity tolerance while everything is exact costs one
 operation.
 
 ### 4.4 Manifold only, regularized booleans, and no seams
+
 Every claim below is checked rather than intended. `Body::check` refuses an edge
 that is not walked exactly twice, once each way, and an extrusion splits a full
 circle into two half cylinders before it raises anything. Regularization happens
@@ -303,6 +309,7 @@ artificial on the edge, so display and export can ignore them and adjacent faces
 on the same surface can be merged for output.
 
 ### 4.5 Topology is arenas and `Copy` handles, with explicit adjacency
+
 ```rust
 pub struct Topology {
     vertices: Arena<Vertex>,
@@ -333,6 +340,7 @@ rebuilt on each frame of a drag reaches the heap not at all. CatCad's allocation
 gates are a strict zero on every frame the pointer can be in the middle of.
 
 ### 4.6 Geometry is closed enums, not traits
+
 All four naturals are written, evaluated, inverted and tested. The two-level
 split below is not: with one tier there is one arm, so `Surface` is flat today
 and gains its `Natural` / `Fitted` layer with the tier that makes the
@@ -407,6 +415,7 @@ owes is the per-call map, so `(FeatureId, Grown)` can be carried forward.
 ---
 
 ## 5. Naming
+
 `Grown` is the whole of a prism's topology in three words — `Base`, `Far`,
 `Side(Bound)` — and `Bound` names a *curve of the sketch*, not a piece of one,
 so a name does not move when something new is drawn across the drawing.
@@ -432,6 +441,7 @@ that name — a selection, a datum, a downstream sketch — would lose its footi
 for no reason the user caused.
 
 ## 6. Where it lives
+
 **`silverpoint/src/solid/`**, beside `sketch/`. Not a new crate: everything the
 kernel reuses is crate-private, so a separate crate would mean promoting five
 internals to `pub` to buy a boundary that is otherwise free; `number/` is shared
@@ -490,6 +500,7 @@ becomes two half-cylinder faces (§4.4). Exact throughout: no flattening
 anywhere.
 
 ### 7.2 Tessellate — display only, and three standing rules
+
 Per face: trace its loops, invert the surface to parameter space, triangulate
 with silverpoint's `Cutter`, evaluate back to 3D — or rather *keep* the traced
 positions, so two faces meeting at an edge land on identical corners rather than
@@ -548,6 +559,7 @@ weakly simple contour is reflex, so such a corner is never one an ear could span
 into.
 
 ### 7.3 Intersect — two routines, one per tier
+
 **Natural ∩ natural is exact, and it is one problem, not a matrix.** Two
 routines, in this order:
 
@@ -597,6 +609,7 @@ Marching is the unbounded part, and it sits behind the torus rather than behind
 the second hole anyone drills.
 
 ### 7.4 Boolean — four stages, all precedented
+
 Intersect every candidate face pair (bounding-box filtered) → imprint the
 resulting curves onto both faces, splitting their loops → classify each fragment
 as inside, outside or on the other body → keep what the operator asks for → sew
@@ -611,9 +624,10 @@ outside, so classifying is one question per region. The cut must also be
 **uniform**: one that divides a face and not the face beside it leaves a vertex
 on one side of the shared edge and none on the other, and the sewing then finds
 three edges where it wanted two. So only a surface whose faces reach no part of
-the other body is dropped — and cutting further than necessary costs nothing,
-§4.4's smooth-edge flag and §5's naming already handling a face in several
-patches.
+the other body is dropped — and cutting further than necessary costs nothing in
+the *answer*, §4.4's smooth-edge flag and §5's naming already handling a face in
+several patches. What it costs in time is §11, and it is the whole of what a
+boolean spends.
 
 **The polyline classifies and the curve builds.** `Cells` holds points in a
 surface's parameters and a closed cut is flattened at `ROUNDED`, a thousandth of
@@ -718,6 +732,7 @@ trust.
 ---
 
 ## 8. The document
+
 An operation field, not a sibling feature:
 
 ```rust
@@ -783,20 +798,25 @@ type a depth into a cut. Everything from 9.2 on is the document's own order.
 
 ### 9.1 One pass over `paint/`
 
-Three things on one mesh path, in this order:
+Two things on one mesh path. **The measurement they turned on is made**, and
+what it found is in §11: a boolean is a fraction of a frame below about thirty
+faces and several frames above it, raising a prism is microseconds throughout,
+and meshing the answer is under a tenth of a frame.
 
-- **Measure a kernel boolean on the paint clock.** §11 says nobody has, and the
-  other two turn on the answer.
 - **§8's preview draws the extrusion, not the result** — see
   [`Growing`](../catcad/src/paint/growing.rs). A cut therefore previews what is
-  about to be taken away rather than what will be left. Build the live path
-  first, and fall back to a translucent ghost only where the measurement says
-  so. The ghost is worth having regardless: it is the right thing to show for a
-  cut whose result is hidden behind the part from the current camera.
+  about to be taken away rather than what will be left. The live path is
+  affordable for the tools a person actually cuts with, so it is the one to
+  build; the switch to a translucent ghost reads the *tool's own face count*
+  rather than a clock, because a count is something a frame can ask before it
+  pays where a timer only says what the last frame cost. The ghost is worth
+  having regardless: it is the right thing to show for a cut whose result is
+  hidden behind the part from the current camera.
 - **`SOLID_SAGITTA` is a constant** in `catcad/src/paint/mod.rs`. M2's last debt
   is to take it from the camera, which means rewriting a solid's mesh when the
   camera moves — today deliberately not done, to keep the drawing's cost off the
-  camera's clock. A paint-layer decision, not a kernel one.
+  camera's clock. The measurement says that clock can afford it. A paint-layer
+  decision, not a kernel one.
 
 ### 9.2 M0 — exact numbers
 
@@ -897,6 +917,7 @@ Either true of a commit or not.
 ---
 
 ## 11. Scale, and what it costs
+
 **M0 is the biggest single piece**, and none of it shows on screen. It has a
 second half nobody costed: the drawing underneath has to go exact too, or a
 body's exactness is capped at the fold tolerance (§4.1).
@@ -910,19 +931,36 @@ difference between hard and open-ended.
 **M6 is the only unbounded milestone**, and it sits behind the torus rather than
 behind the second hole anyone drills. Roadmap item 2 lands without it.
 
-**Performance will be poor at first.** Exact fallbacks, Newton inversion instead
-of pcurves, and live boolean preview all spend it. The mitigation is that the
-interval filter means the exact path is rarely taken — but "rarely" is a
-measurement nobody has made. What is measured is the shape of the cost, and it
-is the right shape: a body is *made* where a prism was read, and making one on
-every frame of a drag costs no allocation at all. Whether it costs too much
-*time* is 9.1's first question.
+**Performance will be poor at first.** Exact fallbacks and Newton inversion
+instead of pcurves both spend it. The mitigation is that the interval filter
+means the exact path is rarely taken — but "rarely" is a measurement nobody has
+made yet.
+
+**What is measured is the boolean, and it grows faster than the body does.**
+Cutting one straight-walled tool out of a six-faced block, release, on a
+13980HX: 0.05 ms for a four-sided tool, 0.61 ms for sixteen, 3.3 ms for
+thirty-two, 21.8 ms for sixty-four, 159 ms for a hundred and twenty-eight. Each
+doubling of the tool's faces costs between three and seven times the last, so
+the growth is between quadratic and cubic. Raising the same tools costs 0.4 µs
+to 13 µs and is linear throughout; meshing the answer at the paint sagitta costs
+0.04 ms to 0.7 ms. The boolean is the whole of the cost and the only part of it
+that scales badly.
+
+Against an 8.3 ms frame that draws the line at about thirty faces. A bore, a
+pocket, a boss and a milled flat are each a fraction of one; a profile traced
+round a curve is several. Where to look is §7.4's decision to cut by whole
+surfaces: every surface of one body cuts every face of the other, and each cut
+leaves regions the next one walks again. That decision buys a uniform cut and
+one classification per region, and it is worth what it buys — but "cuts further
+than necessary and that costs nothing" is a claim about the *answer*, and this
+is what it costs in time.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, the only one that can say "this body is exact" and mean it, and the
 milestone structure means the project is never worse off than it is today.
 
 ## 12. Read alongside
+
 **Architecture**
 
 - [Topology and Geometry in Open CASCADE](https://opencascade.blogspot.com/2009/02/topology-and-geometry-in-open-cascade.html)
