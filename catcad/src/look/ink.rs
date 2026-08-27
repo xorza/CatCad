@@ -1,14 +1,14 @@
-//! Every colour the application decides, stated once.
+//! What a drawing and the solids beside it are painted in.
 //!
-//! Two audiences read this table and they take the same numbers in two types.
-//! The drawing is handed [`Vec3`], which is what aperture shades and strokes
-//! with; the overlay is handed [`Color`], which is what palantir fills with.
-//! Both are **linear RGB**, so the bridge between them is a reinterpretation
-//! and not a conversion — see [`tint`].
+//! **The drawing's half only.** What the *overlay* is drawn in is
+//! [`Chrome`](crate::look::chrome::Chrome), because the two are handed to
+//! different renderers: aperture shades with a [`Vec3`] and palantir fills with
+//! a [`Color`]. Both are linear RGB, so the four colours that cross between them
+//! cross through [`tint`], which reinterprets rather than converts.
 //!
 //! That the two agree is the point. A sketch the solver has left half free is
-//! drawn in [`PARTLY`], and the readout says so in the same amber, because it
-//! is the same colour and not a second one chosen to look like it.
+//! drawn in [`PARTLY`], and the readout says so in the same amber, because it is
+//! the same colour and not a second one chosen to look like it.
 
 use glam::Vec3;
 use palantir::Color;
@@ -150,65 +150,3 @@ pub(crate) const HOVERED: Vec3 = Vec3::new(1.0, 0.85, 0.25);
 /// red for pinned, and a selection that reused any of them would be saying two
 /// things in one colour.
 pub(crate) const SELECTED: Vec3 = Vec3::new(0.30, 0.95, 0.45);
-
-// What the overlay is drawn in. Stated as a Color rather than a Vec3 because
-// nothing below reaches the drawing — chrome floats over a picture and is never
-// part of one — and authored in sRGB, which is how a surface colour is read by
-// eye.
-
-/// The translucent backdrop a group of controls stands on.
-///
-/// Dark and cool, at four fifths, so a pill holds its own over the near-black
-/// ground *and* over a lit solid it happens to sit on. Nothing is blurred:
-/// palantir composites a flat fill, and translucency alone is what keeps the
-/// drawing faintly readable through the chrome.
-pub(crate) const PILL: Color = Color::hexa(0x181C21CC);
-
-/// The hairline round a pill.
-///
-/// Faint, because it is not there to be seen: what separates a pill from the
-/// drawing is the fill, and this only keeps the edge from dissolving where the
-/// two happen to be the same value.
-pub(crate) const PILL_EDGE: Color = Color::hexa(0xBECDDC24);
-
-/// The rule drawn between two groups sharing one pill.
-///
-/// Stronger than the edge above, and that is the whole reason it is its own
-/// colour. This one *is* there to be seen — it carries the distinction between
-/// a chip that draws and a chip that acts on the drawing — and a rule at the
-/// edge's weight reads as a gap rather than as a division.
-pub(crate) const RULE: Color = Color::hexa(0xBECDDC59);
-
-/// What a control at rest is filled with, and what it lifts to under the
-/// pointer.
-pub(crate) const CHIP: Color = Color::hex(0x31363C);
-pub(crate) const CHIP_LIT: Color = Color::hex(0x3D444B);
-
-/// What a control wears while what it stands for is held.
-///
-/// **An inversion rather than an accent, and that is the whole reason it is
-/// this colour.** The drawing already spends every hue it has on saying
-/// something: blue through amber to orange for how much freedom is left, red
-/// for pinned, green for picked out, violet for a mark. A chrome accent in any
-/// of them would be a sixth meaning wearing a colour that already has one. A
-/// held control is light where every other is dark, which says the same thing
-/// and spends no hue at all.
-pub(crate) const CHIP_HELD: Color = Color::hex(0xD6DDE4);
-
-/// The ink a held control's glyph is drawn in — the pill's own dark, so the
-/// inversion is complete rather than a light fill under a light mark.
-pub(crate) const CHROME_ON_HELD: Color = Color::hex(0x141A20);
-
-/// What a face of the orientation cube is filled with, unlit and fully lit.
-///
-/// A pair rather than one shade per face, because which face is bright follows
-/// from where the cube has been turned to rather than from which face it is: a
-/// face is lit against a light fixed in the world, and lands somewhere between
-/// these two. A ladder of three fixed tints would be a cube whose faces swapped
-/// shades as it came round.
-pub(crate) const CUBE_LOW: Color = Color::hex(0x2C3138);
-pub(crate) const CUBE_HIGH: Color = Color::hex(0x59626C);
-
-/// The ink a control at rest is drawn in, and what it lifts to.
-pub(crate) const CHROME_INK: Color = Color::hex(0x8B949E);
-pub(crate) const CHROME_LIT: Color = Color::hex(0xD3DAE1);

@@ -49,6 +49,7 @@ use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Errand, Intent, Intents, Step};
+use crate::look::Theme;
 use crate::look::icons::Icons;
 use crate::part::Part;
 use crate::scene_view::SceneView;
@@ -158,6 +159,9 @@ pub struct CatCad {
     /// `None` until the first frame: taking one up wants a [`Ui`], and
     /// [`CatCad::build`] has none.
     icons: Option<Icons>,
+    /// Every colour, weight and metric the application draws with, and the
+    /// palantir theme derived from it.
+    theme: Theme,
     /// Where the document came from, whether it has been written since, and the
     /// question being asked about it. Beside the document rather than in it,
     /// like the history and the session: where a drawing lives is not something
@@ -216,6 +220,7 @@ impl CatCad {
             session,
             hud: Hud::default(),
             icons: None,
+            theme: Theme::default(),
             filing: Filing::default(),
         }
     }
@@ -349,10 +354,16 @@ impl CatCad {
         // a set is registered against the host that will draw it — see
         // [`Icons::load`].
         let icons = &*self.icons.insert(Icons::load(ui));
+        // Palantir's own widgets resolve against whatever palette they are
+        // handed, so the derived theme is installed before anything records.
+        // Built on the frame it is first wanted and handed over as a reference
+        // count after that — see [`Theme::dressed`].
+        ui.set_theme(self.theme.dressed());
         self.hud.show(
             ui,
             Shown {
                 icons,
+                theme: &self.theme,
                 tool: self.session.tool(),
                 status,
                 solved,

@@ -4,15 +4,7 @@ use palantir::{
     Align, Background, Color, Configure, Corners, Panel, Sense, Sizing, Spacing, Stroke, Ui,
 };
 
-use crate::look;
-use crate::look::ink;
-
-/// The hairline round every pill.
-///
-/// Faint on purpose: what separates a pill from the drawing is its fill, and
-/// this only keeps the edge from dissolving where the two happen to meet at the
-/// same value.
-const EDGE: Stroke = Stroke::solid(ink::PILL_EDGE, 1.0);
+use crate::look::chrome::Chrome;
 
 /// A group of controls, on a backdrop of its own.
 ///
@@ -24,6 +16,12 @@ const EDGE: Stroke = Stroke::solid(ink::PILL_EDGE, 1.0);
 #[derive(Debug)]
 pub(super) struct Pill {
     panel: Panel,
+    /// How far from the view's edge it sits, kept for [`Pill::align`] alone.
+    ///
+    /// The one metric a pill still needs after it is built: everything else is
+    /// spent on the panel at construction, and a pill that is never pinned never
+    /// spends this.
+    inset: f32,
 }
 
 impl Pill {
@@ -31,49 +29,50 @@ impl Pill {
     ///
     /// Salted rather than left to `auto_id`, which reads the line it is written
     /// on: every pill built through here would otherwise share one id.
-    pub(super) fn hstack(salt: &str) -> Self {
-        Self::of(Panel::hstack(), salt)
+    pub(super) fn hstack(chrome: &Chrome, salt: &str) -> Self {
+        Self::of(chrome, Panel::hstack(), salt)
     }
 
     /// A column of them.
-    pub(super) fn vstack(salt: &str) -> Self {
-        Self::of(Panel::vstack(), salt)
+    pub(super) fn vstack(chrome: &Chrome, salt: &str) -> Self {
+        Self::of(chrome, Panel::vstack(), salt)
     }
 
-    fn of(panel: Panel, salt: &str) -> Self {
+    fn of(chrome: &Chrome, panel: Panel, salt: &str) -> Self {
         Self {
+            inset: chrome.inset,
             panel: panel
                 .id_salt(salt)
                 .size((Sizing::HUG, Sizing::HUG))
-                .gap(look::GAP)
-                .padding(Spacing::all(look::PILL_PAD))
+                .gap(chrome.gap)
+                .padding(Spacing::all(chrome.pad))
                 // The pill answers for gestures that start on it, so a drag
                 // beginning in the gap between two chips stays here rather than
                 // falling through and orbiting the camera.
                 .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL)
                 .background(
-                    Background::rounded(ink::PILL, Corners::all(look::PILL_RADIUS))
-                        .with_stroke(EDGE),
+                    Background::rounded(chrome.pill, Corners::all(chrome.pill_radius()))
+                        .with_stroke(Stroke::solid(chrome.pill_edge, 1.0)),
                 ),
         }
     }
 
     /// Pin it to a corner of the view, inset by the shared margin.
     pub(super) fn align(mut self, align: Align) -> Self {
-        self.panel = self.panel.align(align).margin(Spacing::all(look::INSET));
+        self.panel = self.panel.align(align).margin(Spacing::all(self.inset));
         self
     }
 
     /// Hold it to a width, for a surface carrying text that could otherwise run
-    /// on — see [`look::CARD`].
+    /// on — see [`Chrome::card`].
     pub(super) fn width(mut self, width: f32) -> Self {
         self.panel = self.panel.size((Sizing::fixed(width), Sizing::HUG));
         self
     }
 
-    /// Set the space between what stands on it, where the chip gap is wrong —
-    /// a list of rows wants them nearly touching, so the list reads as one
-    /// thing rather than as a column of separate slabs.
+    /// Set the space between what stands on it, where the chip gap is wrong — a
+    /// list of rows wants them nearly touching, so the list reads as one thing
+    /// rather than as a column of separate slabs.
     pub(super) fn gap(mut self, gap: f32) -> Self {
         self.panel = self.panel.gap(gap);
         self
@@ -87,10 +86,7 @@ impl Pill {
 /// How far a rule stands clear of the pill's own edge at either end.
 const RULE_INSET: f32 = 4.0;
 
-/// How long a rule runs: the chip it divides, less the inset at both ends.
-const RULE_RUN: f32 = look::CHIP - RULE_INSET * 2.0;
-
-/// A rule between two groups sharing one column, in the shared rule colour.
+/// A rule between two groups sharing one column.
 ///
 /// Inset at both ends, so it reads as a division *inside* the surface rather
 /// than as a second edge of it.
@@ -99,13 +95,18 @@ const RULE_RUN: f32 = look::CHIP - RULE_INSET * 2.0;
 /// on, which is this one for every rule the overlay draws — so two on one pill
 /// would collide on a single id. The salt is also the only place a rule says
 /// which division it is.
-pub(super) fn rule(ui: &mut Ui, salt: &str) {
-    line(ui, salt, RULE_RUN, 1.0, ink::RULE);
+pub(super) fn rule(ui: &mut Ui, chrome: &Chrome, salt: &str) {
+    line(ui, salt, run(chrome), 1.0, chrome.rule);
 }
 
 /// The same, between two groups sharing one row.
-pub(super) fn divider(ui: &mut Ui, salt: &str) {
-    line(ui, salt, 1.0, RULE_RUN, ink::RULE);
+pub(super) fn divider(ui: &mut Ui, chrome: &Chrome, salt: &str) {
+    line(ui, salt, 1.0, run(chrome), chrome.rule);
+}
+
+/// How long a rule runs: the chip it divides, less the inset at both ends.
+fn run(chrome: &Chrome) -> f32 {
+    chrome.chip_side - RULE_INSET * 2.0
 }
 
 /// A hairline of a stated size.

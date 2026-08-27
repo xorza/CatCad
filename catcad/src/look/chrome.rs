@@ -1,0 +1,210 @@
+//! What the overlay is drawn in, and the sizes it is built on.
+
+use palantir::Color;
+use serde::{Deserialize, Serialize};
+
+/// Everything that decides how a control floating over the drawing looks.
+///
+/// **Colour and size in one roster, not two.** A chip's fill and a chip's side
+/// are one decision made twice — change either alone and the control stops
+/// being the control that was designed. Splitting them would put the two halves
+/// of one answer in two places.
+///
+/// Every field is named for the *role* it plays and never for the colour or the
+/// number it happens to hold, so a second preset is a second table rather than a
+/// rethink.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub(crate) struct Chrome {
+    /// The translucent slab a group of controls stands on.
+    ///
+    /// Dark, cool and short of opaque, so a pill holds its own over the
+    /// near-black ground *and* over a lit solid it happens to sit on. Nothing is
+    /// blurred: palantir composites a flat fill, and translucency alone is what
+    /// keeps the drawing faintly readable through the chrome.
+    pub(crate) pill: Color,
+    /// The hairline round a pill.
+    ///
+    /// Faint, because it is not there to be seen: what separates a pill from the
+    /// drawing is the fill, and this only keeps the edge from dissolving where
+    /// the two meet at the same value.
+    pub(crate) pill_edge: Color,
+    /// The rule between two groups sharing one pill.
+    ///
+    /// Stronger than the edge above, and that is why it is its own colour. This
+    /// one *is* there to be seen — it carries the distinction between a chip
+    /// that draws and a chip that acts on the drawing — and a rule at the edge's
+    /// weight reads as a gap rather than as a division.
+    pub(crate) rule: Color,
+
+    /// A control at rest, and under the pointer.
+    pub(crate) chip: Color,
+    pub(crate) chip_lit: Color,
+    /// A control being pressed.
+    ///
+    /// **Nothing this crate draws wears it.** A chip has three states and none
+    /// of them is "pressed" — a press is over by the time the frame is drawn,
+    /// which is why a held control reads as held rather than as pushed. It is
+    /// here because palantir's surface ladder has a third rung, and a widget
+    /// this crate does not draw is still a widget the theme has to answer for.
+    pub(crate) chip_active: Color,
+    /// What a control wears while what it stands for is held.
+    ///
+    /// **An inversion rather than an accent, and that is the whole reason it is
+    /// this colour.** The drawing already spends every hue it has on saying
+    /// something: blue through amber to orange for how much freedom is left, red
+    /// for pinned, green for picked out, violet for a mark. A chrome accent in
+    /// any of them would be a sixth meaning wearing a colour that already has
+    /// one. A held control is light where every other is dark, which says the
+    /// same thing and spends no hue at all.
+    ///
+    /// It is also what palantir is handed as its accent and its focus ring, so
+    /// the one rule reaches the widgets this crate does not draw itself.
+    pub(crate) chip_held: Color,
+    /// The ink on a held control — the pill's own dark, so the inversion is
+    /// complete rather than a light fill under a light mark.
+    pub(crate) on_held: Color,
+
+    /// A control's ink at rest, and lit.
+    pub(crate) ink: Color,
+    pub(crate) ink_lit: Color,
+    /// The ink of something that cannot be used.
+    ///
+    /// Here for the reason [`Chrome::chip_active`] is: this crate draws nothing
+    /// dark — a control that could not act is not recorded at all — and
+    /// palantir's own widgets have a disabled state whichever way that goes.
+    pub(crate) ink_dim: Color,
+
+    /// A face of the orientation cube, unlit and fully lit.
+    ///
+    /// A pair rather than one shade per face, because which face is bright
+    /// follows from where the cube has been turned to rather than from which
+    /// face it is: a face is lit against a light fixed in the world and lands
+    /// somewhere between these two. A ladder of three fixed tints would be a
+    /// cube whose faces swapped shades as it came round.
+    pub(crate) cube_low: Color,
+    pub(crate) cube_high: Color,
+
+    /// What the window is cleared to.
+    ///
+    /// Only ever seen in a sliver, because the viewport fills the window — so it
+    /// is set to agree with what aperture clears the *scene* to rather than
+    /// chosen for its own sake. A sliver in a different black is a seam.
+    pub(crate) ground: Color,
+
+    /// The side of a square control, in logical pixels.
+    ///
+    /// Large enough to hit without aiming and small enough that eight of them
+    /// stacked do not run down the view. The gap and the padding are set against
+    /// it rather than chosen: the pill's rounding is the chip's grown by the
+    /// padding, so the two stay concentric however this moves.
+    pub(crate) chip_side: f32,
+    pub(crate) chip_radius: f32,
+    pub(crate) gap: f32,
+    pub(crate) pad: f32,
+
+    /// How far a surface sits from the edge of the view it floats on.
+    ///
+    /// Shared rather than set per surface, because they are pinned to different
+    /// corners of one view and nothing but this number lines them up: one inset
+    /// unlike its neighbour reads as a mistake rather than as a choice.
+    pub(crate) inset: f32,
+
+    /// How wide a surface that carries a name is allowed to be.
+    ///
+    /// **A bound rather than a preference**, and the whole of what keeps the
+    /// overlay from moving the drawing. A surface is measured by the widest thing
+    /// standing on it, the root is floored by the widest surface, and the
+    /// viewport fills what is left — so one unbounded run of text stretches the
+    /// view, and a stretched view is a different projection. Surfaces built out
+    /// of chips need no bound: a chip count is a width.
+    pub(crate) card: f32,
+    /// The same, for the solver's report, which holds a sentence rather than a
+    /// name — and is set so the *solve's* own line fits whole. What runs past
+    /// this is a path, and a path is the one clause worth losing the tail of.
+    pub(crate) readout: f32,
+
+    /// How much of a chip's box the artwork spans.
+    ///
+    /// Under a half, so a glyph reads as a mark on a surface rather than as a
+    /// tile that happens to have a border.
+    pub(crate) icon: f32,
+
+    /// A chip's own lettering — the relation marks, and the figures beside them.
+    pub(crate) chip_text: f32,
+    /// The lines the overlay reads out in.
+    pub(crate) readout_text: f32,
+
+    /// The solver's verdict swatch, which carries a colour and no number.
+    pub(crate) verdict_run: f32,
+    pub(crate) verdict_weight: f32,
+
+    /// The side of the orientation cube's box.
+    pub(crate) cube: f32,
+    /// How much of that box the artwork keeps clear at the edges, so the two
+    /// turn arrows have somewhere to sit.
+    pub(crate) cube_margin: f32,
+}
+
+impl Chrome {
+    /// The rounding of a pill.
+    ///
+    /// Derived rather than stated: it is the chip's radius grown by the padding
+    /// between the two, which is what keeps a pill's corner concentric with the
+    /// corner of the chip inside it. Stated on its own, the pair would be two
+    /// numbers free to disagree.
+    pub(crate) fn pill_radius(&self) -> f32 {
+        self.chip_radius + self.pad
+    }
+
+    /// How far one unit of the orientation cube reaches in its box.
+    ///
+    /// **Sized against the widest the cube can ever project to**, not against
+    /// how it looks from one angle. A unit cube seen along any axis pair spans
+    /// at most `√2` in each screen direction — the two horizontal axes at 45° —
+    /// so a cube built on this fits its box from every angle rather than growing
+    /// out of it as it turns.
+    pub(crate) fn cube_scale(&self) -> f32 {
+        (self.cube * 0.5 - self.cube_margin) / std::f32::consts::SQRT_2
+    }
+
+    /// The one preset.
+    pub(crate) const DARK: Self = Self {
+        pill: Color::hexa(0x181C21CC),
+        pill_edge: Color::hexa(0xBECDDC24),
+        rule: Color::hexa(0xBECDDC59),
+        chip: Color::hex(0x31363C),
+        chip_lit: Color::hex(0x3D444B),
+        chip_active: Color::hex(0x49515A),
+        chip_held: Color::hex(0xD6DDE4),
+        on_held: Color::hex(0x141A20),
+        ink: Color::hex(0x8B949E),
+        ink_lit: Color::hex(0xD3DAE1),
+        ink_dim: Color::hex(0x5C646D),
+        cube_low: Color::hex(0x2C3138),
+        cube_high: Color::hex(0x59626C),
+        // Linear, because that is what aperture holds its clear in: the same
+        // value re-authored in sRGB would land a shade off and put the seam
+        // back.
+        ground: Color::linear_rgb(0.02, 0.02, 0.025),
+        chip_side: 30.0,
+        chip_radius: 6.0,
+        gap: 6.0,
+        pad: 4.0,
+        inset: 12.0,
+        card: 176.0,
+        readout: 390.0,
+        icon: 17.0,
+        chip_text: 12.0,
+        readout_text: 11.5,
+        verdict_run: 46.0,
+        verdict_weight: 4.0,
+        cube: 76.0,
+        cube_margin: 5.0,
+    };
+}
+
+impl Default for Chrome {
+    fn default() -> Self {
+        Self::DARK
+    }
+}

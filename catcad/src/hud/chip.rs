@@ -6,7 +6,7 @@ use palantir::{
 };
 
 use crate::hud::wearing::Wearing;
-use crate::look;
+use crate::look::chrome::Chrome;
 use crate::look::icons::{Glyph, Icons};
 
 /// What a chip shows.
@@ -78,30 +78,30 @@ impl Chip {
     }
 
     /// Draw it, and say whether it was pressed.
-    pub(super) fn show(self, ui: &mut Ui, icons: &Icons) -> bool {
+    pub(super) fn show(self, ui: &mut Ui, icons: &Icons, chrome: &Chrome) -> bool {
         let hovered = ui.response_for(self.id).hovered;
-        let wearing = Wearing::chip(self.held, hovered);
+        let wearing = Wearing::chip(chrome, self.held, hovered);
         // A word is measured by palantir; the other two are one glyph in a
         // square, and a square is a width.
         let width = match self.face {
             Face::Word(_) => Sizing::HUG,
-            _ => Sizing::fixed(look::CHIP),
+            _ => Sizing::fixed(chrome.chip_side),
         };
         let chip = Panel::zstack()
             .id(self.id)
-            .size((width, Sizing::fixed(look::CHIP)))
+            .size((width, Sizing::fixed(chrome.chip_side)))
             .padding(match self.face {
-                Face::Word(_) => Spacing::new(look::GAP + 2.0, 0.0, look::GAP + 2.0, 0.0),
+                Face::Word(_) => Spacing::new(chrome.gap + 2.0, 0.0, chrome.gap + 2.0, 0.0),
                 _ => Spacing::ZERO,
             })
             .sense(Sense::CLICK)
             .background(Background::rounded(
                 wearing.fill,
-                Corners::all(look::CHIP_RADIUS),
+                Corners::all(chrome.chip_radius),
             ))
             .show(ui, |ui| match self.face {
-                Face::Icon(glyph) => icon(ui, icons, glyph, wearing.ink),
-                Face::Mark(text) | Face::Word(text) => lettering(ui, text, wearing.ink),
+                Face::Icon(glyph) => icon(ui, icons, chrome, glyph, wearing.ink),
+                Face::Mark(text) | Face::Word(text) => lettering(ui, chrome, text, wearing.ink),
             });
         // The owned snapshot and the click are taken before the tooltip, so the
         // chip's borrow of `ui` has ended by the time the bubble records into
@@ -117,12 +117,12 @@ impl Chip {
 ///
 /// Rasterized at the exact physical size this rect lands on, so the mark is
 /// pixel-crisp at every display scale rather than a scaled copy of one size.
-fn icon(ui: &mut Ui, icons: &Icons, glyph: Glyph, tint: Color) {
-    let inset = (look::CHIP - look::ICON) * 0.5;
+fn icon(ui: &mut Ui, icons: &Icons, chrome: &Chrome, glyph: Glyph, tint: Color) {
+    let inset = (chrome.chip_side - chrome.icon) * 0.5;
     ui.add_shape(
         icons
             .shape(glyph)
-            .at(Rect::new(inset, inset, look::ICON, look::ICON))
+            .at(Rect::new(inset, inset, chrome.icon, chrome.icon))
             .tint(tint),
     );
 }
@@ -133,10 +133,10 @@ fn icon(ui: &mut Ui, icons: &Icons, glyph: Glyph, tint: Color) {
 /// [`MARK_FONT`](crate::paint::MARK_FONT). One face for the two places a
 /// relation's symbol appears, so a chip and the mark it states cannot come out
 /// as two different characters.
-fn lettering(ui: &mut Ui, text: &'static str, color: Color) {
+fn lettering(ui: &mut Ui, chrome: &Chrome, text: &'static str, color: Color) {
     let style = TextStyle {
         color,
-        font_size_px: look::CHIP_TEXT,
+        font_size_px: chrome.chip_text,
         family: FontFamily::Mono,
         weight: FontWeight::Bold,
         ..TextStyle::default()

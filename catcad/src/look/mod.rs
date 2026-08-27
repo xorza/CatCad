@@ -1,64 +1,167 @@
-//! How the application looks: the colours it decides, the metrics its chrome is
-//! built on, and the artwork it draws controls with.
+//! How the application looks: every colour, weight, face and metric it draws
+//! with, decided in one place.
 //!
 //! Held apart from what it is applied to, so that neither the drawing nor the
 //! overlay has to be read to change the other — and so that the two cannot
 //! drift, which is what a colour stated twice always does.
+//!
+//! **Palantir's theme is derived from this one rather than sitting beside it.**
+//! Every widget the crate does not draw itself — the dimension field, the
+//! tooltips, the form's text edit, the scrollbars — resolves against whatever
+//! palette it is handed, and one it was never given is one nobody chose.
 
+pub(crate) mod chrome;
 pub(crate) mod icons;
 pub(crate) mod ink;
 
-/// The side of a square control, in logical pixels.
-///
-/// Large enough to hit without aiming and small enough that eight of them
-/// stacked do not run down the view. The gap and the padding below are set
-/// against it rather than chosen: the pill's rounding is the chip's grown by
-/// the padding, so the two stay concentric however this moves.
-pub(crate) const CHIP: f32 = 30.0;
-pub(crate) const CHIP_RADIUS: f32 = 6.0;
-pub(crate) const GAP: f32 = 6.0;
-pub(crate) const PILL_PAD: f32 = 4.0;
-pub(crate) const PILL_RADIUS: f32 = CHIP_RADIUS + PILL_PAD;
+use std::cell::OnceCell;
+use std::rc::Rc;
 
-/// How far a surface sits from the edge of the view it floats on.
-///
-/// Shared rather than written per surface, because they are pinned to different
-/// corners of one view and nothing but this number lines them up: one inset
-/// unlike its neighbour reads as a mistake rather than as a choice.
-pub(crate) const INSET: f32 = 12.0;
+use palantir::{Palette, Spacing, TextStyle};
+use serde::{Deserialize, Serialize};
 
-/// How wide a surface that carries text is allowed to be.
-///
-/// **A bound rather than a preference**, and the whole of what keeps the
-/// overlay from moving the drawing. A surface is measured by the widest thing
-/// standing on it, the root is floored by the widest surface, and the viewport
-/// fills what is left — so one unbounded run of text stretches the view, and a
-/// stretched view is a different projection. See [`Hud::show`](crate::hud::Hud).
-///
-/// Every surface holding a name, a path or a report takes this and ellipsises
-/// what will not fit. Surfaces built out of chips need no bound: a chip count is
-/// a width.
-pub(crate) const CARD: f32 = 176.0;
+use crate::look::chrome::Chrome;
 
-/// How wide the solver's report is allowed to be.
+/// Everything the application decides about how it looks.
 ///
-/// Wider than a [`CARD`], because it holds a sentence rather than a name: the
-/// verdict, the counts, and where the document was last written. Bounded for
-/// the same reason everything else is — and set so the *solve's* own line fits
-/// whole, because a readout that cuts off what it says every frame is a
-/// readout nobody reads. What runs past this is a path, and a path is the one
-/// clause worth losing the tail of.
-pub(crate) const READOUT: f32 = 390.0;
-
-/// How much of a chip's box the artwork spans.
+/// One value on [`CatCad`](crate::CatCad), read by every surface and written by
+/// none of them.
 ///
-/// Under a half, so a glyph reads as a mark on a surface rather than as a tile
-/// that happens to have a border.
-pub(crate) const ICON: f32 = 17.0;
+/// Serialized whole, which costs a derive and makes a theme read from a file a
+/// feature rather than a rewrite. What is *not* serialized is the palantir half
+/// below, that being derived rather than decided.
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
+pub(crate) struct Theme {
+    pub(crate) chrome: Chrome,
+    /// The palantir theme this one implies, built on the frame it is first
+    /// wanted.
+    ///
+    /// **Cached, because building it is not cheap**: `from_palette` assembles
+    /// sixteen widget themes, and a frame that has changed nothing should hand
+    /// palantir a reference count rather than sixteen fresh recipes.
+    ///
+    /// A cell with no way to clear it, which is not an oversight: a theme is
+    /// replaced whole rather than edited in place, and a replacement drops this
+    /// with the value it belonged to. A cell that could be emptied would be one
+    /// somebody has to remember to empty.
+    #[serde(skip)]
+    dressed: OnceCell<Rc<palantir::Theme>>,
+}
 
-/// Type size of a chip's own lettering, in logical pixels — the relation marks,
-/// and the figures beside them.
-pub(crate) const CHIP_TEXT: f32 = 12.0;
+impl Theme {
+    /// The palantir theme this one implies.
+    pub(crate) fn dressed(&self) -> Rc<palantir::Theme> {
+        self.dressed.get_or_init(|| Rc::new(self.dress())).clone()
+    }
 
-/// Type size of the lines the overlay reads out in.
-pub(crate) const READOUT_TEXT: f32 = 11.5;
+    /// Build it: palantir's own recipe over this theme's palette, with the
+    /// handful of axes CatCad differs on written over the top.
+    fn dress(&self) -> palantir::Theme {
+        let Chrome {
+            ink_lit,
+            ground,
+            gap,
+            readout_text,
+            ..
+        } = self.chrome;
+        let mut theme = palantir::Theme::from_palette(&self.palette());
+        // Set in the size the overlay reads out in, so a field standing on the
+        // drawing and the line beside it are one voice rather than two.
+        theme.text = TextStyle {
+            color: ink_lit,
+            font_size_px: readout_text,
+            ..TextStyle::default()
+        };
+        theme.window_clear = ground;
+        // Tighter than the stock recipe, which is sized for a dialog: a control
+        // standing on a pill takes its breathing room from the pill.
+        theme.button.padding = Spacing::new(gap, 4.0, gap, 4.0);
+        theme.button.margin = Spacing::ZERO;
+        theme
+    }
+
+    /// The nine roles palantir builds every widget theme out of.
+    ///
+    /// **The whole of the derivation.** What CatCad has to answer is a surface
+    /// ladder, three inks, a ground and an accent — and it has all of them
+    /// already, because a chip at rest, under the pointer and pressed *is* that
+    /// ladder.
+    ///
+    /// The accent and the focus ring are both the held colour, by the rule the
+    /// chrome keeps everywhere: the drawing spends every hue on saying
+    /// something, so chrome says "this one" by inverting rather than by
+    /// colouring. A ring in a hue would be a seventh meaning wearing a colour
+    /// that already has one.
+    fn palette(&self) -> Palette {
+        let Chrome {
+            ink,
+            ink_lit,
+            ink_dim,
+            ground,
+            chip,
+            chip_lit,
+            chip_active,
+            chip_held,
+            ..
+        } = self.chrome;
+        Palette {
+            text: ink_lit,
+            text_muted: ink,
+            text_disabled: ink_dim,
+            terminal_bg: ground,
+            elem: chip,
+            elem_hover: chip_lit,
+            elem_active: chip_active,
+            border_focused: chip_held,
+            accent: chip_held,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The nine roles palantir builds every widget out of are answered from the
+    /// chrome, so a colour changed there reaches the widgets this crate does not
+    /// draw itself.
+    #[test]
+    fn palantirs_palette_is_answered_out_of_the_chrome() {
+        let theme = Theme::default();
+        let chrome = &theme.chrome;
+        let palette = theme.palette();
+        assert_eq!(palette.text, chrome.ink_lit);
+        assert_eq!(palette.text_muted, chrome.ink);
+        assert_eq!(palette.text_disabled, chrome.ink_dim);
+        assert_eq!(palette.terminal_bg, chrome.ground);
+        // The surface ladder is the chip's own three states, in that order: what
+        // palantir calls a clickable surface is what this crate calls a chip.
+        assert_eq!(palette.elem, chrome.chip);
+        assert_eq!(palette.elem_hover, chrome.chip_lit);
+        assert_eq!(palette.elem_active, chrome.chip_active);
+        // Chrome says "this one" by inverting rather than by colouring, so both
+        // of palantir's emphasis roles take the held colour.
+        assert_eq!(palette.accent, chrome.chip_held);
+        assert_eq!(palette.border_focused, chrome.chip_held);
+    }
+
+    /// What the derivation writes over palantir's own recipe, and that it is
+    /// written once.
+    #[test]
+    fn the_derived_theme_carries_the_overrides_and_is_built_once() {
+        let theme = Theme::default();
+        let dressed = theme.dressed();
+        assert_eq!(dressed.window_clear, theme.chrome.ground);
+        assert_eq!(dressed.text.color, theme.chrome.ink_lit);
+        assert_eq!(dressed.text.font_size_px, theme.chrome.readout_text);
+        assert_eq!(
+            dressed.button.padding,
+            Spacing::new(theme.chrome.gap, 4.0, theme.chrome.gap, 4.0)
+        );
+        assert!(
+            Rc::ptr_eq(&dressed, &theme.dressed()),
+            "the derivation ran a second time, so every frame pays for sixteen \
+             widget themes"
+        );
+    }
+}

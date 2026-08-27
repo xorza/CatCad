@@ -11,7 +11,21 @@ re-plan.
 
 ## Where it stands
 
-Colour is decided in three files, and size, weight and type in eleven. Around
+**Stage 1 is built.** `Theme` carries `Chrome`, the overlay reads it off
+`Shown`, and palantir's own theme is derived from it and installed each frame.
+Two things came out differently from what is written below.
+
+- **The four parts are declared as their stages land, not up front.** An empty
+  `Drawing` or `Form` is dead code, and `-D warnings` says so. `Theme` holds
+  `chrome` and the derived cache today.
+- **The artwork and the chrome travel together to every control.** The rail's
+  `arm` reached eight arguments and clippy refused it, which was the signal: a
+  control needs the icons, the chrome and the tool in hand, and `Shown` already
+  carries all three. It is handed the bundle rather than the parts.
+
+The rest below is what stages 2 to 4 still have to move.
+
+Colour was decided in three files, and size, weight and type in eleven. Around
 31 colours and 45 numbers.
 
 | where | holds |
@@ -164,15 +178,20 @@ Not one shot. Five modules, around seventy-five constants, a parameter on nine
 functions, and the drawing's colours have to come out byte-identical. Each stage
 compiles, passes, and can be looked at.
 
-### 1. The shape, and the chrome — medium
+### 1. The shape, and the chrome — done
 
-`Theme` with its four parts declared and `Chrome` filled from today's `look/`
-constants and the chrome half of `ink.rs`. It rides on `Shown`.
-`Theme::palette` answers palantir's nine roles, `Theme::dressed` caches the
-derived theme, and the frame installs it.
+`Theme` with `Chrome` filled from the old `look/` constants and the chrome half
+of `ink.rs`, riding on `Shown`. `Theme::palette` answers palantir's nine roles,
+`Theme::dressed` caches the derived theme in a `OnceCell`, and the frame
+installs it.
 
-**Proves the derivation.** Every palantir widget in the app changes palette at
-once.
+Three colours the chrome did not have before, because palantir's palette needs
+them: `chip_active` for the pressed tier, `ink_dim` for disabled text, and
+`ground` — set to aperture's own clear, so the sliver of window the viewport
+does not cover is not a seam.
+
+Two tests pin the derivation: that the nine roles are answered out of the
+chrome, and that the overrides land and the build runs once.
 
 ### 2. The drawing — medium
 

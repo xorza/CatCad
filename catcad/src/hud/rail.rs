@@ -7,7 +7,7 @@ use crate::hud::pill::{self, Pill};
 use crate::hud::{Shown, control};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Intents};
-use crate::look::icons::{Glyph, Icons};
+use crate::look::icons::Glyph;
 use crate::model::Model;
 use crate::tool::Tool;
 use crate::tool::dimensioning::Dimensioning;
@@ -43,46 +43,47 @@ pub(super) fn tool_id(label: &str) -> WidgetId {
 /// the pointer between modes, and a chip that could not be used would still
 /// take the press.
 pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
-    let Shown { tool, models, .. } = shown;
+    let Shown { models, .. } = shown;
     let open = models.open().map(Model::of);
-    Pill::vstack("rail").show(ui, |ui| {
-        arm(
-            ui,
-            shown.icons,
-            tool,
-            "Pointer",
-            Glyph::Pointer,
-            Tool::Pointer,
-            intents,
-        );
+    let chrome = &shown.theme.chrome;
+    Pill::vstack(chrome, "rail").show(ui, |ui| {
+        arm(ui, shown, "Pointer", Glyph::Pointer, Tool::Pointer, intents);
         let Some(sketch) = open else {
             return;
         };
-        pill::rule(ui, "drawing");
+        pill::rule(ui, chrome, "drawing");
         for (label, glyph, arms) in TOOLS {
-            arm(ui, shown.icons, tool, label, glyph, arms, intents);
+            arm(ui, shown, label, glyph, arms, intents);
         }
         // Below a second rule, and that rule carries the whole distinction: a
         // chip above it says what a click will *do*, and one below it asks
         // something of the drawing as a whole.
-        pill::rule(ui, "commands");
-        if Chip::icon(tool_id("Clean up"), "Clean up", Glyph::Tidy).show(ui, shown.icons) {
+        pill::rule(ui, chrome, "commands");
+        if Chip::icon(tool_id("Clean up"), "Clean up", Glyph::Tidy).show(ui, shown.icons, chrome) {
             intents.push(Change::Tidy { sketch });
         }
         // Named for what it finishes rather than for closing, because that is
         // the word a modeller reaches for and because "close" is what a
         // document does.
-        if Chip::icon(tool_id("Finish"), "Finish sketch", Glyph::Finish).show(ui, shown.icons) {
+        if Chip::icon(tool_id("Finish"), "Finish sketch", Glyph::Finish).show(
+            ui,
+            shown.icons,
+            chrome,
+        ) {
             intents.push(Choice::Close);
         }
     });
 }
 
 /// One tool chip, which asks for `arms` and shows whether it is in hand.
+///
+/// Handed the whole of what the frame shows rather than the three parts it
+/// reads: the artwork, the chrome and the tool in hand travel together to every
+/// control on the overlay, and taking them apart here would be taking one bundle
+/// apart to rebuild it at the call.
 fn arm(
     ui: &mut Ui,
-    icons: &Icons,
-    tool: Tool,
+    shown: Shown<'_>,
     label: &'static str,
     glyph: Glyph,
     arms: Tool,
@@ -92,9 +93,9 @@ fn arm(
     // line tool, and a chip that lifted between its two clicks would be saying
     // the opposite.
     let pressed = Chip::icon(tool_id(label), label, glyph)
-        .held(tool.is(arms))
-        .show(ui, icons);
+        .held(shown.tool.is(arms))
+        .show(ui, shown.icons, &shown.theme.chrome);
     if pressed {
-        intents.push(Choice::Hold(tool.toggled(arms)));
+        intents.push(Choice::Hold(shown.tool.toggled(arms)));
     }
 }

@@ -8,6 +8,7 @@ use crate::hud::pill::{self, Pill};
 use crate::hud::{Shown, control};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Intent, Intents, Opening, Step};
+use crate::look::chrome::Chrome;
 use crate::look::icons::{Glyph, Icons};
 use crate::model::{Model, Models};
 use crate::paint::DECIMALS;
@@ -42,7 +43,7 @@ pub(super) fn relation_id(label: &str) -> WidgetId {
 /// **Centred, which the rest of the overlay is not.** Two edges picked in the
 /// middle of the view deserve an answer in the middle of the view. It is safe
 /// to centre because everything on it is a chip and a chip count is a width —
-/// see [`look::CARD`](crate::look::CARD) on why that matters.
+/// see [`chrome.card`](crate::chrome.card) on why that matters.
 pub(super) fn show(
     ui: &mut Ui,
     shown: Shown<'_>,
@@ -75,14 +76,18 @@ pub(super) fn show(
     if let Some(resizable) = dimension {
         *draft = resizable.value;
     }
-    Pill::hstack("relations")
+    let chrome = &shown.theme.chrome;
+    Pill::hstack(chrome, "relations")
         .align(Align::BOTTOM)
         .show(ui, |ui| {
             // First, because it is the one thing here that can be asked of a
             // document nobody is drawing in.
             if let Some(on) = startable
-                && Chip::icon(relation_id("Sketch"), "Start a sketch", Glyph::Sketch)
-                    .show(ui, shown.icons)
+                && Chip::icon(relation_id("Sketch"), "Start a sketch", Glyph::Sketch).show(
+                    ui,
+                    shown.icons,
+                    chrome,
+                )
             {
                 intents.push(Change::AddSketch { on });
             }
@@ -111,8 +116,11 @@ pub(super) fn show(
             // Before the relations, because it is the one thing here that
             // builds rather than states.
             if let Some(growable) = region
-                && Chip::icon(relation_id("Extrude"), "Extrude", Glyph::Extrude)
-                    .show(ui, shown.icons)
+                && Chip::icon(relation_id("Extrude"), "Extrude", Glyph::Extrude).show(
+                    ui,
+                    shown.icons,
+                    chrome,
+                )
             {
                 // Asks rather than builds. The solid appears at no depth at all
                 // and the form beside it decides how far it goes.
@@ -124,10 +132,10 @@ pub(super) fn show(
             if !offers.is_empty()
                 && (startable.is_some() || dimension.is_some() || region.is_some())
             {
-                pill::divider(ui, "offers");
+                pill::divider(ui, chrome, "offers");
             }
             for &constraint in offers.iter() {
-                if offered(ui, shown.icons, constraint) {
+                if offered(ui, shown.icons, chrome, constraint) {
                     // **Two answers, and which one a chip gives follows from
                     // what it is short of.** A relation says something the
                     // drawing can work out for itself, so pressing it states it
@@ -152,13 +160,13 @@ pub(super) fn show(
 /// with the same character means a user reads the bar in the vocabulary the
 /// geometry is already annotated in. A dimension has no mark, because it is
 /// drawn as its number, so it falls back to its word.
-fn offered(ui: &mut Ui, icons: &Icons, constraint: Constraint) -> bool {
+fn offered(ui: &mut Ui, icons: &Icons, chrome: &Chrome, constraint: Constraint) -> bool {
     let named = wording::named(constraint);
     match named.glyph {
         Some(glyph) => Chip::mark(relation_id(named.word), named.word, glyph),
         None => Chip::word(relation_id(named.word), named.word, named.word),
     }
-    .show(ui, icons)
+    .show(ui, icons, chrome)
 }
 
 /// A dimension the bar can scrub, and the number it states as it stands.

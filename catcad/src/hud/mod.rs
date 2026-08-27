@@ -6,7 +6,7 @@ use std::hash::Hash;
 
 use crate::hud::cube::Cube;
 use crate::intent::Intents;
-use crate::look;
+use crate::look::Theme;
 use crate::look::icons::Icons;
 use crate::model::Models;
 use crate::selection::Selection;
@@ -86,12 +86,13 @@ impl Hud {
         // surfaces at one corner: pinned to the same edge, they would otherwise
         // be drawn over each other. The column carries the margin, so the two
         // pills on it take the gap between siblings and nothing else.
+        let chrome = &shown.theme.chrome;
         Panel::vstack()
             .id_salt("left")
             .align(Align::TOP_LEFT)
-            .margin(Spacing::all(look::INSET))
+            .margin(Spacing::all(chrome.inset))
             .size((Sizing::HUG, Sizing::HUG))
-            .gap(look::GAP)
+            .gap(chrome.gap)
             .background(Background::NONE)
             .show(ui, |ui| {
                 papers::show(ui, shown, intents);
@@ -118,6 +119,12 @@ pub(crate) struct Shown<'a> {
     /// A resource among the state, because it is read exactly the way the rest
     /// of this is: taken up by the frame, handed down, and written by nobody.
     pub(crate) icons: &'a Icons,
+    /// Every colour, weight and metric the overlay draws with.
+    ///
+    /// Beside the artwork rather than folded in with it, because the two are
+    /// owned differently: a theme is data the application decides, and an icon
+    /// set owns what the *host* has parsed and rasterized.
+    pub(crate) theme: &'a Theme,
     pub(crate) tool: Tool,
     /// Already in the pass's own text arena, so nothing here copies it — and it
     /// has to be lowered in the pass that minted it.

@@ -9,7 +9,7 @@ use crate::hud::pill::{self, Pill};
 use crate::hud::wearing::Wearing;
 use crate::hud::{Shown, control};
 use crate::intent::{Choice, Intents};
-use crate::look;
+use crate::look::chrome::Chrome;
 use crate::look::icons::{Glyph, Icons};
 use crate::look::ink;
 use crate::model::Broken;
@@ -46,12 +46,13 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
     let Shown {
         models, selection, ..
     } = shown;
+    let chrome = &shown.theme.chrome;
     // Rows nearly touching, where a pill of chips leaves the chip gap: a list
     // reads as one thing, and rows a chip's width apart read as a column of
     // separate slabs.
-    Pill::vstack("recipe")
+    Pill::vstack(chrome, "recipe")
         .align(Align::TOP_RIGHT)
-        .width(look::CARD)
+        .width(chrome.card)
         .gap(1.0)
         .show(ui, |ui| {
             let (mut planes, mut sketches, mut solids) = (0, 0, 0);
@@ -88,6 +89,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                 if row(
                     ui,
                     shown.icons,
+                    chrome,
                     at,
                     glyph,
                     label,
@@ -103,7 +105,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                 // than a mark on every row below it: what is rolled back is a
                 // *tail*, so where it starts is the whole of what there is to show.
                 if models.rolled() == Some(at) {
-                    rolled(ui);
+                    rolled(ui, chrome);
                 }
             }
         });
@@ -113,34 +115,35 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
 fn row(
     ui: &mut Ui,
     icons: &Icons,
+    chrome: &Chrome,
     at: FeatureId,
     glyph: Glyph,
     label: InternedStr,
     picked: bool,
 ) -> bool {
     let id = step_id(at);
-    let wearing = Wearing::row(picked, ui.response_for(id).hovered);
+    let wearing = Wearing::row(chrome, picked, ui.response_for(id).hovered);
     let style = TextStyle {
         color: wearing.ink,
-        font_size_px: look::READOUT_TEXT,
+        font_size_px: chrome.readout_text,
         ..TextStyle::default()
     };
     let row = Panel::hstack()
         .id(id)
         .size((Sizing::FILL, Sizing::fixed(ROW)))
-        .padding(Spacing::new(look::PILL_PAD, 0.0, look::PILL_PAD, 0.0))
-        .gap(look::GAP)
+        .padding(Spacing::new(chrome.pad, 0.0, chrome.pad, 0.0))
+        .gap(chrome.gap)
         .sense(Sense::CLICK)
         .background(Background::rounded(
             wearing.fill,
-            Corners::all(look::CHIP_RADIUS),
+            Corners::all(chrome.chip_radius),
         ))
         .show(ui, |ui| {
             let lift = (ROW - ROW_ICON) * 0.5;
             ui.add_shape(
                 icons
                     .shape(glyph)
-                    .at(Rect::new(look::PILL_PAD, lift, ROW_ICON, ROW_ICON))
+                    .at(Rect::new(chrome.pad, lift, ROW_ICON, ROW_ICON))
                     .tint(wearing.ink),
             );
             // Told to fill and cut off, for the reason the readout's line is:
@@ -153,7 +156,7 @@ fn row(
                 .text_wrap(TextWrap::Ellipsis)
                 .size((Sizing::FILL, Sizing::HUG))
                 .align(Align::new(HAlign::Left, VAlign::Center))
-                .margin(Spacing::new(ROW_ICON + look::GAP, 0.0, 0.0, 0.0))
+                .margin(Spacing::new(ROW_ICON + chrome.gap, 0.0, 0.0, 0.0))
                 .show(ui);
         });
     row.response.left.clicked()
@@ -171,7 +174,7 @@ const BAR_INSET: f32 = 6.0;
 /// One salt however many steps there are, because there is only ever one bar —
 /// what is rolled back is a *tail*, and where it starts is the whole of what
 /// there is to show.
-fn rolled(ui: &mut Ui) {
-    const RUN: f32 = look::CARD - (look::PILL_PAD + BAR_INSET) * 2.0;
-    pill::line(ui, "rolled", RUN, 1.0, ink::tint(ink::FREE));
+fn rolled(ui: &mut Ui, chrome: &Chrome) {
+    let run = chrome.card - (chrome.pad + BAR_INSET) * 2.0;
+    pill::line(ui, "rolled", run, 1.0, ink::tint(ink::FREE));
 }
