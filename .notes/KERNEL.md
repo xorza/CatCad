@@ -458,8 +458,8 @@ an `Arrangement` and a face position.
 silverpoint/src/
   arena.rs  inline.rs  loops.rs  sided.rs
   number/          mod.rs, predicate/, tolerance.rs
-    exact/         mod.rs, field, rational, quadratic, filtered, expansion/
-                   — to come: lazy
+    exact/         mod.rs, field, rational, quadratic, filtered,
+                   expansion/, lazy/
   math/            arc, bounds, chorded, dense, direction, intersect, plane,
                    quadratic, triangulate, winding
   sketch/          entities, constraints, solver, arrangement
@@ -812,16 +812,28 @@ from the current camera — and neither is worth a pass on its own yet.
 
 ### 9.1 M0 — exact numbers
 
-The largest single piece, and it shows nothing on screen. Three parts:
+The largest single piece, and it shows nothing on screen. Two parts, and they
+are in this order because the second cannot be done first:
 
-- **The lazy construction DAG** (§4.2), above the tower, the filter and the
-  expansions that are already there.
+- **The drawing goes exact.** §4.1 caps a body's exactness at the fold tolerance
+  of the `Arrangement` it was raised from, so this milestone reaches into
+  `sketch/` before it is finished. Nobody costed that half.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.
-- **The drawing goes exact too.** §4.1 caps a body's exactness at the fold
-  tolerance of the `Arrangement` it was raised from, so this milestone reaches
-  into `sketch/` before it is finished. Nobody costed that half.
+
+**Why that way round.** A sign taken on coordinates the arrangement has already
+folded to `PLACED` has nothing exact to be exact about: the shoelace in
+`math::winding` decides a face from a hole, and what it is held against is
+`ENCLOSED` rather than nought. Pointing that at the exact tier would make it
+exact about a number the drawing rounded first. So the drawing goes exact, and
+then the predicates over it mean something.
+
+**The arithmetic is built.** The tower `ℚ(√δ)(√Δ)` and the interval filter were
+there; the expansions and the lazy construction DAG (§4.2) are there now — a
+number carried as a reading and as the history that would make it again, in one
+buffer rather than a block per operation, collapsing at a feature boundary so a
+timeline cannot grow an unbounded expression graph.
 
 Deliberately before M3b: the exactness tier is a claim the arithmetic either
 supports or does not, and finding out at M4 would be finding out too late.

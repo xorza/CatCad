@@ -11,10 +11,12 @@
 //! the bound cannot reach across nought and declines where it can.
 //! [`expansion::Expansion`] is the rung between the two, and the one most
 //! questions should end at: exact like the rational, and on the stack like the
-//! filter. Still wanted above the lot: a lazy construction DAG.
+//! filter. Over the lot is [`lazy::Lazily`], where a number is carried as a
+//! reading *and* as the history that would make it again — which is what makes
+//! a construction exact rather than only a predicate.
 //!
-//! **Nothing outside these five files calls any of it**, which is what the one
-//! allow below excuses. The pencil route in M3b is the first caller, and the
+//! **Nothing outside these files calls any of it**, which is what the one allow
+//! below excuses. The pencil route in M3b is the first caller, and the
 //! arithmetic lands ahead of the route that needs it because the milestone it
 //! belongs to is the one whose whole point is not finding out late — see
 //! `.notes/KERNEL.md` M0. The tests in each file are what hold it up until
@@ -30,6 +32,7 @@
 pub(crate) mod expansion;
 pub(crate) mod field;
 pub(crate) mod filtered;
+pub(crate) mod lazy;
 pub(crate) mod quadratic;
 pub(crate) mod rational;
 

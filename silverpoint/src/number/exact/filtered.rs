@@ -54,6 +54,16 @@ impl Filtered {
         Self { at, slack: 0.0 }
     }
 
+    /// What the machine made of it, without the bound.
+    ///
+    /// A *reading* rather than the number, like [`Field::nearest`] next door:
+    /// what it is good for is drawing and measuring, and never for deciding.
+    ///
+    /// [`Field::nearest`]: super::field::Field::nearest
+    pub(crate) fn nearest(self) -> f64 {
+        self.at
+    }
+
     /// Which side of nothing it falls, or `None` where the bound reaches across
     /// nought and the exact tier has to be asked.
     ///
