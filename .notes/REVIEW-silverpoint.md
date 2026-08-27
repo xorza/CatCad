@@ -23,18 +23,6 @@ carries its neighbour's summary, and the item above carries none.
 - [ ] `solid/mesh/mod.rs:113-114` — `Mesher::shut_in` loses the paragraph break
   before the note about `into`.
 
-## Scratch mixed in with the answer
-
-`Arrangement` holds its working buffers in a `Scratch` field, apart from the
-corners, edges and faces it answers with. Three other stages do not.
-
-- [ ] `solid/boolean/mod.rs:186` — `Combining` mixes `kept`, `loops` and
-  `imprints`, which are the answer, with sixteen working buffers.
-- [ ] `solid/boolean/sewing/mod.rs:279` — `Sewing` mixes the edge and vertex
-  registries with the shell walk, the mesher and the checker.
-- [ ] `solid/mesh/refining.rs:71` — `Refining` mixes `params`, `places` and
-  `triangles`, which callers read, with eight working buffers.
-
 ## Parallel vectors kept in step by hand
 
 `Stepped` argues in its own doc for one buffer over two kept in step. These

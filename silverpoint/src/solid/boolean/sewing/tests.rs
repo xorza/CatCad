@@ -203,7 +203,7 @@ fn the_pinned_places_come_out_by_curve_and_along_it_with_the_repeats_dropped() {
     // Out of curve order, out of parameter order, and with one place on each
     // curve written down twice — a rounding apart the second time, which is
     // how the two faces meeting on a rim arrive at it.
-    sewing.pinned.extend([
+    sewing.scratch.pinned.extend([
         place(1, 2.0, DVec3::new(2.0, 0.0, 0.0)),
         place(0, 1.0, DVec3::new(0.0, 1.0, 0.0)),
         place(1, 0.0, DVec3::ZERO),
@@ -213,7 +213,7 @@ fn the_pinned_places_come_out_by_curve_and_along_it_with_the_repeats_dropped() {
     sewing.fold();
 
     let along = |on| -> Vec<f64> {
-        placed_on(&sewing.pinned, on)
+        placed_on(&sewing.scratch.pinned, on)
             .iter()
             .map(|it| it.along)
             .collect()
@@ -221,5 +221,5 @@ fn the_pinned_places_come_out_by_curve_and_along_it_with_the_repeats_dropped() {
     assert_eq!(along(0), [1.0]);
     assert_eq!(along(1), [0.0, 2.0]);
     assert_eq!(along(2), [] as [f64; 0], "a curve nothing pinned");
-    assert_eq!(sewing.pinned.len(), 3, "a repeat survived");
+    assert_eq!(sewing.scratch.pinned.len(), 3, "a repeat survived");
 }

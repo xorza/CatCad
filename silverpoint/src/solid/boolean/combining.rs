@@ -47,6 +47,28 @@ pub(super) struct Kept {
 /// Combines bodies, keeping the room it works in.
 #[derive(Debug, Default)]
 pub(super) struct Combining {
+    /// Every loop of every region kept, laid end to end.
+    loops: Loops<Corner>,
+    /// Every curve a stretch of boundary runs along, and the run each stretch
+    /// was marked with — see [`Imprints`], which says why those are two things.
+    ///
+    /// Held for the whole combine rather than per face, because the loops above
+    /// are too: a region of one face and a region of another both point in
+    /// here, and a list emptied between faces would have them pointing at each
+    /// other's curves.
+    imprints: Imprints,
+    kept: Vec<Kept>,
+    scratch: Scratch,
+}
+
+/// Every list a combine works in, kept so that the next one need not ask for
+/// them again.
+///
+/// Apart from the answer above rather than mixed in with it: what a combine
+/// leaves is the regions it kept, their loops and the imprints those point
+/// into, and none of the below outlives the call that filled it.
+#[derive(Debug, Default)]
+struct Scratch {
     splitting: Splitting,
     sounding: Sounding,
     cutter: Cutter,
@@ -68,8 +90,6 @@ pub(super) struct Combining {
     marks: Vec<Came>,
     walk: Vec<DVec2>,
     laid: Vec<Corner>,
-    /// Every loop of every region kept, laid end to end.
-    loops: Loops<Corner>,
     /// Which turn of a wrapping parameter the face being cut was laid out in —
     /// see [`imprinted`], the one thing that needs it.
     ///
@@ -98,15 +118,6 @@ pub(super) struct Combining {
     /// sixty times a second.
     boxed: Vec<Bounds>,
     between: usize,
-    /// Every curve a stretch of boundary runs along, and the run each stretch
-    /// was marked with — see [`Imprints`], which says why those are two things.
-    ///
-    /// Held for the whole combine rather than per face, because the loops above
-    /// are too: a region of one face and a region of another both point in
-    /// here, and a list emptied between faces would have them pointing at each
-    /// other's curves.
-    imprints: Imprints,
-    kept: Vec<Kept>,
 }
 
 impl Combining {
@@ -124,18 +135,18 @@ impl Combining {
         // — see [`Imprints::reserve`].
         let curved = one.topology().curved_edges() + two.topology().curved_edges();
         self.imprints.reserve(curved);
-        self.boxed.clear();
+        self.scratch.boxed.clear();
         self.box_up(one);
-        self.between = self.boxed.len();
+        self.scratch.between = self.scratch.boxed.len();
         self.box_up(two);
         self.against(one, two, doing, true) && self.against(two, one, doing, false)
     }
 
-    /// Take in the box every face of `body` fills — see [`Combining::boxed`].
+    /// Take in the box every face of `body` fills — see [`Scratch::boxed`].
     fn box_up(&mut self, body: &Body) {
         for (_, face) in body.topology().faces() {
             let fills = self.reach(body, face);
-            self.boxed.push(fills);
+            self.scratch.boxed.push(fills);
         }
     }
 
@@ -190,21 +201,21 @@ impl Combining {
         // see [`splitting`] — it has to be uniform.
         //
         // Which run of the boxes is whose follows from `first`, the two calls
-        // being the two ways round — see [`Combining::boxed`].
-        let split = self.between..self.boxed.len();
+        // being the two ways round — see [`Scratch::boxed`].
+        let split = self.scratch.between..self.scratch.boxed.len();
         let (here, there) = if first {
-            (0..self.between, split)
+            (0..self.scratch.between, split)
         } else {
-            (split, 0..self.between)
+            (split, 0..self.scratch.between)
         };
         let mut reach = Bounds::default();
         for at in here {
-            reach.swallow(self.boxed[at]);
+            reach.swallow(self.scratch.boxed[at]);
         }
-        self.met.clear();
-        self.reached.clear();
+        self.scratch.met.clear();
+        self.scratch.reached.clear();
         for ((_, other), at) in theirs.topology().faces().zip(there) {
-            if !self.boxed[at].meets(reach, CHORDED) {
+            if !self.scratch.boxed[at].meets(reach, CHORDED) {
                 continue;
             }
             // Through the index rather than by walking what is already here:
@@ -213,20 +224,21 @@ impl Combining {
             // still decides, exactly as above — see [`Surface::key`].
             let key = other.surface.key();
             if self
+                .scratch
                 .reached
                 .under(key)
-                .any(|at| self.met[at as usize] == other.surface)
+                .any(|at| self.scratch.met[at as usize] == other.surface)
             {
                 continue;
             }
-            let slot = self.reached.file(key);
-            debug_assert_eq!(slot as usize, self.met.len(), "the index lost step");
-            self.met.push(other.surface);
+            let slot = self.scratch.reached.file(key);
+            debug_assert_eq!(slot as usize, self.scratch.met.len(), "the index lost step");
+            self.scratch.met.push(other.surface);
         }
         for (_, face) in mine.topology().faces() {
             self.lay(mine, face);
-            for at in 0..self.met.len() {
-                let along = match Meeting::of(&face.surface, &self.met[at]) {
+            for at in 0..self.scratch.met.len() {
+                let along = match Meeting::of(&face.surface, &self.scratch.met[at]) {
                     // Nothing that divides anything. Apart, the same surface —
                     // two faces on one are told apart by where each region
                     // *stands* — or grazing at a point, which is a place rather
@@ -249,13 +261,18 @@ impl Combining {
                         Curve::Line(_) => None,
                         _ => Some(self.imprints.crossing(*curve)),
                     };
-                    let Some(cut) = imprinted(face.surface, *curve, next, self.about) else {
+                    let Some(cut) = imprinted(face.surface, *curve, next, self.scratch.about)
+                    else {
                         return false;
                     };
-                    if !self.splitting.split(&self.cells, cut, &mut self.spare) {
+                    if !self.scratch.splitting.split(
+                        &self.scratch.cells,
+                        cut,
+                        &mut self.scratch.spare,
+                    ) {
                         return false;
                     }
-                    std::mem::swap(&mut self.cells, &mut self.spare);
+                    std::mem::swap(&mut self.scratch.cells, &mut self.scratch.spare);
                 }
             }
             self.sift(face, theirs, doing, first);
@@ -270,12 +287,14 @@ impl Combining {
     /// one it is not enough for is widened.
     fn reach(&mut self, body: &Body, face: &Face) -> Bounds {
         let topology = body.topology();
-        self.traced.clear();
+        self.scratch.traced.clear();
         for coedge in topology.loops_of(face).flatten() {
-            topology.walked(*coedge).walk(CHORDED, &mut self.traced);
+            topology
+                .walked(*coedge)
+                .walk(CHORDED, &mut self.scratch.traced);
         }
         let mut boundary = Bounds::default();
-        for &at in &self.traced {
+        for &at in &self.scratch.traced {
             boundary.hold(at);
         }
         face.surface.fills(boundary)
@@ -294,14 +313,16 @@ impl Combining {
         let topology = body.topology();
         let mut across = [f64::INFINITY, f64::NEG_INFINITY];
         let Self {
+            scratch, imprints, ..
+        } = self;
+        let Scratch {
             cells,
             walk,
             laid,
             traced,
             marks,
-            imprints,
             ..
-        } = self;
+        } = scratch;
         cells.clear();
         cells.add(|loops| {
             let mut turned = false;
@@ -348,21 +369,24 @@ impl Combining {
                 loops.push(laid);
             }
         });
-        self.about = (across[0] + across[1]) / 2.0;
+        self.scratch.about = (across[0] + across[1]) / 2.0;
     }
 
     /// Ask every region where it stands and keep the ones `doing` wants.
     fn sift(&mut self, face: &Face, theirs: &Body, doing: Operation, first: bool) {
-        for at in 0..self.cells.len() {
+        for at in 0..self.scratch.cells.len() {
             let Some(within) = self.within(at) else {
                 continue;
             };
-            let standing = self.sounding.standing(face.surface.at(within), theirs);
+            let standing = self
+                .scratch
+                .sounding
+                .standing(face.surface.at(within), theirs);
             if !doing.keeps(standing, face.normal(within), first) {
                 continue;
             }
             let from = self.loops.len();
-            for walk in self.cells.cell(at) {
+            for walk in self.scratch.cells.cell(at) {
                 self.loops.push(walk);
             }
             self.kept.push(Kept {
@@ -382,14 +406,14 @@ impl Combining {
     /// inside a region that happens to be convex, and a boolean makes plenty
     /// that are not.
     fn within(&mut self, at: usize) -> Option<DVec2> {
-        let Self {
+        let Scratch {
             cells,
             cutter,
             fill,
             outline,
             holes,
             ..
-        } = self;
+        } = &mut self.scratch;
         outline.clear();
         holes.clear();
         let mut walks = cells.cell(at);

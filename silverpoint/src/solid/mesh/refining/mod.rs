@@ -75,12 +75,23 @@ pub(super) struct Refining {
     /// The same corners in the world.
     places: Vec<DVec3>,
     triangles: Vec<[u32; 3]>,
+    scratch: Scratch,
+}
+
+/// Every list a pass works in, kept so that the next one need not ask for
+/// them again.
+///
+/// Apart from the answer above rather than mixed in with it: what a refining
+/// *is* is its corners and its triangles, and none of the below outlives the
+/// call that filled it.
+#[derive(Debug, Default)]
+struct Scratch {
     /// The next pass's triangles, swapped in at the end of it.
     spare: Vec<[u32; 3]>,
     /// Every side of the current triangles, one entry apiece, sorted by its
     /// ends so either triangle carrying it finds the same one.
     sides: Vec<Side>,
-    /// Where each triangle's own three sides sit in [`Refining::sides`], in the
+    /// Where each triangle's own three sides sit in [`Scratch::sides`], in the
     /// order [`Refining::ends`] numbers them.
     ///
     /// Written once a pass rather than searched for wherever a side is wanted:
@@ -91,17 +102,17 @@ pub(super) struct Refining {
     /// The corners put along every side, each side's in the order they stand
     /// along it from its lower-numbered end.
     ///
-    /// Flat, with [`Refining::starts`] beside it saying where each side's own
+    /// Flat, with [`Scratch::starts`] beside it saying where each side's own
     /// run begins: a side carries none at all on almost every face, and a
     /// vector apiece would reach the heap once per side per frame.
     along: Vec<u32>,
-    /// Where each side's run in [`Refining::along`] begins, one longer than
-    /// [`Refining::sides`] so that the last run has an end.
+    /// Where each side's run in [`Scratch::along`] begins, one longer than
+    /// [`Scratch::sides`] so that the last run has an end.
     starts: Vec<u32>,
     /// One triangle's own corners and the corners put along its sides, in
     /// winding order.
     walk: Vec<u32>,
-    /// [`Refining::walk`] read as two chains from its lowest corner along the
+    /// [`Scratch::walk`] read as two chains from its lowest corner along the
     /// axis to its highest, the first forward and the second back.
     chains: [Vec<u32>; 2],
     /// Where the lines cross one side, as [`Lattice::crossings`] answers.
@@ -201,29 +212,31 @@ impl Refining {
                 continue;
             }
             for slot in 0..3 {
-                self.sides[self.slots[at * 3 + slot] as usize].wanted = true;
+                self.scratch.sides[self.scratch.slots[at * 3 + slot] as usize].wanted = true;
             }
         }
 
-        self.along.clear();
-        self.starts.clear();
-        self.starts.reserve_exact(self.sides.len() + 1);
-        for at in 0..self.sides.len() {
-            self.starts.push(self.along.len() as u32);
-            if !self.sides[at].wanted || !self.cuttable(at) {
+        self.scratch.along.clear();
+        self.scratch.starts.clear();
+        self.scratch
+            .starts
+            .reserve_exact(self.scratch.sides.len() + 1);
+        for at in 0..self.scratch.sides.len() {
+            self.scratch.starts.push(self.scratch.along.len() as u32);
+            if !self.scratch.sides[at].wanted || !self.cuttable(at) {
                 continue;
             }
-            let [from, to] = self.between(self.sides[at].ends);
-            self.crossed.clear();
-            lattice.crossings(from, to, axis, &mut self.crossed);
-            for crossing in 0..self.crossed.len() {
-                let uv = self.crossed[crossing];
+            let [from, to] = self.between(self.scratch.sides[at].ends);
+            self.scratch.crossed.clear();
+            lattice.crossings(from, to, axis, &mut self.scratch.crossed);
+            for crossing in 0..self.scratch.crossed.len() {
+                let uv = self.scratch.crossed[crossing];
                 let put = self.put(surface, uv);
-                self.along.push(put);
+                self.scratch.along.push(put);
             }
         }
-        self.starts.push(self.along.len() as u32);
-        if self.along.is_empty() {
+        self.scratch.starts.push(self.scratch.along.len() as u32);
+        if self.scratch.along.is_empty() {
             return;
         }
         self.rebuild(axis);
@@ -270,7 +283,7 @@ impl Refining {
     /// except where it stands in one place, which no face across it can
     /// disagree about. See [`Refining::collapsed`].
     fn cuttable(&self, at: usize) -> bool {
-        self.sides[at].carried > 1 || self.collapsed(at)
+        self.scratch.sides[at].carried > 1 || self.collapsed(at)
     }
 
     /// Whether the side at `at` in the table stands in one place — the side of
@@ -285,7 +298,9 @@ impl Refining {
     /// Left uncut it holds the piece carrying it as wide as the whole angle it
     /// covers, which on a cone is every triangle that meets the apex.
     fn collapsed(&self, at: usize) -> bool {
-        let [from, to] = self.sides[at].ends.map(|of| self.places[of as usize]);
+        let [from, to] = self.scratch.sides[at]
+            .ends
+            .map(|of| self.places[of as usize]);
         from.approx_eq(to, PLACED)
     }
 
@@ -301,7 +316,7 @@ impl Refining {
     }
 
     /// The two corners the side `slot` of the triangle at `at` runs between,
-    /// lower first — which is also the key [`Refining::sides`] is sorted by.
+    /// lower first — which is also the key [`Scratch::sides`] is sorted by.
     fn ends(&self, at: usize, slot: usize) -> [u32; 2] {
         let corners = self.triangles[at];
         let (from, to) = (corners[slot], corners[(slot + 1) % 3]);
@@ -318,71 +333,79 @@ impl Refining {
     /// Take every side of every triangle, one entry apiece and sorted, and say
     /// where each triangle's own three ended up.
     fn gather(&mut self) {
-        self.sides.clear();
-        self.sides.reserve(self.triangles.len() * 3);
+        self.scratch.sides.clear();
+        self.scratch.sides.reserve(self.triangles.len() * 3);
         for at in 0..self.triangles.len() {
             for slot in 0..3 {
                 let ends = self.ends(at, slot);
-                self.sides.push(Side {
+                self.scratch.sides.push(Side {
                     ends,
                     carried: 1,
                     wanted: false,
                 });
             }
         }
-        self.sides.sort_unstable_by_key(|side| side.ends);
+        let sides = &mut self.scratch.sides;
+        sides.sort_unstable_by_key(|side| side.ends);
         let mut kept = 0;
-        for at in 0..self.sides.len() {
-            if kept > 0 && self.sides[kept - 1].ends == self.sides[at].ends {
-                self.sides[kept - 1].carried += 1;
+        for at in 0..sides.len() {
+            if kept > 0 && sides[kept - 1].ends == sides[at].ends {
+                sides[kept - 1].carried += 1;
             } else {
-                self.sides[kept] = self.sides[at];
+                sides[kept] = sides[at];
                 kept += 1;
             }
         }
-        self.sides.truncate(kept);
+        sides.truncate(kept);
 
-        self.slots.clear();
-        self.slots.reserve_exact(self.triangles.len() * 3);
+        self.scratch.slots.clear();
+        self.scratch.slots.reserve_exact(self.triangles.len() * 3);
         for at in 0..self.triangles.len() {
             for slot in 0..3 {
                 let ends = self.ends(at, slot);
                 let found = self
+                    .scratch
                     .sides
                     .binary_search_by_key(&ends, |side| side.ends)
                     .expect("every side of every triangle was gathered");
-                self.slots.push(found as u32);
+                self.scratch.slots.push(found as u32);
             }
         }
     }
 
     /// Lay the pieces down again around the corners put in along `axis`.
     fn rebuild(&mut self, axis: usize) {
-        self.spare.clear();
-        self.spare
-            .reserve(self.triangles.len() + 2 * self.along.len());
+        self.scratch.spare.clear();
+        self.scratch
+            .spare
+            .reserve(self.triangles.len() + 2 * self.scratch.along.len());
         for at in 0..self.triangles.len() {
-            self.walk.clear();
+            self.scratch.walk.clear();
             for slot in 0..3 {
                 let corners = self.triangles[at];
-                self.walk.push(corners[slot]);
-                let found = self.slots[at * 3 + slot] as usize;
-                let run = self.starts[found] as usize..self.starts[found + 1] as usize;
+                self.scratch.walk.push(corners[slot]);
+                let found = self.scratch.slots[at * 3 + slot] as usize;
+                let run =
+                    self.scratch.starts[found] as usize..self.scratch.starts[found + 1] as usize;
                 // The corners of a side stand in the order they run from its
                 // lower-numbered end, which is the order the triangle walks it
                 // in only where it starts there.
-                if corners[slot] == self.sides[found].ends[0] {
-                    self.walk.extend_from_slice(&self.along[run]);
+                if corners[slot] == self.scratch.sides[found].ends[0] {
+                    self.scratch
+                        .walk
+                        .extend_from_slice(&self.scratch.along[run]);
                 } else {
-                    self.walk.extend(self.along[run].iter().rev());
+                    self.scratch
+                        .walk
+                        .extend(self.scratch.along[run].iter().rev());
                 }
             }
             self.strip(axis);
         }
-        std::mem::swap(&mut self.triangles, &mut self.spare);
+        std::mem::swap(&mut self.triangles, &mut self.scratch.spare);
     }
 
-    /// Lay triangles over the polygon in [`Refining::walk`], which is one
+    /// Lay triangles over the polygon in [`Scratch::walk`], which is one
     /// triangle with corners along its sides.
     ///
     /// **Paired across the polygon rather than fanned from one corner of it.**
@@ -402,31 +425,31 @@ impl Refining {
     /// forces and no cut of this face could mend.
     fn strip(&mut self, axis: usize) {
         let (mut low, mut high) = (0, 0);
-        for at in 1..self.walk.len() {
-            if self.sits(self.walk[at], axis) < self.sits(self.walk[low], axis) {
+        for at in 1..self.scratch.walk.len() {
+            if self.sits(self.scratch.walk[at], axis) < self.sits(self.scratch.walk[low], axis) {
                 low = at;
             }
-            if self.sits(self.walk[at], axis) > self.sits(self.walk[high], axis) {
+            if self.sits(self.scratch.walk[at], axis) > self.sits(self.scratch.walk[high], axis) {
                 high = at;
             }
         }
         // The second chain runs back the way the first came, which is a step of
         // one short of the whole once the walk is read round.
-        for (chain, step) in [(0, 1), (1, self.walk.len() - 1)] {
-            self.chains[chain].clear();
+        for (chain, step) in [(0, 1), (1, self.scratch.walk.len() - 1)] {
+            self.scratch.chains[chain].clear();
             let mut at = low;
             loop {
-                self.chains[chain].push(self.walk[at]);
+                self.scratch.chains[chain].push(self.scratch.walk[at]);
                 if at == high {
                     break;
                 }
-                at = (at + step) % self.walk.len();
+                at = (at + step) % self.scratch.walk.len();
             }
         }
 
         let (mut one, mut two) = (0, 0);
         loop {
-            let [ahead, behind] = [&self.chains[0], &self.chains[1]];
+            let [ahead, behind] = [&self.scratch.chains[0], &self.scratch.chains[1]];
             let (over, under) = (one + 1 < ahead.len(), two + 1 < behind.len());
             if !over && !under {
                 break;
@@ -450,7 +473,7 @@ impl Refining {
             // steps of the walk carry no piece, which is what leaves a polygon
             // of `n` corners the `n - 2` triangles it holds.
             if piece[0] != piece[1] && piece[1] != piece[2] && piece[2] != piece[0] {
-                self.spare.push(piece);
+                self.scratch.spare.push(piece);
             }
         }
     }

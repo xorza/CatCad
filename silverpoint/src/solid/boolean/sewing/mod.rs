@@ -214,6 +214,17 @@ pub(super) struct Sewing {
     joined: Buckets,
     steps: Vec<Step>,
     edges: Vec<EdgeId>,
+    scratch: Scratch,
+}
+
+/// Every list one pass works in, kept so that the next sew need not ask for
+/// them again.
+///
+/// Apart from the registries above rather than mixed in with them: those are
+/// what the sew has found so far and every pass reads back, where nothing here
+/// outlives the pass that filled it.
+#[derive(Debug, Default)]
+struct Scratch {
     /// The walk that gathers the faces of one shell — see [`Spreading`].
     spreading: Spreading,
     /// Which shell has claimed each vertex, by slot, while they are gathered.
@@ -276,7 +287,7 @@ impl Sewing {
             return false;
         }
         if cfg!(debug_assertions) {
-            self.checking.run(into);
+            self.scratch.checking.run(into);
         }
         true
     }
@@ -311,7 +322,7 @@ impl Sewing {
     /// arcs meet. Passings are not places: they are where the flattening put a
     /// corner, and no vertex will stand there.
     fn pin(&mut self, kept: &[Kept], loops: &Loops<Corner>, imprints: &Imprints) {
-        self.pinned.clear();
+        self.scratch.pinned.clear();
         for region in kept {
             for run in region.loops.clone() {
                 let walk = loops.get(run);
@@ -334,7 +345,7 @@ impl Sewing {
                         let Came::Arc(run) = came else {
                             continue;
                         };
-                        self.pinned.push(Pinned {
+                        self.scratch.pinned.push(Pinned {
                             curve: imprints.on(run),
                             at,
                             along: imprints.curve(run).along(at),
@@ -371,7 +382,7 @@ impl Sewing {
     /// having: two faces meeting on a rim put down the same place, and which
     /// of the two the body ends up standing on was arbitrary before.
     fn fold(&mut self) {
-        self.pinned.sort_unstable_by(|one, two| {
+        self.scratch.pinned.sort_unstable_by(|one, two| {
             one.curve.cmp(&two.curve).then_with(|| {
                 one.along
                     .partial_cmp(&two.along)
@@ -379,21 +390,21 @@ impl Sewing {
             })
         });
         let (mut kept, mut group) = (0, 0);
-        for at in 0..self.pinned.len() {
-            let place = self.pinned[at];
-            if kept == 0 || self.pinned[group].curve != place.curve {
+        for at in 0..self.scratch.pinned.len() {
+            let place = self.scratch.pinned[at];
+            if kept == 0 || self.scratch.pinned[group].curve != place.curve {
                 group = kept;
             }
-            let known = self.pinned[group..kept]
+            let known = self.scratch.pinned[group..kept]
                 .iter()
                 .any(|it| it.at.approx_eq(place.at, PLACED));
             if known {
                 continue;
             }
-            self.pinned[kept] = place;
+            self.scratch.pinned[kept] = place;
             kept += 1;
         }
-        self.pinned.truncate(kept);
+        self.scratch.pinned.truncate(kept);
     }
 
     /// The places another face has already put a vertex along `curve` between
@@ -411,7 +422,7 @@ impl Sewing {
     /// them is that vertex rather than another beside it.
     fn broken(&mut self, run: u32, imprints: &Imprints, bounds: [f64; 2]) {
         let (curve, on) = (imprints.curve(run), imprints.on(run));
-        let Self { pinned, around, .. } = self;
+        let Scratch { pinned, around, .. } = &mut self.scratch;
         around.clear();
         let [from, to] = bounds;
         let (lo, hi) = (from.min(to), from.max(to));
@@ -456,7 +467,7 @@ impl Sewing {
     /// until it has taken one of these places for a start.
     fn encircle(&mut self, run: u32, imprints: &Imprints, on: Surface, into: &mut Body) {
         let (curve, lies) = (imprints.curve(run), imprints.on(run));
-        let Self { pinned, around, .. } = self;
+        let Scratch { pinned, around, .. } = &mut self.scratch;
         around.clear();
         // Already in the order the curve runs, which is what [`Sewing::pin`]
         // left them in — so there is nothing to sort here.
@@ -467,7 +478,7 @@ impl Sewing {
         // Which way the loop goes round the curve, off the flattening that is
         // about to be thrown away — the arcs have to be walked the way the
         // region's own boundary walked them or the face will face the wrong way.
-        let [from, round] = swept(&self.turning, 0, 0, on, curve);
+        let [from, round] = swept(&self.scratch.turning, 0, 0, on, curve);
         // A loop of one closed imprint is the whole of that curve, so its lap
         // is a whole turn — and the sign of it is the only thing read below, so
         // a loop that was not would be turned into arcs the wrong way round
@@ -480,14 +491,14 @@ impl Sewing {
         );
         let forward = round > from;
         if !forward {
-            self.around.reverse();
+            self.scratch.around.reverse();
         }
-        for which in 0..self.around.len() {
-            let at = self.around[which];
-            let next = self.around[(which + 1) % self.around.len()];
+        for which in 0..self.scratch.around.len() {
+            let at = self.scratch.around[which];
+            let next = self.scratch.around[(which + 1) % self.scratch.around.len()];
             // One place is broken nowhere, so the arc leaving it is the whole
             // turn; the difference would read as nought.
-            let step = match self.around.len() {
+            let step = match self.scratch.around.len() {
                 1 if forward => TAU,
                 1 => -TAU,
                 _ if forward => (next - at).rem_euclid(TAU),
@@ -536,27 +547,28 @@ impl Sewing {
             // goes, so they have to be worked out in the order the edge is
             // finally walked rather than turned over along with everything
             // else.
-            self.turning.clear();
-            self.turning.extend_from_slice(loops.get(run));
+            self.scratch.turning.clear();
+            self.scratch.turning.extend_from_slice(loops.get(run));
             if !region.outward {
-                corner::turned(&mut self.turning);
+                corner::turned(&mut self.scratch.turning);
             }
             // A loop that is one closed arc has no place of its own to begin
             // at, and is put down whole rather than walked — see
             // [`Sewing::encircle`].
-            if let Some(run) = encircled(&self.turning) {
+            if let Some(run) = encircled(&self.scratch.turning) {
                 self.encircle(run, imprints, region.surface, into);
                 continue;
             }
             // Which corners are places rather than the ones a flattening put
             // there — see [`corner::passing`].
-            self.kept.clear();
-            self.kept.extend(
-                (0..self.turning.len()).filter(|&step| !corner::passing(&self.turning, step)),
+            self.scratch.kept.clear();
+            self.scratch.kept.extend(
+                (0..self.scratch.turning.len())
+                    .filter(|&step| !corner::passing(&self.scratch.turning, step)),
             );
-            for which in 0..self.kept.len() {
-                let step = self.kept[which];
-                let corner = self.turning[step];
+            for which in 0..self.scratch.kept.len() {
+                let step = self.scratch.kept[which];
+                let corner = self.scratch.turning[step];
                 let mut vertex = self.vertex(region.surface.at(corner.at), into);
                 if self.walks[at..].last().map(|it| it.vertex) == Some(vertex) {
                     continue;
@@ -568,16 +580,17 @@ impl Sewing {
                 let along = match corner.came {
                     Came::Edge => Runs::Straight,
                     Came::Arc(run) => {
-                        let ends = self.kept[(which + 1) % self.kept.len()];
+                        let ends = self.scratch.kept[(which + 1) % self.scratch.kept.len()];
                         let curve = imprints.curve(run);
-                        let bounds = swept(&self.turning, step, ends, region.surface, curve);
+                        let bounds =
+                            swept(&self.scratch.turning, step, ends, region.surface, curve);
                         // Broken where another face has already broken it — see
                         // [`Sewing::broken`]. Each place puts down the arc
                         // reaching it and becomes the head of the next.
                         self.broken(run, imprints, bounds);
                         let mut from = bounds[0];
-                        for piece in 0..self.around.len() {
-                            let to = self.around[piece];
+                        for piece in 0..self.scratch.around.len() {
+                            let to = self.scratch.around[piece];
                             self.walks.push(Stepped {
                                 vertex,
                                 along: Runs::Arc {
@@ -837,17 +850,19 @@ impl Sewing {
     /// cavity's faces point *into* it, and the same arithmetic that gives a
     /// lump its volume gives a cavity the negative of its own.
     fn gather(&mut self, into: &mut Body) -> bool {
-        self.spreading.restart(into.topology());
-        self.cornered.clear();
-        self.cornered.resize(into.topology().vertex_slots(), None);
-        self.outer.clear();
-        self.voids.clear();
+        self.scratch.spreading.restart(into.topology());
+        self.scratch.cornered.clear();
+        self.scratch
+            .cornered
+            .resize(into.topology().vertex_slots(), None);
+        self.scratch.outer.clear();
+        self.scratch.voids.clear();
         for at in 0..self.raised.len() {
             let face = self.raised[at];
-            if self.spreading.standing(face) {
+            if self.scratch.spreading.standing(face) {
                 continue;
             }
-            let reached = self.spreading.across(into.topology(), face);
+            let reached = self.scratch.spreading.across(into.topology(), face);
             let from = into.topology().faces_shelled();
             for &held in reached {
                 into.topology_mut().add_shelled(held);
@@ -858,9 +873,9 @@ impl Sewing {
                 return false;
             }
             if self.shut_in(into, shell) > 0.0 {
-                self.outer.push(shell);
+                self.scratch.outer.push(shell);
             } else {
-                self.voids.push(shell);
+                self.scratch.voids.push(shell);
             }
         }
         // One lump per shell that shuts something in, and every cavity inside
@@ -870,7 +885,7 @@ impl Sewing {
         // other, and that leaves one lump. Anything else is refused rather than
         // guessed at, because a cavity hung on the wrong lump is a body that
         // reads as valid and is not.
-        if !self.voids.is_empty() && self.outer.len() != 1 {
+        if !self.scratch.voids.is_empty() && self.scratch.outer.len() != 1 {
             return false;
         }
         // Written into the body's own run of cavities, which is where a lump
@@ -879,11 +894,11 @@ impl Sewing {
         // stretch, which the guard above makes safe: it is empty unless there
         // is exactly one lump to hang the cavities on.
         let from = into.topology().shells_voided();
-        for &shell in &self.voids {
+        for &shell in &self.scratch.voids {
             into.topology_mut().add_voided(shell);
         }
         let voids = from..into.topology().shells_voided();
-        for &shell in &self.outer {
+        for &shell in &self.scratch.outer {
             into.topology_mut().add_lump(Lump {
                 outer: shell,
                 voids: voids.clone(),
@@ -913,7 +928,7 @@ impl Sewing {
         for &at in topology.faces_of(shell) {
             for coedge in topology.loops_of(topology.face(at)).flatten() {
                 for end in topology.ends(*coedge) {
-                    let claimed = &mut self.cornered[end.slot()];
+                    let claimed = &mut self.scratch.cornered[end.slot()];
                     if claimed.is_some_and(|by| by != shell) {
                         return false;
                     }
@@ -937,7 +952,7 @@ impl Sewing {
     /// the negative of its own — which is why the chording the mesher does
     /// costs this nothing.
     fn shut_in(&mut self, into: &Body, shell: ShellId) -> f64 {
-        let Self { mesher, patch, .. } = self;
+        let Scratch { mesher, patch, .. } = &mut self.scratch;
         mesher.shut_in(into, into.topology().faces_of(shell), CHORDED, patch)
     }
 }
