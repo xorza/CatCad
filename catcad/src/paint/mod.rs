@@ -137,15 +137,6 @@ fn standing(model: Model<'_>) -> Precedence {
     }
 }
 
-/// How wide a sketch stroke is drawn, in logical pixels.
-///
-/// Not [`aperture::Curve`]'s own default, which is narrower: a drawing is read
-/// at a glance against a shaded model behind it and wants a little more weight
-/// than a bare overlay does. Every stroke and every rim is set to this, so the
-/// default is never seen — and the visual suite measures against it through
-/// `internals`, rather than keeping a second opinion about what it should be.
-pub(super) const EDGE_WIDTH: f32 = 1.6;
-
 /// Type size of a constraint's mark, in logical pixels. Small: a drawing may
 /// carry dozens, and what they have to be is legible rather than prominent.
 const MARK_SIZE: f32 = 13.0;

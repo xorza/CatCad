@@ -7,14 +7,6 @@ use aperture::{Projection, Ring, Styled, Viewport};
 use catcad::CatCad;
 use glam::{UVec2, Vec2, Vec3};
 
-/// Read from the drawing rather than restated, so that the width these tests
-/// hold a stroke to is the width the drawing was actually drawn with. The
-/// harness renders at scale 1, so a logical pixel is a pixel and this is what a
-/// fully drawn stroke deposits.
-fn authored_width() -> f32 {
-    CatCad::edge_width()
-}
-
 /// The finest a single crossing can be measured.
 ///
 /// Overlays are drawn against four samples with nothing blending, so what a
@@ -262,6 +254,11 @@ fn deposited(pitch: f32, overlay: Overlay) -> f32 {
 #[test]
 fn overlays_keep_their_authored_width_at_grazing_angles() {
     const PITCHES: [f32; 4] = [1.5, 0.6, 0.3, 0.15];
+    // Read off an application rather than restated, so the width these
+    // assertions hold a stroke to is the width the drawing was drawn with. The
+    // harness renders at scale 1, so a logical pixel is a pixel and this is what
+    // a fully drawn stroke deposits.
+    let authored = CatCad::build().edge_width();
     let allowed = WIDTH_TOLERANCE + MASK_SHORTFALL;
     let mut by_overlay = Vec::new();
 
@@ -270,10 +267,9 @@ fn overlays_keep_their_authored_width_at_grazing_angles() {
         for pitch in PITCHES {
             let width = deposited(pitch, overlay);
             assert!(
-                (width - authored_width()).abs() < allowed,
-                "{overlay:?} at pitch {pitch} deposits {width:.3} px, not the {} it \
-                 was authored at",
-                authored_width()
+                (width - authored).abs() < allowed,
+                "{overlay:?} at pitch {pitch} deposits {width:.3} px, not the \
+                 {authored} it was authored at"
             );
             measured.push(width);
         }
