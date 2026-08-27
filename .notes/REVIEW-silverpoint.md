@@ -5,6 +5,16 @@ Delete an item when you address it. This file lists open findings only.
 Scope: every production file under `silverpoint/src`. Test modules are out of
 scope.
 
+## One rule written twice
+
+Each pair below states one relation in two places. Two spellings of one
+relation drift.
+
+- [ ] `number/predicate/mod.rs:94` and `solid/geometry/axis.rs:132` — `UNIT`
+  and `SQUARE` both stand for how far from unit a direction may be and still
+  count as normalized. One admits `1e-6` and the other `1e-9`. Both are read by
+  a `debug_assert` and by nothing else.
+
 ## Four inline small vectors of one shape
 
 Each holds a fixed array and a count, and hands back a prefix slice. Four

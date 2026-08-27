@@ -109,3 +109,16 @@ pub(crate) const ENCLOSED: f64 = 1e-9;
 /// constraint's derivative pushes along +x, because any direction will do when
 /// the solver only needs somewhere to push.
 pub(crate) const NO_DIRECTION: f64 = 1e-12;
+
+// **The ladder, checked rather than described.** Each margin above is an
+// argument about the constant beside it, and a margin nothing tests is a margin
+// that drifts: a tuned number leaves the prose true-sounding and the reasoning
+// broken. A `const` assertion costs nothing and cannot be skipped, where a test
+// can be filtered out of a run.
+//
+// The rungs stated against a solve's own residual stand in `sketch::solver`,
+// which reads this file where this file must not read that one.
+const _: () = assert!(
+    NO_DIRECTION * 1e3 <= PLACED,
+    "NO_DIRECTION is no longer three decades under PLACED",
+);

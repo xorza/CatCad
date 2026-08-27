@@ -6,6 +6,7 @@
 //! the reduction in [`Elimination`], which asks the sketch at rest what its
 //! constraints still leave it free to do.
 
+use crate::number::tolerance::PLACED;
 use crate::sketch::solver::elimination::Elimination;
 use crate::sketch::solver::outcome::Outcome;
 use crate::sketch::solver::stepper::{Pull, Stepper};
@@ -38,6 +39,18 @@ const TOLERANCE: f64 = 1e-10;
 /// smallest drag anyone could mean: a pointer crossing one pixel of a drawing
 /// covers hundredths of a unit, never millionths.
 const UNMOVED: f64 = 1e-6;
+
+// The two margins [`TOLERANCE`] names, checked rather than described — see the
+// ladder at the foot of `number::tolerance`, which cannot state these because
+// it must not read this module.
+const _: () = assert!(
+    TOLERANCE * 10.0 <= PLACED,
+    "TOLERANCE is no longer a decade under PLACED, so a pair a solve drove together may read as two places",
+);
+const _: () = assert!(
+    TOLERANCE * 1e4 <= UNMOVED,
+    "UNMOVED is no longer four decades over TOLERANCE, so the drift of a settled solve may read as a drag",
+);
 
 /// One thing a drag has hold of, and where the pointer is asking it to go.
 ///

@@ -65,6 +65,11 @@ const MAX_DAMPING: f64 = 1e12;
 /// wide enough that no sketch is going to fall in it.
 const STALLED: f64 = 1e-12;
 
+const _: () = assert!(
+    STALLED * 10.0 <= TOLERANCE,
+    "STALLED is no longer a decade under TOLERANCE, so a run may give up short of converging",
+);
+
 /// How hard a drag pulls, against the constraints it is pulling through.
 ///
 /// Deliberately feeble, and that is the whole idea rather than a compromise.
