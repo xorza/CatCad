@@ -121,41 +121,58 @@ impl Lattice {
         (to[axis] - from[axis]).abs() / self.step[axis] > 1.0 + ROUNDING
     }
 
-    /// Where to cut the run from `from` to `to` so that neither half reaches
-    /// over more than one cell along `axis`, or `None` where it already does
-    /// not — which is [`Lattice::over`]'s question, asked again here so that
-    /// the place handed back is always strictly inside the run.
+    /// Where the lines of `axis` cross the run from `from` to `to`, in the
+    /// order they stand along it from `from`, appended to `into`.
     ///
-    /// Named for what it answers rather than for how: it is a crossing of a
-    /// line of the grid, but only one worth cutting at, and a caller reading it
-    /// as *any* crossing writes the wrong thing.
+    /// Named for what it answers rather than for how: these are the crossings
+    /// worth cutting at, and a caller reading them as *every* crossing of the
+    /// grid writes the wrong thing.
     ///
-    /// **The line nearest the middle**, so a run reaching over many cells is
-    /// halved rather than shaved and the rounds go as the logarithm of how wide
-    /// the face is. The place comes back with its coordinate *on* the line
-    /// exactly rather than interpolated onto it, so a run cut here cannot come
-    /// back and cross the same line again by a rounding.
+    /// **A run reaching over one cell or less is crossed by nothing**, however
+    /// it lies — see [`Lattice::over`], which is that rule and the rounding it
+    /// carries.
+    ///
+    /// **Every line it does cross, and not the one nearest its middle.** A
+    /// triangle cut by a single line comes back as three, so a round that cuts
+    /// one line costs three triangles for each halving of the face, and a face
+    /// `w` cells across settles at `w` to the power of 1.585 of them. Cut by
+    /// every line at once it comes back as `2w + 1`, which is what its own
+    /// cells hold. Measured on a ball of radius three at a sagitta of a
+    /// ten-thousandth: 3,359,590 triangles the one way against 296,000 the
+    /// other.
+    ///
+    /// Each place comes back with its coordinate *on* the line exactly rather
+    /// than interpolated onto it, so a piece cut here cannot come back and
+    /// cross the same line again by a rounding.
     ///
     /// **One axis at a time, and the caller finishes one before it starts the
     /// other.** A corner put on a line of the second axis lands somewhere along
     /// a run that already reaches over no more than a cell of the first, so it
     /// cannot put back what the first pass took out. Both axes at once has no
     /// such order to it.
-    pub(super) fn cutting(self, from: DVec2, to: DVec2, axis: usize) -> Option<DVec2> {
+    pub(super) fn crossings(self, from: DVec2, to: DVec2, axis: usize, into: &mut Vec<DVec2>) {
         if !self.over(from, to, axis) {
-            return None;
+            return;
         }
         let (start, end) = (from[axis], to[axis]);
-        let (near, far) = (start.min(end), start.max(end));
         let counted = |at: f64| (at - self.low[axis]) / self.step[axis];
-        let (below, above) = (counted(near), counted(far));
+        let (below, above) = (counted(start.min(end)), counted(start.max(end)));
         // Strictly inside, which a run reaching over more than a cell always
         // has at least one of.
         let (first, last) = (below.floor() + 1.0, above.ceil() - 1.0);
-        let line =
-            self.low[axis] + ((below + above) * 0.5).round().clamp(first, last) * self.step[axis];
-        let mut at = from + (to - from) * ((line - start) / (end - start));
-        at[axis] = line;
-        Some(at)
+        let count = (last - first) as usize + 1;
+        into.reserve(count);
+        for nth in 0..count {
+            let step = nth as f64;
+            let index = if end >= start {
+                first + step
+            } else {
+                last - step
+            };
+            let line = self.low[axis] + index * self.step[axis];
+            let mut at = from + (to - from) * ((line - start) / (end - start));
+            at[axis] = line;
+            into.push(at);
+        }
     }
 }

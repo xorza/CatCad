@@ -7,17 +7,6 @@ use crate::solid::geometry::surface::Surface;
 use crate::solid::mesh::lattice::Lattice;
 use glam::{DVec2, DVec3};
 
-/// No corner: a side nothing has been put along.
-const NONE: u32 = u32::MAX;
-
-/// How many rounds of cutting a face may take before something is wrong.
-///
-/// Every round cuts each over-long side at the line nearest its middle, so a
-/// round halves how many cells such a side reaches over. Twenty-four of them
-/// covers a face sixteen million cells across, which no sagitta any caller has
-/// reason to ask for comes near.
-const ROUNDS: usize = 24;
-
 /// Cuts the triangles of one face until each stands within the sagitta of the
 /// surface, keeping the room it works in.
 ///
@@ -36,10 +25,14 @@ const ROUNDS: usize = 24;
 /// of steps at their own places — where a triangle bridging them reaches over
 /// a step of each and so over more than one cell.
 ///
-/// So: **cut every side that reaches over more than one cell**, at the line of
-/// the grid nearest its middle. The corner goes on the line and on the surface;
-/// an inside corner belongs to this face alone, so nothing another face walked
-/// has to agree with it.
+/// So: **cut every side that reaches over more than one cell**, at every line
+/// of the grid it crosses. The corners go on the lines and on the surface; an
+/// inside corner belongs to this face alone, so nothing another face walked has
+/// to agree with it.
+///
+/// **Every line at once, and that is what keeps the mesh the size of the
+/// face** — see [`Lattice::crossings`], which is where that is argued. One pass
+/// an axis then does the whole of the cutting.
 ///
 /// **What that buys is a proof rather than a measurement.** When no side reaches
 /// over more than a cell, the three corners of every triangle stand pairwise
@@ -54,27 +47,26 @@ const ROUNDS: usize = 24;
 /// to the same sagitta by [`chords`](crate::math::arc::chords), so no edge of
 /// such a face reaches over a whole cell.
 ///
-/// **A sphere loses by it, and the counting alone will not settle there.** Its
-/// cell is that same widest chord over the square root of two, a triangle
-/// inside one having to fit the chord corner to corner rather than side to
-/// side, while its meridians still arrive chorded at the whole width. A run of
-/// its own boundary then reaches over more than a cell, and the triangle
-/// carrying that run wants a third corner within one cell of both ends — a
-/// window narrower than a cell, which the grid may have no line inside. The
-/// rounds then step that corner from the line below the window to the line
-/// above and back, for ever.
+/// **A sphere loses by it.** Its cell is that same widest chord over the square
+/// root of two, a triangle inside one having to fit the chord corner to corner
+/// rather than side to side, while its meridians still arrive chorded at the
+/// whole width. A run of its own boundary then reaches over more than a cell,
+/// and the triangle carrying that run has no corner the grid can offer to bring
+/// it inside one: the window such a corner would fall in is narrower than a
+/// cell. What the counting asks for there cannot be had.
 ///
 /// So **a triangle the counting condemns is asked outright how far it strays**,
 /// and one already within the sagitta is left alone — see [`Refining::strays`].
 /// The counting is sufficient and it is not necessary, and this is the promise
-/// itself rather than a stand-in for it, so nothing is lost by stopping there.
-/// It is asked of the handful of triangles the counting has already picked out
-/// rather than of every triangle of every face.
+/// itself rather than a stand-in for it, so nothing is lost by stopping there
+/// and a fifth of the mesh is saved by it. It is asked of the handful of
+/// triangles the counting has already picked out rather than of every triangle
+/// of every face.
 ///
 /// **One axis at a time, and one finished before the other starts.** A corner
 /// put on a line of the second lands along a run that already reaches over no
 /// more than a cell of the first, so it cannot put back what the first pass
-/// took out — see [`Lattice::cutting`]. Both at once has no such order to it.
+/// took out — see [`Lattice::crossings`]. Both at once has no such order to it.
 #[derive(Debug, Default)]
 pub(super) struct Refining {
     /// Every corner in the surface's own parameters — the boundary's first, in
@@ -83,7 +75,7 @@ pub(super) struct Refining {
     /// The same corners in the world.
     places: Vec<DVec3>,
     triangles: Vec<[u32; 3]>,
-    /// The next round's triangles, swapped in at the end of it.
+    /// The next pass's triangles, swapped in at the end of it.
     spare: Vec<[u32; 3]>,
     /// Every side of the current triangles, one entry apiece, sorted by its
     /// ends so either triangle carrying it finds the same one.
@@ -91,14 +83,32 @@ pub(super) struct Refining {
     /// Where each triangle's own three sides sit in [`Refining::sides`], in the
     /// order [`Refining::ends`] numbers them.
     ///
-    /// Written once a round rather than searched for wherever a side is wanted:
-    /// the table is sorted by the corners a side runs between, and a round
-    /// reads each triangle's three twice over — once to mark what wants
-    /// cutting, once to lay the triangles down again.
+    /// Written once a pass rather than searched for wherever a side is wanted:
+    /// the table is sorted by the corners a side runs between, and a pass reads
+    /// each triangle's three twice over — once to mark what wants cutting, once
+    /// to lay the pieces down.
     slots: Vec<u32>,
+    /// The corners put along every side, each side's in the order they stand
+    /// along it from its lower-numbered end.
+    ///
+    /// Flat, with [`Refining::starts`] beside it saying where each side's own
+    /// run begins: a side carries none at all on almost every face, and a
+    /// vector apiece would reach the heap once per side per frame.
+    along: Vec<u32>,
+    /// Where each side's run in [`Refining::along`] begins, one longer than
+    /// [`Refining::sides`] so that the last run has an end.
+    starts: Vec<u32>,
+    /// One triangle's own corners and the corners put along its sides, in
+    /// winding order.
+    walk: Vec<u32>,
+    /// [`Refining::walk`] read as two chains from its lowest corner along the
+    /// axis to its highest, the first forward and the second back.
+    chains: [Vec<u32>; 2],
+    /// Where the lines cross one side, as [`Lattice::crossings`] answers.
+    crossed: Vec<DVec2>,
 }
 
-/// One side of the mesh, and what is being done to it this round.
+/// One side of the mesh, and what is being done to it this pass.
 #[derive(Debug, Clone, Copy)]
 struct Side {
     /// The two corners it runs between, lower first.
@@ -106,8 +116,6 @@ struct Side {
     /// How many triangles carry it. One is the face's own boundary; two is an
     /// inside side; more is a contour pinched against itself.
     carried: u32,
-    /// The corner cutting it, or [`NONE`].
-    cut: u32,
     /// Whether a triangle carrying it strays further than was asked for, and so
     /// stands to gain by the cut.
     wanted: bool,
@@ -155,53 +163,31 @@ impl Refining {
     /// one thing cutting cannot mend, a corner put on an edge being one the
     /// face across it does not have.
     ///
-    /// **What the cutting is for, asked of what it produced.** A round stops
-    /// when nothing it may cut is left, and this says that what was left over
-    /// was nothing it *needed* to cut — the two being different answers, and
-    /// only the second one the promise.
+    /// **What the cutting is for, asked of what it produced.** A pass cuts what
+    /// it may, and this says that what it left was nothing it *needed* to cut —
+    /// the two being different answers, and only the second one the promise.
     fn held(&self, surface: &Surface, lattice: Lattice, sagitta: f64) -> bool {
         (0..self.triangles.len()).all(|at| {
             // A triangle still straying stands on a run of the face's own
-            // boundary, that being the one thing no round could have taken.
+            // boundary, that being the one thing no pass could have taken.
             !self.strays(surface, sagitta, at) || (0..2).any(|axis| self.wide(lattice, axis, at))
         })
     }
 
-    /// Cut along one axis of the grid until nothing more can be.
+    /// Cut every triangle by every line of `axis` that crosses a side of it.
+    ///
+    /// One pass and no more: a side cut at every line it crosses comes back in
+    /// pieces reaching over no more than a cell apiece, and the sides the
+    /// pieces are laid down along run between corners a line apart, so they
+    /// reach over no more than a cell either.
     fn rule(&mut self, surface: &Surface, lattice: Lattice, axis: usize, sagitta: f64) {
-        for _ in 0..ROUNDS {
-            if !self.round(surface, lattice, axis, sagitta) {
-                return;
-            }
-        }
-        debug_assert!(false, "a face would not cut down to its own cells");
-    }
-
-    /// Every corner in the surface's own parameters.
-    pub(super) fn params(&self) -> &[DVec2] {
-        &self.params
-    }
-
-    /// The same corners in the world.
-    pub(super) fn places(&self) -> &[DVec3] {
-        &self.places
-    }
-
-    /// Three corners apiece, wound counterclockwise in the parameters.
-    pub(super) fn triangles(&self) -> &[[u32; 3]] {
-        &self.triangles
-    }
-
-    /// One round of cutting along `axis`, and whether anything was cut.
-    fn round(&mut self, surface: &Surface, lattice: Lattice, axis: usize, sagitta: f64) -> bool {
         // **Asked before anything is gathered**, because the answer is almost
         // always no. A face measured in its own surface's cells comes out of
         // the cutter with every side inside one, so sorting every side of every
         // triangle to find that out would be the largest thing the mesher does
         // on every face of every frame, spent on nothing.
-        let reaching = (0..self.triangles.len()).any(|at| self.wide(lattice, axis, at));
-        if !reaching {
-            return false;
+        if !(0..self.triangles.len()).any(|at| self.wide(lattice, axis, at)) {
+            return;
         }
         self.gather();
 
@@ -219,23 +205,43 @@ impl Refining {
             }
         }
 
-        let mut split = false;
+        self.along.clear();
+        self.starts.clear();
+        self.starts.reserve_exact(self.sides.len() + 1);
         for at in 0..self.sides.len() {
+            self.starts.push(self.along.len() as u32);
             if !self.sides[at].wanted || !self.cuttable(at) {
                 continue;
             }
             let [from, to] = self.between(self.sides[at].ends);
-            let Some(uv) = lattice.cutting(from, to, axis) else {
-                continue;
-            };
-            self.sides[at].cut = self.put(surface, uv);
-            split = true;
+            self.crossed.clear();
+            lattice.crossings(from, to, axis, &mut self.crossed);
+            for crossing in 0..self.crossed.len() {
+                let uv = self.crossed[crossing];
+                let put = self.put(surface, uv);
+                self.along.push(put);
+            }
         }
-        if !split {
-            return false;
+        self.starts.push(self.along.len() as u32);
+        if self.along.is_empty() {
+            return;
         }
-        self.rebuild();
-        true
+        self.rebuild(axis);
+    }
+
+    /// Every corner in the surface's own parameters.
+    pub(super) fn params(&self) -> &[DVec2] {
+        &self.params
+    }
+
+    /// The same corners in the world.
+    pub(super) fn places(&self) -> &[DVec3] {
+        &self.places
+    }
+
+    /// Three corners apiece, wound counterclockwise in the parameters.
+    pub(super) fn triangles(&self) -> &[[u32; 3]] {
+        &self.triangles
     }
 
     /// Whether any side of the triangle at `at` reaches over more than one cell
@@ -276,15 +282,16 @@ impl Refining {
     /// is no face across a point to disagree about a corner put on it, and the
     /// corner comes back at the same place whatever angle it is given.
     ///
-    /// Left uncut it is the one thing that will not let a face settle. Every
-    /// triangle carrying it has two more sides reaching to a third corner, and
-    /// those reach as far across the face as it does — so they are cut, and the
-    /// child that keeps the collapsed side has two more of them, for ever.
-    /// Measured on a cone, seventeen triangles growing by fifty a round without
-    /// end.
+    /// Left uncut it holds the piece carrying it as wide as the whole angle it
+    /// covers, which on a cone is every triangle that meets the apex.
     fn collapsed(&self, at: usize) -> bool {
         let [from, to] = self.sides[at].ends.map(|of| self.places[of as usize]);
         predicate::coincident(from, to, PLACED)
+    }
+
+    /// Where the corner numbered `of` stands along `axis`.
+    fn sits(&self, of: u32, axis: usize) -> f64 {
+        self.params[of as usize][axis]
     }
 
     /// Where the two corners a side runs between stand in the surface's own
@@ -319,7 +326,6 @@ impl Refining {
                 self.sides.push(Side {
                     ends,
                     carried: 1,
-                    cut: NONE,
                     wanted: false,
                 });
             }
@@ -350,61 +356,103 @@ impl Refining {
         }
     }
 
-    /// Lay the triangles down again around the corners put in this round.
-    fn rebuild(&mut self) {
-        let Self {
-            params,
-            triangles,
-            spare,
-            sides,
-            slots,
-            ..
-        } = self;
-        spare.clear();
-        spare.reserve(triangles.len() * 2);
-        for (at, &[a, b, c]) in triangles.iter().enumerate() {
-            let cut = |slot: usize| sides[slots[at * 3 + slot] as usize].cut;
-            let (p, q, r) = (cut(0), cut(1), cut(2));
-            // Each shape below is the corner between the cut sides taken off,
-            // and whatever is left divided by whichever of its two diagonals is
-            // shorter — the longer one leans towards a sliver.
-            let across =
-                |one: u32, two: u32| params[one as usize].distance_squared(params[two as usize]);
-            match (p != NONE, q != NONE, r != NONE) {
-                (false, false, false) => spare.push([a, b, c]),
-                (true, false, false) => spare.extend([[a, p, c], [p, b, c]]),
-                (false, true, false) => spare.extend([[a, b, q], [a, q, c]]),
-                (false, false, true) => spare.extend([[a, b, r], [b, c, r]]),
-                (true, true, false) => {
-                    spare.push([p, b, q]);
-                    if across(a, q) <= across(p, c) {
-                        spare.extend([[a, p, q], [a, q, c]]);
-                    } else {
-                        spare.extend([[a, p, c], [p, q, c]]);
-                    }
-                }
-                (false, true, true) => {
-                    spare.push([q, c, r]);
-                    if across(a, q) <= across(b, r) {
-                        spare.extend([[a, b, q], [a, q, r]]);
-                    } else {
-                        spare.extend([[a, b, r], [b, q, r]]);
-                    }
-                }
-                (true, false, true) => {
-                    spare.push([r, a, p]);
-                    if across(p, c) <= across(b, r) {
-                        spare.extend([[p, b, c], [p, c, r]]);
-                    } else {
-                        spare.extend([[p, b, r], [b, c, r]]);
-                    }
-                }
-                (true, true, true) => {
-                    spare.extend([[a, p, r], [p, b, q], [r, q, c], [p, q, r]]);
+    /// Lay the pieces down again around the corners put in along `axis`.
+    fn rebuild(&mut self, axis: usize) {
+        self.spare.clear();
+        self.spare
+            .reserve(self.triangles.len() + 2 * self.along.len());
+        for at in 0..self.triangles.len() {
+            self.walk.clear();
+            for slot in 0..3 {
+                let corners = self.triangles[at];
+                self.walk.push(corners[slot]);
+                let found = self.slots[at * 3 + slot] as usize;
+                let run = self.starts[found] as usize..self.starts[found + 1] as usize;
+                // The corners of a side stand in the order they run from its
+                // lower-numbered end, which is the order the triangle walks it
+                // in only where it starts there.
+                if corners[slot] == self.sides[found].ends[0] {
+                    self.walk.extend_from_slice(&self.along[run]);
+                } else {
+                    self.walk.extend(self.along[run].iter().rev());
                 }
             }
+            self.strip(axis);
         }
         std::mem::swap(&mut self.triangles, &mut self.spare);
+    }
+
+    /// Lay triangles over the polygon in [`Refining::walk`], which is one
+    /// triangle with corners along its sides.
+    ///
+    /// **Paired across the polygon rather than fanned from one corner of it.**
+    /// A fan over a triangle cut into twenty strips is twenty slivers reaching
+    /// its whole width; walking the two chains together takes the strips one at
+    /// a time and leaves each of them the shape of its own cell. The count is
+    /// the same either way — a polygon of `n` corners is `n - 2` triangles —
+    /// and the shapes are not.
+    ///
+    /// The polygon is a triangle with corners on its sides, so it is convex and
+    /// both chains run one way along `axis`. That is the whole of what the walk
+    /// below needs, and it is why the two chains can be taken in step.
+    ///
+    /// A side the boundary holds carries no corners — see the note on
+    /// [`Refining`] — so its chain is the bare side and the pieces beside it
+    /// come out as wide as it is. That is the coarseness the chording already
+    /// forces and no cut of this face could mend.
+    fn strip(&mut self, axis: usize) {
+        let (mut low, mut high) = (0, 0);
+        for at in 1..self.walk.len() {
+            if self.sits(self.walk[at], axis) < self.sits(self.walk[low], axis) {
+                low = at;
+            }
+            if self.sits(self.walk[at], axis) > self.sits(self.walk[high], axis) {
+                high = at;
+            }
+        }
+        // The second chain runs back the way the first came, which is a step of
+        // one short of the whole once the walk is read round.
+        for (chain, step) in [(0, 1), (1, self.walk.len() - 1)] {
+            self.chains[chain].clear();
+            let mut at = low;
+            loop {
+                self.chains[chain].push(self.walk[at]);
+                if at == high {
+                    break;
+                }
+                at = (at + step) % self.walk.len();
+            }
+        }
+
+        let (mut one, mut two) = (0, 0);
+        loop {
+            let [ahead, behind] = [&self.chains[0], &self.chains[1]];
+            let (over, under) = (one + 1 < ahead.len(), two + 1 < behind.len());
+            if !over && !under {
+                break;
+            }
+            // Whichever chain reaches the next line first, so that a piece is
+            // the strip between two lines rather than a wedge across several.
+            let taken = over
+                && (!under || self.sits(ahead[one + 1], axis) <= self.sits(behind[two + 1], axis));
+            let piece = if taken {
+                [ahead[one], ahead[one + 1], behind[two]]
+            } else {
+                [ahead[one], behind[two + 1], behind[two]]
+            };
+            if taken {
+                one += 1
+            } else {
+                two += 1
+            }
+            // The two chains meet at both ends, so the first step off one end
+            // and the last step onto the other name a corner twice over. Two
+            // steps of the walk carry no piece, which is what leaves a polygon
+            // of `n` corners the `n - 2` triangles it holds.
+            if piece[0] != piece[1] && piece[1] != piece[2] && piece[2] != piece[0] {
+                self.spare.push(piece);
+            }
+        }
     }
 }
 
@@ -516,6 +564,24 @@ mod tests {
         around
     }
 
+    /// A square patch of a sphere, six tenths of a radian either way, each side
+    /// of it cut into `steps` even chords.
+    fn dome(steps: usize) -> Vec<DVec2> {
+        let mut around = Vec::with_capacity(4 * steps);
+        for side in 0..4 {
+            for step in 0..steps {
+                let along = -0.6 + 1.2 * step as f64 / steps as f64;
+                around.push(match side {
+                    0 => DVec2::new(along, -0.6),
+                    1 => DVec2::new(0.6, along),
+                    2 => DVec2::new(-along, 0.6),
+                    _ => DVec2::new(-0.6, -along),
+                });
+            }
+        }
+        around
+    }
+
     /// How far the worst triangle of a mesh leaves the surface.
     fn worst(surface: &Surface, params: &[DVec2], triangles: &[[u32; 3]]) -> f64 {
         triangles.iter().fold(0.0_f64, |far, &[a, b, c]| {
@@ -569,7 +635,7 @@ mod tests {
 
         let refining = given.refined(&surface, sagitta);
         // To within a rounding, a cell being allowed to come out that much
-        // wide — see [`Lattice::cutting`].
+        // wide — see [`Lattice::over`].
         let fine = worst(&surface, refining.params(), refining.triangles());
         assert!(
             predicate::touching(fine, predicate::slack(sagitta)),
@@ -630,18 +696,7 @@ mod tests {
             axis: upright(),
             radius: 1.0,
         });
-        let mut around = Vec::new();
-        for side in 0..4 {
-            for step in 0..20 {
-                let along = -0.6 + 1.2 * step as f64 / 20.0;
-                around.push(match side {
-                    0 => DVec2::new(along, -0.6),
-                    1 => DVec2::new(0.6, along),
-                    2 => DVec2::new(-along, 0.6),
-                    _ => DVec2::new(-0.6, -along),
-                });
-            }
-        }
+        let around = dome(20);
         let given = Patched::of(&surface, &around, sagitta);
         let params = given.params();
         let coarse = worst(&surface, &params, &given.fill.triangles);
@@ -704,18 +759,7 @@ mod tests {
         // the cell is that widest over the square root of two.
         let widest = crate::math::arc::widest(1.0, sagitta);
         let steps = (1.2 / widest).ceil() as usize;
-        let mut around = Vec::new();
-        for side in 0..4 {
-            for step in 0..steps {
-                let along = -0.6 + 1.2 * step as f64 / steps as f64;
-                around.push(match side {
-                    0 => DVec2::new(along, -0.6),
-                    1 => DVec2::new(0.6, along),
-                    2 => DVec2::new(-along, 0.6),
-                    _ => DVec2::new(-0.6, -along),
-                });
-            }
-        }
+        let around = dome(steps);
         let given = Patched::of(&surface, &around, sagitta);
         let params = given.params();
         let reach = given.lattice.celled(DVec2::new(1.2 / steps as f64, 0.0)).x;
@@ -748,6 +792,50 @@ mod tests {
             (now - was).abs() < 1e-12,
             "the mesh covered {was} and now covers {now}",
         );
+    }
+
+    /// **A face comes back the size its own cells are**, and stays that size as
+    /// the sagitta falls.
+    ///
+    /// The one thing a cut that put in a single corner did not buy. A triangle
+    /// cut by one line comes back as three, so every halving of the face cost
+    /// three triangles where its cells ask for two, and the mesh settled at `w`
+    /// to the power of 1.585 for a face `w` cells across. Cut by every line it
+    /// crosses at once it comes back as `2w + 1` — see [`Lattice::crossings`].
+    ///
+    /// **Asserted as a ratio that does not climb**, rather than as a count: the
+    /// count is a fact about one patch and the ratio is the property. Here the
+    /// ratio falls, the patch being bounded by eighty corners however fine the
+    /// sagitta — a face six cells across is mostly its own boundary and one
+    /// sixty cells across is not. Cut a line at a time it climbed instead, and
+    /// climbed without bound.
+    #[test]
+    fn a_face_comes_back_the_size_its_own_cells_are() {
+        let surface = Surface::Sphere(Sphere {
+            axis: upright(),
+            radius: 1.0,
+        });
+        let around = dome(20);
+        let mut coarsest = 0.0;
+        let mut last = 0.0;
+        for sagitta in [1e-2, 1e-3, 1e-4] {
+            let given = Patched::of(&surface, &around, sagitta);
+            let refining = given.refined(&surface, sagitta);
+            let wide = given.lattice.celled(DVec2::new(1.2, 1.2));
+            let apiece = refining.triangles().len() as f64 / (wide.x * wide.y);
+            if coarsest == 0.0 {
+                coarsest = apiece;
+            }
+            assert!(
+                apiece <= coarsest,
+                "{sagitta} came back {apiece} triangles a cell against {coarsest}",
+            );
+            last = apiece;
+        }
+        // Two is what a grid of cells holds outright. Twice that is the room a
+        // triangulation cut across the grid rather than laid along it takes,
+        // and it is measured rather than reasoned: 4.64 at the finest above.
+        assert!(last < 5.0, "a face came back {last} triangles a cell");
     }
 
     /// A face on a plane is handed back exactly as it came, which is what keeps

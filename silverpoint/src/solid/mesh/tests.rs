@@ -231,34 +231,45 @@ fn a_face_is_ruled_into_the_cells_its_surface_allows() {
     );
     assert_eq!(ruled.parameters(corner), DVec2::new(PI, 3.0));
 
-    // **Cut across the turn and never along it.** A run reaching over three
-    // cells is cut, on a line and between its ends; one straight up the wall
-    // reaches over nothing, the only lines that way being its own top and
-    // bottom.
-    let cut = ruled
-        .cutting(DVec2::new(cell, 0.0), DVec2::new(4.0 * cell, 3.0), 0)
-        .expect("three cells is more than one");
-    let counted = ruled.celled(cut).x;
-    assert!(counted > 1.0 && counted < 4.0);
-    assert!(
-        (counted - counted.round()).abs() < 1e-12,
-        "{cut:?} is not on a line",
-    );
-    assert_eq!(
-        ruled.cutting(DVec2::new(cell, 0.0), DVec2::new(4.0 * cell, 3.0), 1),
-        None,
-    );
+    // Read back in cells, that being the unit the rule is stated in — see the
+    // note on [`Lattice`].
+    let crossings = |lattice: Lattice, run: [DVec2; 2], axis: usize| -> Vec<f64> {
+        let mut crossed = Vec::new();
+        lattice.crossings(run[0], run[1], axis, &mut crossed);
+        crossed.iter().map(|&at| lattice.celled(at)[axis]).collect()
+    };
+
+    // **Cut across the turn and never along it, at every line between the ends,
+    // and read from the near end.** A run from the first cell to the fourth
+    // crosses two lines, and the same run walked the other way answers the same
+    // two in the other order — which is what lets the two triangles carrying a
+    // side put its corners in one order between them.
+    let run = [DVec2::new(cell, 0.0), DVec2::new(4.0 * cell, 3.0)];
+    for (walked, want) in [(run, [2.0, 3.0]), ([run[1], run[0]], [3.0, 2.0])] {
+        let counted = crossings(ruled, walked, 0);
+        assert_eq!(
+            counted.len(),
+            2,
+            "two lines stand between one cell and four"
+        );
+        for (at, want) in counted.iter().zip(want) {
+            assert!((at - want).abs() < 1e-12, "{counted:?} is not the lines");
+        }
+    }
+    // One straight up the wall crosses nothing, the only lines that way being
+    // its own top and bottom.
+    assert!(crossings(ruled, run, 1).is_empty(), "a wall bends one way");
 
     // **Exactly a cell, and a cell straddling a line, are both left alone** —
     // the two edges of the rule. Straddling one is the ordinary case for a
     // strip and cutting it would buy nothing; being over by an ulp is what
-    // `ROUNDING` in [`Lattice::cutting`] is there for.
+    // `ROUNDING` in [`Lattice::over`] is there for.
     for run in [
         [DVec2::new(cell, 0.0), DVec2::new(2.0 * cell, 3.0)],
         [DVec2::new(0.6 * cell, 0.0), DVec2::new(1.4 * cell, 3.0)],
         [DVec2::new(cell, 0.5), DVec2::new(1.2 * cell, 2.5)],
     ] {
-        assert_eq!(ruled.cutting(run[0], run[1], 0), None, "{run:?} was cut");
+        assert!(crossings(ruled, run, 0).is_empty(), "{run:?} was cut");
     }
 
     // A face narrower than one step of its own surface is one cell wide, not a
@@ -277,9 +288,9 @@ fn a_face_is_ruled_into_the_cells_its_surface_allows() {
     let one = Lattice::of(&flat, &sheet, sagitta);
     assert_eq!(one.celled(sheet[2]) - one.celled(sheet[0]), DVec2::ONE);
     for axis in 0..2 {
-        assert_eq!(
-            one.cutting(sheet[0], sheet[2], axis),
-            None,
+        let across = [sheet[0], sheet[2]];
+        assert!(
+            crossings(one, across, axis).is_empty(),
             "a plane has a line"
         );
     }
