@@ -31,6 +31,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
 
@@ -59,6 +60,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
         &Theme::default(),
         &mut Layout::default(),
         Showing::default(),
+        None,
         &mut scene,
     );
     assert_eq!(scene.curves.len(), 7);
@@ -342,6 +344,7 @@ fn only_the_open_sketch_shows_its_constraints() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
     assert_eq!(
@@ -359,6 +362,7 @@ fn only_the_open_sketch_shows_its_constraints() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
     assert_eq!(
@@ -437,6 +441,7 @@ fn only_the_open_sketch_shows_its_constraints() {
             typed: Some(over),
             ..Showing::default()
         },
+        None,
         &mut scene,
     );
     assert!(
@@ -486,6 +491,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
     assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
@@ -507,6 +513,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
     assert_eq!(
@@ -569,6 +576,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
         &Theme::default(),
         &mut idle,
         Showing::default(),
+        None,
         &mut looked,
     );
     gizmos::write(
@@ -671,6 +679,7 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
         &Theme::default(),
         &mut drawn,
         Showing::default(),
+        None,
         &mut worked,
     );
     gizmos::write(

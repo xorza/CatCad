@@ -488,7 +488,7 @@ Three notes on the shapes. `Body` keeps no `lumps` list, the arena already
 enumerating them. `Face`'s loops and `Shell`'s faces are ranges into flat
 buffers (§4.5). `Vertex` holds a position rather than the surfaces it stands at,
 because the surfaces are only worth holding once the arithmetic can re-derive
-the point from them exactly, which is 9.2.
+the point from them exactly, which is 9.1.
 
 ## 7. The algorithms
 
@@ -720,7 +720,7 @@ hang it on.
   through the mesher and read for its sign alone — the one break a shell turned
   through itself does not otherwise show.
 
-One gap, and it is 9.4: **loops non-self-intersecting in parameter space**,
+One gap, and it is 9.3: **loops non-self-intersecting in parameter space**,
 which wants the intersection routines it is meant to check.
 
 Run after every operation under `cfg!(debug_assertions)`, and directly in every
@@ -784,42 +784,33 @@ mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 
 ## 9. What is left, in order
 
-M0's geometry, topology and validity, M1, M2's kernel half, M3a, M4, and M5 less
-its quartic are in the tree. Six pieces of work are not. Verification per house
-rule, one `-p` per crate touched:
+M0's geometry, topology and validity, M1, M2, M3a, M4, and M5 less its quartic
+are in the tree. Five pieces of work are not. Verification per house rule, one
+`-p` per crate touched:
 
 ```
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-The order departs from §10's rule 6 in one place, and only at the front: 9.1 is
-days rather than months, and it is the last thing M2 owes — §1 asks for a
-tessellation that refines as you zoom, and until it lands that is a requirement
-the tree does not meet. Everything from 9.2 on is the document's own order.
+This is §10's rule 6 in order, the paint layer's own debts being paid.
 
-### 9.1 The sagitta off the camera
-
-**`SOLID_SAGITTA` is a constant** in `catcad/src/paint/mod.rs`. M2's last debt
-is to take it from the camera, which means rewriting a solid's mesh when the
-camera moves — today deliberately not done, to keep the drawing's cost off the
-camera's clock. §11's measurement says that clock can afford it: meshing a
-bored block is under a hundredth of a frame and a sixty-four-sided prism under a
-tenth. A paint-layer decision, not a kernel one.
-
-**Two things that were here are done.** The measurement is §11. The preview
+**What stood in front of it is done.** §11 is the measurement. The preview
 builds the answer rather than the tool, over the model the commit would build
 on, and falls back to showing the tool where the tool has more faces than a
 frame can combine — `paint::LIVE_FACES`, read before the boolean runs rather
-than timed after it.
+than timed after it. And a solid is cut for the camera looking at it rather than
+at a constant — `paint::Chorded`, stepped in powers of two so an orbit remakes
+nothing and a zoom remakes the solids a handful of times, which is what §1's
+view-adaptive tessellation asks for and the last thing M2 owed.
 
-**What is left of it is a ghost**, and it wants work in `aperture3d` rather than
-in `paint/`: an `Object` carries a `Vec3` colour and the only translucent mesh
-pass is the flat sheets a drawing's regions are filled with, so there is nothing
-for a solid to be drawn faintly *in*. Worth having for two cases — a tool too
-detailed to combine, and a cut whose result is hidden behind the part from the
-current camera — and neither is worth a pass on its own yet.
+**One thing left over is a ghost**, and it wants work in `aperture3d` rather
+than in `paint/`: an `Object` carries a `Vec3` colour and the only translucent
+mesh pass is the flat sheets a drawing's regions are filled with, so there is
+nothing for a solid to be drawn faintly *in*. Worth having for two cases — a
+tool too detailed to combine, and a cut whose result is hidden behind the part
+from the current camera — and neither is worth a pass on its own yet.
 
-### 9.2 M0 — exact numbers
+### 9.1 M0 — exact numbers
 
 The largest single piece, and it shows nothing on screen. Three parts:
 
@@ -839,23 +830,23 @@ supports or does not, and finding out at M4 would be finding out too late.
 **exactly** rather than to a tolerance, which needs the exact arithmetic to be
 true at all.
 
-### 9.3 M3b — the algebraic parameterization
+### 9.2 M3b — the algebraic parameterization
 
 What is left of §7.3: a smooth quartic parameterized exactly as
 `X₁(u,v) ± X₂(u,v)·√Δ(u,v)`, all components separated, all degeneracies handled,
 near-optimal in square roots. A pencil, a repeated-root test by polynomial gcd,
 exact 4×4 congruence diagonalization, a ruled member found by choosing an
 integer point, a split into hyperbolic planes, and the quadratic tower. `Curve`
-gains its `Quartic` arm (§4.6). Needs 9.2.
+gains its `Quartic` arm (§4.6). Needs 9.1.
 
 **Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
 the published classification, and every result is asserted to be in the exact
 tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
 not a warning.
 
-### 9.4 M5's remaining tests, and §7.5's gap
+### 9.3 M5's remaining tests, and §7.5's gap
 
-Both fall out of 9.3.
+Both fall out of 9.2.
 
 **Tests.** Two equal perpendicular cylinders give the Steinmetz solid, whose
 intersection volume is exactly `16r³/3` — an analytic cross-check that catches
@@ -866,7 +857,7 @@ steps still build.
 **The checker.** Loops non-self-intersecting in parameter space, which wants the
 intersection routines it is meant to check.
 
-### 9.5 M6 — the fitted tier: torus, and marching
+### 9.4 M6 — the fitted tier: torus, and marching
 
 Torus surfaces, marched intersection, loop detection, fit bounds recorded, and
 the body's exactness report going false for the first time. `Surface` gains its
@@ -882,7 +873,7 @@ and the same cut over the exact tier still reports exact. And the case the
 literature says will be missed: a shallow near-tangential intersection that
 produces a small closed loop.
 
-### 9.6 M7 — fillet, chamfer, STEP
+### 9.5 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-

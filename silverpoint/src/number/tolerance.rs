@@ -51,8 +51,11 @@ pub(crate) const ROUNDING: f64 = 1e-9;
 ///
 /// Absolute, which carries an assumption about scale: a model measured in
 /// millionths would be chorded coarsely by it and one in millions finely. The
-/// same debt `paint::SOLID_SAGITTA` carries in the application, and the same
-/// answer — take it off the thing being measured — waits on the same decision.
+/// answer is to take it off the thing being measured, and the application has
+/// taken its half — a solid is drawn at a fraction of a pixel rather than at a
+/// constant. This half is harder and waits: what a *classification* is measured
+/// against is the body, not a camera, so the number wants to come off the
+/// extent of the two bodies being put together.
 pub(crate) const CHORDED: f64 = 1e-3;
 
 /// How much of a turn a face may cover before its surface wraps back onto

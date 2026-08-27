@@ -200,6 +200,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
     let before: Vec<Option<Part>> = scene
@@ -218,6 +219,7 @@ fn rewriting_a_drawing_gives_its_primitives_the_same_tags() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
 

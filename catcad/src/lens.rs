@@ -50,6 +50,16 @@ impl Lens {
         self.camera.world_per_pixel(at, self.viewport)
     }
 
+    /// The point the eye orbits, which is the middle of what is on screen.
+    ///
+    /// The one distance a decision taken for a whole frame can be measured at.
+    /// A solid's faces stand at as many depths as it is deep, and something
+    /// chorded once for the picture has to pick one of them — see
+    /// [`Chorded`](crate::paint::Chorded).
+    pub(crate) fn focus(self) -> Vec3 {
+        self.camera.target
+    }
+
     /// Where `at` lands on the view, in logical pixels down from its top-left
     /// corner, or `None` where the projection draws none of it.
     ///

@@ -122,6 +122,7 @@ impl Picture {
             theme,
             &mut self.layout,
             showing,
+            lens,
             renderer.scene_mut(),
         );
         if let Some(lens) = lens {

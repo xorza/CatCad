@@ -23,6 +23,7 @@ use glam::{Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::Constraint;
 
+use crate::lens::Lens;
 use crate::look::Theme;
 use crate::model::{Model, Models};
 use crate::paint::layout::{Layout, Made, Stage};
@@ -48,14 +49,77 @@ pub(crate) mod write;
 /// rim, which reads round without giving the triangulation a hundred to chew.
 const FACE_SAGITTA: f64 = 0.005;
 
-/// The same, for the walls and ends of a solid.
+/// How much of a pixel a solid's chord may stand off the curve it was cut from.
 ///
-/// Its own number rather than [`FACE_SAGITTA`] reused, because the two are read
-/// at different sizes: a region is a flat sheet seen against the plane it lies
-/// in, and a solid is turned about and lit, so a wall that is a shade too coarse
-/// shows up as banding across a shaded surface where the same coarseness on a
-/// flat fill shows up as nothing at all.
-const SOLID_SAGITTA: f64 = 0.002;
+/// Half, which is under what the screen samples it at: a chord that strays less
+/// than half a pixel cannot put a corner in a different pixel from the curve it
+/// stands for, so no zoom shows the difference.
+///
+/// A fraction of a pixel where [`FACE_SAGITTA`] is a distance, which is the
+/// whole difference between the two: a solid is cut for the camera looking at
+/// it, and a region is cut once for the drawing. Why a region is not is that
+/// constant's own to say.
+const SOLID_PIXELS: f32 = 0.5;
+
+/// The finest a solid is ever cut, as the power of two its sagitta is.
+///
+/// A sagitta of nothing asks for an endless number of chords, and a camera
+/// driven to no distance at all would ask for one. Just under a nanometre,
+/// which is what the drawing underneath knows its own corners to anyway —
+/// `silverpoint`'s `PLACED`, and `.notes/KERNEL.md` §4.1 for why a body cannot
+/// be more exact than the drawing it was raised from.
+const FINEST: i32 = -30;
+
+/// The coarsest, the same way.
+///
+/// Past a whole unit the chords are coarser than the bodies anybody draws, and
+/// a rim cut into two chords reads as a fold rather than a curve.
+const COARSEST: i32 = 0;
+
+/// What a solid is cut at before anything has been drawn at all.
+///
+/// A view that has not arranged yet still has a drawing to write, and the first
+/// one has no picture behind it to keep the last answer. Just under the 0.002
+/// the whole model was cut at while the sagitta was a constant, so a picture
+/// made before there is a camera is the picture that was made before there was
+/// a rule.
+pub(super) const UNSIZED: Chorded = Chorded(-9);
+
+/// How finely a solid is cut for the camera looking at it, as the power of two
+/// its sagitta is.
+///
+/// **A fraction of a pixel at what the camera is looking at**, so a wall reads
+/// as round at every zoom and a body pulled back to a thumbnail is not cut
+/// finer than anyone can see it. That is the view-adaptive tessellation the
+/// kernel exists to give — `.notes/KERNEL.md` §1 — and the one thing there a
+/// constant cannot deliver: a solid flattened once for the drawing goes coarse
+/// the moment you lean in.
+///
+/// **A power of two rather than the number itself**, which is what keeps this
+/// off the camera's clock. A sagitta that followed the zoom exactly would
+/// remesh every solid on every frame of one; stepped, it changes a handful of
+/// times between arm's length and a fingernail, and the picture is skipped
+/// between — see [`Made::since`](layout::Made). It also makes the comparison
+/// exact, where a float would leave two cameras free to differ in the last
+/// place and remesh for it.
+///
+/// **Rounded down**, so crossing a step leaves the mesh finer than was asked
+/// rather than coarser. The error is on the side nobody can see.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Chorded(i32);
+
+impl Chorded {
+    /// How finely to cut a solid seen through `lens`.
+    pub(super) fn of(lens: Lens) -> Self {
+        let want = lens.world_per_pixel(lens.focus()) * SOLID_PIXELS;
+        Self(want.log2().floor().clamp(FINEST as f32, COARSEST as f32) as i32)
+    }
+
+    /// How far a chord may stand off the curve, in world units.
+    pub(super) fn sagitta(self) -> f64 {
+        (self.0 as f64).exp2()
+    }
+}
 
 /// How many faces a tool may have before the drawing stops previewing the
 /// answer and shows the tool instead.
@@ -202,7 +266,7 @@ pub(crate) fn scene(models: Models<'_>, theme: &Theme, layout: &mut Layout) -> S
     let mut scene = Scene::default();
     // Nothing half-done: no band, nothing being retyped and nothing being grown
     // in a document nobody has looked at yet.
-    redraw(models, theme, layout, Showing::default(), &mut scene);
+    redraw(models, theme, layout, Showing::default(), None, &mut scene);
     scene
 }
 
@@ -253,13 +317,14 @@ pub(crate) fn redraw(
     theme: &Theme,
     layout: &mut Layout,
     showing: Showing,
+    lens: Option<Lens>,
     into: &mut Scene,
 ) {
     // The check is here rather than at the call, so that what a layout claims
     // to describe and what was drawn into it are decided in one place. A caller
     // that skipped the call would leave a stale picture; one that made it and
     // forgot to stamp would redraw for ever.
-    let made = Made::of(models, showing);
+    let made = Made::of(models, showing, layout.chorded(lens));
     let Some(from) = layout.resume(made) else {
         return;
     };
@@ -291,6 +356,7 @@ pub(crate) fn redraw(
             names,
             sheets,
             showing.growing,
+            made.chorded.sagitta(),
             &mut into.solids,
         );
     }
@@ -384,6 +450,7 @@ pub(crate) fn markers(models: crate::model::Models<'_>) -> Vec<glam::Vec3> {
         &Theme::default(),
         &mut Layout::default(),
         Showing::default(),
+        None,
         &mut scene,
     );
     scene.points.iter().map(|point| point.position).collect()

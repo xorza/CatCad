@@ -78,7 +78,7 @@ pub(crate) fn write(
     // still, which on a sketch of two hundred dimensions was the entire cost of
     // a frame that had nothing to draw.
     let framed = Framed {
-        made: Made::of(models, showing),
+        made: Made::of(models, showing, layout.chorded(Some(lens))),
         lens,
     };
     if !layout.recontrol(framed) {

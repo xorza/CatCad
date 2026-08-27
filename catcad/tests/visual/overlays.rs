@@ -87,6 +87,28 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
     let size = DEMO_FRAME;
     let mut app = CatCad::build();
     app.enter_first_sketch();
+    // Parallel, so no foreshortening enters the measurement. Zoomed until a
+    // world radius of 1 spans `RIM_PX`, and aimed at the rim rather than the
+    // centre — at that magnification the centre is far off the frame and only a
+    // shallow arc crosses it, which is exactly the arc a chord would visibly cut
+    // across. Set on the document rather than the renderer, because a frame is
+    // recorded through the app and the app aims its renderer from the document
+    // as it records.
+    {
+        let camera = app.camera_mut();
+        camera.projection = Projection::Orthographic;
+        camera.target = Vec3::X;
+        camera.yaw = 0.0;
+        camera.pitch = PITCH;
+        camera.distance = 4.0;
+        camera.fov_y = 2.0 * (size.y as f32 / 2.0 / RIM_PX / camera.distance).atan();
+    }
+    // **Before the substitution rather than after it.** The view lays the
+    // drawing out again when the camera crosses a step of how finely a solid is
+    // worth cutting — see `paint::Chorded` — and this frame is both where the
+    // view arranges and where that step is first known. What it settles is what
+    // leaves the measured capture with nothing to write.
+    capture(size, &mut app);
     {
         let mut view = app.renderer().borrow_mut();
         // Nothing else in the frame, so every lit pixel is the rim. The faces
@@ -110,25 +132,9 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
         );
     }
     // The substituted ring survives the frame below because nothing in it
-    // touches the drawing: the view lays the drawing out again only when the
-    // document says it has moved on, and recording a frame that edits nothing
-    // leaves the overlays exactly as they were set above.
-    //
-    // Parallel, so no foreshortening enters the measurement. Zoomed until a
-    // world radius of 1 spans `RIM_PX`, and aimed at the rim rather than the
-    // centre — at that magnification the centre is far off the frame and only a
-    // shallow arc crosses it, which is exactly the arc a chord would visibly cut
-    // across. Set on the document rather than the renderer, because the frame
-    // below is recorded through the app and the app aims its renderer from the
-    // document as it records.
-    let camera = app.camera_mut();
-    camera.projection = Projection::Orthographic;
-    camera.target = Vec3::X;
-    camera.yaw = 0.0;
-    camera.pitch = PITCH;
-    camera.distance = 4.0;
-    camera.fov_y = 2.0 * (size.y as f32 / 2.0 / RIM_PX / camera.distance).atan();
-
+    // touches the drawing: the document has not moved on and neither has the
+    // camera, so recording a frame that edits nothing leaves the overlays
+    // exactly as they were set above.
     let frame = capture(size, &mut app);
 
     let viewport = Viewport::new(frame.size);

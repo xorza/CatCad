@@ -34,6 +34,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
     write(
@@ -110,6 +111,7 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
             &Theme::default(),
             &mut layout,
             Showing::default(),
+            None,
             &mut scene,
         );
         write(
@@ -272,6 +274,7 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
         &Theme::default(),
         &mut layout,
         Showing::default(),
+        None,
         &mut scene,
     );
     let drawing = layout.names().iter().count();
@@ -380,6 +383,7 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
         &Theme::default(),
         &mut layout,
         showing,
+        None,
         &mut scene,
     );
     write(

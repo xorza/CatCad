@@ -9,6 +9,7 @@ use crate::paint::cut::Cut;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::showing::Showing;
+use crate::paint::{Chorded, UNSIZED};
 use crate::preview::Preview;
 use crate::timeline::FeatureId;
 
@@ -157,6 +158,22 @@ impl Layout {
         }
     }
 
+    /// How finely to cut a solid for `lens`, or as it was last cut where there
+    /// is no camera to ask.
+    ///
+    /// **No lens is not a coarser answer, it is no answer.** A view that has
+    /// not arranged has nothing to say about how finely a solid is worth
+    /// cutting, and naming a number anyway would make the frame before the
+    /// arrangement disagree with the one after it — which is the solids and
+    /// everything after them written again, on every frame, for as long as the
+    /// two alternate.
+    pub(super) fn chorded(&self, lens: Option<Lens>) -> Chorded {
+        match lens {
+            Some(lens) => Chorded::of(lens),
+            None => self.made.map_or(UNSIZED, |made| made.chorded),
+        }
+    }
+
     /// Note what was just drawn, which is what makes the claim above true.
     pub(super) fn drawn(&mut self, made: Made) {
         self.made = Some(made);
@@ -236,11 +253,14 @@ impl Stage {
 /// Everything a picture is made from that is not the geometry itself.
 ///
 /// What a [`Layout`] compares to decide how much of itself is still current.
-/// Three things rather than one, because each can move without the others: the
-/// document is solved again, the sketch being worked in changes, or a gesture
-/// half-way through moves — and the middle of those moves no geometry at all,
-/// which is exactly why it has to be named here. A picture that only watched
-/// the revision would go on drawing the sketch you just left as the live one.
+/// Four things rather than one, because each can move without the others: the
+/// document is solved again, the sketch being worked in changes, a gesture
+/// half-way through moves, or the camera crosses a step of how finely a solid
+/// is worth cutting. Two of those move no geometry whatever — the sketch you
+/// are in, and the camera — which is exactly why they have to be named here. A
+/// picture that only watched the revision would go on drawing the sketch you
+/// just left as the live one, and would go on drawing a solid at the coarseness
+/// it was first seen at.
 ///
 /// The third is a whole bundle because it arrives as one and is stamped as one;
 /// it is *read* apart, because what a gesture is showing reaches three different
@@ -252,6 +272,7 @@ pub(crate) struct Made {
     pub(crate) revision: Revision,
     pub(crate) editing: Option<FeatureId>,
     pub(crate) showing: Showing,
+    pub(crate) chorded: Chorded,
 }
 
 impl Made {
@@ -260,11 +281,12 @@ impl Made {
     /// One place rather than at each of the two calls that stamp one — the
     /// drawing's and the controls' — so that the two cannot come to disagree
     /// about what a picture is made from and gate on different things.
-    pub(super) fn of(models: Models<'_>, showing: Showing) -> Self {
+    pub(super) fn of(models: Models<'_>, showing: Showing, chorded: Chorded) -> Self {
         Self {
             revision: models.revision(),
             editing: models.editing(),
             showing,
+            chorded,
         }
     }
 
@@ -286,7 +308,13 @@ impl Made {
         if had.revision != self.revision || had.editing != self.editing {
             return Some(Stage::Drawing);
         }
-        if had.showing.growing != self.showing.growing {
+        // **The camera reaches the ladder here and nowhere else.** How finely a
+        // solid is cut is the camera's to decide, and nothing else on the
+        // drawing's schedule cares where the camera stands — so this answers
+        // `Solid` and every region stays where it is. That what it compares is
+        // a *step* rather than the number itself is what makes it rare, which
+        // is [`Chorded`]'s to argue.
+        if had.showing.growing != self.showing.growing || had.chorded != self.chorded {
             return Some(Stage::Solid);
         }
         // A field opening leaves a mark out and a tool half-way through a

@@ -33,8 +33,7 @@ use crate::paint::marks::mark::Mark;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::{
-    DECIMALS, FACE_SAGITTA, MARK_FONT, SHEET_NAME_LIFT, SOLID_SAGITTA, marks, shade, standing,
-    symbol,
+    DECIMALS, FACE_SAGITTA, MARK_FONT, SHEET_NAME_LIFT, marks, shade, standing, symbol,
 };
 use crate::part::Part;
 use crate::preview::Ends;
@@ -568,6 +567,7 @@ pub(super) fn solids(
     names: &mut Names,
     sheets: &mut Sheets,
     growing: Option<Growing>,
+    sagitta: f64,
     into: &mut Batch<Object>,
 ) {
     let Sheets {
@@ -610,7 +610,7 @@ pub(super) fn solids(
         .chain((showing != Deciding::Nothing).then_some(&*deciding))
         .flat_map(|body| body.names().map(move |face| (body, face)));
     into.refill(faces, |object, (body, face)| {
-        mesher.cut(body, face, SOLID_SAGITTA, patch);
+        mesher.cut(body, face, sagitta, patch);
         remesh(
             &mut object.mesh,
             patch
