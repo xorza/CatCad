@@ -458,8 +458,8 @@ an `Arrangement` and a face position.
 silverpoint/src/
   arena.rs  inline.rs  loops.rs  sided.rs
   number/          mod.rs, predicate/, tolerance.rs
-    exact/         mod.rs, field, rational, quadratic, filtered
-                   — to come: expansion, lazy
+    exact/         mod.rs, field, rational, quadratic, filtered, expansion/
+                   — to come: lazy
   math/            arc, bounds, chorded, dense, direction, intersect, plane,
                    quadratic, triangulate, winding
   sketch/          entities, constraints, solver, arrangement
@@ -814,8 +814,8 @@ from the current camera — and neither is worth a pass on its own yet.
 
 The largest single piece, and it shows nothing on screen. Three parts:
 
-- **Shewchuk expansions** and **the lazy construction DAG** (§4.2), beside the
-  tower and the filter that are already there.
+- **The lazy construction DAG** (§4.2), above the tower, the filter and the
+  expansions that are already there.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.

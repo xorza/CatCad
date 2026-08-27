@@ -149,23 +149,8 @@ impl Neg for Filtered {
 mod tests {
     use super::*;
     use crate::number::exact::field::Field;
+    use crate::number::exact::internals::turning;
     use crate::number::exact::rational::Rational;
-
-    /// Twice the area the turn `a → b → c` sweeps, in whatever arithmetic `of`
-    /// reads a coordinate into.
-    ///
-    /// The one determinant every geometric kernel is built out of, written once
-    /// so the exact reading and the filtered one cannot be different sums.
-    fn turning<T: Clone + Sub<Output = T> + Mul<Output = T>>(
-        of: impl Fn(f64) -> T,
-        a: [f64; 2],
-        b: [f64; 2],
-        c: [f64; 2],
-    ) -> T {
-        let at = |place: [f64; 2]| (of(place[0]), of(place[1]));
-        let ((ax, ay), (bx, by), (cx, cy)) = (at(a), at(b), at(c));
-        (bx - ax.clone()) * (cy - ay.clone()) - ((by - ay) * (cx - ax))
-    }
 
     /// **The filter is never wrong, fires where it must, and answers where it
     /// need not** — the three things that make it a filter rather than a hope.

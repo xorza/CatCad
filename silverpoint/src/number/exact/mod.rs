@@ -8,10 +8,12 @@
 //!
 //! [`filtered::Filtered`] is the fast path in front of them: a machine float
 //! carried with a bound on how wrong it might be, which answers a sign where
-//! the bound cannot reach across nought and declines where it can. Still wanted
-//! above the lot: a lazy construction DAG.
+//! the bound cannot reach across nought and declines where it can.
+//! [`expansion::Expansion`] is the rung between the two, and the one most
+//! questions should end at: exact like the rational, and on the stack like the
+//! filter. Still wanted above the lot: a lazy construction DAG.
 //!
-//! **Nothing outside these four files calls any of it**, which is what the one
+//! **Nothing outside these five files calls any of it**, which is what the one
 //! allow below excuses. The pencil route in M3b is the first caller, and the
 //! arithmetic lands ahead of the route that needs it because the milestone it
 //! belongs to is the one whose whole point is not finding out late — see
@@ -25,7 +27,31 @@
 //! called.
 #![allow(dead_code)]
 
+pub(crate) mod expansion;
 pub(crate) mod field;
 pub(crate) mod filtered;
 pub(crate) mod quadratic;
 pub(crate) mod rational;
+
+#[cfg(test)]
+mod internals {
+    use std::ops::{Mul, Sub};
+
+    /// Twice the area the turn `a → b → c` sweeps, in whatever arithmetic `of`
+    /// reads a coordinate into.
+    ///
+    /// The one determinant every geometric kernel is built out of. Here rather
+    /// than beside any one tier, so that no two of them can be reading two
+    /// different sums — which is the whole of what asking them all the same
+    /// question buys.
+    pub(super) fn turning<T: Clone + Sub<Output = T> + Mul<Output = T>>(
+        of: impl Fn(f64) -> T,
+        a: [f64; 2],
+        b: [f64; 2],
+        c: [f64; 2],
+    ) -> T {
+        let at = |place: [f64; 2]| (of(place[0]), of(place[1]));
+        let ((ax, ay), (bx, by), (cx, cy)) = (at(a), at(b), at(c));
+        (bx - ax.clone()) * (cy - ay.clone()) - ((by - ay) * (cx - ax))
+    }
+}
