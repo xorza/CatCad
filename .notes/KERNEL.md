@@ -478,7 +478,7 @@ Three notes on the shapes. `Body` keeps no `lumps` list, the arena already
 enumerating them. `Face`'s loops and `Shell`'s faces are ranges into flat
 buffers (§4.5). `Vertex` holds a position rather than the surfaces it stands at,
 because the surfaces are only worth holding once the arithmetic can re-derive
-the point from them exactly, which is 9.3.
+the point from them exactly, which is 9.2.
 
 ## 7. The algorithms
 
@@ -701,12 +701,13 @@ hang it on.
 - every vertex within its own tolerance of the curve at the parameter its edge
   says it stands at, and every edge within its own of both faces' surfaces;
 - the tolerance ladder of §4.3, and a face's tolerance still zero;
-- an edge flagged smooth exactly when its two faces lie on one surface.
+- an edge flagged smooth exactly when its two faces lie on one surface;
+- every lump shutting in material and every cavity the lack of it, measured
+  through the mesher and read for its sign alone — the one break a shell turned
+  through itself does not otherwise show.
 
-Two gaps, both in §9: **lump volumes positive, void volumes negative**, which is
-the one check that would catch a whole shell built inside out; and **loops
-non-self-intersecting in parameter space**, which wants the intersection
-routines it is meant to check.
+One gap, and it is 9.4: **loops non-self-intersecting in parameter space**,
+which wants the intersection routines it is meant to check.
 
 Run after every operation under `cfg!(debug_assertions)`, and directly in every
 test. **A kernel that cannot produce an invalid body has only local bugs.** Each
@@ -769,26 +770,18 @@ mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 ## 9. What is left, in order
 
 M0's geometry, topology and validity, M1, M2's kernel half, M3a, M4, and M5 less
-its quartic are in the tree. Seven pieces of work are not. Verification per
-house rule, one `-p` per crate touched:
+its quartic are in the tree. Six pieces of work are not. Verification per house
+rule, one `-p` per crate touched:
 
 ```
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
 ```
 
-The order departs from §10's rule 6 in one place, and only at the front: 9.1 and
-9.2 are days rather than months, and 9.2 shows a user the wrong solid every time
-they type a depth into a cut. Everything from 9.3 on is the document's own
-order.
+The order departs from §10's rule 6 in one place, and only at the front: 9.1 is
+days rather than months, and it shows a user the wrong solid every time they
+type a depth into a cut. Everything from 9.2 on is the document's own order.
 
-### 9.1 The volume signs in `Checking`
-
-§7.5's first gap. Lump volumes positive, void volumes negative — the one check
-that catches a whole shell built inside out, and the reason every test in
-`build/` reads a volume off the mesh instead of asking the checker. Smallest of
-the seven, and nothing blocks it.
-
-### 9.2 One pass over `paint/`
+### 9.1 One pass over `paint/`
 
 Three things on one mesh path, in this order:
 
@@ -805,7 +798,7 @@ Three things on one mesh path, in this order:
   camera moves — today deliberately not done, to keep the drawing's cost off the
   camera's clock. A paint-layer decision, not a kernel one.
 
-### 9.3 M0 — exact numbers
+### 9.2 M0 — exact numbers
 
 The largest single piece, and it shows nothing on screen. Three parts:
 
@@ -825,23 +818,23 @@ supports or does not, and finding out at M4 would be finding out too late.
 **exactly** rather than to a tolerance, which needs the exact arithmetic to be
 true at all.
 
-### 9.4 M3b — the algebraic parameterization
+### 9.3 M3b — the algebraic parameterization
 
 What is left of §7.3: a smooth quartic parameterized exactly as
 `X₁(u,v) ± X₂(u,v)·√Δ(u,v)`, all components separated, all degeneracies handled,
 near-optimal in square roots. A pencil, a repeated-root test by polynomial gcd,
 exact 4×4 congruence diagonalization, a ruled member found by choosing an
 integer point, a split into hyperbolic planes, and the quadratic tower. `Curve`
-gains its `Quartic` arm (§4.6). Needs 9.3.
+gains its `Quartic` arm (§4.6). Needs 9.2.
 
 **Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
 the published classification, and every result is asserted to be in the exact
 tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
 not a warning.
 
-### 9.5 M5's remaining tests, and §7.5's second gap
+### 9.4 M5's remaining tests, and §7.5's gap
 
-Both fall out of 9.4.
+Both fall out of 9.3.
 
 **Tests.** Two equal perpendicular cylinders give the Steinmetz solid, whose
 intersection volume is exactly `16r³/3` — an analytic cross-check that catches
@@ -852,7 +845,7 @@ steps still build.
 **The checker.** Loops non-self-intersecting in parameter space, which wants the
 intersection routines it is meant to check.
 
-### 9.6 M6 — the fitted tier: torus, and marching
+### 9.5 M6 — the fitted tier: torus, and marching
 
 Torus surfaces, marched intersection, loop detection, fit bounds recorded, and
 the body's exactness report going false for the first time. `Surface` gains its
@@ -868,7 +861,7 @@ and the same cut over the exact tier still reports exact. And the case the
 literature says will be missed: a shallow near-tangential intersection that
 produces a small closed loop.
 
-### 9.7 M7 — fillet, chamfer, STEP
+### 9.6 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
@@ -923,7 +916,7 @@ interval filter means the exact path is rarely taken — but "rarely" is a
 measurement nobody has made. What is measured is the shape of the cost, and it
 is the right shape: a body is *made* where a prism was read, and making one on
 every frame of a drag costs no allocation at all. Whether it costs too much
-*time* is 9.2's first question.
+*time* is 9.1's first question.
 
 Against all of it: this is the only route on which roadmap items 8, 9 and 10 are
 reachable, the only one that can say "this body is exact" and mean it, and the

@@ -153,6 +153,25 @@ fn a_vertex_tighter_than_its_edge_is_refused() {
     body.check();
 }
 
+/// A shell turned through itself is the one break every other check passes.
+///
+/// Every edge of the block is still walked twice and once each way, Euler is
+/// still two, every face still lies on the surface it names, and the ladder is
+/// untouched — turning a face round says nothing about any of them. What is
+/// left is the sign: the block shuts in `2 × 2 × 3`, and inside out it shuts in
+/// `−12`.
+#[test]
+#[should_panic(expected = "faces inward")]
+fn a_lump_facing_inward_is_refused() {
+    let mut body = block();
+    let faces: Vec<FaceId> = body.topology().faces().map(|(at, _)| at).collect();
+    for at in faces {
+        let face = body.topology_mut().face_mut(at);
+        face.outward = !face.outward;
+    }
+    body.check();
+}
+
 /// **A cone, built by hand and validated as a body** — which nothing in the
 /// kernel constructs, so until now the surface was tested and the *solid* was
 /// not. One of the two `.notes/KERNEL.md` M0 owes.

@@ -20,26 +20,6 @@ use crate::solid::boolean::operation::Operation;
 use crate::solid::boolean::sewing::Sewing;
 use crate::solid::topology::body::Body;
 
-/// How far a chord of a curved edge may fall from it, in world units, wherever
-/// a stage here has to walk one as corners.
-///
-/// **A classification tolerance and not a geometry one**, which is the bargain
-/// the whole of a curved boolean rests on: what these corners decide is which
-/// regions to keep and which way a shell faces, and no part of the body is ever
-/// built from them — a surface is met exactly and an edge takes its curve from
-/// the meeting. See `.notes/KERNEL.md` §7.4.
-///
-/// One value for every stage that needs it, because they are answering about
-/// the same body in the same breath: a face chorded one way to be sounded and
-/// another to be measured is two boundaries, and a place could fall inside one
-/// and outside the other.
-///
-/// Absolute, which carries an assumption about scale: a model measured in
-/// millionths would be chorded coarsely by it and one in millions finely. The
-/// same debt `paint::SOLID_SAGITTA` carries in the application, and the same
-/// answer — take it off the thing being measured — waits on the same decision.
-const CHORDED: f64 = 1e-3;
-
 mod combining;
 mod imprints;
 pub(crate) mod operation;

@@ -115,9 +115,10 @@ impl Mesher {
     ///
     /// `into` is the room it cuts in, emptied a face at a time and left holding
     /// the last of them — the caller's, like [`Mesher::cut`]'s, because a
-    /// boolean measures every shell it sews and a document is sewn on every
-    /// frame of a drag. Standing one up here would reach the heap per shell per
-    /// frame, which is what the mesher holding its own room exists to avoid.
+    /// boolean measures every shell it sews, the validity check measures them
+    /// again, and a document is sewn on every frame of a drag. Standing one up
+    /// here would reach the heap per shell per frame, which is what the mesher
+    /// holding its own room exists to avoid.
     pub(crate) fn shut_in(
         &mut self,
         of: &Body,

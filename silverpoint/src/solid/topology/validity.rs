@@ -1,7 +1,9 @@
 //! Everything a body promises, checked from scratch.
 
 use crate::number::predicate::{self, ApproxEq, slack};
+use crate::number::tolerance::CHORDED;
 use crate::solid::meeting::Meeting;
+use crate::solid::mesh::{Mesher, Patch};
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::edge::{Edge, EdgeId};
@@ -33,6 +35,9 @@ pub(crate) struct Checking {
     /// Which edges and vertices a count of one shell has already taken in.
     counted: Vec<bool>,
     cornered: Vec<bool>,
+    /// The room measuring a shell takes — see [`Checking::volumes_are_signed`].
+    mesher: Mesher,
+    patch: Patch,
 }
 
 impl Checking {
@@ -51,6 +56,45 @@ impl Checking {
         self.geometry_agrees(topology);
         self.creases_are_flagged(topology);
         self.tolerances_ladder(topology);
+        self.volumes_are_signed(body);
+    }
+
+    /// Every lump shuts in material, and every cavity shuts in the lack of it.
+    ///
+    /// **The one break nothing above can see.** A shell turned through itself
+    /// still walks each of its edges twice, still satisfies Euler, and still
+    /// has every face on the surface it names, so every check so far passes on
+    /// a body that is inside out. What gives it away is the sign of what it
+    /// encloses: a face bounds material on the side it does not face, so a
+    /// cavity's faces point *into* it and a lump wound the wrong way reads as
+    /// one.
+    ///
+    /// Re-derived rather than trusted. The sewing sorts outer shells from
+    /// cavities by this same sign, and a check that read its answer back would
+    /// be checking that a number equals itself.
+    ///
+    /// **Through the mesher, chorded at [`CHORDED`]**, which is the one form of
+    /// the divergence theorem that does not care what the faces lie on — see
+    /// [`Mesher::shut_in`]. Only the sign is read, and no chording turns one
+    /// over.
+    fn volumes_are_signed(&mut self, body: &Body) {
+        let Self { mesher, patch, .. } = self;
+        let topology = body.topology();
+        for (id, lump) in topology.lumps() {
+            let shut_in = mesher.shut_in(body, topology.faces_of(lump.outer), CHORDED, patch);
+            assert!(
+                shut_in > 0.0,
+                "lump {id:?} shuts in {shut_in}, so its shell {:?} faces inward",
+                lump.outer,
+            );
+            for &shell in topology.voids_of(lump) {
+                let shut_in = mesher.shut_in(body, topology.faces_of(shell), CHORDED, patch);
+                assert!(
+                    shut_in < 0.0,
+                    "cavity {shell:?} of lump {id:?} shuts in {shut_in}, so it faces outward",
+                );
+            }
+        }
     }
 
     /// Every loop is closed: each coedge ends where the next begins.

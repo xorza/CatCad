@@ -25,8 +25,8 @@
 use crate::math::chorded::Chorded;
 use crate::math::winding;
 use crate::number::predicate;
+use crate::number::tolerance::CHORDED;
 use crate::number::tolerance::PLACED;
-use crate::solid::boolean::CHORDED;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::FaceId;
 use glam::{DVec2, DVec3};

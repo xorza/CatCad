@@ -32,6 +32,29 @@ pub(crate) const EXACT: f64 = 0.0;
 /// exact, and the checks that read it go on reading it unchanged.
 pub(crate) const ROUNDING: f64 = 1e-9;
 
+/// How far a chord of a curved edge may fall from it, in world units, wherever
+/// something has to walk one as corners.
+///
+/// **A classification tolerance and not a geometry one**, which is the bargain
+/// the whole of a curved boolean rests on: what these corners decide is which
+/// regions to keep, which way a shell faces and whether one shuts anything in,
+/// and no part of a body is ever built from them — a surface is met exactly and
+/// an edge takes its curve from the meeting. See `.notes/KERNEL.md` §7.4.
+///
+/// One value for every stage that needs it, because they are answering about
+/// the same body in the same breath: a face chorded one way to be sounded and
+/// another to be measured is two boundaries, and a place could fall inside one
+/// and outside the other. That is why it stands here rather than beside the
+/// boolean that first wanted it — the validity check measures the same shells,
+/// and a checker reaching a different number would be checking a different
+/// body.
+///
+/// Absolute, which carries an assumption about scale: a model measured in
+/// millionths would be chorded coarsely by it and one in millions finely. The
+/// same debt `paint::SOLID_SAGITTA` carries in the application, and the same
+/// answer — take it off the thing being measured — waits on the same decision.
+pub(crate) const CHORDED: f64 = 1e-3;
+
 /// How much of a turn a face may cover before its surface wraps back onto
 /// itself, in radians.
 ///

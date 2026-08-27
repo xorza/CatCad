@@ -7,7 +7,7 @@ use crate::math::triangulate::{Cutter, Fill};
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::ALIGNED;
-use crate::solid::boolean::CHORDED;
+use crate::number::tolerance::CHORDED;
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::operation::Operation;
 use crate::solid::boolean::sounding::Sounding;

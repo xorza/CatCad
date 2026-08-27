@@ -17,8 +17,8 @@
 
 use crate::loops::Loops;
 use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::CHORDED;
 use crate::number::tolerance::{EXACT, PLACED};
-use crate::solid::boolean::CHORDED;
 use crate::solid::boolean::combining::Kept;
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};

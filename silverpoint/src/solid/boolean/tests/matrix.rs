@@ -223,6 +223,38 @@ fn a_swallowed_body_leaves_a_shell_inside_a_shell() {
     assert_eq!(reckoning.genus, 0, "{reckoning:?}");
 }
 
+/// A cavity that faces out of its lump is refused, which is the same sign read
+/// the other way round.
+///
+/// The hollow above is a shell whose faces point into it, so it shuts in `−8`.
+/// Turned round it shuts in `+8` and describes a second solid standing inside
+/// the first — material in two places at once, and a body every check but this
+/// one calls valid.
+#[test]
+#[should_panic(expected = "faces outward")]
+fn a_cavity_facing_outward_is_refused() {
+    let mut body = Body::default();
+    assert!(Boolean::default().combine(
+        &cube(),
+        &block(1.0..3.0, 1.0..3.0, 1.0, 3.0, TOOL),
+        Operation::Cut,
+        &mut body,
+    ));
+
+    let (_, lump) = body.topology().lumps().next().expect("the one lump");
+    let hollow = *body
+        .topology()
+        .voids_of(lump)
+        .first()
+        .expect("the cavity the swallowed body left");
+    let faces = body.topology().faces_of(hollow).to_vec();
+    for at in faces {
+        let face = body.topology_mut().face_mut(at);
+        face.outward = !face.outward;
+    }
+    body.check();
+}
+
 /// How much `doing` of `one` and `two` shuts in, or `None` where it is refused.
 ///
 /// Beside [`answer`] rather than folded into it: the matrix above is about
