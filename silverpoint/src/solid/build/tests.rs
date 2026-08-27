@@ -392,11 +392,18 @@ fn an_extrusion_of_no_depth_is_a_body_with_nothing_in_it() {
 /// corner of an ordinary drawing — this used to be a nanometre on every vertex
 /// of every body, whether anything had folded or not.
 ///
-/// **Three drawings, because the corners reach the builder three ways.** A
+/// **Five drawings, because the corners reach the builder several ways.** A
 /// square's come from the fold. A circle's come from the cutting, which mints
 /// one to start a loop nothing crossed, and from the halving that keeps a face
 /// from wrapping — both worked out exactly and neither passing through the
 /// fold at all. A square with a circle inside it has both at once.
+///
+/// **And two whose corners nobody drew.** A run straight through a square
+/// crosses two of its sides, and a chord across a circle comes off a quadratic
+/// — corners the arrangement worked out rather than read off the drawing, and
+/// the ones a body's exactness used to be capped by. They stand for nothing
+/// because `math::intersect` decides whether a crossing lands on what made it
+/// rather than reading it off a parameter.
 ///
 /// The edges are asked too, and for a different reason: an edge is the true
 /// intersection of the two surfaces either side of it — §4.3's own definition
@@ -427,6 +434,24 @@ fn a_drawing_that_folded_nothing_raises_a_body_that_stands_for_nothing() {
     let middle = sketch.add_point(DVec2::new(3.0, 3.0));
     sketch.add_circle(middle, 1.0);
     drawings.push(("a square about a circle", sketch));
+
+    // A run straight through the square, crossing two of its sides where
+    // nobody drew a point: two corners the arrangement worked out rather than
+    // read off the drawing.
+    let mut sketch = Sketch::default();
+    square(&mut sketch, DVec2::ZERO, 4.0);
+    let across = [(-1.0, 2.0), (5.0, 2.0)].map(|(x, y)| sketch.add_point(DVec2::new(x, y)));
+    sketch.add_segment(across[0], across[1]);
+    drawings.push(("a square run through", sketch));
+
+    // And a chord across a circle, where the two corners come off a quadratic
+    // rather than off a pair of straight lines.
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::new(2.0, 2.0));
+    sketch.add_circle(middle, 1.0);
+    let chord = [(0.0, 2.0), (4.0, 2.0)].map(|(x, y)| sketch.add_point(DVec2::new(x, y)));
+    sketch.add_segment(chord[0], chord[1]);
+    drawings.push(("a circle cut by a chord", sketch));
 
     for (drawn, sketch) in drawings {
         let found = Arrangement::of(&sketch);

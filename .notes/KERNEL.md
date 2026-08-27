@@ -878,11 +878,25 @@ are in this order because the second cannot be done first:
   So every crossing routine the drawing has now takes its branch off the places
   and the radii: `spans`, `span_ring` and `rings` alike.
 
-  What is left is *where* a round crossing falls, as a place. The root is
-  `(−b ± √Δ)/2a` and leaves ℚ, so a corner that is exact is not a `DVec2` — and
-  §4.2's answer is not to hold one but to hold what *made* it and re-evaluate,
-  which is what `number::exact::lazy` is for and what nothing yet uses. That is
-  the half nobody costed.
+  **So a drawing raises an exact body wherever its curves were drawn to meet**,
+  and now wherever they merely *cross* as well: a run straight through a square
+  and a chord across a circle both raise vertices standing for nothing, their
+  corners having been worked out rather than read off the drawing. That is
+  §4.1's claim, held by a test rather than argued.
+
+  What is left is *where* a crossing falls, as a place. A round one is
+  `(−b ± √Δ)/2a` and leaves ℚ, so an exact corner is not a `DVec2` — and §4.2's
+  answer is not to hold one but to hold what *made* it and re-evaluate, which is
+  what `number::exact::lazy` is for and what nothing yet uses. Two corners from
+  *different* pairs would then be compared across two quadratic extensions,
+  which is a compositum and not the two storeys §4.2 caps the tower at. That is
+  the half nobody costed, and the cost is now visible.
+
+  **A nearer limit is the tolerance model itself.** `predicate::slack` gives a
+  check an absolute nanometre where a float's error is relative, so a body drawn
+  four hundred million units out fails its own validity check — see
+  `.notes/ISSUES.md`. Nothing about the crossings; everything about what a
+  rounding is worth out there.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.
