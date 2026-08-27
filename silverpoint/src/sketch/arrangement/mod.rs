@@ -19,8 +19,9 @@
 //! holding one comes out as though the overlap were not there.
 
 use crate::loops::Loops;
-use crate::math::approx::SLIVER;
+use crate::math::chorded::Chorded;
 use crate::math::intersect::{self, Span};
+use crate::number::tolerance::ENCLOSED;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::arrangement::bounding::Bounding;
@@ -186,7 +187,9 @@ impl Arrangement {
     /// which is what filling an outline does.
     fn trace(&self, boundary: &[Half], sagitta: f64, into: &mut Vec<DVec2>) {
         for half in boundary {
-            self.edges[half.edge].walk(&self.corners, half.forward, sagitta, into);
+            self.edges[half.edge]
+                .walked(&self.corners, half.forward)
+                .walk(sagitta, into);
         }
     }
 
@@ -223,7 +226,7 @@ impl Arrangement {
                     scratch,
                     ..
                 } = self;
-                if area > SLIVER {
+                if area > ENCLOSED {
                     // The face at `faces_filled` is last rebuild's, with the
                     // room it filled then still in it — grown by one only where
                     // this drawing encloses more than the last did.
@@ -236,7 +239,7 @@ impl Arrangement {
                     face.holes.clear();
                     face.area = area;
                     *faces_filled += 1;
-                } else if area < -SLIVER {
+                } else if area < -ENCLOSED {
                     scratch.outsides.push(&scratch.boundary);
                     scratch.areas.push(area);
                 }
@@ -401,7 +404,7 @@ impl Arrangement {
     /// the middle of an edge is on this loop and nothing else.
     fn somewhere_on(&self, boundary: &[Half]) -> DVec2 {
         let half = boundary[0];
-        self.edges[half.edge].at(&self.corners, half.forward, 0.5)
+        self.edges[half.edge].at(&self.corners, 0.5)
     }
 }
 

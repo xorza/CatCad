@@ -1,7 +1,8 @@
 //! The sketch's curves as geometry, and the cutting of them at their crossings.
 
-use crate::math::approx::{ApproxEq, TOUCHING};
 use crate::math::intersect::{self, Ring, Span};
+use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::PLACED;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::edge::{Edge, Shape};
 use crate::sketch::entity::Entity;
@@ -29,13 +30,13 @@ impl Curves {
                 from: sketch.point(segment.a).position,
                 to: sketch.point(segment.b).position,
             };
-            if span.from.approx_eq(span.to, TOUCHING) {
+            if span.from.approx_eq(span.to, PLACED) {
                 continue;
             }
             self.straight.push((span, Entity::Segment(id)));
         }
         for (id, circle) in sketch.circles() {
-            if circle.radius <= TOUCHING {
+            if circle.radius <= PLACED {
                 continue;
             }
             self.round.push((
@@ -62,13 +63,13 @@ impl Curves {
         sweep.clear();
         sweep.reserve_exact(straight.len() + round.len());
         sweep.extend(straight.iter().enumerate().map(|(at, (span, _))| Reach {
-            low: span.from.min(span.to) - TOUCHING,
-            high: span.from.max(span.to) + TOUCHING,
+            low: span.from.min(span.to) - PLACED,
+            high: span.from.max(span.to) + PLACED,
             curve: Curve::Straight(at),
         }));
         sweep.extend(round.iter().enumerate().map(|(at, (ring, _))| Reach {
-            low: ring.center - (ring.radius + TOUCHING),
-            high: ring.center + (ring.radius + TOUCHING),
+            low: ring.center - (ring.radius + PLACED),
+            high: ring.center + (ring.radius + PLACED),
             curve: Curve::Round(at),
         }));
         sweep.sort_by(|a, b| {
@@ -82,7 +83,7 @@ impl Curves {
     /// Every place a curve should be cut: the ends of the straight ones, and
     /// everywhere any two of them cross.
     ///
-    /// Folded so that places within [`TOUCHING`] of each other become one
+    /// Folded so that places within [`PLACED`] of each other become one
     /// corner. Two edges that met at two corners a hair apart would have a
     /// sliver of face between them that nobody drew.
     ///
@@ -166,8 +167,8 @@ impl Curves {
             // The box the span occupies, grown by as far as a corner may sit
             // off it and still count as on it.
             let (low, high) = (
-                span.from.min(span.to) - TOUCHING,
-                span.from.max(span.to) + TOUCHING,
+                span.from.min(span.to) - PLACED,
+                span.from.max(span.to) + PLACED,
             );
             on.clear();
             on.extend(
@@ -177,7 +178,7 @@ impl Curves {
                     }
                     let t = (corner - span.from).dot(along) / reach;
                     let nearest = span.from + along * t.clamp(0.0, 1.0);
-                    nearest.approx_eq(corner, TOUCHING).then_some((t, at))
+                    nearest.approx_eq(corner, PLACED).then_some((t, at))
                 }),
             );
             on.sort_by(|a, b| a.0.partial_cmp(&b.0).expect("parameters are finite"));
@@ -195,16 +196,16 @@ impl Curves {
         for (ring, of) in &self.round {
             // The rim's own box, grown as the spans' are above, and the band a
             // corner's distance from the centre has to fall in — squared, so
-            // the test costs no square root. A radius is over [`TOUCHING`] by
+            // the test costs no square root. A radius is over [`PLACED`] by
             // the time it reaches here, so the near edge of the band is
             // positive and squaring keeps the order.
             let (low, high) = (
-                ring.center - (ring.radius + TOUCHING),
-                ring.center + (ring.radius + TOUCHING),
+                ring.center - (ring.radius + PLACED),
+                ring.center + (ring.radius + PLACED),
             );
             let (inner, outer) = (
-                (ring.radius - TOUCHING).powi(2),
-                (ring.radius + TOUCHING).powi(2),
+                (ring.radius - PLACED).powi(2),
+                (ring.radius + PLACED).powi(2),
             );
             on.clear();
             on.extend(
@@ -257,10 +258,10 @@ impl Curves {
     }
 }
 
-/// Fold places within [`TOUCHING`] of each other into one corner.
+/// Fold places within [`PLACED`] of each other into one corner.
 ///
 /// Ordered across the drawing first, so each place is compared only against
-/// those it could possibly be near: two within [`TOUCHING`] of each other are
+/// those it could possibly be near: two within [`PLACED`] of each other are
 /// within it *across*, so a walk back that stops at the first further away has
 /// already seen every place that could fold with this one. That is what keeps
 /// the fold off the square of the crossings — a drawing of a few hundred of
@@ -286,9 +287,9 @@ fn fold(corners: &mut Vec<DVec2>) {
         // could reach.
         let mut folded = false;
         let mut back = kept;
-        while back > 0 && candidate.x - corners[back - 1].x <= TOUCHING {
+        while back > 0 && candidate.x - corners[back - 1].x <= PLACED {
             back -= 1;
-            if corners[back].approx_eq(candidate, TOUCHING) {
+            if corners[back].approx_eq(candidate, PLACED) {
                 folded = true;
                 break;
             }
@@ -334,7 +335,7 @@ fn near(
 
 /// How far one curve reaches, and which of the drawing's it is.
 ///
-/// What the crossing search is ordered by. The box is grown by [`TOUCHING`] on
+/// What the crossing search is ordered by. The box is grown by [`PLACED`] on
 /// every side, because a crossing is admitted that far past either curve's own
 /// end — so two curves whose boxes miss each other cannot be reported as
 /// meeting, which is what makes refusing them on the boxes alone safe.

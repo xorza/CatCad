@@ -6,8 +6,8 @@
 //! of them hold which hole, and a body asks whether a ray came through a face
 //! or grazed its edge.
 
-use crate::math::approx::NO_DIRECTION;
 use crate::math::intersect::{self, Span};
+use crate::number::tolerance::NO_DIRECTION;
 use glam::DVec2;
 
 /// Something one of the rules below can read a place off.

@@ -1,6 +1,10 @@
 //! How much room each kind of comparison is given.
-
-use crate::math::approx::{PARALLEL, SLIVER, TOUCHING};
+//!
+//! One vocabulary for the whole crate, drawing and body alike. A sketch is
+//! measured in the units the solid raised off it is modelled in, so a
+//! coincidence the arrangement admitted is one the kernel reading it admits
+//! too — which it could not promise while each half had a name of its own for
+//! the same number.
 
 /// What an exact construction is worth.
 ///
@@ -37,34 +41,71 @@ pub(crate) const ROUNDING: f64 = 1e-9;
 pub(crate) const WRAPPING: f64 = std::f64::consts::TAU - 1e-9;
 
 /// How near two pieces of geometry have to be to count as being in one place,
-/// in world units.
+/// in the units a drawing and the world share.
 ///
-/// What a pair of surfaces is asked when it has to decide whether it is one
-/// surface described twice, two that never meet, or two that touch. Nothing
-/// there carries a tolerance of its own yet — a surface's is zero and the
-/// question is about the pair — so the answer is the drawing's own bound, which
-/// is what everything raised off one is known to anyway (§4.1).
+/// The tolerance the geometry works to wherever a coincidence has to be
+/// admitted through a rounding rather than found exactly. A line that grazes a
+/// circle meets it twice in the algebra and once on the page, and the two roots
+/// come out a hair apart; a corner meant to land on another misses it by the
+/// last bit of a division. Left alone, either becomes a vertex nobody drew and
+/// a sliver of face between two edges that were meant to meet.
 ///
-/// The same number as [`TOUCHING`] and, for now, a second name for it: the two
-/// become one constant when `number/` is shared downward into `sketch`
-/// (`.notes/KERNEL.md` §6).
-pub(crate) const PLACED: f64 = TOUCHING;
+/// It is also what a pair of surfaces is asked when it has to decide whether it
+/// is one surface described twice, two that never meet, or two that touch.
+/// Nothing there carries a tolerance of its own yet — a surface's is [`EXACT`]
+/// and the question is about the pair — so the answer is the drawing's own
+/// bound, which is what everything raised off one is known to anyway
+/// (`.notes/KERNEL.md` §4.1).
+///
+/// An order of magnitude above the residual tolerance a solve converges to,
+/// which is what makes the two tests in [`Sketch::remove_duplicates`] agree
+/// instead of disagreeing at the boundary: a pair a solve has driven together
+/// sits within the residual tolerance, so it reads as positionally equal here
+/// too, and a coincidence and a measurement never answer differently about the
+/// same pair.
+///
+/// Far below anything a pointer can distinguish — a click resolves to a
+/// fraction of a sketch unit at any sane zoom — so nothing a user placed on
+/// purpose is ever within it of something else.
+///
+/// [`Sketch::remove_duplicates`]: crate::Sketch::remove_duplicates
+pub(crate) const PLACED: f64 = 1e-9;
 
-/// How near parallel two directions may run before they count as one
-/// direction, as a sine.
+/// How near parallel two directions may run before the angle between them stops
+/// meaning anything, as a sine.
 ///
-/// Dimensionless, so it says nothing about how large anything is — which is
-/// what makes it the right question to ask of an axis and a normal, and the
-/// wrong one to ask of two places. A second name for [`PARALLEL`], like
-/// [`PLACED`] above.
-pub(crate) const ALIGNED: f64 = PARALLEL;
+/// Dimensionless, unlike the lengths around it, so it says nothing about how
+/// large anything is — which is what makes it the right question to ask of an
+/// axis and a normal, and the wrong one to ask of two places. The same number
+/// as [`PLACED`] by measurement rather than by derivation, and free to move on
+/// its own.
+pub(crate) const ALIGNED: f64 = 1e-9;
 
 /// How much a loop has to shut in to be a region rather than a sliver, in
-/// square world units.
+/// square units.
 ///
 /// **An area, and so not [`PLACED`] however alike the two numbers look.** A
-/// bound on a length and a bound on an area answer differently the moment
-/// anything is rescaled, and one constant standing for both hides that — which
-/// is the argument [`SLIVER`] makes for the drawing, and it is the same
-/// argument here. A cut that leaves a region of no width leaves no region.
-pub(crate) const ENCLOSED: f64 = SLIVER;
+/// bound on a length and a bound on an area answer differently the moment a
+/// drawing is rescaled, and one constant standing for both hides that. Nothing
+/// derives it from [`PLACED`] — that squared would be 1e-18, which admits every
+/// sliver there is — so it is a measured bound in its own right. A cut that
+/// leaves a region of no width leaves no region.
+///
+/// Read against two scalings, deliberately. An arrangement compares it to a
+/// true signed area; a triangulation compares it to `perp_dot`, which is twice
+/// one, so the bound cleared there is half. They are different questions in
+/// different algorithms — whether a loop is a face, and whether a corner can be
+/// cut off — and neither is owed the other's boundary.
+pub(crate) const ENCLOSED: f64 = 1e-9;
+
+/// How long a difference of two points has to be before a direction can be
+/// recovered from it.
+///
+/// Not a coincidence tolerance: two points this close are the same *place* by
+/// [`PLACED`] three decades earlier, and this asks a narrower question about
+/// what is left — whether normalizing the difference between them still says
+/// anything. Below it the quotient is noise, so whoever asked picks a direction
+/// instead: an intersection answers that the curve is a point, and a
+/// constraint's derivative pushes along +x, because any direction will do when
+/// the solver only needs somewhere to push.
+pub(crate) const NO_DIRECTION: f64 = 1e-12;

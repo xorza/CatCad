@@ -17,6 +17,7 @@
 
 use crate::loops::Loops;
 use crate::math::bounds::Bounds;
+use crate::math::chorded::Chorded;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::math::winding;
 use crate::number::predicate;
@@ -409,7 +410,7 @@ impl Combining {
         let topology = body.topology();
         self.traced.clear();
         for coedge in topology.loops_of(face).flatten() {
-            topology.walk(*coedge, CHORDED, &mut self.traced);
+            topology.walked(*coedge).walk(CHORDED, &mut self.traced);
         }
         let mut boundary = Bounds::default();
         for &at in &self.traced {
@@ -462,7 +463,7 @@ impl Combining {
                         Curve::Line(_) => Came::Edge,
                         curve => Came::Arc(imprints.edge(curve)),
                     };
-                    topology.walk(*coedge, CHORDED, traced);
+                    topology.walked(*coedge).walk(CHORDED, traced);
                     marks.resize(traced.len(), came);
                 }
                 walk.clear();

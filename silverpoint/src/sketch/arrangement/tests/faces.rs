@@ -213,7 +213,7 @@ fn a_face_fills_to_the_area_it_encloses() {
 ///
 /// Asked of the corners rather than of the faces, because the faces cannot tell
 /// the two apart where the miss is small: a triangle that size is under
-/// [`SLIVER`] and is thrown away for its area whether or not the corners were
+/// [`ENCLOSED`] and is thrown away for its area whether or not the corners were
 /// folded. What says the fold happened is that there is one corner where there
 /// would otherwise be three.
 ///

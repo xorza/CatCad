@@ -1,8 +1,7 @@
 //! A region of a drawing, carried off its plane into a body.
 
-use crate::math::approx::TOUCHING;
 use crate::math::plane::Plane;
-use crate::number::tolerance::EXACT;
+use crate::number::tolerance::{EXACT, PLACED};
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::strip::{Strip, Strips};
 use crate::solid::geometry::axis::Axis;
@@ -69,7 +68,7 @@ impl<'a> Extrusion<'a> {
 /// What every entity an extrusion raises is known to, in world units.
 ///
 /// **The drawing's own fold tolerance, and a ceiling rather than a choice.** An
-/// arrangement folds crossings within [`TOUCHING`] of each other into one
+/// arrangement folds crossings within [`PLACED`] of each other into one
 /// corner, so a corner is only ever known that well — and a body raised off one
 /// cannot know its own vertices better than the drawing knew them. Surfaces are
 /// another matter and stay exact: a wall is a true plane or a true cylinder
@@ -79,7 +78,7 @@ impl<'a> Extrusion<'a> {
 /// the drawing underneath is still solved and cut in `f64`, and it is the
 /// strongest of the reasons §6 gives for [`number`](crate::number) being shared
 /// downward into `sketch` rather than kept up here.
-const PROFILE: f64 = TOUCHING;
+const PROFILE: f64 = PLACED;
 
 /// Raises bodies, keeping the room it works in.
 ///

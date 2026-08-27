@@ -1,6 +1,6 @@
 //! A difference of two points, split into how far it ran and which way.
 
-use crate::math::approx::NO_DIRECTION;
+use crate::number::tolerance::NO_DIRECTION;
 use glam::DVec2;
 
 /// How far a difference ran and which way, with the degenerate case answered.

@@ -22,6 +22,7 @@
 //! comes out of here decides which regions a boolean keeps, not what shape any
 //! of them is.
 
+use crate::math::chorded::Chorded;
 use crate::math::winding;
 use crate::number::predicate;
 use crate::number::tolerance::PLACED;
@@ -251,7 +252,7 @@ impl Sounding {
             for round in topology.loops_of(face) {
                 self.traced.clear();
                 for coedge in round {
-                    topology.walk(*coedge, CHORDED, &mut self.traced);
+                    topology.walked(*coedge).walk(CHORDED, &mut self.traced);
                 }
                 face.flatten(&self.traced, &mut self.walk);
                 self.starts.push(self.walk.len());

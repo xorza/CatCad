@@ -1,6 +1,8 @@
 //! One piece of a sketch curve, and the two ways to walk it.
 
 use crate::math::arc;
+use crate::math::chorded::Chorded;
+use crate::sided::Sided;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
 use glam::DVec2;
@@ -41,31 +43,9 @@ pub(crate) enum Shape {
 
 /// One side of an edge — the edge walked in one direction.
 ///
-/// A face is bounded by half-edges rather than edges, because the same piece of
-/// curve bounds a face on either side of it and the two walk it opposite ways.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Half {
-    pub(crate) edge: usize,
-    /// Whether this walks the edge from its `from` to its `to`.
-    pub(crate) forward: bool,
-}
-
-impl Half {
-    /// The same edge walked the other way, which bounds the face on its far
-    /// side.
-    pub(crate) fn turned(self) -> Self {
-        Self {
-            edge: self.edge,
-            forward: !self.forward,
-        }
-    }
-
-    /// A position to key this half-edge by, so a walk can note where it has
-    /// been without a map.
-    pub(crate) fn slot(self) -> usize {
-        self.edge * 2 + usize::from(self.forward)
-    }
-}
+/// [`Sided`] over an index into the arrangement's own edges. What it means is
+/// that type's; what is here is which list the edge is in.
+pub(crate) type Half = Sided<usize>;
 
 impl Edge {
     /// The curve this is a piece of, and the side of it a region walking it
@@ -130,28 +110,36 @@ impl Edge {
         }
     }
 
-    /// Where along the edge parameter `t` lands, walked `forward` or not.
+    /// Where the edge's own parameter `t` lands, running from its `from`
+    /// towards its `to`.
+    ///
+    /// The edge's own direction and never a walk's, so the two half-edges over
+    /// it describe one place with one piece of arithmetic — see
+    /// [`Chorded::at`].
     ///
     /// `corners` is the arrangement's own list, because a straight edge is
     /// described entirely by the two it runs between.
-    pub(crate) fn at(&self, corners: &[DVec2], forward: bool, t: f64) -> DVec2 {
-        let [from, to] = self.ends(forward);
+    pub(crate) fn at(&self, corners: &[DVec2], t: f64) -> DVec2 {
         match self.shape {
-            Shape::Straight => corners[from].lerp(corners[to], t),
+            Shape::Straight => corners[self.from].lerp(corners[self.to], t),
             Shape::Arc {
                 center,
                 radius,
                 start,
                 sweep,
             } => {
-                let travelled = if forward {
-                    sweep * t
-                } else {
-                    sweep * (1.0 - t)
-                };
-                let angle = start + travelled;
+                let angle = start + sweep * t;
                 center + DVec2::new(angle.cos(), angle.sin()) * radius
             }
+        }
+    }
+
+    /// This edge as a walk over it sees it — see [`Walked`].
+    pub(super) fn walked<'a>(&'a self, corners: &'a [DVec2], forward: bool) -> Walked<'a> {
+        Walked {
+            edge: self,
+            corners,
+            forward,
         }
     }
 
@@ -166,41 +154,151 @@ impl Edge {
             Shape::Arc { radius, sweep, .. } => arc::chords(radius, sweep, sagitta),
         }
     }
+}
 
-    /// Where the `step`th of `steps` cuts along this edge lands, walked
-    /// `forward` or not.
-    ///
-    /// The *stored* corner at either end rather than the curve evaluated there.
-    /// A corner is shared with whatever else meets at it, and two edges that
-    /// each recomputed it could land a rounding apart — which is a hairline
-    /// between a face and the wall swept off its own boundary.
-    pub(crate) fn cut(&self, corners: &[DVec2], forward: bool, step: usize, steps: usize) -> DVec2 {
-        let [from, to] = self.ends(forward);
-        if step == 0 {
-            corners[from]
-        } else if step == steps {
-            corners[to]
-        } else {
-            self.at(corners, forward, step as f64 / steps as f64)
-        }
+/// One edge as a walk over it sees it: which way round it is being walked, and
+/// the corners its ends stand at.
+///
+/// The arrangement's side of [`Chorded`], and the reason an [`Edge`] alone is
+/// not: an edge holds neither the corner list its ends index into nor which of
+/// the two ways round it is being taken.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Walked<'a> {
+    edge: &'a Edge,
+    corners: &'a [DVec2],
+    forward: bool,
+}
+
+impl Chorded for Walked<'_> {
+    type At = DVec2;
+
+    fn steps(&self, sagitta: f64) -> usize {
+        self.edge.steps(sagitta)
     }
 
-    /// The corners of a polyline that follows this edge from its start, stopping
-    /// short of its end — so a loop's edges laid end to end name each corner
-    /// once.
+    fn ends(&self) -> [DVec2; 2] {
+        self.edge.ends(self.forward).map(|at| self.corners[at])
+    }
+
+    fn at(&self, step: usize, steps: usize) -> DVec2 {
+        let step = if self.forward { step } else { steps - step };
+        self.edge.at(self.corners, step as f64 / steps as f64)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Sketch;
+    use std::f64::consts::FRAC_PI_2;
+
+    /// The two walks over one edge name the same places, bit for bit, and both
+    /// take the ends from the corner list rather than from the curve.
     ///
-    /// `sagitta` is how far the polyline may sit from the true curve. A
-    /// straight edge is exact whatever it is, so it contributes only its start.
-    pub(crate) fn walk(
-        &self,
-        corners: &[DVec2],
-        forward: bool,
-        sagitta: f64,
-        into: &mut Vec<DVec2>,
-    ) {
-        let steps = self.steps(sagitta);
-        for step in 0..steps {
-            into.push(self.cut(corners, forward, step, steps));
+    /// Hand-computed on the first quarter of the unit circle cut into four: a
+    /// quarter of the way round is `π/8`, at `(cos π/8, sin π/8)`, and the walk
+    /// back reaches that same place at its third step because both read the
+    /// edge's own parameter. The start corner is put a picometre off the true
+    /// circle on purpose — it is what the arrangement stored, and a walk that
+    /// evaluated the curve there instead would answer the circle.
+    #[test]
+    fn an_edge_walked_either_way_names_one_set_of_places() {
+        let mut sketch = Sketch::default();
+        let of = Entity::Point(sketch.add_point(DVec2::ZERO));
+        let corners = [DVec2::new(1.0, 1e-12), DVec2::new(0.0, 1.0)];
+        let edge = Edge {
+            from: 0,
+            to: 1,
+            shape: Shape::Arc {
+                center: DVec2::ZERO,
+                radius: 1.0,
+                start: 0.0,
+                sweep: FRAC_PI_2,
+            },
+            of,
+        };
+        let forward = edge.walked(&corners, true);
+        let backward = edge.walked(&corners, false);
+
+        assert_eq!(
+            forward.cut(0, 4),
+            corners[0],
+            "the stored corner, not the arc"
+        );
+        assert_eq!(forward.cut(4, 4), corners[1]);
+        assert_eq!(backward.cut(0, 4), corners[1]);
+        assert_eq!(backward.cut(4, 4), corners[0]);
+
+        let eighth = DVec2::new(0.923_879_532_511_286_7, 0.382_683_432_365_089_8);
+        assert!(
+            forward.cut(1, 4).abs_diff_eq(eighth, 1e-15),
+            "{:?}",
+            forward.cut(1, 4)
+        );
+        // Bit for bit, which is the whole point: two faces sharing this edge
+        // walk it opposite ways and must not land a rounding apart.
+        assert_eq!(forward.cut(1, 4), backward.cut(3, 4));
+        assert_eq!(forward.cut(3, 4), backward.cut(1, 4));
+
+        // A straight edge is the same rule: a quarter along (0,0)→(2,6) is
+        // (0.5, 1.5) whichever way it is walked.
+        let straight = Edge {
+            from: 0,
+            to: 1,
+            shape: Shape::Straight,
+            of,
+        };
+        let corners = [DVec2::ZERO, DVec2::new(2.0, 6.0)];
+        let forward = straight.walked(&corners, true);
+        let backward = straight.walked(&corners, false);
+        assert_eq!(forward.cut(1, 4), DVec2::new(0.5, 1.5));
+        assert_eq!(forward.cut(1, 4), backward.cut(3, 4));
+    }
+
+    /// A walk appends its start and every cut after it, and stops short of its
+    /// end — so a loop's edges laid end to end name each corner once.
+    #[test]
+    fn a_walk_appends_every_corner_but_the_last() {
+        let mut sketch = Sketch::default();
+        let of = Entity::Point(sketch.add_point(DVec2::ZERO));
+        let corners = [DVec2::ZERO, DVec2::new(1.0, 0.0), DVec2::new(0.0, 1.0)];
+        let quarter = Edge {
+            from: 1,
+            to: 2,
+            shape: Shape::Arc {
+                center: DVec2::ZERO,
+                radius: 1.0,
+                start: 0.0,
+                sweep: FRAC_PI_2,
+            },
+            of,
+        };
+        // Coarse enough that the arc is worth more than one chord and fine
+        // enough that it is worth few: the count is `steps`, whatever it is.
+        let sagitta = 0.01;
+        let steps = quarter.steps(sagitta);
+        assert!(
+            steps > 1,
+            "a quarter circle within {sagitta} is not one chord"
+        );
+
+        let mut into = vec![DVec2::new(9.0, 9.0)];
+        quarter.walked(&corners, true).walk(sagitta, &mut into);
+        assert_eq!(into.len(), 1 + steps, "the walk replaced what was there");
+        assert_eq!(into[0], DVec2::new(9.0, 9.0));
+        assert_eq!(into[1], corners[1], "a walk starts at its stored corner");
+        assert_ne!(
+            *into.last().unwrap(),
+            corners[2],
+            "and stops short of the end"
+        );
+
+        // Walked back, the same corners in the same places, reversed.
+        let mut back = Vec::new();
+        quarter.walked(&corners, false).walk(sagitta, &mut back);
+        assert_eq!(back[0], corners[2]);
+        for step in 1..steps {
+            assert_eq!(back[step], into[1 + steps - step]);
         }
     }
 }

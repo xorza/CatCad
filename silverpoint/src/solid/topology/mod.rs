@@ -13,6 +13,7 @@
 
 use crate::arena::Arena;
 use crate::loops::Loops;
+use crate::math::chorded::Chorded;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
@@ -29,6 +30,7 @@ pub(crate) mod edge;
 pub(crate) mod face;
 pub(crate) mod lump;
 pub(crate) mod shell;
+pub(crate) mod spreading;
 pub(crate) mod validity;
 pub(crate) mod vertex;
 
@@ -213,43 +215,11 @@ impl Topology {
         self.edge(coedge.edge).ends(coedge.forward)
     }
 
-    /// Where the `step`th of `steps` cuts along `coedge` lands.
-    ///
-    /// **The stored vertex at either end rather than the curve evaluated
-    /// there.** A vertex is shared with everything else that meets at it, and
-    /// two faces that each recomputed it could land a rounding apart — which is
-    /// a hairline between two faces that are meant to meet exactly. The same
-    /// reasoning as [`Edge::cut`](crate::sketch::arrangement::edge::Edge) one
-    /// dimension down.
-    pub(crate) fn at(&self, coedge: Coedge, step: usize, steps: usize) -> DVec3 {
-        let edge = self.edge(coedge.edge);
-        let [from, to] = edge.ends(coedge.forward);
-        if step == 0 {
-            return self.vertex(from).at;
-        }
-        if step == steps {
-            return self.vertex(to).at;
-        }
-        // At the edge's *own* parameter rather than the walk's. The two faces
-        // sharing an edge walk it opposite ways, and `start + Δ(n−k)/n` is not
-        // the same arithmetic as `end − Δk/n` — two roundings of one place,
-        // which is a hairline between two faces that are meant to meet.
-        let step = if coedge.forward { step } else { steps - step };
-        let [start, end] = edge.bounds;
-        edge.curve
-            .at(start + (end - start) * step as f64 / steps as f64)
-    }
-
-    /// The corners of a polyline following `coedge` from its start, stopping
-    /// short of its end — so a loop's coedges laid end to end name each corner
-    /// once.
-    ///
-    /// **Appends**, because a caller tracing a whole loop traces it into one
-    /// buffer.
-    pub(crate) fn walk(&self, coedge: Coedge, sagitta: f64, into: &mut Vec<DVec3>) {
-        let steps = self.edge(coedge.edge).steps(sagitta);
-        for step in 0..steps {
-            into.push(self.at(coedge, step, steps));
+    /// One coedge as a walk over it sees it — see [`Walked`].
+    pub(crate) fn walked(&self, coedge: Coedge) -> Walked<'_> {
+        Walked {
+            topology: self,
+            coedge,
         }
     }
 
@@ -272,6 +242,45 @@ impl Topology {
 // A handle that no longer resolves means a caller kept one across a removal,
 // which is a mistake in the algorithm rather than a state a reader can handle.
 const STALE: &str = "this body no longer holds what that names";
+
+/// One coedge as a walk over it sees it: the body it belongs to, and which use
+/// of which edge.
+///
+/// The kernel's side of [`Chorded`], and the reason a [`Coedge`] alone is not:
+/// a coedge is two words naming an edge, and everything a walk over it needs —
+/// the curve, the parameters, the vertices at the ends — is reached through the
+/// body holding it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Walked<'a> {
+    topology: &'a Topology,
+    coedge: Coedge,
+}
+
+impl Chorded for Walked<'_> {
+    type At = DVec3;
+
+    fn steps(&self, sagitta: f64) -> usize {
+        self.topology.edge(self.coedge.edge).steps(sagitta)
+    }
+
+    fn ends(&self) -> [DVec3; 2] {
+        self.topology
+            .ends(self.coedge)
+            .map(|end| self.topology.vertex(end).at)
+    }
+
+    fn at(&self, step: usize, steps: usize) -> DVec3 {
+        let edge = self.topology.edge(self.coedge.edge);
+        let step = if self.coedge.forward {
+            step
+        } else {
+            steps - step
+        };
+        let [start, end] = edge.bounds;
+        edge.curve
+            .at(start + (end - start) * step as f64 / steps as f64)
+    }
+}
 
 /// Ways to take a body apart that only a test wants.
 ///

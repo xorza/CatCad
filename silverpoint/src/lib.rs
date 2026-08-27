@@ -39,6 +39,7 @@ pub(crate) mod arena;
 pub(crate) mod loops;
 pub(crate) mod math;
 pub(crate) mod number;
+pub(crate) mod sided;
 pub(crate) mod sketch;
 pub(crate) mod solid;
 

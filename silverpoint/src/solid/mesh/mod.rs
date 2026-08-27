@@ -10,6 +10,7 @@ mod lattice;
 mod refining;
 
 use crate::loops::Loops;
+use crate::math::chorded::Chorded;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::solid::mesh::lattice::Lattice;
 use crate::solid::mesh::refining::Refining;
@@ -152,7 +153,7 @@ impl Mesher {
         holes.clear();
 
         for &coedge in topology.outline_of(face) {
-            topology.walk(coedge, sagitta, traced);
+            topology.walked(coedge).walk(sagitta, traced);
         }
         face.flatten(&traced[..], outline);
         face.placed(&traced[..], standing);
@@ -167,7 +168,7 @@ impl Mesher {
         let mut done = traced.len();
         for hole in topology.holes_of(face) {
             for &coedge in hole {
-                topology.walk(coedge, sagitta, traced);
+                topology.walked(coedge).walk(sagitta, traced);
             }
             let from = done;
             done = traced.len();

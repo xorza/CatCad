@@ -5,32 +5,6 @@ Delete an item when you address it. This file lists open findings only.
 Scope: every production file under `silverpoint/src`. Test modules are out of
 scope.
 
-## One rule written twice
-
-Each pair below states one relation in two places. Two spellings of one
-relation drift.
-
-- [ ] `math/intersect/mod.rs:158` and `solid/meeting/mod.rs:131` — where two
-  circles cross, computed twice. `Crossing::of` says it exists so that two
-  callers cannot disagree. `intersect::rings` is a third caller with its own
-  arithmetic.
-- [ ] `math/intersect/mod.rs:138` — `span_ring` solves its own quadratic.
-  `math/quadratic.rs` holds the stable form the rest of the crate uses.
-- [ ] `sketch/arrangement/edge.rs:177-205` and `solid/topology/mod.rs:196-226`
-  — `Edge::cut`/`Edge::walk` and `Topology::at`/`Topology::walk` are the same
-  rule one dimension apart, down to the two end cases and the comment on them.
-- [ ] `sketch/arrangement/edge.rs:56` and `solid/topology/coedge.rs:27` —
-  `Half::turned` and `Coedge::turned` are the same two lines.
-- [ ] `solid/topology/validity.rs:149` and `solid/boolean/sewing/mod.rs:1012` —
-  `Checking::reachable` and `Sewing::reach` are one walk across shared edges,
-  written twice. One counts and one collects.
-- [ ] `math/approx.rs:88` and `number/predicate.rs:17` — `ApproxEq` for `DVec2`
-  and `coincident` for `DVec3` state one comparison in two vocabularies.
-- [ ] `math/approx.rs` and `number/tolerance.rs` — `PLACED`, `ALIGNED` and
-  `ENCLOSED` are second names for `TOUCHING`, `PARALLEL` and `SLIVER`. The
-  notes call this temporary. It is still two tolerance vocabularies over one
-  set of numbers.
-
 ## Four inline small vectors of one shape
 
 Each holds a fixed array and a count, and hands back a prefix slice. Four

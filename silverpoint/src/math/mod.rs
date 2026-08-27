@@ -7,9 +7,9 @@
 //! matrices, not about geometry. Nothing here knows about constraints, and
 //! nothing under `sketch` reaches in.
 
-pub(crate) mod approx;
 pub(crate) mod arc;
 pub(crate) mod bounds;
+pub(crate) mod chorded;
 pub(crate) mod dense;
 pub(crate) mod direction;
 pub(crate) mod intersect;

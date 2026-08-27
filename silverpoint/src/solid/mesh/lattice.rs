@@ -51,7 +51,7 @@ impl Lattice {
     /// Taking the face's own reach for a straight direction is also what makes
     /// the cut **invariant to the units the model is drawn in**, which the flat
     /// tolerances the cutter reads —
-    /// [`TOUCHING`](crate::math::approx::TOUCHING) and its neighbours —
+    /// [`PLACED`](crate::number::tolerance::PLACED) and its neighbours —
     /// otherwise are not: a face measured in metres and the same face in
     /// millimetres stood a thousandfold apart against a fixed figure on one
     /// axis, and against a radian that had not moved at all on the other.

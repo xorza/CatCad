@@ -77,8 +77,8 @@ was written against the row of it that already worked:
 | signed area: face or outside | classify by containment against the other body |
 | assign holes to the tightest container | assign void shells to lumps |
 
-`Arena<T>`, `Loops<T>`, `Cutter`, `Plane` and the `approx` tolerance constants
-were reused rather than rewritten, which is most of §6. `Prism`, `Skinner` and
+`Arena<T>`, `Loops<T>`, `Cutter`, `Plane` and the tolerance constants under
+`number/` were reused rather than rewritten, which is most of §6. `Prism`, `Skinner` and
 `Patch` are gone; `Grown` moved to `solid/` unchanged, and `Part::Solid`,
 `Profile` and `Bound` never moved at all, which was the measure of the naming.
 
@@ -189,13 +189,14 @@ The claim not being bought: exactness once a fillet or a NURBS surface is
 present. That boundary is in the data, so nothing has to be believed.
 
 **Where the drawing underneath is the ceiling.** An `Arrangement` folds
-crossings within `TOUCHING` of each other into one corner, so a corner is only
+crossings within `PLACED` of each other into one corner, so a corner is only
 ever known to a nanometre, and a body raised off one cannot know its own
 vertices better. Every vertex and edge an extrusion raises therefore carries
-`TOUCHING`; the *surfaces* stay exact, because a wall is a true plane or a true
+`PLACED`; the *surfaces* stay exact, because a wall is a true plane or a true
 cylinder whatever corner it was placed through. That does not weaken the claim
-— it locates it, and it is the strongest argument in §6 for `number/` being
-shared *downward* rather than kept up here.
+— it locates it, and it was the strongest argument in §6 for `number/` being
+shared *downward* rather than kept up here, which it now is: the drawing and
+the body name one tolerance apiece and read them from one file.
 
 Where exactness stops, the discipline takes over:
 
@@ -501,9 +502,9 @@ for no reason the user caused.
 
 **`silverpoint/src/solid/`**, beside `sketch/`. Not a new crate: everything the
 kernel reuses is crate-private today, so a separate crate would mean promoting
-five internals to `pub` to buy a boundary that is otherwise free; `number/`
-wants to be shared *downward*, to the 2D arrangement, which across a crate
-boundary is a third crate or nothing; and the dependency direction already
+five internals to `pub` to buy a boundary that is otherwise free; `number/` is
+shared *downward*, to the 2D arrangement, which across a crate boundary is a
+third crate or nothing; and the dependency direction already
 enforces the one guarantee that matters, `solid/` being unable to learn
 `FeatureId`.
 
@@ -514,19 +515,20 @@ profile arrives as an `Arrangement` and a face position.
 
 ```
 silverpoint/src/
-  arena.rs  loops.rs
-  number/          mod.rs, predicate.rs, tolerance.rs, field.rs,
+  arena.rs  loops.rs  sided.rs
+  number/          mod.rs, predicate/, tolerance.rs, field.rs,
                    rational.rs, quadratic.rs, filtered.rs
                    — to come: expansion, lazy
-  math/            approx, dense, direction, intersect, plane, triangulate
+  math/            arc, bounds, chorded, dense, direction, intersect, plane,
+                   quadratic, triangulate, winding
   sketch/          entities, constraints, solver, arrangement
   solid/
     mod.rs  grown.rs  named.rs
     geometry/      surface, curve, plane (in math/), cylinder, cone, sphere,
                    line, circle, ellipse, axis, tests
                    — to come: quartic, torus, nurbs
-    topology/      mod (Topology), body, lump, shell, face, edge, vertex,
-                   coedge, validity, tests
+    topology/      mod (Topology, Walked), body, lump, shell, face, edge,
+                   vertex, coedge, spreading, validity, tests
     build/         mod, extrusion, strip, tests
     meeting/       mod (Meeting, Curves), tests
                    — to come: the algebraic route, beside it

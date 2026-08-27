@@ -1,7 +1,7 @@
 //! Cutting a face's triangles down until none of them leaves the surface.
 
 use crate::math::triangulate::Fill;
-use crate::number::predicate;
+use crate::number::predicate::{self, ApproxEq};
 use crate::number::tolerance::PLACED;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::mesh::lattice::Lattice;
@@ -286,7 +286,7 @@ impl Refining {
     /// covers, which on a cone is every triangle that meets the apex.
     fn collapsed(&self, at: usize) -> bool {
         let [from, to] = self.sides[at].ends.map(|of| self.places[of as usize]);
-        predicate::coincident(from, to, PLACED)
+        from.approx_eq(to, PLACED)
     }
 
     /// Where the corner numbered `of` stands along `axis`.

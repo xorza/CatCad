@@ -16,7 +16,7 @@
 //! than rediscovered — buys an exactness nothing here can use.
 
 use crate::loops::Loops;
-use crate::number::predicate;
+use crate::number::predicate::ApproxEq;
 use crate::number::tolerance::{EXACT, PLACED};
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::{self, Came, Corner};
@@ -33,6 +33,7 @@ use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::{Face, FaceId};
 use crate::solid::topology::lump::Lump;
 use crate::solid::topology::shell::{Shell, ShellId};
+use crate::solid::topology::spreading::Spreading;
 use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
 use glam::{DVec2, DVec3};
@@ -312,8 +313,8 @@ pub(super) struct Sewing {
     joined: Buckets,
     steps: Vec<Step>,
     edges: Vec<EdgeId>,
-    /// A walk over faces, gathering the ones a shell holds.
-    standing: Vec<bool>,
+    /// The walk that gathers the faces of one shell — see [`Spreading`].
+    spreading: Spreading,
     /// Which shell has claimed each vertex, by slot, while they are gathered.
     ///
     /// What says a body is manifold at its corners, which nothing else here
@@ -321,8 +322,6 @@ pub(super) struct Sewing {
     /// satisfied — whatever else touches the vertices it stands on, so two
     /// lumps welded at one corner pass every check made a shell at a time.
     cornered: Vec<Option<ShellId>>,
-    waiting: Vec<FaceId>,
-    gathered: Vec<FaceId>,
     /// The shells that shut something in, and the ones that are cavities.
     outer: Vec<ShellId>,
     voids: Vec<ShellId>,
@@ -486,7 +485,7 @@ impl Sewing {
             }
             let known = self.pinned[group..kept]
                 .iter()
-                .any(|it| predicate::coincident(it.at, place.at, PLACED));
+                .any(|it| it.at.approx_eq(place.at, PLACED));
             if known {
                 continue;
             }
@@ -517,10 +516,7 @@ impl Sewing {
         let (lo, hi) = (from.min(to), from.max(to));
         let ends = [curve.at(from), curve.at(to)];
         for pinned in placed_on(pinned, on) {
-            if ends
-                .iter()
-                .any(|&end| predicate::coincident(end, pinned.at, PLACED))
-            {
+            if ends.iter().any(|&end| end.approx_eq(pinned.at, PLACED)) {
                 continue;
             }
             // Onto the turn the run was measured in, an inversion answering in
@@ -762,9 +758,7 @@ impl Sewing {
         let found = cells
             .iter()
             .flat_map(|&cell| self.nearby.under(filed(cell)))
-            .filter(|&candidate| {
-                predicate::coincident(self.placed[candidate as usize].at, at, PLACED)
-            })
+            .filter(|&candidate| self.placed[candidate as usize].at.approx_eq(at, PLACED))
             .min();
         if let Some(found) = found {
             return self.placed[found as usize].vertex;
@@ -832,7 +826,7 @@ impl Sewing {
             .filter(|&at| {
                 let join = &self.joins[at as usize];
                 (join.ends == ends || join.ends == [ends[1], ends[0]])
-                    && predicate::coincident(join.middle, middle, PLACED)
+                    && join.middle.approx_eq(middle, PLACED)
             })
             .min()
             .map(|at| at as usize);
@@ -942,20 +936,19 @@ impl Sewing {
     /// cavity's faces point *into* it, and the same arithmetic that gives a
     /// lump its volume gives a cavity the negative of its own.
     fn gather(&mut self, into: &mut Body) -> bool {
-        self.standing.clear();
-        self.standing.resize(into.topology().face_slots(), false);
+        self.spreading.restart(into.topology());
         self.cornered.clear();
         self.cornered.resize(into.topology().vertex_slots(), None);
         self.outer.clear();
         self.voids.clear();
         for at in 0..self.raised.len() {
             let face = self.raised[at];
-            if self.standing[face.slot()] {
+            if self.spreading.standing(face) {
                 continue;
             }
-            self.reach(face, into);
+            let reached = self.spreading.across(into.topology(), face);
             let from = into.topology().faces_shelled();
-            for &held in &self.gathered {
+            for &held in reached {
                 into.topology_mut().add_shelled(held);
             }
             let to = into.topology().faces_shelled();
@@ -1028,25 +1021,6 @@ impl Sewing {
             }
         }
         true
-    }
-
-    /// Every face reachable from `face` by stepping across shared edges.
-    fn reach(&mut self, face: FaceId, into: &Body) {
-        let topology = into.topology();
-        self.gathered.clear();
-        self.waiting.clear();
-        self.waiting.push(face);
-        self.standing[face.slot()] = true;
-        while let Some(here) = self.waiting.pop() {
-            self.gathered.push(here);
-            for coedge in topology.loops_of(topology.face(here)).flatten() {
-                for across in topology.edge(coedge.edge).between {
-                    if !std::mem::replace(&mut self.standing[across.slot()], true) {
-                        self.waiting.push(across);
-                    }
-                }
-            }
-        }
     }
 
     /// How much a shell shuts in, signed.

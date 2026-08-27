@@ -1,12 +1,13 @@
 //! Everything a body promises, checked from scratch.
 
-use crate::number::predicate::{self, slack};
+use crate::number::predicate::{self, ApproxEq, slack};
 use crate::solid::meeting::Meeting;
 use crate::solid::topology::Topology;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::FaceId;
 use crate::solid::topology::shell::ShellId;
+use crate::solid::topology::spreading::Spreading;
 
 /// The room the validity check works in, kept across runs.
 ///
@@ -27,10 +28,8 @@ pub(crate) struct Checking {
     walked: Vec<[usize; 2]>,
     /// How many shells hold each face.
     shelled: Vec<usize>,
-    /// Which faces a walk across shared edges has reached, and which are left
-    /// to step off.
-    standing: Vec<bool>,
-    waiting: Vec<FaceId>,
+    /// The walk that says what one shell holds — see [`Spreading`].
+    spreading: Spreading,
     /// Which edges and vertices a count of one shell has already taken in.
     counted: Vec<bool>,
     cornered: Vec<bool>,
@@ -133,8 +132,14 @@ impl Checking {
     fn shells_are_connected(&mut self, topology: &Topology) {
         for (id, lump) in topology.lumps() {
             for shell in topology.shells_of(lump) {
-                let reached = self.reachable(topology, shell);
                 let faces = topology.faces_of(shell);
+                let Some(&first) = faces.first() else {
+                    continue;
+                };
+                // A clean sheet per shell: this asks what one shell reaches on
+                // its own, where the sewing asks what a whole body falls into.
+                self.spreading.restart(topology);
+                let reached = self.spreading.across(topology, first).len();
                 assert!(
                     reached == faces.len(),
                     "shell {shell:?} of lump {id:?} lists {} faces and reaches {reached}",
@@ -142,35 +147,6 @@ impl Checking {
                 );
             }
         }
-    }
-
-    /// How many faces of `shell` are reachable from the first by stepping
-    /// across shared edges.
-    fn reachable(&mut self, topology: &Topology, shell: ShellId) -> usize {
-        let Self {
-            standing, waiting, ..
-        } = self;
-        standing.clear();
-        standing.resize(topology.face_slots(), false);
-        waiting.clear();
-        let Some(&first) = topology.faces_of(shell).first() else {
-            return 0;
-        };
-        standing[first.slot()] = true;
-        waiting.push(first);
-        let mut found = 1;
-        while let Some(face) = waiting.pop() {
-            for coedge in topology.loops_of(topology.face(face)).flatten() {
-                for across in topology.edge(coedge.edge).between {
-                    if !standing[across.slot()] {
-                        standing[across.slot()] = true;
-                        found += 1;
-                        waiting.push(across);
-                    }
-                }
-            }
-        }
-        found
     }
 
     /// Every shell is a closed surface: its Euler characteristic is even, so
@@ -247,7 +223,7 @@ impl Checking {
                 let vertex = topology.vertex(end);
                 let given = slack(vertex.tolerance);
                 assert!(
-                    predicate::coincident(vertex.at, edge.curve.at(bound), given),
+                    vertex.at.approx_eq(edge.curve.at(bound), given),
                     "edge {id:?} at {bound} is {} from vertex {end:?}, which stands for {given}",
                     vertex.at.distance(edge.curve.at(bound)),
                 );

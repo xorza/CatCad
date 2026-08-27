@@ -23,9 +23,10 @@
 //! the caller's question — see [`Fill`].
 
 use crate::loops::Loops;
-use crate::math::approx::{ApproxEq, SLIVER, TOUCHING};
 use crate::math::intersect::{self, Span};
 use crate::math::winding;
+use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::{ENCLOSED, PLACED};
 use glam::DVec2;
 
 /// A polygon cut into triangles.
@@ -220,7 +221,7 @@ fn visible(corners: &[DVec2], contour: &[u32], from: DVec2) -> Option<usize> {
         let Some(across) = intersect::rightward(Span { from: a, to: b }, from) else {
             continue;
         };
-        if across >= from.x - TOUCHING && across < nearest {
+        if across >= from.x - PLACED && across < nearest {
             nearest = across;
             // The end of that edge which reaches further right is the corner
             // the bridge can always be drawn to when nothing is in the way.
@@ -275,9 +276,9 @@ fn inside(a: DVec2, b: DVec2, c: DVec2, at: DVec2) -> bool {
     let side = |from: DVec2, to: DVec2| (to - from).perp_dot(at - from);
     let (one, two, three) = (side(a, b), side(b, c), side(c, a));
     // Twice an area apiece, `perp_dot` being what it is, so the bound these
-    // clear is half of [`SLIVER`] — see there.
-    let negative = one < -SLIVER || two < -SLIVER || three < -SLIVER;
-    let positive = one > SLIVER || two > SLIVER || three > SLIVER;
+    // clear is half of [`ENCLOSED`] — see there.
+    let negative = one < -ENCLOSED || two < -ENCLOSED || three < -ENCLOSED;
+    let positive = one > ENCLOSED || two > ENCLOSED || three > ENCLOSED;
     !(negative && positive)
 }
 
@@ -300,7 +301,7 @@ fn clip(
     into.reserve_exact(contour.len().saturating_sub(2));
     standing.clear();
     standing.reserve_exact(contour.len());
-    standing.extend((0..contour.len()).map(|at| turn(corners, contour, at) <= SLIVER));
+    standing.extend((0..contour.len()).map(|at| turn(corners, contour, at) <= ENCLOSED));
     // How many of them stand proud, kept rather than counted. A contour with
     // none is convex, and every corner of a convex contour is an ear — so the
     // containment test in [`ear`], which is the innermost loop there is, drops
@@ -350,7 +351,7 @@ fn clip(
     // reach the caller — and an outline with no area is nothing *but* this
     // triple, which is what makes it fill to nothing rather than to a
     // degenerate triangle.
-    if contour.len() == 3 && turn(corners, contour, 0) > SLIVER {
+    if contour.len() == 3 && turn(corners, contour, 0) > ENCLOSED {
         into.push([contour[0], contour[1], contour[2]]);
     }
 }
@@ -394,7 +395,7 @@ fn retest(
     // The two the cut joined: where `at` now points, and the place before it —
     // a corner taken from the front leaves its predecessor at the back.
     for beside in [(at + contour.len() - 1) % contour.len(), at % contour.len()] {
-        let now = turn(corners, contour, beside) <= SLIVER;
+        let now = turn(corners, contour, beside) <= ENCLOSED;
         if now != standing[beside] {
             if now {
                 *proud += 1;
@@ -447,9 +448,9 @@ fn pare(
         let len = contour.len();
         let bare = [(at + len - 1) % len, at % len].into_iter().find(|&step| {
             let [before, corner, after] = triangle(corners, contour, step);
-            before.approx_eq(after, TOUCHING)
-                || corner.approx_eq(after, TOUCHING)
-                || corner.approx_eq(before, TOUCHING)
+            before.approx_eq(after, PLACED)
+                || corner.approx_eq(after, PLACED)
+                || corner.approx_eq(before, PLACED)
         });
         let Some(bare) = bare else {
             return;
@@ -545,8 +546,8 @@ fn best(corners: &[DVec2], contour: &[u32], standing: &[bool], proud: usize) -> 
 }
 
 fn ear(corners: &[DVec2], contour: &[u32], at: usize, standing: &[bool], proud: usize) -> bool {
-    // Twice the area of that corner's triangle, so again half of [`SLIVER`].
-    if turn(corners, contour, at) <= SLIVER {
+    // Twice the area of that corner's triangle, so again half of [`ENCLOSED`].
+    if turn(corners, contour, at) <= ENCLOSED {
         return false;
     }
     if proud == 0 {
@@ -584,7 +585,7 @@ fn ear(corners: &[DVec2], contour: &[u32], at: usize, standing: &[bool], proud: 
         inside(before, corner, after, candidate)
             && ![before, corner, after]
                 .iter()
-                .any(|&of| candidate.approx_eq(of, TOUCHING))
+                .any(|&of| candidate.approx_eq(of, PLACED))
     })
 }
 

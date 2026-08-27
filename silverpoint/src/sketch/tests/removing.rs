@@ -253,15 +253,15 @@ fn a_pile_of_identical_spares_leaves_exactly_one() {
     );
 }
 
-/// Nearness is a disc of `TOUCHING`, and a duplicate that something is
+/// Nearness is a disc of `PLACED`, and a duplicate that something is
 /// said about is kept whichever of the pair it is.
 #[test]
 fn the_cleanup_measures_nearness_and_spares_what_is_spoken_for() {
     let mut sketch = Sketch::default();
     let anchor = sketch.add_point(DVec2::ZERO);
     // Just inside the tolerance, and just outside it.
-    let near = sketch.add_point(DVec2::new(TOUCHING * 0.5, 0.0));
-    let far = sketch.add_point(DVec2::new(TOUCHING * 2.0, 0.0));
+    let near = sketch.add_point(DVec2::new(PLACED * 0.5, 0.0));
+    let far = sketch.add_point(DVec2::new(PLACED * 2.0, 0.0));
 
     let removed = sketch.remove_duplicates();
     assert_eq!(removed.points, 1, "{removed:?}");

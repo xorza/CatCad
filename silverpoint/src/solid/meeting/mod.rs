@@ -24,8 +24,9 @@
 //! descriptions, because two planes can be one plane and not be the same
 //! `Plane` — see [`Meeting::Same`].
 
+use crate::math::intersect::chord::Chord;
 use crate::math::plane::Plane;
-use crate::number::predicate;
+use crate::number::predicate::{self, ApproxEq};
 use crate::number::tolerance::{ALIGNED, PLACED};
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
@@ -94,56 +95,6 @@ impl Curves {
     /// The curves, in no order a caller should read anything into.
     pub(crate) fn curves(&self) -> &[Curve] {
         &self.held[..self.count]
-    }
-}
-
-/// Where two circles of given radii cross, their centres `apart`.
-///
-/// What two of the cases below come down to once the third dimension is taken
-/// out of them: a sphere against a sphere is this in the plane through both
-/// centres, and a cylinder alongside a cylinder is this in the plane square to
-/// both axes, lifted back out along the direction they share. One piece of
-/// arithmetic, so the two cannot come to disagree about where a tangency is.
-#[derive(Debug, Clone, Copy)]
-struct Crossing {
-    /// How far from the first centre, along the line between them, the two
-    /// crossings stand.
-    along: f64,
-    /// The square of how far off that line each of them is.
-    ///
-    /// Squared because that is where the arithmetic naturally stops, and
-    /// negative where the two circles miss altogether — which is the square
-    /// root declining to be taken rather than anything having gone wrong.
-    squared: f64,
-    /// Whether they only graze, so that there is one crossing and not two.
-    ///
-    /// **Decided on the radii, not on the square above**, and the difference is
-    /// ten orders of magnitude. A radial miss of `ε` opens a chord of half
-    /// `√(2rε)`, so holding *that* against a tolerance asks for `ε` under its
-    /// square — a nanometre's worth of slack becomes a tenth of an attometre's,
-    /// and a pair a rounding off tangency comes back as a circle microns wide
-    /// instead of a touch. Every other case here compares a radius to a
-    /// distance; this one does too.
-    grazing: bool,
-}
-
-impl Crossing {
-    fn of(here: f64, there: f64, apart: f64) -> Self {
-        let along = (apart * apart + here * here - there * there) / (2.0 * apart);
-        Self {
-            along,
-            squared: here * here - along * along,
-            // Outside each other, and one inside the other: the two ways two
-            // circles have of touching exactly once.
-            grazing: predicate::touching((apart - (here + there)).abs(), PLACED)
-                || predicate::touching((apart - (here - there).abs()).abs(), PLACED),
-        }
-    }
-
-    /// How far off the line of centres each crossing stands, or `None` where
-    /// the two miss.
-    fn half(self) -> Option<f64> {
-        (self.squared >= 0.0).then(|| self.squared.sqrt())
     }
 }
 
@@ -217,7 +168,7 @@ impl Meeting {
         let normal = plane.normal();
         let off = (sphere.centre() - plane.origin).dot(normal);
         let centre = sphere.centre() - normal * off;
-        if predicate::touching((off.abs() - sphere.radius).abs(), PLACED) {
+        if off.abs().approx_eq(sphere.radius, PLACED) {
             return Self::Touching(centre);
         }
         if off.abs() > sphere.radius {
@@ -278,7 +229,7 @@ impl Meeting {
         // The axis dropped onto the plane, and the way to walk across it there.
         let off = (axis.origin - plane.origin).dot(normal);
         let foot = axis.origin - normal * off;
-        if predicate::touching((off.abs() - cylinder.radius).abs(), PLACED) {
+        if off.abs().approx_eq(cylinder.radius, PLACED) {
             return Self::Along(Curves::one(Curve::Line(Line {
                 origin: foot,
                 direction: axis.direction,
@@ -337,9 +288,7 @@ impl Meeting {
         let between = two.axis.origin - one.axis.origin;
         let skew = here.cross(there);
         let past = between.dot(skew).abs() / skew.length();
-        if !predicate::touching(past, PLACED)
-            || !predicate::touching((one.radius - two.radius).abs(), PLACED)
-        {
+        if !predicate::touching(past, PLACED) || !one.radius.approx_eq(two.radius, PLACED) {
             return Self::Algebraic;
         }
         let crossing =
@@ -370,13 +319,13 @@ impl Meeting {
         // back out along the direction they share.
         let between = two.axis.origin - one.axis.origin;
         let towards = (between - direction * between.dot(direction)).normalize();
-        let crossing = Crossing::of(one.radius, two.radius, apart);
-        let touch = one.axis.origin + towards * crossing.along;
+        let chord = Chord::of(one.radius, two.radius, apart);
+        let touch = one.axis.origin + towards * chord.along;
         let running = |origin: DVec3| Curve::Line(Line { origin, direction });
-        if crossing.grazing {
+        if chord.grazing {
             return Self::Along(Curves::one(running(touch)));
         }
-        let Some(half) = crossing.half() else {
+        let Some(half) = chord.half() else {
             return Self::Apart;
         };
         let off = direction.cross(towards) * half;
@@ -398,8 +347,8 @@ impl Meeting {
             })
         };
         // On the radii rather than on the square of them, for the reason
-        // [`Crossing`] gives.
-        if predicate::touching((sphere.radius - cylinder.radius).abs(), PLACED) {
+        // [`Chord`] gives.
+        if sphere.radius.approx_eq(cylinder.radius, PLACED) {
             // Exactly as wide as each other: they graze along the one circle
             // where the sphere is widest.
             return Self::Along(Curves::one(ringed(centre)));
@@ -419,12 +368,12 @@ impl Meeting {
             return Self::concentric(one.radius, two.radius);
         }
         let towards = between / apart;
-        let crossing = Crossing::of(one.radius, two.radius, apart);
-        let centre = one.centre() + towards * crossing.along;
-        if crossing.grazing {
+        let chord = Chord::of(one.radius, two.radius, apart);
+        let centre = one.centre() + towards * chord.along;
+        if chord.grazing {
             return Self::Touching(centre);
         }
-        let Some(radius) = crossing.half() else {
+        let Some(radius) = chord.half() else {
             return Self::Apart;
         };
         Self::Along(Curves::one(Curve::Circle(Circle {
@@ -436,7 +385,7 @@ impl Meeting {
     /// Two surfaces of revolution sharing a centre line, with nothing between
     /// them but their radii.
     fn concentric(here: f64, there: f64) -> Self {
-        if predicate::touching((here - there).abs(), PLACED) {
+        if here.approx_eq(there, PLACED) {
             Self::Same
         } else {
             Self::Apart

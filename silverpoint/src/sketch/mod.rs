@@ -11,8 +11,9 @@ pub(crate) mod snapshot;
 pub(crate) mod solver;
 
 use crate::arena::{Arena, Id};
-use crate::math::approx::{ApproxEq, PARALLEL, TOUCHING};
 use crate::math::direction::Direction;
+use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::{ALIGNED, PLACED};
 use crate::sketch::constraint::{Constraint, ConstraintId};
 use crate::sketch::entity::Entity;
 use crate::sketch::measurement::Measurement;
@@ -424,7 +425,7 @@ impl Sketch {
             return Some(constraint);
         };
         let spans = measured.spans();
-        (spans > TOUCHING).then(|| {
+        (spans > PLACED).then(|| {
             let mut fitted = constraint;
             let dimension = fitted
                 .dimension_mut()
@@ -459,7 +460,7 @@ impl Sketch {
     /// agreement into two pieces of made-up data.
     pub fn parallel(&self, first: SegmentId, second: SegmentId) -> bool {
         self.turn(first, second)
-            .is_some_and(|sine| sine.abs() <= PARALLEL)
+            .is_some_and(|sine| sine.abs() <= ALIGNED)
     }
 
     /// Where two edges' *infinite* lines cross, or `None` where they do not
@@ -480,7 +481,7 @@ impl Sketch {
     /// together" from being two opinions about one pair.
     pub fn crossing(&self, first: SegmentId, second: SegmentId) -> Option<DVec2> {
         let sine = self.turn(first, second)?;
-        if sine.abs() <= PARALLEL {
+        if sine.abs() <= ALIGNED {
             return None;
         }
         let (one, other) = (self.ends(first), self.ends(second));
@@ -636,8 +637,8 @@ impl Sketch {
                 let (a, b) = (self.circle(a), self.circle(b));
                 self.point(a.center)
                     .position
-                    .approx_eq(self.point(b.center).position, TOUCHING)
-                    && a.radius.approx_eq(b.radius, TOUCHING)
+                    .approx_eq(self.point(b.center).position, PLACED)
+                    && a.radius.approx_eq(b.radius, PLACED)
             },
         )
     }
@@ -659,8 +660,8 @@ impl Sketch {
             |id| named[id.slot()],
             |a, b| {
                 let ((a1, a2), (b1, b2)) = (ends(a), ends(b));
-                (a1.approx_eq(b1, TOUCHING) && a2.approx_eq(b2, TOUCHING))
-                    || (a1.approx_eq(b2, TOUCHING) && a2.approx_eq(b1, TOUCHING))
+                (a1.approx_eq(b1, PLACED) && a2.approx_eq(b2, PLACED))
+                    || (a1.approx_eq(b2, PLACED) && a2.approx_eq(b1, PLACED))
             },
         )
     }
@@ -668,7 +669,7 @@ impl Sketch {
     /// The points carrying nothing that sit on top of another point.
     ///
     /// A coincidence counts as sitting on top whatever the coordinates say. The
-    /// two agree on a solved sketch — [`TOUCHING`] is the looser of the
+    /// two agree on a solved sketch — [`PLACED`] is the looser of the
     /// two — and on one a solve has not reached, what the drawing *states* is a
     /// better answer than where it currently happens to be.
     fn spare_points(&self) -> Vec<PointId> {
@@ -689,7 +690,7 @@ impl Sketch {
             |a, b| {
                 self.point(a)
                     .position
-                    .approx_eq(self.point(b).position, TOUCHING)
+                    .approx_eq(self.point(b).position, PLACED)
                     || joins
                         .iter()
                         .any(|&(x, y)| (x == a && y == b) || (x == b && y == a))

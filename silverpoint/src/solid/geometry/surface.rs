@@ -3,7 +3,7 @@
 use crate::math::arc;
 use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
-use crate::number::predicate;
+use crate::number::predicate::{self, ApproxEq};
 use crate::number::tolerance::{ALIGNED, PLACED};
 use crate::solid::buckets::Key;
 use crate::solid::geometry::cone::Cone;
@@ -210,7 +210,7 @@ impl Surface {
     pub(crate) fn singular(&self, at: DVec3) -> bool {
         match self {
             Self::Plane(_) | Self::Cylinder(_) => false,
-            Self::Cone(cone) => predicate::coincident(at, cone.axis.origin, PLACED),
+            Self::Cone(cone) => at.approx_eq(cone.axis.origin, PLACED),
             // On the axis, which for a sphere is the two poles and nowhere
             // else, the centre not being on the surface.
             Self::Sphere(sphere) => predicate::touching(sphere.axis.off(at), PLACED),

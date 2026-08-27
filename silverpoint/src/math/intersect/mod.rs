@@ -8,8 +8,13 @@
 //! drawing on paper: a span is two corners and a ring is a middle and a
 //! distance, and no part of a sketch reaches in.
 
-use crate::math::approx::{ApproxEq, NO_DIRECTION, PARALLEL, TOUCHING};
+use crate::math::intersect::chord::Chord;
+use crate::math::quadratic;
+use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::{ALIGNED, NO_DIRECTION, PLACED};
 use glam::DVec2;
+
+pub(crate) mod chord;
 
 /// A straight span between two corners — a segment as geometry, with the
 /// sketch's handles left behind.
@@ -63,9 +68,9 @@ impl Crossings {
     }
 
     /// They cross in two, folded to one where the two are the same place to
-    /// within [`TOUCHING`].
+    /// within [`PLACED`].
     fn two(first: DVec2, second: DVec2) -> Self {
-        if first.approx_eq(second, TOUCHING) {
+        if first.approx_eq(second, PLACED) {
             // The midpoint rather than either, so a grazing pair answers with
             // the place they agree on instead of whichever root came first.
             return Self::one(first.midpoint(second));
@@ -104,7 +109,7 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
     // scaled by both lengths, so what counts as parallel does not depend on how
     // long either span happens to be drawn.
     let sweep = r.perp_dot(s);
-    if (sweep / (reach * other)).abs() < PARALLEL {
+    if (sweep / (reach * other)).abs() < ALIGNED {
         return Crossings::none();
     }
     let between = q - p;
@@ -113,7 +118,7 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
     // The slack is a distance turned into the parameter it is worth on each
     // span, which is what keeps a long edge and a short one equally forgiving
     // about a corner that lands a rounding short of them.
-    if !holds(along_one, TOUCHING / reach) || !holds(along_two, TOUCHING / other) {
+    if !holds(along_one, PLACED / reach) || !holds(along_two, PLACED / other) {
         return Crossings::none();
     }
     Crossings::one(p + r * along_one)
@@ -124,25 +129,30 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
 /// Two roots of the same quadratic, kept only where they land on the span
 /// itself: a line through a circle meets it twice, and a span that stops short
 /// of the far side meets it once.
+///
+/// **Grazing counts**, which is why the roots come from
+/// [`quadratic::grazing_roots`] rather than from [`roots`](quadratic::roots): a
+/// span tangent to a circle touches it at a place the arrangement has to split
+/// at, and a whole-numbered construction — a square drawn against a circle it
+/// just reaches — lands the discriminant on nought exactly.
 pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
     let along = span.along();
     let reach = along.length();
     if reach < NO_DIRECTION {
         return Crossings::none();
     }
-    // `|from + t·along − centre|² = radius²`, gathered into `at² + 2bt + c`.
+    // `|from + t·along − centre|² = radius²`, gathered into `at² + bt + c`.
     let from = span.from - ring.center;
-    let a = reach * reach;
-    let b = from.dot(along);
-    let c = from.length_squared() - ring.radius * ring.radius;
-    let discriminant = b * b - a * c;
-    if discriminant < 0.0 {
+    let Some(roots) = quadratic::grazing_roots(
+        reach * reach,
+        2.0 * from.dot(along),
+        from.length_squared() - ring.radius * ring.radius,
+    ) else {
         return Crossings::none();
-    }
-    let root = discriminant.sqrt();
-    let slack = TOUCHING / reach;
+    };
+    let slack = PLACED / reach;
     let at = |t: f64| span.from + along * t;
-    match [(-b - root) / a, (-b + root) / a].map(|t| holds(t, slack).then(|| at(t))) {
+    match roots.map(|t| holds(t, slack).then(|| at(t))) {
         [Some(near), Some(far)] => Crossings::two(near, far),
         [Some(only), None] | [None, Some(only)] => Crossings::one(only),
         [None, None] => Crossings::none(),
@@ -158,27 +168,23 @@ pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
 pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
     let between = two.center - one.center;
     let apart = between.length();
-    if apart < TOUCHING {
+    if apart < PLACED {
         return Crossings::none();
     }
-    // Too far to reach each other, or one swallowed by the other with room to
-    // spare. The tolerance goes the way that *admits* a touch: a pair that just
-    // grazes should answer with the one place it does.
-    let (reach, gap) = (one.radius + two.radius, (one.radius - two.radius).abs());
-    if apart > reach + TOUCHING || apart + TOUCHING < gap {
-        return Crossings::none();
-    }
-    // How far along the line of centres the crossings sit, and how far off it.
-    let along = (apart * apart + one.radius * one.radius - two.radius * two.radius) / (2.0 * apart);
-    let base = one.center + between * (along / apart);
-    let off = one.radius * one.radius - along * along;
-    if off <= 0.0 {
+    let chord = Chord::of(one.radius, two.radius, apart);
+    // The two crossings stand either side of the middle of the chord.
+    let base = one.center + between * (chord.along / apart);
+    if chord.grazing {
         // Grazing, inside or out: the two meet on the line of centres and
-        // nowhere else. Negative is the same answer arrived at through a
-        // rounding, which is why this is not a test for equality.
+        // nowhere else.
         return Crossings::one(base);
     }
-    let step = between.perp() * (off.sqrt() / apart);
+    // Too far to reach each other, or one swallowed by the other with room to
+    // spare — either way the chord has no length to be.
+    let Some(half) = chord.half() else {
+        return Crossings::none();
+    };
+    let step = between.perp() * (half / apart);
     Crossings::two(base + step, base - step)
 }
 

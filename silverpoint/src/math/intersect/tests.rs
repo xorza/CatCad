@@ -71,7 +71,7 @@ fn a_corner_that_lands_on_an_edge_counts_as_meeting_it() {
     // A foot that misses by less than the tolerance still lands. This is the
     // whole reason the ends are forgiving: geometry a solve placed is exact to
     // its residual, not to the bit.
-    let nearly = span((2.0, 3.0), (2.0, TOUCHING * 0.5));
+    let nearly = span((2.0, 3.0), (2.0, PLACED * 0.5));
     assert_eq!(
         spans(base, nearly).len(),
         1,
@@ -80,7 +80,7 @@ fn a_corner_that_lands_on_an_edge_counts_as_meeting_it() {
 
     // And one that misses by more does not, or every near-miss in a drawing
     // would weld itself shut.
-    let clear = span((2.0, 3.0), (2.0, TOUCHING * 100.0));
+    let clear = span((2.0, 3.0), (2.0, PLACED * 100.0));
     assert_eq!(spans(base, clear).len(), 0);
 }
 
@@ -172,7 +172,7 @@ fn a_grazing_span_touches_a_ring_in_one_place() {
     let chord = span_ring(span((-3.0, 0.99), (3.0, 0.99)), unit);
     assert_eq!(chord.len(), 2);
     let wide: Vec<DVec2> = chord.iter().collect();
-    assert!(wide[0].distance(wide[1]) > TOUCHING);
+    assert!(wide[0].distance(wide[1]) > PLACED);
 }
 
 /// Two rings cross in two places, touch in one, or miss.
