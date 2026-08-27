@@ -13,7 +13,7 @@ use palantir::Modifiers;
 use silverpoint::Entity;
 
 use crate::CatCad;
-use crate::hud::internals::EXTRUDE_BUTTON;
+use crate::hud::internals;
 use crate::intent::Choice;
 
 /// **A field opens over the dimension's own mark, takes what is typed, and
@@ -393,7 +393,7 @@ fn dragging_the_depth_arrow_writes_the_form_rather_than_the_document() {
         .region(0);
     raised.choose(Choice::Select(Some(region)));
     raised.frame();
-    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.press(internals::relation("Extrude"));
     raised.frame();
     // Offered rather than stated: the form *means* no depth without anybody
     // having typed one, so the solid is on screen and the field is still the
@@ -501,7 +501,7 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
         .region(0);
     raised.choose(Choice::Select(Some(region)));
     raised.frame();
-    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.press(internals::relation("Extrude"));
     raised.frame();
 
     let models = raised.app.document.models(&raised.app.build, Some(sketch));

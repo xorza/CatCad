@@ -18,12 +18,12 @@
 //! on screen is [`Mark`](marks::mark::Mark)'s, being the one part of a drawing
 //! measured in pixels after it has been laid out.
 
-use crate::timeline::feature::World;
 use aperture::{Precedence, Scene};
 use glam::{Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
-use silverpoint::{Constraint, Freedom};
+use silverpoint::Constraint;
 
+use crate::look::ink::DORMANT;
 use crate::model::{Model, Models};
 use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
@@ -61,97 +61,6 @@ const FACE_SAGITTA: f64 = 0.005;
 /// shows up as banding across a shaded surface where the same coarseness on a
 /// flat fill shows up as nothing at all.
 const SOLID_SAGITTA: f64 = 0.002;
-
-/// What a solid the document has grown is shaded in.
-///
-/// Warm grey, and the one colour here that is not about state. Everything a
-/// *drawing* is painted in says how much freedom the constraints have left it;
-/// a solid has no freedom to report — it is what a feature made, and either it
-/// is there or its profile was lost — so it reads as material rather than as a
-/// thing with something left to decide.
-const SOLID: Vec3 = Vec3::new(0.62, 0.60, 0.56);
-
-/// Linear-RGB, unlit — these reach the target as authored.
-///
-/// Geometry is coloured by how much freedom its constraints have left it, cool
-/// for none and warm for all of it, so a sketch starts hot and cools as it is
-/// pinned down — which is the convention every constrained modeller draws on,
-/// and reads at a glance as how much work the drawing still needs.
-///
-/// A point the user pinned by hand keeps its own colour regardless. It is
-/// determined, but by a different authority, and the two are worth telling
-/// apart: constraints can be argued with by adding more, and `fix` cannot.
-const DETERMINED: Vec3 = Vec3::new(0.35, 0.55, 0.80);
-const PARTLY: Vec3 = Vec3::new(0.85, 0.74, 0.20);
-const FREE: Vec3 = Vec3::new(0.88, 0.50, 0.10);
-const PINNED: Vec3 = Vec3::new(0.80, 0.14, 0.05);
-
-/// What a sketch that is not the one open is drawn in.
-///
-/// One colour rather than the freedom ladder above. How much a sketch you are
-/// not in has left to decide is not something you can act on without opening it
-/// first, so saying it would be saying something unusable — and a second ladder
-/// in the same picture reads as a second *kind* of geometry rather than as the
-/// same kind, set aside.
-///
-/// Dimmer than [`GHOST`], which is the other thing here drawn in no state at
-/// all: a rubber band is what you are doing now, and this is what you are not.
-const DORMANT: Vec3 = Vec3::new(0.42, 0.45, 0.50);
-
-/// What a face of one is filled with — the same step down from [`FACE`].
-const DORMANT_FACE: Vec3 = Vec3::new(0.11, 0.20, 0.29);
-
-/// What a face the drawing encloses is filled with.
-///
-/// Cool and dim, and deliberately not on the ladder above: a face reports no
-/// freedom of its own — it is whatever its boundary shuts in, and the boundary
-/// is already painted in what it has left to decide. So it reads as ground for
-/// the drawing to sit on rather than as another thing with a state.
-///
-/// Stated at the strength it has to survive being *seen through*, which is what
-/// makes it look so much bluer here than it does on screen: a region is drawn
-/// translucent, so what lands is a fraction of this mixed into whatever it
-/// covers — the bare background, or a solid standing behind it.
-///
-/// How much of it lands is `FACE_OPACITY`'s, not this file's. Lower that and
-/// this wants restating, because the two are one decision about how a region
-/// reads and only look like two.
-const FACE: Vec3 = Vec3::new(0.18, 0.32, 0.46);
-
-/// What a shape still being drawn is drawn in — a grey that belongs to none of
-/// the states above, because a rubber band has no freedom to report: it is not
-/// geometry yet, and the constraints have not been asked about it.
-const GHOST: Vec3 = Vec3::new(0.72, 0.74, 0.78);
-
-/// What a plane's outline is drawn in, by which of the three the world comes
-/// with it is — and what one somebody put there gets instead.
-///
-/// **Hued by the axis its normal runs along**: the ground faces +Y, the front
-/// +Z and the side +X, so green, blue and red. The convention every gizmo cube
-/// uses, which is worth having because it is the one thing about a plane a user
-/// already knows. A plane measured off another has no world axis to claim, so it
-/// takes a neutral — which also tells a plane the world gave you from one you
-/// made, without a label doing it.
-///
-/// Cool and low, all of them, so a square standing at the origin reads as chrome
-/// rather than as something drawn there. They collide with the freedom ladder —
-/// [`PINNED`] is a red and [`FREE`] is close to it — and what keeps them apart
-/// is shape and weight: these are hairline squares where a pinned point is a
-/// small saturated disc. A palette is where that gets settled properly.
-const SHEET_GROUND: Vec3 = Vec3::new(0.30, 0.46, 0.32);
-const SHEET_FRONT: Vec3 = Vec3::new(0.30, 0.40, 0.56);
-const SHEET_SIDE: Vec3 = Vec3::new(0.52, 0.34, 0.32);
-const SHEET_DATUM: Vec3 = Vec3::new(0.42, 0.46, 0.54);
-
-/// What a plane's outline is drawn in.
-fn sheet_ink(world: Option<World>) -> Vec3 {
-    match world {
-        Some(World::Ground) => SHEET_GROUND,
-        Some(World::Front) => SHEET_FRONT,
-        Some(World::Side) => SHEET_SIDE,
-        None => SHEET_DATUM,
-    }
-}
 
 /// How far a plane's square reaches from its middle, in logical pixels.
 ///
@@ -213,27 +122,18 @@ const SHEET_NAME_LIFT: Vec2 = Vec2::new(
 /// drawn on it.
 const SHEET_WIDTH: f32 = 1.0;
 
-/// What geometry with this much freedom left is drawn in.
-fn colour(freedom: Freedom) -> Vec3 {
-    match freedom {
-        Freedom::Determined => DETERMINED,
-        Freedom::Partly => PARTLY,
-        Freedom::Free => FREE,
-    }
-}
-
 /// `lit` where `model` is the sketch being edited, and ground where it is not.
 ///
 /// The one place the difference is made, so every kind of mark in a dormant
 /// sketch is dimmed by the same rule rather than each writer having its own
 /// idea of what "not here" looks like.
-fn ink(model: Model<'_>, lit: Vec3) -> Vec3 {
+fn shade(model: Model<'_>, lit: Vec3) -> Vec3 {
     if model.live() { lit } else { DORMANT }
 }
 
 /// Where a sketch's marks stand in the competition for a click.
 ///
-/// The same branch as [`ink`] beside it, and for the same reason: a sketch
+/// The same branch as [`shade`] beside it, and for the same reason: a sketch
 /// nobody is working in is drawn to be read rather than aimed at, so a click
 /// that lands on it and on the open sketch at once was meant for the open one.
 fn standing(model: Model<'_>) -> Precedence {
@@ -280,22 +180,6 @@ pub(crate) const MARK_FONT: GlyphFont = GlyphFont {
     weight: FontWeight::Bold,
     ..GlyphFont::new(MARK_SIZE)
 };
-
-/// What a mark is drawn in.
-///
-/// Grey-violet, which is the one hue the drawing does not already spend:
-/// geometry runs blue through yellow to orange for how much freedom is left,
-/// red for pinned, and green for what is picked out. A mark is *about* the
-/// geometry rather than part of it, and reads as a different kind of thing for
-/// being a different kind of colour.
-const MARK: Vec3 = Vec3::new(0.62, 0.58, 0.78);
-
-/// What a mark the constraints could do without is drawn in.
-///
-/// The one thing a drawing can say that a count in the corner cannot: *this*
-/// relation is the spare one. Red, because it is the same news as a conflict —
-/// and on a sketch whose constraints disagree, it is exactly the mark to delete.
-const REDUNDANT: Vec3 = Vec3::new(0.90, 0.30, 0.25);
 
 /// The whole picture of a document as it stands — the `solids` standing around
 /// it, its drawing over them, and a name for every part that can be pointed at.

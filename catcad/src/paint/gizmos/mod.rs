@@ -27,12 +27,14 @@ use glam::{DVec2, Vec3};
 use silverpoint::{Constraint, Measurement, Plane};
 
 use crate::lens::Lens;
+use crate::look::ink;
+use crate::look::ink::{GHOST, MARK};
 use crate::model::Models;
 use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::layout::{Framed, Layout, Made};
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::showing::Showing;
-use crate::paint::{EDGE_WIDTH, GHOST, MARK, SHEET_WIDTH, sheet_ink};
+use crate::paint::{EDGE_WIDTH, SHEET_WIDTH};
 use crate::part::Part;
 
 mod dimension;
@@ -117,7 +119,7 @@ pub(crate) fn write(
             .map(move |sheeted| {
                 (
                     Some(Part::Step(sheeted.at)),
-                    Piece::Sheet(sheeted.plane, sheet_ink(sheeted.world)),
+                    Piece::Sheet(sheeted.plane, ink::sheet(sheeted.world)),
                 )
             })
             .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))

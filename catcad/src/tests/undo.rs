@@ -5,7 +5,7 @@ use crate::tool::Tool;
 use glam::{DVec2, Vec2};
 use palantir::Key;
 
-use crate::hud::internals::POINT_BUTTON;
+use crate::hud::internals;
 
 /// Ctrl+Z through the whole application: a real drag with the pointer, taken
 /// back with the keyboard.
@@ -86,7 +86,7 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
         "the app opened with a tool in hand"
     );
 
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     assert_eq!(
         raised.app.session.tool(),
@@ -163,7 +163,7 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
 
     // The right button over the drawing, which is the gesture a modeller
     // reaches for first.
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     assert_eq!(raised.app.session.tool(), Tool::Point);
     let held = raised.markers();
@@ -185,10 +185,10 @@ fn the_toolbar_places_a_point_and_ctrl_z_takes_it_back() {
     );
 
     // And its own button again, because pressing the tool in hand puts it down.
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     assert_eq!(raised.app.session.tool(), Tool::Point);
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     assert_eq!(
         raised.app.session.tool(),
@@ -215,7 +215,7 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
     // Place a point on empty plane, put the tool down, and pick the point out.
     let spot = raised.app.empty_spot();
     let first = raised.cursor_on(spot);
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     raised.harness.click_at(first);
     raised.frame();
@@ -252,7 +252,7 @@ fn undoing_a_creation_takes_what_it_created_out_of_the_selection() {
         .point(DVec2::new(-1.5, 4.5))
         .as_vec3();
     let second = raised.cursor_on(elsewhere);
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     raised.harness.click_at(second);
     raised.frame();

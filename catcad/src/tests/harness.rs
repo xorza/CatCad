@@ -4,7 +4,7 @@
 use aperture::{Facing, Turn, Viewport};
 use glam::{DVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
-use palantir::{App, InputDelta, Key, Modifiers, WindowToken};
+use palantir::{App, InputDelta, Key, Modifiers, WidgetId, WindowToken};
 
 use crate::CatCad;
 use crate::drawing::Drawing;
@@ -95,6 +95,47 @@ impl Raised {
     pub(super) fn frame(&mut self) {
         let Self { app, harness } = self;
         harness.frame(|ui| app.record(WindowToken(0), ui));
+    }
+
+    /// Where a control on the overlay ended up, measured off the frame that
+    /// drew it.
+    ///
+    /// **Asked for by name rather than written down.** A press arrives at the
+    /// application as a cursor and nothing in one can turn "the Line chip" into
+    /// a position, so these used to be hand-measured pixel centres — and every
+    /// one of them moved whenever a row did. A widget's rect is the layout
+    /// engine's answer and arrives a frame late, so this records a frame and
+    /// reads the *previous* one's placement, which the raising has already put
+    /// there.
+    pub(super) fn at(&mut self, id: WidgetId) -> Vec2 {
+        let Self { app, harness } = self;
+        harness
+            .frame_value(|ui| {
+                app.record(WindowToken(0), ui);
+                ui.response_for(id).rect
+            })
+            .expect("the overlay drew the control asked for")
+            .center()
+    }
+
+    /// Click one, wherever it is.
+    pub(super) fn press(&mut self, id: WidgetId) {
+        let at = self.at(id);
+        self.harness.click_at(at);
+    }
+
+    /// Whether the overlay is showing one at all.
+    ///
+    /// What a control's *absence* is asserted through. Half the bar appears
+    /// only for a selection that admits what it offers, so "this is not on
+    /// offer" is a claim worth making directly — where a click at a position
+    /// nothing occupies could only ever say that nothing happened.
+    pub(super) fn shows(&mut self, id: WidgetId) -> bool {
+        let Self { app, harness } = self;
+        harness.frame_value(|ui| {
+            app.record(WindowToken(0), ui);
+            ui.response_for(id).rect.is_some()
+        })
     }
 
     /// The cursor that aims at `world` — where it lands on screen, through the

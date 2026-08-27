@@ -1,13 +1,12 @@
 //! Editing what is already drawn: tidying it, growing a solid off it, and
 //! dragging past the edge of the view.
 
-use crate::hud::internals::{LINE_BUTTON, POINT_BUTTON};
+use crate::hud::internals;
 use crate::prompt::{Asking, Prompt};
 use crate::tests::harness::Raised;
 use glam::{DVec2, Vec2, Vec3};
 use palantir::Key;
 
-use crate::hud::internals::{EXTRUDE_BUTTON, TIDY_BUTTON, TREE_PITCH, TREE_ROW};
 use crate::intent::Choice;
 use crate::part::Part;
 use crate::timeline::FeatureId;
@@ -39,7 +38,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
 
     // Two edges meeting at a corner: four points and the coincidence tying the
     // middle pair.
-    raised.harness.click_at(LINE_BUTTON);
+    raised.press(internals::tool("Line"));
     raised.frame();
     for spot in [at[0], at[1], at[1], at[2]] {
         raised.harness.click_at(spot);
@@ -49,7 +48,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
 
     // Pressed on that, the command finds nothing: every one of those points
     // ends an edge.
-    raised.harness.click_at(TIDY_BUTTON);
+    raised.press(internals::tool("Clean up"));
     raised.frame();
     assert_eq!(
         raised.drawing().sketch().points().count(),
@@ -70,9 +69,9 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     // Now take the second edge away. Its far end is left over but duplicates
     // nothing, and its corner end is left over *and* still tied to the first
     // edge's — so one of the two goes and the other does not.
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     let midpoint = raised.cursor_on(corner[1].midpoint(corner[2]));
     raised.harness.click_at(midpoint);
@@ -87,7 +86,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
     );
     assert_eq!(sketch.points().count(), at_rest + 4, "its ends stayed");
 
-    raised.harness.click_at(TIDY_BUTTON);
+    raised.press(internals::tool("Clean up"));
     raised.frame();
     let sketch = raised.drawing().sketch();
     assert_eq!(
@@ -112,7 +111,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
 
     // And pressing it again finds nothing, which is what makes it safe to lean
     // on — and the line goes back to saying so.
-    raised.harness.click_at(TIDY_BUTTON);
+    raised.press(internals::tool("Clean up"));
     raised.frame();
     assert_eq!(raised.drawing().sketch().points().count(), at_rest + 3);
     assert!(
@@ -125,7 +124,7 @@ fn the_clean_up_button_clears_what_a_deletion_left_behind() {
 
     // A later edit takes the note away: it described the last thing done, and
     // it no longer is.
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     let empty = raised.cursor_on(plane.point(DVec2::new(-6.0, 1.0)).as_vec3());
     raised.harness.click_at(empty);
@@ -236,9 +235,9 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
     raised.choose(Choice::Select(Some(frame_region)));
     raised.frame();
 
-    // The bar shows the button only while a region is picked, so where it lands
-    // is found rather than guessed: it is the leftmost thing on the bottom bar.
-    raised.harness.click_at(EXTRUDE_BUTTON);
+    // The bar shows the chip only while a region is picked, which the line
+    // above is what establishes.
+    raised.press(internals::relation("Extrude"));
     raised.frame();
     // The button *asks* rather than builds: the solid is on screen at no depth
     // at all, drawn from the form's own reading, and the timeline has not heard
@@ -315,7 +314,7 @@ fn extruding_a_region_grows_a_solid_and_ctrl_z_takes_the_step_back() {
 fn escape_puts_down_the_tool_before_it_closes_the_sketch() {
     let mut raised = Raised::new();
     let sketch = raised.app.editing();
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     assert_eq!(raised.app.session.tool(), Tool::Point);
 
@@ -427,11 +426,9 @@ fn delete_on_a_picked_plane_takes_it_and_what_is_drawn_on_it() {
 fn a_tree_row_picks_the_step_it_stands_for_and_delete_takes_it() {
     let mut raised = Raised::new();
     let recipe: Vec<FeatureId> = raised.models().steps().map(|(at, _)| at).collect();
-    let row = |nth: usize| TREE_ROW + Vec2::new(0.0, TREE_PITCH * nth as f32);
-
     // The first row is the first step, which says the list runs the way the
     // recipe does rather than in whatever order the steps were reached.
-    raised.harness.click_at(row(0));
+    raised.press(internals::step(recipe[0]));
     raised.frame();
     assert!(
         raised
@@ -451,11 +448,7 @@ fn a_tree_row_picks_the_step_it_stands_for_and_delete_takes_it() {
         .next()
         .map(crate::model::Model::of)
         .expect("the demo draws a sketch");
-    let nth = recipe
-        .iter()
-        .position(|&at| at == drawn)
-        .expect("every step has a row");
-    raised.harness.click_at(row(nth));
+    raised.press(internals::step(drawn));
     raised.frame();
     assert!(raised.app.session.selection().contains(Part::Step(drawn)));
     assert_eq!(
@@ -701,7 +694,7 @@ fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
     let frame = open.region(0);
     raised.choose(Choice::Select(Some(frame)));
     raised.frame();
-    raised.harness.click_at(EXTRUDE_BUTTON);
+    raised.press(internals::relation("Extrude"));
     raised.frame();
 
     // The form is up, and it opens on a join — which is what a second solid

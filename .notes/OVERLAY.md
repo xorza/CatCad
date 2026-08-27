@@ -2,7 +2,7 @@
 
 What floats over the drawing, redrawn. The direction is **Instrument Deck**:
 five surfaces, one per edge and corner, built out of two chrome primitives and a
-baked icon set, with an orientation cube taking the bottom right.
+sixteen-icon set, with an orientation cube taking the bottom right.
 
 The proposal this comes from is an artifact, and it holds the mockups and the
 survey of what other CAD programs do. This file holds only what has to change in
@@ -14,16 +14,46 @@ them, and a surface written before they exist is a surface written twice.
 
 ## Where it stands
 
-`hud/` is two files. `mod.rs` composes four surfaces and `bar.rs` holds the
-widgets three of them are built from. Every control is a stock
-`palantir::Button` carrying a text label. The one piece of styling in the crate
-is a single `ButtonTheme` on `Hud`, derived from `Palette::DEFAULT`, with two of
-its states rewritten so a held tool reads as pressed.
+**Stages 1, 2, 3 and 5 are built.** The overlay is five surfaces on two chrome
+primitives, drawn with a sixteen-icon set, and the harness clicks it by name.
+Stage 4 — the orientation cube — is not, and the corner it will take is already
+held by a pill carrying the projection toggle.
 
-That is the whole of it. There are no icons, no groups, no colour on the
-overlay, and no camera control at all.
+Four things came out differently from what is written below, and each is worth
+knowing before the next stage.
 
-Three things in the existing code are load-bearing and survive unchanged.
+- **The icon set is built at runtime, not baked.** `IconAtlas::from_svgs` parses
+  the sixteen sources once, for about three milliseconds on the first frame that
+  draws. Baking saves that and costs a generator and a table nobody may edit by
+  hand. Sixteen icons do not earn it; a hundred would.
+- **The set is taken up every frame rather than held from the first.** A set is
+  registered against the *host* that will draw it, and the visual suite paints
+  one app through two — so a set held from the first frame names nothing on the
+  second host and panics at paint. Re-registering an atlas a live set already
+  covers hands back a clone, with no parsing and no allocation, so the gates
+  still read zero.
+- **`Look` carries the artwork and nothing else.** The button recipes went away
+  with the text buttons they styled, and the metrics are constants because they
+  are constant. What is left is the one thing that cannot be either: an owner of
+  what the host has rasterized.
+- **A rule inside a pill is a sized panel, not a `Separator`.** A separator
+  stretches to its parent's inner extent, and a pill hugs the chips on it — so
+  there is no extent to stretch against and the rule arrives with no length at
+  all.
+
+The colours moved as planned and the goldens did not: the visual suite records
+one frame through the app and repaints the scene through a bare pane, so no
+golden carries chrome. All 174 unit tests, all 23 visual tests and all four
+allocation gates hold.
+
+### What the old overlay was
+
+`hud/` was two files. Every control was a stock `palantir::Button` carrying a
+text label, and the one piece of styling in the crate was a single
+`ButtonTheme` with two of its states rewritten. There were no icons, no groups,
+no colour on the overlay, and no camera control at all.
+
+Three things from it are load-bearing and survive unchanged.
 
 - **The overlay shows and does not act.** Every control reads app state and
   raises an `Intent`. Nothing here turns a camera or arms a tool itself. Keep
@@ -316,15 +346,21 @@ turn.
 Landing twice is harmless, which is what makes the whole arrangement safe on a
 replayed pass: `Aim` is absolute.
 
-## 5. The tests, and the debt this pays off
+## 5. The tests, and the debt this paid off
 
 `hud::internals` holds seven hand-measured button centres — `LINE_BUTTON` at
 (112, 26), and six more — because a press arrives at the application as a cursor
 and nothing in it can turn "the Line button" into one. Seven files read them:
 `bench.rs`, and the six under `src/tests/`.
 
-They move the moment the row does, and the redesign moves every one of them. So
-they should not survive it.
+They moved the moment the row did, and the redesign moved every one of them. So
+they did not survive it.
+
+**Two tests got better rather than merely surviving.** One pressed Extrude's
+position to reach the Radius offer, on the grounds that both sit leftmost on the
+bar — it now names Radius. Another clicked where the Sketch chip would be with a
+solid picked, and asserted that nothing happened; it now asserts the chip is not
+offered at all, which is the claim it was making.
 
 **Replace the positions with the ids.** `ResponseState` carries
 `rect: Option<Rect>` — the widget's visible surface-space rect from the last

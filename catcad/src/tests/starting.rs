@@ -5,7 +5,7 @@
 //! what is asked here is how one comes to hold its first, which is the only
 //! question a document of three bare planes can be asked.
 
-use crate::hud::internals::{POINT_BUTTON, SKETCH_BUTTON};
+use crate::hud::internals;
 use crate::intent::Choice;
 use crate::model::Model;
 use crate::part::Part;
@@ -81,8 +81,10 @@ fn the_sketch_button_starts_a_sketch_on_the_plane_picked_out_and_takes_you_into_
         .0;
     raised.choose(Choice::Select(Some(Part::Step(solid))));
     raised.frame();
-    raised.harness.click_at(SKETCH_BUTTON);
-    raised.frame();
+    assert!(
+        !raised.shows(internals::relation("Sketch")),
+        "the bar offered a sketch on a solid"
+    );
     assert_eq!(sketches(&raised), before, "a sketch was started on a solid");
 
     // The Front plane and not the Ground, which the demo already draws on: a
@@ -92,7 +94,7 @@ fn the_sketch_button_starts_a_sketch_on_the_plane_picked_out_and_takes_you_into_
     raised.choose(Choice::Select(Some(Part::Step(front))));
     raised.frame();
 
-    raised.harness.click_at(SKETCH_BUTTON);
+    raised.press(internals::relation("Sketch"));
     raised.frame();
 
     assert_eq!(
@@ -136,7 +138,7 @@ fn the_sketch_button_starts_a_sketch_on_the_plane_picked_out_and_takes_you_into_
 
     // And it is a sketch you can draw in, which is the whole point of being
     // taken into it: the tool bar shows its tools again, and one arms.
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     assert!(
         raised.app.session.tool().is(Tool::Point),
@@ -176,7 +178,7 @@ fn taking_back_a_new_sketch_leaves_the_document_with_nothing_open() {
     raised.choose(Choice::Select(Some(Part::Step(side))));
     raised.frame();
     let before = sketches(&raised);
-    raised.harness.click_at(SKETCH_BUTTON);
+    raised.press(internals::relation("Sketch"));
     raised.frame();
     let started = open(&raised).expect("the Sketch button took you into no sketch");
 
@@ -280,7 +282,7 @@ fn ctrl_n_starts_again_on_a_document_holding_three_planes_and_nothing_drawn() {
     let ground = world_plane(&raised, World::Ground);
     raised.choose(Choice::Select(Some(Part::Step(ground))));
     raised.frame();
-    raised.harness.click_at(SKETCH_BUTTON);
+    raised.press(internals::relation("Sketch"));
     raised.frame();
     assert_eq!(sketches(&raised), 1, "an empty document refused a sketch");
     assert_eq!(raised.models().open_plane(), Some(ground));

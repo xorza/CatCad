@@ -16,6 +16,7 @@ mod history;
 mod hud;
 mod intent;
 mod lens;
+mod look;
 mod model;
 mod paint;
 mod part;
@@ -48,6 +49,7 @@ use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Errand, Intent, Intents, Step};
+use crate::look::Look;
 use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::session::Session;
@@ -143,9 +145,12 @@ pub struct CatCad {
     /// in it, like the history above: what a session is drawing *with* is not
     /// part of what it has drawn.
     session: Session,
-    /// What floats over the view: the tool bar, and the readout in the
-    /// corner.
+    /// What floats over the view: the five surfaces, one per edge and corner.
     hud: Hud,
+    /// How all of it is drawn — the palette, the metrics, and the artwork. Its
+    /// own value rather than constants at every call site, for the artwork
+    /// alone: an icon set is an owner of what the host has rasterized for it.
+    look: Look,
     /// Where the document came from, whether it has been written since, and the
     /// question being asked about it. Beside the document rather than in it,
     /// like the history and the session: where a drawing lives is not something
@@ -203,6 +208,7 @@ impl CatCad {
             view,
             session,
             hud: Hud::default(),
+            look: Look::default(),
             filing: Filing::default(),
         }
     }
@@ -329,12 +335,21 @@ impl CatCad {
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
-        let status = ui.fmt(format_args!("{}", self.status()));
+        let reported = self.status();
+        let solved = reported.solved;
+        let status = ui.fmt(format_args!("{reported}"));
+        // The artwork is loaded here rather than at construction: a `Ui` is
+        // what loading wants, and the headless harness raises the app without
+        // one — so filling it in the windowed constructor alone would leave the
+        // two paths drawing different pictures.
+        self.look.load(ui);
         self.hud.show(
             ui,
+            &self.look,
             Shown {
                 tool: self.session.tool(),
                 status,
+                solved,
                 projection: self.document.camera().projection,
                 models: self.document.models(&self.build, self.session.editing()),
                 selection: self.session.selection(),

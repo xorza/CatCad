@@ -1,7 +1,7 @@
 use super::*;
+use crate::look::ink::{DETERMINED, FREE, PARTLY, PINNED};
 use crate::paint::marks::mark::STACK_STEP;
 use crate::paint::tests::fixtures::drawn;
-use crate::paint::{DETERMINED, FREE, PARTLY};
 use glam::{DVec2, Vec3};
 use silverpoint::{Along, Dimension, Entity};
 

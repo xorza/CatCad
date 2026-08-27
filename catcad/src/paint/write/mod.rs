@@ -25,6 +25,8 @@ use glam::{Mat4, Vec2, Vec3};
 use silverpoint::{Circle, CircleId, Constraint, Segment, SegmentId, Sketch};
 use std::fmt::Write;
 
+use crate::look::ink;
+use crate::look::ink::{DORMANT_FACE, FACE, GHOST, MARK, PINNED, REDUNDANT, SOLID};
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::layout::Sheets;
@@ -32,9 +34,8 @@ use crate::paint::marks::mark::Mark;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::{
-    DECIMALS, DORMANT_FACE, EDGE_WIDTH, FACE, FACE_SAGITTA, FIXED_MARKER, FREE_MARKER, GHOST, MARK,
-    MARK_FONT, PINNED, REDUNDANT, SHEET_NAME_LIFT, SOLID, SOLID_SAGITTA, colour, ink, marks,
-    sheet_ink, standing, symbol,
+    DECIMALS, EDGE_WIDTH, FACE_SAGITTA, FIXED_MARKER, FREE_MARKER, MARK_FONT, SHEET_NAME_LIFT,
+    SOLID_SAGITTA, marks, shade, standing, symbol,
 };
 use crate::part::Part;
 use crate::preview::Ends;
@@ -115,7 +116,7 @@ pub(super) fn curves(
                     let a = plane.point(sketch.point(edge.a).position).as_vec3();
                     let b = plane.point(sketch.point(edge.b).position).as_vec3();
                     curve.set_segment(a, b);
-                    curve.color = ink(model, colour(model.outcome().segment(id)));
+                    curve.color = shade(model, ink::freedom(model.outcome().segment(id)));
                     curve.precedence = standing(model);
                     curve.plane_normal = Some(plane.normal().as_vec3());
                     curve.tag = Some(names.tag(model.part(id)));
@@ -180,7 +181,7 @@ pub(super) fn rings(
                         circle.radius.abs() as f32,
                         plane.normal().as_vec3(),
                     )
-                    .colored(ink(model, colour(model.outcome().circle(id))))
+                    .colored(shade(model, ink::freedom(model.outcome().circle(id))))
                     .precedence(standing(model))
                     .tagged(names.tag(model.part(id)))
                 }
@@ -226,12 +227,12 @@ pub(super) fn points(models: Models<'_>, names: &mut Names, into: &mut Batch<Poi
             let (color, size) = if point.fixed {
                 (PINNED, FIXED_MARKER)
             } else {
-                (colour(model.outcome().point(id)), FREE_MARKER)
+                (ink::freedom(model.outcome().point(id)), FREE_MARKER)
             };
             // Assigned whole where a stroke is edited in place: a marker owns
             // nothing, so replacing one costs what overwriting it would.
             *marker = Point::new(plane.point(point.position).as_vec3())
-                .colored(ink(model, color))
+                .colored(shade(model, color))
                 .size(size)
                 .in_plane(plane.normal().as_vec3())
                 .precedence(standing(model))
@@ -340,9 +341,9 @@ pub(super) fn texts(
                 // the same reason — it is not in the drawing yet.
                 Marked::Proposed(..) => GHOST,
                 Marked::Stated(stated) if live.outcome().is_redundant(stated.of) => {
-                    ink(live, REDUNDANT)
+                    shade(live, REDUNDANT)
                 }
-                Marked::Stated(..) => ink(live, MARK),
+                Marked::Stated(..) => shade(live, MARK),
             };
             mark.precedence = standing(live);
             // Lettered on the drawing rather than pinned over it: set along the
@@ -413,7 +414,7 @@ fn named_planes(models: Models<'_>, names: &mut Names, into: &mut Batch<Text>) {
             text.facing = Facing::Turned(
                 Turn::new(plane.x.as_vec3(), plane.normal().as_vec3()).lifted(SHEET_NAME_LIFT),
             );
-            text.color = sheet_ink(sheeted.world);
+            text.color = ink::sheet(sheeted.world);
             // A frame, which does two things and both matter. It yields a
             // click to anything ordinary, so a name lying over the model cannot
             // take one; and it is left out of how far the scene reaches — so a

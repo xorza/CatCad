@@ -9,7 +9,7 @@ use palantir::Key;
 use silverpoint::Entity;
 use silverpoint::PointId;
 
-use crate::hud::internals::{CIRCLE_BUTTON, EXTRUDE_BUTTON, LINE_BUTTON};
+use crate::hud::internals;
 use crate::intent::Choice;
 use crate::part::Part;
 use crate::prompt::Asking;
@@ -47,7 +47,7 @@ fn a_line_takes_two_clicks_and_ties_itself_to_the_point_it_started_on() {
     let at = corner.map(|world| raised.cursor_on(world));
 
     // One click starts the line and puts nothing in the document.
-    raised.harness.click_at(LINE_BUTTON);
+    raised.press(internals::tool("Line"));
     raised.frame();
     raised.harness.click_at(at[0]);
     raised.frame();
@@ -144,7 +144,7 @@ fn a_circle_takes_its_centre_from_one_click_and_its_size_from_the_next() {
     let rim = plane.point(DVec2::new(-1.0, 2.5)).as_vec3();
     let (at_middle, at_rim) = (raised.cursor_on(middle), raised.cursor_on(rim));
 
-    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.press(internals::tool("Circle"));
     raised.frame();
     raised.harness.click_at(at_middle);
     raised.frame();
@@ -196,7 +196,7 @@ fn a_circle_takes_a_typed_radius_instead_of_a_second_click() {
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
     let at_middle = raised.cursor_on(middle);
 
-    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.press(internals::tool("Circle"));
     raised.frame();
     raised.harness.click_at(at_middle);
     raised.frame();
@@ -267,7 +267,7 @@ fn the_pointer_offers_a_radius_until_one_is_typed_and_then_lets_go() {
     let plane = raised.drawing().plane();
     let middle = plane.point(DVec2::new(-3.0, 2.5)).as_vec3();
     let at_middle = raised.cursor_on(middle);
-    raised.harness.click_at(CIRCLE_BUTTON);
+    raised.press(internals::tool("Circle"));
     raised.frame();
     raised.harness.click_at(at_middle);
     raised.frame();
@@ -360,10 +360,9 @@ fn the_radius_offer_hands_the_dimension_tool_a_circle_to_place() {
     };
     let before = radii(&raised.app);
 
-    // The Radius offer is the only thing a single circle admits, so it is the
-    // leftmost button on the bottom bar — the same place Extrude sits when a
-    // region is what is picked out.
-    raised.harness.click_at(EXTRUDE_BUTTON);
+    // The one thing a single circle admits — see
+    // [`wording`](crate::wording) for the word the chip is named by.
+    raised.press(internals::relation("Radius"));
     raised.frame();
     assert!(
         raised.app.session.prompt().is_none(),

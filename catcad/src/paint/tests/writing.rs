@@ -4,6 +4,7 @@ use crate::build::Build;
 use crate::demo;
 use crate::document::Document;
 use crate::lens::Lens;
+use crate::look::ink::{DORMANT, FREE};
 use crate::paint::tests::fixtures::{drawn, every_statable};
 use crate::paint::*;
 use crate::part::Part;

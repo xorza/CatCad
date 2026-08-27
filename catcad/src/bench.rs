@@ -52,20 +52,25 @@ use aperture::Viewport;
 use common::AllocBench;
 use glam::{UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
-use palantir::{App, WindowToken};
+use palantir::{App, WidgetId, WindowToken};
 use std::hint::black_box;
 
 use crate::CatCad;
-use crate::hud::internals::LINE_BUTTON;
+use crate::hud::internals;
 use crate::tool::Tool;
 
 /// The surface every step records at. Large enough that layout does real work
 /// rather than collapsing everything to nothing.
 const SURFACE: UVec2 = UVec2::new(1600, 1000);
 
-/// Where the pointer sits for the still step — off the drawing, so nothing is
-/// hovered and the status line stays at its shortest.
-const PARKED: Vec2 = Vec2::new(12.0, 960.0);
+/// Where the pointer sits for the still step — off the drawing and off the
+/// overlay, so nothing is hovered and the status line stays at its shortest.
+///
+/// Along the top edge between the two surfaces pinned there, which is the one
+/// stretch of the view that is neither. The step asserts that nothing in the
+/// *drawing* is hovered; a chip under the pointer would pass that and still
+/// measure a frame with a tooltip opening in it.
+const PARKED: Vec2 = Vec2::new(800.0, 6.0);
 
 /// How wide the hovering step's sweep runs, in pixels, centred on the wrist —
 /// and so how many frames it takes to walk one, the step being a pixel.
@@ -111,6 +116,23 @@ impl Raised {
     fn frame(&mut self) {
         let Self { app, harness } = self;
         black_box(harness.frame(|ui| app.record(WindowToken(0), ui)));
+    }
+
+    /// Where a control on the overlay ended up, measured off the frame that
+    /// drew it.
+    ///
+    /// A widget's rect is the layout engine's answer and arrives a frame late,
+    /// so this records a frame and reads the *previous* one's placement — which
+    /// is why the app is raised with one behind it.
+    fn at(&mut self, id: WidgetId) -> Vec2 {
+        let Self { app, harness } = self;
+        harness
+            .frame_value(|ui| {
+                app.record(WindowToken(0), ui);
+                ui.response_for(id).rect
+            })
+            .expect("the overlay drew the control asked for")
+            .center()
     }
 
     /// The cursor that aims at `world`, through the camera the app is looking
@@ -224,11 +246,12 @@ fn dragging(bench: &mut AllocBench) {
 /// and it is rewritten every frame the pointer moves.
 fn banding(bench: &mut AllocBench) {
     let mut raised = Raised::new();
-    raised.harness.click_at(LINE_BUTTON);
+    let line = raised.at(internals::tool("Line"));
+    raised.harness.click_at(line);
     raised.frame();
     assert!(
         raised.app.session.tool().is(Tool::Line { from: None }),
-        "the click at {LINE_BUTTON:?} left {:?} in hand, so it missed the button",
+        "the click at {line:?} left {:?} in hand, so it missed the chip",
         raised.app.session.tool(),
     );
 

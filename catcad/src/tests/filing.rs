@@ -1,6 +1,6 @@
 //! Writing a document out and reading it back.
 
-use crate::hud::internals::POINT_BUTTON;
+use crate::hud::internals;
 use crate::tests::harness::Raised;
 use crate::tool::Tool;
 use glam::DVec2;
@@ -63,7 +63,7 @@ fn a_document_written_out_comes_back_the_way_it_was_left() {
     // Now spoil it: a third drag, and a tool in hand.
     let held = raised.app.wrist();
     raised.drag(held, held + Vec3::new(0.0, 0.0, 0.9));
-    raised.harness.click_at(POINT_BUTTON);
+    raised.press(internals::tool("Point"));
     raised.frame();
     assert_eq!(raised.app.session.tool(), Tool::Point);
     assert_ne!(raised.points(), drawn, "the third drag moved nothing");

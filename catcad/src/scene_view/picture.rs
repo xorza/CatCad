@@ -4,11 +4,11 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use aperture::{Aim, Camera, Extent, Highlight, Hit, Lit, Renderer, Tint};
-use glam::Vec3;
 use palantir::{GpuPaint, Rect};
 use silverpoint::ConstraintId;
 
 use crate::lens::Lens;
+use crate::look::ink;
 use crate::model::Models;
 use crate::paint;
 use crate::paint::layout::Layout;
@@ -22,19 +22,16 @@ use crate::timeline::FeatureId;
 /// What the thing under the cursor looks like. How far forward a highlight
 /// reads is the renderer's, not this — see `Highlight`.
 const HOVERED: Highlight = Highlight {
-    tint: Tint::Ink(Vec3::new(1.0, 0.85, 0.25)),
+    tint: Tint::Ink(ink::HOVERED),
     scale: 1.8,
 };
 
 /// What something picked out looks like.
 ///
-/// Green, which is the one hue the drawing does not already use: its own
-/// colours run blue through yellow to orange for how much freedom is left, and
-/// red for pinned, and a selection that reused any of them would be saying two
-/// things in one colour. Lifted like the hover and drawn a little smaller, so
-/// that the thing under the cursor still reads over the rest of what is picked.
+/// Lifted like the hover and drawn a little smaller, so that the thing under
+/// the cursor still reads over the rest of what is picked.
 const SELECTED: Highlight = Highlight {
-    tint: Tint::Ink(Vec3::new(0.30, 0.95, 0.45)),
+    tint: Tint::Ink(ink::SELECTED),
     scale: 1.5,
 };
 
