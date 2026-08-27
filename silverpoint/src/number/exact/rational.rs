@@ -1,5 +1,6 @@
 //! A number with no rounding in it.
 
+use super::decides::Decides;
 use crate::number::exact::field::Field;
 use dashu_base::SquareRoot;
 use dashu_ratio::RBig;
@@ -182,6 +183,13 @@ pub(crate) mod internals {
         pub(crate) fn ratio(over: i64, under: i64) -> Self {
             Self::whole(over) / Self::whole(under)
         }
+    }
+}
+
+impl Decides for Rational {
+    /// Always an answer: an exact tier has no bound to reach across nought.
+    fn decided(&self) -> Option<Ordering> {
+        Some(self.sign())
     }
 }
 

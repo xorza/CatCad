@@ -182,11 +182,12 @@ answer, and the first two now say so *exactly*: where two straight spans cross
 is a determinant, and `math::intersect` reads it through the filter and the
 expansions rather than through a quotient.
 
-The last two are exact as well as recorded: a span grazes a circle exactly when
-`r²·|d|² − (f ⟂ d)²` is nought, which is polynomial and settled by the tier.
-What still rounds is *where* a round crossing falls, the root having a square
-root in it. That is 9.1's remaining work, and why `number/` is shared
-*downward*: the drawing and the body read one tolerance from one file.
+All four are exact as well as recorded. A span grazes a circle exactly when
+`r²·|d|² − (f ⟂ d)²` is nought, and a root of one lands on the span exactly
+when `Δ` holds against a value squared — both polynomial, both settled by the
+tier. What still rounds is *where* a round crossing falls as a place, the root
+having a square root in it. That is 9.1's remaining work, and why `number/` is
+shared *downward*: the drawing and the body read one tolerance from one file.
 
 Where exactness stops, the discipline takes over:
 
@@ -856,11 +857,24 @@ are in this order because the second cannot be done first:
   than a float holds comes back as two crossings a bus length apart. That is
   §7.3's tangency, decided.
 
-  What is left is *where* a round crossing falls. The root itself is
-  `(−b ± √Δ)/2a`, which leaves ℚ — so whether it lands on the span wants
-  `Quadratic<Rational>`, the tower already in the tree, and a corner that is not
-  an `f64` wants the arrangement to stop holding one as a `DVec2`. That is the
-  half nobody costed.
+  **And a root's place on the span is exact too**, without a square root
+  anywhere in the ladder: `t ≥ 0` asks whether `±√Δ` reaches a value, and
+  holding a root against a value is holding `Δ` against that value squared once
+  the value's own sign is known. Polynomial again, so the filter settles what is
+  not close and the rational tier the rest.
+
+  **Which order the ladder asks in decides whether a frame reaches the heap.**
+  The exact tier is bignums and a coincidence always reaches it (§4.2), so a
+  question put to the filter in the wrong order costs an allocation on a frame
+  a drag runs. Asking the *sign of a value near nothing* first is asking the one
+  thing a filter can never answer; asking the squares first answers both cases
+  and leaves the sign for where it is already clear. CatCad's dragging gate is
+  what says so — it went from a strict zero to five blocks and back.
+
+  What is left is *where* a round crossing falls, as a place: the root itself is
+  `(−b ± √Δ)/2a` and leaves ℚ, so a corner that is exact is not a `DVec2` and
+  the arrangement would have to stop holding one. That is the half nobody
+  costed.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.

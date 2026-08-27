@@ -1,5 +1,6 @@
 //! A machine float that knows how wrong it might be.
 
+use super::decides::Decides;
 use std::cmp::Ordering;
 use std::ops::{Add, Mul, Neg, Sub};
 
@@ -152,6 +153,12 @@ impl Neg for Filtered {
             at: -self.at,
             slack: self.slack,
         }
+    }
+}
+
+impl Decides for Filtered {
+    fn decided(&self) -> Option<Ordering> {
+        self.sign()
     }
 }
 

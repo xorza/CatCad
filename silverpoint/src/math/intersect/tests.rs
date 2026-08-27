@@ -398,3 +398,55 @@ fn a_graze_is_one_touch_however_the_discriminant_reads() {
         "a graze decided exactly stands for nothing"
     );
 }
+
+/// **A span that ends exactly on a ring meets it there, however the parameter
+/// reads.**
+///
+/// A circle of radius `5k` about the origin and a span from the centre out to
+/// `(3k, 4k)` — three-four-five again, so the far end sits exactly on the
+/// circle and the parameter there is a whole one.
+///
+/// At `k = 10⁸ + 1` the machine reads it as one and two to the minus
+/// fifty-second: past the end by a tenth of a micron, where the slack the span
+/// is given is worth two parts in a billion of a billion of a unit. Read off
+/// the parameter, the span misses the circle it was drawn to touch and the
+/// drawing loses the corner at its own endpoint.
+///
+/// Decided off the places and the radius the root is on the span, so the
+/// crossing comes back and stands for nothing.
+#[test]
+fn a_span_ending_on_a_ring_meets_it_there_however_the_parameter_reads() {
+    const K: f64 = 100000001.0;
+    let hoop = ring((0.0, 0.0), 5.0 * K);
+    let cut = span((0.0, 0.0), (3.0 * K, 4.0 * K));
+
+    // The machine's own reading, asserted so that a fixture which stopped
+    // rounding fails here rather than going on passing for the wrong reason.
+    let along = cut.to - cut.from;
+    let out = cut.from - hoop.center;
+    let [_, far] = roots(
+        along.length_squared(),
+        2.0 * out.dot(along),
+        out.length_squared() - hoop.radius * hoop.radius,
+    )
+    .expect("the span cuts the circle");
+    assert!(far > 1.0, "the reading no longer overshoots the end");
+    assert!(
+        past(far) * along.length() > PLACED,
+        "the overshoot is inside the slack, so nothing has to be decided exactly",
+    );
+
+    let found = span_ring(cut, hoop);
+    assert_eq!(found.all().len(), 1, "the crossing was turned away");
+    let touch = found.all()[0];
+    assert_eq!(
+        touch.reached, 0.0,
+        "a crossing on the span stands for something",
+    );
+    assert!(
+        touch.at.approx_eq(cut.to, 1.0),
+        "{:?} rather than the end at {:?}",
+        touch.at,
+        cut.to,
+    );
+}

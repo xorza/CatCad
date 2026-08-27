@@ -15,6 +15,10 @@
 //! reading *and* as the history that would make it again — which is what makes
 //! a construction exact rather than only a predicate.
 //!
+//! [`decides`] names what every tier here answers, and what only the filter may
+//! decline to: it is the ladder's own shape, written once rather than at each
+//! question.
+//!
 //! **Most of this has a caller now.** `math::intersect` decides a crossing with
 //! [`filtered`] and [`expansion`], and a tangency with [`rational`] through
 //! [`field`], so none of those carries a blanket allow and each goes on saying
@@ -25,6 +29,7 @@
 //! `.notes/KERNEL.md` M0. Those two excuse their own dead code where it stands,
 //! and the tests in each are what hold it up until there is a caller.
 
+pub(crate) mod decides;
 pub(crate) mod expansion;
 pub(crate) mod field;
 pub(crate) mod filtered;

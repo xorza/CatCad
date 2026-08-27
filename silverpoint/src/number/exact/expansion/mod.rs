@@ -1,6 +1,7 @@
 //! An exact number held as a sum of floats.
 
 use crate::inline::Inline;
+use crate::number::exact::decides::Decides;
 use std::cmp::Ordering;
 use std::ops::{Add, Mul, Neg, Sub};
 
@@ -259,6 +260,13 @@ impl<const N: usize> Neg for Expansion<N> {
             *term = -*term;
         }
         self
+    }
+}
+
+impl<const N: usize> Decides for Expansion<N> {
+    /// Always an answer: an exact tier has no bound to reach across nought.
+    fn decided(&self) -> Option<Ordering> {
+        Some(self.sign())
     }
 }
 
