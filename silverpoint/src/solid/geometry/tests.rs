@@ -255,8 +255,8 @@ fn inverting_a_surface_gives_back_the_parameters_it_was_evaluated_at() {
     }
 }
 
-/// A line and a circle evaluate, head the way they are walked, and measure how
-/// far off them anything else is.
+/// A line and a circle evaluate, and a line measures how far off it anything
+/// else stands.
 #[test]
 fn the_two_curves_evaluate_and_measure_by_hand() {
     let line = Line {
@@ -264,7 +264,6 @@ fn the_two_curves_evaluate_and_measure_by_hand() {
         direction: DVec3::Y,
     };
     near(line.at(4.0), DVec3::new(1.0, 4.0, 0.0), "four along");
-    near(line.tangent(99.0), DVec3::Y, "a line heads one way");
     // Three across from a line running up through (1,0,0).
     assert!((line.off(DVec3::new(4.0, 7.0, 0.0)) - 3.0).abs() < NEAR);
     assert!(line.off(line.at(-2.0)) < NEAR);
@@ -275,9 +274,6 @@ fn the_two_curves_evaluate_and_measure_by_hand() {
     };
     near(circle.at(0.0), DVec3::new(3.0, 0.0, 0.0), "zero");
     near(circle.at(PI), DVec3::new(-3.0, 0.0, 0.0), "a half turn");
-    // The tangent is the radius turned a quarter forward, so at zero it points
-    // where the quarter turn does.
-    near(circle.tangent(0.0), DVec3::NEG_Z, "counterclockwise");
 }
 
 /// **How finely a curve is cut follows the sagitta**, and a straight one is

@@ -24,10 +24,4 @@ impl Circle {
     pub(crate) fn at(&self, t: f64) -> DVec3 {
         self.axis.origin + self.axis.radial(t) * self.radius
     }
-
-    /// Which way it heads at `t` — the radius turned a quarter turn forward,
-    /// so the walk runs counterclockwise about the axis.
-    pub(crate) fn tangent(&self, t: f64) -> DVec3 {
-        self.axis.radial(t + std::f64::consts::FRAC_PI_2)
-    }
 }

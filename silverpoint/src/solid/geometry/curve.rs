@@ -88,15 +88,6 @@ impl Curve {
         }
     }
 
-    /// The unit direction the curve heads at `t`, along its own parameter.
-    pub(crate) fn tangent(&self, t: f64) -> DVec3 {
-        match self {
-            Self::Line(line) => line.tangent(t),
-            Self::Circle(circle) => circle.tangent(t),
-            Self::Ellipse(ellipse) => ellipse.tangent(t),
-        }
-    }
-
     /// How many straight pieces a stretch of `span` parameter is worth,
     /// flattened no further than `sagitta` from the true curve.
     ///

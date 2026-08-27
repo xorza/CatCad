@@ -30,21 +30,29 @@ use std::f64::consts::SQRT_2;
 /// Every one of them is exact: the parameters below are the surface, not a fit
 /// to one, and nothing evaluated off them carries a tolerance. See
 /// `.notes/KERNEL.md` §4.1 for where that stops.
-/// Where a ray met a surface, as distances along it.
 ///
-/// Two is the most, because every surface here is a quadric — see
-/// [`Surface::met_by`], which is where a graze is argued to be a miss.
-pub(crate) type Crossings = Inline<f64, 2>;
-
+/// **Nothing builds a cone or a sphere yet.** An extrusion raises planes and
+/// cylinders, and the other two arrive with revolving. Every arm below already
+/// answers all four and [`Meeting`](crate::solid::meeting::Meeting) dispatches
+/// over the whole pair matrix, so what those variants want is a feature that
+/// makes one — which is the whole of what the allow on each of them says.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Surface {
     /// The same [`Plane`] a sketch is carried into the world by, which is what
     /// lets an extrusion's base face literally hold the drawing's own frame.
     Plane(Plane),
     Cylinder(Cylinder),
+    #[allow(dead_code)]
     Cone(Cone),
+    #[allow(dead_code)]
     Sphere(Sphere),
 }
+
+/// Where a ray met a surface, as distances along it.
+///
+/// Two is the most, because every surface here is a quadric — see
+/// [`Surface::met_by`], which is where a graze is argued to be a miss.
+pub(crate) type Crossings = Inline<f64, 2>;
 
 impl Surface {
     /// The key several of these are filed under — see
@@ -274,7 +282,7 @@ impl Surface {
     /// **Chosen so that a triangle inside one cell cannot stray further than
     /// `sagitta`**, which is what lets a mesher hold itself to the sagitta by
     /// arithmetic on the grid rather than by comparing against a tolerance —
-    /// see [`Lattice`](crate::solid::mesh::lattice::Lattice).
+    /// see `Lattice` in `solid/mesh/`.
     ///
     /// Infinite where the surface does not bend that way at all: a plane both
     /// ways, and the ruling of a cylinder or a cone the second. Any step is as

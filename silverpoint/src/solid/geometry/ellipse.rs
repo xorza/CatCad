@@ -34,11 +34,4 @@ impl Ellipse {
             + self.axis.reference * (self.major * along)
             + self.axis.quarter() * (self.minor * across)
     }
-
-    /// Which way it heads at `t`, unit.
-    pub(crate) fn tangent(&self, t: f64) -> DVec3 {
-        let (across, along) = t.sin_cos();
-        (self.axis.reference * (-self.major * across) + self.axis.quarter() * (self.minor * along))
-            .normalize()
-    }
 }

@@ -1,6 +1,6 @@
 //! A number with no rounding in it.
 
-use crate::number::field::Field;
+use crate::number::exact::field::Field;
 use dashu_base::SquareRoot;
 use dashu_ratio::RBig;
 use std::cmp::Ordering;
@@ -26,15 +26,9 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 /// is that nothing carries an exact value across a rebuild — every feature
 /// derives its surfaces afresh — so depth is bounded by one operation rather
 /// than by the length of a timeline.
-//
-// Nothing calls it yet. It is the floor the pencil route in M3b is built on,
-// and it lands first because the milestone it belongs to is the one whose whole
-// point is not finding out late — see `.notes/KERNEL.md` M0. The tests below
-// are what hold it up until there is a caller.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct Rational(RBig);
 
-#[allow(dead_code)]
 impl Rational {
     pub(crate) const ZERO: Self = Self(RBig::ZERO);
     pub(crate) const ONE: Self = Self(RBig::ONE);

@@ -21,11 +21,6 @@ impl Line {
         self.origin + self.direction * t
     }
 
-    /// Which way it heads at `t`, which is the same everywhere on it.
-    pub(crate) fn tangent(&self, _t: f64) -> DVec3 {
-        self.direction
-    }
-
     /// How far `at` stands from the line.
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         let out = at - self.origin;

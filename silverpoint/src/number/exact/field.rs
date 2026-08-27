@@ -18,7 +18,8 @@ use std::ops::{Add, Mul, Neg, Sub};
 /// explicit about wanting no part of: no Sturm sequences, no isolating
 /// intervals, nothing that resolves an arbitrary root. Two storeys is what a
 /// quadric pencil needs and two is what the kernel builds — the depth is
-/// bounded by [`Quadratic`]'s own note, not by this trait.
+/// bounded by [`Quadratic`](super::quadratic::Quadratic)'s own note, not by
+/// this trait.
 ///
 /// **Nought and one are asked of a value rather than of the type.** A field
 /// here carries what it is a field *of*: nought in `ℚ(√2)` is not nought in
@@ -56,19 +57,16 @@ pub(crate) trait Field:
     /// not.
     ///
     /// **The question every storey above rests on**, and the reason this is a
-    /// trait method rather than something [`Quadratic`] could work out for
-    /// itself: a storey exists only where the root it is built on is *not*
-    /// already downstairs. Answering it is different work at each level and the
-    /// answer is needed at each level.
+    /// trait method rather than something
+    /// [`Quadratic`](super::quadratic::Quadratic) could work out for itself: a
+    /// storey exists only where the root it is built on is *not* already
+    /// downstairs. Answering it is different work at each level and the answer
+    /// is needed at each level.
     ///
     /// The root comes back non-negative, there being two and only one of them
     /// worth the name.
     fn rooted(&self) -> Option<Self>;
 
     /// The nearest `f64`, which is a *reading* of this and not this.
-    //
-    // Read only by the storey above, which nothing calls yet — see the note on
-    // [`Rational`](super::rational::Rational).
-    #[allow(dead_code)]
     fn nearest(&self) -> f64;
 }

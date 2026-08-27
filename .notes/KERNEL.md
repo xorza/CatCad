@@ -237,7 +237,7 @@ is `Lazy_exact_nt`'s well-known failure mode.
 serving both storeys of `ℚ(√δ)(√Δ)` rather than two spellings of
 `(a + b√r)(c + d√r) = (ac + bdr) + (ad + bc)√r`, which is how two of them would
 come to disagree. What each storey needs of the one below it is
-`number::field::Field`.
+`number::exact::field::Field`.
 
 **A storey refuses to exist where its root is already downstairs**, and that
 refusal is load bearing. With `r` square, `1 + 1·√4` and `3 + 0·√4` are one
@@ -246,7 +246,7 @@ and the inverse `(a − b√r)/(a² − b²r)` divides by nought away from the o
 With `r` non-square all three hold, so zero-testing is exact with no tolerance
 in it and every value but nought divides. A *negative* `r` is refused
 separately: its root is not real, and a caller reaching one has found an
-intersection that is not there. `number::quadratic` carries the squares test
+intersection that is not there. `number::exact::quadratic` carries the squares test
 that decides it.
 
 **`number/` is written here rather than assembled from crates.** What is needed:
@@ -516,8 +516,8 @@ profile arrives as an `Arrangement` and a face position.
 ```
 silverpoint/src/
   arena.rs  inline.rs  loops.rs  sided.rs
-  number/          mod.rs, predicate/, tolerance.rs, field.rs,
-                   rational.rs, quadratic.rs, filtered.rs
+  number/          mod.rs, predicate/, tolerance.rs
+    exact/         mod.rs, field, rational, quadratic, filtered
                    — to come: expansion, lazy
   math/            arc, bounds, chorded, dense, direction, intersect, plane,
                    quadratic, triangulate, winding
@@ -886,7 +886,7 @@ comparison already goes through a named predicate.
 
 Done since: **exact rationals and the whole `ℚ(√δ)(√Δ)` tower**, including the
 non-square path at both storeys, over `dashu-ratio`; and the **interval
-filter**, `number::filtered::Filtered`, a static one in Shewchuk's style. It
+filter**, `number::exact::filtered::Filtered`, a static one in Shewchuk's style. It
 hands back a sign only where its bound cannot reach across nought, so **it can
 prove a number is not nought and never that it is** — a coincidence always
 costs the exact path, which is the trade the tier exists to make. Held against

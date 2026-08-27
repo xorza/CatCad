@@ -1,6 +1,6 @@
 //! One square root away from whatever is below it.
 
-use crate::number::field::Field;
+use crate::number::exact::field::Field;
 use std::cmp::Ordering;
 use std::ops::{Add, Div, Mul, Neg, Sub};
 
@@ -51,8 +51,6 @@ use std::ops::{Add, Div, Mul, Neg, Sub};
 /// would do, which is the sort of thing that matters on a path a frame walks
 /// and this is not one: nothing carries an exact value across a rebuild, so
 /// these live for the length of one intersection and are dropped.
-//
-// Nothing calls it yet; see the note on [`Rational`](super::rational::Rational).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Quadratic<T: Field> {
     /// The part with no root in it.
@@ -63,7 +61,6 @@ pub(crate) struct Quadratic<T: Field> {
     radicand: T,
 }
 
-#[allow(dead_code)]
 impl<T: Field> Quadratic<T> {
     /// `√r` itself, and with it the field to build the rest in — or `None`
     /// where there is no field to build.
@@ -323,7 +320,7 @@ fn doubled<T: Field>(at: T) -> T {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::number::rational::Rational;
+    use crate::number::exact::rational::Rational;
 
     /// `ℚ(√2)`, handed back as `√2` itself.
     fn two() -> Quadratic<Rational> {

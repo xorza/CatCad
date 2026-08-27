@@ -215,13 +215,6 @@ impl Sketch {
     /// A starting guess like the one it was added with, exactly as
     /// [`Sketch::set_point`] is: a radius is a solver parameter, so the next
     /// solve is free to move it again unless a constraint holds it.
-    ///
-    /// Kept although nothing in this workspace calls it — an application sizes
-    /// its circles by stating a [`Constraint::Radius`] or by dragging a rim,
-    /// both of which go through the solver. It is the other half of
-    /// [`Sketch::set_point`], and without it a circle could be sized when it was
-    /// drawn and never again except by solving, which is a hole in what a sketch
-    /// can be asked to do rather than a call nobody happens to want.
     pub fn set_radius(&mut self, id: CircleId, radius: f64) {
         self.circle_mut(id).radius = radius;
     }

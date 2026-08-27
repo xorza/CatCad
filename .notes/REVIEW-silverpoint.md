@@ -10,9 +10,6 @@ scope.
 In each case a comment block lost its break. The item below the block now
 carries its neighbour's summary, and the item above carries none.
 
-- [ ] `solid/geometry/surface.rs:31-39` — the `Surface` enum's doc is attached
-  to `Crossings`. `Surface` has no doc at all. A reader of `Crossings` is told
-  it is the set of four natural quadrics.
 - [ ] `math/triangulate/mod.rs:472-491` — the doc for `ear` is attached to
   `best`. `ear` has no doc.
 - [ ] `sketch/solver/elimination/mod.rs:48-64` — the doc for `spans` is
@@ -22,19 +19,6 @@ carries its neighbour's summary, and the item above carries none.
   one line.
 - [ ] `solid/mesh/mod.rs:113-114` — `Mesher::shut_in` loses the paragraph break
   before the note about `into`.
-
-## Code with no caller, and allows that hide it
-
-- [ ] `number/` — `rational.rs`, `quadratic.rs`, `filtered.rs` and `field.rs`
-  come to about 1150 lines with no caller in the crate. Three
-  `#[allow(dead_code)]` attributes hold the warning off. The notes say the
-  first caller is a later milestone.
-- [ ] `solid/geometry/mod.rs:20` — a module-wide `#![allow(dead_code)]` covers
-  nine files. It hides genuine dead code as well as the planned kind:
-  `Curve::tangent` and the `tangent` methods on `Line`, `Circle` and `Ellipse`
-  have no production caller at all.
-- [ ] `sketch/mod.rs:224` — `Sketch::set_radius` has no caller in the
-  workspace. The doc argues for keeping it.
 
 ## Ordering agreements that nothing asserts
 

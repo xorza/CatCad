@@ -10,9 +10,9 @@ use std::ops::{Add, Mul, Neg, Sub};
 /// and rounding to nearest is never worse than half a gap.
 ///
 /// Named for the quantity rather than for what it is used for, because
-/// [`ROUNDING`](super::tolerance::ROUNDING) next door is a different thing
-/// entirely: a nanometre of *geometric* slack, in world units, against which
-/// two places count as one. This is a proportion and has no units at all.
+/// [`ROUNDING`](crate::number::tolerance::ROUNDING) next door is a different
+/// thing entirely: a nanometre of *geometric* slack, in world units, against
+/// which two places count as one. This is a proportion and has no units at all.
 const HALF_ULP: f64 = f64::EPSILON / 2.0;
 
 /// A number computed in `f64`, carried with a bound on how far from the truth
@@ -39,8 +39,6 @@ const HALF_ULP: f64 = f64::EPSILON / 2.0;
 /// exact path, and a coincidence is exactly what a kernel meets at the moments
 /// it must not get wrong — which is the trade the exact tier exists to make,
 /// and the reason this is a filter rather than an answer.
-//
-// Nothing calls it yet; see the note on [`Rational`](super::rational::Rational).
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Filtered {
     /// What the machine made of it.
@@ -49,7 +47,6 @@ pub(crate) struct Filtered {
     slack: f64,
 }
 
-#[allow(dead_code)]
 impl Filtered {
     /// Exactly the `f64` `at`, which is exact because a float *is* the number
     /// it holds — nothing has been rounded yet.
@@ -151,8 +148,8 @@ impl Neg for Filtered {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::number::field::Field;
-    use crate::number::rational::Rational;
+    use crate::number::exact::field::Field;
+    use crate::number::exact::rational::Rational;
 
     /// Twice the area the turn `a → b → c` sweeps, in whatever arithmetic `of`
     /// reads a coordinate into.
