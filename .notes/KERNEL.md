@@ -162,13 +162,22 @@ booleans over planes, cylinders, cones and spheres is exact, and can say so.**
 The claim not bought: exactness once a fillet or a NURBS surface is present.
 That boundary is in the data, so nothing has to be believed.
 
-**The drawing underneath is the ceiling.** An `Arrangement` folds crossings
-within `PLACED` of each other into one corner, so a body raised off one cannot
-know its own vertices better than a nanometre. Every vertex and edge an
-extrusion raises therefore carries `PLACED`; the *surfaces* stay exact, a wall
-being a true plane or a true cylinder whatever corner it was placed through.
-That locates the claim rather than weakening it, and it is why `number/` is
-shared *downward*: the drawing and the body read one tolerance from one file.
+**The drawing underneath is the ceiling, and it is measured rather than
+assumed.** An `Arrangement` folds crossings within `PLACED` of each other into
+one corner, and it *records how far each corner reached* to do it —
+`Arrangement::reached`, which is the discipline below applied at the one place a
+drawing decides anything within tolerance. A vertex an extrusion raises carries
+its corner's reach, nought for every corner two curves handed in bit for bit;
+edges carry nothing at all, an edge being the true intersection of two surfaces
+that stay exact whatever corner they were placed through. So a body raised from
+a drawing whose curves meet where they were drawn is exact in its vertices too,
+where the whole of one used to carry a blanket nanometre.
+
+What still rounds is underneath that: the crossings are worked out in `f64`, and
+`math::intersect` decides whether one lands on a span with a slack of its own.
+That decision is taken and not recorded, which is 9.1's remaining half — and it
+is why `number/` is shared *downward*: the drawing and the body read one
+tolerance from one file.
 
 Where exactness stops, the discipline takes over:
 
@@ -815,9 +824,17 @@ from the current camera — and neither is worth a pass on its own yet.
 The largest single piece, and it shows nothing on screen. Two parts, and they
 are in this order because the second cannot be done first:
 
-- **The drawing goes exact.** §4.1 caps a body's exactness at the fold tolerance
-  of the `Arrangement` it was raised from, so this milestone reaches into
-  `sketch/` before it is finished. Nobody costed that half.
+- **The drawing goes exact.** The *fold* is done: an `Arrangement` records how
+  far each corner reached to swallow its neighbours, and a vertex raised there
+  carries that rather than a blanket `PLACED`, so a drawing whose curves meet
+  where they were drawn raises a body exact in its vertices. What is left is the
+  arithmetic under it. `math::intersect` works crossings out in `f64` and takes
+  two more decisions within tolerance without recording either: whether a
+  crossing lands on a span, and whether two roots are one place. Segment against
+  segment is polynomial in the coordinates and could go through the expansions
+  today; a circle brings a square root, so its crossing is not an `f64` at all
+  and the arrangement would have to stop holding a corner as a `DVec2`. That
+  last is the half nobody costed.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.
@@ -922,9 +939,12 @@ Either true of a commit or not.
 
 ## 11. Scale, and what it costs
 
-**M0 is the biggest single piece**, and none of it shows on screen. It has a
-second half nobody costed: the drawing underneath has to go exact too, or a
-body's exactness is capped at the fold tolerance (§4.1).
+**M0 is the biggest single piece**, and none of it shows on screen. The
+arithmetic is built and the fold is recorded. What is left is under the drawing
+rather than in it: the 2D crossing routines work in `f64`, and a circle's
+crossing is not a float at all once it is exact — so the arrangement would have
+to stop holding a corner as a `DVec2`. That is the half nobody costed, and it is
+the last thing between the tree and §4.1's claim in full.
 
 **M3b is the real work.** M3a came in behind M2 for a fraction of its estimate —
 the reducible cases are a page of vector algebra each — and M4 and M5's

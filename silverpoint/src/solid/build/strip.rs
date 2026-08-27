@@ -1,6 +1,7 @@
 //! The boundary of a region, laid out as the pieces a wall is raised from.
 
 use crate::number::predicate;
+use crate::number::tolerance::EXACT;
 use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::arrangement::edge::{Half, Shape};
@@ -55,6 +56,8 @@ pub(super) struct Strips {
     /// The corners the strips run between, in the plane's own coordinates: the
     /// arrangement's own, and then any raised by splitting a wrapping curve.
     corners: Vec<DVec2>,
+    /// How far the drawing's fold reached at each of them, in step.
+    reached: Vec<f64>,
     strips: Vec<Strip>,
     /// Where each loop starts, with a sentinel on the end so the last loop
     /// needs no special case.
@@ -75,6 +78,8 @@ impl Strips {
         let face = &of.faces()[at];
         self.corners.clear();
         self.corners.extend_from_slice(of.corners());
+        self.reached.clear();
+        self.reached.extend_from_slice(of.reached());
         self.strips.clear();
         self.starts.clear();
         self.starts.push(0);
@@ -87,6 +92,18 @@ impl Strips {
     /// Where each corner sits, in the plane's own coordinates.
     pub(super) fn corners(&self) -> &[DVec2] {
         &self.corners
+    }
+
+    /// How far the drawing's fold reached at each corner, in step with
+    /// [`Strips::corners`] — see
+    /// [`Arrangement::reached`](crate::Arrangement).
+    pub(super) fn reached(&self) -> &[f64] {
+        debug_assert_eq!(
+            self.reached.len(),
+            self.corners.len(),
+            "a corner was minted without its reach — see Strips::split",
+        );
+        &self.reached
     }
 
     /// Every strip, the outline's first.
@@ -200,14 +217,18 @@ impl Strips {
     /// Cut a whole turn in half, raising the corner between the two pieces.
     ///
     /// Halves rather than any other split, because the two pieces then differ
-    /// in nothing and neither is the awkward one. The corner is exactly on the
-    /// circle, which the drawing's own corners need not be — see the tolerance
-    /// [`Extrusion`](super::builder::Extrusion) raises everything with.
+    /// in nothing and neither is the awkward one.
+    ///
+    /// **The corner is exactly on the circle**, which the drawing's own corners
+    /// need not be — nothing was folded to reach it, so it reaches nought and a
+    /// vertex raised there is exact. See
+    /// [`Arrangement::reached`](crate::Arrangement).
     fn split(&mut self, bound: Bound, from: usize, to: usize, turn: Turn) {
         let half = turn.sweep / 2.0;
         let between = self.corners.len();
         self.corners
             .push(turn.center + DVec2::from_angle(turn.start + half) * turn.radius);
+        self.reached.push(EXACT);
         self.strips.push(Strip {
             bound,
             from,

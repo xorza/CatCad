@@ -1,7 +1,7 @@
 //! A region of a drawing, carried off its plane into a body.
 
 use crate::math::plane::Plane;
-use crate::number::tolerance::{EXACT, PLACED};
+use crate::number::tolerance::EXACT;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::build::strip::{Strip, Strips};
 use crate::solid::geometry::axis::Axis;
@@ -64,21 +64,6 @@ impl<'a> Extrusion<'a> {
         }
     }
 }
-
-/// What every entity an extrusion raises is known to, in world units.
-///
-/// **The drawing's own fold tolerance, and a ceiling rather than a choice.** An
-/// arrangement folds crossings within [`PLACED`] of each other into one
-/// corner, so a corner is only ever known that well — and a body raised off one
-/// cannot know its own vertices better than the drawing knew them. Surfaces are
-/// another matter and stay exact: a wall is a true plane or a true cylinder
-/// whatever corner it was placed through, and a cap is the sketch's own plane.
-///
-/// This is the ceiling on the exactness claim in `.notes/KERNEL.md` §4.1 while
-/// the drawing underneath is still solved and cut in `f64`, and it is the
-/// strongest of the reasons §6 gives for [`number`](crate::number) being shared
-/// downward into `sketch` rather than kept up here.
-const PROFILE: f64 = PLACED;
 
 /// Raises bodies, keeping the room it works in.
 ///
@@ -334,7 +319,7 @@ impl Builder {
             // normal the cap is square to — so an edge between them is always a
             // crease.
             artificial: false,
-            tolerance: PROFILE,
+            tolerance: EXACT,
         })
     }
 
@@ -392,7 +377,7 @@ impl Builder {
             to,
             between,
             artificial: smooth,
-            tolerance: PROFILE,
+            tolerance: EXACT,
         });
         self.climbing[corner] = Some(climbing);
     }
@@ -403,12 +388,15 @@ impl Builder {
             return;
         }
         let base = self.base_at(raising, corner);
-        let raised = [base, base + raising.normal * raising.distance].map(|at| {
-            into.topology_mut().add_vertex(Vertex {
-                at,
-                tolerance: PROFILE,
-            })
-        });
+        // **What the drawing knew this corner to**, which is nought wherever
+        // nothing folded into it — see
+        // [`Arrangement::reached`](crate::Arrangement). The ceiling on
+        // `.notes/KERNEL.md` §4.1's claim is per corner rather than a blanket
+        // over the body: a drawing whose curves meet where they were drawn
+        // raises vertices that are exact.
+        let tolerance = self.strips.reached()[corner];
+        let raised = [base, base + raising.normal * raising.distance]
+            .map(|at| into.topology_mut().add_vertex(Vertex { at, tolerance }));
         self.corners[corner] = Some(raised);
     }
 

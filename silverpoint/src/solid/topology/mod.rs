@@ -314,6 +314,10 @@ pub(crate) mod internals {
         pub(crate) fn vertex_mut(&mut self, id: VertexId) -> &mut Vertex {
             self.vertices.get_mut(id).expect(STALE)
         }
+
+        pub(crate) fn edge_mut(&mut self, id: EdgeId) -> &mut Edge {
+            self.edges.get_mut(id).expect(STALE)
+        }
     }
 }
 

@@ -119,7 +119,17 @@ fn a_vertex_beyond_what_it_stands_for_is_refused() {
     body.check();
 }
 
-/// Move one corner of `body` off its curves by `much` of what it stands for.
+/// How wide a corner is made to stand for, so that there is something to move
+/// it within.
+///
+/// **A block's corners are exact**, nothing having folded into any of them —
+/// see [`Arrangement::reached`](crate::Arrangement) — so the body says they
+/// stand for nothing at all, and a test about a vertex standing *within* what
+/// it stands for has to give it something first.
+const STANDS: f64 = 1e-6;
+
+/// Move one corner of `body` off its curves by `much` of what it is made to
+/// stand for.
 fn nudged(body: &mut Body, much: f64) {
     let corner = body
         .topology()
@@ -128,8 +138,9 @@ fn nudged(body: &mut Body, much: f64) {
         .expect("a block has edges")
         .1
         .from;
-    let stood = body.topology().vertex(corner).tolerance;
-    body.topology_mut().vertex_mut(corner).at.x += stood * much;
+    let vertex = body.topology_mut().vertex_mut(corner);
+    vertex.tolerance = STANDS;
+    vertex.at.x += STANDS * much;
 }
 
 /// The ladder holds downward: a vertex covers the edges meeting it, and an edge
@@ -142,14 +153,10 @@ fn nudged(body: &mut Body, much: f64) {
 #[should_panic(expected = "is tighter than")]
 fn a_vertex_tighter_than_its_edge_is_refused() {
     let mut body = block();
-    let corner = body
-        .topology()
-        .edges()
-        .next()
-        .expect("a block has edges")
-        .1
-        .from;
-    body.topology_mut().vertex_mut(corner).tolerance = 0.0;
+    let edge = body.topology().edges().next().expect("a block has edges").0;
+    // The edge widened rather than the vertex tightened, there being nothing
+    // below exact to tighten a corner of a block to.
+    body.topology_mut().edge_mut(edge).tolerance = STANDS;
     body.check();
 }
 

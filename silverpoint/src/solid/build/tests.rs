@@ -381,3 +381,78 @@ fn an_extrusion_of_no_depth_is_a_body_with_nothing_in_it() {
     assert_eq!(body.topology().faces().count(), 0);
     assert_eq!(volume(&body), 0.0);
 }
+
+/// **A drawing whose curves meet where they were drawn raises vertices that
+/// stand for nothing at all.**
+///
+/// The ceiling `.notes/KERNEL.md` §4.1 puts on a body's exactness is the
+/// drawing's own fold, and the fold is per corner rather than a blanket over
+/// the body: a corner two curves handed in bit for bit swallowed nothing, so
+/// it records nothing and a vertex raised there is exact. Which is every
+/// corner of an ordinary drawing — this used to be a nanometre on every vertex
+/// of every body, whether anything had folded or not.
+///
+/// **Three drawings, because the corners reach the builder three ways.** A
+/// square's come from the fold. A circle's come from the cutting, which mints
+/// one to start a loop nothing crossed, and from the halving that keeps a face
+/// from wrapping — both worked out exactly and neither passing through the
+/// fold at all. A square with a circle inside it has both at once.
+///
+/// The edges are asked too, and for a different reason: an edge is the true
+/// intersection of the two surfaces either side of it — §4.3's own definition
+/// — and those are exact whatever corner they were placed through.
+#[test]
+fn a_drawing_that_folded_nothing_raises_a_body_that_stands_for_nothing() {
+    let square = |sketch: &mut Sketch, from: DVec2, side: f64| {
+        let corners: Vec<_> = [(0.0, 0.0), (side, 0.0), (side, side), (0.0, side)]
+            .map(|(u, v)| sketch.add_point(from + DVec2::new(u, v)))
+            .into();
+        for at in 0..corners.len() {
+            sketch.add_segment(corners[at], corners[(at + 1) % corners.len()]);
+        }
+    };
+    let mut drawings = Vec::new();
+
+    let mut sketch = Sketch::default();
+    square(&mut sketch, DVec2::ZERO, 4.0);
+    drawings.push(("a square", sketch));
+
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::new(3.0, 1.0));
+    sketch.add_circle(middle, 2.0);
+    drawings.push(("a circle", sketch));
+
+    let mut sketch = Sketch::default();
+    square(&mut sketch, DVec2::ZERO, 6.0);
+    let middle = sketch.add_point(DVec2::new(3.0, 3.0));
+    sketch.add_circle(middle, 1.0);
+    drawings.push(("a square about a circle", sketch));
+
+    for (drawn, sketch) in drawings {
+        let found = Arrangement::of(&sketch);
+        assert!(
+            found.reached().iter().all(|&reach| reach == 0.0),
+            "{drawn} folded something: {:?}",
+            found.reached(),
+        );
+        let body = Extrusion::new(&found, 0, Plane::GROUND, 4.0, STEP).body();
+        body.check();
+        let topology = body.topology();
+        assert!(
+            topology.vertices().count() > 0,
+            "{drawn} raised no vertices to ask about",
+        );
+        for (at, vertex) in topology.vertices() {
+            assert_eq!(
+                vertex.tolerance, 0.0,
+                "{drawn}: vertex {at:?} stands for something"
+            );
+        }
+        for (at, edge) in topology.edges() {
+            assert_eq!(
+                edge.tolerance, 0.0,
+                "{drawn}: edge {at:?} stands for something"
+            );
+        }
+    }
+}

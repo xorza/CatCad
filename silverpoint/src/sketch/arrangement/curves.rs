@@ -2,7 +2,7 @@
 
 use crate::math::intersect::{self, Ring, Span};
 use crate::number::predicate::ApproxEq;
-use crate::number::tolerance::PLACED;
+use crate::number::tolerance::{EXACT, PLACED};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::edge::{Edge, Shape};
 use crate::sketch::entity::Entity;
@@ -96,7 +96,7 @@ impl Curves {
     ///
     /// Leaves the corners in order across the drawing, which is the fold's
     /// doing and which [`Curves::cut`] then leans on.
-    pub(super) fn corners(&self, into: &mut Vec<DVec2>) {
+    pub(super) fn corners(&self, into: &mut Vec<DVec2>, reached: &mut Vec<f64>) {
         into.clear();
         for (span, _) in &self.straight {
             into.push(span.from);
@@ -117,7 +117,7 @@ impl Curves {
                 self.crossing(one.curve, two.curve, into);
             }
         }
-        fold(into);
+        fold(into, reached);
     }
 
     /// Where two curves the search could not rule out actually meet, if they
@@ -258,7 +258,16 @@ impl Curves {
     }
 }
 
-/// Fold places within [`PLACED`] of each other into one corner.
+/// Fold places within [`PLACED`] of each other into one corner, recording how
+/// far each survivor reached to do it.
+///
+/// **Recorded rather than merely taken**, which is the rule
+/// `.notes/KERNEL.md` §4.1 states and the reason this is the ceiling on what a
+/// body raised off the drawing can claim. A corner that swallowed nothing is
+/// exactly where it was worked out, and almost all of them are: two curves
+/// sharing an endpoint hand in the same place twice, bit for bit. What is left
+/// is the corner two roots reached from opposite sides, and that one alone
+/// carries the distance.
 ///
 /// Ordered across the drawing first, so each place is compared only against
 /// those it could possibly be near: two within [`PLACED`] of each other are
@@ -274,32 +283,42 @@ impl Curves {
 /// The order it leaves them in *is* read, though, and has to be — [`Curves::cut`]
 /// finds the corners a curve could touch by searching it rather than by walking
 /// the lot. Sorting here is what pays for that as well as for the fold.
-fn fold(corners: &mut Vec<DVec2>) {
+fn fold(corners: &mut Vec<DVec2>, reached: &mut Vec<f64>) {
     corners.sort_by(|a, b| {
         a.x.partial_cmp(&b.x)
             .expect("a crossing of finite curves is finite")
     });
+    reached.clear();
     let mut kept = 0;
     for at in 0..corners.len() {
         let candidate = corners[at];
         // Back through the places already kept, which are the ones to the left
         // of this and in order, until one is further off across than a fold
         // could reach.
-        let mut folded = false;
+        let mut folded = None;
         let mut back = kept;
         while back > 0 && candidate.x - corners[back - 1].x <= PLACED {
             back -= 1;
             if corners[back].approx_eq(candidate, PLACED) {
-                folded = true;
+                folded = Some(back);
                 break;
             }
         }
-        if !folded {
-            corners[kept] = candidate;
-            kept += 1;
+        match folded {
+            // The survivor stands for both now, so what it is known to is the
+            // further of what it already reached and how far it just did.
+            Some(back) => {
+                reached[back] = reached[back].max(corners[back].distance(candidate));
+            }
+            None => {
+                corners[kept] = candidate;
+                reached.push(EXACT);
+                kept += 1;
+            }
         }
     }
     corners.truncate(kept);
+    debug_assert_eq!(reached.len(), kept, "a corner was kept without its reach");
 }
 
 /// Whether `corner` falls in the box between `low` and `high`.
@@ -355,4 +374,65 @@ struct Reach {
 enum Curve {
     Straight(usize),
     Round(usize),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::number::tolerance::ROUNDING;
+
+    /// **A corner records how far it reached to swallow its neighbours, and
+    /// nought where it swallowed none.**
+    ///
+    /// The whole of what a body raised off a drawing is entitled to claim — see
+    /// `.notes/KERNEL.md` §4.1, whose rule is that a decision taken within
+    /// tolerance is recorded rather than merely taken.
+    ///
+    /// Four places across one sweep, and they are four different claims. Two
+    /// handed in bit for bit — which is what a shared endpoint is, the same
+    /// `DVec2` reaching here from two curves — fold to nought, and that is the
+    /// case almost every corner of a drawing is. One a third of the fold away
+    /// records that third. One a *chain* of two records the further of them,
+    /// because the survivor stands for both. And one clear of the rest is left
+    /// alone at nought.
+    #[test]
+    fn a_corner_records_how_far_it_reached_and_nothing_where_it_reached_none() {
+        let step = PLACED / 3.0;
+        let mut corners = vec![
+            DVec2::new(1.0, 0.0),
+            DVec2::new(1.0, 0.0),
+            DVec2::new(1.0 + step, 0.0),
+            DVec2::new(1.0 + 2.0 * step, 0.0),
+            DVec2::new(5.0, 0.0),
+        ];
+        let mut reached = Vec::new();
+        fold(&mut corners, &mut reached);
+
+        assert_eq!(
+            corners,
+            [DVec2::new(1.0, 0.0), DVec2::new(5.0, 0.0)],
+            "the fold kept the wrong places",
+        );
+        assert_eq!(reached.len(), corners.len());
+        // The furthest of the three that folded in, not the nearest and not
+        // the last: the survivor stands for every one of them.
+        assert!(
+            reached[0].approx_eq(2.0 * step, ROUNDING),
+            "reached {} rather than {}",
+            reached[0],
+            2.0 * step,
+        );
+        assert_eq!(reached[1], EXACT, "a corner alone swallowed something");
+
+        // And two places handed in twice over, which is what a shared endpoint
+        // is: nothing was decided, so nothing is recorded.
+        let mut corners = vec![DVec2::new(2.0, 3.0); 4];
+        fold(&mut corners, &mut reached);
+        assert_eq!(corners, [DVec2::new(2.0, 3.0)]);
+        assert_eq!(
+            reached,
+            [EXACT],
+            "a corner folded onto itself recorded a reach"
+        );
+    }
 }

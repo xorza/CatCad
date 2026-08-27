@@ -21,7 +21,7 @@
 use crate::loops::Loops;
 use crate::math::chorded::Chorded;
 use crate::math::intersect::{self, Span};
-use crate::number::tolerance::ENCLOSED;
+use crate::number::tolerance::{ENCLOSED, EXACT};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::arrangement::bounding::Bounding;
@@ -57,6 +57,8 @@ pub(crate) mod filler;
 #[derive(Debug, Default)]
 pub struct Arrangement {
     corners: Vec<DVec2>,
+    /// How far the fold reached at each corner, in step with `corners`.
+    reached: Vec<f64>,
     edges: Vec<Edge>,
     /// Only the first `faces_filled` are this rebuild's; the rest are last
     /// rebuild's, kept for the room they hold.
@@ -73,16 +75,23 @@ impl Arrangement {
     pub fn rebuild(&mut self, sketch: &Sketch) {
         let Self {
             corners,
+            reached,
             edges,
             scratch,
             ..
         } = self;
         let Scratch { curves, on, .. } = scratch;
         curves.gather(sketch);
-        curves.corners(corners);
+        curves.corners(corners, reached);
         // Cutting may add corners of its own: a circle nothing crosses is its
-        // own loop, and a loop still needs somewhere to start.
+        // own loop, and a loop still needs somewhere to start. Nothing folded
+        // into one of those, so each is exactly where it was worked out.
         curves.cut(corners, edges, on);
+        debug_assert!(
+            corners.len() >= reached.len(),
+            "cutting took corners away, so the reaches left name the wrong ones",
+        );
+        reached.resize(corners.len(), EXACT);
 
         self.walk_loops();
         self.punch_holes();
@@ -163,6 +172,23 @@ impl Arrangement {
     /// it runs between — so anything walking edges is handed both together.
     pub(crate) fn corners(&self) -> &[DVec2] {
         &self.corners
+    }
+
+    /// How far the fold reached at each corner, in step with
+    /// [`Arrangement::corners`].
+    ///
+    /// **What a body raised off this drawing is entitled to claim.** A corner
+    /// is where two curves were worked out to meet, and where two of those
+    /// landed a rounding apart the arrangement folded them — see `curves::fold`
+    /// and `.notes/KERNEL.md` §4.1. Nought is a corner nothing folded into,
+    /// which is most of them, and a vertex raised there is exact.
+    pub(crate) fn reached(&self) -> &[f64] {
+        debug_assert_eq!(
+            self.reached.len(),
+            self.corners.len(),
+            "a reach was kept without its corner, or the other way about",
+        );
+        &self.reached
     }
 
     /// The piece of curve a half-edge walks.
