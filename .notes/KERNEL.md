@@ -182,9 +182,11 @@ answer, and the first two now say so *exactly*: where two straight spans cross
 is a determinant, and `math::intersect` reads it through the filter and the
 expansions rather than through a quotient.
 
-What still rounds is the round half — a circle's crossing has a square root in
-it. That is 9.1's remaining work, and why `number/` is shared *downward*: the
-drawing and the body read one tolerance from one file.
+The last two are exact as well as recorded: a span grazes a circle exactly when
+`r²·|d|² − (f ⟂ d)²` is nought, which is polynomial and settled by the tier.
+What still rounds is *where* a round crossing falls, the root having a square
+root in it. That is 9.1's remaining work, and why `number/` is shared
+*downward*: the drawing and the body read one tolerance from one file.
 
 Where exactness stops, the discipline takes over:
 
@@ -846,9 +848,19 @@ are in this order because the second cannot be done first:
   than the slack is wide; and it stands for nothing, where before it stood for
   whatever the parameter rounded to.
 
-  What is left is the round half. A circle's crossing brings a square root, so
-  it is not an `f64` at all once it is exact and the arrangement would have to
-  stop holding a corner as a `DVec2`. That is the half nobody costed.
+  **And a span against a circle knows which of the three it does.** Whether it
+  misses, grazes or goes through is `Δ/4 = r²·|d|² − (f ⟂ d)²` by Lagrange's
+  identity — polynomial in the places and the radius, so the filter answers it
+  and the rational tier settles what the filter declines. Read off coefficients
+  that have already rounded, a tangent scaled up until the products need more
+  than a float holds comes back as two crossings a bus length apart. That is
+  §7.3's tangency, decided.
+
+  What is left is *where* a round crossing falls. The root itself is
+  `(−b ± √Δ)/2a`, which leaves ℚ — so whether it lands on the span wants
+  `Quadratic<Rational>`, the tower already in the tree, and a corner that is not
+  an `f64` wants the arrangement to stop holding one as a `DVec2`. That is the
+  half nobody costed.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.

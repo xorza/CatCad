@@ -15,15 +15,15 @@
 //! reading *and* as the history that would make it again — which is what makes
 //! a construction exact rather than only a predicate.
 //!
-//! **Two of these have a caller and the rest do not.** [`filtered`] and
-//! [`expansion`] are what `math::intersect` decides a crossing with, so they
-//! carry no blanket allow and go on saying when something of theirs has stopped
-//! being called. The tower below them and the DAG above are waiting on the
-//! pencil route in M3b, and the arithmetic lands ahead of the route that needs
-//! it because the milestone it belongs to is the one whose whole point is not
-//! finding out late — see `.notes/KERNEL.md` M0. Each of those files excuses
-//! its own dead code where it stands, and the tests in each are what hold it up
-//! until there is a caller.
+//! **Most of this has a caller now.** `math::intersect` decides a crossing with
+//! [`filtered`] and [`expansion`], and a tangency with [`rational`] through
+//! [`field`], so none of those carries a blanket allow and each goes on saying
+//! when something of theirs has stopped being called. [`quadratic`] and
+//! [`lazy`] are still waiting on the pencil route in M3b, and the arithmetic
+//! lands ahead of the route that needs it because the milestone it belongs to
+//! is the one whose whole point is not finding out late — see
+//! `.notes/KERNEL.md` M0. Those two excuse their own dead code where it stands,
+//! and the tests in each are what hold it up until there is a caller.
 
 pub(crate) mod expansion;
 pub(crate) mod field;

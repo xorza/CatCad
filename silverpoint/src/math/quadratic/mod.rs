@@ -13,6 +13,8 @@
 //! gives back is one root near where a linear would put it and one enormous,
 //! and the enormous one is a place with no significant digits left in it.
 
+use std::cmp::Ordering;
+
 /// The two places `a·t² + b·t + c` is nought, in order, or `None` where it is
 /// nowhere.
 ///
@@ -21,7 +23,8 @@
 /// landed is an answer that flickers: the same ray a hair either way would
 /// report two crossings or none, and a count of crossings is what decides
 /// whether a place is inside a solid. A caller that wants the tangency itself
-/// asks [`grazing_roots`] for it.
+/// asks [`roots_given`], which takes the branch rather than reading it off
+/// coefficients that have already rounded.
 ///
 /// `None` for an `a` of nought as well, which is not a quadratic: a ray along a
 /// cylinder's axis, or one that never leans towards a cone.
@@ -33,19 +36,26 @@ pub(crate) fn roots(a: f64, b: f64, c: f64) -> Option<[f64; 2]> {
     stable(a, b, c, under)
 }
 
-/// The same, with a graze answered as the double root it stands for.
+/// The same, where the caller has decided the discriminant's sign for itself.
 ///
-/// For a caller after the *place* one curve touches another rather than a count
-/// of how many times it goes through: an arrangement splits at a tangency, and
-/// dropping it there leaves a corner nobody can find again. The pair comes back
-/// with both ends at that one place, so a caller folding near-equal roots into
-/// one needs no case for it.
-pub(crate) fn grazing_roots(a: f64, b: f64, c: f64) -> Option<[f64; 2]> {
-    let under = b * b - 4.0 * a * c;
-    if under < 0.0 {
-        return None;
+/// **For a caller that can ask the geometry rather than the coefficients.**
+/// `b² − 4ac` over an `a`, `b` and `c` already rounded is not the discriminant
+/// of the curves that made them, and a graze is exactly where the two part
+/// company: the machine lands one a hair either side of nought, so a span
+/// drawn tangent to a circle splits at the touch or misses it depending on the
+/// arithmetic rather than on the drawing. See `intersect::parting`, which reads
+/// the sign off the places and the radius.
+///
+/// The *number* is still the machine's, and only the branch is the caller's.
+/// Where the two disagree the machine's is clamped rather than trusted: a
+/// discriminant the caller has decided is positive cannot be given a negative
+/// square root to take.
+pub(crate) fn roots_given(a: f64, b: f64, c: f64, under: Ordering) -> Option<[f64; 2]> {
+    match under {
+        Ordering::Less => None,
+        Ordering::Equal => stable(a, b, c, 0.0),
+        Ordering::Greater => stable(a, b, c, (b * b - 4.0 * a * c).max(0.0)),
     }
-    stable(a, b, c, under)
 }
 
 /// Both roots, given a discriminant already known not to be negative.

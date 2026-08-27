@@ -1,4 +1,5 @@
 use super::*;
+use crate::math::quadratic::roots;
 use crate::number::predicate::ApproxEq;
 
 /// Every crossing, in the order the routine found them, as plain pairs — so an
@@ -337,4 +338,63 @@ fn a_crossing_past_an_end_stands_for_how_far_past() {
         ..upright
     };
     assert_eq!(spans(across, landed).all()[0].reached, 0.0);
+}
+
+/// **A span drawn tangent to a ring touches it once, however the coefficients
+/// read.**
+///
+/// A circle of radius `5k` about the origin and a span from `(k, −7k)` to
+/// `(7k, k)`, which is the tangent at `(4k, −3k)` — a three-four-five triangle
+/// scaled up, so the touch is exact over whole numbers whatever `k` is.
+///
+/// At `k = 3¹⁷` the coordinates run to `10⁹` and the discriminant's terms to
+/// `10³⁵`, so `b² − 4ac` comes back at `10²¹` rather than nought. Positive, and
+/// by enough that the two roots it then finds stand tens of units apart: read
+/// off the coefficients, a span drawn tangent to a circle cuts it in two places
+/// a bus length from each other, and the drawing gains a chord nobody drew.
+///
+/// Decided off the places and the radius instead it is a graze, which is one
+/// crossing at the touch, standing for nothing. `.notes/KERNEL.md` §7.3 calls
+/// this the tangency every kernel's bug list is made of.
+#[test]
+fn a_graze_is_one_touch_however_the_discriminant_reads() {
+    // Three to the seventeenth: odd, and wide enough that a product of two
+    // coordinates needs more bits than a float holds.
+    const K: f64 = 129140163.0;
+    let hoop = ring((0.0, 0.0), 5.0 * K);
+    let tangent = span((K, -7.0 * K), (7.0 * K, K));
+
+    // The machine's own reading, asserted so that a fixture which stopped
+    // rounding fails here rather than going on passing for the wrong reason.
+    let along = tangent.to - tangent.from;
+    let out = tangent.from - hoop.center;
+    let (a, b, c) = (
+        along.length_squared(),
+        2.0 * out.dot(along),
+        out.length_squared() - hoop.radius * hoop.radius,
+    );
+    assert!(
+        b * b - 4.0 * a * c > 0.0,
+        "the coefficients no longer round, so nothing here has to be decided",
+    );
+    let [near, far] = roots(a, b, c).expect("the machine reads it as a crossing");
+    let apart = (far - near) * along.length();
+    assert!(
+        apart > 1.0,
+        "the machine's two roots are {apart} apart, which is no failure to fix",
+    );
+
+    let found = span_ring(tangent, hoop);
+    assert_eq!(found.all().len(), 1, "the touch came back as a crossing");
+    let touch = found.all()[0];
+    assert!(
+        touch.at.approx_eq(DVec2::new(4.0 * K, -3.0 * K), 1.0),
+        "{:?} rather than the touch at {:?}",
+        touch.at,
+        DVec2::new(4.0 * K, -3.0 * K),
+    );
+    assert_eq!(
+        touch.reached, 0.0,
+        "a graze decided exactly stands for nothing"
+    );
 }

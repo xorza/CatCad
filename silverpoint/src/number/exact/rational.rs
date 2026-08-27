@@ -1,8 +1,4 @@
 //! A number with no rounding in it.
-//!
-//! **No caller yet** — the pencil route in M3b is the first, and the
-//! arithmetic lands ahead of it deliberately. See [`exact`](super).
-#![allow(dead_code)]
 
 use crate::number::exact::field::Field;
 use dashu_base::SquareRoot;
@@ -53,6 +49,14 @@ impl Rational {
     }
 
     /// The whole number `at`.
+    ///
+    /// **Nothing in production hands one in yet.** What reaches here comes off
+    /// a drawing, and a drawing is `f64` throughout. Kept because the pencil
+    /// route in M3b picks an integer point on a quadric to find its ruled
+    /// member — see `.notes/KERNEL.md` §7.3 — and because the tests below are
+    /// written in whole numbers, where reading them through [`Rational::of`]
+    /// would be checking a conversion rather than the arithmetic.
+    #[allow(dead_code)]
     pub(crate) fn whole(at: i64) -> Self {
         Self(RBig::from(at))
     }

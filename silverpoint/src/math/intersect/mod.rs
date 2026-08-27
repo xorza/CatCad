@@ -12,10 +12,13 @@ use crate::inline::Inline;
 use crate::math::intersect::chord::Chord;
 use crate::math::quadratic;
 use crate::number::exact::expansion::Expansion;
+use crate::number::exact::field::Field;
 use crate::number::exact::filtered::Filtered;
+use crate::number::exact::rational::Rational;
 use crate::number::tolerance::{ALIGNED, EXACT, NO_DIRECTION, PLACED, ROUNDING};
 use glam::DVec2;
 use std::cmp::Ordering;
+use std::ops::{Add, Mul, Sub};
 
 pub(crate) mod chord;
 
@@ -108,21 +111,83 @@ fn past(t: f64) -> f64 {
 /// case is the one worth paying for — a corner drawn on a line has to come back
 /// as being on it rather than a rounding past it.
 fn swept(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Ordering {
-    let near = Filtered::of;
-    let filtered = (near(a.x) - near(b.x)) * (near(c.y) - near(d.y))
-        - (near(a.y) - near(b.y)) * (near(c.x) - near(d.x));
-    if let Some(sign) = filtered.sign() {
+    if let Some(sign) = turned(Filtered::of, a, b, c, d).sign() {
         return sign;
     }
     // Sixteen is what the sum reaches: two terms a difference, eight a product
     // of two differences, sixteen the difference of two products.
-    let exact = Expansion::<16>::of;
-    ((exact(a.x) - exact(b.x)) * (exact(c.y) - exact(d.y))
-        - (exact(a.y) - exact(b.y)) * (exact(c.x) - exact(d.x)))
-    .sign()
+    turned(Expansion::<16>::of, a, b, c, d).sign()
 }
 
-/// Whether the crossing of the two spans falls between the ends of both,
+/// `(a − b) ⟂ (c − d)`, in whatever arithmetic `of` reads a coordinate into.
+///
+/// **Written once so the two tiers cannot be two different polynomials.** The
+/// filter and the expansion are asked the same question in the same order, and
+/// a formula spelled twice is how they would come to disagree about which
+/// question it was — the same reason the tests hold every tier here to one
+/// determinant.
+fn turned<T: Sub<Output = T> + Mul<Output = T>>(
+    of: impl Fn(f64) -> T,
+    a: DVec2,
+    b: DVec2,
+    c: DVec2,
+    d: DVec2,
+) -> T {
+    (of(a.x) - of(b.x)) * (of(c.y) - of(d.y)) - (of(a.y) - of(b.y)) * (of(c.x) - of(d.x))
+}
+
+/// Which side of nothing the discriminant of `span` against `ring` falls,
+/// exactly.
+///
+/// **Lagrange's identity turns it into a difference of two squares.** The
+/// quadratic a span makes against a ring has `Δ/4 = r²·|d|² − (f ⟂ d)²`, with
+/// `d` the span's own reach and `f` the reach from the ring's centre to where
+/// the span starts. So whether the span misses, grazes or cuts is two squares
+/// and a subtraction over five numbers — polynomial throughout, and answerable
+/// without a rounding.
+///
+/// **This is the tangency every kernel's bug list is made of** — see
+/// `.notes/KERNEL.md` §7.3. Read off the machine it turns on which side of
+/// nought a cancelled subtraction landed, so a square drawn against the circle
+/// it just touches splits at the touch or misses it depending on the arithmetic
+/// rather than on the drawing.
+///
+/// **Through the rational tier rather than the expansions**, which is where the
+/// two part company: an expansion of the square of a determinant runs to five
+/// hundred terms and its sums grow as the square of that, where a rational of a
+/// few hundred bits multiplies in one step. The filter goes in front of it as
+/// everywhere else, so only a span within a rounding of tangency ever pays.
+fn parting(span: Span, ring: Ring) -> Ordering {
+    if let Some(sign) = parted(Filtered::of, span, ring).sign() {
+        return sign;
+    }
+    parted(Rational::of, span, ring).sign()
+}
+
+/// `r²·|d|² − (f ⟂ d)²` for `span` against `ring`, in whatever arithmetic `of`
+/// reads a coordinate into.
+///
+/// Written once, for the reason [`turned`] is.
+fn parted<T: Clone + Add<Output = T> + Sub<Output = T> + Mul<Output = T>>(
+    of: impl Fn(f64) -> T,
+    span: Span,
+    ring: Ring,
+) -> T {
+    let reach = (
+        of(span.to.x) - of(span.from.x),
+        of(span.to.y) - of(span.from.y),
+    );
+    let out = (
+        of(span.from.x) - of(ring.center.x),
+        of(span.from.y) - of(ring.center.y),
+    );
+    let across = out.0 * reach.1.clone() - out.1 * reach.0.clone();
+    let along = reach.0.clone() * reach.0 + reach.1.clone() * reach.1;
+    let radius = of(ring.radius);
+    radius.clone() * radius * along - across.clone() * across
+}
+
+/// Whether the crossing of the two spans falls between the ends of both,/// Whether the crossing of the two spans falls between the ends of both,
 /// decided exactly.
 ///
 /// **Five determinants and no division.** With `d` the sweep of one span
@@ -228,30 +293,47 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
 /// itself: a line through a circle meets it twice, and a span that stops short
 /// of the far side meets it once.
 ///
-/// **Grazing counts**, which is why the roots come from
-/// [`quadratic::grazing_roots`] rather than from [`roots`](quadratic::roots): a
-/// span tangent to a circle touches it at a place the arrangement has to split
-/// at, and a whole-numbered construction — a square drawn against a circle it
-/// just reaches — lands the discriminant on nought exactly.
+/// **Grazing counts**, which is why the branch comes from [`parting`] rather
+/// than from [`roots`](quadratic::roots): a span tangent to a circle touches it
+/// at a place the arrangement has to split at, and read off the coefficients
+/// that touch is a knife edge — the same tangent scaled up until the products
+/// need more than a float holds comes back as two crossings a bus length
+/// apart.
 pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
     let along = span.along();
     let reach = along.length();
     if reach < NO_DIRECTION {
         return Crossings::none();
     }
+    // **The branch is asked of the geometry and the roots of the machine.**
+    // Which of the three a span does to a ring — miss it, graze it, or go
+    // through — is a polynomial in the places and the radius, so it is decided
+    // without a rounding; where the two crossings then *are* is a square root,
+    // which is not.
+    let under = parting(span, ring);
     // `|from + t·along − centre|² = radius²`, gathered into `at² + bt + c`.
     let from = span.from - ring.center;
-    let Some(roots) = quadratic::grazing_roots(
+    let Some(roots) = quadratic::roots_given(
         reach * reach,
         2.0 * from.dot(along),
         from.length_squared() - ring.radius * ring.radius,
+        under,
     ) else {
         return Crossings::none();
     };
     let slack = PLACED / reach;
+    // Two roots the machine handed back equal are two places it could not tell
+    // apart, wherever the discriminant is not nought — so what folds them below
+    // has a rounding to record rather than nothing, and the span is not
+    // reported as touching where it went through.
+    let split = if under == Ordering::Greater && roots[0] == roots[1] {
+        ROUNDING
+    } else {
+        EXACT
+    };
     let at = |t: f64| Crossing {
         at: span.from + along * t,
-        reached: past(t) * reach,
+        reached: (past(t) * reach).max(split),
     };
     match roots.map(|t| holds(t, slack).then(|| at(t))) {
         [Some(near), Some(far)] => crossed(near, far),
