@@ -449,11 +449,14 @@ impl Prompt {
     /// what the [`Profile`] is for: a position is only good for the arrangement
     /// it was read from, and a form outlives several.
     pub(crate) fn growing(&self, models: Models<'_>) -> Option<Growing> {
-        let profile = self.about.extruding()?;
+        let Asking::Extrude { profile, operation } = &self.about else {
+            return None;
+        };
         Some(Growing {
             sketch: profile.sketch(),
             region: profile.face_of(models)?,
             distance: self.shows(0)?,
+            operation: *operation,
         })
     }
 

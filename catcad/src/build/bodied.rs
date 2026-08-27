@@ -129,20 +129,13 @@ impl Bodied {
         // model exactly as it was, and the step is still the one that came to
         // nothing. The depth is a number somebody is still typing.
         let raised_nothing = raised.is_empty();
-        let stands = if standing.is_empty() {
-            // Nothing to put it together with. A join is the whole of itself,
-            // and the two operations that need something to take material out
-            // of or to share it with come to nothing at all — which is honest
-            // rather than helpful: a first step that says cut has cut nothing,
-            // and quietly making it a boss would hide the mistake.
-            match digest.operation() {
-                Operation::Join => std::mem::swap(&mut self.body, raised),
-                Operation::Cut | Operation::Intersect => self.body.clear(),
-            }
-            true
-        } else {
-            boolean.combine(standing, raised, digest.operation(), &mut self.body)
-        };
+        let stands = merged(
+            boolean,
+            (!standing.is_empty()).then_some(standing),
+            raised,
+            digest.operation(),
+            &mut self.body,
+        );
         self.built = match (stands, raised_nothing) {
             // Refused, so what is kept is the step's own solid: it stands beside
             // the model rather than in it, which is the whole of what a refusal
@@ -313,6 +306,42 @@ impl Version {
     fn next(self) -> Self {
         Self(self.0 + 1)
     }
+}
+
+/// Put `raised` together with `standing` per `operation`, into `into`, and say
+/// whether the two came to a body.
+///
+/// **Where a preview and a commit agree.** A step's own rebuild runs this, and
+/// so does the form still deciding a depth — see
+/// [`Growing::body`](crate::paint::growing::Growing). Two copies of the rule
+/// would be two chances for the solid on screen while a number is typed to be
+/// a solid the timeline goes on to build differently.
+///
+/// **Nothing standing is not the same as nothing to do.** A join is the whole
+/// of itself, and the two operations that need material to take out of or to
+/// share with come to nothing at all — which is honest rather than helpful: a
+/// first step that says cut has cut nothing, and quietly making it a boss
+/// would hide the mistake. `None` rather than an empty body, so a caller
+/// cannot pass one and mean the other.
+///
+/// Where they do not merge, `raised` is left holding the step's own solid for
+/// the caller to take: what a refusal costs is that the solid stands beside the
+/// model rather than in it.
+pub(crate) fn merged(
+    boolean: &mut Boolean,
+    standing: Option<&Body>,
+    raised: &mut Body,
+    operation: Operation,
+    into: &mut Body,
+) -> bool {
+    let Some(standing) = standing else {
+        match operation {
+            Operation::Join => std::mem::swap(into, raised),
+            Operation::Cut | Operation::Intersect => into.clear(),
+        }
+        return true;
+    };
+    boolean.combine(standing, raised, operation, into)
 }
 
 /// The room one step's rebuild works in, and the drawing it reads.

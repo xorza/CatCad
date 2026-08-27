@@ -672,7 +672,8 @@ pub(crate) mod internals {
     use crate::CatCad;
     use crate::hud;
     #[cfg(test)]
-    use crate::intent::{Intent, Intents};
+    use crate::intent::Intent;
+    use crate::intent::{Choice, Intents, Opening};
     use crate::look::palette::Palette;
     use crate::tool::Tool;
 
@@ -790,6 +791,60 @@ pub(crate) mod internals {
             self.session.enter_first_sketch(&self.document, &self.build);
             self.view
                 .settle(&self.document, &self.build, &self.theme, &self.session);
+        }
+
+        /// Open the form that decides the depth of a solid grown off `region`
+        /// of the sketch the session has open.
+        ///
+        /// Through the inbox rather than by writing the session, the way the
+        /// relation bar's own Extrude chip asks. Here because a gate measuring
+        /// the frames a depth is typed over has to be *in* one, and what opens
+        /// a form is this crate's own vocabulary rather than a harness's.
+        ///
+        /// Nothing reaches the timeline: a form open on a region is a solid on
+        /// screen and a step the document has not heard of — see
+        /// [`Opening::Extrude`](crate::intent::Opening).
+        pub fn ask_for_a_depth(&mut self, region: usize) {
+            let sketch = self.editing();
+            let mut intents = Intents::default();
+            intents.push(Choice::Ask(Some(Opening::Extrude { sketch, region })));
+            let Self {
+                session,
+                document,
+                build,
+                ..
+            } = self;
+            session.apply(document.models(build, session.editing()), &intents);
+        }
+
+        /// Put `to` in the open form's depth field, the way a drag on the
+        /// arrow carrying the solid does.
+        ///
+        /// Through the inbox, because that is how the arrow writes it: a drag
+        /// sends one [`Choice::Set`](crate::intent::Choice) a frame and the
+        /// form decides what the number comes to. So a gate driving this
+        /// drives the frames a depth is decided over without having to find
+        /// the arrow in the picture first.
+        pub fn set_a_depth(&mut self, to: f64) {
+            let mut intents = Intents::default();
+            intents.push(Choice::Set { nth: 0, to });
+            let Self {
+                session,
+                document,
+                build,
+                ..
+            } = self;
+            session.apply(document.models(build, session.editing()), &intents);
+        }
+
+        /// What the open form's depth field reads as, or `None` where no form
+        /// is deciding one.
+        ///
+        /// What a gate asserts to say it reached the frame it names: a depth
+        /// that stopped moving is a preview that stopped being rebuilt, and a
+        /// gate on a number would go on reporting zero about it.
+        pub fn deciding_a_depth(&self) -> Option<f64> {
+            self.session.prompt()?.shows(0)
         }
 
         /// Ask the session for `choice`, the way the bar or a gesture asks.

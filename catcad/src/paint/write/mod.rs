@@ -27,7 +27,7 @@ use std::fmt::Write;
 
 use crate::look::Theme;
 use crate::model::{Model, Models};
-use crate::paint::growing::Growing;
+use crate::paint::growing::{Deciding, Growing, Raising, UNTAKEN};
 use crate::paint::layout::Sheets;
 use crate::paint::marks::mark::Mark;
 use crate::paint::marks::{Placed, Proposed};
@@ -575,12 +575,26 @@ pub(super) fn solids(
         patch,
         deciding,
         builder,
+        boolean,
+        raised,
         ..
     } = sheets;
-    // Raised here rather than borrowed off the document, unlike every solid
+    // Worked out here rather than borrowed off the document, unlike every solid
     // there is a step for: the one being decided has no step to be held
     // against. See [`Growing::body`](crate::paint::growing::Growing).
-    let shown = growing.is_some_and(|growing| growing.body(models, builder, deciding));
+    let showing = growing.map_or(Deciding::Nothing, |growing| {
+        let raising = Raising {
+            builder,
+            boolean,
+            raised,
+        };
+        growing.body(models, raising, deciding)
+    });
+    // **The answer stands in for the document's own solids**, because it
+    // already holds them: drawing both would put the model on screen twice,
+    // two copies of one surface fighting for one depth. Every other answer
+    // leaves the document drawn as it always is.
+    let standing = (showing != Deciding::Answer).then(|| models.solids());
     // One walk and nothing gathered: a body hands out its faces as an iterator,
     // so the whole of a document's solids is written straight into the batch. A
     // list of them first would be an allocation a frame, which is exactly what
@@ -589,12 +603,13 @@ pub(super) fn solids(
     // at a time rewrites the batch it is already in — see `Batch::refill`.
     // Last, so the tags of everything the document holds come out the same
     // whether or not a form is open.
-    let faces = models
-        .solids()
-        .map(|(_, body)| (true, body))
-        .chain(shown.then_some((false, &*deciding)))
-        .flat_map(|(taken, body)| body.names().map(move |face| (taken, body, face)));
-    into.refill(faces, |object, (taken, body, face)| {
+    let faces = standing
+        .into_iter()
+        .flatten()
+        .map(|(_, body)| body)
+        .chain((showing != Deciding::Nothing).then_some(&*deciding))
+        .flat_map(|body| body.names().map(move |face| (body, face)));
+    into.refill(faces, |object, (body, face)| {
         mesher.cut(body, face, SOLID_SAGITTA, patch);
         remesh(
             &mut object.mesh,
@@ -611,12 +626,14 @@ pub(super) fn solids(
         object.transform = Mat4::IDENTITY;
         object.color = theme.drawing.solid;
         object.precedence = Precedence::Shaped;
-        // Untagged while it is being decided, which is what keeps a solid that
-        // is not in the document out of everything that names one: it cannot be
-        // hovered, picked out, or built on, because there is nothing yet to
-        // name. What *is* grabbable is the arrow that carries it, which is a
-        // control rather than the solid.
-        object.tag = taken.then(|| {
+        // **A face carries the step that grew it, so the tag follows the
+        // name.** What is being decided has no step — see [`UNTAKEN`] — so it
+        // cannot be hovered, picked out or built on, there being nothing yet
+        // to name; what is grabbable is the arrow carrying it, which is a
+        // control rather than the solid. Every face the model brought through
+        // the boolean keeps the tag it always had, so a form open on a depth
+        // does not take the rest of the part out of reach.
+        object.tag = (face.by != UNTAKEN).then(|| {
             names.tag(Part::Solid {
                 of: face.by.into(),
                 face: face.grown,

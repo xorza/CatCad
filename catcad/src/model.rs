@@ -689,6 +689,36 @@ impl<'a> Models<'a> {
         }
     }
 
+    /// The solid a step added now would build on, or `None` where nothing
+    /// stands.
+    ///
+    /// The last step to have merged, which is what makes it the model: every
+    /// step joins its own solid to what the steps before it left or cuts it
+    /// out of them, so the last one to have succeeded is what the document
+    /// *is*. Worked out by walking, because a step only knows it is the last
+    /// to have merged once the rest have been.
+    ///
+    /// Held apart from [`Models::solids`] rather than folded into it because a
+    /// form still deciding a depth has to *combine against* the model rather
+    /// than draw it — see [`Growing::body`](crate::paint::growing::Growing).
+    /// Both read this, so a preview cannot show an answer built on a different
+    /// body from the one the commit will build on.
+    ///
+    /// An empty body is still the model. What that means is the caller's: the
+    /// drawing leaves it out, and a preview reads it as nothing to put a tool
+    /// together with.
+    pub(crate) fn model(self) -> Option<(FeatureId, &'a Body)> {
+        let Self {
+            timeline, build, ..
+        } = self;
+        timeline
+            .extrudes()
+            .filter(|step| timeline.built(step.at))
+            .filter(|step| build.bodied(step.at).built().merged())
+            .map(|step| (step.at, build.bodied(step.at).body()))
+            .last()
+    }
+
     /// Every solid the document stands as, which is normally one.
     ///
     /// **One body per run of steps that merged, and not one per extrude.** A
@@ -714,14 +744,7 @@ impl<'a> Models<'a> {
         let Self {
             timeline, build, ..
         } = self;
-        // Which of them is the model, worked out first because a step only
-        // knows it is the last to have merged once the rest have been walked.
-        let model = timeline
-            .extrudes()
-            .filter(|step| timeline.built(step.at))
-            .filter(|step| build.bodied(step.at).built().merged())
-            .map(|step| step.at)
-            .last();
+        let model = self.model().map(|(at, _)| at);
         timeline
             .extrudes()
             .filter(move |step| timeline.built(step.at))

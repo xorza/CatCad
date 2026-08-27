@@ -1,6 +1,6 @@
 //! The picture the view last wrote, and the room it was written in.
 
-use silverpoint::{Body, Builder, ConstraintId, Fill, Filler, Mesher, Patch};
+use silverpoint::{Body, Boolean, Builder, ConstraintId, Fill, Filler, Mesher, Patch};
 
 use crate::build::Revision;
 use crate::lens::Lens;
@@ -321,7 +321,8 @@ pub(crate) struct Sheets {
     pub(super) mesher: Mesher,
     /// One solid face's triangles, overwritten by the next, for the same reason.
     pub(super) patch: Patch,
-    /// The solid a form is deciding the depth of, and the room to raise it in.
+    /// The solid a form is deciding the depth of, and the room to work it out
+    /// in.
     ///
     /// Here rather than in the document because there is no step for it yet —
     /// see [`Growing::body`](crate::paint::growing::Growing) — and here rather
@@ -329,4 +330,7 @@ pub(crate) struct Sheets {
     /// on every frame the form is open.
     pub(super) deciding: Body,
     pub(super) builder: Builder,
+    pub(super) boolean: Boolean,
+    /// Where the tool is raised, before it is put together with what stands.
+    pub(super) raised: Body,
 }

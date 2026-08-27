@@ -793,30 +793,31 @@ cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- 
 ```
 
 The order departs from §10's rule 6 in one place, and only at the front: 9.1 is
-days rather than months, and it shows a user the wrong solid every time they
-type a depth into a cut. Everything from 9.2 on is the document's own order.
+days rather than months, and it is the last thing M2 owes — §1 asks for a
+tessellation that refines as you zoom, and until it lands that is a requirement
+the tree does not meet. Everything from 9.2 on is the document's own order.
 
-### 9.1 One pass over `paint/`
+### 9.1 The sagitta off the camera
 
-Two things on one mesh path. **The measurement they turned on is made**, and
-what it found is in §11: a boolean is a fraction of a frame below about thirty
-faces and several frames above it, raising a prism is microseconds throughout,
-and meshing the answer is under a tenth of a frame.
+**`SOLID_SAGITTA` is a constant** in `catcad/src/paint/mod.rs`. M2's last debt
+is to take it from the camera, which means rewriting a solid's mesh when the
+camera moves — today deliberately not done, to keep the drawing's cost off the
+camera's clock. §11's measurement says that clock can afford it: meshing a
+bored block is under a hundredth of a frame and a sixty-four-sided prism under a
+tenth. A paint-layer decision, not a kernel one.
 
-- **§8's preview draws the extrusion, not the result** — see
-  [`Growing`](../catcad/src/paint/growing.rs). A cut therefore previews what is
-  about to be taken away rather than what will be left. The live path is
-  affordable for the tools a person actually cuts with, so it is the one to
-  build; the switch to a translucent ghost reads the *tool's own face count*
-  rather than a clock, because a count is something a frame can ask before it
-  pays where a timer only says what the last frame cost. The ghost is worth
-  having regardless: it is the right thing to show for a cut whose result is
-  hidden behind the part from the current camera.
-- **`SOLID_SAGITTA` is a constant** in `catcad/src/paint/mod.rs`. M2's last debt
-  is to take it from the camera, which means rewriting a solid's mesh when the
-  camera moves — today deliberately not done, to keep the drawing's cost off the
-  camera's clock. The measurement says that clock can afford it. A paint-layer
-  decision, not a kernel one.
+**Two things that were here are done.** The measurement is §11. The preview
+builds the answer rather than the tool, over the model the commit would build
+on, and falls back to showing the tool where the tool has more faces than a
+frame can combine — `paint::LIVE_FACES`, read before the boolean runs rather
+than timed after it.
+
+**What is left of it is a ghost**, and it wants work in `aperture3d` rather than
+in `paint/`: an `Object` carries a `Vec3` colour and the only translucent mesh
+pass is the flat sheets a drawing's regions are filled with, so there is nothing
+for a solid to be drawn faintly *in*. Worth having for two cases — a tool too
+detailed to combine, and a cut whose result is hidden behind the part from the
+current camera — and neither is worth a pass on its own yet.
 
 ### 9.2 M0 — exact numbers
 

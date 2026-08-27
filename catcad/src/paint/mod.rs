@@ -57,6 +57,22 @@ const FACE_SAGITTA: f64 = 0.005;
 /// flat fill shows up as nothing at all.
 const SOLID_SAGITTA: f64 = 0.002;
 
+/// How many faces a tool may have before the drawing stops previewing the
+/// answer and shows the tool instead.
+///
+/// A boolean grows between quadratically and cubically in the tool's faces —
+/// `.notes/KERNEL.md` §11 — so a bore, a pocket, a boss or a milled flat is a
+/// fraction of a frame and a profile traced round a curve is several of them.
+/// Measured, thirty faces is about a third of a frame at 120 Hz, which leaves
+/// the rest of it for the drawing the preview stands in.
+///
+/// **Read before the boolean runs rather than timed after it.** A count is
+/// something a frame can ask before it pays, where a clock only says what the
+/// last frame cost — and a preview that flickered between the answer and the
+/// tool as a depth was typed would be worse than one that never showed the
+/// answer at all.
+const LIVE_FACES: usize = 30;
+
 /// How far a plane's square reaches from its middle, in logical pixels.
 ///
 /// **On screen rather than in the world**, which is what a plane's square is

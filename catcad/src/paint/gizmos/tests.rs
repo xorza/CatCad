@@ -6,7 +6,7 @@ use crate::paint::growing::Growing;
 use crate::paint::{MARK_FONT, redraw};
 use crate::preview::Preview;
 use aperture::Scene;
-use silverpoint::{Along, Dimension, Sketch};
+use silverpoint::{Along, Dimension, Operation, Sketch};
 
 /// A plane that can be moved is drawn as a gizmo at its origin, and one that
 /// cannot is not drawn at all.
@@ -182,6 +182,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
             sketch: document.first_sketch(),
             region: 0,
             distance: 0.5,
+            operation: Operation::Join,
         }),
         ..Showing::default()
     };

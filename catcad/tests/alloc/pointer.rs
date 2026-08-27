@@ -192,3 +192,56 @@ fn a_banding_frame_allocates_nothing() {
         raised.frame();
     });
 }
+
+/// Frames with a depth being decided, which is the dearest thing the app draws
+/// on any of them.
+///
+/// A form open on a region raises the tool and puts it together with the model
+/// on every frame the depth moves — a whole kernel boolean where every other
+/// gate here measures a redraw. Everything it needs is held across frames: the
+/// builder, the boolean, the body the tool is raised into and the body the
+/// answer is written to, all on the layout beside the mesher. See
+/// [`Growing::body`](catcad::internals) — the claim is that a depth typed a
+/// digit at a time reaches the heap once, and nothing else checked it.
+///
+/// Driven through the inbox rather than by dragging the arrow, because that is
+/// what the arrow does: one `Set` a frame, and the form decides what the number
+/// comes to.
+///
+/// **The one gate here with a budget, and the two blocks are not the drawing's.**
+/// A form open on screen is a `TextEdit` with a placeholder, and a placeholder
+/// takes a `Cow<'static, str>` where the string is the form's — so it is cloned
+/// once a frame, which `Prompt::beside` argues at the line that does it. Stated
+/// exactly rather than loosely: everything the depth itself costs is under it,
+/// so a body that stopped being refilled in place reads as three and fails.
+#[test]
+fn a_frame_deciding_a_depth_allocates_nothing() {
+    let mut raised = Raised::new();
+    raised.app.ask_for_a_depth(0);
+    raised.frame();
+    assert_eq!(
+        raised.app.deciding_a_depth(),
+        Some(0.0),
+        "no form is deciding a depth, so this measures an ordinary redraw",
+    );
+
+    // One depth before the window, both to build the first body outside it and
+    // to say that the number *moves*: a form that stopped taking one would go
+    // on reporting zero for a frame that never reaches the kernel.
+    raised.app.set_a_depth(1.0);
+    raised.frame();
+    assert_eq!(
+        raised.app.deciding_a_depth(),
+        Some(1.0),
+        "the form did not take the depth, so nothing is being rebuilt",
+    );
+
+    let mut step = 0usize;
+    AllocTester::new().warmup(16).budget(2).run(|| {
+        step += 1;
+        // Never twice the same, so the solid is rebuilt on every frame rather
+        // than the layout finding nothing moved and leaving the batch alone.
+        raised.app.set_a_depth(1.0 + (step % 16) as f64 / 16.0);
+        raised.frame();
+    });
+}

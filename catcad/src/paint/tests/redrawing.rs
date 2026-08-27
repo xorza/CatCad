@@ -15,6 +15,7 @@ use aperture::{Scene, Tag};
 use glam::UVec2;
 use glam::Vec3;
 use silverpoint::Entity;
+use silverpoint::Operation;
 
 /// **A redraw makes again what has moved, and leaves the rest where it is.**
 ///
@@ -125,6 +126,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
                 sketch: editing,
                 region: 0,
                 distance: 1.0,
+                operation: Operation::Join,
             }),
             ..Showing::default()
         },
@@ -204,6 +206,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
                 sketch: editing,
                 region: 0,
                 distance: 1.0,
+                operation: Operation::Join,
             }),
             ..Showing::default()
         },
