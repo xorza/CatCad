@@ -25,6 +25,7 @@ use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::sewing::Sewing;
 use crate::solid::boolean::sounding::{Sounding, Standing};
 use crate::solid::boolean::splitting::{Came, Cells, Corner, Cut, Splitting};
+use crate::solid::buckets::Buckets;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
@@ -217,7 +218,11 @@ struct Combining {
     /// The distinct surfaces of the body being cut against that reach it at all
     /// — see [`Combining::against`], which says why they are surfaces rather
     /// than faces, and why "reach it" is asked of the whole body.
+    ///
+    /// `reached` is which of them key alike, so a face's surface is told from
+    /// a handful rather than compared against every surface already collected.
     met: Vec<Surface>,
+    reached: Buckets,
     /// The box each face of the two bodies fills, one body's run after the
     /// other's, and where the second run begins.
     ///
@@ -329,13 +334,26 @@ impl Combining {
             reach.swallow(self.boxed[at]);
         }
         self.met.clear();
+        self.reached.clear();
         for ((_, other), at) in theirs.topology().faces().zip(there) {
             if !self.boxed[at].meets(reach, CHORDED) {
                 continue;
             }
-            if !self.met.contains(&other.surface) {
-                self.met.push(other.surface);
+            // Through the index rather than by walking what is already here:
+            // every face of one body asks about every surface of the other,
+            // and the cost of a walk grows as the square of the body. Equality
+            // still decides, exactly as above — see [`Surface::key`].
+            let key = other.surface.key();
+            if self
+                .reached
+                .under(key)
+                .any(|at| self.met[at as usize] == other.surface)
+            {
+                continue;
             }
+            let slot = self.reached.file(key);
+            debug_assert_eq!(slot as usize, self.met.len(), "the index lost step");
+            self.met.push(other.surface);
         }
         for (_, face) in mine.topology().faces() {
             self.lay(mine, face);

@@ -5,6 +5,7 @@ use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, PLACED};
+use crate::solid::buckets::Key;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::sphere::Sphere;
@@ -59,6 +60,43 @@ pub(crate) enum Surface {
 }
 
 impl Surface {
+    /// The key several of these are filed under — see
+    /// [`Buckets`](crate::solid::buckets::Buckets).
+    ///
+    /// Over the numbers the surface is made of, which is what makes it a key
+    /// two equal surfaces cannot disagree on: two faces of one surface were
+    /// *given* the same value rather than each working one out, so every
+    /// number of the two matches bit for bit.
+    ///
+    /// Which variant it is goes in as well. Two surfaces of different kinds
+    /// are never equal, and a key that let them collide would cost a
+    /// comparison for nothing.
+    pub(crate) fn key(&self) -> u64 {
+        match self {
+            Self::Plane(plane) => Key::default()
+                .word(0)
+                .place(plane.origin)
+                .place(plane.x)
+                .place(plane.y)
+                .done(),
+            Self::Cylinder(cylinder) => cylinder
+                .axis
+                .keyed(Key::default().word(1))
+                .float(cylinder.radius)
+                .done(),
+            Self::Cone(cone) => cone
+                .axis
+                .keyed(Key::default().word(2))
+                .float(cone.half_angle)
+                .done(),
+            Self::Sphere(sphere) => sphere
+                .axis
+                .keyed(Key::default().word(3))
+                .float(sphere.radius)
+                .done(),
+        }
+    }
+
     /// Where the parameters `uv` land in the world.
     pub(crate) fn at(&self, uv: DVec2) -> DVec3 {
         match self {

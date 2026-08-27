@@ -678,3 +678,102 @@ fn each_surface_allows_the_step_its_own_arcs_are_chorded_at() {
         "and by more than it need be: {across}"
     );
 }
+
+/// **Every number a surface or a curve is made of reaches its key**, which is
+/// the one thing a key has to get right: two values that are one key alike, so
+/// nothing is ever filed where the lookup will not look, and two that differ in
+/// any number key apart, so the key is a filter rather than a formality.
+///
+/// The pairs below differ in one number apiece — a radius, a half angle, an
+/// axis of a frame — and two of them differ in nothing but which surface they
+/// are, which is what the variant goes into the key for.
+#[test]
+fn a_key_moves_with_every_number_a_surface_or_a_curve_is_made_of() {
+    let axis = upright();
+    let along = Axis::new(DVec3::X, DVec3::Y, DVec3::X);
+    let turned = Axis::new(DVec3::ZERO, DVec3::Y, DVec3::Z);
+
+    // One value, one key. Worked out twice rather than copied, because that is
+    // what two faces of one surface do.
+    assert_eq!(
+        Surface::Cylinder(Cylinder { axis, radius: 2.0 }).key(),
+        Surface::Cylinder(Cylinder { axis, radius: 2.0 }).key(),
+    );
+
+    let surfaces = [
+        Surface::Plane(Plane::GROUND),
+        Surface::Plane(Plane::FRONT),
+        Surface::Cylinder(Cylinder { axis, radius: 2.0 }),
+        Surface::Cylinder(Cylinder { axis, radius: 3.0 }),
+        Surface::Cylinder(Cylinder {
+            axis: along,
+            radius: 2.0,
+        }),
+        Surface::Cylinder(Cylinder {
+            axis: turned,
+            radius: 2.0,
+        }),
+        Surface::Cone(Cone {
+            axis,
+            half_angle: FRAC_PI_4,
+        }),
+        Surface::Cone(Cone {
+            axis,
+            half_angle: FRAC_PI_4 / 2.0,
+        }),
+        // Which surface it is, and nothing else, tells this from the cylinder
+        // above.
+        Surface::Sphere(Sphere { axis, radius: 2.0 }),
+        Surface::Sphere(Sphere { axis, radius: 3.0 }),
+    ];
+    for (at, one) in surfaces.iter().enumerate() {
+        for two in &surfaces[at + 1..] {
+            assert_ne!(one.key(), two.key(), "{one:?} keys as {two:?}");
+        }
+    }
+
+    assert_eq!(
+        Curve::Circle(Circle { axis, radius: 2.0 }).key(),
+        Curve::Circle(Circle { axis, radius: 2.0 }).key(),
+    );
+    let curves = [
+        Curve::Line(Line {
+            origin: DVec3::ZERO,
+            direction: DVec3::X,
+        }),
+        Curve::Line(Line {
+            origin: DVec3::Y,
+            direction: DVec3::X,
+        }),
+        Curve::Line(Line {
+            origin: DVec3::ZERO,
+            direction: DVec3::Z,
+        }),
+        Curve::Circle(Circle { axis, radius: 2.0 }),
+        Curve::Circle(Circle { axis, radius: 3.0 }),
+        Curve::Circle(Circle {
+            axis: along,
+            radius: 2.0,
+        }),
+        Curve::Ellipse(Ellipse {
+            axis,
+            major: 3.0,
+            minor: 2.0,
+        }),
+        Curve::Ellipse(Ellipse {
+            axis,
+            major: 3.0,
+            minor: 1.0,
+        }),
+        Curve::Ellipse(Ellipse {
+            axis,
+            major: 4.0,
+            minor: 2.0,
+        }),
+    ];
+    for (at, one) in curves.iter().enumerate() {
+        for two in &curves[at + 1..] {
+            assert_ne!(one.key(), two.key(), "{one:?} keys as {two:?}");
+        }
+    }
+}

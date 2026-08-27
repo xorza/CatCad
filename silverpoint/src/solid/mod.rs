@@ -18,6 +18,7 @@
 //! arrives as an arrangement and a position in it.
 
 pub(crate) mod boolean;
+pub(crate) mod buckets;
 pub(crate) mod build;
 pub(crate) mod geometry;
 pub(crate) mod grown;

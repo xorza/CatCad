@@ -3,7 +3,6 @@
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::arrangement::edge::{Edge, Half};
 use crate::sketch::arrangement::face::Face;
-use crate::sketch::entity::Entity;
 
 /// The room the reading works in, kept so that the next face need not ask for
 /// it again.
@@ -51,7 +50,7 @@ impl Bounding {
                 let bound = edges[half.edge].bound(half.forward);
                 Walked {
                     bound,
-                    key: key_of(bound),
+                    key: bound.key(),
                     on_outline,
                 }
             }));
@@ -106,33 +105,13 @@ impl Bounding {
     }
 }
 
-/// A number to gather a region's pieces by: which curve, and which side of it.
-///
-/// Ordered rather than merely compared, so that the pieces of one curve fall
-/// together in a sort and a region bounded by a hundred curves is described by
-/// walking runs instead of searching for them. The side is the low bit, which
-/// puts the far side of a curve one flip away — and a spur is exactly a curve
-/// whose far side is here too.
-fn key_of(bound: Bound) -> u64 {
-    // A slot is a `u32`, so one shifted up by the side bit still stops short of
-    // the thirty-fourth: the segments fill the bottom of the range and the
-    // circles start above everything they can reach.
-    let (kind, slot) = match bound.of {
-        Entity::Segment(id) => (0u64, id.slot()),
-        Entity::Circle(id) => (1u64, id.slot()),
-        // An edge is cut from a segment or a circle and from nothing else.
-        of => unreachable!("{of:?} was never cut into an edge"),
-    };
-    (kind << 33) | ((slot as u64) << 1) | u64::from(bound.along)
-}
-
 /// One piece of curve a region is walked along, with what [`Bounding::fill`]
 /// would otherwise work out about it more than once.
 #[derive(Debug, Clone, Copy)]
 struct Walked {
     /// The curve it is a piece of, and the side the region is on.
     bound: Bound,
-    /// That same curve and side as something to sort by — see [`key_of`].
+    /// That same curve and side as something to sort by — see [`Bound::key`].
     key: u64,
     /// Whether it was walked by the region's outline as against by a hole.
     on_outline: bool,

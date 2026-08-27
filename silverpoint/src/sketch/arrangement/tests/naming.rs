@@ -138,6 +138,27 @@ fn a_face_is_named_by_which_side_of_each_curve_it_lies_on() {
 
     // That a spur raises no *wall* either is the same rule read the other way,
     // and it is asserted where walls are now raised — see `solid::build`.
+
+    // **The number these are gathered by says exactly what they say**, which is
+    // what lets a reader group by it and never compare again. Two sides of one
+    // curve are one flip apart, which is how a spur is found; two curves are
+    // nowhere near each other; and a bound that names something no edge is cut
+    // from still answers rather than refusing.
+    let bound = |of, along| Bound { of, along };
+    let (ring, cut) = (Entity::Circle(circle), Entity::Segment(chord));
+    assert_eq!(bound(ring, true).key() ^ 1, bound(ring, false).key());
+    let keys = [
+        bound(ring, true).key(),
+        bound(ring, false).key(),
+        bound(cut, true).key(),
+        bound(cut, false).key(),
+        bound(Entity::Point(base), true).key(),
+    ];
+    for (at, one) in keys.iter().enumerate() {
+        for two in &keys[at + 1..] {
+            assert_ne!(one, two, "two bounds share one number");
+        }
+    }
 }
 
 /// **A name holds where a position does not.**

@@ -182,6 +182,22 @@ fn a_circle_raises_two_walls_with_one_name_on_one_exact_cylinder() {
     assert_eq!(body.topology().faces().count(), 4, "the wall was not split");
     assert_eq!(body.patches(wall).count(), 2, "one face covers the turn");
 
+    // And the body answers for exactly those three, which is the question
+    // anything keeping hold of a face across an edit asks. The wall walked the
+    // other way is the name of a face this body does not have.
+    for name in [base, far, wall] {
+        assert!(body.holds(name), "{name:?} is a face and was not held");
+    }
+    let backwards = STEP.grew(Grown::Side(Bound {
+        of: Entity::Circle(ring),
+        along: false,
+    }));
+    assert!(!body.holds(backwards), "a name it never grew");
+    assert!(
+        !body.holds(Step(STEP.0 + 1).grew(Grown::Base)),
+        "another step"
+    );
+
     // Each half lies on the same exact cylinder: the drawing's own centre
     // carried onto the plane, radius two, running along the plane's normal.
     for (id, face) in body.patches(wall) {

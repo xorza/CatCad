@@ -10,46 +10,46 @@
 // different colour.
 (
     // Chrome — the surfaces and inks a control floating over the drawing wears.
-    ground:       "#1e1e1e",  // bg                     gray_950
-    pill:         "#272727",  // panel                  gray_900
-    pill_edge:    "#dfdfdf",  // text                   gray_200
-    rule:         "#dfdfdf",  // text                   gray_200
-    chip:         "#313131",  // elem                   gray_850
-    chip_lit:     "#3c3c3c",  // elem_hover             gray_800
-    chip_active:  "#474747",  // elem_active            gray_750
-    chip_held:    "#dfdfdf",  // text                   gray_200
-    on_held:      "#1e1e1e",  // bg                     gray_950
-    ink:          "#aaaaaa",  // text_muted             gray_400
-    ink_lit:      "#dfdfdf",  // text                   gray_200
-    ink_dim:      "#565656",  // (the ramp's gap)       between gray_750 and gray_600
-    cube_low:     "#272727",  // panel                  gray_900
-    cube_high:    "#747474",  // line_number            gray_600
-    focus:        "#dfdfdf",  // text                   gray_200
+    ground:       "#1e1e1e",  // bg                     gray_24
+    pill:         "#2a2a2a",  // panel                  gray_29
+    pill_edge:    "#eaeaea",  // text                   gray_94
+    rule:         "#eaeaea",  // text                   gray_94
+    chip:         "#373737",  // elem                   gray_34
+    chip_lit:     "#444444",  // elem_hover             gray_39
+    chip_active:  "#515151",  // elem_active            gray_44
+    chip_held:    "#eaeaea",  // text                   gray_94
+    on_held:      "#1e1e1e",  // bg                     gray_24
+    ink:          "#a4a4a4",  // text_muted             gray_72
+    ink_lit:      "#eaeaea",  // text                   gray_94
+    ink_dim:      "#515151",  // (the ramp's gap)       between gray_750 and gray_600
+    cube_low:     "#2a2a2a",  // panel                  gray_29
+    cube_high:    "#515151",  // line_number            gray_44
+    focus:        "#eaeaea",  // text                   gray_94
 
     // Drawing — what the geometry and the solids beside it are painted in.
-    solid:        "#c6c6c6",  // line_number_hover      gray_300
-    determined:   "#7adcf3",  // syn_type               cyan_400
-    partly:       "#ffd44a",  // warning                yellow_400
-    free:         "#ffa63d",  // syn_keyword            orange_400
-    pinned:       "#ff6b52",  // error                  red_400
-    dormant:      "#aaaaaa",  // text_muted             gray_400
-    dormant_face: "#2c4a60",  // info_bg                blue_700
-    face:         "#4a8ab0",  // info_border            blue_600
-    ghost:        "#dfdfdf",  // text                   gray_200
-    sheet_ground: "#6f8605",  // ansi_green             green_750
-    sheet_front:  "#5682a0",  // ansi_blue              blue_550
-    sheet_side:   "#dc4b34",  // ansi_red               red_450
-    sheet_datum:  "#747474",  // line_number            gray_600
-    mark:         "#d897ff",  // syn_number             purple_400
-    redundant:    "#ffa493",  // ansi_bright_red        red_250
-    depth_arrow:  "#dfdfdf",  // selection_fg           gray_200
+    solid:        "#eaeaea",  // line_number_hover      gray_94
+    determined:   "#87e2fe",  // syn_type               cyan_vivid
+    partly:       "#fecd12",  // warning                yellow_vivid
+    free:         "#f29407",  // syn_keyword            orange_bright
+    pinned:       "#fd8974",  // error                  red_bright
+    dormant:      "#a4a4a4",  // text_muted             gray_72
+    dormant_face: "#013b58",  // info_bg                blue_dim
+    face:         "#0179b1",  // info_border            blue_normal
+    ghost:        "#eaeaea",  // text                   gray_94
+    sheet_ground: "#687e04",  // ansi_green             green_normal
+    sheet_front:  "#0179b1",  // ansi_blue              blue_normal
+    sheet_side:   "#c33b26",  // ansi_red               red_normal
+    sheet_datum:  "#515151",  // line_number            gray_44
+    mark:         "#c698e2",  // syn_number             magenta_bright
+    redundant:    "#fd8974",  // ansi_bright_red        red_bright
+    depth_arrow:  "#eaeaea",  // selection_fg           gray_94
 
     // Lighting — what singling something out looks like.
-    hovered:      "#ffdd8c",  // syn_string_special     yellow_300
-    selected:     "#daff58",  // success                lime_400
+    hovered:      "#fecfa1",  // syn_string_special     orange_vivid
+    selected:     "#b9dd0d",  // success                green_vivid
 
     // Form — the answers a prompt standing on the drawing offers.
-    goes:         "#668a2f",  // success_border         green_700
-    stops:        "#703130",  // error_border           red_700
-    doing:        "#4a8ab0",  // info_border            blue_600
+    goes:         "#687e04",  // success_border         green_normal
+    stops:        "#c33b26",  // error_border           red_normal
+    doing:        "#0179b1",  // info_border            blue_normal
 )

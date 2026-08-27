@@ -129,3 +129,97 @@ fn every_face_of_the_answer_says_which_of_the_two_bodies_grew_it() {
         .count();
     assert_eq!(walls, 2, "{names:?}");
 }
+
+/// **The lookup rests on one claim**: a vertex standing within [`PLACED`] of a
+/// place is filed in one of the eight cells [`celled`] asks about. Broken, the
+/// sewing would put down two vertices where two regions meet and close
+/// nothing — so it is held here against every corner of the box of one
+/// tolerance about the place, which reaches every direction a coincidence can
+/// lie in and further than the ball itself does.
+///
+/// The places asked from are a cell corner, a cell middle, a whole number of
+/// cells out, and a coordinate large enough that a cell index runs to eleven
+/// figures — which is where a grid over a tolerance this fine would fall apart
+/// if it were going to.
+#[test]
+fn every_place_within_a_tolerance_falls_in_a_cell_the_lookup_asks() {
+    let asked = [
+        DVec3::ZERO,
+        DVec3::new(CELL, 2.0 * CELL, -3.0 * CELL),
+        DVec3::new(0.5 * CELL, 1.5 * CELL, -2.5 * CELL),
+        DVec3::new(1e3, -1e3, 1e3),
+    ];
+    for at in asked {
+        let cells = celled(at);
+        for x in [-1.0, 0.0, 1.0] {
+            for y in [-1.0, 0.0, 1.0] {
+                for z in [-1.0, 0.0, 1.0] {
+                    // A corner of the box of side two tolerances, which holds
+                    // every place the ball does and then some — the claim the
+                    // cells rest on is one about each axis on its own.
+                    let near = at + DVec3::new(x, y, z) * PLACED;
+                    let home = celled(near)[0];
+                    assert!(
+                        cells.contains(&home),
+                        "{near} is filed in {home:?}, which {at} never asks",
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// An edge is filed by the pair of vertices it runs between and by nothing
+/// else, so the two faces that share it — which walk it in opposite
+/// directions — reach the same chain. A different pair is a different key, or
+/// the chain would be every edge of the body.
+#[test]
+fn an_edge_keys_the_same_whichever_way_round_it_is_walked() {
+    let mut body = Body::default();
+    let place = |at| Vertex {
+        at,
+        tolerance: PLACED,
+    };
+    let one = body.topology_mut().add_vertex(place(DVec3::ZERO));
+    let two = body.topology_mut().add_vertex(place(DVec3::X));
+    let three = body.topology_mut().add_vertex(place(DVec3::Y));
+
+    assert_eq!(tied([one, two]), tied([two, one]));
+    assert_ne!(tied([one, two]), tied([one, three]));
+    assert_ne!(tied([one, two]), tied([two, three]));
+}
+
+/// The places pinned come out in curve order, each curve's in the order that
+/// curve runs, with the ones that are a place already found dropped.
+///
+/// All three halves matter. The order by curve is what lets a reader halve the
+/// list rather than walk it; the order along the curve is what saves both
+/// readers a sort; and the dropping is what keeps one place from splitting a
+/// rim twice.
+#[test]
+fn the_pinned_places_come_out_by_curve_and_along_it_with_the_repeats_dropped() {
+    let mut sewing = Sewing::default();
+    let place = |curve, along, at| Pinned { curve, at, along };
+    // Out of curve order, out of parameter order, and with one place on each
+    // curve written down twice — a rounding apart the second time, which is
+    // how the two faces meeting on a rim arrive at it.
+    sewing.pinned.extend([
+        place(1, 2.0, DVec3::new(2.0, 0.0, 0.0)),
+        place(0, 1.0, DVec3::new(0.0, 1.0, 0.0)),
+        place(1, 0.0, DVec3::ZERO),
+        place(0, 1.0, DVec3::new(0.0, 1.0, PLACED / 4.0)),
+        place(1, 0.0, DVec3::new(PLACED / 4.0, 0.0, 0.0)),
+    ]);
+    sewing.fold();
+
+    let along = |on| -> Vec<f64> {
+        placed_on(&sewing.pinned, on)
+            .iter()
+            .map(|it| it.along)
+            .collect()
+    };
+    assert_eq!(along(0), [1.0]);
+    assert_eq!(along(1), [0.0, 2.0]);
+    assert_eq!(along(2), [] as [f64; 0], "a curve nothing pinned");
+    assert_eq!(sewing.pinned.len(), 3, "a repeat survived");
+}

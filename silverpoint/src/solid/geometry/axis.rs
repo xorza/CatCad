@@ -1,6 +1,7 @@
 //! The line a surface of revolution turns about.
 
 use crate::math::plane::Plane;
+use crate::solid::buckets::Key;
 use crate::solid::geometry::line::Line;
 use glam::DVec3;
 
@@ -57,6 +58,19 @@ impl Axis {
             DVec3::Z
         };
         Self::new(origin, direction, direction.cross(away).normalize())
+    }
+
+    /// Take this frame into `key` — see
+    /// [`Surface::key`](super::surface::Surface::key).
+    ///
+    /// Here rather than in the builder, so that a frame gaining a fourth
+    /// number would gain it in one place: the key over a cylinder and the key
+    /// over the circle it was cut in are both this, and the two falling out of
+    /// step would file one curve under two keys.
+    pub(crate) fn keyed(self, key: Key) -> Key {
+        key.place(self.origin)
+            .place(self.direction)
+            .place(self.reference)
     }
 
     /// [`Axis::reference`] turned a quarter turn about the line.

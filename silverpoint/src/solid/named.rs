@@ -1,5 +1,6 @@
 //! The name of one face of a body.
 
+use crate::solid::buckets::Key;
 use crate::solid::grown::Grown;
 
 /// Which of the caller's features grew a face.
@@ -38,4 +39,19 @@ impl Step {
 pub struct Named {
     pub by: Step,
     pub grown: Grown,
+}
+
+impl Named {
+    /// The key several of these are filed under — see
+    /// [`Buckets`](crate::solid::buckets::Buckets). A body files one per face
+    /// it is told about.
+    ///
+    /// Over the whole of it, a name being nothing but whole numbers: the step
+    /// it was grown by, and what of that step it is — see [`Grown::key`].
+    pub(crate) fn key(self) -> u64 {
+        Key::default()
+            .word(u64::from(self.by.0))
+            .word(self.grown.key())
+            .done()
+    }
 }

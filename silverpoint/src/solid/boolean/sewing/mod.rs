@@ -21,6 +21,7 @@ use crate::number::tolerance::{EXACT, PLACED};
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::{self, Came, Corner};
 use crate::solid::boolean::{CHORDED, Kept};
+use crate::solid::buckets::{Buckets, Key};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::surface::Surface;
@@ -136,6 +137,25 @@ struct Pinned {
     /// circle are two runs, and a place on either is a place on the circle.
     curve: u32,
     at: DVec3,
+    /// How far along that curve it stands.
+    ///
+    /// Carried rather than worked out by each reader: both of them want it,
+    /// and it is what the places on one curve are put in order of — see
+    /// [`Sewing::pin`].
+    along: f64,
+}
+
+/// The places pinned on the curve at `on`, in the order the curve runs.
+///
+/// A stretch of one run and a whole closed one both ask this — see
+/// [`Sewing::broken`] and [`Sewing::encircle`] — and neither can hold `&self`
+/// while it fills the buffer it answers in, which is why this takes the slice.
+///
+/// Halved rather than walked, the places being kept in curve order.
+fn placed_on(pinned: &[Pinned], on: u32) -> &[Pinned] {
+    let from = pinned.partition_point(|it| it.curve < on);
+    let to = pinned.partition_point(|it| it.curve <= on);
+    &pinned[from..to]
 }
 
 /// How far round `curve` the stretch from corner `from` to corner `to` goes,
@@ -191,12 +211,91 @@ struct Step {
     forward: bool,
 }
 
+/// A vertex made, and where it stands.
+///
+/// **One buffer rather than two kept in step**, for the reason [`Stepped`]
+/// gives: the two are written together and read together, and nothing ever
+/// wants one without the other.
+#[derive(Debug, Clone, Copy)]
+struct Placed {
+    at: DVec3,
+    vertex: VertexId,
+}
+
+/// How wide the cells a place is filed in are — see [`celled`].
+///
+/// Two tolerances, which is what bounds a lookup at eight cells: the ball a
+/// place stands for is [`PLACED`] across either way, so it reaches over at
+/// most one wall along each axis. Wider cells would reach over one less often
+/// and hold more places apiece; this width is the one that makes the count of
+/// cells a constant, and a constant is what a per-frame budget wants.
+const CELL: f64 = 2.0 * PLACED;
+
+/// The cells a vertex within [`PLACED`] of `at` can have been filed in, the
+/// cell `at` stands in first.
+///
+/// Eight, always: the ball reaches over exactly one wall along each axis,
+/// whichever half of the cell the place fell in. Which is the whole of the
+/// argument that nothing is missed — a place nearer than [`PLACED`] cannot be
+/// more than one cell away along any axis, and cannot be on the far side.
+fn celled(at: DVec3) -> [[i64; 3]; 8] {
+    debug_assert!(at.is_finite(), "{at} is not a place");
+    let mut home = [0i64; 3];
+    let mut beside = [0i64; 3];
+    for (axis, x) in at.to_array().into_iter().enumerate() {
+        let cell = x / CELL;
+        let floor = cell.floor();
+        home[axis] = floor as i64;
+        // Half a cell is one tolerance, so which half the place fell in is
+        // which wall its ball reaches over.
+        beside[axis] = home[axis] + if cell - floor < 0.5 { -1 } else { 1 };
+    }
+    let mut cells = [[0i64; 3]; 8];
+    for (which, cell) in cells.iter_mut().enumerate() {
+        for axis in 0..3 {
+            cell[axis] = if which >> axis & 1 == 0 {
+                home[axis]
+            } else {
+                beside[axis]
+            };
+        }
+    }
+    cells
+}
+
+/// The key a cell is filed under.
+///
+/// One place, so that what a lookup asks for and what a filing writes down
+/// cannot come to differ.
+fn filed(cell: [i64; 3]) -> u64 {
+    Key::default()
+        .word(cell[0] as u64)
+        .word(cell[1] as u64)
+        .word(cell[2] as u64)
+        .done()
+}
+
+/// The key an edge running between `ends` is filed under, whichever way round
+/// it is walked.
+///
+/// By the pair of vertices and not by where the edge runs, which is what makes
+/// it a key at all: the two faces sharing an edge walk it in opposite
+/// directions, and both have to reach the same chain.
+fn tied(ends: [VertexId; 2]) -> u64 {
+    let [one, two] = ends.map(|end| end.slot() as u64);
+    Key::default().word(one.min(two)).word(one.max(two)).done()
+}
+
 /// Sews regions into a body, keeping the room it works in.
 #[derive(Debug, Default)]
 pub(super) struct Sewing {
     /// Where each vertex made so far stands, and which one it is.
-    placed: Vec<DVec3>,
-    made: Vec<VertexId>,
+    ///
+    /// `nearby` files each of them under the cell it stands in, so the vertex
+    /// at a place is found by asking eight cells rather than by walking all of
+    /// them — see [`Sewing::vertex`].
+    placed: Vec<Placed>,
+    nearby: Buckets,
     /// Every loop of every face, as vertices, laid end to end.
     walks: Vec<Stepped>,
     /// Where each of those loops begins, with a sentinel on the end.
@@ -205,7 +304,12 @@ pub(super) struct Sewing {
     raised: Vec<FaceId>,
     owned: Vec<Range<usize>>,
     /// The edges found, and the edge each step of each loop walks.
+    ///
+    /// `joined` files each edge under the pair of vertices it runs between —
+    /// see [`tied`] — so a step claims one by asking the few edges between its
+    /// own two ends rather than every edge found so far.
     joins: Vec<Join>,
+    joined: Buckets,
     steps: Vec<Step>,
     edges: Vec<EdgeId>,
     /// A walk over faces, gathering the ones a shell holds.
@@ -279,13 +383,14 @@ impl Sewing {
 
     fn reset(&mut self) {
         self.placed.clear();
-        self.made.clear();
+        self.nearby.clear();
         self.walks.clear();
         self.starts.clear();
         self.starts.push(0);
         self.raised.clear();
         self.owned.clear();
         self.joins.clear();
+        self.joined.clear();
         self.steps.clear();
         self.edges.clear();
     }
@@ -329,17 +434,66 @@ impl Sewing {
                         let Came::Arc(run) = came else {
                             continue;
                         };
-                        let curve = imprints.on(run);
-                        let known = self.pinned.iter().any(|it| {
-                            it.curve == curve && predicate::coincident(it.at, at, PLACED)
+                        self.pinned.push(Pinned {
+                            curve: imprints.on(run),
+                            at,
+                            along: imprints.curve(run).along(at),
                         });
-                        if !known {
-                            self.pinned.push(Pinned { curve, at });
-                        }
                     }
                 }
             }
         }
+        self.fold();
+    }
+
+    /// Put the places found above in curve order, each curve's in the order it
+    /// runs, and fold away the ones that are a place already found.
+    ///
+    /// **Sorted and then compacted, rather than each place asked about as it
+    /// arrives.** Every arc corner of every region puts one here, and asking
+    /// each against all of them cost the square of the body — where a sort
+    /// costs its logarithm and leaves the places on one curve together, which
+    /// is what both readers wanted anyway. The drawing's own crossings
+    /// are folded the same way.
+    ///
+    /// Told against the curve's own places and no others, so what a place is
+    /// compared with is a handful. Against the ones *kept* rather than the one
+    /// before it, which is what a walk did: three places may run A near B,
+    /// B near C and A clear of C, and dropping C because it is near a dropped
+    /// B would lose a place a face is split at.
+    ///
+    /// A curve that closes needs the run's two ends compared as well, its
+    /// parameter wrapping where the order does not — which the walk over kept
+    /// places does for nothing, the first of them being one of the few.
+    ///
+    /// What survives no longer depends on the order the regions were walked
+    /// in, which is the one thing this changes about the answer and is worth
+    /// having: two faces meeting on a rim put down the same place, and which
+    /// of the two the body ends up standing on was arbitrary before.
+    fn fold(&mut self) {
+        self.pinned.sort_unstable_by(|one, two| {
+            one.curve.cmp(&two.curve).then_with(|| {
+                one.along
+                    .partial_cmp(&two.along)
+                    .expect("a parameter is finite")
+            })
+        });
+        let (mut kept, mut group) = (0, 0);
+        for at in 0..self.pinned.len() {
+            let place = self.pinned[at];
+            if kept == 0 || self.pinned[group].curve != place.curve {
+                group = kept;
+            }
+            let known = self.pinned[group..kept]
+                .iter()
+                .any(|it| predicate::coincident(it.at, place.at, PLACED));
+            if known {
+                continue;
+            }
+            self.pinned[kept] = place;
+            kept += 1;
+        }
+        self.pinned.truncate(kept);
     }
 
     /// The places another face has already put a vertex along `curve` between
@@ -357,32 +511,31 @@ impl Sewing {
     /// them is that vertex rather than another beside it.
     fn broken(&mut self, run: u32, imprints: &Imprints, bounds: [f64; 2]) {
         let (curve, on) = (imprints.curve(run), imprints.on(run));
-        self.around.clear();
+        let Self { pinned, around, .. } = self;
+        around.clear();
         let [from, to] = bounds;
         let (lo, hi) = (from.min(to), from.max(to));
         let ends = [curve.at(from), curve.at(to)];
-        for at in 0..self.pinned.len() {
-            let pinned = self.pinned[at];
-            if pinned.curve != on
-                || ends
-                    .iter()
-                    .any(|&end| predicate::coincident(end, pinned.at, PLACED))
+        for pinned in placed_on(pinned, on) {
+            if ends
+                .iter()
+                .any(|&end| predicate::coincident(end, pinned.at, PLACED))
             {
                 continue;
             }
             // Onto the turn the run was measured in, an inversion answering in
             // a half turn either side of the reference and the run being free
             // to run anywhere.
-            let place = curve.along(pinned.at);
-            let place = place + TAU * ((lo - place) / TAU).ceil();
+            let place = pinned.along + TAU * ((lo - pinned.along) / TAU).ceil();
             if place < hi {
-                self.around.push(place);
+                around.push(place);
             }
         }
-        self.around
-            .sort_by(|one, two| one.partial_cmp(two).expect("an angle is finite"));
+        // Lifting turns the order the places arrived in, which was the curve's
+        // own, into that order begun somewhere else along it.
+        around.sort_by(|one, two| one.partial_cmp(two).expect("an angle is finite"));
         if to < from {
-            self.around.reverse();
+            around.reverse();
         }
     }
 
@@ -406,17 +559,14 @@ impl Sewing {
     /// until it has taken one of these places for a start.
     fn encircle(&mut self, run: u32, imprints: &Imprints, on: Surface, into: &mut Body) {
         let (curve, lies) = (imprints.curve(run), imprints.on(run));
-        self.around.clear();
-        for pinned in &self.pinned {
-            if pinned.curve == lies {
-                self.around.push(curve.along(pinned.at));
-            }
+        let Self { pinned, around, .. } = self;
+        around.clear();
+        // Already in the order the curve runs, which is what [`Sewing::pin`]
+        // left them in — so there is nothing to sort here.
+        around.extend(placed_on(pinned, lies).iter().map(|it| it.along));
+        if around.is_empty() {
+            around.extend([0.0, PI]);
         }
-        if self.around.is_empty() {
-            self.around.extend([0.0, PI]);
-        }
-        self.around
-            .sort_by(|one, two| one.partial_cmp(two).expect("an angle is finite"));
         // Which way the loop goes round the curve, off the flattening that is
         // about to be thrown away — the arcs have to be walked the way the
         // region's own boundary walked them or the face will face the wrong way.
@@ -596,20 +746,36 @@ impl Sewing {
     }
 
     /// The vertex standing at `at`, made if nothing stands there yet.
+    ///
+    /// **Through a grid of cells rather than by walking every vertex made so
+    /// far.** Every corner of every loop of every region asks this, so a walk
+    /// cost the square of the body — and it is the call the whole sewing rests
+    /// on, two regions being found to share a corner by where they are and not
+    /// by who made them. [`celled`] is what bounds the search: a place nearer
+    /// than [`PLACED`] is filed in one of eight cells, and the tolerance
+    /// decides among what those hold exactly as it did among all of them.
+    ///
+    /// The earliest match wins, which is the answer a walk gave and which the
+    /// order the cells are asked in cannot move.
     fn vertex(&mut self, at: DVec3, into: &mut Body) -> VertexId {
-        let found = self
-            .placed
+        let cells = celled(at);
+        let found = cells
             .iter()
-            .position(|&stood| predicate::coincident(stood, at, PLACED));
+            .flat_map(|&cell| self.nearby.under(filed(cell)))
+            .filter(|&candidate| {
+                predicate::coincident(self.placed[candidate as usize].at, at, PLACED)
+            })
+            .min();
         if let Some(found) = found {
-            return self.made[found];
+            return self.placed[found as usize].vertex;
         }
         let vertex = into.topology_mut().add_vertex(Vertex {
             at,
             tolerance: PLACED,
         });
-        self.placed.push(at);
-        self.made.push(vertex);
+        let slot = self.nearby.file(filed(cells[0]));
+        debug_assert_eq!(slot as usize, self.placed.len(), "the index lost step");
+        self.placed.push(Placed { at, vertex });
         vertex
     }
 
@@ -649,12 +815,30 @@ impl Sewing {
 
     /// Claim the edge between `ends` and through `middle` for `face`, finding
     /// it or starting it.
+    ///
+    /// **Asked of the edges between these two vertices**, and not of every edge
+    /// found so far: a step of every loop of every face claims one, and a walk
+    /// of the whole list cost the square of the body. The pair of ends is the
+    /// key — see [`tied`] — and the middle decides among what shares it,
+    /// exactly as it did when the ends were only the first half of a walk's
+    /// test.
+    ///
+    /// The earliest match wins, as a walk's did.
     fn claim(&mut self, ends: [VertexId; 2], middle: DVec3, along: Runs, face: FaceId) -> Step {
-        let found = self.joins.iter().position(|join| {
-            (join.ends == ends || join.ends == [ends[1], ends[0]])
-                && predicate::coincident(join.middle, middle, PLACED)
-        });
+        let key = tied(ends);
+        let found = self
+            .joined
+            .under(key)
+            .filter(|&at| {
+                let join = &self.joins[at as usize];
+                (join.ends == ends || join.ends == [ends[1], ends[0]])
+                    && predicate::coincident(join.middle, middle, PLACED)
+            })
+            .min()
+            .map(|at| at as usize);
         let Some(join) = found else {
+            let slot = self.joined.file(key);
+            debug_assert_eq!(slot as usize, self.joins.len(), "the index lost step");
             self.joins.push(Join {
                 ends,
                 middle,

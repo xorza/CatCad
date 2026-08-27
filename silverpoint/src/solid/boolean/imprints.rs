@@ -1,5 +1,6 @@
 //! Every curve a boundary runs along, and which run lies on which.
 
+use crate::solid::buckets::Buckets;
 use crate::solid::geometry::curve::Curve;
 
 /// One curve, and the run every crossing along it shares.
@@ -37,12 +38,17 @@ pub(super) struct Imprints {
     along: Vec<Along>,
     /// Which of those each run lies on.
     runs: Vec<u32>,
+    /// Which of the curves above key alike, so a curve met again is told from
+    /// a handful rather than from every curve met so far — see
+    /// [`Imprints::met`].
+    found: Buckets,
 }
 
 impl Imprints {
     pub(super) fn clear(&mut self) {
         self.along.clear();
         self.runs.clear();
+        self.found.clear();
     }
 
     /// The run a crossing of two surfaces takes — one per curve, shared by
@@ -93,15 +99,32 @@ impl Imprints {
     }
 
     /// Where `curve` stands in the list, put there if it is new.
+    ///
+    /// **Through the index and not by walking**, which matters because every
+    /// stretch of every boundary of both bodies asks: a walk held a whole curve
+    /// against every curve met so far, and the cost of that grows as the square
+    /// of the body. What the index hands back is the curves keying
+    /// alike, and equality decides among them as it always did — see
+    /// [`Curve::key`].
+    ///
+    /// At most one of them can match, this being the call that keeps the list
+    /// distinct, so the first confirmed is the answer.
     fn met(&mut self, curve: Curve) -> u32 {
-        let found = self.along.iter().position(|it| it.curve == curve);
-        found.unwrap_or_else(|| {
-            self.along.push(Along {
-                curve,
-                crossing: None,
-            });
-            self.along.len() - 1
-        }) as u32
+        let key = curve.key();
+        let found = self
+            .found
+            .under(key)
+            .find(|&at| self.along[at as usize].curve == curve);
+        if let Some(found) = found {
+            return found;
+        }
+        let at = self.found.file(key);
+        debug_assert_eq!(at as usize, self.along.len(), "the index lost step");
+        self.along.push(Along {
+            curve,
+            crossing: None,
+        });
+        at
     }
 
     /// One more run along the curve at `on`.

@@ -810,7 +810,57 @@ pub(super) struct Splitting {
     taken: Vec<bool>,
     /// One reassembled loop, before it is known to be an outline or a hole.
     closed: Loops<Corner>,
-    areas: Vec<f64>,
+    /// What each of those loops shuts in and where it lies — see [`Shut`].
+    shut: Vec<Shut>,
+    /// Which outline each hole was found inside, in outline order — see
+    /// [`Splitting::gather`], which is the only thing that reads it.
+    held: Vec<Held>,
+}
+
+/// What one reassembled loop shuts in, and the box it lies in.
+///
+/// The box is what keeps a hole from being cast against every outline in full:
+/// a place outside the box is outside the loop, and that is two comparisons
+/// where the ray cast is a walk of the whole boundary.
+#[derive(Debug, Clone, Copy)]
+struct Shut {
+    /// The true area rather than the shoelace's own doubling of it, so what it
+    /// is held against is a bound on an area and reads as one.
+    area: f64,
+    low: DVec2,
+    high: DVec2,
+}
+
+impl Shut {
+    fn of(walk: &[Corner]) -> Self {
+        let mut low = DVec2::splat(f64::INFINITY);
+        let mut high = DVec2::splat(f64::NEG_INFINITY);
+        for corner in walk {
+            low = low.min(corner.at);
+            high = high.max(corner.at);
+        }
+        Self {
+            area: winding::swept(walk) / 2.0,
+            low,
+            high,
+        }
+    }
+
+    /// Whether the box holds `at`, which anything inside the loop does.
+    ///
+    /// A loop with nothing in it holds nowhere, its box having come out
+    /// inverted — which is what [`Bounds`](crate::math::bounds::Bounds) means
+    /// by the same pair one dimension up.
+    fn holds(self, at: DVec2) -> bool {
+        at.cmpge(self.low).all() && at.cmple(self.high).all()
+    }
+}
+
+/// One hole, and the outline it was found inside.
+#[derive(Debug, Clone, Copy)]
+struct Held {
+    by: u32,
+    hole: u32,
 }
 
 /// Where one open chain of surviving boundary begins and ends, measured along
@@ -1169,9 +1219,10 @@ impl Splitting {
                     // and none that far along means round the far end of the
                     // cut to the first of all.
                     let left = ends[chain].left;
-                    let next = (0..order.len())
-                        .find(|&other| ends[order[other]].entered >= left - PLACED)
-                        .unwrap_or(0);
+                    // Halved rather than walked from the front: `order` was
+                    // just sorted by the very number this asks about.
+                    let found = order.partition_point(|&chain| ends[chain].entered < left - PLACED);
+                    let next = if found == order.len() { 0 } else { found };
                     // Along the cut itself, where the cut has a length worth
                     // walking. A straight one has not — see [`Cut::between`].
                     cut.between(left, ends[order[next]].entered, into);
@@ -1199,35 +1250,61 @@ impl Splitting {
     ///
     /// By signed area, exactly as the two-dimensional arrangement does: what
     /// comes out positive is a region, what comes out negative is a hole in
-    /// one. Which region each hole belongs to is decided by the tightest
-    /// outline containing it.
+    /// one. Which region each hole belongs to is the outline it stands inside,
+    /// of which there is exactly one — the regions a cut leaves are disjoint,
+    /// so there is no tighter container to prefer.
     fn gather(&mut self, into: &mut Cells) {
-        let Self { closed, areas, .. } = self;
-        areas.clear();
-        // The true area rather than the shoelace's own doubling of it, so what
-        // it is held against is a bound on an area and reads as one.
-        areas.extend(closed.iter().map(|loop_| winding::swept(loop_) / 2.0));
+        let Self {
+            closed, shut, held, ..
+        } = self;
+        shut.clear();
+        shut.extend(closed.iter().map(Shut::of));
 
-        for (at, &area) in areas.iter().enumerate() {
-            if area <= ENCLOSED {
+        // **Each hole to its outline once, before any region is written.**
+        // Deciding it inside the walk over the outlines asked every loop about
+        // every other, and each of those questions is a ray cast over a whole
+        // boundary. Here each hole asks until it is answered, and the answer is
+        // sorted into outline order for the walk below to read a run of.
+        held.clear();
+        for (hole, punched) in shut.iter().enumerate() {
+            if punched.area >= -ENCLOSED {
                 continue;
             }
-            let outline = closed.get(at);
+            let at = closed.get(hole)[0].at;
+            // The first outline that holds it, which is the only one: the
+            // regions one cut leaves are disjoint, so there is no tighter
+            // container to prefer and nothing to go on looking for.
+            let mut inside = shut.iter().enumerate().filter(|&(by, outline)| {
+                outline.area > ENCLOSED && outline.holds(at) && holds(closed.get(by), at)
+            });
+            if let Some((by, _)) = inside.next() {
+                debug_assert!(inside.next().is_none(), "two outlines hold one hole");
+                held.push(Held {
+                    by: by as u32,
+                    hole: hole as u32,
+                });
+            }
+        }
+        // By the outline, and by the hole within it, so a region's holes come
+        // out in the order the loops were reassembled in however the outlines
+        // fell.
+        held.sort_unstable_by_key(|it| (it.by, it.hole));
+
+        let mut from = 0;
+        for (at, outline) in shut.iter().enumerate() {
+            if outline.area <= ENCLOSED {
+                continue;
+            }
+            // Sorted by the outline, and the outlines taken in the same order,
+            // so what is left of the list begins with this outline's holes.
+            let to = from + held[from..].partition_point(|it| it.by == at as u32);
             into.add(|loops| {
-                loops.push(outline);
-                for (other, &hole) in areas.iter().enumerate() {
-                    if hole >= -ENCLOSED {
-                        continue;
-                    }
-                    let punched = closed.get(other);
-                    // Every outline that holds it, which is at most one: the
-                    // regions one cut leaves are disjoint, so nothing here has
-                    // to decide which of two containers is the tighter.
-                    if holds(outline, punched[0].at) {
-                        loops.push(punched);
-                    }
+                loops.push(closed.get(at));
+                for held in &held[from..to] {
+                    loops.push(closed.get(held.hole as usize));
                 }
             });
+            from = to;
         }
     }
 }

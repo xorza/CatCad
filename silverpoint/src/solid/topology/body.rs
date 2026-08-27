@@ -1,5 +1,6 @@
 //! A whole solid.
 
+use crate::solid::buckets::Buckets;
 use crate::solid::named::Named;
 use crate::solid::topology::Topology;
 use crate::solid::topology::face::{Face, FaceId};
@@ -33,6 +34,10 @@ pub struct Body {
     /// renumbered — the same reasoning as
     /// [`Arrangement::faces`](crate::Arrangement).
     names: Vec<Named>,
+    /// Which of those names key alike, so asking whether a name is already
+    /// here reads a handful rather than all of them — see [`Body::named`],
+    /// which every face raised goes through.
+    known: Buckets,
 }
 
 impl Body {
@@ -49,9 +54,12 @@ impl Body {
     ///
     /// What anything keeping hold of a face across an edit has to ask. Answered
     /// off the list above rather than by a rule of its own, so what a body
-    /// *has* and what it answers for cannot come to differ.
+    /// *has* and what it answers for cannot come to differ — the index only
+    /// says which few of them are worth comparing.
     pub fn holds(&self, named: Named) -> bool {
-        self.names.contains(&named)
+        self.known
+            .under(named.key())
+            .any(|at| self.names[at as usize] == named)
     }
 
     /// Whether it shuts in nothing at all.
@@ -84,16 +92,24 @@ impl Body {
     pub fn clear(&mut self) {
         self.topology.clear();
         self.names.clear();
+        self.known.clear();
     }
 
     /// Record that `named` is a face of this body, if it is not already.
     ///
     /// Called by whatever adds a face rather than derived afterwards, so the
     /// order the names come back in is the order the faces were made in.
+    ///
+    /// **Asked of the index rather than of the list**, because every face
+    /// raised asks: a walk of the names compared one against every name
+    /// already recorded, and the cost of that grows as the square of the body.
     pub(crate) fn named(&mut self, named: Named) {
-        if !self.names.contains(&named) {
-            self.names.push(named);
+        if self.holds(named) {
+            return;
         }
+        let at = self.known.file(named.key());
+        debug_assert_eq!(at as usize, self.names.len(), "the index lost step");
+        self.names.push(named);
     }
 }
 

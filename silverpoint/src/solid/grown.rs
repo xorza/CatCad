@@ -1,6 +1,7 @@
 //! What of one extrusion a face of a body is.
 
 use crate::sketch::arrangement::bound::Bound;
+use crate::solid::buckets::Key;
 
 /// What a face of an extrusion was grown from.
 ///
@@ -36,4 +37,19 @@ pub enum Grown {
     Far,
     /// The wall swept from one of the curves bounding the region.
     Side(Bound),
+}
+
+impl Grown {
+    /// The key this half of a name is filed under — see
+    /// [`Named::key`](crate::solid::named::Named).
+    ///
+    /// Over the whole of it, a wall's bound being a number of its own — see
+    /// [`Bound::key`] — so two of these key alike exactly when they are one.
+    pub(crate) fn key(self) -> u64 {
+        match self {
+            Self::Base => Key::default().word(0).done(),
+            Self::Far => Key::default().word(1).done(),
+            Self::Side(bound) => Key::default().word(2).word(bound.key()).done(),
+        }
+    }
 }

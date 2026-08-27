@@ -5,46 +5,20 @@ Delete an item when you address it. This file lists open findings only.
 Scope: every production file under `silverpoint/src`. Test modules are out of
 scope.
 
-## Registries searched by linear scan on the per-frame rebuild path
-
-The crate holds its buffers across frames to keep a drag off the heap. These
-lookups undo that gain a different way. Each is a walk of everything found so
-far, inside a loop over everything there is. The cost grows as the square of
-the body.
-
-- [ ] `solid/boolean/sewing/mod.rs:600` — `Sewing::vertex` walks `placed` for
-  every corner of every loop of every region.
-- [ ] `solid/boolean/sewing/mod.rs:653` — `Sewing::claim` walks `joins` for
-  every step of every loop.
-- [ ] `solid/boolean/sewing/mod.rs:333` — `Sewing::pin` walks `pinned` for
-  every arc corner of every region.
-- [ ] `solid/boolean/sewing/mod.rs:366` — `Sewing::broken` walks the whole of
-  `pinned` once per arc stretch.
-- [ ] `solid/boolean/imprints.rs:97` — `Imprints::met` compares a `Curve` — up
-  to nine floats — against every curve met so far.
-- [ ] `solid/boolean/mod.rs:336` — `Combining::against` compares a `Surface`
-  against every surface already collected.
-- [ ] `solid/boolean/splitting/mod.rs:1172` — `Splitting::close` scans `order`
-  from the front, although `order` was just sorted by the same key.
-- [ ] `solid/boolean/splitting/mod.rs:1218` — `Splitting::gather` asks every
-  loop about every other loop.
-- [ ] `solid/topology/body.rs:54,94` — `Body::holds` and `Body::named` walk
-  `names`. `named` runs once per face raised.
-
 ## Heap allocation on the path the rest of the crate keeps off the heap
 
 Every other stage holds its room in a field. These four give it back.
 
-- [ ] `solid/boolean/splitting/mod.rs:1075,1078,1093,1098` — `Splitting::chain`
+- [ ] `solid/boolean/splitting/mod.rs:1124,1127,1142,1147` — `Splitting::chain`
   builds a fresh `Vec<Corner>` for each open chain. One cut of one face raises
   several. A frame runs many cuts.
-- [ ] `solid/boolean/sewing/mod.rs:798-803` — `Sewing::gather` takes `voids`
+- [ ] `solid/boolean/sewing/mod.rs:969-973` — `Sewing::gather` takes `voids`
   and `outer` out of `self`. `voids` is then moved into a `Lump`, so the
   buffer is lost every sew. `outer` is dropped at the end of the loop.
 - [ ] `solid/topology/lump.rs:23` — `Lump::voids` is a `Vec` per lump. The
   topology beside it states the opposite rule and holds loops and shell faces
   flat.
-- [ ] `solid/boolean/mod.rs:238` — `Combining::imprints` holds `Imprints`,
+- [ ] `solid/boolean/mod.rs:245` — `Combining::imprints` holds `Imprints`,
   whose `Along` records are pushed one at a time and never given a reserve.
 
 ## One rule written twice
@@ -63,7 +37,7 @@ relation drift.
   rule one dimension apart, down to the two end cases and the comment on them.
 - [ ] `sketch/arrangement/edge.rs:56` and `solid/topology/coedge.rs:27` —
   `Half::turned` and `Coedge::turned` are the same two lines.
-- [ ] `solid/topology/validity.rs:149` and `solid/boolean/sewing/mod.rs:841` —
+- [ ] `solid/topology/validity.rs:149` and `solid/boolean/sewing/mod.rs:1012` —
   `Checking::reachable` and `Sewing::reach` are one walk across shared edges,
   written twice. One counts and one collects.
 - [ ] `math/approx.rs:88` and `number/predicate.rs:17` — `ApproxEq` for `DVec2`
@@ -79,7 +53,7 @@ Each holds a fixed array and a count, and hands back a prefix slice. Four
 copies of one container.
 
 - [ ] `math/intersect/mod.rs:43` — `Crossings`, `[DVec2; 2]` and `found`.
-- [ ] `solid/geometry/surface.rs:39` — `Crossings`, `[f64; 2]` and `count`.
+- [ ] `solid/geometry/surface.rs:40` — `Crossings`, `[f64; 2]` and `count`.
 - [ ] `solid/meeting/mod.rs:74` — `Curves`, `[Curve; 2]` and `count`.
 - [ ] `solid/boolean/splitting/mod.rs:143` — `Crested`, `[f64; 3]` and `count`.
 
@@ -88,7 +62,7 @@ copies of one container.
 In each case a comment block lost its break. The item below the block now
 carries its neighbour's summary, and the item above carries none.
 
-- [ ] `solid/geometry/surface.rs:30-38` — the `Surface` enum's doc is attached
+- [ ] `solid/geometry/surface.rs:31-39` — the `Surface` enum's doc is attached
   to `Crossings`. `Surface` has no doc at all. A reader of `Crossings` is told
   it is the set of four natural quadrics.
 - [ ] `math/triangulate/mod.rs:472-491` — the doc for `ear` is attached to
@@ -123,12 +97,12 @@ complaint.
 The house rule puts one major struct in one file of that name. These files hold
 several, and three of them are the largest in the crate.
 
-- [ ] `solid/boolean/splitting/mod.rs` — 1264 lines. It holds `Cut` with twelve
+- [ ] `solid/boolean/splitting/mod.rs` — 1339 lines. It holds `Cut` with twelve
   methods, `Cells`, `Corner`, `Came`, `Side`, `Ends`, `Crested`, the `Marked`
   trait and `Splitting`.
-- [ ] `solid/boolean/sewing/mod.rs` — 878 lines. It holds `Sewing` with
+- [ ] `solid/boolean/sewing/mod.rs` — 1049 lines. It holds `Sewing` with
   twenty-two fields, `Join`, `Stepped`, `Runs`, `Pinned` and `Step`.
-- [ ] `solid/boolean/mod.rs` — 689 lines. It holds `Combining` with nineteen
+- [ ] `solid/boolean/mod.rs` — 707 lines. It holds `Combining` with nineteen
   fields, plus `Boolean`, `Operation`, `Kept` and two free functions.
 - [ ] `solid/build/extrusion.rs` — the file is named for `Extrusion`, a
   five-field parameter bundle. The major struct in it is `Builder`, which holds
@@ -141,9 +115,9 @@ several, and three of them are the largest in the crate.
 `Arrangement` holds its working buffers in a `Scratch` field, apart from the
 corners, edges and faces it answers with. Three other stages do not.
 
-- [ ] `solid/boolean/mod.rs:185` — `Combining` mixes `kept`, `loops` and
+- [ ] `solid/boolean/mod.rs:186` — `Combining` mixes `kept`, `loops` and
   `imprints`, which are the answer, with sixteen working buffers.
-- [ ] `solid/boolean/sewing/mod.rs:196` — `Sewing` mixes the edge and vertex
+- [ ] `solid/boolean/sewing/mod.rs:279` — `Sewing` mixes the edge and vertex
   registries with the shell walk, the mesher and the checker.
 - [ ] `solid/mesh/refining.rs:71` — `Refining` mixes `params`, `places` and
   `triangles`, which callers read, with eight working buffers.
@@ -153,8 +127,6 @@ corners, edges and faces it answers with. Three other stages do not.
 `Stepped` argues in its own doc for one buffer over two kept in step. These
 four keep two.
 
-- [ ] `solid/boolean/sewing/mod.rs:198-199` — `placed` and `made` hold one
-  record per vertex, indexed together.
 - [ ] `solid/boolean/splitting/mod.rs:802-804` — `chains` and `ends` hold one
   record per chain, indexed together.
 - [ ] `sketch/solver/elimination/mod.rs:110-123` — `pivots` and `origin` hold
@@ -180,10 +152,10 @@ four keep two.
 Each of these depends on two separate walks visiting the same things in the
 same order. Nothing checks it, and a change would fail without a message.
 
-- [ ] `solid/boolean/mod.rs:332` — `Combining::against` zips
+- [ ] `solid/boolean/mod.rs:338` — `Combining::against` zips
   `theirs.topology().faces()` against a stretch of `self.boxed`, which an
   earlier and separate walk filled.
-- [ ] `solid/boolean/sewing/mod.rs:733-746` — `Sewing::write` walks `steps`
+- [ ] `solid/boolean/sewing/mod.rs:903-916` — `Sewing::write` walks `steps`
   with a running cursor. It assumes `steps` was filled in the same order
   `owned` and `starts` are read in.
 - [ ] `solid/boolean/sounding/mod.rs:150,167` — `facing` and `count` name a
@@ -201,7 +173,7 @@ same order. Nothing checks it, and a change would fail without a message.
 
 - [ ] `solid/boolean/splitting/mod.rs:261,267` — `std::f64::consts::TAU`
   written out although `TAU` is imported at the top of the file.
-- [ ] `solid/boolean/sewing/mod.rs:554-556` — a closure named `ends` is applied
+- [ ] `solid/boolean/sewing/mod.rs:690` — a closure named `ends` is applied
   to the one-element slice `walks[at..=at]` to mean "the first vertex".
 - [ ] `math/dense/mod.rs:84` — `solve_in_place` walks the whole solution again
   to test it is finite, after three passes that could have said so.

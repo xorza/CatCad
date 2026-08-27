@@ -1,6 +1,7 @@
 //! What an edge is a piece of.
 
 use crate::math::arc;
+use crate::solid::buckets::Key;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
@@ -24,6 +25,34 @@ pub(crate) enum Curve {
 }
 
 impl Curve {
+    /// The key several of these are filed under — see
+    /// [`Buckets`](crate::solid::buckets::Buckets).
+    ///
+    /// Over the numbers the curve is made of, and sound for the reason
+    /// [`Surface::key`](super::surface::Surface::key) is: a crossing met from
+    /// either side is one call answering the identical value both times, so
+    /// the two key alike bit for bit.
+    pub(crate) fn key(&self) -> u64 {
+        match self {
+            Self::Line(line) => Key::default()
+                .word(0)
+                .place(line.origin)
+                .place(line.direction)
+                .done(),
+            Self::Circle(circle) => circle
+                .axis
+                .keyed(Key::default().word(1))
+                .float(circle.radius)
+                .done(),
+            Self::Ellipse(ellipse) => ellipse
+                .axis
+                .keyed(Key::default().word(2))
+                .float(ellipse.major)
+                .float(ellipse.minor)
+                .done(),
+        }
+    }
+
     /// Which parameter puts the curve at `at`, which is [`Curve::at`] read
     /// backwards.
     ///
