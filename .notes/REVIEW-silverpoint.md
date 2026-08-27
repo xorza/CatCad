@@ -5,22 +5,6 @@ Delete an item when you address it. This file lists open findings only.
 Scope: every production file under `silverpoint/src`. Test modules are out of
 scope.
 
-## Heap allocation on the path the rest of the crate keeps off the heap
-
-Every other stage holds its room in a field. These four give it back.
-
-- [ ] `solid/boolean/splitting/mod.rs:1124,1127,1142,1147` — `Splitting::chain`
-  builds a fresh `Vec<Corner>` for each open chain. One cut of one face raises
-  several. A frame runs many cuts.
-- [ ] `solid/boolean/sewing/mod.rs:969-973` — `Sewing::gather` takes `voids`
-  and `outer` out of `self`. `voids` is then moved into a `Lump`, so the
-  buffer is lost every sew. `outer` is dropped at the end of the loop.
-- [ ] `solid/topology/lump.rs:23` — `Lump::voids` is a `Vec` per lump. The
-  topology beside it states the opposite rule and holds loops and shell faces
-  flat.
-- [ ] `solid/boolean/mod.rs:245` — `Combining::imprints` holds `Imprints`,
-  whose `Along` records are pushed one at a time and never given a reserve.
-
 ## One rule written twice
 
 Each pair below states one relation in two places. Two spellings of one

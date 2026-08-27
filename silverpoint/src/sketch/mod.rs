@@ -837,7 +837,7 @@ fn spares<T>(
     doomed
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "bench"))]
 mod drawing {
     use crate::sketch::{PointId, Sketch};
     use glam::DVec2;

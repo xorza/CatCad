@@ -13,6 +13,7 @@
 
 use crate::arena::Arena;
 use crate::loops::Loops;
+use crate::solid::geometry::curve::Curve;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::{Face, FaceId};
@@ -56,6 +57,8 @@ pub(crate) struct Topology {
     walks: Loops<Coedge>,
     /// Every face of every shell, the same way — see [`Shell::faces`].
     shelled: Vec<FaceId>,
+    /// Every cavity of every lump, the same way — see [`Lump::voids`].
+    voided: Vec<ShellId>,
 }
 
 impl Topology {
@@ -101,6 +104,17 @@ impl Topology {
         self.shelled.len()
     }
 
+    /// Record that `shell` is a cavity of the lump being gathered.
+    pub(crate) fn add_voided(&mut self, shell: ShellId) {
+        self.voided.push(shell);
+    }
+
+    /// How many cavities have been gathered into lumps, which is where the next
+    /// lump's cavities start.
+    pub(crate) fn shells_voided(&self) -> usize {
+        self.voided.len()
+    }
+
     /// Every loop bounding `face`, the outline first.
     pub(crate) fn loops_of(&self, face: &Face) -> impl Iterator<Item = &[Coedge]> + Clone {
         face.loops.clone().map(|at| self.walks.get(at))
@@ -122,13 +136,19 @@ impl Topology {
         &self.shelled[start..end]
     }
 
+    /// Every cavity shut inside `lump`.
+    pub(crate) fn voids_of(&self, lump: &Lump) -> &[ShellId] {
+        let Range { start, end } = lump.voids;
+        &self.voided[start..end]
+    }
+
     /// Empty it, keeping every buffer it holds.
     ///
     /// Every position is freed and every generation bumped, so a handle minted
     /// before this is refused rather than answering with whatever refills its
     /// slot — which is the whole reason the stores are arenas. What survives is
-    /// the room: the slots, the free list, the loops and the shelled faces all
-    /// keep the capacity they grew to.
+    /// the room: the slots, the free list, the loops, the shelled faces and the
+    /// cavities all keep the capacity they grew to.
     pub(crate) fn clear(&mut self) {
         self.vertices.retain(|_| false);
         self.edges.retain(|_| false);
@@ -137,6 +157,7 @@ impl Topology {
         self.lumps.retain(|_| false);
         self.walks.clear();
         self.shelled.clear();
+        self.voided.clear();
     }
 
     pub(crate) fn add_lump(&mut self, lump: Lump) -> LumpId {
@@ -171,13 +192,20 @@ impl Topology {
         self.edges.iter()
     }
 
+    /// How many edges run along something other than a line.
+    pub(crate) fn curved_edges(&self) -> usize {
+        self.edges()
+            .filter(|(_, edge)| !matches!(edge.curve, Curve::Line(_)))
+            .count()
+    }
+
     pub(crate) fn lumps(&self) -> impl Iterator<Item = (LumpId, &Lump)> {
         self.lumps.iter()
     }
 
     /// Every shell of `lump`, the one around it first.
     pub(crate) fn shells_of(&self, lump: &Lump) -> impl Iterator<Item = ShellId> + Clone {
-        std::iter::once(lump.outer).chain(lump.voids.iter().copied())
+        std::iter::once(lump.outer).chain(self.voids_of(lump).iter().copied())
     }
 
     /// Which vertices `coedge` runs between, in the order it walks them.

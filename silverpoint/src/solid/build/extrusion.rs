@@ -523,7 +523,7 @@ impl Builder {
         let shell = topology.add_shell(Shell { faces: from..to });
         topology.add_lump(Lump {
             outer: shell,
-            voids: Vec::new(),
+            voids: 0..0,
         });
     }
 }
@@ -531,10 +531,11 @@ impl Builder {
 /// Raising a body without keeping the room to raise the next one in.
 ///
 /// Everything that draws a solid holds a [`Builder`] and hands it a body to
-/// refill, because a drag rebuilds one on every frame. A test wants neither,
-/// and saying so once here keeps the published surface to what the application
-/// actually calls — see `.notes/KERNEL.md` §6.
-#[cfg(test)]
+/// refill, because a drag rebuilds one on every frame. Neither a test nor a
+/// bench fixture raised once outside every window wants either, and saying so
+/// once here keeps the published surface to what the application actually
+/// calls — see `.notes/KERNEL.md` §6.
+#[cfg(any(test, feature = "bench"))]
 pub(crate) mod internals {
     use crate::solid::build::extrusion::{Builder, Extrusion};
     use crate::solid::topology::body::Body;

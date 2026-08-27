@@ -794,6 +794,9 @@ pub(super) struct Splitting {
     /// One loop with a place put in each dip the cut takes out of it — see
     /// [`Splitting::dip`].
     dipped: Vec<Corner>,
+    /// The one stretch of boundary the walk is inside, before it reaches the
+    /// cut again — see [`Splitting::chain`].
+    stretch: Vec<Corner>,
     /// The stretches of boundary that survived, laid end to end.
     ///
     /// Open, unlike everything else here: each runs from where the boundary
@@ -1094,8 +1097,9 @@ impl Splitting {
         };
         // Walked from a corner that fell away, so the first chain opened is a
         // chain the boundary genuinely entered on rather than one it was
-        // already inside when the walk began.
-        let mut open: Option<(f64, Vec<Corner>)> = None;
+        // already inside when the walk began. `entered` is where along the cut
+        // that one began, and `None` while none is open.
+        let mut entered: Option<f64> = None;
         for step in 0..count {
             let here = (start + step) % count;
             let next = (start + step + 1) % count;
@@ -1112,41 +1116,43 @@ impl Splitting {
                 at,
                 came: from.came,
             };
-            if leaving == Side::Kept
-                && let Some((_, held)) = open.as_mut()
-            {
-                held.push(from);
+            if leaving == Side::Kept && entered.is_some() {
+                self.stretch.push(from);
             }
             match (leaving, arriving) {
                 // Onto the kept side, across the line or off a corner standing
                 // on it. Either way the chain begins where the cut is met.
                 (Side::Dropped, Side::Kept) => {
                     let at = cut.crossing(from.at, to.at);
-                    open = Some((cut.down(at), vec![back(at)]));
+                    entered = Some(cut.down(at));
+                    self.open(back(at));
                 }
                 (Side::On, Side::Kept) => {
-                    open = Some((cut.down(from.at), vec![from]));
+                    entered = Some(cut.down(from.at));
+                    self.open(from);
                 }
                 // And off it again.
                 (Side::Kept, Side::Dropped) => {
                     let at = cut.crossing(from.at, to.at);
-                    self.shut(&mut open, onto(at), cut);
+                    self.shut(&mut entered, onto(at), cut);
                 }
-                (Side::Kept, Side::On) => self.shut(&mut open, onto(to.at), cut),
+                (Side::Kept, Side::On) => self.shut(&mut entered, onto(to.at), cut),
                 // Both ends on one side, with the run between them dipping
                 // across the cut and back. Only a closed cut can be met twice
                 // by one straight run — see [`Cut::grazes`] — and stepping over
                 // it would lose a whole stretch of boundary.
                 (Side::Kept, Side::Kept) => {
                     if let Some([out, again]) = cut.grazes(from.at, to.at) {
-                        self.shut(&mut open, onto(out), cut);
-                        open = Some((cut.down(again), vec![back(again)]));
+                        self.shut(&mut entered, onto(out), cut);
+                        entered = Some(cut.down(again));
+                        self.open(back(again));
                     }
                 }
                 (Side::Dropped, Side::Dropped) => {
-                    if let Some([entered, out]) = cut.grazes(from.at, to.at) {
-                        open = Some((cut.down(entered), vec![back(entered)]));
-                        self.shut(&mut open, onto(out), cut);
+                    if let Some([into, out]) = cut.grazes(from.at, to.at) {
+                        entered = Some(cut.down(into));
+                        self.open(back(into));
+                        self.shut(&mut entered, onto(out), cut);
                     }
                 }
                 // Both ends away from it, or an edge lying along it — neither
@@ -1154,7 +1160,16 @@ impl Splitting {
                 _ => {}
             }
         }
-        debug_assert!(open.is_none(), "a chain was left open by a closed loop");
+        debug_assert!(entered.is_none(), "a chain was left open by a closed loop");
+    }
+
+    /// Begin a chain at `at`, over the room the last one took.
+    ///
+    /// One chain is open at a time, so one buffer serves every chain of every
+    /// loop rather than each taking one of its own.
+    fn open(&mut self, at: Corner) {
+        self.stretch.clear();
+        self.stretch.push(at);
     }
 
     /// Record a chain that has just reached the cut again at `at`.
@@ -1163,10 +1178,10 @@ impl Splitting {
     /// so every stretch on the kept side was entered before it could be left.
     /// Reaching here with nothing open would mean the walk had lost count of
     /// which side it was on.
-    fn shut(&mut self, open: &mut Option<(f64, Vec<Corner>)>, at: Corner, cut: Cut) {
-        let (entered, mut held) = open.take().expect("a chain is left only once entered");
-        held.push(at);
-        self.chains.push(&held);
+    fn shut(&mut self, entered: &mut Option<f64>, at: Corner, cut: Cut) {
+        let entered = entered.take().expect("a chain is left only once entered");
+        self.stretch.push(at);
+        self.chains.push(&self.stretch);
         self.ends.push(Ends {
             entered,
             left: cut.down(at.at),

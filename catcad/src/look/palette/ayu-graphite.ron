@@ -21,7 +21,7 @@
     on_held:      "#1e1e1e",  // bg                  gray_24
     ink:          "#a4a4a4",  // text_muted          gray_72
     ink_lit:      "#eaeaea",  // text                gray_94
-    ink_dim:      "#515151",  // (the ramp's gap)    between gray_44 and gray_44
+    ink_dim:      "#6a6a6a",  // (the ramp's gap)    between gray_44 and gray_72
     cube_low:     "#2a2a2a",  // panel               gray_29
     cube_high:    "#515151",  // line_number         gray_44
     focus:        "#eaeaea",  // text                gray_94

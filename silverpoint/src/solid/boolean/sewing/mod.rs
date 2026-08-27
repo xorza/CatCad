@@ -979,11 +979,20 @@ impl Sewing {
         if !self.voids.is_empty() && self.outer.len() != 1 {
             return false;
         }
-        let mut cavities = std::mem::take(&mut self.voids);
-        for shell in std::mem::take(&mut self.outer) {
+        // Written into the body's own run of cavities, which is where a lump
+        // names them from — so the two lists here are emptied next sew rather
+        // than handed over and grown again. Every lump is handed the same
+        // stretch, which the guard above makes safe: it is empty unless there
+        // is exactly one lump to hang the cavities on.
+        let from = into.topology().shells_voided();
+        for &shell in &self.voids {
+            into.topology_mut().add_voided(shell);
+        }
+        let voids = from..into.topology().shells_voided();
+        for &shell in &self.outer {
             into.topology_mut().add_lump(Lump {
                 outer: shell,
-                voids: std::mem::take(&mut cavities),
+                voids: voids.clone(),
             });
         }
         true

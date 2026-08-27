@@ -1,6 +1,7 @@
 //! Per-solve allocation gates, driven by `dhat`.
 //!
-//! One bench of five steps, each through a solver kept alive across its window:
+//! Five steps of the crate's one bench — see [`alloc_bench`](crate::alloc_bench)
+//! — each through a solver kept alive across its window:
 //!
 //! | step | measures | limit |
 //! |---|---|---|
@@ -119,10 +120,8 @@ fn chain() -> Chain {
     Chain { sketch, wrist }
 }
 
-/// The allocation bench: every step, one profiler, one verdict.
-pub fn alloc_bench() {
-    let mut bench = AllocBench::start("silverpoint", "solve");
-
+/// Add every per-solve step to `bench`.
+pub(crate) fn steps(bench: &mut AllocBench) {
     // Solving from the fixture's own guesses, over and over, through one
     // solver — which is what a drag is, and the only shape the workspace pays
     // for. The sketch is rewound with `set_params` rather than cloned: a clone
@@ -233,6 +232,4 @@ pub fn alloc_bench() {
         solver.measure(&sketch, &mut outcome);
         black_box(&outcome);
     });
-
-    bench.finish();
 }

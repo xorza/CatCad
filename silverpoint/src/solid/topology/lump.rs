@@ -2,6 +2,7 @@
 
 use crate::arena::Id;
 use crate::solid::topology::shell::ShellId;
+use std::ops::Range;
 
 pub(crate) type LumpId = Id<Lump>;
 
@@ -17,8 +18,12 @@ pub(crate) type LumpId = Id<Lump>;
 #[derive(Debug)]
 pub(crate) struct Lump {
     pub(crate) outer: ShellId,
-    /// The cavities, if any. Empty for everything a single extrusion makes: a
-    /// hole through a profile is a hole *through*, which the one shell goes
-    /// round rather than a second shell sitting inside it.
-    pub(crate) voids: Vec<ShellId>,
+    /// Which of the body's cavities are its, as a stretch of one buffer — see
+    /// [`Face::loops`](super::face::Face) for why nothing here holds a vector
+    /// of its own.
+    ///
+    /// Empty for everything a single extrusion makes: a hole through a profile
+    /// is a hole *through*, which the one shell goes round rather than a second
+    /// shell sitting inside it.
+    pub(crate) voids: Range<usize>,
 }

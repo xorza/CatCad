@@ -51,6 +51,23 @@ impl Imprints {
         self.found.clear();
     }
 
+    /// Make room for `curves` curves and the runs along them.
+    ///
+    /// **A lower bound and not the count**, which is why it is
+    /// [`Vec::reserve`] rather than the exact form: what a caller can say
+    /// before the work starts is how many curved edges the two bodies already
+    /// have, and every crossing the surfaces are found to make is one more
+    /// curve on top of that. Two faces walk each of those edges, so each
+    /// carries two runs — see [`Imprints::edge`].
+    ///
+    /// Without it the two lists grow a doubling at a time, and every one of
+    /// those doublings falls in the frame a model got bigger. That is the
+    /// frame that can least afford them.
+    pub(super) fn reserve(&mut self, curves: usize) {
+        self.along.reserve(curves);
+        self.runs.reserve(2 * curves);
+    }
+
     /// The run a crossing of two surfaces takes — one per curve, shared by
     /// every face the crossing is imprinted on.
     ///

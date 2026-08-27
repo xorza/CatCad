@@ -212,7 +212,11 @@ fn a_swallowed_body_leaves_a_shell_inside_a_shell() {
     ));
 
     let (_, lump) = body.topology().lumps().next().expect("the one lump");
-    assert_eq!(lump.voids.len(), 1, "the hollow is not a cavity");
+    assert_eq!(
+        body.topology().voids_of(lump).len(),
+        1,
+        "the hollow is not a cavity"
+    );
     // Genus nought all the same: a cavity is a second shell rather than a
     // handle through the first.
     let reckoning = body.reckoning();

@@ -384,7 +384,7 @@ a boolean asks "what is across this edge" in its innermost loop.
 
 **And nothing in an arena owns a heap block.** Every loop of every face lies end
 to end in one `Loops` on the topology and a face keeps the stretch of runs that
-are its; the faces of every shell likewise. So emptying a body is a handful of
+are its; the faces of every shell and the cavities of every lump likewise. So emptying a body is a handful of
 `clear`s that keep every buffer, and a solid rebuilt on each frame of a drag
 reaches the heap not at all. CatCad's allocation gate is a strict zero on all
 four of its frames, with a body being built on every dragged one.

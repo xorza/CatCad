@@ -326,7 +326,7 @@ fn sealed(body: &mut Body, faces: &[FaceId]) {
     let shell = body.topology_mut().add_shell(Shell { faces: from..to });
     body.topology_mut().add_lump(Lump {
         outer: shell,
-        voids: Vec::new(),
+        voids: 0..0,
     });
 }
 

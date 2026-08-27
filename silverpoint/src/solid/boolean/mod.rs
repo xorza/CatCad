@@ -256,6 +256,11 @@ impl Combining {
         self.loops.clear();
         self.kept.clear();
         self.imprints.clear();
+        // Every curved edge of either body takes a curve in the imprint list
+        // and a run per face that walks it, before one crossing has been found
+        // — see [`Imprints::reserve`].
+        let curved = one.topology().curved_edges() + two.topology().curved_edges();
+        self.imprints.reserve(curved);
         self.boxed.clear();
         self.box_up(one);
         self.between = self.boxed.len();
