@@ -1,8 +1,8 @@
 //! The sketch's curves as geometry, and the cutting of them at their crossings.
 
-use crate::math::intersect::{self, Ring, Span};
+use crate::math::intersect::{self, Crossing, Ring, Span};
 use crate::number::predicate::ApproxEq;
-use crate::number::tolerance::{EXACT, PLACED};
+use crate::number::tolerance::PLACED;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::edge::{Edge, Shape};
 use crate::sketch::entity::Entity;
@@ -96,11 +96,16 @@ impl Curves {
     ///
     /// Leaves the corners in order across the drawing, which is the fold's
     /// doing and which [`Curves::cut`] then leans on.
-    pub(super) fn corners(&self, into: &mut Vec<DVec2>, reached: &mut Vec<f64>) {
-        into.clear();
+    pub(super) fn corners(
+        &self,
+        found: &mut Vec<Crossing>,
+        into: &mut Vec<DVec2>,
+        reached: &mut Vec<f64>,
+    ) {
+        found.clear();
         for (span, _) in &self.straight {
-            into.push(span.from);
-            into.push(span.to);
+            found.push(Crossing::exactly(span.from));
+            found.push(Crossing::exactly(span.to));
         }
         for (at, one) in self.sweep.iter().enumerate() {
             for two in &self.sweep[at + 1..] {
@@ -114,10 +119,18 @@ impl Curves {
                 if two.low.y > one.high.y || one.low.y > two.high.y {
                     continue;
                 }
-                self.crossing(one.curve, two.curve, into);
+                self.crossing(one.curve, two.curve, found);
             }
         }
-        fold(into, reached);
+        fold(found);
+        // Split apart only here, because what reads a corner wants a bare
+        // place: the departures, the shoelace and every ray cast ask where one
+        // is and nothing else. Only a body raised off the drawing asks what it
+        // was known to.
+        into.clear();
+        reached.clear();
+        into.extend(found.iter().map(|it| it.at));
+        reached.extend(found.iter().map(|it| it.reached));
     }
 
     /// Where two curves the search could not rule out actually meet, if they
@@ -126,7 +139,7 @@ impl Curves {
     /// The one place the three kinds of pair are told apart, which the search
     /// above is free not to know about: it orders every curve of the drawing
     /// together and hands back whichever two it could not separate.
-    fn crossing(&self, one: Curve, two: Curve, into: &mut Vec<DVec2>) {
+    fn crossing(&self, one: Curve, two: Curve, into: &mut Vec<Crossing>) {
         match (one, two) {
             (Curve::Straight(a), Curve::Straight(b)) => {
                 into.extend(intersect::spans(self.straight[a].0, self.straight[b].0));
@@ -283,12 +296,12 @@ impl Curves {
 /// The order it leaves them in *is* read, though, and has to be — [`Curves::cut`]
 /// finds the corners a curve could touch by searching it rather than by walking
 /// the lot. Sorting here is what pays for that as well as for the fold.
-fn fold(corners: &mut Vec<DVec2>, reached: &mut Vec<f64>) {
+fn fold(corners: &mut Vec<Crossing>) {
     corners.sort_by(|a, b| {
-        a.x.partial_cmp(&b.x)
+        a.at.x
+            .partial_cmp(&b.at.x)
             .expect("a crossing of finite curves is finite")
     });
-    reached.clear();
     let mut kept = 0;
     for at in 0..corners.len() {
         let candidate = corners[at];
@@ -297,28 +310,27 @@ fn fold(corners: &mut Vec<DVec2>, reached: &mut Vec<f64>) {
         // could reach.
         let mut folded = None;
         let mut back = kept;
-        while back > 0 && candidate.x - corners[back - 1].x <= PLACED {
+        while back > 0 && candidate.at.x - corners[back - 1].at.x <= PLACED {
             back -= 1;
-            if corners[back].approx_eq(candidate, PLACED) {
+            if corners[back].at.approx_eq(candidate.at, PLACED) {
                 folded = Some(back);
                 break;
             }
         }
         match folded {
             // The survivor stands for both now, so what it is known to is the
-            // further of what it already reached and how far it just did.
+            // furthest of what either already reached and how far it just did.
             Some(back) => {
-                reached[back] = reached[back].max(corners[back].distance(candidate));
+                let gap = corners[back].at.distance(candidate.at);
+                corners[back].reached = corners[back].reached.max(candidate.reached).max(gap);
             }
             None => {
                 corners[kept] = candidate;
-                reached.push(EXACT);
                 kept += 1;
             }
         }
     }
     corners.truncate(kept);
-    debug_assert_eq!(reached.len(), kept, "a corner was kept without its reach");
 }
 
 /// Whether `corner` falls in the box between `low` and `high`.
@@ -382,7 +394,7 @@ mod tests {
     use crate::number::tolerance::ROUNDING;
 
     /// **A corner records how far it reached to swallow its neighbours, and
-    /// nought where it swallowed none.**
+    /// nothing where it swallowed none.**
     ///
     /// The whole of what a body raised off a drawing is entitled to claim — see
     /// `.notes/KERNEL.md` §4.1, whose rule is that a decision taken within
@@ -390,7 +402,7 @@ mod tests {
     ///
     /// Four places across one sweep, and they are four different claims. Two
     /// handed in bit for bit — which is what a shared endpoint is, the same
-    /// `DVec2` reaching here from two curves — fold to nought, and that is the
+    /// place reaching here from two curves — fold to nought, and that is the
     /// case almost every corner of a drawing is. One a third of the fold away
     /// records that third. One a *chain* of two records the further of them,
     /// because the survivor stands for both. And one clear of the rest is left
@@ -398,41 +410,60 @@ mod tests {
     #[test]
     fn a_corner_records_how_far_it_reached_and_nothing_where_it_reached_none() {
         let step = PLACED / 3.0;
+        let at = |x: f64| Crossing::exactly(DVec2::new(x, 0.0));
         let mut corners = vec![
-            DVec2::new(1.0, 0.0),
-            DVec2::new(1.0, 0.0),
-            DVec2::new(1.0 + step, 0.0),
-            DVec2::new(1.0 + 2.0 * step, 0.0),
-            DVec2::new(5.0, 0.0),
+            at(1.0),
+            at(1.0),
+            at(1.0 + step),
+            at(1.0 + 2.0 * step),
+            at(5.0),
         ];
-        let mut reached = Vec::new();
-        fold(&mut corners, &mut reached);
+        fold(&mut corners);
 
+        let places: Vec<DVec2> = corners.iter().map(|it| it.at).collect();
         assert_eq!(
-            corners,
+            places,
             [DVec2::new(1.0, 0.0), DVec2::new(5.0, 0.0)],
             "the fold kept the wrong places",
         );
-        assert_eq!(reached.len(), corners.len());
         // The furthest of the three that folded in, not the nearest and not
         // the last: the survivor stands for every one of them.
         assert!(
-            reached[0].approx_eq(2.0 * step, ROUNDING),
+            corners[0].reached.approx_eq(2.0 * step, ROUNDING),
             "reached {} rather than {}",
-            reached[0],
+            corners[0].reached,
             2.0 * step,
         );
-        assert_eq!(reached[1], EXACT, "a corner alone swallowed something");
-
-        // And two places handed in twice over, which is what a shared endpoint
-        // is: nothing was decided, so nothing is recorded.
-        let mut corners = vec![DVec2::new(2.0, 3.0); 4];
-        fold(&mut corners, &mut reached);
-        assert_eq!(corners, [DVec2::new(2.0, 3.0)]);
         assert_eq!(
-            reached,
-            [EXACT],
-            "a corner folded onto itself recorded a reach"
+            corners[1].reached, 0.0,
+            "a corner alone swallowed something"
+        );
+
+        // Places handed in twice over, which is what a shared endpoint is:
+        // nothing was decided, so nothing is recorded.
+        let mut corners = vec![at(2.0); 4];
+        fold(&mut corners);
+        assert_eq!(corners.len(), 1);
+        assert_eq!(
+            corners[0].reached, 0.0,
+            "a corner folded onto itself reached"
+        );
+
+        // **And a crossing that arrived already reached for keeps it**, which
+        // is what makes the number a corner carries the whole of what was
+        // decided to place it rather than only the fold's share. Two in one
+        // place, one of them admitted a long way past the end of its span.
+        let admitted = Crossing {
+            at: DVec2::new(9.0, 0.0),
+            reached: 5.0 * step,
+        };
+        let mut corners = vec![admitted, at(9.0)];
+        fold(&mut corners);
+        assert_eq!(corners.len(), 1);
+        assert_eq!(
+            corners[0].reached,
+            5.0 * step,
+            "the crossing's own reach was dropped by the fold",
         );
     }
 }

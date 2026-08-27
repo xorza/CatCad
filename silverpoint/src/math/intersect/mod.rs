@@ -11,8 +11,7 @@
 use crate::inline::Inline;
 use crate::math::intersect::chord::Chord;
 use crate::math::quadratic;
-use crate::number::predicate::ApproxEq;
-use crate::number::tolerance::{ALIGNED, NO_DIRECTION, PLACED};
+use crate::number::tolerance::{ALIGNED, EXACT, NO_DIRECTION, PLACED};
 use glam::DVec2;
 
 pub(crate) mod chord;
@@ -39,21 +38,57 @@ pub(crate) struct Ring {
     pub(crate) radius: f64,
 }
 
+/// Where two curves were found to meet, and how far a tolerance had to reach to
+/// say they did.
+///
+/// **A decision taken within tolerance, carried rather than dropped** — the rule
+/// `.notes/KERNEL.md` §4.1 states, and the one every routine below obeys. A
+/// crossing that lands on both curves and splits no pair of roots reaches
+/// nought, and everything raised off it is exact; one admitted a rounding past
+/// the end of a span, or two roots folded into the place between them, carries
+/// how far.
+///
+/// Nought is the ordinary answer. A drawing whose curves meet where they were
+/// drawn to meet gives nothing else.
+#[derive(Debug, Clone, Copy, Default)]
+pub(crate) struct Crossing {
+    pub(crate) at: DVec2,
+    pub(crate) reached: f64,
+}
+
+impl Crossing {
+    /// A crossing nothing had to reach for.
+    pub(crate) fn exactly(at: DVec2) -> Self {
+        Self { at, reached: EXACT }
+    }
+}
+
 /// Where two curves meet: nowhere, one place, or two.
 ///
 /// Two is the most any pair of curves a sketch can hold will ever meet in: a
 /// span cuts a ring twice, two rings meet twice, and two spans meet once.
-pub(crate) type Crossings = Inline<DVec2, 2>;
+pub(crate) type Crossings = Inline<Crossing, 2>;
 
 /// Two places a pair of curves crosses at, folded to one where the two are the
 /// same place to within [`PLACED`].
-fn crossed(first: DVec2, second: DVec2) -> Crossings {
-    if first.approx_eq(second, PLACED) {
+fn crossed(first: Crossing, second: Crossing) -> Crossings {
+    let apart = first.at.distance(second.at);
+    if apart <= PLACED {
         // The midpoint rather than either, so a grazing pair answers with the
-        // place they agree on instead of whichever root came first.
-        return Crossings::one(first.midpoint(second));
+        // place they agree on instead of whichever root came first — and it
+        // reaches half the gap, either root being that far from the answer.
+        return Crossings::one(Crossing {
+            at: first.at.midpoint(second.at),
+            reached: first.reached.max(second.reached).max(apart / 2.0),
+        });
     }
     Crossings::two(first, second)
+}
+
+/// How far past either end of a curve the parameter `t` sits, as a fraction of
+/// it — nought where it lands on the curve.
+fn past(t: f64) -> f64 {
+    (-t).max(t - 1.0).max(0.0)
 }
 
 /// Where two straight spans cross, ends included.
@@ -90,7 +125,13 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
     if !holds(along_one, PLACED / reach) || !holds(along_two, PLACED / other) {
         return Crossings::none();
     }
-    Crossings::one(p + r * along_one)
+    Crossings::one(Crossing {
+        at: p + r * along_one,
+        // How far past the end of either span it actually sat, in world units.
+        // Nought is the usual answer and the one a corner drawn on a line
+        // gives: the slack is there for the crossing that misses by a rounding.
+        reached: (past(along_one) * reach).max(past(along_two) * other),
+    })
 }
 
 /// Where a straight span crosses a ring, ends included.
@@ -120,7 +161,10 @@ pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
         return Crossings::none();
     };
     let slack = PLACED / reach;
-    let at = |t: f64| span.from + along * t;
+    let at = |t: f64| Crossing {
+        at: span.from + along * t,
+        reached: past(t) * reach,
+    };
     match roots.map(|t| holds(t, slack).then(|| at(t))) {
         [Some(near), Some(far)] => crossed(near, far),
         [Some(only), None] | [None, Some(only)] => Crossings::one(only),
@@ -145,8 +189,12 @@ pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
     let base = one.center + between * (chord.along / apart);
     if chord.grazing {
         // Grazing, inside or out: the two meet on the line of centres and
-        // nowhere else.
-        return Crossings::one(base);
+        // nowhere else — as far from a true touch as the chord had to reach to
+        // call it one.
+        return Crossings::one(Crossing {
+            at: base,
+            reached: chord.reached,
+        });
     }
     // Too far to reach each other, or one swallowed by the other with room to
     // spare — either way the chord has no length to be.
@@ -154,7 +202,10 @@ pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
         return Crossings::none();
     };
     let step = between.perp() * (half / apart);
-    crossed(base + step, base - step)
+    crossed(
+        Crossing::exactly(base + step),
+        Crossing::exactly(base - step),
+    )
 }
 
 /// Where `span` crosses the level line through `at` — the x it crosses at, or
@@ -180,8 +231,13 @@ pub(crate) fn rightward(span: Span, at: DVec2) -> Option<f64> {
 }
 
 /// Whether a curve parameter lands on the curve, `slack` past either end.
+///
+/// Asked of [`past`] rather than spelling the interval out again, so that what
+/// admits a crossing and what records how far it was admitted by cannot come to
+/// disagree about where the curve stops.
 fn holds(t: f64, slack: f64) -> bool {
-    t >= -slack && t <= 1.0 + slack
+    debug_assert!(slack >= 0.0, "a negative {slack} admits nothing");
+    past(t) <= slack
 }
 
 #[cfg(test)]

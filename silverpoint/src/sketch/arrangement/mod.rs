@@ -20,7 +20,7 @@
 
 use crate::loops::Loops;
 use crate::math::chorded::Chorded;
-use crate::math::intersect::{self, Span};
+use crate::math::intersect::{self, Crossing, Span};
 use crate::number::tolerance::{ENCLOSED, EXACT};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::bound::Bound;
@@ -80,9 +80,11 @@ impl Arrangement {
             scratch,
             ..
         } = self;
-        let Scratch { curves, on, .. } = scratch;
+        let Scratch {
+            curves, on, found, ..
+        } = scratch;
         curves.gather(sketch);
-        curves.corners(corners, reached);
+        curves.corners(found, corners, reached);
         // Cutting may add corners of its own: a circle nothing crosses is its
         // own loop, and a loop still needs somewhere to start. Nothing folded
         // into one of those, so each is exactly where it was worked out.
@@ -441,6 +443,9 @@ impl Arrangement {
 #[derive(Debug, Default)]
 struct Scratch {
     curves: Curves,
+    /// Every crossing and endpoint the drawing offers, before the fold reduces
+    /// them to corners — each with what a tolerance had to reach to find it.
+    found: Vec<Crossing>,
     /// Where one curve is cut: how far along it each corner falls, and which
     /// corner that is.
     on: Vec<(f64, usize)>,

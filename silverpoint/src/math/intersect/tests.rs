@@ -1,9 +1,10 @@
 use super::*;
+use crate::number::predicate::ApproxEq;
 
 /// Every crossing, in the order the routine found them, as plain pairs — so an
 /// expectation reads as coordinates off a drawing.
 fn places(found: Crossings) -> Vec<(f64, f64)> {
-    found.into_iter().map(|at| (at.x, at.y)).collect()
+    found.into_iter().map(|it| (it.at.x, it.at.y)).collect()
 }
 
 /// Whether `found` is exactly these places, in any order and to within a
@@ -13,7 +14,7 @@ fn meets(found: Crossings, want: &[DVec2]) -> bool {
     found.all().len() == want.len()
         && want
             .iter()
-            .all(|expected| found.into_iter().any(|at| at.approx_eq(*expected, 1e-9)))
+            .all(|expected| found.into_iter().any(|it| it.at.approx_eq(*expected, 1e-9)))
 }
 
 fn span(from: (f64, f64), to: (f64, f64)) -> Span {
@@ -163,7 +164,7 @@ fn a_grazing_span_touches_a_ring_in_one_place() {
     let depth = 1e-13;
     let barely = span_ring(span((-3.0, 1.0 - depth), (3.0, 1.0 - depth)), unit);
     assert_eq!(barely.all().len(), 2, "a real chord was folded away");
-    let apart: Vec<DVec2> = barely.into_iter().collect();
+    let apart: Vec<DVec2> = barely.into_iter().map(|it| it.at).collect();
     let expected = 2.0 * (2.0 * depth).sqrt();
     assert!(
         (apart[0].distance(apart[1]) - expected).abs() < expected * 0.01,
@@ -177,7 +178,7 @@ fn a_grazing_span_touches_a_ring_in_one_place() {
     // sliver of arc between them.
     let chord = span_ring(span((-3.0, 0.99), (3.0, 0.99)), unit);
     assert_eq!(chord.all().len(), 2);
-    let wide: Vec<DVec2> = chord.into_iter().collect();
+    let wide: Vec<DVec2> = chord.into_iter().map(|it| it.at).collect();
     assert!(wide[0].distance(wide[1]) > PLACED);
 }
 

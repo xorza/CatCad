@@ -173,11 +173,16 @@ that stay exact whatever corner they were placed through. So a body raised from
 a drawing whose curves meet where they were drawn is exact in its vertices too,
 where the whole of one used to carry a blanket nanometre.
 
-What still rounds is underneath that: the crossings are worked out in `f64`, and
-`math::intersect` decides whether one lands on a span with a slack of its own.
-That decision is taken and not recorded, which is 9.1's remaining half — and it
-is why `number/` is shared *downward*: the drawing and the body read one
-tolerance from one file.
+**Every decision the drawing takes within tolerance is recorded**, and there are
+four: the fold above, the slack that admits a crossing a rounding past the end
+of a span, the fold of two roots into the place between them, and the test that
+calls two circles tangent. Each hands back how far it reached, the reaches
+combine at the corner, and the corner's is what a vertex carries. Nought is the
+ordinary answer.
+
+What still rounds is the arithmetic under all four, which is `f64` — 9.1's
+remaining half, and why `number/` is shared *downward*: the drawing and the body
+read one tolerance from one file.
 
 Where exactness stops, the discipline takes over:
 
@@ -824,17 +829,19 @@ from the current camera — and neither is worth a pass on its own yet.
 The largest single piece, and it shows nothing on screen. Two parts, and they
 are in this order because the second cannot be done first:
 
-- **The drawing goes exact.** The *fold* is done: an `Arrangement` records how
-  far each corner reached to swallow its neighbours, and a vertex raised there
-  carries that rather than a blanket `PLACED`, so a drawing whose curves meet
-  where they were drawn raises a body exact in its vertices. What is left is the
-  arithmetic under it. `math::intersect` works crossings out in `f64` and takes
-  two more decisions within tolerance without recording either: whether a
-  crossing lands on a span, and whether two roots are one place. Segment against
-  segment is polynomial in the coordinates and could go through the expansions
-  today; a circle brings a square root, so its crossing is not an `f64` at all
-  and the arrangement would have to stop holding a corner as a `DVec2`. That
-  last is the half nobody costed.
+- **The drawing goes exact.** The *recording* is done, which is §4.1's own rule:
+  every one of the four decisions a drawing takes within tolerance hands back
+  how far it reached, the reaches combine at the corner, and a vertex raised
+  there carries that rather than a blanket `PLACED`. A drawing whose curves meet
+  where they were drawn raises a body exact in its vertices.
+
+  What is left is the *arithmetic*. `math::intersect` still works in `f64`, so a
+  crossing that ought to land exactly on a span can miss by a rounding and be
+  admitted by the slack rather than found on it. Segment against segment is
+  polynomial in the coordinates and could go through the expansions today, which
+  would take those to nought. A circle brings a square root, so its crossing is
+  not an `f64` at all once it is exact and the arrangement would have to stop
+  holding a corner as a `DVec2`. That last is the half nobody costed.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.

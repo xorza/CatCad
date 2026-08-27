@@ -1,12 +1,14 @@
 //! What a heap of curves shuts in, and what fills it.
 
 use crate::math::triangulate::Fill;
+use crate::number::predicate::ApproxEq;
+use crate::number::tolerance::ROUNDING;
 use crate::sketch::arrangement::filler::Filler;
 use crate::sketch::arrangement::tests::drawings::{
     CLOSE, Halved, areas, bowtie, covers, nested, open, pierced, square,
 };
 use crate::sketch::arrangement::*;
-use std::f64::consts::PI;
+use std::f64::consts::{PI, SQRT_2};
 
 /// A closed run of edges shuts in one face, and an open one shuts in nothing.
 #[test]
@@ -221,10 +223,17 @@ fn a_face_fills_to_the_area_it_encloses() {
 /// same three lines missing by a quarter of a unit keep their three crossings
 /// and shut in the triangle between them, which is what says the count above is
 /// the fold rather than the arithmetic.
+///
+/// **And what the fold reached is asked for as well.** A junction made of three
+/// crossings a tenth of a nanometre apart is known to about that far and says
+/// so; every other corner of the drawing, and every corner of the version that
+/// misses by a quarter, was worked out exactly and says *that*. Which is the
+/// whole of what a body raised off either is entitled to claim — see
+/// [`Arrangement::reached`] and `.notes/KERNEL.md` §4.1.
 #[test]
 fn crossings_within_a_rounding_of_each_other_fold_to_one_corner() {
     // A tenth of the fold's own reach, and a quarter of a unit.
-    for (miss, corners, faces) in [(1e-10, 7, 0), (0.25, 9, 1)] {
+    for (miss, corners, faces, reached) in [(1e-10, 7, 0, 1), (0.25, 9, 1, 0)] {
         let mut sketch = Sketch::default();
         let flat = [
             sketch.add_point(DVec2::new(-1.0, 0.0)),
@@ -260,5 +269,28 @@ fn crossings_within_a_rounding_of_each_other_fold_to_one_corner() {
             "missing by {miss} enclosed {:?}",
             areas(&found)
         );
+
+        let stood: Vec<f64> = found
+            .reached()
+            .iter()
+            .copied()
+            .filter(|&reach| reach > 0.0)
+            .collect();
+        assert_eq!(
+            stood.len(),
+            reached,
+            "missing by {miss} left {:?} standing for something",
+            found.reached(),
+        );
+        // And it stands for the width of the junction, worked out from the
+        // three places rather than read off the code: the crossings are the
+        // origin, `(−miss, 0)` and `(0, miss)`, so the furthest two are
+        // `miss·√2` apart and the survivor reaches that.
+        for reach in stood {
+            assert!(
+                reach.approx_eq(miss * SQRT_2, ROUNDING),
+                "a junction that missed by {miss} stands for {reach}",
+            );
+        }
     }
 }
