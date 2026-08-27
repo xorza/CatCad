@@ -1,5 +1,5 @@
 use super::*;
-use crate::look::ink::{DETERMINED, FREE, PARTLY, PINNED};
+use crate::look::Theme;
 use crate::paint::marks::mark::STACK_STEP;
 use crate::paint::tests::fixtures::drawn;
 use glam::{DVec2, Vec3};
@@ -19,7 +19,13 @@ fn every_entity_becomes_a_curve() {
     // screen, so it is cut with the handles against the camera.
     let mut strokes = Batch::default();
     let one = drawn(sketch);
-    curves(one.models(), &mut Names::default(), None, &mut strokes);
+    curves(
+        one.models(),
+        &Theme::default(),
+        &mut Names::default(),
+        None,
+        &mut strokes,
+    );
     assert_eq!(strokes.len(), 1);
 
     // Every last stroke rides in front of the solids, and names the plane
@@ -49,7 +55,13 @@ fn every_entity_becomes_a_curve() {
     fewer.add_segment(c, d);
     fewer.add_segment(d, c);
     let two = drawn(fewer);
-    curves(two.models(), &mut Names::default(), None, &mut strokes);
+    curves(
+        two.models(),
+        &Theme::default(),
+        &mut Names::default(),
+        None,
+        &mut strokes,
+    );
     assert_eq!(strokes.len(), 2, "the list did not grow to the new sketch");
     // The ground plane's +y runs to world −Z, so a sketch x-axis stays x.
     assert_eq!(
@@ -61,7 +73,13 @@ fn every_entity_becomes_a_curve() {
         [Vec3::new(4.0, 0.0, 0.0), Vec3::new(1.0, 0.0, 0.0)]
     );
 
-    curves(one.models(), &mut Names::default(), None, &mut strokes);
+    curves(
+        one.models(),
+        &Theme::default(),
+        &mut Names::default(),
+        None,
+        &mut strokes,
+    );
     assert_eq!(strokes.len(), 1, "the list did not shrink back");
     assert_eq!(
         strokes[0].points,
@@ -73,7 +91,13 @@ fn every_entity_becomes_a_curve() {
     // The circle comes back as one ring, carrying the whole of itself
     // rather than a count of chords standing in for it.
     let mut rims = Batch::default();
-    rings(one.models(), &mut Names::default(), None, &mut rims);
+    rings(
+        one.models(),
+        &Theme::default(),
+        &mut Names::default(),
+        None,
+        &mut rims,
+    );
     assert_eq!(rims.len(), 1);
     let ring = rims[0];
     assert_eq!(ring.center, Vec3::new(10.0, 0.0, 0.0));
@@ -97,7 +121,12 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
 
     let mut markers = Batch::default();
     let one = drawn(sketch);
-    points(one.models(), &mut Names::default(), &mut markers);
+    points(
+        one.models(),
+        &Theme::default(),
+        &mut Names::default(),
+        &mut markers,
+    );
     assert_eq!(markers.len(), 2);
     // Above the strokes, not merely above the solids: a marker lands on
     // the end of the segments meeting it, and is drawn after them.
@@ -105,13 +134,13 @@ fn every_sketch_point_gets_a_marker_the_zoom_cannot_reach() {
     // Pinned reads larger and in its own colour; free is the other way.
     let anchor = &markers[0];
     assert_eq!(anchor.position, Vec3::ZERO);
-    assert_eq!(anchor.color, PINNED);
-    assert_eq!(anchor.size, FIXED_MARKER);
+    assert_eq!(anchor.color, Theme::default().drawing.pinned);
+    assert_eq!(anchor.size, Theme::default().drawing.fixed_marker);
 
     let free = &markers[1];
     assert_eq!(free.position, Vec3::new(10.0, 0.0, 0.0));
-    assert_eq!(free.color, FREE);
-    assert_eq!(free.size, FREE_MARKER);
+    assert_eq!(free.color, Theme::default().drawing.free);
+    assert_eq!(free.size, Theme::default().drawing.free_marker);
     assert!(free.size < anchor.size);
 
     let _ = b;
@@ -133,11 +162,16 @@ fn marker_size_ignores_how_big_the_drawing_is() {
     let sizes = |sketch: Sketch| -> Vec<f32> {
         let mut markers = Batch::default();
         let one = drawn(sketch);
-        points(one.models(), &mut Names::default(), &mut markers);
+        points(
+            one.models(),
+            &Theme::default(),
+            &mut Names::default(),
+            &mut markers,
+        );
         markers.iter().map(|point| point.size).collect()
     };
     assert_eq!(sizes(small.clone()), sizes(large));
-    assert_eq!(sizes(small), vec![FREE_MARKER; 2]);
+    assert_eq!(sizes(small), vec![Theme::default().drawing.free_marker; 2]);
 }
 
 /// Geometry is drawn in the colour of the freedom its constraints leave it,
@@ -171,26 +205,68 @@ fn geometry_is_coloured_by_how_much_freedom_it_has_left() {
     let mut markers = Batch::default();
     let mut strokes = Batch::default();
     let mut rims = Batch::default();
-    points(one.models(), &mut Names::default(), &mut markers);
-    curves(one.models(), &mut Names::default(), None, &mut strokes);
-    rings(one.models(), &mut Names::default(), None, &mut rims);
+    points(
+        one.models(),
+        &Theme::default(),
+        &mut Names::default(),
+        &mut markers,
+    );
+    curves(
+        one.models(),
+        &Theme::default(),
+        &mut Names::default(),
+        None,
+        &mut strokes,
+    );
+    rings(
+        one.models(),
+        &Theme::default(),
+        &mut Names::default(),
+        None,
+        &mut rims,
+    );
 
     // Three markers, three different things to say about them.
-    assert_eq!(markers[0].color, PINNED, "the anchor was pinned by hand");
-    assert_eq!(markers[1].color, PARTLY, "it can only slide along y = 0");
-    assert_eq!(markers[2].color, FREE, "nothing constrains it at all");
+    assert_eq!(
+        markers[0].color,
+        Theme::default().drawing.pinned,
+        "the anchor was pinned by hand"
+    );
+    assert_eq!(
+        markers[1].color,
+        Theme::default().drawing.partly,
+        "it can only slide along y = 0"
+    );
+    assert_eq!(
+        markers[2].color,
+        Theme::default().drawing.free,
+        "nothing constrains it at all"
+    );
 
     // The first edge joins a pinned end to a sliding one, so it slides; the
     // second reaches a point that can go anywhere, so it can too.
-    assert_eq!(strokes[0].color, PARTLY);
-    assert_eq!(strokes[1].color, FREE);
+    assert_eq!(strokes[0].color, Theme::default().drawing.partly);
+    assert_eq!(strokes[1].color, Theme::default().drawing.free);
 
     // A circle on a determined centre is only as settled as its radius.
-    assert_eq!(rims[0].color, DETERMINED, "centre pinned, radius stated");
-    assert_eq!(rims[1].color, FREE, "nothing said how big it is");
+    assert_eq!(
+        rims[0].color,
+        Theme::default().drawing.determined,
+        "centre pinned, radius stated"
+    );
+    assert_eq!(
+        rims[1].color,
+        Theme::default().drawing.free,
+        "nothing said how big it is"
+    );
 
     // Every state is its own colour, or the drawing says nothing by using them.
-    let shades = [PINNED, DETERMINED, PARTLY, FREE];
+    let shades = [
+        Theme::default().drawing.pinned,
+        Theme::default().drawing.determined,
+        Theme::default().drawing.partly,
+        Theme::default().drawing.free,
+    ];
     for (first, one) in shades.iter().enumerate() {
         for other in &shades[first + 1..] {
             assert_ne!(one, other, "two states share a colour");
@@ -231,6 +307,7 @@ fn a_relation_drawn_twice_is_named_once() {
     let mut placed = Vec::new();
     texts(
         one.models(),
+        &Theme::default(),
         &mut names,
         &mut placed,
         None,
@@ -314,7 +391,15 @@ fn a_corner_stacks_its_relations_and_a_field_over_one_leaves_the_rest_where_they
         }
     };
     let laid = |names: &mut Names, placed: &mut Vec<_>, figures: &mut Batch<Text>, typed| {
-        texts(one.models(), names, placed, None, typed, figures);
+        texts(
+            one.models(),
+            &Theme::default(),
+            names,
+            placed,
+            None,
+            typed,
+            figures,
+        );
         figures
             .iter()
             .map(|mark| (mark.content.clone(), mark.position, clearance(mark)))

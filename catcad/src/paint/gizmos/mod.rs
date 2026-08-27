@@ -27,25 +27,17 @@ use glam::{DVec2, Vec3};
 use silverpoint::{Constraint, Measurement, Plane};
 
 use crate::lens::Lens;
-use crate::look::ink;
-use crate::look::ink::{GHOST, MARK};
+use crate::look::Theme;
 use crate::model::Models;
 use crate::paint::gizmos::dimension::Stroke;
 use crate::paint::layout::{Framed, Layout, Made};
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::showing::Showing;
-use crate::paint::{EDGE_WIDTH, SHEET_WIDTH};
+
 use crate::part::Part;
 
 mod dimension;
 mod shape;
-
-/// What the arrow carrying a solid's depth is drawn in.
-///
-/// The same warm grey the solid itself is, because it is *that solid's* handle
-/// and nothing else in the drawing — a hue off the freedom ladder would say it
-/// had a state, and the axis colours would say it was an axis.
-const DEPTH_ARROW: Vec3 = Vec3::new(0.78, 0.76, 0.70);
 
 /// Write every control the drawing wants — the square standing for each plane,
 /// and the arrow that carries a solid still being decided — and the lines its
@@ -73,6 +65,7 @@ const DEPTH_ARROW: Vec3 = Vec3::new(0.78, 0.76, 0.70);
 /// you are working in — see [`texts`](crate::paint::write::texts).
 pub(crate) fn write(
     models: Models<'_>,
+    theme: &Theme,
     layout: &mut Layout,
     showing: Showing,
     lens: Lens,
@@ -119,13 +112,13 @@ pub(crate) fn write(
             .map(move |sheeted| {
                 (
                     Some(Part::Step(sheeted.at)),
-                    Piece::Sheet(sheeted.plane, ink::sheet(sheeted.world)),
+                    Piece::Sheet(sheeted.plane, theme.drawing.sheet_ink(sheeted.world)),
                 )
             })
             .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))
             .chain(ruled(models, placed, *proposed, lens)),
         |curve, (part, piece)| {
-            piece.stroke(curve, lens);
+            piece.stroke(curve, theme, lens);
             // The one thing left to the caller, because it is the only one that
             // is not the piece's: a name is minted out of the list this walk is
             // appending to.
@@ -219,12 +212,6 @@ fn ruled<'a>(
     })
 }
 
-/// How wide a control is stroked, in logical pixels.
-///
-/// A shade heavier than the drawing's own, so a handle reads as something to
-/// take hold of rather than as another edge among the edges it stands on.
-const GIZMO_WIDTH: f32 = 2.0;
-
 /// One stroke a gizmo is made of.
 #[derive(Debug, Clone, Copy)]
 enum Piece {
@@ -275,16 +262,17 @@ impl Piece {
     ///
     /// The tag is not here: a name is minted out of the list the caller is
     /// appending to, and this is handed a `Curve` rather than the walk.
-    fn stroke(self, curve: &mut Curve, lens: Lens) {
+    fn stroke(self, curve: &mut Curve, theme: &Theme, lens: Lens) {
+        let drawing = &theme.drawing;
         curve.points.clear();
         match self {
             Piece::Sheet(plane, ink) => {
-                control(curve, ink, Some(plane));
+                control(curve, theme, ink, Some(plane));
                 // Hairline, where a handle is a shade heavier than the drawing:
                 // the square is a symbol for a plane before it is something to
                 // grab, and at a handle's weight it would read as a thing to
                 // take hold of everywhere it passed.
-                curve.width = SHEET_WIDTH;
+                curve.width = drawing.sheet;
                 // **Aside**, so it yields a click to anything drawn on the plane
                 // it stands for. Not a frame: a frame does not merely lose the
                 // click, it *hides* what is behind it from a pick — right for a
@@ -298,7 +286,7 @@ impl Piece {
             Piece::Depth(carried) => {
                 // Standing out of a plane rather than lying in one, so it takes
                 // no plane's depth — see [`Carried`].
-                control(curve, DEPTH_ARROW, None);
+                control(curve, theme, drawing.depth_arrow, None);
                 // **The one control that does not yield.** A plane's square
                 // stands aside, being what the drawing is done *on*. This is
                 // what the gesture is *for* — a form is open and the arrow is
@@ -341,8 +329,12 @@ impl Piece {
                 // figure, and saying it twice would double the ink on the one
                 // case that is already loud. A proposal has no state to report
                 // at all, so it wears the grey a rubber band does.
-                curve.color = if proposed { GHOST } else { MARK };
-                curve.width = EDGE_WIDTH;
+                curve.color = if proposed {
+                    drawing.ghost
+                } else {
+                    drawing.mark
+                };
+                curve.width = drawing.edge;
                 curve.closed = stroke.closes();
                 curve.plane_normal = Some(plane.normal().as_vec3());
                 curve.precedence = Precedence::Frame;
@@ -368,9 +360,9 @@ impl Piece {
 /// A control lies in a plane and is widened in screen space, so it takes that
 /// plane's depth rather than its anchor's — the same thing every stroke of the
 /// drawing does. `None` is the arrow that stands *out* of a plane instead.
-fn control(curve: &mut Curve, ink: Vec3, plane: Option<Plane>) {
+fn control(curve: &mut Curve, theme: &Theme, ink: Vec3, plane: Option<Plane>) {
     curve.color = ink;
-    curve.width = GIZMO_WIDTH;
+    curve.width = theme.drawing.gizmo;
     curve.closed = true;
     curve.plane_normal = plane.map(|plane| plane.normal().as_vec3());
 }

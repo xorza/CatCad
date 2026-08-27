@@ -25,8 +25,7 @@ use glam::{Mat4, Vec2, Vec3};
 use silverpoint::{Circle, CircleId, Constraint, Segment, SegmentId, Sketch};
 use std::fmt::Write;
 
-use crate::look::ink;
-use crate::look::ink::{DORMANT_FACE, FACE, GHOST, MARK, PINNED, REDUNDANT, SOLID};
+use crate::look::Theme;
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::layout::Sheets;
@@ -34,8 +33,8 @@ use crate::paint::marks::mark::Mark;
 use crate::paint::marks::{Placed, Proposed};
 use crate::paint::names::Names;
 use crate::paint::{
-    DECIMALS, EDGE_WIDTH, FACE_SAGITTA, FIXED_MARKER, FREE_MARKER, MARK_FONT, SHEET_NAME_LIFT,
-    SOLID_SAGITTA, marks, shade, standing, symbol,
+    DECIMALS, FACE_SAGITTA, MARK_FONT, SHEET_NAME_LIFT, SOLID_SAGITTA, marks, shade, standing,
+    symbol,
 };
 use crate::part::Part;
 use crate::preview::Ends;
@@ -82,10 +81,12 @@ impl Band {
 /// strokes — see [`rings`].
 pub(super) fn curves(
     models: Models<'_>,
+    theme: &Theme,
     names: &mut Names,
     band: Option<Band>,
     into: &mut Batch<Curve>,
 ) {
+    let drawing = &theme.drawing;
     // Written over the strokes already there rather than into fresh ones, which
     // for a `Curve` is the difference between a frame that reaches the heap and
     // one that does not — see `Batch::refill`. That is also why all three kinds
@@ -109,14 +110,14 @@ pub(super) fn curves(
             })
             .chain(band.map(Stroke::Band)),
         |curve, stroke| {
-            curve.width = EDGE_WIDTH;
+            curve.width = drawing.edge;
             match stroke {
                 Stroke::Edge(model, id, edge) => {
                     let (sketch, plane) = (model.sketch(), model.plane());
                     let a = plane.point(sketch.point(edge.a).position).as_vec3();
                     let b = plane.point(sketch.point(edge.b).position).as_vec3();
                     curve.set_segment(a, b);
-                    curve.color = shade(model, ink::freedom(model.outcome().segment(id)));
+                    curve.color = shade(theme, model, drawing.freedom(model.outcome().segment(id)));
                     curve.precedence = standing(model);
                     curve.plane_normal = Some(plane.normal().as_vec3());
                     curve.tag = Some(names.tag(model.part(id)));
@@ -127,7 +128,7 @@ pub(super) fn curves(
                 // resolves against the geometry behind it.
                 Stroke::Band(band) => {
                     curve.set_segment(band.ends.from, band.ends.to);
-                    curve.color = GHOST;
+                    curve.color = drawing.ghost;
                     curve.precedence = Precedence::Shaped;
                     curve.plane_normal = Some(band.normal);
                     curve.tag = None;
@@ -156,10 +157,12 @@ enum Stroke<'a> {
 /// own plane, so the depth it carries is already the surface's.
 pub(super) fn rings(
     models: Models<'_>,
+    theme: &Theme,
     names: &mut Names,
     band: Option<Band>,
     into: &mut Batch<Ring>,
 ) {
+    let drawing = &theme.drawing;
     into.refill(
         models
             .iter()
@@ -181,7 +184,11 @@ pub(super) fn rings(
                         circle.radius.abs() as f32,
                         plane.normal().as_vec3(),
                     )
-                    .colored(shade(model, ink::freedom(model.outcome().circle(id))))
+                    .colored(shade(
+                        theme,
+                        model,
+                        drawing.freedom(model.outcome().circle(id)),
+                    ))
                     .precedence(standing(model))
                     .tagged(names.tag(model.part(id)))
                 }
@@ -193,9 +200,9 @@ pub(super) fn rings(
                     band.ends.from.distance(band.ends.to),
                     band.normal,
                 )
-                .colored(GHOST),
+                .colored(drawing.ghost),
             }
-            .width(EDGE_WIDTH);
+            .width(drawing.edge);
         },
     );
 }
@@ -214,7 +221,13 @@ enum Rim<'a> {
 /// The plane comes along for the same reason a stroke's does: a disc is
 /// flat in depth and the surface under it is not, so without it the glyph
 /// is sliced wherever the plane is seen at an angle.
-pub(super) fn points(models: Models<'_>, names: &mut Names, into: &mut Batch<Point>) {
+pub(super) fn points(
+    models: Models<'_>,
+    theme: &Theme,
+    names: &mut Names,
+    into: &mut Batch<Point>,
+) {
+    let drawing = &theme.drawing;
     into.refill(
         models
             .iter()
@@ -225,14 +238,17 @@ pub(super) fn points(models: Models<'_>, names: &mut Names, into: &mut Batch<Poi
             // determined too, but saying so in the same colour would lose the
             // one thing about it the user chose.
             let (color, size) = if point.fixed {
-                (PINNED, FIXED_MARKER)
+                (drawing.pinned, drawing.fixed_marker)
             } else {
-                (ink::freedom(model.outcome().point(id)), FREE_MARKER)
+                (
+                    drawing.freedom(model.outcome().point(id)),
+                    drawing.free_marker,
+                )
             };
             // Assigned whole where a stroke is edited in place: a marker owns
             // nothing, so replacing one costs what overwriting it would.
             *marker = Point::new(plane.point(point.position).as_vec3())
-                .colored(shade(model, color))
+                .colored(shade(theme, model, color))
                 .size(size)
                 .in_plane(plane.normal().as_vec3())
                 .precedence(standing(model))
@@ -264,12 +280,14 @@ pub(super) fn points(models: Models<'_>, names: &mut Names, into: &mut Batch<Poi
 /// sketch gets un-stuck.
 pub(super) fn texts(
     models: Models<'_>,
+    theme: &Theme,
     names: &mut Names,
     placed: &mut Vec<Placed>,
     proposed: Option<Proposed>,
     typed: Option<Part>,
     into: &mut Batch<Text>,
 ) {
+    let drawing = &theme.drawing;
     // **The open sketch alone.** A constraint is a statement *about* a drawing,
     // and one you are not in is not a drawing you can argue with: its marks can
     // neither be selected into a relation nor typed into, so all they do is
@@ -284,7 +302,7 @@ pub(super) fn texts(
     // [`gizmos::ruled`](crate::paint::gizmos).
     let Some(live) = models.open() else {
         placed.clear();
-        return named_planes(models, names, into);
+        return named_planes(models, theme, names, into);
     };
     // Laid out whole, before anything is left out. What lane a mark rises in
     // depends on how many share its place, so a stack that was worked out from
@@ -339,11 +357,11 @@ pub(super) fn texts(
                 // been asked about it, so it cannot be redundant and cannot be
                 // anything else either. The grey a rubber band wears, and for
                 // the same reason — it is not in the drawing yet.
-                Marked::Proposed(..) => GHOST,
+                Marked::Proposed(..) => drawing.ghost,
                 Marked::Stated(stated) if live.outcome().is_redundant(stated.of) => {
-                    shade(live, REDUNDANT)
+                    shade(theme, live, drawing.redundant)
                 }
-                Marked::Stated(..) => shade(live, MARK),
+                Marked::Stated(..) => shade(theme, live, drawing.mark),
             };
             mark.precedence = standing(live);
             // Lettered on the drawing rather than pinned over it: set along the
@@ -397,7 +415,7 @@ pub(super) fn texts(
 /// A plane somebody put there carries no name: until steps have names of their
 /// own every one of them would read the same word — see
 /// [`World::named`](crate::timeline::feature::World).
-fn named_planes(models: Models<'_>, names: &mut Names, into: &mut Batch<Text>) {
+fn named_planes(models: Models<'_>, theme: &Theme, names: &mut Names, into: &mut Batch<Text>) {
     into.refill(
         models
             .planes()
@@ -414,7 +432,7 @@ fn named_planes(models: Models<'_>, names: &mut Names, into: &mut Batch<Text>) {
             text.facing = Facing::Turned(
                 Turn::new(plane.x.as_vec3(), plane.normal().as_vec3()).lifted(SHEET_NAME_LIFT),
             );
-            text.color = ink::sheet(sheeted.world);
+            text.color = theme.drawing.sheet_ink(sheeted.world);
             // A frame, which does two things and both matter. It yields a
             // click to anything ordinary, so a name lying over the model cannot
             // take one; and it is left out of how far the scene reaches — so a
@@ -493,6 +511,7 @@ impl Marked {
 /// handle. See [`Part::Region`](crate::part::Part).
 pub(super) fn faces(
     models: Models<'_>,
+    theme: &Theme,
     names: &mut Names,
     sheets: &mut Sheets,
     into: &mut Batch<Object>,
@@ -517,7 +536,11 @@ pub(super) fn faces(
                 &fill.triangles,
             );
             object.transform = Mat4::IDENTITY;
-            object.color = if model.live() { FACE } else { DORMANT_FACE };
+            object.color = if model.live() {
+                theme.drawing.face
+            } else {
+                theme.drawing.dormant_face
+            };
             object.precedence = standing(model);
             object.tag = Some(names.tag(model.region(at)));
         },
@@ -541,6 +564,7 @@ pub(super) fn faces(
 /// and shading it is the renderer's.
 pub(super) fn solids(
     models: Models<'_>,
+    theme: &Theme,
     names: &mut Names,
     sheets: &mut Sheets,
     growing: Option<Growing>,
@@ -585,7 +609,7 @@ pub(super) fn solids(
             &patch.triangles,
         );
         object.transform = Mat4::IDENTITY;
-        object.color = SOLID;
+        object.color = theme.drawing.solid;
         object.precedence = Precedence::Shaped;
         // Untagged while it is being decided, which is what keeps a solid that
         // is not in the document out of everything that names one: it cannot be

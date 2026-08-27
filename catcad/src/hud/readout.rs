@@ -7,8 +7,8 @@ use palantir::{
 
 use crate::hud::Shown;
 use crate::hud::pill::Pill;
-use crate::look::chrome::Chrome;
-use crate::look::ink;
+use crate::look::Theme;
+use crate::look::drawing;
 use crate::status::Solved;
 
 /// Show it.
@@ -19,15 +19,15 @@ use crate::status::Solved;
 /// same table. See [`ink`](crate::look::ink).
 pub(super) fn show(ui: &mut Ui, shown: Shown<'_>) {
     let Shown { status, solved, .. } = shown;
-    let chrome = &shown.theme.chrome;
-    Pill::hstack(chrome, "readout")
+    let theme = shown.theme;
+    Pill::hstack(theme, "readout")
         .align(Align::BOTTOM_LEFT)
-        .width(chrome.readout)
+        .width(theme.chrome.readout)
         .show(ui, |ui| {
             if let Some(solved) = solved {
-                verdict(ui, chrome, solved);
+                verdict(ui, theme, solved);
             }
-            line(ui, chrome, status);
+            line(ui, theme, status);
         });
 }
 
@@ -41,24 +41,25 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>) {
 /// What it carries is the colour, and the colour is the drawing's own — the
 /// same amber, orange and blue the geometry is painted in. The corner and the
 /// drawing then say one thing rather than two that happen to agree.
-fn verdict(ui: &mut Ui, chrome: &Chrome, solved: Solved) {
+fn verdict(ui: &mut Ui, theme: &Theme, solved: Solved) {
+    let drawing = &theme.drawing;
     let fill = if !solved.converged {
-        ink::PINNED
+        drawing.pinned
     } else if solved.degrees_of_freedom == 0 {
-        ink::DETERMINED
+        drawing.determined
     } else {
-        ink::FREE
+        drawing.free
     };
     Panel::hstack()
         .id_salt("verdict")
         .size((
-            Sizing::fixed(chrome.verdict_run),
-            Sizing::fixed(chrome.verdict_weight),
+            Sizing::fixed(theme.chrome.verdict_run),
+            Sizing::fixed(theme.chrome.verdict_weight),
         ))
         .align(Align::CENTER)
         .background(Background::rounded(
-            ink::tint(fill),
-            Corners::all(chrome.verdict_weight * 0.5),
+            drawing::tint(fill),
+            Corners::all(theme.chrome.verdict_weight * 0.5),
         ))
         .show(ui, |_| {});
 }
@@ -70,10 +71,10 @@ fn verdict(ui: &mut Ui, chrome: &Chrome, solved: Solved) {
 /// will accept, so a stated width on the pill alone does not hold it: the line
 /// stays rigid and runs out past the edge. Told to fill instead, it takes
 /// whatever the pill has left and ellipsises what will not fit.
-fn line(ui: &mut Ui, chrome: &Chrome, status: InternedStr) {
+fn line(ui: &mut Ui, theme: &Theme, status: InternedStr) {
     let style = TextStyle {
-        color: chrome.ink_lit,
-        font_size_px: chrome.readout_text,
+        color: theme.chrome.ink_lit,
+        font_size_px: theme.chrome.readout_text,
         ..TextStyle::default()
     };
     Text::new(status)
@@ -82,6 +83,6 @@ fn line(ui: &mut Ui, chrome: &Chrome, status: InternedStr) {
         .text_wrap(TextWrap::Ellipsis)
         .size((Sizing::FILL, Sizing::HUG))
         .align(Align::CENTER)
-        .margin(Spacing::new(chrome.pad, 0.0, chrome.pad, 0.0))
+        .margin(Spacing::new(theme.chrome.pad, 0.0, theme.chrome.pad, 0.0))
         .show(ui);
 }

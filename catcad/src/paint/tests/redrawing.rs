@@ -4,6 +4,7 @@ use crate::build::Build;
 use crate::demo;
 use crate::intent::change::Change;
 use crate::lens::Lens;
+use crate::look::Theme;
 use crate::paint::growing::Growing;
 use crate::paint::tests::fixtures::{controls_untouched, stamp, stamp_controls, untouched};
 use crate::paint::*;
@@ -38,6 +39,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     let mut scene = Scene::default();
     redraw(
         document.models(&build, Some(editing)),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -68,6 +70,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     redraw(
         document.models(&build, Some(editing)),
+        &Theme::default(),
         &mut layout,
         banding(1.0),
         &mut scene,
@@ -81,6 +84,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     redraw(
         document.models(&build, Some(editing)),
+        &Theme::default(),
         &mut layout,
         banding(2.0),
         &mut scene,
@@ -96,6 +100,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     redraw(
         document.models(&build, Some(editing)),
+        &Theme::default(),
         &mut layout,
         banding(2.0),
         &mut scene,
@@ -113,6 +118,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     stamp(&mut scene);
     redraw(
         document.models(&build, Some(editing)),
+        &Theme::default(),
         &mut layout,
         Showing {
             growing: Some(Growing {
@@ -137,6 +143,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
     document.apply(&mut build, Change::Tidy { sketch: editing });
     redraw(
         document.models(&build, Some(editing)),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -171,6 +178,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
 
     redraw(
         document.models(&build, Some(editing)),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -202,6 +210,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
     ] {
         redraw(
             document.models(&build, Some(editing)),
+            &Theme::default(),
             &mut layout,
             showing,
             &mut scene,
@@ -248,6 +257,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
     );
     redraw(
         document.models(&build, Some(editing)),
+        &Theme::default(),
         &mut layout,
         Showing {
             typed: Some(over),
@@ -292,9 +302,16 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     let seen = |wide: u32| Lens::new(Camera::default(), Viewport::new(UVec2::new(wide, 1080)));
     let models = document.models(&build, Some(editing));
 
-    redraw(models, &mut layout, Showing::default(), &mut scene);
+    redraw(
+        models,
+        &Theme::default(),
+        &mut layout,
+        Showing::default(),
+        &mut scene,
+    );
     gizmos::write(
         models,
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         seen(1920),
@@ -308,6 +325,7 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     stamp_controls(&mut scene);
     gizmos::write(
         models,
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         seen(1920),
@@ -324,6 +342,7 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     // against a viewport that is not.
     gizmos::write(
         models,
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         seen(1280),
@@ -340,6 +359,7 @@ fn the_controls_are_written_again_only_when_the_picture_or_the_lens_moves() {
     stamp_controls(&mut scene);
     gizmos::write(
         models,
+        &Theme::default(),
         &mut layout,
         Showing {
             band: Some(Preview::Line(Ends {

@@ -45,21 +45,21 @@ pub(super) fn tool_id(label: &str) -> WidgetId {
 pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
     let Shown { models, .. } = shown;
     let open = models.open().map(Model::of);
-    let chrome = &shown.theme.chrome;
-    Pill::vstack(chrome, "rail").show(ui, |ui| {
+    let theme = shown.theme;
+    Pill::vstack(theme, "rail").show(ui, |ui| {
         arm(ui, shown, "Pointer", Glyph::Pointer, Tool::Pointer, intents);
         let Some(sketch) = open else {
             return;
         };
-        pill::rule(ui, chrome, "drawing");
+        pill::rule(ui, theme, "drawing");
         for (label, glyph, arms) in TOOLS {
             arm(ui, shown, label, glyph, arms, intents);
         }
         // Below a second rule, and that rule carries the whole distinction: a
         // chip above it says what a click will *do*, and one below it asks
         // something of the drawing as a whole.
-        pill::rule(ui, chrome, "commands");
-        if Chip::icon(tool_id("Clean up"), "Clean up", Glyph::Tidy).show(ui, shown.icons, chrome) {
+        pill::rule(ui, theme, "commands");
+        if Chip::icon(tool_id("Clean up"), "Clean up", Glyph::Tidy).show(ui, shown.icons, theme) {
             intents.push(Change::Tidy { sketch });
         }
         // Named for what it finishes rather than for closing, because that is
@@ -68,7 +68,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
         if Chip::icon(tool_id("Finish"), "Finish sketch", Glyph::Finish).show(
             ui,
             shown.icons,
-            chrome,
+            theme,
         ) {
             intents.push(Choice::Close);
         }
@@ -78,7 +78,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
 /// One tool chip, which asks for `arms` and shows whether it is in hand.
 ///
 /// Handed the whole of what the frame shows rather than the three parts it
-/// reads: the artwork, the chrome and the tool in hand travel together to every
+/// reads: the artwork, the theme and the tool in hand travel together to every
 /// control on the overlay, and taking them apart here would be taking one bundle
 /// apart to rebuild it at the call.
 fn arm(
@@ -94,7 +94,7 @@ fn arm(
     // the opposite.
     let pressed = Chip::icon(tool_id(label), label, glyph)
         .held(shown.tool.is(arms))
-        .show(ui, shown.icons, &shown.theme.chrome);
+        .show(ui, shown.icons, shown.theme);
     if pressed {
         intents.push(Choice::Hold(shown.tool.toggled(arms)));
     }

@@ -9,13 +9,14 @@ use crate::hud::pill::{self, Pill};
 use crate::hud::wearing::Wearing;
 use crate::hud::{Shown, control};
 use crate::intent::{Choice, Intents};
-use crate::look::chrome::Chrome;
+use crate::look::Theme;
+use crate::look::drawing;
 use crate::look::icons::{Glyph, Icons};
-use crate::look::ink;
 use crate::model::Broken;
 use crate::part::Part;
 use crate::timeline::FeatureId;
 use crate::timeline::feature::{Datum, Feature};
+use glam::Vec3;
 
 /// A row's identity, by the handle of the step it stands for.
 ///
@@ -46,13 +47,13 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
     let Shown {
         models, selection, ..
     } = shown;
-    let chrome = &shown.theme.chrome;
+    let theme = shown.theme;
     // Rows nearly touching, where a pill of chips leaves the chip gap: a list
     // reads as one thing, and rows a chip's width apart read as a column of
     // separate slabs.
-    Pill::vstack(chrome, "recipe")
+    Pill::vstack(theme, "recipe")
         .align(Align::TOP_RIGHT)
-        .width(chrome.card)
+        .width(theme.chrome.card)
         .gap(1.0)
         .show(ui, |ui| {
             let (mut planes, mut sketches, mut solids) = (0, 0, 0);
@@ -89,7 +90,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                 if row(
                     ui,
                     shown.icons,
-                    chrome,
+                    theme,
                     at,
                     glyph,
                     label,
@@ -105,7 +106,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                 // than a mark on every row below it: what is rolled back is a
                 // *tail*, so where it starts is the whole of what there is to show.
                 if models.rolled() == Some(at) {
-                    rolled(ui, chrome);
+                    rolled(ui, theme, shown.theme.drawing.free);
                 }
             }
         });
@@ -115,14 +116,15 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
 fn row(
     ui: &mut Ui,
     icons: &Icons,
-    chrome: &Chrome,
+    theme: &Theme,
     at: FeatureId,
     glyph: Glyph,
     label: InternedStr,
     picked: bool,
 ) -> bool {
+    let chrome = &theme.chrome;
     let id = step_id(at);
-    let wearing = Wearing::row(chrome, picked, ui.response_for(id).hovered);
+    let wearing = Wearing::row(theme, picked, ui.response_for(id).hovered);
     let style = TextStyle {
         color: wearing.ink,
         font_size_px: chrome.readout_text,
@@ -174,7 +176,7 @@ const BAR_INSET: f32 = 6.0;
 /// One salt however many steps there are, because there is only ever one bar —
 /// what is rolled back is a *tail*, and where it starts is the whole of what
 /// there is to show.
-fn rolled(ui: &mut Ui, chrome: &Chrome) {
-    let run = chrome.card - (chrome.pad + BAR_INSET) * 2.0;
-    pill::line(ui, "rolled", run, 1.0, ink::tint(ink::FREE));
+fn rolled(ui: &mut Ui, theme: &Theme, free: Vec3) {
+    let run = theme.chrome.card - (theme.chrome.pad + BAR_INSET) * 2.0;
+    pill::line(ui, "rolled", run, 1.0, drawing::tint(free));
 }

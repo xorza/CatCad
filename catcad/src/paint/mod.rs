@@ -23,7 +23,7 @@ use glam::{Vec2, Vec3};
 use palantir::{FontFamily, FontWeight, GlyphFont};
 use silverpoint::Constraint;
 
-use crate::look::ink::DORMANT;
+use crate::look::Theme;
 use crate::model::{Model, Models};
 use crate::paint::layout::{Layout, Made, Stage};
 use crate::paint::showing::Showing;
@@ -38,11 +38,6 @@ pub(crate) mod marks;
 pub(crate) mod names;
 pub(crate) mod showing;
 pub(crate) mod write;
-
-/// Marker diameters in logical pixels. A pinned point reads larger because it
-/// is the one the drawing hangs off.
-const FIXED_MARKER: f32 = 9.0;
-const FREE_MARKER: f32 = 7.0;
 
 /// How far a face's edge may sit from the curve it was cut from, in sketch
 /// units.
@@ -116,19 +111,17 @@ const SHEET_NAME_LIFT: Vec2 = Vec2::new(
     SHEET_REACH as f32 - SHEET_NAME_INSET.y,
 );
 
-/// How wide a plane's outline is, in logical pixels.
-///
-/// Under [`EDGE_WIDTH`], so a plane's own edge cannot be taken for something
-/// drawn on it.
-const SHEET_WIDTH: f32 = 1.0;
-
 /// `lit` where `model` is the sketch being edited, and ground where it is not.
 ///
 /// The one place the difference is made, so every kind of mark in a dormant
 /// sketch is dimmed by the same rule rather than each writer having its own
 /// idea of what "not here" looks like.
-fn shade(model: Model<'_>, lit: Vec3) -> Vec3 {
-    if model.live() { lit } else { DORMANT }
+fn shade(theme: &Theme, model: Model<'_>, lit: Vec3) -> Vec3 {
+    if model.live() {
+        lit
+    } else {
+        theme.drawing.dormant
+    }
 }
 
 /// Where a sketch's marks stand in the competition for a click.
@@ -198,11 +191,11 @@ pub(crate) const MARK_FONT: GlyphFont = GlyphFont {
 ///
 /// The controls are the one thing not here, because they are built against a
 /// camera rather than against the document. See [`gizmos::write()`].
-pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
+pub(crate) fn scene(models: Models<'_>, theme: &Theme, layout: &mut Layout) -> Scene {
     let mut scene = Scene::default();
     // Nothing half-done: no band, nothing being retyped and nothing being grown
     // in a document nobody has looked at yet.
-    redraw(models, layout, Showing::default(), &mut scene);
+    redraw(models, theme, layout, Showing::default(), &mut scene);
     scene
 }
 
@@ -248,7 +241,13 @@ pub(crate) fn scene(models: Models<'_>, layout: &mut Layout) -> Scene {
 /// order — each fills its own batch and the renderer draws them in its own
 /// sequence — it is a *naming* order, and it runs from what a gesture cannot
 /// move to what it moves every frame.
-pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, into: &mut Scene) {
+pub(crate) fn redraw(
+    models: Models<'_>,
+    theme: &Theme,
+    layout: &mut Layout,
+    showing: Showing,
+    into: &mut Scene,
+) {
     // The check is here rather than at the call, so that what a layout claims
     // to describe and what was drawn into it are decided in one place. A caller
     // that skipped the call would leave a stale picture; one that made it and
@@ -274,12 +273,19 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
     // list, so it says the same thing twice rather than being a case of its own.
     if from <= Stage::Drawing {
         names.opened(Stage::Drawing);
-        write::points(models, names, &mut into.points);
-        write::faces(models, names, sheets, &mut into.faces);
+        write::points(models, theme, names, &mut into.points);
+        write::faces(models, theme, names, sheets, &mut into.faces);
     }
     if from <= Stage::Solid {
         names.opened(Stage::Solid);
-        write::solids(models, names, sheets, showing.growing, &mut into.solids);
+        write::solids(
+            models,
+            theme,
+            names,
+            sheets,
+            showing.growing,
+            &mut into.solids,
+        );
     }
     if from <= Stage::Marks {
         names.opened(Stage::Marks);
@@ -295,6 +301,7 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
             .and_then(|(open, constraint)| marks::Proposed::of(open.sketch(), constraint));
         write::texts(
             models,
+            theme,
             names,
             placed,
             *proposed,
@@ -310,12 +317,14 @@ pub(crate) fn redraw(models: Models<'_>, layout: &mut Layout, showing: Showing, 
         // the other has read nothing by the time it answers `None`.
         write::curves(
             models,
+            theme,
             names,
             write::Band::new(models, showing.band.and_then(Preview::line)),
             &mut into.curves,
         );
         write::rings(
             models,
+            theme,
             names,
             write::Band::new(models, showing.band.and_then(Preview::ring)),
             &mut into.rings,
@@ -365,6 +374,7 @@ pub(crate) fn markers(models: crate::model::Models<'_>) -> Vec<glam::Vec3> {
     let mut scene = Scene::default();
     redraw(
         models,
+        &Theme::default(),
         &mut Layout::default(),
         Showing::default(),
         &mut scene,

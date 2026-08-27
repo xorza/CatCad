@@ -3,12 +3,12 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use aperture::{Aim, Camera, Extent, Highlight, Hit, Lit, Renderer, Tint};
+use aperture::{Aim, Camera, Extent, Hit, Lit, Renderer};
 use palantir::{GpuPaint, Rect};
 use silverpoint::ConstraintId;
 
 use crate::lens::Lens;
-use crate::look::ink;
+use crate::look::Theme;
 use crate::model::Models;
 use crate::paint;
 use crate::paint::layout::Layout;
@@ -18,50 +18,6 @@ use crate::part::Part;
 use crate::scene_view::aimed::Aimed;
 use crate::selection::Selection;
 use crate::timeline::FeatureId;
-
-/// What the thing under the cursor looks like. How far forward a highlight
-/// reads is the renderer's, not this — see `Highlight`.
-const HOVERED: Highlight = Highlight {
-    tint: Tint::Ink(ink::HOVERED),
-    scale: 1.8,
-};
-
-/// What something picked out looks like.
-///
-/// Lifted like the hover and drawn a little smaller, so that the thing under
-/// the cursor still reads over the rest of what is picked.
-const SELECTED: Highlight = Highlight {
-    tint: Tint::Ink(ink::SELECTED),
-    scale: 1.5,
-};
-
-/// What a step looks like singled out, hovered and picked out alike.
-///
-/// Brighter rather than recoloured, because a plane's square is *saying
-/// something* in its colour — which of the three the world comes with it is —
-/// and the looks above exist to override exactly that. Lighting it yellow would
-/// light up a square that had stopped saying which plane it was.
-///
-/// One look for both, where everything else has two. A step is a place to work
-/// rather than a thing to gather, so there is no state to tell apart: what a
-/// hover means here is only "this is what pressing would take".
-///
-/// Unscaled, unlike the two above, and by the constructor rather than by hand:
-/// a shape that keeps its own colour is one already saying what it is, and
-/// growing it would move the control out from under the cursor pointing at it.
-const STEP_LIT: Highlight = Highlight::lifted(1.9);
-
-/// How `part` reads when it has been singled out.
-///
-/// One place rather than two matches at the call, so that a kind whose
-/// highlight is its own cannot be given the general look by whichever of the
-/// two branches was written second.
-fn singled(part: Part, ordinary: Highlight) -> Highlight {
-    match part {
-        Part::Step(_) => STEP_LIT,
-        _ => ordinary,
-    }
-}
 
 /// The picture of a document this view last wrote, and everything it takes to
 /// keep one.
@@ -112,9 +68,9 @@ impl Picture {
     /// see [`paint::scene`], which is the only place a scene comes from. There
     /// is no second source for a picture to reconcile, so what it holds is
     /// described by one revision rather than by a revision and a provenance.
-    pub(super) fn new(models: Models<'_>) -> Self {
+    pub(super) fn new(models: Models<'_>, theme: &Theme) -> Self {
         let mut layout = Layout::default();
-        let scene = paint::scene(models, &mut layout);
+        let scene = paint::scene(models, theme, &mut layout);
         Self {
             renderer: Rc::new(RefCell::new(Renderer::new(scene))),
             layout,
@@ -151,12 +107,25 @@ impl Picture {
     ///
     /// No lens is a view that has not arranged yet: there is a drawing to write
     /// and no room to cut a control in.
-    pub(super) fn redraw(&mut self, models: Models<'_>, showing: Showing, lens: Option<Lens>) {
+    pub(super) fn redraw(
+        &mut self,
+        models: Models<'_>,
+        theme: &Theme,
+        showing: Showing,
+        lens: Option<Lens>,
+    ) {
         let mut renderer = self.renderer.borrow_mut();
-        paint::redraw(models, &mut self.layout, showing, renderer.scene_mut());
+        paint::redraw(
+            models,
+            theme,
+            &mut self.layout,
+            showing,
+            renderer.scene_mut(),
+        );
         if let Some(lens) = lens {
             paint::gizmos::write(
                 models,
+                theme,
                 &mut self.layout,
                 showing,
                 lens,
@@ -178,13 +147,13 @@ impl Picture {
     /// Unconditionally, and cheap when nothing moved: the renderer compares the
     /// set before it rewrites anything, so a still frame over a settled
     /// selection dirties no batch.
-    pub(super) fn light(&mut self, pointed: Option<Part>, selection: &Selection) {
+    pub(super) fn light(&mut self, theme: &Theme, pointed: Option<Part>, selection: &Selection) {
         self.lit.clear();
         for (tag, part) in self.layout.names().iter() {
             let look = if Some(part) == pointed {
-                singled(part, HOVERED)
+                theme.lighting.of(part, true)
             } else if selection.contains(part) {
-                singled(part, SELECTED)
+                theme.lighting.of(part, false)
             } else {
                 continue;
             };

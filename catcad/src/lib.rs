@@ -198,8 +198,9 @@ impl CatCad {
         // Opened in no sketch at all, which is how every document opens — see
         // [`Document::opening`]. What the demo shows before anything is clicked
         // is its solid and the planes it was built on.
+        let theme = Theme::default();
         let session = Session::new(document.opening());
-        let mut view = SceneView::new(&document, &build, session.editing());
+        let mut view = SceneView::new(&document, &build, &theme, session.editing());
         if let Some(extent) = view.extent() {
             document.frame(extent);
         }
@@ -210,7 +211,7 @@ impl CatCad {
         // but so that what `build` returns already agrees with itself, and a
         // caller can measure the view it was given without recording a frame to
         // make the answer true.
-        view.settle(&document, &build, &session);
+        view.settle(&document, &build, &theme, &session);
         Self {
             document,
             history: History::default(),
@@ -220,7 +221,7 @@ impl CatCad {
             session,
             hud: Hud::default(),
             icons: None,
-            theme: Theme::default(),
+            theme,
             filing: Filing::default(),
         }
     }
@@ -638,7 +639,8 @@ impl App for CatCad {
                 self.apply();
                 self.draw(ui);
                 self.apply();
-                self.view.settle(&self.document, &self.build, &self.session);
+                self.view
+                    .settle(&self.document, &self.build, &self.theme, &self.session);
             });
     }
 }
@@ -763,7 +765,8 @@ pub(crate) mod internals {
         /// showing.
         pub fn enter_first_sketch(&mut self) {
             self.session.enter_first_sketch(&self.document, &self.build);
-            self.view.settle(&self.document, &self.build, &self.session);
+            self.view
+                .settle(&self.document, &self.build, &self.theme, &self.session);
         }
 
         /// Ask the session for `choice`, the way the bar or a gesture asks.

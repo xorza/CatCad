@@ -23,7 +23,7 @@ fn camera_id(label: &str) -> WidgetId {
 /// on one. A gizmo on a slab reads as a very large button.
 pub(super) fn show(ui: &mut Ui, cube: &mut Cube, shown: Shown<'_>, intents: &mut Intents) {
     let Shown { camera, .. } = shown;
-    let chrome = &shown.theme.chrome;
+    let theme = shown.theme;
     let projection = camera.projection;
     // Named for what pressing it *gives* rather than for what is in force, so
     // the chip answers "what will this do" rather than "what am I looking
@@ -38,20 +38,20 @@ pub(super) fn show(ui: &mut Ui, cube: &mut Cube, shown: Shown<'_>, intents: &mut
     Panel::vstack()
         .id_salt("camera")
         .align(Align::BOTTOM_RIGHT)
-        .margin(Spacing::all(chrome.inset))
-        .size((Sizing::fixed(chrome.cube), Sizing::HUG))
-        .gap(chrome.gap)
+        .margin(Spacing::all(theme.chrome.inset))
+        .size((Sizing::fixed(theme.chrome.cube), Sizing::HUG))
+        .gap(theme.chrome.gap)
         .background(Background::NONE)
         .show(ui, |ui| {
-            cube.show(ui, camera_id("cube"), chrome, camera, intents);
-            Pill::hstack(chrome, "view").show(ui, |ui| {
-                if Chip::icon(camera_id("Projection"), tip, glyph).show(ui, shown.icons, chrome) {
+            cube.show(ui, camera_id("cube"), theme, camera, intents);
+            Pill::hstack(theme, "view").show(ui, |ui| {
+                if Chip::icon(camera_id("Projection"), tip, glyph).show(ui, shown.icons, theme) {
                     intents.push(Change::Project(projection.toggled()));
                 }
                 if Chip::icon(camera_id("Fit"), "Frame the whole model", Glyph::Fit).show(
                     ui,
                     shown.icons,
-                    chrome,
+                    theme,
                 ) {
                     intents.push(Errand::Fit);
                 }

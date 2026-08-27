@@ -1,6 +1,7 @@
 use super::*;
 use crate::build::Build;
 use crate::demo;
+use crate::look::Theme;
 use crate::paint::growing::Growing;
 use crate::paint::{MARK_FONT, redraw};
 use crate::preview::Preview;
@@ -30,12 +31,14 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
     let mut scene = Scene::default();
     redraw(
         document.models(&build, Some(document.first_sketch())),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         &mut scene,
     );
     write(
         document.models(&build, Some(document.first_sketch())),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         Lens::new(
@@ -102,9 +105,16 @@ fn a_movable_plane_is_drawn_as_a_gizmo_at_its_origin() {
         let mut scene = Scene::default();
         let mut layout = Layout::default();
         let models = document.models(&build, Some(document.first_sketch()));
-        redraw(models, &mut layout, Showing::default(), &mut scene);
+        redraw(
+            models,
+            &Theme::default(),
+            &mut layout,
+            Showing::default(),
+            &mut scene,
+        );
         write(
             models,
+            &Theme::default(),
             &mut layout,
             Showing::default(),
             lens,
@@ -186,6 +196,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
         let models = document.models(&build, Some(document.first_sketch()));
         write(
             models,
+            &Theme::default(),
             &mut layout,
             showing,
             Lens::new(camera, viewport),
@@ -255,7 +266,13 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
     let mut layout = Layout::default();
     let mut scene = Scene::default();
     let models = document.models(&build, Some(document.first_sketch()));
-    redraw(models, &mut layout, Showing::default(), &mut scene);
+    redraw(
+        models,
+        &Theme::default(),
+        &mut layout,
+        Showing::default(),
+        &mut scene,
+    );
     let drawing = layout.names().iter().count();
 
     let viewport = aperture::Viewport::new(glam::UVec2::new(800, 600));
@@ -267,6 +284,7 @@ fn moving_the_camera_alone_renames_the_controls_rather_than_naming_more() {
             };
             write(
                 models,
+                &Theme::default(),
                 &mut layout,
                 Showing::default(),
                 Lens::new(camera, viewport),
@@ -356,8 +374,21 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     };
     let mut layout = Layout::default();
     let mut scene = Scene::default();
-    redraw(one.models(), &mut layout, showing, &mut scene);
-    write(one.models(), &mut layout, showing, lens, &mut scene.gizmos);
+    redraw(
+        one.models(),
+        &Theme::default(),
+        &mut layout,
+        showing,
+        &mut scene,
+    );
+    write(
+        one.models(),
+        &Theme::default(),
+        &mut layout,
+        showing,
+        lens,
+        &mut scene.gizmos,
+    );
 
     // The sketch states nothing, so every mark and every control on screen
     // belongs to the proposal.
@@ -365,7 +396,11 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
         panic!("the proposal drew {} figures", scene.texts.len());
     };
     assert_eq!(figure.content, "4.00", "the figure is not the measurement");
-    assert_eq!(figure.color, GHOST, "a proposal reads as a rubber band");
+    assert_eq!(
+        figure.color,
+        Theme::default().drawing.ghost,
+        "a proposal reads as a rubber band"
+    );
     assert_eq!(figure.tag, None, "a proposal can be picked out");
 
     // The rule under it — an extension line from each foot, the dimension line
@@ -382,9 +417,13 @@ fn a_dimension_being_placed_is_drawn_as_a_ghost_figure_and_a_ghost_rule() {
     for stroke in scene
         .gizmos
         .iter()
-        .filter(|stroke| stroke.width != SHEET_WIDTH)
+        .filter(|stroke| stroke.width != Theme::default().drawing.sheet)
     {
-        assert_eq!(stroke.color, GHOST, "the rule and the figure disagree");
+        assert_eq!(
+            stroke.color,
+            Theme::default().drawing.ghost,
+            "the rule and the figure disagree"
+        );
         assert_eq!(stroke.tag, None, "a proposal's rule can be picked out");
     }
 

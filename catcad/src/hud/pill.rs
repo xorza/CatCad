@@ -4,7 +4,7 @@ use palantir::{
     Align, Background, Color, Configure, Corners, Panel, Sense, Sizing, Spacing, Stroke, Ui,
 };
 
-use crate::look::chrome::Chrome;
+use crate::look::Theme;
 
 /// A group of controls, on a backdrop of its own.
 ///
@@ -29,16 +29,17 @@ impl Pill {
     ///
     /// Salted rather than left to `auto_id`, which reads the line it is written
     /// on: every pill built through here would otherwise share one id.
-    pub(super) fn hstack(chrome: &Chrome, salt: &str) -> Self {
-        Self::of(chrome, Panel::hstack(), salt)
+    pub(super) fn hstack(theme: &Theme, salt: &str) -> Self {
+        Self::of(theme, Panel::hstack(), salt)
     }
 
     /// A column of them.
-    pub(super) fn vstack(chrome: &Chrome, salt: &str) -> Self {
-        Self::of(chrome, Panel::vstack(), salt)
+    pub(super) fn vstack(theme: &Theme, salt: &str) -> Self {
+        Self::of(theme, Panel::vstack(), salt)
     }
 
-    fn of(chrome: &Chrome, panel: Panel, salt: &str) -> Self {
+    fn of(theme: &Theme, panel: Panel, salt: &str) -> Self {
+        let chrome = &theme.chrome;
         Self {
             inset: chrome.inset,
             panel: panel
@@ -95,18 +96,18 @@ const RULE_INSET: f32 = 4.0;
 /// on, which is this one for every rule the overlay draws — so two on one pill
 /// would collide on a single id. The salt is also the only place a rule says
 /// which division it is.
-pub(super) fn rule(ui: &mut Ui, chrome: &Chrome, salt: &str) {
-    line(ui, salt, run(chrome), 1.0, chrome.rule);
+pub(super) fn rule(ui: &mut Ui, theme: &Theme, salt: &str) {
+    line(ui, salt, run(theme), 1.0, theme.chrome.rule);
 }
 
 /// The same, between two groups sharing one row.
-pub(super) fn divider(ui: &mut Ui, chrome: &Chrome, salt: &str) {
-    line(ui, salt, 1.0, run(chrome), chrome.rule);
+pub(super) fn divider(ui: &mut Ui, theme: &Theme, salt: &str) {
+    line(ui, salt, 1.0, run(theme), theme.chrome.rule);
 }
 
 /// How long a rule runs: the chip it divides, less the inset at both ends.
-fn run(chrome: &Chrome) -> f32 {
-    chrome.chip_side - RULE_INSET * 2.0
+fn run(theme: &Theme) -> f32 {
+    theme.chrome.chip_side - RULE_INSET * 2.0
 }
 
 /// A hairline of a stated size.

@@ -2,7 +2,7 @@
 
 use palantir::Color;
 
-use crate::look::chrome::Chrome;
+use crate::look::Theme;
 
 /// The two colours one control wears this frame.
 ///
@@ -19,20 +19,33 @@ pub(super) struct Wearing {
 
 impl Wearing {
     /// A chip on a pill: a slab at rest, lifting under the pointer.
-    pub(super) fn chip(chrome: &Chrome, held: bool, hovered: bool) -> Self {
-        Self::of(chrome, held, hovered, chrome.chip, chrome.chip_lit)
+    pub(super) fn chip(theme: &Theme, held: bool, hovered: bool) -> Self {
+        Self::of(
+            theme,
+            held,
+            hovered,
+            theme.chrome.chip,
+            theme.chrome.chip_lit,
+        )
     }
 
     /// A row of the recipe: no fill at rest, because a list of slabs reads as a
     /// list of buttons — what a row is, until it is pointed at, is its label.
-    pub(super) fn row(chrome: &Chrome, picked: bool, hovered: bool) -> Self {
-        Self::of(chrome, picked, hovered, Color::TRANSPARENT, chrome.chip)
+    pub(super) fn row(theme: &Theme, picked: bool, hovered: bool) -> Self {
+        Self::of(
+            theme,
+            picked,
+            hovered,
+            Color::TRANSPARENT,
+            theme.chrome.chip,
+        )
     }
 
     /// **The fill and the ink move together**, because a held control is an
     /// *inversion* rather than a tint: light where every other is dark. Half of
     /// one would read as a control that had gone wrong.
-    fn of(chrome: &Chrome, held: bool, hovered: bool, resting: Color, lifted: Color) -> Self {
+    fn of(theme: &Theme, held: bool, hovered: bool, resting: Color, lifted: Color) -> Self {
+        let chrome = &theme.chrome;
         match (held, hovered) {
             (true, _) => Self {
                 fill: chrome.chip_held,

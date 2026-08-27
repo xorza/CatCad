@@ -11,18 +11,21 @@ re-plan.
 
 ## Where it stands
 
-**Stage 1 and the form half of stage 3 are built**, in that order rather than
-the one written below. Stage 1 put the app on CatCad's palette and left
+**Stages 1, 2 and 3 are built.** Colour, weight and type are decided in one
+place, and every reader takes the whole theme.
+
+The order ran 1 → form → 2 → highlight rather than the one written below. Stage 1 put the app on CatCad's palette and left
 `prompt/look.rs` deriving from `Palette::DEFAULT`, so the form standing on the
 drawing was the one thing on a palette of its own. That is a reason to take the
 form next rather than to patch it: the drawing still reads one coherent palette,
 so stage 2 loses nothing by waiting.
 
-`Theme` carries `Chrome` and `Form`; `Dressed` carries everything the two imply
-— palantir's own theme and the form's five — built once and kept in a cell. The
-five `LazyLock` statics are gone, and there is no static anywhere in the look.
+`Theme` carries `Drawing`, `Chrome`, `Form` and `Lighting`; `Dressed` carries
+everything they imply — palantir's own theme and the form's five — built once and
+kept in a cell. There is no static anywhere in the look, and `look/ink.rs` is
+gone.
 
-Three things came out differently from what is written below.
+Five things came out differently from what is written below.
 
 - **The four parts are declared as their stages land, not up front.** An empty
   `Drawing` or `Form` is dead code, and `-D warnings` says so. `Theme` holds
@@ -31,6 +34,18 @@ Three things came out differently from what is written below.
   `arm` reached eight arguments and clippy refused it, which was the signal: a
   control needs the icons, the chrome and the tool in hand, and `Shown` already
   carries all three. It is handed the bundle rather than the parts.
+- **Every reader takes the whole `Theme`, not the part it needs.** The plan had
+  `paint` taking a `&Drawing` and the overlay a `&Chrome`. In practice a function
+  that wanted two parts grew two parameters, and adding a colour changed
+  signatures. One bundle, named on the first line of the body — the same shape
+  `Models` and `Shown` already have.
+- **`Theme` is not serialized after all.** Neither `glam::Vec3` nor `GlyphFont`
+  carries the derive, and the drawing is stated in what aperture takes. `Chrome`
+  and `Form` keep theirs. Reading a theme from a file wants the `Swatch` newtype
+  the proposal names — one type holding a colour, handing out both currencies and
+  round-tripping as hex — and that is the day to add it. Turning on glam's own
+  `serde` would half-solve it, as three-float arrays and with `GlyphFont` still
+  blocking, and it is a manifest change.
 - **What is derived lives in its own type, not beside what it is derived from.**
   `Dressed` holds palantir's theme and the form's five, and nothing in it is a
   choice — so nothing in it is serialized, and a colour changed one file over
@@ -208,14 +223,23 @@ does not cover is not a seam.
 Two tests pin the derivation: that the nine roles are answered out of the
 chrome, and that the overrides land and the build runs once.
 
-### 2. The drawing — medium
+### 2. The drawing — done
 
-The freedom ladder, the sheets, the marks, the weights, `MARK_FONT` and the
-symbolic geometry move into `Drawing`, and `&Drawing` threads through `redraw`,
-the six writers and the gizmos. `ink.rs` goes away here.
+The freedom ladder, the sheets, the marks, the three stroke widths and the two
+marker diameters became `Drawing`, and `&Theme` threads through `scene`,
+`redraw`, the six writers, the gizmos, `Picture` and `SceneView`. `ink.rs` is
+gone.
 
-**Proves nothing moved.** The goldens are chrome-free, so they must not shift by
-a pixel.
+Every test that draws takes `Theme::default()` — the app's own theme — rather
+than naming a preset, so a change to what the application looks like is a change
+the tests follow.
+
+**Nothing moved.** The goldens hold and the whole frame is byte-identical.
+
+Still in `paint/`, for a 2b that has not been asked for: `MARK_FONT` and the
+symbolic geometry — a plane's square, a dimension's arrowheads, how far a mark
+stacks clear. Moving them reaches `marks::Mark`'s own methods, which is a wider
+thread than the rest was.
 
 ### 3a. The form — done
 
@@ -225,10 +249,12 @@ was left of the file is the five glyphs its buttons are drawn with, which are
 wording rather than look — so it is `prompt/glyphs.rs` now. `Prompt::show` takes
 a `&Theme`.
 
-### 3b. The highlight — low
+### 3b. The highlight — done
 
-The highlight colours and their scale factors become `Lit`. It wants the theme
-threaded into `SceneView`, which nothing else has needed yet.
+`Lighting` — named for the lighting rather than for what is lit, which is
+aperture's own `Lit`. It carries the two colours, the two scales and the step's
+lift, and answers `Lighting::of(part, hovered)` where `picture.rs` had two
+constants and a `singled` helper.
 
 ### 4. Motion — low
 

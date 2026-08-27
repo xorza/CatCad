@@ -44,7 +44,7 @@ pub(crate) struct Form {
 
 impl Form {
     /// The one preset.
-    pub(crate) const DARK: Self = Self {
+    const DARK: Self = Self {
         goes: Color::rgb(0.24, 0.52, 0.30),
         stops: Color::rgb(0.58, 0.22, 0.20),
         doing: Color::rgb(0.26, 0.36, 0.52),

@@ -11,36 +11,43 @@
 //! palette it is handed, and one it was never given is one nobody chose.
 
 pub(crate) mod chrome;
+pub(crate) mod drawing;
 pub(crate) mod dressed;
 pub(crate) mod form;
 pub(crate) mod icons;
-pub(crate) mod ink;
+pub(crate) mod lighting;
 
 use std::cell::OnceCell;
 
 use palantir::{Palette, Spacing, TextStyle};
-use serde::{Deserialize, Serialize};
 
 use crate::look::chrome::Chrome;
+use crate::look::drawing::Drawing;
 use crate::look::dressed::Dressed;
 use crate::look::form::Form;
+use crate::look::lighting::Lighting;
 
 /// Everything the application decides about how it looks.
 ///
 /// One value on [`CatCad`](crate::CatCad), read by every surface and written by
 /// none of them.
 ///
-/// Serialized whole, which costs a derive and makes a theme read from a file a
-/// feature rather than a rewrite. What is *not* serialized is what it implies,
-/// that being derived rather than decided.
-///
 /// **Not `Clone`**, deliberately. A theme is replaced whole rather than copied
 /// and edited — which is also why the cell below has no way to be emptied — and
 /// a clone would carry a derivation belonging to the value it was taken from.
-#[derive(Debug, Default, Serialize, Deserialize)]
+///
+/// **Not serialized either, yet.** [`Chrome`] and [`Form`] are, being colours
+/// and numbers; [`Drawing`] and [`Lighting`] are not, because neither
+/// `glam::Vec3` nor `GlyphFont` carries the derive and the drawing is stated in
+/// what aperture takes. Reading a theme from a file wants the `Swatch` newtype
+/// the proposal names — one type that holds a colour, hands out both currencies
+/// and round-trips as hex — and that is the day to add it.
+#[derive(Debug, Default)]
 pub(crate) struct Theme {
+    pub(crate) drawing: Drawing,
     pub(crate) chrome: Chrome,
     pub(crate) form: Form,
+    pub(crate) lighting: Lighting,
     /// Everything this theme implies rather than states, worked out on the frame
     /// it is first wanted.
     ///
@@ -52,7 +59,6 @@ pub(crate) struct Theme {
     /// replaced whole rather than edited in place, and a replacement drops this
     /// with the value it belonged to. A cell that could be emptied would be one
     /// somebody has to remember to empty.
-    #[serde(skip)]
     dressed: OnceCell<Dressed>,
 }
 

@@ -8,6 +8,7 @@ use crate::history::History;
 use crate::intent::{Choice, Intent, Intents};
 use crate::internals::HARNESS_SIZE;
 use crate::lens::Lens;
+use crate::look::Theme;
 use crate::model::Sheeted;
 use crate::paint;
 use crate::part::Part;
@@ -46,6 +47,9 @@ pub(super) struct RaisedView {
     pub(super) intents: Intents,
     pub(super) view: SceneView,
     pub(super) harness: UiHarness,
+    /// How the drawing is painted, which in the application belongs to
+    /// `CatCad` — a harness driving its own frames keeps its own.
+    pub(super) theme: Theme,
     /// What is in hand, what is picked out and which sketch is open. The
     /// application's own type rather than a stand-in for it, taken off the
     /// inbox exactly as the application takes it — which is the only way
@@ -60,11 +64,12 @@ impl RaisedView {
         let mut document = demo::document(&mut build);
         // Opened in its first sketch, exactly as the application opens one.
         let session = Session::new(document.opening());
-        let mut view = SceneView::new(&document, &build, session.editing());
+        let theme = Theme::default();
+        let mut view = SceneView::new(&document, &build, &theme, session.editing());
         if let Some(extent) = view.extent() {
             document.camera_mut().frame(extent);
         }
-        view.settle(&document, &build, &session);
+        view.settle(&document, &build, &theme, &session);
         let mut raised = Self {
             document,
             history: History::default(),
@@ -72,6 +77,7 @@ impl RaisedView {
             intents: Intents::default(),
             view,
             harness: UiHarness::new(HARNESS_SIZE),
+            theme,
             session,
         };
         raised.enter_first_sketch();
@@ -98,6 +104,7 @@ impl RaisedView {
             intents,
             view,
             harness,
+            theme,
             session,
         } = self;
         harness.frame(|ui| {
@@ -113,7 +120,7 @@ impl RaisedView {
             // Drawn after, exactly as the application draws it: the view paints
             // the drawing this frame's gestures have already reached.
             view.draw(ui);
-            view.settle(document, build, session);
+            view.settle(document, build, theme, session);
             // **The paint the application would have done, in the one respect a
             // pick depends on it.** A label's box is filled by the pass that
             // lays its glyphs out, and this harness records without ever

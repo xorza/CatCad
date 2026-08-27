@@ -6,7 +6,7 @@ use palantir::{
 };
 
 use crate::hud::wearing::Wearing;
-use crate::look::chrome::Chrome;
+use crate::look::Theme;
 use crate::look::icons::{Glyph, Icons};
 
 /// What a chip shows.
@@ -78,9 +78,10 @@ impl Chip {
     }
 
     /// Draw it, and say whether it was pressed.
-    pub(super) fn show(self, ui: &mut Ui, icons: &Icons, chrome: &Chrome) -> bool {
+    pub(super) fn show(self, ui: &mut Ui, icons: &Icons, theme: &Theme) -> bool {
+        let chrome = &theme.chrome;
         let hovered = ui.response_for(self.id).hovered;
-        let wearing = Wearing::chip(chrome, self.held, hovered);
+        let wearing = Wearing::chip(theme, self.held, hovered);
         // A word is measured by palantir; the other two are one glyph in a
         // square, and a square is a width.
         let width = match self.face {
@@ -100,8 +101,8 @@ impl Chip {
                 Corners::all(chrome.chip_radius),
             ))
             .show(ui, |ui| match self.face {
-                Face::Icon(glyph) => icon(ui, icons, chrome, glyph, wearing.ink),
-                Face::Mark(text) | Face::Word(text) => lettering(ui, chrome, text, wearing.ink),
+                Face::Icon(glyph) => icon(ui, icons, theme, glyph, wearing.ink),
+                Face::Mark(text) | Face::Word(text) => lettering(ui, theme, text, wearing.ink),
             });
         // The owned snapshot and the click are taken before the tooltip, so the
         // chip's borrow of `ui` has ended by the time the bubble records into
@@ -117,7 +118,8 @@ impl Chip {
 ///
 /// Rasterized at the exact physical size this rect lands on, so the mark is
 /// pixel-crisp at every display scale rather than a scaled copy of one size.
-fn icon(ui: &mut Ui, icons: &Icons, chrome: &Chrome, glyph: Glyph, tint: Color) {
+fn icon(ui: &mut Ui, icons: &Icons, theme: &Theme, glyph: Glyph, tint: Color) {
+    let chrome = &theme.chrome;
     let inset = (chrome.chip_side - chrome.icon) * 0.5;
     ui.add_shape(
         icons
@@ -133,10 +135,10 @@ fn icon(ui: &mut Ui, icons: &Icons, chrome: &Chrome, glyph: Glyph, tint: Color) 
 /// [`MARK_FONT`](crate::paint::MARK_FONT). One face for the two places a
 /// relation's symbol appears, so a chip and the mark it states cannot come out
 /// as two different characters.
-fn lettering(ui: &mut Ui, chrome: &Chrome, text: &'static str, color: Color) {
+fn lettering(ui: &mut Ui, theme: &Theme, text: &'static str, color: Color) {
     let style = TextStyle {
         color,
-        font_size_px: chrome.chip_text,
+        font_size_px: theme.chrome.chip_text,
         family: FontFamily::Mono,
         weight: FontWeight::Bold,
         ..TextStyle::default()

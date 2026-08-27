@@ -1,6 +1,7 @@
 //! Turning, panning and zooming the view, and what that must not edit.
 
 use crate::internals::HARNESS_SIZE;
+use crate::look::Theme;
 use crate::scene_view::pointing::ZOOM_RATE;
 use crate::scene_view::tests::harness::{RaisedView, open_markers};
 use glam::Vec2;
@@ -261,17 +262,23 @@ fn settling_aims_the_renderer_through_the_documents_own_camera() {
         turned,
         "nothing to prove otherwise"
     );
-    raised
-        .view
-        .settle(&raised.document, &raised.build, &raised.session);
+    raised.view.settle(
+        &raised.document,
+        &raised.build,
+        &Theme::default(),
+        &raised.session,
+    );
     assert_eq!(*raised.view.renderer().borrow().camera(), turned);
 
     // The projection rides along with it, which is the toggle's whole path.
     let was = raised.camera().projection;
     raised.document.camera_mut().projection = was.toggled();
-    raised
-        .view
-        .settle(&raised.document, &raised.build, &raised.session);
+    raised.view.settle(
+        &raised.document,
+        &raised.build,
+        &Theme::default(),
+        &raised.session,
+    );
     let now = raised.view.renderer().borrow().camera().projection;
     assert_eq!(now, was.toggled());
     assert_ne!(now, was);

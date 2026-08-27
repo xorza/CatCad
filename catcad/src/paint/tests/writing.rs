@@ -4,7 +4,7 @@ use crate::build::Build;
 use crate::demo;
 use crate::document::Document;
 use crate::lens::Lens;
-use crate::look::ink::{DORMANT, FREE};
+use crate::look::Theme;
 use crate::paint::tests::fixtures::{drawn, every_statable};
 use crate::paint::*;
 use crate::part::Part;
@@ -26,7 +26,13 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     let one = drawn(demo::sketch());
     let mut scene = Scene::default();
     let mut layout = Layout::default();
-    redraw(one.models(), &mut layout, Showing::default(), &mut scene);
+    redraw(
+        one.models(),
+        &Theme::default(),
+        &mut layout,
+        Showing::default(),
+        &mut scene,
+    );
 
     // Seven segments — four sides, the rail, and the arm's two bars — two
     // circles, and a marker on each of the nine points.
@@ -50,6 +56,7 @@ fn the_demo_draws_every_part_it_holds_and_names_each_one() {
     // and what is being checked here is the refill, not the skip.
     redraw(
         one.models(),
+        &Theme::default(),
         &mut Layout::default(),
         Showing::default(),
         &mut scene,
@@ -77,6 +84,7 @@ fn a_scene_is_made_of_the_document_and_nothing_else() {
     let document = demo::document(&mut build);
     let picture = scene(
         document.models(&build, Some(document.first_sketch())),
+        &Theme::default(),
         &mut Layout::default(),
     );
 
@@ -186,6 +194,7 @@ fn the_faces_a_drawing_encloses_are_written_as_sheets() {
     let document = demo::document(&mut build);
     let scene = scene(
         document.models(&build, Some(document.first_sketch())),
+        &Theme::default(),
         &mut Layout::default(),
     );
 
@@ -330,6 +339,7 @@ fn only_the_open_sketch_shows_its_constraints() {
 
     redraw(
         document.models(&build, Some(here)),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -346,6 +356,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     // open — and the marks have to follow it.
     redraw(
         document.models(&build, Some(there)),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -420,6 +431,7 @@ fn only_the_open_sketch_shows_its_constraints() {
     // the field standing over it is drawn in its place.
     redraw(
         document.models(&build, Some(there)),
+        &Theme::default(),
         &mut layout,
         Showing {
             typed: Some(over),
@@ -471,6 +483,7 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
 
     redraw(
         document.models(&build, Some(here)),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         &mut scene,
@@ -478,23 +491,33 @@ fn only_the_open_sketch_is_drawn_in_the_colours_of_its_freedom() {
     assert_eq!(scene.curves.len(), 2, "the picture is of both sketches");
     // Two free ends are two degrees of freedom apiece, so the live one is drawn
     // in what a wholly free edge is drawn in.
-    assert_eq!(drawn(&scene, &layout, here), [FREE]);
-    assert_eq!(drawn(&scene, &layout, there), [DORMANT]);
+    assert_eq!(
+        drawn(&scene, &layout, here),
+        [Theme::default().drawing.free]
+    );
+    assert_eq!(
+        drawn(&scene, &layout, there),
+        [Theme::default().drawing.dormant]
+    );
 
     // The same layout, so the only thing that has changed is which sketch is
     // open — and it is enough to make the picture stale.
     redraw(
         document.models(&build, Some(there)),
+        &Theme::default(),
         &mut layout,
         Showing::default(),
         &mut scene,
     );
     assert_eq!(
         drawn(&scene, &layout, here),
-        [DORMANT],
+        [Theme::default().drawing.dormant],
         "the picture did not follow the open sketch"
     );
-    assert_eq!(drawn(&scene, &layout, there), [FREE]);
+    assert_eq!(
+        drawn(&scene, &layout, there),
+        [Theme::default().drawing.free]
+    );
 }
 
 /// With no sketch open every plane shows a square, and with one open only the
@@ -541,9 +564,16 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
     let mut idle = Layout::default();
     let mut looked = Scene::default();
     let models = document.models(&build, None);
-    redraw(models, &mut idle, Showing::default(), &mut looked);
+    redraw(
+        models,
+        &Theme::default(),
+        &mut idle,
+        Showing::default(),
+        &mut looked,
+    );
     gizmos::write(
         models,
+        &Theme::default(),
         &mut idle,
         Showing::default(),
         lens,
@@ -636,9 +666,16 @@ fn every_plane_shows_itself_where_there_is_no_drawing_to_stand_in_front_of() {
     let mut drawn = Layout::default();
     let mut worked = Scene::default();
     let models = document.models(&build, Some(document.first_sketch()));
-    redraw(models, &mut drawn, Showing::default(), &mut worked);
+    redraw(
+        models,
+        &Theme::default(),
+        &mut drawn,
+        Showing::default(),
+        &mut worked,
+    );
     gizmos::write(
         models,
+        &Theme::default(),
         &mut drawn,
         Showing::default(),
         lens,

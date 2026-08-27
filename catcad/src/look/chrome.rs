@@ -168,7 +168,7 @@ impl Chrome {
     }
 
     /// The one preset.
-    pub(crate) const DARK: Self = Self {
+    const DARK: Self = Self {
         pill: Color::hexa(0x181C21CC),
         pill_edge: Color::hexa(0xBECDDC24),
         rule: Color::hexa(0xBECDDC59),

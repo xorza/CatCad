@@ -8,6 +8,7 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::intent::Intents;
 use crate::lens::Lens;
+use crate::look::Theme;
 use crate::model::Models;
 use crate::paint::showing::Showing;
 use crate::part::Part;
@@ -69,9 +70,14 @@ impl SceneView {
     /// what the app above holds and the view is what it holds one for. Laying
     /// out is [`Picture::new`]'s and argued there; a pointer that has
     /// established nothing yet is the whole of the other half.
-    pub(crate) fn new(document: &Document, build: &Build, editing: Option<FeatureId>) -> Self {
+    pub(crate) fn new(
+        document: &Document,
+        build: &Build,
+        theme: &Theme,
+        editing: Option<FeatureId>,
+    ) -> Self {
         Self {
-            picture: Picture::new(document.models(build, editing)),
+            picture: Picture::new(document.models(build, editing), theme),
             pointing: Pointing::default(),
         }
     }
@@ -157,7 +163,13 @@ impl SceneView {
     /// command holding the renderer and calls it at submit, after the record
     /// pass has returned, so writing to it here is writing to what is about to
     /// be painted.
-    pub(crate) fn settle(&mut self, document: &Document, build: &Build, session: &Session) {
+    pub(crate) fn settle(
+        &mut self,
+        document: &Document,
+        build: &Build,
+        theme: &Theme,
+        session: &Session,
+    ) {
         // How the drawing is looked at now this frame's edits have landed,
         // which is what the controls are cut against and what the hover is
         // resolved through — the document's own camera rather than the copy the
@@ -177,13 +189,13 @@ impl SceneView {
             typed: open.and_then(Prompt::marks),
             growing: open.and_then(|open| open.growing(models)),
         };
-        self.picture.redraw(models, showing, lens);
+        self.picture.redraw(models, theme, showing, lens);
         // What the pointer is over, resolved against the picture that was just
         // written and lit on it — the two halves meeting in the one question
         // they share. What is *named* is the pointer's own answer and stays
         // there; see [`Pointing::settled`].
         let pointed = self.pointing.settled(&self.picture, lens);
-        self.picture.light(pointed, session.selection());
+        self.picture.light(theme, pointed, session.selection());
         self.picture.aimed_through(document.camera());
     }
 

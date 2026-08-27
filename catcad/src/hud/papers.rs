@@ -30,10 +30,10 @@ fn command_id(label: &str) -> WidgetId {
 /// about whether the command is available — so a chip that greyed itself out
 /// would be answering a question nobody asked.
 pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
-    let chrome = &shown.theme.chrome;
-    Pill::hstack(chrome, "papers").show(ui, |ui| {
+    let theme = shown.theme;
+    Pill::hstack(theme, "papers").show(ui, |ui| {
         for (label, glyph, errand) in COMMANDS {
-            if Chip::icon(command_id(label), label, glyph).show(ui, shown.icons, chrome) {
+            if Chip::icon(command_id(label), label, glyph).show(ui, shown.icons, theme) {
                 intents.push(errand);
             }
         }

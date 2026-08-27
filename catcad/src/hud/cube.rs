@@ -12,7 +12,7 @@ use palantir::{
 
 use crate::intent::Intents;
 use crate::intent::change::Change;
-use crate::look::chrome::Chrome;
+use crate::look::Theme;
 use crate::scene_view::ORBIT_RATE;
 
 /// Where a click inside a face stops being about the face and starts being
@@ -203,12 +203,12 @@ impl Cube {
         &mut self,
         ui: &mut Ui,
         id: WidgetId,
-        chrome: &Chrome,
+        theme: &Theme,
         camera: Camera,
         intents: &mut Intents,
     ) {
         let state = ui.response_for(id);
-        let seen = Seen::of(chrome, camera);
+        let seen = Seen::of(theme, camera);
         // Read before the shapes, so the zone under the pointer is lit on the
         // frame it is under it rather than the frame after.
         let under = state
@@ -222,7 +222,10 @@ impl Cube {
         // land on top of one another in the corner.
         Panel::canvas()
             .id(id)
-            .size((Sizing::fixed(chrome.cube), Sizing::fixed(chrome.cube)))
+            .size((
+                Sizing::fixed(theme.chrome.cube),
+                Sizing::fixed(theme.chrome.cube),
+            ))
             .align(Align::CENTER)
             .sense(Sense::CLICK | Sense::DRAG)
             .show(ui, |ui| {
@@ -230,7 +233,7 @@ impl Cube {
                 // Away while the cube itself is under the pointer, so they do
                 // not compete with the thing they sit beside.
                 if under.is_none() {
-                    arrows(ui, chrome);
+                    arrows(ui, theme);
                 }
                 names(ui, &seen);
             });
@@ -294,7 +297,7 @@ impl Cube {
 /// arithmetic forty times over.
 #[derive(Debug)]
 struct Seen<'a> {
-    chrome: &'a Chrome,
+    theme: &'a Theme,
     /// Where the eye stands, as a direction from what it is looking at.
     ///
     /// **Taken off the camera's own answer rather than worked out again.** Which
@@ -314,11 +317,11 @@ struct Seen<'a> {
 }
 
 impl<'a> Seen<'a> {
-    fn of(chrome: &'a Chrome, camera: Camera) -> Self {
+    fn of(theme: &'a Theme, camera: Camera) -> Self {
         let eye = (camera.eye() - camera.target).normalize_or(Vec3::Y);
         let right = Vec3::new(eye.z, 0.0, -eye.x).normalize_or(Vec3::X);
         Self {
-            chrome,
+            theme,
             eye,
             right,
             up: right.cross(-eye).normalize_or(Vec3::Y),
@@ -334,20 +337,21 @@ impl<'a> Seen<'a> {
     fn flat(&self, direction: Vec3) -> Vec2 {
         // Negated down the screen, because a box counts its rows from the top
         // and the world counts its height from the ground.
-        Vec2::new(direction.dot(self.right), -direction.dot(self.up)) * self.chrome.cube_scale()
+        Vec2::new(direction.dot(self.right), -direction.dot(self.up))
+            * self.theme.chrome.cube_scale()
     }
 
     /// The same, in the box's own coordinates — what a shape is placed in and
     /// where the pointer arrives.
     fn at(&self, direction: Vec3) -> UiVec2 {
         let flat = self.flat(direction);
-        let middle = self.chrome.cube * 0.5;
+        let middle = self.theme.chrome.cube * 0.5;
         UiVec2::new(flat.x + middle, flat.y + middle)
     }
 
     /// The pointer, measured from the middle of the box like everything else.
     fn local(&self, pointer: UiVec2) -> Vec2 {
-        let middle = self.chrome.cube * 0.5;
+        let middle = self.theme.chrome.cube * 0.5;
         Vec2::new(pointer.x - middle, pointer.y - middle)
     }
 
@@ -402,7 +406,7 @@ fn faces(mesh: &mut Mesh, seen: &Seen<'_>, under: Option<Zone>) {
             continue;
         }
         let shade = lit(
-            seen.chrome,
+            seen.theme,
             side.normal,
             under == Some(Zone::Face(side.normal)),
         );
@@ -413,7 +417,7 @@ fn faces(mesh: &mut Mesh, seen: &Seen<'_>, under: Option<Zone>) {
             shade,
         );
         if let Some(Zone::Corner(corner)) = under {
-            highlight(mesh, seen.chrome, side, corner, at);
+            highlight(mesh, seen.theme, side, corner, at);
         }
     }
 }
@@ -430,7 +434,8 @@ fn quad(mesh: &mut Mesh, [a, b, c, d]: [UiVec2; 4], color: Color) {
 ///
 /// Lit in the world rather than picked off a table of three, so a face keeps
 /// its shade as the cube turns — see [`LIGHT`].
-fn lit(chrome: &Chrome, normal: Vec3, under: bool) -> Color {
+fn lit(theme: &Theme, normal: Vec3, under: bool) -> Color {
+    let chrome = &theme.chrome;
     if under {
         return chrome.chip_held;
     }
@@ -445,7 +450,7 @@ fn lit(chrome: &Chrome, normal: Vec3, under: bool) -> Color {
 /// turned this way.
 fn highlight(
     mesh: &mut Mesh,
-    chrome: &Chrome,
+    theme: &Theme,
     side: Side,
     corner: Vec3,
     at: impl Fn(f32, f32) -> UiVec2,
@@ -456,7 +461,8 @@ fn highlight(
     if corner.dot(side.normal) <= 0.0 || s == 0.0 || t == 0.0 {
         return;
     }
-    let [a, b, c] = [at(s, t), at(s, 0.0), at(0.0, t)].map(|p| mesh.vertex(p, chrome.chip_held));
+    let [a, b, c] =
+        [at(s, t), at(s, 0.0), at(0.0, t)].map(|p| mesh.vertex(p, theme.chrome.chip_held));
     mesh.triangle(a, b, c);
 }
 
@@ -476,7 +482,7 @@ fn names(ui: &mut Ui, seen: &Seen<'_>) {
     // Light, because a face is dark however the light falls on it: the two
     // shades it lerps between are both under half.
     let style = TextStyle {
-        color: seen.chrome.ink_lit,
+        color: seen.theme.chrome.ink_lit,
         font_size_px: 8.0,
         ..TextStyle::default()
     };
@@ -515,10 +521,10 @@ fn names(ui: &mut Ui, seen: &Seen<'_>) {
 /// the ray cast and which way up a name is written. A quarter turn is the
 /// useful nine tenths of what the arrows are for.
 ///
-fn arrows(ui: &mut Ui, chrome: &Chrome) {
+fn arrows(ui: &mut Ui, theme: &Theme) {
     const RISE: f32 = 4.5;
     const RUN: f32 = 5.0;
-    let middle = chrome.cube * 0.5;
+    let middle = theme.chrome.cube * 0.5;
     let reach = middle - 1.0;
     for side in [-1.0f32, 1.0] {
         let tip = middle + side * reach;
@@ -529,7 +535,7 @@ fn arrows(ui: &mut Ui, chrome: &Chrome) {
                 UiVec2::new(base, middle - RISE),
                 UiVec2::new(base, middle + RISE),
             )
-            .fill(chrome.ink),
+            .fill(theme.chrome.ink),
         );
     }
 }
@@ -539,6 +545,7 @@ mod tests {
     use std::f32::consts::FRAC_PI_2;
 
     use super::*;
+    use crate::look::Theme;
     use aperture::Camera;
     use glam::Vec2;
 
@@ -550,7 +557,7 @@ mod tests {
     /// view fails without a frame being rendered.
     fn aimed(camera: Camera, at: Vec2) -> Option<Bearing> {
         Some(Bearing::from(
-            Seen::of(&Chrome::DARK, camera).zone(at)?.direction(),
+            Seen::of(&Theme::default(), camera).zone(at)?.direction(),
         ))
     }
 
@@ -632,7 +639,7 @@ mod tests {
     #[test]
     fn a_corner_of_a_face_aims_at_the_corner_rather_than_the_face() {
         let camera = looking(Vec3::new(1.0, 1.0, 1.0));
-        let at = Seen::of(&Chrome::DARK, camera).flat(Vec3::new(0.85, 0.85, 1.0));
+        let at = Seen::of(&Theme::default(), camera).flat(Vec3::new(0.85, 0.85, 1.0));
         let aim = aimed(camera, at).expect("a corner of the front face is on the cube");
         let square_on = facing("FRONT");
         assert!(
@@ -647,7 +654,7 @@ mod tests {
     #[test]
     fn a_press_beside_the_cube_names_no_view() {
         let camera = looking(Vec3::Z);
-        let off = Chrome::DARK.cube;
+        let off = Theme::default().chrome.cube;
         assert!(aimed(camera, Vec2::new(off, off)).is_none());
     }
 
