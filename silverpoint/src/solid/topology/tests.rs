@@ -460,3 +460,33 @@ fn a_cone_meshes_to_the_volume_its_arithmetic_says() {
     }
     assert!(last < 1e-3, "the cone never converged: {last} short");
 }
+
+/// **And the sphere meshes to the volume the arithmetic says.**
+///
+/// `4πr³/3`, which for a radius of [`ROUND`] is `36π`. It is the meridians that
+/// make this worth asserting. They arrive chorded at the width of a cell's
+/// diagonal, so a run of the face's own boundary reaches over more than one
+/// cell of the grid the face is cut in — and read as a thing to cut down rather
+/// than as the bound it is, the refining never settled at any sagitta asked
+/// for. See [`Refining`](crate::solid::mesh::refining::Refining).
+///
+/// Chorded, so it reads under and closes on the true figure as the sagitta
+/// falls. Read no finer than a hundredth, the mesh growing as the sagitta does
+/// and the arithmetic being the same at every step.
+#[test]
+fn a_sphere_meshes_to_the_volume_its_arithmetic_says() {
+    let body = ball();
+    let want = 4.0 / 3.0 * PI * ROUND * ROUND * ROUND;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-1, 3e-2, 1e-2] {
+        let off = want - mesher.volume(&body, sagitta);
+        assert!(off > 0.0, "a chorded sphere read over the true {want}");
+        assert!(off < last, "{sagitta} read no nearer than the last: {off}");
+        last = off;
+    }
+    assert!(
+        last < want / 200.0,
+        "the sphere never converged: {last} short"
+    );
+}

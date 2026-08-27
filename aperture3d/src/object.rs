@@ -249,7 +249,7 @@ mod tests {
                 corner(1.0, 1.0),
                 corner(-1.0, 1.0),
             ],
-            vec![0, 1, 2, 0, 2, 3],
+            vec![[0, 1, 2], [0, 2, 3]],
         );
         Object::new(mesh).tagged(Tag::new(1))
     }

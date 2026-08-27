@@ -49,7 +49,7 @@ fn a_surface_is_picked_anywhere_over_it_and_loses_to_what_is_drawn_on_it() {
             normal: Vec3::Z,
         })
         .to_vec(),
-        vec![0, 1, 2, 0, 2, 3],
+        vec![[0, 1, 2], [0, 2, 3]],
     );
     scene.faces.push(Object {
         mesh,
@@ -147,7 +147,7 @@ fn a_surface_is_picked_from_behind_as_well_as_in_front() {
             normal: Vec3::Z,
         })
         .to_vec(),
-        vec![0, 1, 2],
+        vec![[0, 1, 2]],
     );
     scene.faces.push(Object {
         mesh,
@@ -195,7 +195,7 @@ fn a_surface_hides_what_is_behind_it_and_not_what_is_level_with_it() {
         };
         Object::new(Mesh::new(
             vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
-            vec![0, 1, 2, 0, 2, 3],
+            vec![[0, 1, 2], [0, 2, 3]],
         ))
     }
 

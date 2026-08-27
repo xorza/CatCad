@@ -616,17 +616,12 @@ pub(super) fn solids(
 /// cut afresh whenever the document moves, and they come back the same size.
 /// Through [`Mesh::rewrite`], which is what hands the buffers over and brings
 /// the box the mesh is picked by up to date with what went into them.
-///
-/// The indices are reserved for exactly and the corners are not, and the
-/// asymmetry is the iterators': flattening triangles hides the count, where an
-/// `extend` over corners carries its own.
 fn remesh(mesh: &mut Mesh, corners: impl Iterator<Item = Vertex>, triangles: &[[u32; 3]]) {
-    mesh.rewrite(|vertices, indices| {
+    mesh.rewrite(|vertices, wound| {
         vertices.clear();
         vertices.extend(corners);
-        indices.clear();
-        indices.reserve_exact(triangles.len() * 3);
-        indices.extend(triangles.iter().flatten());
+        wound.clear();
+        wound.extend_from_slice(triangles);
     });
 }
 

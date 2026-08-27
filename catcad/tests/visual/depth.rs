@@ -189,7 +189,7 @@ fn a_translucent_face_blends_with_the_one_behind_it_either_way_round() {
             color,
             ..Object::new(Mesh::new(
                 vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
-                vec![0, 1, 2, 0, 2, 3],
+                vec![[0, 1, 2], [0, 2, 3]],
             ))
         }
     }

@@ -131,7 +131,7 @@ fn only_what_survived_the_near_plane_can_be_picked() {
         };
         Object::new(Mesh::new(
             vec![at(-2.0, -2.0), at(2.0, -2.0), at(2.0, 2.0), at(-2.0, 2.0)],
-            vec![0, 1, 2, 0, 2, 3],
+            vec![[0, 1, 2], [0, 2, 3]],
         ))
     };
     scene.faces.push(sheet(4.5).tagged(Tag::new(4)));

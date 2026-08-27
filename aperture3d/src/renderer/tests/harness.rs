@@ -234,7 +234,7 @@ pub(super) fn facing_quad() -> Mesh {
                 normal: Vec3::Z,
             })
             .to_vec(),
-        vec![0, 1, 2, 0, 2, 3],
+        vec![[0, 1, 2], [0, 2, 3]],
     )
 }
 

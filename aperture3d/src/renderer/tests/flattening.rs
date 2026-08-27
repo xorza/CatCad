@@ -65,7 +65,7 @@ fn flatten_uses_the_inverse_transpose_for_normals() {
             };
             3
         ],
-        vec![0, 1, 2],
+        vec![[0, 1, 2]],
     );
     let mut scene = Scene::default();
     scene.solids.push(Object {

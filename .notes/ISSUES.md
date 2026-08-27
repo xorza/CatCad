@@ -1,11 +1,8 @@
 # Issues
 
-- The mesher will not cut a face that is wide both ways *and* chorded along its
-  boundary more coarsely than the grid it is measured in. A sphere is both: its
-  cell is the widest chord over the square root of two, a triangle inside one
-  having to fit a chord corner to corner rather than side to side, while its
-  meridians arrive chorded at the whole width. The refining then never settles —
-  the pass along the second axis gains about fourteen triangles a round, at a
-  hundred and twenty rounds as at twenty-four. A sphere body fails to mesh at
-  every sagitta asked for, where it validates as a body and a cone body now
-  meshes to the volume its arithmetic says.
+- The refining cuts a triangle's sides one grid line apiece a round, so a face
+  many cells across comes back with several times the triangles its cells hold.
+  A round cutting two sides of a triangle leaves three where a longest-side
+  bisection leaves two, and five rounds of that compound. Measured on a ball of
+  radius three: 189,002 triangles at a sagitta of a thousandth, against the
+  29,600 its 172 by 86 cells would hold, and 3,359,590 at a ten-thousandth.

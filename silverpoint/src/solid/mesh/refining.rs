@@ -41,19 +41,35 @@ const ROUNDS: usize = 24;
 /// an inside corner belongs to this face alone, so nothing another face walked
 /// has to agree with it.
 ///
-/// **What that buys is a proof rather than a tolerance.** When no side reaches
+/// **What that buys is a proof rather than a measurement.** When no side reaches
 /// over more than a cell, the three corners of every triangle stand pairwise
 /// within one cell, so the triangle lies in a box one cell across — and
 /// [`Surface::strides`] chose the cell so that a triangle in such a box cannot
-/// stray further than the sagitta. Nothing here compares a distance against a
-/// tolerance; it counts cells, and [`Refining::held`] is where the counting is
-/// tied back to the promise.
+/// stray further than the sagitta. Counting cells is cheap, and it answers for
+/// every triangle of almost every face.
 ///
 /// **The face's own boundary is never cut**, a corner put on a face's edge
 /// being one the face across it does not have. Nothing is lost by that on a
 /// plane, a cylinder or a cone: every curve covering any angle arrives chorded
 /// to the same sagitta by [`chords`](crate::math::arc::chords), so no edge of
 /// such a face reaches over a whole cell.
+///
+/// **A sphere loses by it, and the counting alone will not settle there.** Its
+/// cell is that same widest chord over the square root of two, a triangle
+/// inside one having to fit the chord corner to corner rather than side to
+/// side, while its meridians still arrive chorded at the whole width. A run of
+/// its own boundary then reaches over more than a cell, and the triangle
+/// carrying that run wants a third corner within one cell of both ends — a
+/// window narrower than a cell, which the grid may have no line inside. The
+/// rounds then step that corner from the line below the window to the line
+/// above and back, for ever.
+///
+/// So **a triangle the counting condemns is asked outright how far it strays**,
+/// and one already within the sagitta is left alone — see [`Refining::strays`].
+/// The counting is sufficient and it is not necessary, and this is the promise
+/// itself rather than a stand-in for it, so nothing is lost by stopping there.
+/// It is asked of the handful of triangles the counting has already picked out
+/// rather than of every triangle of every face.
 ///
 /// **One axis at a time, and one finished before the other starts.** A corner
 /// put on a line of the second lands along a run that already reaches over no
@@ -72,6 +88,14 @@ pub(super) struct Refining {
     /// Every side of the current triangles, one entry apiece, sorted by its
     /// ends so either triangle carrying it finds the same one.
     sides: Vec<Side>,
+    /// Where each triangle's own three sides sit in [`Refining::sides`], in the
+    /// order [`Refining::ends`] numbers them.
+    ///
+    /// Written once a round rather than searched for wherever a side is wanted:
+    /// the table is sorted by the corners a side runs between, and a round
+    /// reads each triangle's three twice over — once to mark what wants
+    /// cutting, once to lay the triangles down again.
+    slots: Vec<u32>,
 }
 
 /// One side of the mesh, and what is being done to it this round.
@@ -84,6 +108,9 @@ struct Side {
     carried: u32,
     /// The corner cutting it, or [`NONE`].
     cut: u32,
+    /// Whether a triangle carrying it strays further than was asked for, and so
+    /// stands to gain by the cut.
+    wanted: bool,
 }
 
 impl Refining {
@@ -115,7 +142,7 @@ impl Refining {
         self.triangles.extend_from_slice(&fill.triangles);
 
         for axis in 0..2 {
-            self.rule(surface, lattice, axis);
+            self.rule(surface, lattice, axis, sagitta);
         }
         debug_assert!(
             self.held(surface, lattice, sagitta),
@@ -124,35 +151,26 @@ impl Refining {
     }
 
     /// Whether every triangle now stands within `sagitta` of the surface, or
-    /// else carries a run of the face's own boundary reaching over more than
-    /// one cell — the one thing cutting cannot mend, a corner put on an edge
-    /// being one the face across it does not have.
+    /// else stands as wide as a run of the face's own boundary holds it — the
+    /// one thing cutting cannot mend, a corner put on an edge being one the
+    /// face across it does not have.
     ///
-    /// Within it to within what the arithmetic cannot promise away, a cell
-    /// being allowed to come out a rounding wide — see [`Lattice::cutting`].
-    ///
-    /// **What the cutting is for, stated where it can be checked.** The rule
-    /// itself never measures how far anything strays: it counts cells, and the
-    /// step was chosen so that counting cells is enough. This is the tie
-    /// between the two, and the reason [`Surface::straying`] is written down at
-    /// all.
+    /// **What the cutting is for, asked of what it produced.** A round stops
+    /// when nothing it may cut is left, and this says that what was left over
+    /// was nothing it *needed* to cut — the two being different answers, and
+    /// only the second one the promise.
     fn held(&self, surface: &Surface, lattice: Lattice, sagitta: f64) -> bool {
         (0..self.triangles.len()).all(|at| {
-            let corners = self.triangles[at].map(|of| self.params[of as usize]);
-            // Nothing inside reaches over a cell by the time this is asked, so
-            // a side that does is one of the face's own edges.
-            predicate::touching(surface.straying(corners), predicate::slack(sagitta))
-                || (0..3).any(|slot| {
-                    let [from, to] = self.ends(at, slot).map(|of| self.params[of as usize]);
-                    (0..2).any(|axis| lattice.cutting(from, to, axis).is_some())
-                })
+            // A triangle still straying stands on a run of the face's own
+            // boundary, that being the one thing no round could have taken.
+            !self.strays(surface, sagitta, at) || (0..2).any(|axis| self.wide(lattice, axis, at))
         })
     }
 
     /// Cut along one axis of the grid until nothing more can be.
-    fn rule(&mut self, surface: &Surface, lattice: Lattice, axis: usize) {
+    fn rule(&mut self, surface: &Surface, lattice: Lattice, axis: usize, sagitta: f64) {
         for _ in 0..ROUNDS {
-            if !self.round(surface, lattice, axis) {
+            if !self.round(surface, lattice, axis, sagitta) {
                 return;
             }
         }
@@ -175,32 +193,39 @@ impl Refining {
     }
 
     /// One round of cutting along `axis`, and whether anything was cut.
-    fn round(&mut self, surface: &Surface, lattice: Lattice, axis: usize) -> bool {
+    fn round(&mut self, surface: &Surface, lattice: Lattice, axis: usize, sagitta: f64) -> bool {
         // **Asked before anything is gathered**, because the answer is almost
         // always no. A face measured in its own surface's cells comes out of
         // the cutter with every side inside one, so sorting every side of every
         // triangle to find that out would be the largest thing the mesher does
         // on every face of every frame, spent on nothing.
-        let over = |params: &[DVec2], ends: [u32; 2]| {
-            let [from, to] = ends.map(|of| params[of as usize]);
-            lattice.cutting(from, to, axis)
-        };
-        let reaching = (0..self.triangles.len())
-            .any(|at| (0..3).any(|slot| over(&self.params, self.ends(at, slot)).is_some()));
+        let reaching = (0..self.triangles.len()).any(|at| self.wide(lattice, axis, at));
         if !reaching {
             return false;
         }
         self.gather();
 
-        let mut split = false;
-        for at in 0..self.sides.len() {
-            // The face's own boundary is never cut — see the note on
-            // [`Refining`]. A run of it reaching over more than a cell is the
-            // one thing that leaves a triangle standing wider than the sagitta.
-            if self.sides[at].carried < 2 && !self.collapsed(at) {
+        // **Asked of the triangles the counting has picked out, and of no
+        // others.** A triangle every side of which stands inside a cell is
+        // within the sagitta by construction and has nothing to gain; the rest
+        // are asked outright, and one already within it is left alone whatever
+        // the cells say — see the note on [`Refining`].
+        for at in 0..self.triangles.len() {
+            if !self.wide(lattice, axis, at) || !self.strays(surface, sagitta, at) {
                 continue;
             }
-            let Some(uv) = over(&self.params, self.sides[at].ends) else {
+            for slot in 0..3 {
+                self.sides[self.slots[at * 3 + slot] as usize].wanted = true;
+            }
+        }
+
+        let mut split = false;
+        for at in 0..self.sides.len() {
+            if !self.sides[at].wanted || !self.cuttable(at) {
+                continue;
+            }
+            let [from, to] = self.between(self.sides[at].ends);
+            let Some(uv) = lattice.cutting(from, to, axis) else {
                 continue;
             };
             self.sides[at].cut = self.put(surface, uv);
@@ -211,6 +236,35 @@ impl Refining {
         }
         self.rebuild();
         true
+    }
+
+    /// Whether any side of the triangle at `at` reaches over more than one cell
+    /// of `axis` — the cheap half of asking whether it wants cutting, and the
+    /// only half almost every triangle of almost every face needs.
+    fn wide(&self, lattice: Lattice, axis: usize, at: usize) -> bool {
+        (0..3).any(|slot| {
+            let [from, to] = self.between(self.ends(at, slot));
+            lattice.over(from, to, axis)
+        })
+    }
+
+    /// Whether the triangle at `at` stands further from the surface than
+    /// `sagitta`.
+    ///
+    /// Further by more than the arithmetic reading it can promise away — see
+    /// [`predicate::slack`].
+    fn strays(&self, surface: &Surface, sagitta: f64, at: usize) -> bool {
+        let corners = self.triangles[at].map(|of| self.params[of as usize]);
+        !predicate::touching(surface.straying(corners), predicate::slack(sagitta))
+    }
+
+    /// Whether the side at `at` in the table may be cut at all.
+    ///
+    /// The face's own boundary may not be — see the note on [`Refining`] —
+    /// except where it stands in one place, which no face across it can
+    /// disagree about. See [`Refining::collapsed`].
+    fn cuttable(&self, at: usize) -> bool {
+        self.sides[at].carried > 1 || self.collapsed(at)
     }
 
     /// Whether the side at `at` in the table stands in one place — the side of
@@ -233,10 +287,18 @@ impl Refining {
         predicate::coincident(from, to, PLACED)
     }
 
-    /// The two corners the side `slot` of the triangle at `at` runs between.
+    /// Where the two corners a side runs between stand in the surface's own
+    /// parameters.
+    fn between(&self, ends: [u32; 2]) -> [DVec2; 2] {
+        ends.map(|of| self.params[of as usize])
+    }
+
+    /// The two corners the side `slot` of the triangle at `at` runs between,
+    /// lower first — which is also the key [`Refining::sides`] is sorted by.
     fn ends(&self, at: usize, slot: usize) -> [u32; 2] {
         let corners = self.triangles[at];
-        [corners[slot], corners[(slot + 1) % 3]]
+        let (from, to) = (corners[slot], corners[(slot + 1) % 3]);
+        [from.min(to), from.max(to)]
     }
 
     /// Take on a corner at the parameters `uv`, and say which one it is.
@@ -246,17 +308,19 @@ impl Refining {
         self.params.len() as u32 - 1
     }
 
-    /// Take every side of every triangle, one entry apiece and sorted.
+    /// Take every side of every triangle, one entry apiece and sorted, and say
+    /// where each triangle's own three ended up.
     fn gather(&mut self) {
         self.sides.clear();
         self.sides.reserve(self.triangles.len() * 3);
-        for corners in &self.triangles {
+        for at in 0..self.triangles.len() {
             for slot in 0..3 {
-                let (from, to) = (corners[slot], corners[(slot + 1) % 3]);
+                let ends = self.ends(at, slot);
                 self.sides.push(Side {
-                    ends: [from.min(to), from.max(to)],
+                    ends,
                     carried: 1,
                     cut: NONE,
+                    wanted: false,
                 });
             }
         }
@@ -271,6 +335,19 @@ impl Refining {
             }
         }
         self.sides.truncate(kept);
+
+        self.slots.clear();
+        self.slots.reserve_exact(self.triangles.len() * 3);
+        for at in 0..self.triangles.len() {
+            for slot in 0..3 {
+                let ends = self.ends(at, slot);
+                let found = self
+                    .sides
+                    .binary_search_by_key(&ends, |side| side.ends)
+                    .expect("every side of every triangle was gathered");
+                self.slots.push(found as u32);
+            }
+        }
     }
 
     /// Lay the triangles down again around the corners put in this round.
@@ -280,19 +357,14 @@ impl Refining {
             triangles,
             spare,
             sides,
+            slots,
             ..
         } = self;
         spare.clear();
         spare.reserve(triangles.len() * 2);
-        for &[a, b, c] in triangles.iter() {
-            let found = |from: u32, to: u32| {
-                let key = [from.min(to), from.max(to)];
-                sides[sides
-                    .binary_search_by_key(&key, |side| side.ends)
-                    .expect("every side of every triangle was gathered")]
-                .cut
-            };
-            let (p, q, r) = (found(a, b), found(b, c), found(c, a));
+        for (at, &[a, b, c]) in triangles.iter().enumerate() {
+            let cut = |slot: usize| sides[slots[at * 3 + slot] as usize].cut;
+            let (p, q, r) = (cut(0), cut(1), cut(2));
             // Each shape below is the corner between the cut sides taken off,
             // and whatever is left divided by whichever of its two diagonals is
             // shorter — the longer one leans towards a sliver.
@@ -422,8 +494,9 @@ mod tests {
     /// Chorded in cells rather than in radians, so that asking for a finer
     /// sagitta re-chords the boundary the way
     /// [`chords`](crate::math::arc::chords) would rather than leaving it
-    /// coarser than the grid — which is a face no walk hands over, every curve
-    /// covering any angle arriving cut to the same sagitta.
+    /// coarser than the grid. A wall's cell *is* that chord, so a wall is never
+    /// handed over chorded coarser than one — a sphere is, and
+    /// [`a_face_chorded_coarser_than_its_cells_still_settles`] is that face.
     fn wall(sagitta: f64) -> Vec<DVec2> {
         let cell = crate::math::arc::widest(1.0, sagitta);
         let (wide, tall) = (6.0 * cell, 2.0);
@@ -592,6 +665,81 @@ mod tests {
         for &at in &refining.places()[given.boundary.len()..] {
             assert!(surface.off(at) < 1e-12, "{at:?} is not on the ball");
         }
+        let (was, now) = (
+            covered(&params, &given.fill.triangles),
+            covered(refining.params(), refining.triangles()),
+        );
+        assert!(
+            (now - was).abs() < 1e-12,
+            "the mesh covered {was} and now covers {now}",
+        );
+    }
+
+    /// **A face whose boundary arrives chorded more coarsely than its own cells
+    /// still settles**, which every face on a sphere does.
+    ///
+    /// The patch above, chorded at the widest chord the sagitta allows rather
+    /// than inside a cell. That is what [`chords`](crate::math::arc::chords)
+    /// hands over, and a sphere's cell is that chord over the square root of
+    /// two, so a run of the boundary reaches over more than one cell. It may
+    /// not be cut, and the triangle carrying it has no corner the grid can
+    /// offer to bring it inside one: the window such a corner would have to
+    /// fall in is narrower than a cell. Read as a thing to cut down, the rounds
+    /// step that corner from the line below the window to the line above it and
+    /// back, for ever.
+    ///
+    /// So what is asserted is the promise rather than the counting that usually
+    /// stands in for it. No triangle strays further than a chord of the
+    /// boundary does, the boundary is untouched corner for corner, and the mesh
+    /// covers what it covered.
+    #[test]
+    fn a_face_chorded_coarser_than_its_cells_still_settles() {
+        let sagitta = 1e-3;
+        let surface = Surface::Sphere(Sphere {
+            axis: upright(),
+            radius: 1.0,
+        });
+        // Divided evenly into chords no wider than the sagitta allows, which is
+        // what a walk hands over. Each comes out a hair under the widest, and
+        // the cell is that widest over the square root of two.
+        let widest = crate::math::arc::widest(1.0, sagitta);
+        let steps = (1.2 / widest).ceil() as usize;
+        let mut around = Vec::new();
+        for side in 0..4 {
+            for step in 0..steps {
+                let along = -0.6 + 1.2 * step as f64 / steps as f64;
+                around.push(match side {
+                    0 => DVec2::new(along, -0.6),
+                    1 => DVec2::new(0.6, along),
+                    2 => DVec2::new(-along, 0.6),
+                    _ => DVec2::new(-0.6, -along),
+                });
+            }
+        }
+        let given = Patched::of(&surface, &around, sagitta);
+        let params = given.params();
+        let reach = given.lattice.celled(DVec2::new(1.2 / steps as f64, 0.0)).x;
+        assert!(
+            reach > 1.0 && reach < 1.5,
+            "the boundary is not chorded coarser than a cell: {reach}",
+        );
+
+        let refining = given.refined(&surface, sagitta);
+        // A triangle carrying a chord of the boundary stands at least as far
+        // off as that chord does, whatever is done to its other two sides, and
+        // a chord this wide stands off by the sagitta itself. Twice it is what
+        // a corner one cell away from both ends of such a chord costs.
+        let fine = worst(&surface, refining.params(), refining.triangles());
+        assert!(
+            fine < 2.0 * sagitta,
+            "a triangle strays {fine} of {sagitta}",
+        );
+
+        assert_eq!(&refining.params()[..params.len()], &params[..]);
+        assert_eq!(
+            &refining.places()[..given.boundary.len()],
+            &given.boundary[..]
+        );
         let (was, now) = (
             covered(&params, &given.fill.triangles),
             covered(refining.params(), refining.triangles()),

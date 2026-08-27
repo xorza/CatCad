@@ -92,29 +92,43 @@ impl Lattice {
         cell * self.step
     }
 
+    /// Whether the run from `from` to `to` reaches over more than one cell of
+    /// `axis`, **by more than a rounding**.
+    ///
+    /// **A run reaching over one cell or less is left alone**, wherever it
+    /// lies, and that wants stating plainly: what the mesher owes is a triangle
+    /// inside a cell-*sized* box, not a triangle inside a cell of the grid, and
+    /// three corners pairwise within one cell of each other are inside such a
+    /// box. Cutting a run that merely straddles a line would double the mesh of
+    /// every curved face in the drawing to buy nothing.
+    ///
+    /// **The rounding is not caution.** A run of exactly one cell comes out a
+    /// bit over as often as a bit under, and cutting one that is over by an ulp
+    /// puts a corner where a corner already is. The piece left has no length,
+    /// covers the cells its long side covers, and so asks to be cut again for
+    /// ever — measured, a wall of sixteen triangles grew by twenty-four a round
+    /// without end. This is the one place in the kernel a bare figure means
+    /// something: the coordinates here are counts of cells rather than lengths.
+    ///
+    /// It keeps a coarser boundary out of trouble too. One chorded at one and a
+    /// half cells lands corners a whisker off the lines, over and over — the
+    /// chording and the grid are two quantizations of one sagitta and disagree
+    /// in the last digits — and cutting at every straddle shaves a
+    /// ten-thousandth of a cell off a run each time. Measured, that left a
+    /// patch of a sphere gaining seventy-six triangles a round for ever, all of
+    /// them with no area in them.
+    pub(super) fn over(self, from: DVec2, to: DVec2, axis: usize) -> bool {
+        (to[axis] - from[axis]).abs() / self.step[axis] > 1.0 + ROUNDING
+    }
+
     /// Where to cut the run from `from` to `to` so that neither half reaches
     /// over more than one cell along `axis`, or `None` where it already does
-    /// not.
+    /// not — which is [`Lattice::over`]'s question, asked again here so that
+    /// the place handed back is always strictly inside the run.
     ///
     /// Named for what it answers rather than for how: it is a crossing of a
     /// line of the grid, but only one worth cutting at, and a caller reading it
     /// as *any* crossing writes the wrong thing.
-    ///
-    /// **A run reaching over one cell or less is left alone**, wherever it
-    /// lies. That is the whole of the stopping rule and it wants stating
-    /// plainly: what the mesher owes is a triangle inside a cell-*sized* box,
-    /// not a triangle inside a cell of the grid, and three corners pairwise
-    /// within one cell of each other are inside such a box. Cutting a run that
-    /// merely straddles a line would double the mesh of every curved face in
-    /// the drawing to buy nothing.
-    ///
-    /// It is also what keeps the arithmetic out of trouble. A boundary chorded
-    /// at one and a half cells lands corners a whisker off the lines, over and
-    /// over — the chording and the grid are two quantizations of one sagitta
-    /// and disagree in the last digits — and cutting at every straddle shaves a
-    /// ten-thousandth of a cell off a run each time. Measured, that left a
-    /// patch of a sphere gaining seventy-six triangles a round for ever, all of
-    /// them with no area in them.
     ///
     /// **The line nearest the middle**, so a run reaching over many cells is
     /// halved rather than shaved and the rounds go as the logarithm of how wide
@@ -128,21 +142,13 @@ impl Lattice {
     /// cannot put back what the first pass took out. Both axes at once has no
     /// such order to it.
     pub(super) fn cutting(self, from: DVec2, to: DVec2, axis: usize) -> Option<DVec2> {
+        if !self.over(from, to, axis) {
+            return None;
+        }
         let (start, end) = (from[axis], to[axis]);
         let (near, far) = (start.min(end), start.max(end));
         let counted = |at: f64| (at - self.low[axis]) / self.step[axis];
         let (below, above) = (counted(near), counted(far));
-        // **By more than a rounding**, which is not caution: a run of exactly
-        // one cell comes out a bit over as often as a bit under, and cutting
-        // one that is over by an ulp puts a corner where a corner already is.
-        // The piece left has no length, covers the cells its long side covers,
-        // and so asks to be cut again for ever — measured, a wall of sixteen
-        // triangles grew by twenty-four a round without end. This is the one
-        // place in the kernel a bare figure means something: the coordinates
-        // here are counts of cells rather than lengths.
-        if above - below <= 1.0 + ROUNDING {
-            return None;
-        }
         // Strictly inside, which a run reaching over more than a cell always
         // has at least one of.
         let (first, last) = (below.floor() + 1.0, above.ceil() - 1.0);

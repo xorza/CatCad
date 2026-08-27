@@ -16,9 +16,13 @@ pub struct Vertex {
     pub normal: Vec3,
 }
 
-/// A triangle list: the indices read three entries per triangle, each one an
-/// index into the vertices. Triangles wind counter-clockwise seen from the
-/// outside, which is what the renderer's back-face culling expects.
+/// A triangle list: three indices to the triangle, each one numbering a corner.
+/// Triangles wind counter-clockwise seen from the outside, which is what the
+/// renderer's back-face culling expects.
+///
+/// Held three at a time rather than flat, so that a mesh cannot be built
+/// holding indices past its last triangle. [`Mesh::indices`] is the flat view
+/// the index buffer is uploaded from, which costs nothing to take.
 ///
 /// **Shut, so that the box it fills cannot fall behind what fills it.** Every
 /// pick asks a mesh where it is before asking what it is made of, and a box
@@ -28,47 +32,39 @@ pub struct Vertex {
 #[derive(Debug, Clone, Default)]
 pub struct Mesh {
     vertices: Vec<Vertex>,
-    indices: Vec<u32>,
+    triangles: Vec<[u32; 3]>,
     bounds: Bounds,
 }
 
 impl Mesh {
-    /// A mesh of `vertices`, read three indices to the triangle.
+    /// A mesh of `vertices`, wound into `triangles`.
     ///
     /// What builds one that is *new*. A mesh being written over again keeps its
     /// buffers instead — see [`Mesh::rewrite`], which is the other way in and
     /// the one a drag goes through.
-    pub fn new(vertices: Vec<Vertex>, indices: Vec<u32>) -> Self {
+    pub fn new(vertices: Vec<Vertex>, triangles: Vec<[u32; 3]>) -> Self {
         let bounds = Bounds::of(vertices.iter().map(|vertex| vertex.position));
         Self {
             vertices,
-            indices,
+            triangles,
             bounds,
         }
     }
 
-    /// The corners, in the order the indices below number them.
+    /// The corners, in the order the triangles below number them.
     pub fn vertices(&self) -> &[Vertex] {
         &self.vertices
     }
 
-    /// Three entries to the triangle, each one numbering a corner.
-    ///
-    /// Flat, because that is the shape the index buffer is uploaded in. Anything
-    /// walking the triangles themselves asks [`Mesh::triangles`].
-    pub fn indices(&self) -> &[u32] {
-        &self.indices
+    /// Three corners apiece, numbering the corners above.
+    pub fn triangles(&self) -> &[[u32; 3]] {
+        &self.triangles
     }
 
-    /// The same indices read three at a time, each triple one triangle.
-    pub fn triangles(&self) -> &[[u32; 3]] {
-        let (triangles, loose) = self.indices.as_chunks();
-        debug_assert!(
-            loose.is_empty(),
-            "a mesh held {} indices past its last triangle",
-            loose.len()
-        );
-        triangles
+    /// The same corner numbers laid flat, which is the shape the index buffer
+    /// is uploaded in.
+    pub fn indices(&self) -> &[u32] {
+        self.triangles.as_flattened()
     }
 
     /// The box this fills, which a pick asks before it asks anything else.
@@ -84,8 +80,8 @@ impl Mesh {
     /// moves, and they come back the same size — so the writers clear and refill
     /// rather than assign, which is what keeps a drag off the heap, and that is
     /// exactly the shape handing out the buffers preserves.
-    pub fn rewrite(&mut self, write: impl FnOnce(&mut Vec<Vertex>, &mut Vec<u32>)) {
-        write(&mut self.vertices, &mut self.indices);
+    pub fn rewrite(&mut self, write: impl FnOnce(&mut Vec<Vertex>, &mut Vec<[u32; 3]>)) {
+        write(&mut self.vertices, &mut self.triangles);
         self.bounds = Bounds::of(self.vertices.iter().map(|vertex| vertex.position));
     }
 
@@ -104,7 +100,7 @@ impl Mesh {
             (Vec3::NEG_Z, Vec3::Y, Vec3::X),
         ];
         let mut vertices = Vec::with_capacity(faces.len() * 4);
-        let mut indices = Vec::with_capacity(faces.len() * 6);
+        let mut triangles = Vec::with_capacity(faces.len() * 2);
         for (normal, u, v) in faces {
             let base = vertices.len() as u32;
             let centre = normal * half;
@@ -114,9 +110,9 @@ impl Mesh {
                     normal,
                 });
             }
-            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+            triangles.extend_from_slice(&[[base, base + 1, base + 2], [base, base + 2, base + 3]]);
         }
-        Self::new(vertices, indices)
+        Self::new(vertices, triangles)
     }
 }
 

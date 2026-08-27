@@ -6,7 +6,7 @@ use std::collections::HashMap;
 fn cube_has_one_flat_quad_per_face() {
     let cube = Mesh::cube(2.0);
     assert_eq!(cube.vertices.len(), 24, "six faces of four corners");
-    assert_eq!(cube.indices.len(), 36, "six faces of two triangles");
+    assert_eq!(cube.triangles.len(), 12, "six faces of two triangles");
 
     // Every corner of a size-2 cube is (±1, ±1, ±1).
     for vertex in &cube.vertices {
@@ -41,7 +41,7 @@ fn cube_has_one_flat_quad_per_face() {
 #[test]
 fn cube_triangles_wind_outward() {
     let cube = Mesh::cube(1.0);
-    for triangle in cube.triangles() {
+    for triangle in &cube.triangles {
         let [a, b, c] = triangle.map(|index| cube.vertices[index as usize]);
         // Counter-clockwise seen from outside means the edge cross product
         // points the same way as the face normal.
@@ -97,11 +97,11 @@ fn the_box_follows_what_is_written_into_the_mesh() {
         position: Vec3::new(x, y, 0.0),
         normal: Vec3::Z,
     };
-    mesh.rewrite(|vertices, indices| {
+    mesh.rewrite(|vertices, triangles| {
         vertices.clear();
         vertices.extend([corner(0.0, 0.0), corner(1.0, 0.0), corner(0.0, 0.5)]);
-        indices.clear();
-        indices.extend([0, 1, 2]);
+        triangles.clear();
+        triangles.extend([[0, 1, 2]]);
     });
     assert_eq!(
         mesh.bounds().low,
