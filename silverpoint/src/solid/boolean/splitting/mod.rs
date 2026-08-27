@@ -23,6 +23,7 @@
 //! for a cut that would have divided nothing. Asking whether the *faces* meet
 //! before asking whether the surfaces do is the answer, and it is not written.
 
+use crate::inline::Inline;
 use crate::loops::Loops;
 use crate::math::arc;
 use crate::math::quadratic;
@@ -139,11 +140,7 @@ pub(super) enum Cut {
 /// wide meets `v = swing·cos(θ − phase)` where a line meets a cosine, and the
 /// difference of the two turns at most twice over that span — see
 /// [`Cut::crested`].
-#[derive(Debug, Clone, Copy, Default)]
-struct Crested {
-    along: [f64; 3],
-    count: u8,
-}
+type Crested = Inline<f64, 3>;
 
 impl Cut {
     /// The same cut with the other side kept.
@@ -303,9 +300,8 @@ impl Cut {
             }
             Self::Wave { .. } => {
                 let crested = self.crested(from, to);
-                let along = crested.along[..usize::from(crested.count)]
-                    .iter()
-                    .copied()
+                let along = crested
+                    .into_iter()
                     .find(|&along| (0.0..=1.0).contains(&along))
                     .expect("the run crosses the wave");
                 from.lerp(to, along)
@@ -329,7 +325,7 @@ impl Cut {
     /// place within some bound of it.
     fn crested(self, from: DVec2, to: DVec2) -> Crested {
         let Self::Wave { swing, phase, .. } = self else {
-            return Crested::default();
+            return Crested::none();
         };
         let run = to - from;
         let at = |along: f64| {
@@ -359,7 +355,7 @@ impl Cut {
         }
         let turns = &mut turns[..pieces];
         turns.sort_by(|one, two| one.partial_cmp(two).expect("a run is finite"));
-        let mut crested = Crested::default();
+        let mut crested = Crested::none();
         for step in 1..turns.len() {
             let (lo, hi) = (turns[step - 1], turns[step]);
             let (here, there) = (at(lo), at(hi));
@@ -369,8 +365,7 @@ impl Cut {
             if (here > 0.0) == (there > 0.0) {
                 continue;
             }
-            crested.along[usize::from(crested.count)] = halved(lo, hi, at);
-            crested.count += 1;
+            crested.push(halved(lo, hi, at));
         }
         crested
     }
@@ -499,10 +494,7 @@ impl Cut {
             // Two, or the run went across rather than dipping — which is the
             // same rule the ellipse answers by, and the reason both are `None`
             // for one root as well as for none.
-            Self::Wave { .. } => {
-                let crested = self.crested(from, to);
-                (crested.count == 2).then(|| [crested.along[0], crested.along[1]])
-            }
+            Self::Wave { .. } => self.crested(from, to).all().try_into().ok(),
         }
     }
 

@@ -3,17 +3,17 @@ use super::*;
 /// Every crossing, in the order the routine found them, as plain pairs — so an
 /// expectation reads as coordinates off a drawing.
 fn places(found: Crossings) -> Vec<(f64, f64)> {
-    found.iter().map(|at| (at.x, at.y)).collect()
+    found.into_iter().map(|at| (at.x, at.y)).collect()
 }
 
 /// Whether `found` is exactly these places, in any order and to within a
 /// rounding. Order is not the routine's to promise: which root comes first
 /// falls out of the algebra, and both describe the same pair of curves.
 fn meets(found: Crossings, want: &[DVec2]) -> bool {
-    found.len() == want.len()
+    found.all().len() == want.len()
         && want
             .iter()
-            .all(|expected| found.iter().any(|at| at.approx_eq(*expected, 1e-9)))
+            .all(|expected| found.into_iter().any(|at| at.approx_eq(*expected, 1e-9)))
 }
 
 fn span(from: (f64, f64), to: (f64, f64)) -> Span {
@@ -44,9 +44,9 @@ fn two_spans_cross_once_and_only_between_their_ends() {
     // Shortened so the lines still meet at the origin but neither span reaches
     // it. The infinite lines cross; the spans do not.
     let short = span((-2.0, -2.0), (-1.0, -1.0));
-    assert_eq!(spans(short, falling).len(), 0);
+    assert_eq!(spans(short, falling).all().len(), 0);
     // One reaching and the other not is still nothing: both have to be there.
-    assert_eq!(spans(rising, span((-2.0, 2.0), (-1.0, 1.0))).len(), 0);
+    assert_eq!(spans(rising, span((-2.0, 2.0), (-1.0, 1.0))).all().len(), 0);
 
     // Off-centre, with numbers that are not the origin: y = 1 crosses the
     // rising diagonal at (1, 1).
@@ -73,7 +73,7 @@ fn a_corner_that_lands_on_an_edge_counts_as_meeting_it() {
     // its residual, not to the bit.
     let nearly = span((2.0, 3.0), (2.0, PLACED * 0.5));
     assert_eq!(
-        spans(base, nearly).len(),
+        spans(base, nearly).all().len(),
         1,
         "a rounding broke the junction"
     );
@@ -81,7 +81,7 @@ fn a_corner_that_lands_on_an_edge_counts_as_meeting_it() {
     // And one that misses by more does not, or every near-miss in a drawing
     // would weld itself shut.
     let clear = span((2.0, 3.0), (2.0, PLACED * 100.0));
-    assert_eq!(spans(base, clear).len(), 0);
+    assert_eq!(spans(base, clear).all().len(), 0);
 }
 
 /// Parallel spans answer nowhere, whether they lie along each other or not.
@@ -89,19 +89,19 @@ fn a_corner_that_lands_on_an_edge_counts_as_meeting_it() {
 fn parallel_spans_never_cross_however_they_overlap() {
     let base = span((0.0, 0.0), (4.0, 0.0));
     // Beside it.
-    assert_eq!(spans(base, span((0.0, 1.0), (4.0, 1.0))).len(), 0);
+    assert_eq!(spans(base, span((0.0, 1.0), (4.0, 1.0))).all().len(), 0);
     // Along it, sharing a stretch — the stated limit, not an oversight.
-    assert_eq!(spans(base, span((1.0, 0.0), (3.0, 0.0))).len(), 0);
+    assert_eq!(spans(base, span((1.0, 0.0), (3.0, 0.0))).all().len(), 0);
     // Along it, sharing exactly one end.
-    assert_eq!(spans(base, span((4.0, 0.0), (7.0, 0.0))).len(), 0);
+    assert_eq!(spans(base, span((4.0, 0.0), (7.0, 0.0))).all().len(), 0);
     // A span with no length has no direction, so nothing crosses it.
-    assert_eq!(spans(base, span((2.0, 0.0), (2.0, 0.0))).len(), 0);
+    assert_eq!(spans(base, span((2.0, 0.0), (2.0, 0.0))).all().len(), 0);
 
     // Near-parallel is a real crossing, and a long way off: these meet at
     // x = 400, far past either span, so the answer is nothing — but by landing
     // off the spans rather than by being called parallel.
     let leaning = span((0.0, 1.0), (4.0, 0.99));
-    assert_eq!(spans(base, leaning).len(), 0);
+    assert_eq!(spans(base, leaning).all().len(), 0);
 }
 
 /// A span across a ring meets it twice, and one that stops inside meets it
@@ -129,10 +129,16 @@ fn a_span_crosses_a_ring_where_it_enters_and_leaves() {
     assert_eq!(places(span_ring(leaving, unit)), [(1.0, 0.0)]);
 
     // Wholly inside meets nothing, and so does wholly past.
-    assert_eq!(span_ring(span((-0.5, 0.0), (0.5, 0.0)), unit).len(), 0);
-    assert_eq!(span_ring(span((2.0, 0.0), (3.0, 0.0)), unit).len(), 0);
+    assert_eq!(
+        span_ring(span((-0.5, 0.0), (0.5, 0.0)), unit).all().len(),
+        0
+    );
+    assert_eq!(span_ring(span((2.0, 0.0), (3.0, 0.0)), unit).all().len(), 0);
     // Clear of it altogether: the line misses by 0.5.
-    assert_eq!(span_ring(span((-3.0, 1.5), (3.0, 1.5)), unit).len(), 0);
+    assert_eq!(
+        span_ring(span((-3.0, 1.5), (3.0, 1.5)), unit).all().len(),
+        0
+    );
 }
 
 /// A line that grazes a ring touches it once, not twice a hair apart.
@@ -156,8 +162,8 @@ fn a_grazing_span_touches_a_ring_in_one_place() {
     // within it is smaller than an `f64` can hold beside 1.
     let depth = 1e-13;
     let barely = span_ring(span((-3.0, 1.0 - depth), (3.0, 1.0 - depth)), unit);
-    assert_eq!(barely.len(), 2, "a real chord was folded away");
-    let apart: Vec<DVec2> = barely.iter().collect();
+    assert_eq!(barely.all().len(), 2, "a real chord was folded away");
+    let apart: Vec<DVec2> = barely.into_iter().collect();
     let expected = 2.0 * (2.0 * depth).sqrt();
     assert!(
         (apart[0].distance(apart[1]) - expected).abs() < expected * 0.01,
@@ -170,8 +176,8 @@ fn a_grazing_span_touches_a_ring_in_one_place() {
     // is the case that would otherwise put two vertices in one place and hang a
     // sliver of arc between them.
     let chord = span_ring(span((-3.0, 0.99), (3.0, 0.99)), unit);
-    assert_eq!(chord.len(), 2);
-    let wide: Vec<DVec2> = chord.iter().collect();
+    assert_eq!(chord.all().len(), 2);
+    let wide: Vec<DVec2> = chord.into_iter().collect();
     assert!(wide[0].distance(wide[1]) > PLACED);
 }
 
@@ -209,8 +215,13 @@ fn two_rings_cross_where_their_circumferences_agree() {
     );
 
     // Too far apart, and one swallowed with room to spare.
-    assert_eq!(rings(unit, ring((3.0, 0.0), 1.0)).len(), 0);
-    assert_eq!(rings(ring((0.0, 0.0), 5.0), ring((0.5, 0.0), 1.0)).len(), 0);
+    assert_eq!(rings(unit, ring((3.0, 0.0), 1.0)).all().len(), 0);
+    assert_eq!(
+        rings(ring((0.0, 0.0), 5.0), ring((0.5, 0.0), 1.0))
+            .all()
+            .len(),
+        0
+    );
 }
 
 /// Concentric rings answer nowhere — including two that are the same circle.
@@ -221,9 +232,14 @@ fn two_rings_cross_where_their_circumferences_agree() {
 #[test]
 fn concentric_rings_share_no_place_to_point_at() {
     let unit = ring((0.0, 0.0), 1.0);
-    assert_eq!(rings(unit, ring((0.0, 0.0), 2.0)).len(), 0);
-    assert_eq!(rings(unit, unit).len(), 0, "a ring crossed itself");
+    assert_eq!(rings(unit, ring((0.0, 0.0), 2.0)).all().len(), 0);
+    assert_eq!(rings(unit, unit).all().len(), 0, "a ring crossed itself");
     // And a ring that merely sits inside another without sharing a centre is
     // the same answer, reached by the swallowed test rather than this one.
-    assert_eq!(rings(ring((0.0, 0.0), 4.0), ring((1.0, 0.0), 1.0)).len(), 0);
+    assert_eq!(
+        rings(ring((0.0, 0.0), 4.0), ring((1.0, 0.0), 1.0))
+            .all()
+            .len(),
+        0
+    );
 }

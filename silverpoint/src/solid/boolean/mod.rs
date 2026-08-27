@@ -378,7 +378,7 @@ impl Combining {
                 };
                 // Each curve of the meeting in turn: a plane cutting a chord
                 // off a cylinder meets it in two, and both divide the face.
-                for curve in along.curves() {
+                for curve in along.all() {
                     // Numbered before the cut is built rather than after, which
                     // is what a round cut needs: it carries its own number —
                     // see [`Cut::Round`] — so there is nothing to hand back.

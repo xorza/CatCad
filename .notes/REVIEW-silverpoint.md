@@ -5,26 +5,6 @@ Delete an item when you address it. This file lists open findings only.
 Scope: every production file under `silverpoint/src`. Test modules are out of
 scope.
 
-## One rule written twice
-
-Each pair below states one relation in two places. Two spellings of one
-relation drift.
-
-- [ ] `number/predicate/mod.rs:94` and `solid/geometry/axis.rs:132` — `UNIT`
-  and `SQUARE` both stand for how far from unit a direction may be and still
-  count as normalized. One admits `1e-6` and the other `1e-9`. Both are read by
-  a `debug_assert` and by nothing else.
-
-## Four inline small vectors of one shape
-
-Each holds a fixed array and a count, and hands back a prefix slice. Four
-copies of one container.
-
-- [ ] `math/intersect/mod.rs:43` — `Crossings`, `[DVec2; 2]` and `found`.
-- [ ] `solid/geometry/surface.rs:40` — `Crossings`, `[f64; 2]` and `count`.
-- [ ] `solid/meeting/mod.rs:74` — `Curves`, `[Curve; 2]` and `count`.
-- [ ] `solid/boolean/splitting/mod.rs:143` — `Crested`, `[f64; 3]` and `count`.
-
 ## Doc comments that ran together
 
 In each case a comment block lost its break. The item below the block now

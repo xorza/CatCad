@@ -1,4 +1,4 @@
-use crate::number::predicate::{ApproxEq, parallel, slack, touching, wraps};
+use crate::number::predicate::{ApproxEq, normalized, parallel, slack, square, touching, wraps};
 use crate::number::tolerance::{EXACT, ROUNDING};
 use glam::{DVec2, DVec3};
 use std::f64::consts::TAU;
@@ -76,6 +76,24 @@ fn only_a_whole_turn_wraps() {
     assert!(!wraps(TAU - 1e-8));
 }
 
+/// A direction counts as normalized within a millionth of unit length, and
+/// anything never normalized at all is nowhere near it.
+///
+/// Hand-computed on the squared length the test reads: `(3, 4, 0)` is five
+/// long, so it misses by 24. A vector a ten-millionth long stands `2e-7` out in
+/// the square and is taken, and one a thousandth long stands `2e-3` out and is
+/// refused.
+#[test]
+fn a_direction_is_normalized_to_within_a_millionth() {
+    assert!(normalized(DVec3::X));
+    assert!(normalized(DVec3::new(1.0, 1.0, 1.0).normalize()));
+    assert!(!normalized(DVec3::new(3.0, 4.0, 0.0)), "never normalized");
+    assert!(!normalized(DVec3::ZERO));
+
+    assert!(normalized(DVec3::X * (1.0 + 1e-7)));
+    assert!(!normalized(DVec3::X * 1.001));
+}
+
 /// Two directions are parallel whichever end of each is taken, and a
 /// quarter turn apart is not parallel at all.
 #[test]
@@ -91,6 +109,25 @@ fn parallel_asks_about_the_line_rather_than_the_arrow() {
     assert!(parallel(DVec3::X, leaning));
     let further = DVec3::new(1.0, 1e-8, 0.0).normalize();
     assert!(!parallel(DVec3::X, further));
+}
+
+/// Two directions stand square whichever end of each is taken, and a pair
+/// running the same way does not.
+///
+/// The mirror of the test above: what `parallel` takes, this refuses, and what
+/// it refuses, this takes. A hair either side of the bound reads the same way,
+/// because the cosine of an angle a hair off a right angle is that hair.
+#[test]
+fn square_asks_the_same_bound_from_the_other_end() {
+    assert!(square(DVec3::X, DVec3::Y));
+    assert!(square(DVec3::X, DVec3::NEG_Y), "an axis has no near end");
+    assert!(!square(DVec3::X, DVec3::X));
+    assert!(!square(DVec3::X, DVec3::NEG_X));
+
+    let leaning = DVec3::new(1e-10, 1.0, 0.0).normalize();
+    assert!(square(DVec3::X, leaning));
+    let further = DVec3::new(1e-8, 1.0, 0.0).normalize();
+    assert!(!square(DVec3::X, further));
 }
 
 /// Distance to a surface is compared inclusively, and [`EXACT`] admits only

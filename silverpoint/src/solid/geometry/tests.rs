@@ -334,7 +334,7 @@ fn a_curve_is_cut_finely_enough_to_meet_its_sagitta() {
 /// solid inside out.
 #[test]
 fn a_ray_meets_each_quadric_where_the_arithmetic_says() {
-    let hits = |along: Crossings| along.along().to_vec();
+    let hits = |along: Crossings| along.all().to_vec();
     let near = |got: Vec<f64>, want: &[f64], what: &str| {
         assert_eq!(got.len(), want.len(), "{what}: {got:?} against {want:?}");
         for (got, want) in got.iter().zip(want) {

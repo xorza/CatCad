@@ -177,10 +177,10 @@ impl Sounding {
             // start on what it grazes, and one running parallel and clear of a
             // plane does not start on that either. A sphere cannot hold a line
             // at all, so this never fires for one.
-            if met.along().is_empty() && self.faces[which].on {
+            if met.all().is_empty() && self.faces[which].on {
                 return None;
             }
-            for &along in met.along() {
+            for &along in met.all() {
                 // Behind, or where the ray began. A crossing at nought is a
                 // place standing on the surface, which the guard above has
                 // already refused to count from.

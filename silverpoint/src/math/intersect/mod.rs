@@ -8,6 +8,7 @@
 //! drawing on paper: a span is two corners and a ring is a middle and a
 //! distance, and no part of a sketch reaches in.
 
+use crate::inline::Inline;
 use crate::math::intersect::chord::Chord;
 use crate::math::quadratic;
 use crate::number::predicate::ApproxEq;
@@ -40,51 +41,19 @@ pub(crate) struct Ring {
 
 /// Where two curves meet: nowhere, one place, or two.
 ///
-/// A fixed pair rather than a list, because two is the most any pair of curves
-/// a sketch can hold will ever meet in — a span cuts a ring twice, two rings
-/// meet twice, and two spans meet once. So an arrangement can ask every curve
-/// about every other without reaching the heap once.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Crossings {
-    at: [DVec2; 2],
-    found: usize,
-}
+/// Two is the most any pair of curves a sketch can hold will ever meet in: a
+/// span cuts a ring twice, two rings meet twice, and two spans meet once.
+pub(crate) type Crossings = Inline<DVec2, 2>;
 
-impl Crossings {
-    /// The curves do not meet.
-    fn none() -> Self {
-        Self {
-            at: [DVec2::ZERO; 2],
-            found: 0,
-        }
+/// Two places a pair of curves crosses at, folded to one where the two are the
+/// same place to within [`PLACED`].
+fn crossed(first: DVec2, second: DVec2) -> Crossings {
+    if first.approx_eq(second, PLACED) {
+        // The midpoint rather than either, so a grazing pair answers with the
+        // place they agree on instead of whichever root came first.
+        return Crossings::one(first.midpoint(second));
     }
-
-    /// They touch in one place — a tangency, or a corner landing on a curve.
-    fn one(at: DVec2) -> Self {
-        Self {
-            at: [at, DVec2::ZERO],
-            found: 1,
-        }
-    }
-
-    /// They cross in two, folded to one where the two are the same place to
-    /// within [`PLACED`].
-    fn two(first: DVec2, second: DVec2) -> Self {
-        if first.approx_eq(second, PLACED) {
-            // The midpoint rather than either, so a grazing pair answers with
-            // the place they agree on instead of whichever root came first.
-            return Self::one(first.midpoint(second));
-        }
-        Self {
-            at: [first, second],
-            found: 2,
-        }
-    }
-
-    /// Every place they meet.
-    pub(crate) fn iter(self) -> impl Iterator<Item = DVec2> {
-        self.at.into_iter().take(self.found)
-    }
+    Crossings::two(first, second)
 }
 
 /// Where two straight spans cross, ends included.
@@ -153,7 +122,7 @@ pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
     let slack = PLACED / reach;
     let at = |t: f64| span.from + along * t;
     match roots.map(|t| holds(t, slack).then(|| at(t))) {
-        [Some(near), Some(far)] => Crossings::two(near, far),
+        [Some(near), Some(far)] => crossed(near, far),
         [Some(only), None] | [None, Some(only)] => Crossings::one(only),
         [None, None] => Crossings::none(),
     }
@@ -185,7 +154,7 @@ pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
         return Crossings::none();
     };
     let step = between.perp() * (half / apart);
-    Crossings::two(base + step, base - step)
+    crossed(base + step, base - step)
 }
 
 /// Where `span` crosses the level line through `at` — the x it crosses at, or
@@ -213,22 +182,6 @@ pub(crate) fn rightward(span: Span, at: DVec2) -> Option<f64> {
 /// Whether a curve parameter lands on the curve, `slack` past either end.
 fn holds(t: f64, slack: f64) -> bool {
     t >= -slack && t <= 1.0 + slack
-}
-
-#[cfg(test)]
-mod counting {
-    use crate::math::intersect::Crossings;
-
-    impl Crossings {
-        /// How many places two curves meet.
-        ///
-        /// Nothing in the crate wants this — a caller holding crossings wants
-        /// to walk them, not count them. What asserts *how many* there are is
-        /// the sweep next door, where a count is half of what each case says.
-        pub(super) fn len(self) -> usize {
-            self.found
-        }
-    }
 }
 
 #[cfg(test)]

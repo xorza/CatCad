@@ -24,6 +24,7 @@
 //! descriptions, because two planes can be one plane and not be the same
 //! `Plane` — see [`Meeting::Same`].
 
+use crate::inline::Inline;
 use crate::math::intersect::chord::Chord;
 use crate::math::plane::Plane;
 use crate::number::predicate::{self, ApproxEq};
@@ -65,38 +66,12 @@ pub(crate) enum Meeting {
     Algebraic,
 }
 
-/// One curve or two, held without a heap block.
+/// One curve or two.
 ///
 /// Two is the most a reducible case gives: a plane cuts a cylinder in two
-/// lines, two equal cylinders on meeting axes cross in two ellipses, a sphere
-/// on a cylinder's axis in two circles. So the pair is held inline and a caller
-/// reads back however much of it is real.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub(crate) struct Curves {
-    held: [Curve; 2],
-    count: usize,
-}
-
-impl Curves {
-    fn one(curve: Curve) -> Self {
-        Self {
-            held: [curve, curve],
-            count: 1,
-        }
-    }
-
-    fn two(one: Curve, two: Curve) -> Self {
-        Self {
-            held: [one, two],
-            count: 2,
-        }
-    }
-
-    /// The curves, in no order a caller should read anything into.
-    pub(crate) fn curves(&self) -> &[Curve] {
-        &self.held[..self.count]
-    }
-}
+/// lines, two equal cylinders on meeting axes cross in two ellipses, and a
+/// sphere on a cylinder's axis in two circles.
+pub(crate) type Curves = Inline<Curve, 2>;
 
 impl Meeting {
     /// Work out where `one` and `two` meet.
@@ -298,7 +273,7 @@ impl Meeting {
         };
         match (cut(there - here), cut(there + here)) {
             (Self::Along(near), Self::Along(far)) => {
-                Self::Along(Curves::two(near.curves()[0], far.curves()[0]))
+                Self::Along(Curves::two(near.all()[0], far.all()[0]))
             }
             // A plane bisecting the angle between two crossing axes leans on
             // neither of them squarely nor along them, so it cuts each cylinder

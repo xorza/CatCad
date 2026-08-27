@@ -129,13 +129,13 @@ impl Curves {
     fn crossing(&self, one: Curve, two: Curve, into: &mut Vec<DVec2>) {
         match (one, two) {
             (Curve::Straight(a), Curve::Straight(b)) => {
-                into.extend(intersect::spans(self.straight[a].0, self.straight[b].0).iter());
+                into.extend(intersect::spans(self.straight[a].0, self.straight[b].0));
             }
             (Curve::Straight(a), Curve::Round(b)) | (Curve::Round(b), Curve::Straight(a)) => {
-                into.extend(intersect::span_ring(self.straight[a].0, self.round[b].0).iter());
+                into.extend(intersect::span_ring(self.straight[a].0, self.round[b].0));
             }
             (Curve::Round(a), Curve::Round(b)) => {
-                into.extend(intersect::rings(self.round[a].0, self.round[b].0).iter());
+                into.extend(intersect::rings(self.round[a].0, self.round[b].0));
             }
         }
     }

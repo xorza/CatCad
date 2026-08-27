@@ -1,6 +1,7 @@
 //! The line a surface of revolution turns about.
 
 use crate::math::plane::Plane;
+use crate::number::predicate;
 use crate::solid::buckets::Key;
 use crate::solid::geometry::line::Line;
 use glam::DVec3;
@@ -129,9 +130,8 @@ impl Axis {
     /// Whether the two stored directions are unit and square to each other,
     /// which is what everything above reads them as being.
     fn framed(self) -> bool {
-        const SQUARE: f64 = 1e-9;
-        (self.direction.length() - 1.0).abs() < SQUARE
-            && (self.reference.length() - 1.0).abs() < SQUARE
-            && self.direction.dot(self.reference).abs() < SQUARE
+        predicate::normalized(self.direction)
+            && predicate::normalized(self.reference)
+            && predicate::square(self.direction, self.reference)
     }
 }

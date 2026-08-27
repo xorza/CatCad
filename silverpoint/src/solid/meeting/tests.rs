@@ -41,7 +41,7 @@ fn lies_on(meeting: Meeting, one: &Surface, two: &Surface, what: &str) {
     let Meeting::Along(along) = meeting else {
         panic!("{what}: {meeting:?} holds no curve to hold against anything");
     };
-    for curve in along.curves() {
+    for curve in along.all() {
         for step in 0..16 {
             // Past a whole turn, so a round curve is asked round twice and a
             // straight one is asked well past where anything was computed.
@@ -70,8 +70,8 @@ fn two_planes_meet_in_a_line_unless_they_are_one_plane_or_never_meet() {
     let Meeting::Along(along) = Meeting::of(&ground, &upright) else {
         panic!("two planes at a right angle missed each other");
     };
-    let [Curve::Line(line)] = along.curves() else {
-        panic!("{:?} is not one straight line", along.curves());
+    let [Curve::Line(line)] = along.all() else {
+        panic!("{:?} is not one straight line", along.all());
     };
     assert!(line.origin.length() < NEAR, "{line:?} misses the origin");
     assert!(
@@ -106,8 +106,8 @@ fn a_plane_square_across_a_cylinder_cuts_the_cylinders_own_circle() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Circle(circle)] = along.curves() else {
-        panic!("{:?} is not one circle", along.curves());
+    let [Curve::Circle(circle)] = along.all() else {
+        panic!("{:?} is not one circle", along.all());
     };
     assert_eq!(circle.radius, 2.0);
     // Three up the axis, and nowhere across it however far the plane's own
@@ -136,8 +136,8 @@ fn a_plane_leaning_on_a_cylinder_cuts_an_ellipse_stretched_by_the_lean() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Ellipse(ellipse)] = along.curves() else {
-        panic!("{:?} is not one ellipse", along.curves());
+    let [Curve::Ellipse(ellipse)] = along.all() else {
+        panic!("{:?} is not one ellipse", along.all());
     };
     assert!((ellipse.minor - 2.0).abs() < NEAR, "{ellipse:?}");
     assert!((ellipse.major - 2.0 * SQRT_2).abs() < NEAR, "{ellipse:?}");
@@ -151,8 +151,8 @@ fn a_plane_leaning_on_a_cylinder_cuts_an_ellipse_stretched_by_the_lean() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Ellipse(ellipse)] = along.curves() else {
-        panic!("{:?} is not one ellipse", along.curves());
+    let [Curve::Ellipse(ellipse)] = along.all() else {
+        panic!("{:?} is not one ellipse", along.all());
     };
     assert!((ellipse.minor - 2.0).abs() < NEAR);
     assert!(ellipse.major > 2.0 * SQRT_2, "{ellipse:?} did not lengthen");
@@ -172,8 +172,8 @@ fn a_plane_alongside_a_cylinder_cuts_two_lines_then_one_then_none() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Line(near), Curve::Line(far)] = along.curves() else {
-        panic!("{:?} is not two straight lines", along.curves());
+    let [Curve::Line(near), Curve::Line(far)] = along.all() else {
+        panic!("{:?} is not two straight lines", along.all());
     };
     for line in [near, far] {
         assert!(line.direction.cross(DVec3::Y).length() < NEAR, "{line:?}");
@@ -196,8 +196,8 @@ fn a_plane_alongside_a_cylinder_cuts_two_lines_then_one_then_none() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Line(line)] = along.curves() else {
-        panic!("{:?} is not one straight line", along.curves());
+    let [Curve::Line(line)] = along.all() else {
+        panic!("{:?} is not one straight line", along.all());
     };
     assert!(line.origin.distance(DVec3::new(2.0, 0.0, 0.0)) < NEAR);
     lies_on(meeting, &tangent, &cylinder, "tangent");
@@ -227,8 +227,8 @@ fn two_equal_cylinders_crossing_square_meet_in_two_ellipses() {
     let Meeting::Along(curves) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Ellipse(one), Curve::Ellipse(two)] = curves.curves() else {
-        panic!("{:?} is not two ellipses", curves.curves());
+    let [Curve::Ellipse(one), Curve::Ellipse(two)] = curves.all() else {
+        panic!("{:?} is not two ellipses", curves.all());
     };
     for ellipse in [one, two] {
         assert!((ellipse.minor - 2.0).abs() < NEAR, "{ellipse:?}");
@@ -285,8 +285,8 @@ fn cylinders_on_one_axis_are_the_same_surface_or_nothing() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Line(near), Curve::Line(far)] = along.curves() else {
-        panic!("{:?} is not two straight lines", along.curves());
+    let [Curve::Line(near), Curve::Line(far)] = along.all() else {
+        panic!("{:?} is not two straight lines", along.all());
     };
     for line in [near, far] {
         assert!((line.origin.x - 1.5).abs() < NEAR, "{line:?}");
@@ -308,7 +308,7 @@ fn cylinders_on_one_axis_are_the_same_surface_or_nothing() {
         let Meeting::Along(along) = meeting else {
             panic!("at {apart}: {meeting:?} is not a curve");
         };
-        assert_eq!(along.curves().len(), 1, "at {apart}: {:?}", along.curves());
+        assert_eq!(along.all().len(), 1, "at {apart}: {:?}", along.all());
     }
 
     // Far enough apart to miss, and nested deeply enough to miss the other way.
@@ -339,8 +339,8 @@ fn a_plane_cuts_a_sphere_in_a_circle_until_it_only_grazes_it() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Circle(circle)] = along.curves() else {
-        panic!("{:?} is not one circle", along.curves());
+    let [Curve::Circle(circle)] = along.all() else {
+        panic!("{:?} is not one circle", along.all());
     };
     assert!((circle.radius - 4.0).abs() < NEAR, "{circle:?}");
     assert!(circle.axis.origin.distance(centre - DVec3::Y * 3.0) < NEAR);
@@ -373,8 +373,8 @@ fn two_spheres_meet_in_the_circle_the_triangle_of_their_radii_sets() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Circle(circle)] = along.curves() else {
-        panic!("{:?} is not one circle", along.curves());
+    let [Curve::Circle(circle)] = along.all() else {
+        panic!("{:?} is not one circle", along.all());
     };
     assert!((circle.radius - 3.0).abs() < NEAR, "{circle:?}");
     assert!(
@@ -435,8 +435,8 @@ fn a_sphere_on_a_cylinders_axis_meets_it_in_a_circle_at_each_end() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Circle(over), Curve::Circle(under)] = along.curves() else {
-        panic!("{:?} is not two circles", along.curves());
+    let [Curve::Circle(over), Curve::Circle(under)] = along.all() else {
+        panic!("{:?} is not two circles", along.all());
     };
     // 3-4-5 again: the cylinder is three wide, the sphere five, so the two
     // circles stand four above and below the centre.
@@ -465,7 +465,7 @@ fn a_sphere_on_a_cylinders_axis_meets_it_in_a_circle_at_each_end() {
         let Meeting::Along(along) = meeting else {
             panic!("{meeting:?} is not a curve");
         };
-        assert_eq!(along.curves().len(), 1, "at {radius}: {:?}", along.curves());
+        assert_eq!(along.all().len(), 1, "at {radius}: {:?}", along.all());
         lies_on(meeting, &cylinder, &snug, "grazing");
     }
 
@@ -497,8 +497,8 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
     };
-    let [Curve::Circle(circle)] = along.curves() else {
-        panic!("{:?} is not one circle", along.curves());
+    let [Curve::Circle(circle)] = along.all() else {
+        panic!("{:?} is not one circle", along.all());
     };
     assert!((circle.radius - 3.0).abs() < NEAR, "{circle:?}");
     lies_on(meeting, &across, &cone, "across a cone");

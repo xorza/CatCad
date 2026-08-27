@@ -82,6 +82,19 @@ pub(crate) fn slack(tolerance: f64) -> f64 {
     tolerance + ROUNDING
 }
 
+/// Whether `direction` has been normalized.
+///
+/// **Only an assert reads this**, here and where an axis checks its own frame,
+/// and that is what sets the room it gives: slack enough for a direction
+/// normalized once or twice, tight enough that anything never normalized at all
+/// is nowhere near it. Nothing is constructed to it and nothing decides a shape
+/// by it, which is why it is written here rather than among the tolerances the
+/// geometry works to.
+pub(crate) fn normalized(direction: DVec3) -> bool {
+    const UNIT: f64 = 1e-6;
+    direction.length_squared().approx_eq(1.0, UNIT)
+}
+
 /// Whether two unit directions run the same way, or exactly opposite ways.
 ///
 /// Which is one question and not two: an axis has no preferred end, so a
@@ -89,15 +102,26 @@ pub(crate) fn slack(tolerance: f64) -> f64 {
 /// either answer. A caller that needs the *sense* as well takes the dot product
 /// itself, and this is not what it wants.
 pub(crate) fn parallel(one: DVec3, two: DVec3) -> bool {
-    // Slack enough for a direction that has been normalized once or twice,
-    // tight enough that anything never normalized at all is nowhere near it.
-    const UNIT: f64 = 1e-6;
     debug_assert!(
-        (one.length_squared() - 1.0).abs() < UNIT && (two.length_squared() - 1.0).abs() < UNIT,
+        normalized(one) && normalized(two),
         "{one:?} and {two:?} are compared as directions and are not unit",
     );
     // The sine of the angle between them, which is what [`ALIGNED`] bounds.
     one.cross(two).length() <= ALIGNED
+}
+
+/// Whether two unit directions stand square to each other.
+///
+/// The mirror of [`parallel`], bounded by the same [`ALIGNED`]: the dot product
+/// of two unit directions is the cosine of the angle between them where the
+/// cross product is the sine, so one number bounds both questions from their
+/// own ends.
+pub(crate) fn square(one: DVec3, two: DVec3) -> bool {
+    debug_assert!(
+        normalized(one) && normalized(two),
+        "{one:?} and {two:?} are compared as directions and are not unit",
+    );
+    one.dot(two).abs() <= ALIGNED
 }
 
 /// Whether a turn of `sweep` radians carries a surface the whole way round.

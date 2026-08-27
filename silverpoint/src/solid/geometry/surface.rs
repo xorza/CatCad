@@ -1,5 +1,6 @@
 //! What a face is a piece of.
 
+use crate::inline::Inline;
 use crate::math::arc;
 use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
@@ -31,23 +32,9 @@ use std::f64::consts::SQRT_2;
 /// `.notes/KERNEL.md` §4.1 for where that stops.
 /// Where a ray met a surface, as distances along it.
 ///
-/// Inline rather than a list, for the reason
-/// [`Curves`](crate::solid::meeting::Curves) beside it is one: a boolean sounds
-/// a body once per region and a document is rebuilt on every frame of a drag
-/// through the drawing under it, so an answer that reached the heap would reach
-/// it a few thousand times a second.
-#[derive(Debug, Clone, Copy, Default, PartialEq)]
-pub(crate) struct Crossings {
-    along: [f64; 2],
-    count: u8,
-}
-
-impl Crossings {
-    /// How far along the ray each was, in order.
-    pub(crate) fn along(&self) -> &[f64] {
-        &self.along[..self.count as usize]
-    }
-}
+/// Two is the most, because every surface here is a quadric — see
+/// [`Surface::met_by`], which is where a graze is argued to be a miss.
+pub(crate) type Crossings = Inline<f64, 2>;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Surface {
@@ -154,8 +141,8 @@ impl Surface {
     /// fine and the answer is in units of it.
     pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Crossings {
         let two = |along: Option<[f64; 2]>| match along {
-            Some(along) => Crossings { along, count: 2 },
-            None => Crossings::default(),
+            Some([near, far]) => Crossings::two(near, far),
+            None => Crossings::none(),
         };
         match self {
             Self::Plane(plane) => {
@@ -173,12 +160,9 @@ impl Surface {
                 // rays along a body's own faces, which is what four directions
                 // are for.
                 if predicate::touching(leaning.abs(), ALIGNED) {
-                    return Crossings::default();
+                    return Crossings::none();
                 }
-                Crossings {
-                    along: [(plane.origin - from).dot(plane.normal()) / leaning, 0.0],
-                    count: 1,
-                }
+                Crossings::one((plane.origin - from).dot(plane.normal()) / leaning)
             }
             Self::Cylinder(cylinder) => two(cylinder.met_by(from, way)),
             Self::Cone(cone) => two(cone.met_by(from, way)),
