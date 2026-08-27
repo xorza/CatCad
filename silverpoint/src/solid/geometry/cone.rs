@@ -52,7 +52,7 @@ impl Cone {
         )
     }
 
-    /// Which parameters `at` stands at, its angle read in `(-π, π]`.    /// Which parameters `at` stands at, its angle read in `(-π, π]`.
+    /// Which parameters `at` stands at, its angle read in `(-π, π]`.
     ///
     /// Read off the axis rather than off the surface: a point on the cone has
     /// one `v`, and one off it is answered for by the parameters of the point

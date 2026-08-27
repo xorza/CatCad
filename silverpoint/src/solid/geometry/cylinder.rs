@@ -39,7 +39,7 @@ impl Cylinder {
         )
     }
 
-    /// Which parameters `at` stands at, its angle read in `(-π, π]`.    /// Which parameters `at` stands at, its angle read in `(-π, π]`.
+    /// Which parameters `at` stands at, its angle read in `(-π, π]`.
     ///
     /// Exact for anything on the surface and the nearest point of it for
     /// anything off, which is what makes this an inversion rather than a

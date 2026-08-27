@@ -35,7 +35,7 @@ impl Sphere {
         )
     }
 
-    /// Where it stands.    /// Where it stands.
+    /// Where it stands.
     ///
     /// Named, because [`Axis::origin`] is where it is kept and not what it is
     /// called — a reader of `sphere.axis.origin` has to know that a sphere's

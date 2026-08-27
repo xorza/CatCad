@@ -112,6 +112,7 @@ impl Mesher {
     /// volume is the negative of its own, and no chording turns a sign over.
     /// The same bargain the sounder and the splitter strike, one more time —
     /// classify with a polyline, build with the curve.
+    ///
     /// `into` is the room it cuts in, emptied a face at a time and left holding
     /// the last of them — the caller's, like [`Mesher::cut`]'s, because a
     /// boolean measures every shell it sews and a document is sewn on every

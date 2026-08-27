@@ -4,9 +4,7 @@
 //! clipped is one loop rather than a loop and its islands. One loop, but not a
 //! *simple* one: a bridge is walked out and back again, so the contour touches
 //! itself at both ends of every one of them — which matters less than it looks
-//! like it should, a bridge's ends turning almost the whole way round. See
-//! [`ear`], which is where what the quadratic below could be traded for is
-//! weighed.
+//! like it should, a bridge's ends turning almost the whole way round.
 //!
 //! Quadratic in the number of corners, and paid on every frame a solid is
 //! drawn: a 128-corner outline cuts in 14.5µs and a 256-corner one in 48.5µs.
@@ -470,25 +468,6 @@ fn cut(contour: &mut Vec<u32>, at: usize) -> Option<[u32; 3]> {
     (before != corner && corner != after && after != before).then_some([before, corner, after])
 }
 
-/// Whether the corner at `at` can be cut off without crossing the loop.
-///
-/// **Only the corners standing *in* the loop are asked, not all of them.** A
-/// corner standing proud cannot be the one inside a candidate ear unless a
-/// corner standing in the loop is inside it too, so the proud ones are not worth
-/// asking after — and on an outline traced round anything round they are all of
-/// them, which leaves this walk with nothing to do. Worth 53.4µs against 16.3µs
-/// on a 256-corner outline, and 14.6µs against 5.6µs on a 128-corner one.
-///
-/// That is a theorem about polygons which do not touch themselves, and this one
-/// does: its holes are bridged in, and a bridge is walked out and back. It holds
-/// anyway, because a bridge's two ends turn almost the whole way round — they
-/// stand *in* the loop, so they go on being asked about.
-///
-/// `a_notched_outline_is_tiled_whatever_is_punched_out_of_it` sweeps it over
-/// notched outlines with holes bridged in, and holds the claim itself rather
-/// than a likeness of it: every triangle wound the way the outline is, none
-/// over a hole, and the lot covering exactly what the outline encloses less
-/// what its holes take out.
 /// The ear whose new edge is shortest, or `None` where the contour has none.
 ///
 /// **The shortest new edge, rather than the first ear found.** Any ear may be
