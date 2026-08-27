@@ -8,10 +8,6 @@
 pub(crate) mod icons;
 pub(crate) mod ink;
 
-use palantir::{Stroke, Ui};
-
-use crate::look::icons::Icons;
-
 /// The side of a square control, in logical pixels.
 ///
 /// Large enough to hit without aiming and small enough that eight of them
@@ -48,8 +44,11 @@ pub(crate) const CARD: f32 = 176.0;
 ///
 /// Wider than a [`CARD`], because it holds a sentence rather than a name: the
 /// verdict, the counts, and where the document was last written. Bounded for
-/// the same reason everything else is.
-pub(crate) const READOUT: f32 = 320.0;
+/// the same reason everything else is — and set so the *solve's* own line fits
+/// whole, because a readout that cuts off what it says every frame is a
+/// readout nobody reads. What runs past this is a path, and a path is the one
+/// clause worth losing the tail of.
+pub(crate) const READOUT: f32 = 390.0;
 
 /// How much of a chip's box the artwork spans.
 ///
@@ -63,57 +62,3 @@ pub(crate) const CHIP_TEXT: f32 = 12.0;
 
 /// Type size of the lines the overlay reads out in.
 pub(crate) const READOUT_TEXT: f32 = 11.5;
-
-/// Everything the overlay is drawn with that cannot be a constant.
-///
-/// Which today is the artwork, and only the artwork: the colours and the
-/// metrics above are decided once and never vary, so they are stated where they
-/// are read. An icon set is different in kind — it needs a [`Ui`] to load, and
-/// it *owns* what the host has parsed and rasterized for it.
-///
-/// One owner rather than a set per surface, because loading twice would
-/// rasterize twice and hold two copies of the same sixteen icons.
-#[derive(Debug, Default)]
-pub(crate) struct Look {
-    /// `None` until the first frame. Loading wants a [`Ui`] and
-    /// [`CatCad::build`](crate::CatCad::build) has none — it is what the
-    /// headless harness raises, so filling this in the windowed constructor
-    /// alone would leave the two paths drawing different pictures.
-    icons: Option<Icons>,
-}
-
-impl Look {
-    /// Take up the artwork for this frame.
-    ///
-    /// **Every frame, rather than the first one only**, and that is not waste.
-    /// An icon set is registered against the *host* that will draw it, so a set
-    /// taken up under one host names nothing under another — and the visual
-    /// suite paints one app through two, which is exactly the case a set held
-    /// from the first frame gets wrong. Palantir keeps the door open for this:
-    /// re-registering an atlas a live set already covers hands back a clone of
-    /// that set, with no parsing, no upload and no allocation.
-    ///
-    /// Called before anything draws, so every surface below reads a set the
-    /// host it is recording into knows about.
-    pub(crate) fn load(&mut self, ui: &Ui) {
-        self.icons = Some(Icons::load(ui));
-    }
-
-    /// The artwork.
-    ///
-    /// # Panics
-    ///
-    /// If [`Look::load`] has not run this session. Every surface draws inside a
-    /// frame and the frame loads first, so a caller reaching this has recorded
-    /// something outside one.
-    pub(crate) fn icons(&self) -> &Icons {
-        self.icons
-            .as_ref()
-            .expect("the frame loads the artwork before anything draws")
-    }
-}
-
-/// A hairline, for a rule drawn between groups on one surface.
-pub(crate) fn hairline() -> Stroke {
-    Stroke::solid(ink::PILL_EDGE, 1.0)
-}

@@ -2,13 +2,12 @@
 
 use palantir::{
     Align, Background, Color, Configure, Corners, FontFamily, FontWeight, Panel, Rect, Sense,
-    Shape, Sizing, Spacing, Text, TextStyle, Tooltip, Ui, WidgetId,
+    Sizing, Spacing, Text, TextStyle, Tooltip, Ui, WidgetId,
 };
 
+use crate::hud::wearing::Wearing;
 use crate::look;
-use crate::look::Look;
-use crate::look::icons::Glyph;
-use crate::look::ink;
+use crate::look::icons::{Glyph, Icons};
 
 /// What a chip shows.
 ///
@@ -79,16 +78,9 @@ impl Chip {
     }
 
     /// Draw it, and say whether it was pressed.
-    pub(super) fn show(self, ui: &mut Ui, look: &Look) -> bool {
+    pub(super) fn show(self, ui: &mut Ui, icons: &Icons) -> bool {
         let hovered = ui.response_for(self.id).hovered;
-        // The fill and the ink move on one axis together, because a held chip
-        // is an *inversion* rather than a tint: light where every other chip is
-        // dark. Half of one would read as a chip that had gone wrong.
-        let (fill, mark) = match (self.held, hovered) {
-            (true, _) => (ink::CHIP_HELD, ink::CHROME_ON_HELD),
-            (false, true) => (ink::CHIP_LIT, ink::CHROME_LIT),
-            (false, false) => (ink::CHIP, ink::CHROME_INK),
-        };
+        let wearing = Wearing::chip(self.held, hovered);
         // A word is measured by palantir; the other two are one glyph in a
         // square, and a square is a width.
         let width = match self.face {
@@ -103,10 +95,13 @@ impl Chip {
                 _ => Spacing::ZERO,
             })
             .sense(Sense::CLICK)
-            .background(Background::rounded(fill, Corners::all(look::CHIP_RADIUS)))
+            .background(Background::rounded(
+                wearing.fill,
+                Corners::all(look::CHIP_RADIUS),
+            ))
             .show(ui, |ui| match self.face {
-                Face::Icon(glyph) => icon(ui, look, glyph, mark),
-                Face::Mark(text) | Face::Word(text) => lettering(ui, text, mark),
+                Face::Icon(glyph) => icon(ui, icons, glyph, wearing.ink),
+                Face::Mark(text) | Face::Word(text) => lettering(ui, text, wearing.ink),
             });
         // The owned snapshot and the click are taken before the tooltip, so the
         // chip's borrow of `ui` has ended by the time the bubble records into
@@ -122,10 +117,11 @@ impl Chip {
 ///
 /// Rasterized at the exact physical size this rect lands on, so the mark is
 /// pixel-crisp at every display scale rather than a scaled copy of one size.
-fn icon(ui: &mut Ui, look: &Look, glyph: Glyph, tint: Color) {
+fn icon(ui: &mut Ui, icons: &Icons, glyph: Glyph, tint: Color) {
     let inset = (look::CHIP - look::ICON) * 0.5;
     ui.add_shape(
-        Shape::icon(look.icons().of(glyph))
+        icons
+            .shape(glyph)
             .at(Rect::new(inset, inset, look::ICON, look::ICON))
             .tint(tint),
     );

@@ -5,7 +5,8 @@ use palantir::{Align, Background, Configure, InternedStr, Panel, Sizing, Spacing
 use std::hash::Hash;
 
 use crate::intent::Intents;
-use crate::look::Look;
+use crate::look;
+use crate::look::icons::Icons;
 use crate::model::Models;
 use crate::selection::Selection;
 use crate::status::Solved;
@@ -20,6 +21,7 @@ mod rail;
 mod readout;
 mod recipe;
 mod relations;
+mod wearing;
 
 /// A control's identity, stated rather than taken from the line it is written
 /// on.
@@ -73,13 +75,7 @@ impl Hud {
     /// What that cost was worth catching: a document saved to a long path made
     /// the status line wide enough to slide the tool bar out from under the
     /// pointer, so a click on Line armed nothing.
-    pub(crate) fn show(
-        &mut self,
-        ui: &mut Ui,
-        look: &Look,
-        shown: Shown<'_>,
-        intents: &mut Intents,
-    ) {
+    pub(crate) fn show(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
         // The document commands and the tools in one column rather than two
         // surfaces at one corner: pinned to the same edge, they would otherwise
         // be drawn over each other. The column carries the margin, so the two
@@ -87,18 +83,18 @@ impl Hud {
         Panel::vstack()
             .id_salt("left")
             .align(Align::TOP_LEFT)
-            .margin(Spacing::all(crate::look::INSET))
+            .margin(Spacing::all(look::INSET))
             .size((Sizing::HUG, Sizing::HUG))
-            .gap(crate::look::GAP)
+            .gap(look::GAP)
             .background(Background::NONE)
             .show(ui, |ui| {
-                papers::show(ui, look, intents);
-                rail::show(ui, look, shown, intents);
+                papers::show(ui, shown, intents);
+                rail::show(ui, shown, intents);
             });
-        recipe::show(ui, look, shown, intents);
-        camera::show(ui, look, shown, intents);
+        recipe::show(ui, shown, intents);
+        camera::show(ui, shown, intents);
         readout::show(ui, shown);
-        relations::show(ui, look, shown, &mut self.offers, &mut self.draft, intents);
+        relations::show(ui, shown, &mut self.offers, &mut self.draft, intents);
     }
 }
 
@@ -111,6 +107,11 @@ impl Hud {
 /// so.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Shown<'a> {
+    /// The artwork every surface draws its controls with.
+    ///
+    /// A resource among the state, because it is read exactly the way the rest
+    /// of this is: taken up by the frame, handed down, and written by nobody.
+    pub(crate) icons: &'a Icons,
     pub(crate) tool: Tool,
     /// Already in the pass's own text arena, so nothing here copies it — and it
     /// has to be lowered in the pass that minted it.
@@ -146,18 +147,21 @@ pub(crate) struct Shown<'a> {
 pub(crate) mod internals {
     use palantir::WidgetId;
 
+    use crate::hud::rail;
+    #[cfg(test)]
+    use crate::hud::{recipe, relations};
     #[cfg(test)]
     use crate::timeline::FeatureId;
 
     /// One tool on the rail, by the label it is named and captioned with.
     pub(crate) fn tool(label: &str) -> WidgetId {
-        crate::hud::rail::tool_id(label)
+        rail::tool_id(label)
     }
 
     /// One command on the relation bar, by its label.
     #[cfg(test)]
     pub(crate) fn relation(label: &str) -> WidgetId {
-        crate::hud::relations::relation_id(label)
+        relations::relation_id(label)
     }
 
     /// One row of the recipe, by the step it stands for.
@@ -167,6 +171,6 @@ pub(crate) mod internals {
     /// that step's row, so a delete above it changes nothing here.
     #[cfg(test)]
     pub(crate) fn step(at: FeatureId) -> WidgetId {
-        crate::hud::recipe::step_id(at)
+        recipe::step_id(at)
     }
 }

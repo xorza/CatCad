@@ -1,9 +1,18 @@
 //! The translucent slab a group of controls stands on.
 
-use palantir::{Align, Background, Configure, Corners, Panel, Sense, Sizing, Spacing, Ui};
+use palantir::{
+    Align, Background, Color, Configure, Corners, Panel, Sense, Sizing, Spacing, Stroke, Ui,
+};
 
 use crate::look;
 use crate::look::ink;
+
+/// The hairline round every pill.
+///
+/// Faint on purpose: what separates a pill from the drawing is its fill, and
+/// this only keeps the edge from dissolving where the two happen to meet at the
+/// same value.
+const EDGE: Stroke = Stroke::solid(ink::PILL_EDGE, 1.0);
 
 /// A group of controls, on a backdrop of its own.
 ///
@@ -44,7 +53,7 @@ impl Pill {
                 .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL)
                 .background(
                     Background::rounded(ink::PILL, Corners::all(look::PILL_RADIUS))
-                        .with_stroke(look::hairline()),
+                        .with_stroke(EDGE),
                 ),
         }
     }
@@ -62,6 +71,14 @@ impl Pill {
         self
     }
 
+    /// Set the space between what stands on it, where the chip gap is wrong —
+    /// a list of rows wants them nearly touching, so the list reads as one
+    /// thing rather than as a column of separate slabs.
+    pub(super) fn gap(mut self, gap: f32) -> Self {
+        self.panel = self.panel.gap(gap);
+        self
+    }
+
     pub(super) fn show(self, ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
         self.panel.show(ui, body);
     }
@@ -73,7 +90,7 @@ const RULE_INSET: f32 = 4.0;
 /// How long a rule runs: the chip it divides, less the inset at both ends.
 const RULE_RUN: f32 = look::CHIP - RULE_INSET * 2.0;
 
-/// A rule between two groups sharing one column.
+/// A rule between two groups sharing one column, in the shared rule colour.
 ///
 /// Inset at both ends, so it reads as a division *inside* the surface rather
 /// than as a second edge of it.
@@ -83,12 +100,12 @@ const RULE_RUN: f32 = look::CHIP - RULE_INSET * 2.0;
 /// would collide on a single id. The salt is also the only place a rule says
 /// which division it is.
 pub(super) fn rule(ui: &mut Ui, salt: &str) {
-    line(ui, salt, (RULE_RUN, 1.0));
+    line(ui, salt, RULE_RUN, 1.0, ink::RULE);
 }
 
 /// The same, between two groups sharing one row.
 pub(super) fn divider(ui: &mut Ui, salt: &str) {
-    line(ui, salt, (1.0, RULE_RUN));
+    line(ui, salt, 1.0, RULE_RUN, ink::RULE);
 }
 
 /// A hairline of a stated size.
@@ -97,11 +114,11 @@ pub(super) fn divider(ui: &mut Ui, salt: &str) {
 /// which stretches to a parent's inner extent: a pill hugs the chips on it, so
 /// there is no extent to stretch against and the rule arrives with no length at
 /// all. Stated outright, it has one.
-fn line(ui: &mut Ui, salt: &str, (width, height): (f32, f32)) {
+pub(super) fn line(ui: &mut Ui, salt: &str, width: f32, height: f32, color: Color) {
     Panel::hstack()
         .id_salt(salt)
         .size((Sizing::fixed(width), Sizing::fixed(height)))
         .align(Align::CENTER)
-        .background(Background::fill(ink::RULE))
+        .background(Background::fill(color))
         .show(ui, |_| {});
 }

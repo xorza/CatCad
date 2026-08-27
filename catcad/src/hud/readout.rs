@@ -11,16 +11,16 @@ use crate::look;
 use crate::look::ink;
 use crate::status::Solved;
 
-/// The meter's size in logical pixels.
-const METER: (f32, f32) = (46.0, 4.0);
+/// The verdict swatch's size in logical pixels.
+const VERDICT_RUN: f32 = 46.0;
+const VERDICT_WEIGHT: f32 = 4.0;
 
 /// Show it.
 ///
 /// **The one place the overlay reports in the drawing's own colours.** How much
 /// freedom a sketch has left is painted onto the geometry itself — cool for
-/// none, warm for all of it — and the meter here is filled from the same table,
-/// so the corner and the drawing are saying one thing rather than two that
-/// happen to agree. See [`ink`](crate::look::ink).
+/// none, warm for all of it — and the swatch beside the line is filled off the
+/// same table. See [`ink`](crate::look::ink).
 pub(super) fn show(ui: &mut Ui, shown: Shown<'_>) {
     let Shown { status, solved, .. } = shown;
     Pill::hstack("readout")
@@ -28,52 +28,48 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>) {
         .width(look::READOUT)
         .show(ui, |ui| {
             if let Some(solved) = solved {
-                meter(ui, solved);
+                verdict(ui, solved);
             }
             line(ui, status);
         });
 }
 
-/// How much of the drawing is still loose, as a bar.
+/// What the solve made of the sketch, as a bar of one colour.
 ///
-/// **A ratio nobody can state, so it is drawn as a threshold instead.** A
-/// sketch's degrees of freedom have no ceiling to measure against — the count
-/// falls as constraints are added and there is no total it is a fraction of —
-/// so the bar reads full while anything is loose and empties when nothing is.
-/// What it is *for* is the colour, which is the same colour the loose geometry
-/// itself is drawn in.
-fn meter(ui: &mut Ui, solved: Solved) {
-    let (fill, share) = if !solved.converged {
-        (ink::PINNED, 1.0)
+/// **A swatch and not a meter**, because there is nothing to measure against:
+/// a sketch's degrees of freedom fall as constraints are added and there is no
+/// total they are a fraction of, so a bar drawn at some share of a length would
+/// be drawing a ratio nobody can state.
+///
+/// What it carries is the colour, and the colour is the drawing's own — the
+/// same amber, orange and blue the geometry is painted in. The corner and the
+/// drawing then say one thing rather than two that happen to agree.
+fn verdict(ui: &mut Ui, solved: Solved) {
+    let fill = if !solved.converged {
+        ink::PINNED
     } else if solved.degrees_of_freedom == 0 {
-        (ink::DETERMINED, 1.0)
+        ink::DETERMINED
     } else {
-        (ink::FREE, 0.55)
+        ink::FREE
     };
-    let (width, height) = METER;
     Panel::hstack()
-        .id_salt("meter")
-        .size((Sizing::fixed(width), Sizing::fixed(height)))
+        .id_salt("verdict")
+        .size((Sizing::fixed(VERDICT_RUN), Sizing::fixed(VERDICT_WEIGHT)))
         .align(Align::CENTER)
-        .background(Background::rounded(ink::CHIP, Corners::all(height * 0.5)))
-        .show(ui, |ui| {
-            Panel::hstack()
-                .id_salt("meter-fill")
-                .size((Sizing::fixed(width * share), Sizing::fixed(height)))
-                .background(Background::rounded(
-                    ink::tint(fill),
-                    Corners::all(height * 0.5),
-                ))
-                .show(ui, |_| {});
-        });
+        .background(Background::rounded(
+            ink::tint(fill),
+            Corners::all(VERDICT_WEIGHT * 0.5),
+        ))
+        .show(ui, |_| {});
 }
 
 /// What the solve and the filing have to say, in one line.
 ///
 /// **Cut off rather than allowed to run on**, and that is load-bearing rather
 /// than tidy. A run of text reports its whole natural width as the *least* it
-/// will accept, and the pill above states a width — so this ellipsises inside a
-/// bound instead of widening the surface and, through it, the view.
+/// will accept, so a stated width on the pill alone does not hold it: the line
+/// stays rigid and runs out past the edge. Told to fill instead, it takes
+/// whatever the pill has left and ellipsises what will not fit.
 fn line(ui: &mut Ui, status: InternedStr) {
     let style = TextStyle {
         color: ink::CHROME_LIT,
@@ -84,6 +80,7 @@ fn line(ui: &mut Ui, status: InternedStr) {
         .auto_id()
         .style(&style)
         .text_wrap(TextWrap::Ellipsis)
+        .size((Sizing::FILL, Sizing::HUG))
         .align(Align::CENTER)
         .margin(Spacing::new(look::PILL_PAD, 0.0, look::PILL_PAD, 0.0))
         .show(ui);

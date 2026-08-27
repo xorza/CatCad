@@ -151,10 +151,10 @@ pub(crate) const HOVERED: Vec3 = Vec3::new(1.0, 0.85, 0.25);
 /// things in one colour.
 pub(crate) const SELECTED: Vec3 = Vec3::new(0.30, 0.95, 0.45);
 
-// What the overlay is drawn in. Stated as [`Color`] rather than [`Vec3`]
-// because nothing here reaches the drawing — chrome floats *over* a picture and
-// is never part of one — and authored in sRGB, which is how a surface colour is
-// read by eye.
+// What the overlay is drawn in. Stated as a Color rather than a Vec3 because
+// nothing below reaches the drawing — chrome floats over a picture and is never
+// part of one — and authored in sRGB, which is how a surface colour is read by
+// eye.
 
 /// The translucent backdrop a group of controls stands on.
 ///

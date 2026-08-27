@@ -2,14 +2,14 @@
 
 use std::rc::Rc;
 
-use palantir::{IconAtlas, IconHandle, IconSet, Ui};
+use palantir::{IconAtlas, IconId, IconSet, IconShape, Ui};
 
 /// One icon of the set, named for what it stands for rather than for what it
 /// draws.
 ///
 /// An enum rather than sixteen fields, because the set is walked as often as it
-/// is indexed: [`Icons`] resolves every handle in one pass over [`SOURCES`],
-/// and a control names what it wants by naming one of these.
+/// is indexed: [`Icons`] resolves every id in one pass over [`SOURCES`], and a
+/// control names what it wants by naming one of these.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Glyph {
     Pointer,
@@ -34,8 +34,8 @@ pub(crate) enum Glyph {
 ///
 /// **In the order [`Glyph`] declares them**, which is what lets [`Icons`] index
 /// by `glyph as usize` rather than search. The atlas sorts its own table by
-/// name, so the handles are resolved back by name into this order — the two
-/// orders are unrelated and neither may be assumed of the other.
+/// name, so the ids are resolved back by name into this order — the two orders
+/// are unrelated and neither may be assumed of the other.
 const SOURCES: [(Glyph, &str, &str); 16] = [
     (Glyph::Pointer, "pointer", POINTER),
     (Glyph::Point, "point", POINT),
@@ -55,29 +55,31 @@ const SOURCES: [(Glyph, &str, &str); 16] = [
     (Glyph::Fit, "fit", FIT),
 ];
 
-/// The loaded icon set, and one handle per [`Glyph`].
+/// The loaded icon set, and where each [`Glyph`] sits in it.
 ///
 /// **An owner.** The [`IconSet`] holds the host's parse of every source and the
-/// rasters it has made of them, and dropping the last clone unloads all three.
-/// A handle owns nothing, so one outliving its set names a set the host has let
-/// go and panics when the renderer draws it — which is why this is parked on
-/// [`Look`](super::Look) and handed out by reference.
+/// rasters it has made of them, and dropping the last clone unloads all three —
+/// which is why a shape is asked of the set rather than minted once from a
+/// handle kept beside it. A handle owns nothing, so one outliving its set names
+/// a set the host has let go and panics when the renderer draws it.
 #[derive(Debug, Clone)]
 pub(crate) struct Icons {
-    /// Never read, and held for exactly that: the handles beside it are what a
-    /// draw names, and this is what keeps them drawable. Dropping the last
-    /// clone unloads the parses and the rasters, and a handle that outlives its
-    /// set panics when the renderer goes to draw it.
-    #[expect(
-        dead_code,
-        reason = "an RAII owner — dropping it unloads what the handles name"
-    )]
     set: IconSet,
-    handles: [IconHandle; SOURCES.len()],
+    ids: [IconId; SOURCES.len()],
 }
 
 impl Icons {
-    /// Load the set, or hand back a clone of the one already loaded.
+    /// Take up the set for this frame.
+    ///
+    /// **Every frame, rather than the first one only**, and that is not waste.
+    /// A set is registered against the *host* that will draw it, so one taken
+    /// up under one host names nothing under another — and the visual suite
+    /// paints one app through two, which is exactly the case a set held from
+    /// the first frame gets wrong.
+    ///
+    /// **What comes back has to outlive the frame**, which is why the caller
+    /// parks it: the record pass writes a shape naming the set, and the paint
+    /// that reads it runs at submit, after recording has returned.
     ///
     /// Built through [`IconAtlas::from_svgs`] rather than baked into the
     /// binary. What baking saves is one parse per icon — about three
@@ -86,9 +88,10 @@ impl Icons {
     /// hand. Sixteen icons do not earn that; a hundred would.
     ///
     /// The atlas itself is built once and parked, because `load_icons`
-    /// recognises the same allocation and hands back the set already loaded
-    /// against it. A fresh `Rc` each time would load a second set and
-    /// re-rasterize the whole of it.
+    /// recognises the same allocation and hands back a clone of the set
+    /// registered against it, with no parsing, no upload and no allocation. A
+    /// fresh `Rc` each time would register a second set and re-rasterize the
+    /// whole of it.
     pub(crate) fn load(ui: &Ui) -> Self {
         thread_local! {
             static BUILT: Rc<IconAtlas> = Rc::new(IconAtlas::from_svgs(
@@ -96,23 +99,21 @@ impl Icons {
             ));
         }
         let set = BUILT.with(|atlas| ui.load_icons(Rc::clone(atlas)));
-        let handles = SOURCES.map(|(_, name, _)| {
-            let id = set
-                .by_name(name)
-                .expect("every source in the table is in the set built from it");
-            set.handle(id)
+        let ids = SOURCES.map(|(_, name, _)| {
+            set.by_name(name)
+                .expect("every source in the table is in the set built from it")
         });
-        Self { set, handles }
+        Self { set, ids }
     }
 
-    /// The artwork for `glyph`.
-    pub(crate) fn of(&self, glyph: Glyph) -> IconHandle {
-        self.handles[glyph as usize]
+    /// The artwork for `glyph`, ready to be placed and tinted.
+    pub(crate) fn shape(&self, glyph: Glyph) -> IconShape {
+        self.set.shape(self.ids[glyph as usize])
     }
 }
 
 // One colour throughout every source below, which is what makes each of them
-// *tintable*: an icon whose every paint resolves to one colour rasterizes to a
+// tintable: an icon whose every paint resolves to one colour rasterizes to a
 // coverage mask and takes a draw's tint whole, so one piece of artwork serves
 // the resting, lit and held looks alike.
 

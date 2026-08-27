@@ -1,15 +1,16 @@
 //! The recipe, down the right edge: a row per step, in the order they build.
 
 use palantir::{
-    Align, Background, Color, Configure, Corners, Panel, Rect, Sense, Shape, Sizing, Spacing, Text,
-    TextStyle, Ui, WidgetId,
+    Align, Background, Configure, Corners, HAlign, InternedStr, Panel, Rect, Sense, Sizing,
+    Spacing, Text, TextStyle, TextWrap, Ui, VAlign, WidgetId,
 };
 
+use crate::hud::pill::{self, Pill};
+use crate::hud::wearing::Wearing;
 use crate::hud::{Shown, control};
 use crate::intent::{Choice, Intents};
 use crate::look;
-use crate::look::Look;
-use crate::look::icons::Glyph;
+use crate::look::icons::{Glyph, Icons};
 use crate::look::ink;
 use crate::model::Broken;
 use crate::part::Part;
@@ -41,117 +42,86 @@ const ROW_ICON: f32 = 13.0;
 /// **One glyph per kind**, which is the one fact a row holds that a name does
 /// not: a plane, a drawing and a solid are three different things, and a list
 /// that drew them alike threw that away.
-pub(super) fn show(ui: &mut Ui, look: &Look, shown: Shown<'_>, intents: &mut Intents) {
+pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
     let Shown {
         models, selection, ..
     } = shown;
-    Pane::new().show(ui, |ui| {
-        let (mut planes, mut sketches, mut solids) = (0, 0, 0);
-        for (at, feature) in models.steps() {
-            // The same words the status line uses for the same states, so the
-            // two say it the same way — see [`Status`](crate::status::Status).
-            let broken = match models.broken_at(at) {
-                Some(Broken::Profile) => " · lost",
-                Some(Broken::Unmerged) => " · apart",
-                None => "",
-            };
-            let (glyph, named, nth) = match feature {
-                Feature::Plane(Datum::World(world)) => (Glyph::Plane, world.named(), None),
-                Feature::Plane(Datum::Offset { .. }) => {
-                    planes += 1;
-                    (Glyph::Plane, "Plane", Some(planes))
+    // Rows nearly touching, where a pill of chips leaves the chip gap: a list
+    // reads as one thing, and rows a chip's width apart read as a column of
+    // separate slabs.
+    Pill::vstack("recipe")
+        .align(Align::TOP_RIGHT)
+        .width(look::CARD)
+        .gap(1.0)
+        .show(ui, |ui| {
+            let (mut planes, mut sketches, mut solids) = (0, 0, 0);
+            for (at, feature) in models.steps() {
+                // The same words the status line uses for the same states, so the
+                // two say it the same way — see [`Status`](crate::status::Status).
+                let broken = match models.broken_at(at) {
+                    Some(Broken::Profile) => " · lost",
+                    Some(Broken::Unmerged) => " · apart",
+                    None => "",
+                };
+                let (glyph, named, nth) = match feature {
+                    Feature::Plane(Datum::World(world)) => (Glyph::Plane, world.named(), None),
+                    Feature::Plane(Datum::Offset { .. }) => {
+                        planes += 1;
+                        (Glyph::Plane, "Plane", Some(planes))
+                    }
+                    Feature::Sketch { .. } => {
+                        sketches += 1;
+                        (Glyph::Sketch, "Sketch", Some(sketches))
+                    }
+                    Feature::Extrude { .. } => {
+                        solids += 1;
+                        (Glyph::Extrude, "Extrude", Some(solids))
+                    }
+                };
+                // Interned into the pass's own arena rather than formatted into a
+                // `String`: this is a row per step per frame, and the record pass is
+                // gated at zero allocations.
+                let label = match nth {
+                    Some(nth) => ui.fmt(format_args!("{named} {nth}{broken}")),
+                    None => ui.fmt(format_args!("{named}{broken}")),
+                };
+                if row(
+                    ui,
+                    shown.icons,
+                    at,
+                    glyph,
+                    label,
+                    selection.contains(Part::Step(at)),
+                ) {
+                    // Picked out and nothing else. What follows from picking a step
+                    // is decided where everything else about a selection is — a
+                    // sketch opens, a plane does not — see
+                    // [`Models::opens`](crate::model::Models).
+                    intents.push(Choice::Select(Some(Part::Step(at))));
                 }
-                Feature::Sketch { .. } => {
-                    sketches += 1;
-                    (Glyph::Sketch, "Sketch", Some(sketches))
+                // **The bar, drawn between the rows it divides.** One marker rather
+                // than a mark on every row below it: what is rolled back is a
+                // *tail*, so where it starts is the whole of what there is to show.
+                if models.rolled() == Some(at) {
+                    rolled(ui);
                 }
-                Feature::Extrude { .. } => {
-                    solids += 1;
-                    (Glyph::Extrude, "Extrude", Some(solids))
-                }
-            };
-            // Interned into the pass's own arena rather than formatted into a
-            // `String`: this is a row per step per frame, and the record pass is
-            // gated at zero allocations.
-            let label = match nth {
-                Some(nth) => ui.fmt(format_args!("{named} {nth}{broken}")),
-                None => ui.fmt(format_args!("{named}{broken}")),
-            };
-            if row(
-                ui,
-                look,
-                at,
-                glyph,
-                label,
-                selection.contains(Part::Step(at)),
-            ) {
-                // Picked out and nothing else. What follows from picking a step
-                // is decided where everything else about a selection is — a
-                // sketch opens, a plane does not — see
-                // [`Models::opens`](crate::model::Models).
-                intents.push(Choice::Select(Some(Part::Step(at))));
             }
-            // **The bar, drawn between the rows it divides.** One marker rather
-            // than a mark on every row below it: what is rolled back is a
-            // *tail*, so where it starts is the whole of what there is to show.
-            if models.rolled() == Some(at) {
-                rolled(ui, at);
-            }
-        }
-    });
-}
-
-/// The card the rows stand on.
-///
-/// Its own type rather than a [`Pill`](crate::hud::pill::Pill), for the one way
-/// it differs: a row fills the card's width where a chip is square, so the card
-/// states a width and the pill hugs.
-#[derive(Debug)]
-struct Pane {
-    panel: Panel,
-}
-
-impl Pane {
-    fn new() -> Self {
-        Self {
-            panel: Panel::vstack()
-                .id_salt("recipe")
-                .align(Align::TOP_RIGHT)
-                .margin(Spacing::all(look::INSET))
-                .size((Sizing::fixed(look::CARD), Sizing::HUG))
-                .gap(1.0)
-                .padding(Spacing::all(look::PILL_PAD))
-                .sense(Sense::CLICK | Sense::DRAG | Sense::SCROLL)
-                .background(
-                    Background::rounded(ink::PILL, Corners::all(look::PILL_RADIUS))
-                        .with_stroke(look::hairline()),
-                ),
-        }
-    }
-
-    fn show(self, ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
-        self.panel.show(ui, body);
-    }
+        });
 }
 
 /// One row, and whether it was pressed.
 fn row(
     ui: &mut Ui,
-    look: &Look,
+    icons: &Icons,
     at: FeatureId,
     glyph: Glyph,
-    label: palantir::InternedStr,
+    label: InternedStr,
     picked: bool,
 ) -> bool {
     let id = step_id(at);
-    let hovered = ui.response_for(id).hovered;
-    let (fill, ink) = match (picked, hovered) {
-        (true, _) => (ink::CHIP_HELD, ink::CHROME_ON_HELD),
-        (false, true) => (ink::CHIP, ink::CHROME_LIT),
-        (false, false) => (Color::TRANSPARENT, ink::CHROME_INK),
-    };
+    let wearing = Wearing::row(picked, ui.response_for(id).hovered);
     let style = TextStyle {
-        color: ink,
+        color: wearing.ink,
         font_size_px: look::READOUT_TEXT,
         ..TextStyle::default()
     };
@@ -161,29 +131,47 @@ fn row(
         .padding(Spacing::new(look::PILL_PAD, 0.0, look::PILL_PAD, 0.0))
         .gap(look::GAP)
         .sense(Sense::CLICK)
-        .background(Background::rounded(fill, Corners::all(look::CHIP_RADIUS)))
+        .background(Background::rounded(
+            wearing.fill,
+            Corners::all(look::CHIP_RADIUS),
+        ))
         .show(ui, |ui| {
             let lift = (ROW - ROW_ICON) * 0.5;
             ui.add_shape(
-                Shape::icon(look.icons().of(glyph))
+                icons
+                    .shape(glyph)
                     .at(Rect::new(look::PILL_PAD, lift, ROW_ICON, ROW_ICON))
-                    .tint(ink),
+                    .tint(wearing.ink),
             );
+            // Told to fill and cut off, for the reason the readout's line is:
+            // a run of text reports its natural width as the least it will
+            // accept, so a card that states a width does not bound it on its
+            // own — a long enough name would run out past the card's edge.
             Text::new(label)
                 .auto_id()
                 .style(&style)
-                .align(Align::new(palantir::HAlign::Left, palantir::VAlign::Center))
+                .text_wrap(TextWrap::Ellipsis)
+                .size((Sizing::FILL, Sizing::HUG))
+                .align(Align::new(HAlign::Left, VAlign::Center))
                 .margin(Spacing::new(ROW_ICON + look::GAP, 0.0, 0.0, 0.0))
                 .show(ui);
         });
     row.response.left.clicked()
 }
 
+/// How far the rollback bar stands clear of the card's inner edge.
+const BAR_INSET: f32 = 6.0;
+
 /// Where the build stops, drawn as a rule rather than as a run of dashes.
-fn rolled(ui: &mut Ui, at: FeatureId) {
-    palantir::Separator::horizontal()
-        .id_salt(at)
-        .color(ink::tint(ink::FREE))
-        .margin(Spacing::new(look::PILL_PAD, 3.0, look::PILL_PAD, 3.0))
-        .show(ui);
+///
+/// In the colour the drawing paints loose geometry, which is the same news said
+/// twice: a tail of the recipe is not built, so whatever it would have made is
+/// not there to be pinned down.
+///
+/// One salt however many steps there are, because there is only ever one bar —
+/// what is rolled back is a *tail*, and where it starts is the whole of what
+/// there is to show.
+fn rolled(ui: &mut Ui) {
+    const RUN: f32 = look::CARD - (look::PILL_PAD + BAR_INSET) * 2.0;
+    pill::line(ui, "rolled", RUN, 1.0, ink::tint(ink::FREE));
 }

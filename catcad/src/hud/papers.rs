@@ -1,12 +1,11 @@
 //! What is done to the document rather than in it, at the top left.
 
-use palantir::Ui;
+use palantir::{Ui, WidgetId};
 
 use crate::hud::chip::Chip;
-use crate::hud::control;
 use crate::hud::pill::Pill;
+use crate::hud::{Shown, control};
 use crate::intent::{Errand, Intents};
-use crate::look::Look;
 use crate::look::icons::Glyph;
 
 /// The three commands, and what each asks for.
@@ -20,7 +19,7 @@ const COMMANDS: [(&str, Glyph, Errand); 3] = [
     ("Save", Glyph::Save, Errand::Save),
 ];
 
-pub(super) fn command_id(label: &str) -> palantir::WidgetId {
+fn command_id(label: &str) -> WidgetId {
     control("command", label)
 }
 
@@ -30,10 +29,10 @@ pub(super) fn command_id(label: &str) -> palantir::WidgetId {
 /// [`Filing`](crate::filing::Filing)'s to know, and the answer changes nothing
 /// about whether the command is available — so a chip that greyed itself out
 /// would be answering a question nobody asked.
-pub(super) fn show(ui: &mut Ui, look: &Look, intents: &mut Intents) {
+pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
     Pill::hstack("papers").show(ui, |ui| {
         for (label, glyph, errand) in COMMANDS {
-            if Chip::icon(command_id(label), label, glyph).show(ui, look) {
+            if Chip::icon(command_id(label), label, glyph).show(ui, shown.icons) {
                 intents.push(errand);
             }
         }

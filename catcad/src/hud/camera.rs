@@ -8,10 +8,9 @@ use crate::hud::pill::Pill;
 use crate::hud::{Shown, control};
 use crate::intent::Intents;
 use crate::intent::change::Change;
-use crate::look::Look;
 use crate::look::icons::Glyph;
 
-pub(super) fn camera_id(label: &str) -> WidgetId {
+fn camera_id(label: &str) -> WidgetId {
     control("camera", label)
 }
 
@@ -21,7 +20,7 @@ pub(super) fn camera_id(label: &str) -> WidgetId {
 /// here and nothing else does, which is what makes the corner readable at a
 /// glance: the orientation cube will join this pill rather than take a corner
 /// of its own.
-pub(super) fn show(ui: &mut Ui, look: &Look, shown: Shown<'_>, intents: &mut Intents) {
+pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
     let Shown { projection, .. } = shown;
     // Named for what pressing it *gives* rather than for what is in force, so
     // the chip answers "what will this do" rather than "what am I looking
@@ -33,7 +32,7 @@ pub(super) fn show(ui: &mut Ui, look: &Look, shown: Shown<'_>, intents: &mut Int
     Pill::vstack("camera")
         .align(Align::BOTTOM_RIGHT)
         .show(ui, |ui| {
-            if Chip::icon(camera_id("Projection"), tip, glyph).show(ui, look) {
+            if Chip::icon(camera_id("Projection"), tip, glyph).show(ui, shown.icons) {
                 intents.push(Change::Project(projection.toggled()));
             }
         });

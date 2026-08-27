@@ -8,8 +8,7 @@ use crate::hud::pill::{self, Pill};
 use crate::hud::{Shown, control};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Intent, Intents, Opening, Step};
-use crate::look::Look;
-use crate::look::icons::Glyph;
+use crate::look::icons::{Glyph, Icons};
 use crate::model::{Model, Models};
 use crate::paint::DECIMALS;
 use crate::part::Part;
@@ -46,7 +45,6 @@ pub(super) fn relation_id(label: &str) -> WidgetId {
 /// see [`look::CARD`](crate::look::CARD) on why that matters.
 pub(super) fn show(
     ui: &mut Ui,
-    look: &Look,
     shown: Shown<'_>,
     offers: &mut Vec<Constraint>,
     draft: &mut f64,
@@ -83,7 +81,8 @@ pub(super) fn show(
             // First, because it is the one thing here that can be asked of a
             // document nobody is drawing in.
             if let Some(on) = startable
-                && Chip::icon(relation_id("Sketch"), "Start a sketch", Glyph::Sketch).show(ui, look)
+                && Chip::icon(relation_id("Sketch"), "Start a sketch", Glyph::Sketch)
+                    .show(ui, shown.icons)
             {
                 intents.push(Change::AddSketch { on });
             }
@@ -112,7 +111,8 @@ pub(super) fn show(
             // Before the relations, because it is the one thing here that
             // builds rather than states.
             if let Some(growable) = region
-                && Chip::icon(relation_id("Extrude"), "Extrude", Glyph::Extrude).show(ui, look)
+                && Chip::icon(relation_id("Extrude"), "Extrude", Glyph::Extrude)
+                    .show(ui, shown.icons)
             {
                 // Asks rather than builds. The solid appears at no depth at all
                 // and the form beside it decides how far it goes.
@@ -127,7 +127,7 @@ pub(super) fn show(
                 pill::divider(ui, "offers");
             }
             for &constraint in offers.iter() {
-                if offered(ui, look, constraint) {
+                if offered(ui, shown.icons, constraint) {
                     // **Two answers, and which one a chip gives follows from
                     // what it is short of.** A relation says something the
                     // drawing can work out for itself, so pressing it states it
@@ -152,13 +152,13 @@ pub(super) fn show(
 /// with the same character means a user reads the bar in the vocabulary the
 /// geometry is already annotated in. A dimension has no mark, because it is
 /// drawn as its number, so it falls back to its word.
-fn offered(ui: &mut Ui, look: &Look, constraint: Constraint) -> bool {
+fn offered(ui: &mut Ui, icons: &Icons, constraint: Constraint) -> bool {
     let named = wording::named(constraint);
     match named.glyph {
         Some(glyph) => Chip::mark(relation_id(named.word), named.word, glyph),
         None => Chip::word(relation_id(named.word), named.word, named.word),
     }
-    .show(ui, look)
+    .show(ui, icons)
 }
 
 /// A dimension the bar can scrub, and the number it states as it stands.

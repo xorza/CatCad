@@ -49,7 +49,7 @@ use crate::history::History;
 use crate::hud::{Hud, Shown};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Errand, Intent, Intents, Step};
-use crate::look::Look;
+use crate::look::icons::Icons;
 use crate::part::Part;
 use crate::scene_view::SceneView;
 use crate::session::Session;
@@ -147,10 +147,17 @@ pub struct CatCad {
     session: Session,
     /// What floats over the view: the five surfaces, one per edge and corner.
     hud: Hud,
-    /// How all of it is drawn — the palette, the metrics, and the artwork. Its
-    /// own value rather than constants at every call site, for the artwork
-    /// alone: an icon set is an owner of what the host has rasterized for it.
-    look: Look,
+    /// The artwork the overlay draws with, taken up afresh each frame and held
+    /// across the one that took it up.
+    ///
+    /// Held rather than made and dropped inside the frame, because the record
+    /// pass writes shapes *naming* the set and the paint that reads them runs
+    /// at submit — after recording has returned. A set dropped in between
+    /// unloads the rasters the frame is about to draw.
+    ///
+    /// `None` until the first frame: taking one up wants a [`Ui`], and
+    /// [`CatCad::build`] has none.
+    icons: Option<Icons>,
     /// Where the document came from, whether it has been written since, and the
     /// question being asked about it. Beside the document rather than in it,
     /// like the history and the session: where a drawing lives is not something
@@ -208,7 +215,7 @@ impl CatCad {
             view,
             session,
             hud: Hud::default(),
-            look: Look::default(),
+            icons: None,
             filing: Filing::default(),
         }
     }
@@ -338,15 +345,14 @@ impl CatCad {
         let reported = self.status();
         let solved = reported.solved;
         let status = ui.fmt(format_args!("{reported}"));
-        // The artwork is loaded here rather than at construction: a `Ui` is
-        // what loading wants, and the headless harness raises the app without
-        // one — so filling it in the windowed constructor alone would leave the
-        // two paths drawing different pictures.
-        self.look.load(ui);
+        // Taken up here rather than at construction, and afresh every frame:
+        // a set is registered against the host that will draw it — see
+        // [`Icons::load`].
+        let icons = &*self.icons.insert(Icons::load(ui));
         self.hud.show(
             ui,
-            &self.look,
             Shown {
+                icons,
                 tool: self.session.tool(),
                 status,
                 solved,
