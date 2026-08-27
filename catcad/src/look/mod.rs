@@ -16,6 +16,7 @@ pub(crate) mod dressed;
 pub(crate) mod form;
 pub(crate) mod icons;
 pub(crate) mod lighting;
+pub(crate) mod motion;
 
 use std::cell::OnceCell;
 
@@ -26,6 +27,7 @@ use crate::look::drawing::Drawing;
 use crate::look::dressed::Dressed;
 use crate::look::form::Form;
 use crate::look::lighting::Lighting;
+use crate::look::motion::Motion;
 
 /// Everything the application decides about how it looks.
 ///
@@ -48,6 +50,7 @@ pub(crate) struct Theme {
     pub(crate) chrome: Chrome,
     pub(crate) form: Form,
     pub(crate) lighting: Lighting,
+    pub(crate) motion: Motion,
     /// Everything this theme implies rather than states, worked out on the frame
     /// it is first wanted.
     ///
@@ -95,6 +98,10 @@ impl Theme {
         // standing on a pill takes its breathing room from the pill.
         theme.button.padding = Spacing::new(gap, 4.0, gap, 4.0);
         theme.button.margin = Spacing::ZERO;
+        // Palantir's own recipe leaves motion off, because animation is opt-in
+        // there. Every control this crate draws lifts rather than snaps, and a
+        // widget it does *not* draw has no business being the one that jumps.
+        theme.button.anim = Some(self.motion.lift);
         theme
     }
 
@@ -176,6 +183,20 @@ mod tests {
             palantir.button.padding,
             Spacing::new(theme.chrome.gap, 4.0, theme.chrome.gap, 4.0)
         );
+        // Every control the theme dresses lifts rather than snaps, including
+        // the form's own — which are built from the palette rather than from
+        // the theme beside them, and so inherit nothing unless told.
+        let dressed = theme.dressed();
+        for anim in [
+            palantir.button.anim,
+            dressed.field.anim,
+            dressed.goes.anim,
+            dressed.stops.anim,
+            dressed.chosen.anim,
+            dressed.offered.anim,
+        ] {
+            assert_eq!(anim, Some(theme.motion.lift));
+        }
         assert!(
             std::rc::Rc::ptr_eq(palantir, &theme.dressed().palantir),
             "the derivation ran a second time, so every frame pays for \

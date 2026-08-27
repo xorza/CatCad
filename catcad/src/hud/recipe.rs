@@ -124,7 +124,7 @@ fn row(
 ) -> bool {
     let chrome = &theme.chrome;
     let id = step_id(at);
-    let wearing = Wearing::row(theme, picked, ui.response_for(id).hovered);
+    let wearing = Wearing::row(theme, picked, ui.response_for(id).hovered).eased(ui, id, theme);
     let style = TextStyle {
         color: wearing.ink,
         font_size_px: chrome.readout_text,

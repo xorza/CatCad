@@ -6,8 +6,8 @@ use std::f32::consts::PI;
 use aperture::Camera;
 use glam::{Vec2, Vec3};
 use palantir::{
-    Align, AnimSlot, AnimSpec, Animatable, Color, Configure, Drag, Easing, Mesh, Panel, Sense,
-    Shape, Sizing, Text, TextStyle, Ui, Vec2 as UiVec2, WidgetId,
+    Align, AnimSlot, Animatable, Color, Configure, Drag, Mesh, Panel, Sense, Shape, Sizing, Text,
+    TextStyle, Ui, Vec2 as UiVec2, WidgetId,
 };
 
 use crate::intent::Intents;
@@ -32,11 +32,7 @@ const CORNER_BAND: f32 = 0.5;
 /// normalize per face per frame.
 const LIGHT: Vec3 = Vec3::new(0.3235, 0.8896, 0.3538);
 
-/// How long the turn to a named view takes.
-///
-/// A quarter of a second, so it reads as a turn. Anything shorter is a cut, and
-/// a cut leaves the viewer to work out for themselves which way the model went.
-const TURN: AnimSpec = AnimSpec::duration(0.25, Easing::InOutCubic);
+/// The row the camera's bearing is eased in.
 const TURNING: AnimSlot = AnimSlot::new("turning");
 
 /// How near the target the turn has to get before it is over, in radians.
@@ -241,7 +237,7 @@ impl Cube {
             self.turning_to = Some(Bearing::from(zone.direction()).near(camera.yaw));
         }
         self.drag(state.left.drag, intents);
-        self.turn(ui, id, camera, intents);
+        self.turn(ui, id, theme, camera, intents);
     }
 
     /// Turn it by hand.
@@ -272,9 +268,16 @@ impl Cube {
     /// keeps the eased value against the widget's id and starts a row at the
     /// first target it is shown — so a frame that skipped this would seed the
     /// row at the *destination* and the next turn would cut rather than run.
-    fn turn(&mut self, ui: &mut Ui, id: WidgetId, camera: Camera, intents: &mut Intents) {
+    fn turn(
+        &mut self,
+        ui: &mut Ui,
+        id: WidgetId,
+        theme: &Theme,
+        camera: Camera,
+        intents: &mut Intents,
+    ) {
         let want = self.turning_to.unwrap_or_else(|| camera.into());
-        let now = ui.animate(id, TURNING, want, Some(TURN));
+        let now = ui.animate(id, TURNING, want, Some(theme.motion.turn));
         if self.turning_to.is_none() {
             return;
         }

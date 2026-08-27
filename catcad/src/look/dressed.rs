@@ -3,8 +3,8 @@
 use std::rc::Rc;
 
 use palantir::{
-    Background, ButtonTheme, Color, Corners, Spacing, StatefulLook, Stroke, TextEditTheme,
-    TextStyle, WidgetLook,
+    AnimSpec, Background, ButtonTheme, Color, Corners, Spacing, StatefulLook, Stroke,
+    TextEditTheme, TextStyle, WidgetLook,
 };
 
 use crate::look::Theme;
@@ -43,14 +43,15 @@ pub(crate) struct Dressed {
 impl Dressed {
     pub(crate) fn of(theme: &Theme) -> Self {
         let palette = theme.palette();
-        let Theme { form, .. } = theme;
+        let Theme { form, motion, .. } = theme;
+        let lift = motion.lift;
         Self {
             palantir: Rc::new(theme.dress(&palette)),
-            field: field(&palette),
-            goes: answer(&palette, form.goes),
-            stops: answer(&palette, form.stops),
-            chosen: answer(&palette, form.doing),
-            offered: answer(&palette, form.doing.lerp(Color::BLACK, 0.5)),
+            field: field(&palette, lift),
+            goes: answer(&palette, form.goes, lift),
+            stops: answer(&palette, form.stops, lift),
+            chosen: answer(&palette, form.doing, lift),
+            offered: answer(&palette, form.doing.lerp(Color::BLACK, 0.5), lift),
         }
     }
 }
@@ -66,7 +67,7 @@ impl Dressed {
 /// The size and weight come from the same constant for the same reason. Nothing
 /// else is touched: the box, the caret and the wash are palantir's, and a field
 /// in the drawing has no cause to look unlike a field anywhere else.
-fn field(palette: &palantir::Palette) -> TextEditTheme {
+fn field(palette: &palantir::Palette, lift: AnimSpec) -> TextEditTheme {
     let text = TextStyle {
         font_size_px: MARK_FONT.size_px,
         family: MARK_FONT.family,
@@ -80,6 +81,7 @@ fn field(palette: &palantir::Palette) -> TextEditTheme {
         ..TextStyle::default()
     };
     let mut theme = TextEditTheme::from_palette(palette);
+    theme.anim = Some(lift);
     // Destructured rather than swept, so a fifth state added to a look is a
     // compile error here rather than one state quietly left in the wrong face.
     let StatefulLook {
@@ -99,8 +101,12 @@ fn field(palette: &palantir::Palette) -> TextEditTheme {
 /// One recipe for all four, because what differs between them is a colour and
 /// nothing else — written out apiece, they would be four chances for the hovered
 /// state of one to drift from another's.
-fn answer(palette: &palantir::Palette, ink: Color) -> ButtonTheme {
+fn answer(palette: &palantir::Palette, ink: Color, lift: AnimSpec) -> ButtonTheme {
     let mut theme = ButtonTheme::from_palette(palette);
+    // Lifted like every other control, and stated here rather than inherited:
+    // these are built from the palette rather than from the palantir theme
+    // beside them, so they take nothing that theme was given.
+    theme.anim = Some(lift);
     // No padding of its own: the button is sized outright, so padding would be
     // asking for a square and then adding to two of its sides.
     theme.padding = Spacing::ZERO;

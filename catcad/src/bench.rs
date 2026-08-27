@@ -1,16 +1,17 @@
 //! Per-frame allocation gates for the application's record pass, driven by
 //! `dhat`.
 //!
-//! One bench of four steps, all recording real frames through `UiHarness`:
+//! One bench of five steps, all recording real frames through `UiHarness`:
 //!
 //! | step | measures | limit |
 //! |---|---|---|
 //! | `record-still` | a frame with the pointer parked | strict zero |
+//! | `record-lifting` | a frame with a control easing under the pointer | strict zero |
 //! | `record-hovering` | a frame with the pointer moving over the drawing | strict zero |
 //! | `record-dragging` | a frame taking a point somewhere | strict zero |
 //! | `record-banding` | a frame with a line half drawn, band following | strict zero |
 //!
-//! All four are zero, and between them that is the whole of a frame:
+//! All five are zero, and between them that is the whole of a frame:
 //! recording is all this crate does per frame, and none of it reaches the heap.
 //! The status line is formatted into the record pass's own text arena rather
 //! than a `String`; `Scene::nearest` answers a hover without building a list;
@@ -52,7 +53,7 @@ use aperture::Viewport;
 use common::AllocBench;
 use glam::{UVec2, Vec2, Vec3};
 use palantir::internals::UiHarness;
-use palantir::{App, WidgetId, WindowToken};
+use palantir::{App, ResponseState, WidgetId, WindowToken};
 use std::hint::black_box;
 
 use crate::CatCad;
@@ -125,14 +126,28 @@ impl Raised {
     /// so this records a frame and reads the *previous* one's placement — which
     /// is why the app is raised with one behind it.
     fn at(&mut self, id: WidgetId) -> Vec2 {
-        let Self { app, harness } = self;
-        harness
-            .frame_value(|ui| {
-                app.record(WindowToken(0), ui);
-                ui.response_for(id).rect
-            })
+        self.response(id)
+            .rect
             .expect("the overlay drew the control asked for")
             .center()
+    }
+
+    /// Whether the overlay reports `id` as under the pointer.
+    fn hovers(&mut self, id: WidgetId) -> bool {
+        self.response(id).hovered
+    }
+
+    /// What the overlay last reported about `id`, read out of a fresh frame.
+    ///
+    /// A rect and a hover are both the layout engine's answer and both arrive a
+    /// frame late, so both are read the same way: record a frame, and take what
+    /// the *previous* one left.
+    fn response(&mut self, id: WidgetId) -> ResponseState {
+        let Self { app, harness } = self;
+        harness.frame_value(|ui| {
+            app.record(WindowToken(0), ui);
+            ui.response_for(id)
+        })
     }
 
     /// The cursor that aims at `world`, through the camera the app is looking
@@ -149,6 +164,7 @@ impl Raised {
 pub fn alloc_bench() {
     let mut bench = AllocBench::start("catcad", "frame");
     still(&mut bench);
+    lifting(&mut bench);
     hovering(&mut bench);
     dragging(&mut bench);
     banding(&mut bench);
@@ -166,6 +182,43 @@ fn still(bench: &mut AllocBench) {
         raised.app.view.hovered(),
     );
     bench.step("record-still", 0.0, || raised.frame());
+}
+
+/// Frames with a control easing between states under the pointer.
+///
+/// **The one step that measures the overlay rather than the drawing.** A chip
+/// eases its fill and its ink toward what it should be wearing, and palantir
+/// keeps that against the widget's id — a row created when the target moves and
+/// drained when it arrives. Walking between two chips keeps a row live on every
+/// frame, which is the case that could reach the heap and the case no other step
+/// here touches.
+fn lifting(bench: &mut AllocBench) {
+    let mut raised = Raised::new();
+    let (from, to) = (
+        raised.at(internals::tool("Point")),
+        raised.at(internals::tool("Circle")),
+    );
+    // Both ends walked before any of it is measured, so the rows and the typed
+    // map palantir keeps them in are asked for outside the window.
+    for at in [from, to, from] {
+        raised.harness.move_to(at);
+        raised.frame();
+    }
+    // The step reaches the frame it names, which a number alone cannot say: a
+    // walk that landed between the chips would go on reporting zero about
+    // frames with no control easing in them at all.
+    assert!(
+        raised.hovers(internals::tool("Point")),
+        "the walk missed the chip at {from:?}, so nothing is lifting",
+    );
+    let mut step = 0usize;
+    bench.step("record-lifting", 0.0, || {
+        step += 1;
+        raised
+            .harness
+            .move_to(if step.is_multiple_of(2) { from } else { to });
+        raised.frame();
+    });
 }
 
 /// Frames with the pointer walking across the drawing, which is what the app

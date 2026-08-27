@@ -81,7 +81,7 @@ impl Chip {
     pub(super) fn show(self, ui: &mut Ui, icons: &Icons, theme: &Theme) -> bool {
         let chrome = &theme.chrome;
         let hovered = ui.response_for(self.id).hovered;
-        let wearing = Wearing::chip(theme, self.held, hovered);
+        let wearing = Wearing::chip(theme, self.held, hovered).eased(ui, self.id, theme);
         // A word is measured by palantir; the other two are one glyph in a
         // square, and a square is a width.
         let width = match self.face {

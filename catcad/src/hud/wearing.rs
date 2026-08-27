@@ -1,8 +1,13 @@
 //! What a control on the overlay is filled and inked with, by what it is doing.
 
-use palantir::Color;
+use palantir::{AnimSlot, Animatable, Color, Ui, WidgetId};
 
 use crate::look::Theme;
+
+/// The row a control's look is eased in. One per widget, carrying both colours
+/// together: a fill that arrived before its ink would be a control caught
+/// half-way between two states.
+const LIFT: AnimSlot = AnimSlot::new("lift");
 
 /// The two colours one control wears this frame.
 ///
@@ -11,7 +16,7 @@ use crate::look::Theme;
 /// they answered it in two files with two copies of the same three arms. What
 /// differs between them is only the resting fill, and side by side that reads
 /// as the decision it is rather than as a coincidence.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq, Animatable)]
 pub(super) struct Wearing {
     pub(super) fill: Color,
     pub(super) ink: Color,
@@ -39,6 +44,15 @@ impl Wearing {
             Color::TRANSPARENT,
             theme.chrome.chip,
         )
+    }
+
+    /// The same look, eased from wherever the control was last frame.
+    ///
+    /// **One row for the pair**, which is what keeps them together in time as
+    /// well as in value: two rows would let a fill arrive before its ink and
+    /// show a control half-way between two states.
+    pub(super) fn eased(self, ui: &mut Ui, id: WidgetId, theme: &Theme) -> Self {
+        ui.animate(id, LIFT, self, Some(theme.motion.lift))
     }
 
     /// **The fill and the ink move together**, because a held control is an

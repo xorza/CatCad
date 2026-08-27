@@ -11,8 +11,8 @@ re-plan.
 
 ## Where it stands
 
-**Stages 1, 2 and 3 are built.** Colour, weight and type are decided in one
-place, and every reader takes the whole theme.
+**The plan is built.** Colour, weight, type and motion are decided in one place,
+and every reader takes the whole theme.
 
 The order ran 1 → form → 2 → highlight rather than the one written below. Stage 1 put the app on CatCad's palette and left
 `prompt/look.rs` deriving from `Palette::DEFAULT`, so the form standing on the
@@ -256,11 +256,21 @@ aperture's own `Lit`. It carries the two colours, the two scales and the step's
 lift, and answers `Lighting::of(part, hovered)` where `picture.rs` had two
 constants and a `singled` helper.
 
-### 4. Motion — low
+### 4. Motion — done
 
-The cube's turn spec moves in, and the button themes take an `anim` so a chip
-lifts rather than snaps. The one stage that changes how the app *feels* rather
-than how it looks, so it is last and on its own.
+`Motion` carries the two transitions the application animates: a control's lift
+and the cube's turn. **No preset axis**, unlike every other roster — a dark theme
+and a light one disagree about colour and agree about time.
+
+`Wearing` derives `Animatable`, so a chip and a recipe row ease their fill and
+their ink in one row rather than two: a fill that arrived before its ink would
+show a control half-way between states. Palantir's own buttons take the same
+`lift` through `Theme::dress`.
+
+A fifth allocation gate came with it — `record-lifting`, walking the pointer
+between two chips so a row is live on every measured frame. The four that existed
+all park the pointer over the *drawing*, so none of them would have seen this.
+It holds at zero.
 
 ### Deferred: a second preset, and a theme file
 
@@ -270,12 +280,11 @@ something asks.
 
 ## What must not move, and what will
 
-**The visual goldens must not shift by a pixel.** They record the drawing with
-the chrome repainted away, so stage 1 cannot reach them and stage 2 reaches
-nothing else. Every drawing colour is restated exactly — the values are already
-linear RGB on both sides, so the move is a retype and not a conversion.
+**The visual goldens did not shift by a pixel**, and neither did the whole
+frame. Every drawing colour was restated exactly — the values are linear RGB on
+both sides, so the move was a retype and not a conversion.
 
-**Every palantir widget changes appearance in stage 1**, and that is the point
-rather than a risk: the dimension field, the tooltips, the form's text edit and
-the scrollbars stop being stock grey. Nothing in the test suite asserts their
-colour, so the check is by eye.
+**Every palantir widget changed appearance**, which was the point rather than a
+risk: the dimension field, the tooltips, the form's text edit and the scrollbars
+stopped being stock grey, and they lift rather than snap. Nothing in the test
+suite asserts their colour, so that half is checked by eye.
