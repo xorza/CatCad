@@ -702,7 +702,7 @@ fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
     let grown = raised.models().grown();
     let cut = raised
         .harness
-        .layout_rect(Prompt::operation_id(crate::prompt::look::CUTS))
+        .layout_rect(Prompt::operation_id(crate::prompt::glyphs::CUTS))
         .expect("the form drew no control for what the extrude does");
     raised
         .harness

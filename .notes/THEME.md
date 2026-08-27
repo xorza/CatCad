@@ -11,9 +11,18 @@ re-plan.
 
 ## Where it stands
 
-**Stage 1 is built.** `Theme` carries `Chrome`, the overlay reads it off
-`Shown`, and palantir's own theme is derived from it and installed each frame.
-Two things came out differently from what is written below.
+**Stage 1 and the form half of stage 3 are built**, in that order rather than
+the one written below. Stage 1 put the app on CatCad's palette and left
+`prompt/look.rs` deriving from `Palette::DEFAULT`, so the form standing on the
+drawing was the one thing on a palette of its own. That is a reason to take the
+form next rather than to patch it: the drawing still reads one coherent palette,
+so stage 2 loses nothing by waiting.
+
+`Theme` carries `Chrome` and `Form`; `Dressed` carries everything the two imply
+— palantir's own theme and the form's five — built once and kept in a cell. The
+five `LazyLock` statics are gone, and there is no static anywhere in the look.
+
+Three things came out differently from what is written below.
 
 - **The four parts are declared as their stages land, not up front.** An empty
   `Drawing` or `Form` is dead code, and `-D warnings` says so. `Theme` holds
@@ -22,6 +31,12 @@ Two things came out differently from what is written below.
   `arm` reached eight arguments and clippy refused it, which was the signal: a
   control needs the icons, the chrome and the tool in hand, and `Shown` already
   carries all three. It is handed the bundle rather than the parts.
+- **What is derived lives in its own type, not beside what it is derived from.**
+  `Dressed` holds palantir's theme and the form's five, and nothing in it is a
+  choice — so nothing in it is serialized, and a colour changed one file over
+  moves all of it. `Theme` is not `Clone` for the same reason the cell cannot be
+  emptied: a theme is replaced whole, and a copy would carry a derivation
+  belonging to the value it was taken from.
 
 The rest below is what stages 2 to 4 still have to move.
 
@@ -202,13 +217,18 @@ the six writers and the gizmos. `ink.rs` goes away here.
 **Proves nothing moved.** The goldens are chrome-free, so they must not shift by
 a pixel.
 
-### 3. The form and the highlight — low
+### 3a. The form — done
 
-`prompt/look.rs`'s three inks and five `LazyLock` themes become derivations of
-`Form`, built once with the palantir half rather than on first use. The highlight
-colours and their scale factors become `Lit`.
+`prompt/look.rs`'s three inks and the button side became `Form`; its five
+`LazyLock` themes became fields on `Dressed`, built with the palantir half. What
+was left of the file is the five glyphs its buttons are drawn with, which are
+wording rather than look — so it is `prompt/glyphs.rs` now. `Prompt::show` takes
+a `&Theme`.
 
-**Proves the last two palettes are gone.** Colour is then decided in one place.
+### 3b. The highlight — low
+
+The highlight colours and their scale factors become `Lit`. It wants the theme
+threaded into `SceneView`, which nothing else has needed yet.
 
 ### 4. Motion — low
 

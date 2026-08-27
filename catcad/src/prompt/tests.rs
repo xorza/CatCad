@@ -227,11 +227,11 @@ fn every_button_on_the_form_has_a_glyph_to_draw_it() {
     let mut placed = Vec::new();
 
     for answer in [
-        look::CONFIRM,
-        look::CANCEL,
-        look::JOINS,
-        look::CUTS,
-        look::SHARES,
+        glyphs::CONFIRM,
+        glyphs::CANCEL,
+        glyphs::JOINS,
+        glyphs::CUTS,
+        glyphs::SHARES,
     ] {
         glyphs.line(answer, crate::paint::MARK_FONT, 1.0, &mut placed);
         let [glyph] = placed[..] else {

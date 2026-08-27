@@ -26,6 +26,7 @@ use std::fmt::Write;
 use crate::drawing::anchor::Anchor;
 use crate::intent::change::Change;
 use crate::intent::{Choice, Intents, Opening, Step};
+use crate::look::Theme;
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::{DECIMALS, MARK_FONT};
@@ -34,7 +35,7 @@ use crate::profile::Profile;
 use crate::timeline::FeatureId;
 use crate::tool::Tool;
 
-pub(crate) mod look;
+pub(crate) mod glyphs;
 
 /// What a form is about, and so what committing it asks for.
 ///
@@ -556,6 +557,7 @@ impl Prompt {
     pub(crate) fn show(
         &mut self,
         ui: &mut Ui,
+        theme: &Theme,
         stands: Stands,
         models: Models<'_>,
         intents: &mut Intents,
@@ -565,8 +567,8 @@ impl Prompt {
         // that takes focus.
         let opening = !std::mem::replace(&mut self.shown, true);
         let done = match stands {
-            Stands::Over(at) => self.over(ui, at, opening),
-            Stands::Beside(anchor) => self.beside(ui, anchor, opening),
+            Stands::Over(at) => self.over(ui, theme, at, opening),
+            Stands::Beside(anchor) => self.beside(ui, theme, anchor, opening),
         };
         // Outside the bodies, because a value is read off a draft the widget
         // has only just finished writing.
@@ -707,19 +709,16 @@ impl Prompt {
     ///
     /// Both rows are the same button in a different colour, and were the same
     /// five chained calls written twice: what tells them apart is which glyph,
-    /// which theme and which id, so those are what this takes. A second
-    /// spelling of the chain would be a second chance for one row's size or
-    /// hover to drift from the other's — which is the argument
-    /// [`look::answer`](look) already makes about the two answers, one level up.
-    fn button(ui: &mut Ui, id: WidgetId, glyph: &str, theme: &ButtonTheme) -> bool {
+    /// which theme, which id and how big, so those are what this takes. A
+    /// second spelling of the chain would be a second chance for one row's size
+    /// or hover to drift from the other's — which is the argument the theme's
+    /// own `answer` already makes about the four buttons, one level up.
+    fn button(ui: &mut Ui, id: WidgetId, glyph: &str, style: &ButtonTheme, side: f32) -> bool {
         Button::new()
             .id(id)
             .label(glyph)
-            .style(theme)
-            .size((
-                Sizing::fixed(look::BUTTON_SIDE),
-                Sizing::fixed(look::BUTTON_SIDE),
-            ))
+            .style(style)
+            .size((Sizing::fixed(side), Sizing::fixed(side)))
             .show(ui)
             .left
             .clicked()
@@ -776,7 +775,7 @@ impl Prompt {
     /// run, and how far inside its own corner it hangs that run is a handful of
     /// facts about the widget's own layout. What is left is measuring the run
     /// and saying where its middle goes.
-    fn over(&mut self, ui: &mut Ui, centre: Vec2, opening: bool) -> Option<Done> {
+    fn over(&mut self, ui: &mut Ui, theme: &Theme, centre: Vec2, opening: bool) -> Option<Done> {
         // Measured before the field is shown, because where its corner goes
         // depends on how wide its number comes out. The same shaper the widget
         // itself will use, asked the same question, so the two cannot answer
@@ -785,9 +784,10 @@ impl Prompt {
         // The run's own leading rather than what it measured, so an empty draft
         // is a box where the number was and not one half a line higher: a
         // backspace onto nothing must not move the field it was typed in.
+        let dressed = theme.dressed();
         let width = ui.probe_text(self.run()).size().w;
         let run = Size::new(width, MARK_FONT.line_height_px);
-        let origin = look::FIELD.corner_centring(run, centre);
+        let origin = dressed.field.corner_centring(run, centre);
         let Self { fields, .. } = self;
         let id = Self::field_id(0);
         let said = Panel::canvas()
@@ -804,7 +804,7 @@ impl Prompt {
                 }
                 let shown = TextEdit::new(&mut fields[0].draft)
                     .id(id)
-                    .style(&*look::FIELD)
+                    .style(&dressed.field)
                     .select_all_on_focus()
                     .text_align(Align::CENTER)
                     .size((Sizing::HUG, Sizing::HUG))
@@ -828,7 +828,9 @@ impl Prompt {
     /// and claims the keyboard for every layer below, which for a form whose
     /// value is *also* dragged by an arrow in the drawing would mean a form you
     /// could never drag against.
-    fn beside(&mut self, ui: &mut Ui, anchor: Rect, opening: bool) -> Option<Done> {
+    fn beside(&mut self, ui: &mut Ui, theme: &Theme, anchor: Rect, opening: bool) -> Option<Done> {
+        let dressed = theme.dressed();
+        let side = theme.form.button;
         // Stood clear of what it is about rather than against it. [`Popup`]
         // places a body flush with its anchor, and flush with the outline of
         // the thing being measured is on top of it — so the anchor is grown by
@@ -882,7 +884,7 @@ impl Prompt {
                             }
                             let shown = TextEdit::new(&mut field.draft)
                                 .id(Self::field_id(nth))
-                                .style(&*look::FIELD)
+                                .style(&dressed.field)
                                 .select_all_on_focus()
                                 // Cloned because [`TextEdit::placeholder`]
                                 // takes a `Cow<'static, str>` and this string
@@ -905,18 +907,19 @@ impl Prompt {
                     if let Some(doing) = doing {
                         Panel::hstack().id_salt("doing").gap(GAP).show(ui, |ui| {
                             for (glyph, operation) in [
-                                (look::JOINS, Operation::Join),
-                                (look::CUTS, Operation::Cut),
-                                (look::SHARES, Operation::Intersect),
+                                (glyphs::JOINS, Operation::Join),
+                                (glyphs::CUTS, Operation::Cut),
+                                (glyphs::SHARES, Operation::Intersect),
                             ] {
                                 // Which one is set is said by the other two
-                                // being dimmer — see [`look::CHOSEN`].
-                                let theme = if *doing == operation {
-                                    &*look::CHOSEN
+                                // being dimmer — see
+                                // [`Dressed::chosen`](crate::look::dressed::Dressed).
+                                let style = if *doing == operation {
+                                    &dressed.chosen
                                 } else {
-                                    &*look::OFFERED
+                                    &dressed.offered
                                 };
-                                if Self::button(ui, Self::doing_id(glyph), glyph, theme) {
+                                if Self::button(ui, Self::doing_id(glyph), glyph, style, side) {
                                     *doing = operation;
                                 }
                             }
@@ -934,16 +937,17 @@ impl Prompt {
                             .gap(GAP)
                             .align(Align::h(HAlign::Right))
                             .show(ui, |ui| {
-                                for (glyph, theme, answer) in [
-                                    (look::CONFIRM, &*look::GOES, Done::Commit),
-                                    (look::CANCEL, &*look::STOPS, Done::Cancel),
+                                for (glyph, style, answer) in [
+                                    (glyphs::CONFIRM, &dressed.goes, Done::Commit),
+                                    (glyphs::CANCEL, &dressed.stops, Done::Cancel),
                                 ] {
                                     // Named like every other id on this form,
                                     // where it was salted: a caller outside
                                     // cannot work out an `auto_id`, and these
                                     // are as pressable by a test as the row
                                     // above them.
-                                    if Self::button(ui, Self::answer_id(glyph), glyph, theme) {
+                                    if Self::button(ui, Self::answer_id(glyph), glyph, style, side)
+                                    {
                                         answered = Some(answer);
                                     }
                                 }

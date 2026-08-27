@@ -358,7 +358,7 @@ impl CatCad {
         // handed, so the derived theme is installed before anything records.
         // Built on the frame it is first wanted and handed over as a reference
         // count after that — see [`Theme::dressed`].
-        ui.set_theme(self.theme.dressed());
+        ui.set_theme(self.theme.dressed().palantir.clone());
         self.hud.show(
             ui,
             Shown {
@@ -408,7 +408,7 @@ impl CatCad {
         let Some(stands) = self.view.stands(prompt.about(), models, lens) else {
             return;
         };
-        prompt.show(ui, stands, models, &mut self.intents);
+        prompt.show(ui, &self.theme, stands, models, &mut self.intents);
     }
 
     /// Land everything the frame asked for, on whichever of the three things a
