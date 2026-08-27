@@ -38,9 +38,21 @@ impl<T: Copy, const N: usize> Inline<T, N> {
         self.count += 1;
     }
 
+    /// Both, in that order.
+    pub(crate) fn two(first: T, second: T) -> Self {
+        let mut both = Self::one(first);
+        both.push(second);
+        both
+    }
+
     /// Every one of them.
     pub(crate) fn all(&self) -> &[T] {
         &self.held[..self.count]
+    }
+
+    /// Every one of them, to be sorted or written over.
+    pub(crate) fn all_mut(&mut self) -> &mut [T] {
+        &mut self.held[..self.count]
     }
 }
 
@@ -50,16 +62,6 @@ impl<T: Copy + Default, const N: usize> Inline<T, N> {
         Self {
             held: [T::default(); N],
             count: 0,
-        }
-    }
-}
-
-impl<T: Copy> Inline<T, 2> {
-    /// Both.
-    pub(crate) fn two(first: T, second: T) -> Self {
-        Self {
-            held: [first, second],
-            count: 2,
         }
     }
 }
@@ -98,7 +100,14 @@ mod tests {
         assert_eq!(three.into_iter().collect::<Vec<_>>(), [1.5, 2.5]);
 
         assert_eq!(Inline::<f64, 2>::one(7.0).all(), [7.0]);
-        assert_eq!(Inline::two(7.0, 8.0).all(), [7.0, 8.0]);
+        assert_eq!(Inline::<f64, 2>::two(7.0, 8.0).all(), [7.0, 8.0]);
+        // Two of a wider one leaves room for the rest, and what is written
+        // over comes back written over.
+        let mut wide: Inline<f64, 4> = Inline::two(7.0, 8.0);
+        wide.push(9.0);
+        assert_eq!(wide.all(), [7.0, 8.0, 9.0]);
+        wide.all_mut().sort_by(|one, two| two.total_cmp(one));
+        assert_eq!(wide.all(), [9.0, 8.0, 7.0]);
 
         // One value each, filled two different ways, and equal because only
         // what is held is compared.

@@ -1,5 +1,8 @@
 use super::*;
 use crate::math::winding::swept;
+use crate::solid::boolean::splitting::oval::Oval;
+use crate::solid::boolean::splitting::ripple::Ripple;
+use std::f64::consts::PI;
 
 /// The unit square, counterclockwise.
 fn square() -> Cells {
@@ -244,24 +247,24 @@ fn chorded(radius: f64) -> f64 {
 
 /// A wave `v = level + swing·cos(θ − phase)`, keeping what stands above it.
 fn wave(level: f64, swing: f64, phase: f64, run: u32) -> Cut {
-    Cut::Wave {
+    Cut::Wave(Ripple {
         level,
         swing,
         phase,
         above: true,
         run,
-    }
+    })
 }
 
 /// A circular cut about `middle` of `radius`, keeping the disc.
 fn disc(middle: (f64, f64), radius: f64, run: u32) -> Cut {
-    Cut::Round {
+    Cut::Round(Oval {
         middle: DVec2::new(middle.0, middle.1),
         along: DVec2::X,
         half: DVec2::splat(radius),
         inward: true,
         run,
-    }
+    })
 }
 
 /// **A circle inside a region takes a disc out of its middle**, which is the

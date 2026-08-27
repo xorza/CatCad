@@ -23,23 +23,6 @@ carries its neighbour's summary, and the item above carries none.
 - [ ] `solid/mesh/mod.rs:113-114` — `Mesher::shut_in` loses the paragraph break
   before the note about `into`.
 
-## Enum methods that answer a made-up value for the wrong variant
-
-Five methods on `Cut` are written for one variant and answer a sentinel for the
-others. A caller that reaches one with the wrong variant gets a number, not a
-complaint.
-
-- [ ] `solid/boolean/splitting/mod.rs:400` — `Cut::at` answers `DVec2::ZERO`
-  for a straight cut.
-- [ ] `solid/boolean/splitting/mod.rs:515` — `Cut::frame` answers
-  `DVec2::ZERO` for anything but `Round`.
-- [ ] `solid/boolean/splitting/mod.rs:528` — `Cut::reach` answers `0.0` for
-  anything but `Round`.
-- [ ] `solid/boolean/splitting/mod.rs:232` — `Cut::crest` answers `0.0` for
-  anything but `Wave`.
-- [ ] `solid/boolean/splitting/mod.rs:330` — `Cut::crested` answers an empty
-  `Crested` for anything but `Wave`.
-
 ## Modules holding several major types
 
 The house rule puts one major struct in one file of that name. These files hold

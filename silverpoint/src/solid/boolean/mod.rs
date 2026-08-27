@@ -25,6 +25,8 @@ use crate::number::tolerance::ALIGNED;
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::sewing::Sewing;
 use crate::solid::boolean::sounding::{Sounding, Standing};
+use crate::solid::boolean::splitting::oval::Oval;
+use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::boolean::splitting::{Came, Cells, Corner, Cut, Splitting};
 use crate::solid::buckets::Buckets;
 use crate::solid::geometry::curve::Curve;
@@ -605,13 +607,13 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
         // **Inward**, so what is kept first is the disc — the splitter cuts both
         // ways round and each side is read by where it stands, so which is
         // asked first says nothing about the answer.
-        (Surface::Plane(plane), Curve::Circle(circle)) => Some(Cut::Round {
+        (Surface::Plane(plane), Curve::Circle(circle)) => Some(Cut::Round(Oval {
             middle: plane.flatten(circle.axis.origin),
             along: DVec2::X,
             half: DVec2::splat(circle.radius),
             inward: true,
             run: run.expect("a circle is numbered"),
-        }),
+        })),
         // A circle on a cylinder square to its axis is a *straight* cut in the
         // cylinder's own parameters: every place on it stands the same distance
         // along the axis, so it is the line `v = that`. Which is what the end of
@@ -664,7 +666,7 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
             let major = plane.flatten(oval.at(0.0)) - middle;
             let minor = plane.flatten(oval.at(FRAC_PI_2)) - middle;
             let along = major.normalize();
-            Some(Cut::Round {
+            Some(Cut::Round(Oval {
                 middle,
                 along: if along.perp().dot(minor) < 0.0 {
                     -along
@@ -674,7 +676,7 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
                 half: DVec2::new(oval.major, oval.minor),
                 inward: true,
                 run: run.expect("an ellipse is numbered"),
-            })
+            }))
         }
         // And on the cylinder that same ellipse is a *wave* — see [`Cut::Wave`].
         // Every place of it stands where the ellipse's own plane cuts the
@@ -696,13 +698,13 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
                 normal.dot(axis.reference) * tube.radius,
                 normal.dot(axis.quarter()) * tube.radius,
             );
-            Some(Cut::Wave {
+            Some(Cut::Wave(Ripple {
                 level: normal.dot(oval.axis.origin - axis.origin) / leaning,
                 swing: -across.length() / leaning,
                 phase: across.y.atan2(across.x),
                 above: true,
                 run: run.expect("an ellipse is numbered"),
-            })
+            }))
         }
         // Everything else.
         _ => None,
