@@ -20,13 +20,6 @@ carries its neighbour's summary, and the item above carries none.
 - [ ] `solid/mesh/mod.rs:113-114` — `Mesher::shut_in` loses the paragraph break
   before the note about `into`.
 
-## Cross-call flags in place of return values
-
-- [ ] `solid/boolean/splitting/mod.rs:783` — `Splitting::beyond` records a
-  refusal in a field. `split` clears it, three call levels below read it.
-- [ ] `solid/boolean/splitting/mod.rs:789` — `Splitting::alongside` records
-  one loop's answer for the walk over the region to read.
-
 ## Tidiness
 
 - [ ] `solid/boolean/splitting/mod.rs:261,267` — `std::f64::consts::TAU`

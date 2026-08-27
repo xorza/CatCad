@@ -92,18 +92,6 @@ fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut) -> bool {
 /// Cuts regions along a line or a circle, keeping the room it works in.
 #[derive(Debug, Default)]
 pub(super) struct Splitting {
-    /// Whether the last split met a shape it does not handle.
-    ///
-    /// One flag rather than a `Result` through five calls: what a caller does
-    /// about it is the same whatever met it — refuse the whole boolean — and
-    /// the walk that finds one is three frames down from the call that reports.
-    beyond: bool,
-    /// Whether a loop of the region being cut lay wholly *on* the cut.
-    ///
-    /// A flag for the reason the one above is: what finds it is the walk over
-    /// one loop, and what has to act on it is the walk over the region those
-    /// loops belong to. See [`Splitting::region`].
-    alongside: bool,
     /// Which side of the cut each corner of the loop being walked fell.
     sides: Vec<Side>,
     /// A closed cut as a loop of its own, flattened — see [`Cut::walk`].
@@ -190,6 +178,26 @@ struct Ends {
     left: f64,
 }
 
+/// What walking one loop of a region against the cut came to.
+///
+/// Three answers rather than a mark left on the splitter: what finds each is
+/// the walk over one loop, and what acts on it is the walk over the region that
+/// loop belongs to — see [`Splitting::region`], the one place all three are
+/// read.
+#[derive(Debug)]
+enum Chained {
+    /// Cut into chains, come through whole, or never met by the cut at all —
+    /// which the region tells apart by the chains themselves, so there is
+    /// nothing more for this to say.
+    Done,
+    /// Lying wholly *on* the cut, which is the region's business rather than
+    /// this loop's: a cut running along a boundary divides nothing.
+    Alongside,
+    /// Met by a shape nothing here can write down, which refuses the whole
+    /// boolean — see [`Splitting::split`].
+    Refused,
+}
+
 impl Splitting {
     /// Cut every region of `from` along `cut`, keeping both sides, and write
     /// what falls out into `into`.
@@ -199,32 +207,43 @@ impl Splitting {
     /// before it can ask of any of them whether to keep it.
     pub(super) fn split(&mut self, from: &Cells, cut: Cut, into: &mut Cells) -> bool {
         into.clear();
-        self.beyond = false;
-        self.append(from, cut, into);
-        self.append(from, cut.turned(), into);
-        !self.beyond
+        // Both sides walked whatever the first came to: the two write into one
+        // list, and stopping halfway would leave it holding one side of the cut
+        // as though that were the whole of it.
+        let one = self.append(from, cut, into);
+        let two = self.append(from, cut.turned(), into);
+        one && two
     }
 
     /// The same, onto whatever `into` already holds.
-    fn append(&mut self, from: &Cells, cut: Cut, into: &mut Cells) {
+    fn append(&mut self, from: &Cells, cut: Cut, into: &mut Cells) -> bool {
+        let mut written = true;
         for at in 0..from.len() {
-            self.region(from.cell(at), cut, into);
+            written &= self.region(from.cell(at), cut, into);
         }
+        written
     }
 
     /// One region, cut.
+    ///
+    /// `false` where a loop of it came back [`Chained::Refused`].
     fn region<'a>(
         &mut self,
         region: impl Iterator<Item = &'a [Corner]> + Clone,
         cut: Cut,
         into: &mut Cells,
-    ) {
+    ) -> bool {
         self.chains.clear();
         self.whole.clear();
-        self.alongside = false;
         let held = region.clone();
+        let mut written = true;
+        let mut alongside = false;
         for walk in region {
-            self.chain(walk, cut);
+            match self.chain(walk, cut) {
+                Chained::Done => {}
+                Chained::Alongside => alongside = true,
+                Chained::Refused => written = false,
+            }
         }
         // **A cut running along a loop of the boundary divides nothing.** The
         // region is whole on one side of it and absent from the other, which is
@@ -239,7 +258,7 @@ impl Splitting {
         // a hole cannot be crossed by the outline that holds it — and a
         // straight one does not: a zero-width loop lying on a line says nothing
         // about a cut that divides the region elsewhere.
-        if self.alongside && self.chains.len() == 0 {
+        if alongside && self.chains.len() == 0 {
             if kept(held.clone(), cut) {
                 into.add(|write| {
                     for walk in held {
@@ -247,7 +266,7 @@ impl Splitting {
                     }
                 });
             }
-            return;
+            return written;
         }
         // **A closed cut the boundary never met.** A circle can lie wholly
         // within a region and take a disc out of its middle without touching an
@@ -257,10 +276,11 @@ impl Splitting {
         // one that meets a region at all meets its boundary.
         if cut.closed() && self.chains.len() == 0 {
             self.punch(held, cut, into);
-            return;
+            return written;
         }
         self.close(cut);
         self.gather(into);
+        written
     }
 
     /// What a closed cut lying clear of the boundary leaves.
@@ -331,7 +351,7 @@ impl Splitting {
     }
 
     /// Walk `walk` again with a place put in the middle of every dip the cut
-    /// takes out of it, and say whether there was one to put.
+    /// takes out of it.
     ///
     /// **What gives the walk a corner that fell away.** A closed cut can bite
     /// into a straight run of boundary and come out again without either end of
@@ -343,11 +363,12 @@ impl Splitting {
     /// circle never leaves it, so a dip at all means the outside is what is
     /// being kept.
     ///
-    /// `false` where the place put there is on the cut rather than across it,
-    /// which is a bite shallower than [`PLACED`] and no bite at all. Walking
-    /// again would find the same thing and put the same place, so it is refused
-    /// instead — the one thing here that must not be a loop that never ends.
-    fn dip(&mut self, walk: &[Corner], cut: Cut) -> bool {
+    /// [`Chained::Refused`] where the place put there is on the cut rather than
+    /// across it, which is a bite shallower than [`PLACED`] and no bite at all.
+    /// Walking again would find the same thing and put the same place, so it is
+    /// refused instead — the one thing here that must not be a loop that never
+    /// ends.
+    fn dip(&mut self, walk: &[Corner], cut: Cut) -> Chained {
         let count = walk.len();
         // Lent out and handed back, because [`Splitting::chain`] writes the
         // buffers beside it and cannot be called while this one is borrowed.
@@ -365,11 +386,12 @@ impl Splitting {
         let fell = dipped
             .iter()
             .any(|corner| Side::of(cut, corner.at) == Side::Dropped);
-        if fell {
-            self.chain(&dipped, cut);
-        }
+        let chained = match fell {
+            true => self.chain(&dipped, cut),
+            false => Chained::Refused,
+        };
         self.dipped = dipped;
-        fell
+        chained
     }
 
     /// Break one loop into the stretches of it that lie on the kept side.
@@ -378,7 +400,7 @@ impl Splitting {
     /// does cross comes through as open chains, each recorded with where along
     /// the cut it began and ended, because that is what says which chain
     /// carries on from which.
-    fn chain(&mut self, walk: &[Corner], cut: Cut) {
+    fn chain(&mut self, walk: &[Corner], cut: Cut) -> Chained {
         let count = walk.len();
         self.sides.clear();
         self.sides
@@ -392,24 +414,23 @@ impl Splitting {
             // from, so that nothing is closed before it was opened — so one is
             // put where the dip is and the loop walked again.
             if (0..count).any(|at| cut.grazes(walk[at].at, walk[(at + 1) % count].at).is_some()) {
-                if !self.dip(walk, cut) {
-                    self.beyond = true;
-                }
-                return;
+                return self.dip(walk, cut);
             }
             // Nothing of it fell away. A loop lying wholly *on* the cut is the
             // cut running along the boundary rather than dividing it, which is
             // the region's business and not this loop's.
-            if self.sides.contains(&Side::Kept) {
+            return if self.sides.contains(&Side::Kept) {
                 self.whole.push(walk);
+                Chained::Done
             } else {
-                self.alongside = true;
-            }
-            return;
+                Chained::Alongside
+            };
         }
-        let Some(start) = self.sides.iter().position(|&side| side == Side::Dropped) else {
-            return;
-        };
+        let start = self
+            .sides
+            .iter()
+            .position(|&side| side == Side::Dropped)
+            .expect("a loop with a corner across the cut has one to walk from");
         // Walked from a corner that fell away, so the first chain opened is a
         // chain the boundary genuinely entered on rather than one it was
         // already inside when the walk began. `entered` is where along the cut
@@ -476,6 +497,7 @@ impl Splitting {
             }
         }
         debug_assert!(entered.is_none(), "a chain was left open by a closed loop");
+        Chained::Done
     }
 
     /// Begin a chain at `at`, over the room the last one took.
@@ -651,9 +673,7 @@ mod internals {
         /// which of the two a given piece ended up in.
         pub(super) fn halve(&mut self, from: &Cells, cut: Cut, into: &mut Cells) -> bool {
             into.clear();
-            self.beyond = false;
-            self.append(from, cut, into);
-            !self.beyond
+            self.append(from, cut, into)
         }
     }
 }
