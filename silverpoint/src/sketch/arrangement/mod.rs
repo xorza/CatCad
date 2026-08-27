@@ -210,7 +210,6 @@ impl Arrangement {
         self.scratch.walked.resize(self.edges.len() * 2, false);
         self.faces_filled = 0;
         self.scratch.outsides.clear();
-        self.scratch.areas.clear();
         for edge in 0..self.edges.len() {
             for forward in [true, false] {
                 let start = Half { edge, forward };
@@ -240,8 +239,7 @@ impl Arrangement {
                     face.area = area;
                     *faces_filled += 1;
                 } else if area < -ENCLOSED {
-                    scratch.outsides.push(&scratch.boundary);
-                    scratch.areas.push(area);
+                    scratch.outsides.push_by(area, &scratch.boundary);
                 }
             }
         }
@@ -271,7 +269,7 @@ impl Arrangement {
             let Some(face) = self.owner_of(at) else {
                 continue;
             };
-            self.faces[face].area -= self.scratch.areas[at].abs();
+            self.faces[face].area -= self.scratch.outsides.by(at).abs();
             self.faces[face].holes.push(self.scratch.outsides.get(at));
         }
     }
@@ -425,9 +423,8 @@ struct Scratch {
     walked: Vec<bool>,
     /// The loop being walked, before it is known to be a face or an outside.
     boundary: Vec<Half>,
-    /// The loops that shut nothing in, and what each covers.
-    outsides: Loops<Half>,
-    areas: Vec<f64>,
+    /// The loops that shut nothing in, each recorded with what it covers.
+    outsides: Loops<Half, f64>,
     /// Face positions, smallest first.
     tightest: Vec<usize>,
     /// Which piece of drawing each corner belongs to.

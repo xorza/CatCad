@@ -38,6 +38,19 @@ const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
 /// against 998, on a sketch with ten freedoms left. [`Stretch::spans`] carries
 /// them beside the stretch instead, and is how every reader that needs a row
 /// whole gets one.
+/// One pivot of the reduction: the column it decided, and the row it was taken
+/// in.
+///
+/// One record rather than two lists in step. The rows are never moved, so a row
+/// *is* the equation it was assembled from, and partial pivoting is a matter of
+/// recording which one was chosen rather than of shuffling it into place — which
+/// is why the row is worth carrying at all.
+#[derive(Debug, Clone, Copy)]
+struct Pivot {
+    column: usize,
+    row: usize,
+}
+
 #[derive(Debug, Clone, Copy)]
 struct Stretch {
     low: usize,
@@ -104,23 +117,17 @@ pub(super) struct Elimination {
     /// the zero that belonged there, and the tests reuse one reduction across
     /// every shape they try so that there is a stale number to find.
     rows: Vec<f64>,
-    /// Which column each row of the reduction took its pivot in, one per rank.
+    /// Every pivot the reduction took, in the order the columns took them.
+    ///
     /// What tells a parameter the constraints resolve from one they leave to be
-    /// chosen.
-    pivots: Vec<usize>,
-    /// Which row each pivot was taken in, and then — past the rank — the rows
-    /// none was.
+    /// chosen, and the rank falls out as how many there are.
+    pivots: Vec<Pivot>,
+    /// The rows no column pivoted on, in row order.
     ///
-    /// The rows are never moved, so a row *is* the equation it was assembled
-    /// from and partial pivoting is a matter of recording which one was chosen
-    /// rather than of shuffling it into place. Reading it back to front is what
-    /// names the equations the reduction found nothing left to do with, which is
-    /// the difference between telling a user that their sketch is
+    /// What names the equations the reduction found nothing left to do with,
+    /// which is the difference between telling a user that their sketch is
     /// over-constrained and telling them by what.
-    ///
-    /// Ordered the way the reduction met them: pivots in the order the columns
-    /// took them, then the leftovers in row order.
-    origin: Vec<usize>,
+    spare: Vec<usize>,
     /// The null space of the Jacobian, one row of `free.len()` per parameter:
     /// how far that parameter travels along each way the sketch can still move.
     /// Row-major.
@@ -324,7 +331,7 @@ impl Elimination {
         // the pair is redundant, not either one of them. A constraint worth two
         // equations can be named twice, when both of its rows died; flagging by
         // constraint is what makes saying it twice say it once.
-        for &equation in &self.origin[self.pivots.len()..] {
+        for &equation in &self.spare {
             into.redundant[system.equations[equation].slot()] = true;
         }
     }
@@ -342,7 +349,7 @@ impl Elimination {
     fn eliminate(&mut self, system: &System) {
         let n = system.width();
         self.pivots.clear();
-        self.origin.clear();
+        self.spare.clear();
         self.free.clear();
         self.reach.clear();
         self.active.clear();
@@ -355,7 +362,7 @@ impl Elimination {
         let m = system.height();
         let Self {
             rows: a,
-            origin,
+            spare,
             pivots,
             free,
             reach,
@@ -535,12 +542,12 @@ impl Elimination {
             // column it decided rather than moved to sit beside it.
             active.retain(|&row| row != chosen);
             used[chosen] = true;
-            origin.push(chosen);
-            pivots.push(col);
+            pivots.push(Pivot {
+                column: col,
+                row: chosen,
+            });
         }
-        // The rows no column pivoted on, which is what `origin` is read past the
-        // rank for.
-        origin.extend((0..m).filter(|&row| !used[row]));
+        spare.extend((0..m).filter(|&row| !used[row]));
     }
 
     /// Reduce the Jacobian to row echelon form and write out the null space that
@@ -616,16 +623,12 @@ impl Elimination {
         let Self {
             rows: a,
             pivots,
-            origin,
             free,
             null,
             reach,
             ..
         } = self;
-        for (at, &pivot) in pivots.iter().enumerate().rev() {
-            // Which row took this pivot, the rows never having been moved to
-            // put it on the diagonal.
-            let row = origin[at];
+        for &Pivot { column: pivot, row } in pivots.iter().rev() {
             let diagonal = a[row * n + pivot];
             // Echelon form says a row holds nothing left of its own pivot, and
             // for the columns that *took* one that is exact: the elimination set

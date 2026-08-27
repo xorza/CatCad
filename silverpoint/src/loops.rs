@@ -1,6 +1,15 @@
 //! Closed loops laid end to end in one buffer.
 
-/// Several loops of `T`, one run of items with a [`Run`] apiece.
+/// Several loops of `T`, one run of items with a [`Run`] apiece, and one `By`
+/// recorded beside each.
+///
+/// `By` is what a caller knows about a whole loop rather than about any item of
+/// it — the area an outline covers, where a chain begins and ends. Kept in the
+/// run rather than in a list of its own beside the loops, so that the two
+/// cannot come to disagree about which loop is which, and so that
+/// [`Loops::largest_first`] carries each loop's own record along with it. `()`
+/// where there is nothing to record, which costs nothing and is what most
+/// callers want.
 ///
 /// Flat rather than a vector of vectors, which is the difference between one
 /// heap block and one per loop. A face that gains a hole would otherwise ask
@@ -12,12 +21,12 @@
 /// The loops are read back in the order they were added, or in whatever order
 /// [`Loops::largest_first`] last left them.
 #[derive(Debug)]
-pub(crate) struct Loops<T> {
+pub(crate) struct Loops<T, By = ()> {
     items: Vec<T>,
-    runs: Vec<Run>,
+    runs: Vec<Run<By>>,
 }
 
-impl<T> Default for Loops<T> {
+impl<T, By> Default for Loops<T, By> {
     /// Empty, and holding nothing — `T` need not be [`Default`] for there to be
     /// none of it, which `derive` would have insisted on.
     fn default() -> Self {
@@ -28,26 +37,33 @@ impl<T> Default for Loops<T> {
     }
 }
 
-impl<T> Loops<T> {
+impl<T, By> Loops<T, By> {
     /// Forget every loop, keeping the room they took.
     pub(crate) fn clear(&mut self) {
         self.items.clear();
         self.runs.clear();
     }
 
-    /// Add a loop, filled by `write` into the buffer it is handed.
+    /// Add a loop known by `by`, filled by `write` into the buffer it is
+    /// handed.
     ///
     /// `write` appends: whatever it pushes is the loop, and where that landed
     /// is what gets recorded. One that pushes nothing is still a loop, and
     /// comes back as an empty slice rather than not at all — a caller counting
     /// what it added should get the number it added.
-    pub(crate) fn add(&mut self, write: impl FnOnce(&mut Vec<T>)) {
+    pub(crate) fn add_by(&mut self, by: By, write: impl FnOnce(&mut Vec<T>)) {
         let at = self.items.len();
         write(&mut self.items);
         self.runs.push(Run {
             at,
             len: self.items.len() - at,
+            by,
         });
+    }
+
+    /// What the loop at `at` is known by.
+    pub(crate) fn by(&self, at: usize) -> &By {
+        &self.runs[at].by
     }
 
     /// How many loops there are.
@@ -85,23 +101,38 @@ impl<T> Loops<T> {
     }
 }
 
+impl<T: Clone, By> Loops<T, By> {
+    /// Add `loop_` as a loop of its own, known by `by` and copied in.
+    pub(crate) fn push_by(&mut self, by: By, loop_: &[T]) {
+        self.add_by(by, |items| items.extend_from_slice(loop_));
+    }
+}
+
+impl<T> Loops<T> {
+    /// Add a loop with nothing recorded beside it.
+    pub(crate) fn add(&mut self, write: impl FnOnce(&mut Vec<T>)) {
+        self.add_by((), write);
+    }
+}
+
 impl<T: Clone> Loops<T> {
     /// Add `loop_` as a loop of its own, copied in.
     pub(crate) fn push(&mut self, loop_: &[T]) {
-        self.add(|items| items.extend_from_slice(loop_));
+        self.push_by((), loop_);
     }
 }
 
 /// Where one loop sits in the run of them.
 #[derive(Debug, Clone, Copy)]
-struct Run {
+struct Run<By> {
     at: usize,
     len: usize,
+    by: By,
 }
 
-impl Run {
+impl<By> Run<By> {
     /// The stretch of `all` this names.
-    fn of<T>(self, all: &[T]) -> &[T] {
+    fn of<'a, T>(&self, all: &'a [T]) -> &'a [T] {
         &all[self.at..self.at + self.len]
     }
 }
@@ -116,9 +147,9 @@ impl Run {
 pub(crate) mod internals {
     use super::*;
 
-    impl<T> Loops<T> {
+    impl<T, By> Loops<T, By> {
         pub(crate) fn get_mut(&mut self, at: usize) -> &mut [T] {
-            let Run { at, len } = self.runs[at];
+            let Run { at, len, .. } = self.runs[at];
             &mut self.items[at..at + len]
         }
     }
@@ -160,19 +191,24 @@ mod tests {
         assert!(loops.get(1).is_empty());
     }
 
-    /// Sorting reorders the loops and moves not one item.
+    /// Sorting reorders the loops, moves not one item, and carries each loop's
+    /// own record with it.
+    ///
+    /// The last of those is why a record is kept in the run rather than in a
+    /// list beside the loops: a caller keeping one by index would read the
+    /// wrong loop's the moment anything sorted.
     #[test]
     fn the_largest_comes_first_without_the_items_moving() {
-        let mut loops: Loops<u8> = Loops::default();
-        loops.push(&[1]);
-        loops.push(&[7, 7, 7]);
-        loops.push(&[4, 4]);
+        let mut loops: Loops<u8, char> = Loops::default();
+        loops.push_by('a', &[1]);
+        loops.push_by('b', &[7, 7, 7]);
+        loops.push_by('c', &[4, 4]);
 
         // By length, which puts the three-item loop first and the single last.
         loops.largest_first(|of| of.len() as f64);
-        assert_eq!(loops.get(0), [7, 7, 7]);
-        assert_eq!(loops.get(1), [4, 4]);
-        assert_eq!(loops.get(2), [1]);
+        assert_eq!((loops.get(0), *loops.by(0)), (&[7, 7, 7][..], 'b'));
+        assert_eq!((loops.get(1), *loops.by(1)), (&[4, 4][..], 'c'));
+        assert_eq!((loops.get(2), *loops.by(2)), (&[1][..], 'a'));
         // Still six items, in the order they were added — only the runs moved.
         assert_eq!(loops.total(), 6);
         assert_eq!(loops.iter().flatten().count(), 6);

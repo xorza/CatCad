@@ -114,14 +114,13 @@ pub(super) struct Splitting {
     /// The one stretch of boundary the walk is inside, before it reaches the
     /// cut again — see [`Splitting::chain`].
     stretch: Vec<Corner>,
-    /// The stretches of boundary that survived, laid end to end.
+    /// The stretches of boundary that survived, laid end to end, each recorded
+    /// with where it begins and ends along the cut.
     ///
     /// Open, unlike everything else here: each runs from where the boundary
     /// entered the kept side to where it left again, and closing them is what
     /// the reassembly below is for.
-    chains: Loops<Corner>,
-    /// Where each chain of `chains` begins and ends along the cut.
-    ends: Vec<Ends>,
+    chains: Loops<Corner, Ends>,
     /// The loops the cut never reached, which come through whole.
     whole: Loops<Corner>,
     /// The chains in the order the cut meets them, and whether each has been
@@ -221,7 +220,6 @@ impl Splitting {
         into: &mut Cells,
     ) {
         self.chains.clear();
-        self.ends.clear();
         self.whole.clear();
         self.alongside = false;
         let held = region.clone();
@@ -498,11 +496,8 @@ impl Splitting {
     fn shut(&mut self, entered: &mut Option<f64>, at: Corner, cut: Cut) {
         let entered = entered.take().expect("a chain is left only once entered");
         self.stretch.push(at);
-        self.chains.push(&self.stretch);
-        self.ends.push(Ends {
-            entered,
-            left: cut.down(at.at),
-        });
+        let left = cut.down(at.at);
+        self.chains.push_by(Ends { entered, left }, &self.stretch);
     }
 
     /// Join the open chains back into closed loops.
@@ -517,11 +512,12 @@ impl Splitting {
         self.closed.clear();
         self.order.clear();
         self.order.extend(0..self.chains.len());
-        let ends = &self.ends;
+        let chains = &self.chains;
         self.order.sort_by(|&a, &b| {
-            ends[a]
+            chains
+                .by(a)
                 .entered
-                .partial_cmp(&ends[b].entered)
+                .partial_cmp(&chains.by(b).entered)
                 .expect("finite")
         });
         self.taken.clear();
@@ -533,7 +529,6 @@ impl Splitting {
             }
             let Self {
                 chains,
-                ends,
                 order,
                 taken,
                 closed,
@@ -550,14 +545,15 @@ impl Splitting {
                     // by where each begins, so that is the nearest one along —
                     // and none that far along means round the far end of the
                     // cut to the first of all.
-                    let left = ends[chain].left;
+                    let left = chains.by(chain).left;
                     // Halved rather than walked from the front: `order` was
                     // just sorted by the very number this asks about.
-                    let found = order.partition_point(|&chain| ends[chain].entered < left - PLACED);
+                    let found =
+                        order.partition_point(|&chain| chains.by(chain).entered < left - PLACED);
                     let next = if found == order.len() { 0 } else { found };
                     // Along the cut itself, where the cut has a length worth
                     // walking. A straight one has not — see [`Cut::between`].
-                    cut.between(left, ends[order[next]].entered, into);
+                    cut.between(left, chains.by(order[next]).entered, into);
                     // **Back where the loop began, which is what closes it.**
                     // Asked of the position rather than of whether the chain
                     // has been walked: a chain reached again is the loop coming

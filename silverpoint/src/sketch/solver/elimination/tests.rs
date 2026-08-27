@@ -178,10 +178,12 @@ fn the_reduction_answers_what_the_unshortened_walk_answers() {
         elimination.null_space(&system);
         let (pivots, free, origin, null) = reference(&jacobian, &movable, n);
 
-        assert_eq!(elimination.pivots, pivots, "seed {seed}: pivots part");
+        let took: Vec<usize> = elimination.pivots.iter().map(|it| it.column).collect();
+        let rows: Vec<usize> = elimination.pivots.iter().map(|it| it.row).collect();
+        assert_eq!(took, pivots, "seed {seed}: pivots part");
         assert_eq!(elimination.free, free, "seed {seed}: freedoms part");
         assert_eq!(
-            elimination.origin[..pivots.len()],
+            rows,
             origin[..pivots.len()],
             "seed {seed}: the rows that pivoted came from elsewhere"
         );

@@ -23,18 +23,6 @@ carries its neighbour's summary, and the item above carries none.
 - [ ] `solid/mesh/mod.rs:113-114` — `Mesher::shut_in` loses the paragraph break
   before the note about `into`.
 
-## Parallel vectors kept in step by hand
-
-`Stepped` argues in its own doc for one buffer over two kept in step. These
-four keep two.
-
-- [ ] `solid/boolean/splitting/mod.rs:802-804` — `chains` and `ends` hold one
-  record per chain, indexed together.
-- [ ] `sketch/solver/elimination/mod.rs:110-123` — `pivots` and `origin` hold
-  one record per pivot for the first `rank` entries.
-- [ ] `sketch/arrangement/mod.rs:426-427` — `outsides` and `areas` hold one
-  record per outside loop.
-
 ## Code with no caller, and allows that hide it
 
 - [ ] `number/` — `rational.rs`, `quadratic.rs`, `filtered.rs` and `field.rs`
