@@ -285,6 +285,46 @@ where
     }
 }
 
+/// Which side of nothing a pair of rings' shared chord falls, exactly.
+///
+/// The round-against-round half of what [`parting`] answers for a span, and
+/// polynomial for the same reason: the chord's own discriminant is
+/// `4d²r₁² − (d² + r₁² − r₂²)²`, with `d²` the square of how far the centres
+/// stand apart, and every term of it is a square of coordinates and radii. The
+/// distance itself has a square root in it and the *decision* does not.
+///
+/// Above nothing where the two cross, nought where they graze, under it where
+/// they miss altogether.
+fn sharing(one: Ring, two: Ring) -> Ordering {
+    if let Some(sign) = shared(Filtered::of, one, two).decided() {
+        return sign;
+    }
+    shared(Rational::of, one, two)
+        .decided()
+        .expect("the exact tier decides")
+}
+
+/// `4d²r₁² − (d² + r₁² − r₂²)²` for the two rings, in whatever arithmetic `of`
+/// reads a coordinate into.
+///
+/// Written once, for the reason [`turned`] is.
+fn shared<T: Clone + Add<Output = T> + Sub<Output = T> + Mul<Output = T>>(
+    of: impl Fn(f64) -> T + Copy,
+    one: Ring,
+    two: Ring,
+) -> T {
+    let gap = (
+        of(two.center.x) - of(one.center.x),
+        of(two.center.y) - of(one.center.y),
+    );
+    let apart = gap.0.clone() * gap.0.clone() + gap.1.clone() * gap.1.clone();
+    let here = of(one.radius);
+    let there = of(two.radius);
+    let (here, there) = (here.clone() * here, there.clone() * there);
+    let leaning = apart.clone() + here.clone() - there;
+    of(4.0) * apart * here - leaning.clone() * leaning
+}
+
 /// Whether the crossing of the two spans falls between the ends of both,
 /// decided exactly.
 ///
@@ -461,25 +501,37 @@ pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
 pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
     let between = two.center - one.center;
     let apart = between.length();
+    // Kept in the machine's own arithmetic, and it is not a decision about
+    // *whether* the two cross: the crossings stand either side of the line of
+    // centres, so a pair whose centres are a rounding apart has that line
+    // known to a handful of bits and a place worked out along it means nothing.
+    // Which is the same reason the concentric case is refused at all.
     if apart < PLACED {
+        return Crossings::none();
+    }
+    // **Which of the three, decided off the centres and the radii.** Read off a
+    // chord worked out in `f64` it turns on which side of nought a cancelled
+    // subtraction landed, exactly as a span against a ring does.
+    let sharing = sharing(one, two);
+    if sharing == Ordering::Less {
         return Crossings::none();
     }
     let chord = Chord::of(one.radius, two.radius, apart);
     // The two crossings stand either side of the middle of the chord.
     let base = one.center + between * (chord.along / apart);
-    if chord.grazing {
+    if sharing == Ordering::Equal {
         // Grazing, inside or out: the two meet on the line of centres and
-        // nowhere else — as far from a true touch as the chord had to reach to
-        // call it one.
+        // nowhere else, and nothing had to stretch to say so.
+        return Crossings::one(Crossing::exactly(base));
+    }
+    let Some(half) = chord.half() else {
+        // The machine's own chord closed to nothing where the geometry says it
+        // has width, so the two crossings stand closer than a float can tell
+        // apart — one place, and a rounding is what it stands for.
         return Crossings::one(Crossing {
             at: base,
-            reached: chord.reached,
+            reached: ROUNDING,
         });
-    }
-    // Too far to reach each other, or one swallowed by the other with room to
-    // spare — either way the chord has no length to be.
-    let Some(half) = chord.half() else {
-        return Crossings::none();
     };
     let step = between.perp() * (half / apart);
     crossed(

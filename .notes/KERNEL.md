@@ -182,10 +182,11 @@ answer, and the first two now say so *exactly*: where two straight spans cross
 is a determinant, and `math::intersect` reads it through the filter and the
 expansions rather than through a quotient.
 
-All four are exact as well as recorded. A span grazes a circle exactly when
-`r²·|d|² − (f ⟂ d)²` is nought, and a root of one lands on the span exactly
-when `Δ` holds against a value squared — both polynomial, both settled by the
-tier. What still rounds is *where* a round crossing falls as a place, the root
+All four are exact as well as recorded, and so is every branch the three
+crossing routines take: a span grazes a circle when `r²·|d|² − (f ⟂ d)²` is
+nought, a root lands on the span when `Δ` holds against a value squared, and two
+rings touch when `4d²r₁² − (d² + r₁² − r₂²)²` is nought. Polynomial throughout,
+and settled by the tier. What still rounds is *where* a round crossing falls as a place, the root
 having a square root in it. That is 9.1's remaining work, and why `number/` is
 shared *downward*: the drawing and the body read one tolerance from one file.
 
@@ -871,10 +872,17 @@ are in this order because the second cannot be done first:
   and leaves the sign for where it is already clear. CatCad's dragging gate is
   what says so — it went from a strict zero to five blocks and back.
 
-  What is left is *where* a round crossing falls, as a place: the root itself is
-  `(−b ± √Δ)/2a` and leaves ℚ, so a corner that is exact is not a `DVec2` and
-  the arrangement would have to stop holding one. That is the half nobody
-  costed.
+  **Two rings are decided the same way.** Their chord's discriminant is
+  `4d²r₁² − (d² + r₁² − r₂²)²`, with `d²` the square of how far the centres
+  stand apart — the distance has a square root in it and the decision does not.
+  So every crossing routine the drawing has now takes its branch off the places
+  and the radii: `spans`, `span_ring` and `rings` alike.
+
+  What is left is *where* a round crossing falls, as a place. The root is
+  `(−b ± √Δ)/2a` and leaves ℚ, so a corner that is exact is not a `DVec2` — and
+  §4.2's answer is not to hold one but to hold what *made* it and re-evaluate,
+  which is what `number::exact::lazy` is for and what nothing yet uses. That is
+  the half nobody costed.
 - **The predicates pointed through the exact tier.** `number/`'s predicates are
   a façade over `f64` today, which is the whole reason the façade was written
   first.

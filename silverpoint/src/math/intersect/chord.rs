@@ -32,14 +32,6 @@ pub(crate) struct Chord {
     /// instead of a touch. Every other comparison in the callers holds a radius
     /// against a distance; this one does too.
     pub(crate) grazing: bool,
-    /// How far from exact tangency the grazing above was admitted, in world
-    /// units.
-    ///
-    /// **A decision taken within tolerance, carried rather than dropped** —
-    /// `.notes/KERNEL.md` §4.1. Nought where two circles touch exactly, and
-    /// nought where they do not touch at all; between those it is what a
-    /// caller raising anything off the touch is entitled to claim about it.
-    pub(crate) reached: f64,
 }
 
 impl Chord {
@@ -52,17 +44,20 @@ impl Chord {
         debug_assert!(apart > 0.0, "two circles {apart} apart share a centre");
         let along = (apart * apart + here * here - there * there) / (2.0 * apart);
         // Outside each other, and one inside the other: the two ways two
-        // circles have of touching exactly once, and how far off the nearer of
-        // them the pair actually sits.
+        // circles have of touching exactly once.
+        //
+        // **Read for a solid rather than for a drawing.** A drawing decides a
+        // tangency off the centres and the radii, where nothing rounds — see
+        // `intersect::sharing` — and reaches here only for the chord's own
+        // numbers. What still asks this is `solid::meeting`, whose spheres and
+        // cylinders have no such reading yet.
         let missed = (apart - (here + there))
             .abs()
             .min((apart - (here - there).abs()).abs());
-        let grazing = missed <= PLACED;
         Self {
             along,
             squared: here * here - along * along,
-            grazing,
-            reached: if grazing { missed } else { 0.0 },
+            grazing: missed <= PLACED,
         }
     }
 

@@ -450,3 +450,51 @@ fn a_span_ending_on_a_ring_meets_it_there_however_the_parameter_reads() {
         cut.to,
     );
 }
+
+/// **Two rings drawn tangent touch once, however the chord reads.**
+///
+/// Radii `11m` and `14m`, with the centres `7m` across and `24m` up — a
+/// seven-twenty-four-twenty-five triangle, so they stand `25m` apart and the
+/// two radii sum to exactly that. The rings touch, over whole numbers, whatever
+/// `m` is.
+///
+/// At `m = 2²⁵ + 1` the square of that distance runs past what a float holds,
+/// so the distance comes back a rounding off `25m` and the chord worked out
+/// from it is not the one the rings share: it reads as half-width ten, which is
+/// two crossings twenty units apart where the drawing has one touch.
+///
+/// Decided off the centres and the radii it is a graze — `4d²r₁² −
+/// (d² + r₁² − r₂²)²` comes to nought — so the touch comes back alone, and
+/// standing for nothing.
+#[test]
+fn two_tangent_rings_touch_once_however_the_chord_reads() {
+    const M: f64 = 33554433.0;
+    let here = ring((0.0, 0.0), 11.0 * M);
+    let there = ring((7.0 * M, 24.0 * M), 14.0 * M);
+
+    // The machine's own reading, asserted so that a fixture which stopped
+    // rounding fails here rather than going on passing for the wrong reason.
+    let apart = (there.center - here.center).length();
+    let chord = Chord::of(here.radius, there.radius, apart);
+    assert!(!chord.grazing, "the chord no longer misreads the touch");
+    let half = chord.half().expect("the chord reads as having width");
+    assert!(
+        half > 1.0,
+        "the misreading is {half} wide, which is no failure to fix",
+    );
+
+    let found = rings(here, there);
+    assert_eq!(found.all().len(), 1, "the touch came back as a crossing");
+    let touch = found.all()[0];
+    assert_eq!(
+        touch.reached, 0.0,
+        "a graze decided exactly stands for nothing",
+    );
+    // On the line of centres, eleven twenty-fifths of the way along it.
+    let at = DVec2::new(7.0 * M, 24.0 * M) * (11.0 / 25.0);
+    assert!(
+        touch.at.approx_eq(at, 1.0),
+        "{:?} rather than the touch at {at:?}",
+        touch.at,
+    );
+}
