@@ -337,9 +337,6 @@ pub(crate) mod outcome;
 mod stepper;
 mod system;
 
-#[cfg(feature = "bench")]
-pub(crate) mod bench;
-
 #[cfg(test)]
 pub(crate) mod internals {
     use crate::sketch::solver::Solver;

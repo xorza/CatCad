@@ -1,45 +1,26 @@
-//! Per-solve allocation gates, driven by `dhat`.
+//! What a drag through a drawing costs the heap, a solve at a time.
 //!
-//! Five steps of the crate's one bench — see [`alloc_bench`](crate::alloc_bench)
-//! — each through a solver kept alive across its window:
+//! Every gate here runs through one [`Solver`] held across its window, which is
+//! the shape a drag has: the constraints are satisfied again on every frame a
+//! pointer is down, and the workspace the solver keeps means none of those
+//! solves touch the heap.
 //!
-//! | step | measures | limit |
-//! |---|---|---|
-//! | `solve-from-guess` | a full solve from coordinates deliberately off the answer | strict zero |
-//! | `solve-converged` | re-solving geometry already at the answer | strict zero |
-//! | `drag-taken` | a held edit the constraints accept | strict zero |
-//! | `drag-refused` | a drag with nowhere to go, so the sketch is handed back | strict zero |
-//! | `measure` | reading what a sketch nothing moved can still do | strict zero |
-//!
-//! One solver, many solves, is the shape a drag has, and the workspace it
-//! keeps means none of them touch the heap. A solver thrown away each time has
-//! no workspace to reuse and allocates accordingly — which is a fact about
-//! that caller, not about the solver, so there is nothing here to gate.
-//!
-//! The drag steps matter most: they are what the application runs every frame a
-//! pointer is down, and the only path that walks the parameter vector out and
-//! back — twice per call, so that a drag which moved nothing can hand back what
-//! it was given. Both walks fill buffers the solver keeps, so they should reuse
-//! the room they have; nothing said so until these.
-//!
-//! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
-//! duration measured under it says nothing.
+//! The two drag gates matter most. They are what the application runs every
+//! frame a pointer is down, and the only path that walks the parameter vector
+//! out and back — twice per call, so that a drag which moved nothing can hand
+//! back what it was given. Both walks fill buffers the solver keeps.
 
-use crate::sketch::constraint::{Constraint, Dimension};
-use crate::sketch::snapshot::Snapshot;
-use crate::sketch::solver::outcome::Outcome;
-use crate::sketch::solver::{Drive, Solver};
-use crate::sketch::{PointId, Sketch};
-use common::AllocBench;
+use common::AllocTester;
 use glam::DVec2;
+use silverpoint::{Constraint, Dimension, Drive, Outcome, PointId, Sketch, Snapshot, Solver};
 use std::hint::black_box;
 
 /// A rectangle anchored at the origin with a circle at its centre, its
 /// coordinates deliberately off the answer.
 ///
 /// The same shape the application opens with, restated here rather than
-/// borrowed: a bench fixture that moves whenever the demo drawing is
-/// redecorated is a gate that moves for reasons that are not regressions.
+/// borrowed: a fixture that moves whenever the demo drawing is redecorated is a
+/// gate that moves for reasons that are not regressions.
 fn fixture() -> Sketch {
     const WIDTH: f64 = 8.0;
     const HEIGHT: f64 = 5.0;
@@ -120,52 +101,56 @@ fn chain() -> Chain {
     Chain { sketch, wrist }
 }
 
-/// Add every per-solve step to `bench`.
-pub(crate) fn steps(bench: &mut AllocBench) {
-    // Solving from the fixture's own guesses, over and over, through one
-    // solver — which is what a drag is, and the only shape the workspace pays
-    // for. The sketch is rewound with `set_params` rather than cloned: a clone
-    // allocates, and it would land inside the window and be counted as the
-    // solver's.
+/// Solving from the fixture's own guesses, over and over, through one solver —
+/// which is the only shape the workspace pays for.
+///
+/// The sketch is rewound from a snapshot rather than cloned: a clone allocates,
+/// and it would land inside the window and be counted as the solver's.
+#[test]
+fn a_solve_from_a_guess_allocates_nothing() {
     let mut sketch = fixture();
-    let mut guess = Vec::new();
-    sketch.params().write(&mut guess);
+    let guess = taken_down(&sketch);
     let mut solver = Solver::default();
     // Kept outside the window with the solver: a solve fills it rather than
     // handing one back, so it is the caller's buffer and pays for itself once.
     let mut outcome = Outcome::default();
-    bench.step("solve-from-guess", 0.0, || {
-        sketch.set_params(&guess);
+    AllocTester::new().run(|| {
+        sketch.restore(&guess);
         solver.solve(&mut sketch, &mut outcome);
         black_box(&outcome);
     });
+}
 
-    // Re-solving a sketch already at its answer, which is what most frames of
-    // a drag actually are: the geometry has barely moved since the last one.
+/// Re-solving a sketch already at its answer, which is what most frames of a
+/// drag actually are: the geometry has barely moved since the last one.
+#[test]
+fn a_solve_of_settled_geometry_allocates_nothing() {
     let mut sketch = fixture();
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
     solver.solve(&mut sketch, &mut outcome);
-    let mut solved = Vec::new();
-    sketch.params().write(&mut solved);
-    bench.step("solve-converged", 0.0, || {
-        sketch.set_params(&solved);
+    let settled = taken_down(&sketch);
+    AllocTester::new().run(|| {
+        sketch.restore(&settled);
         solver.solve(&mut sketch, &mut outcome);
         black_box(&outcome);
     });
+}
 
-    // A drag the constraints take: the wrist stays exactly where the cursor put
-    // it and the elbow swings to suit. Rewound to the settled pose each run, so
-    // every one of them is the same drag rather than a chain walking away.
+/// A drag the constraints take: the wrist stays exactly where the cursor put it
+/// and the elbow swings to suit.
+///
+/// Rewound to the settled pose each run, so every one of them is the same drag
+/// rather than a chain walking away.
+#[test]
+fn a_drag_that_is_taken_allocates_nothing() {
     let Chain { mut sketch, wrist } = chain();
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
     solver.solve(&mut sketch, &mut outcome);
-    let mut settled = Vec::new();
-    sketch.params().write(&mut settled);
+    let settled = taken_down(&sketch);
     // Within reach: √72 from the anchor against an arm that extends to ten.
     let reachable = DVec2::new(6.0, 6.0);
-    let before = taken_down(&sketch);
     solver.drag(
         &mut sketch,
         &[Drive::Point(wrist, reachable)],
@@ -174,11 +159,11 @@ pub(crate) fn steps(bench: &mut AllocBench) {
     );
     assert_ne!(
         taken_down(&sketch),
-        before,
-        "this step stopped measuring a drag that is taken"
+        settled,
+        "this gate stopped measuring a drag that is taken"
     );
-    bench.step("drag-taken", 0.0, || {
-        sketch.set_params(&settled);
+    AllocTester::new().run(|| {
+        sketch.restore(&settled);
         solver.drag(
             &mut sketch,
             &[Drive::Point(wrist, reachable)],
@@ -187,11 +172,16 @@ pub(crate) fn steps(bench: &mut AllocBench) {
         );
         black_box(&outcome);
     });
+}
 
-    // A drag with nowhere to go. Every point of the fixture is pinned down by
-    // its constraints, so the pull finds nothing to yield and the parameter
-    // vector is handed back exactly as it arrived — the pull run, the settle
-    // after it, and the two walks of the vector that say so.
+/// A drag with nowhere to go.
+///
+/// Every point of the fixture is pinned down by its constraints, so the pull
+/// finds nothing to yield and the parameter vector is handed back exactly as it
+/// arrived — the pull run, the settle after it, and the two walks of the vector
+/// that say so.
+#[test]
+fn a_drag_with_nowhere_to_go_allocates_nothing() {
     let mut sketch = fixture();
     let mut solver = Solver::default();
     let mut outcome = Outcome::default();
@@ -212,11 +202,10 @@ pub(crate) fn steps(bench: &mut AllocBench) {
     assert_eq!(
         taken_down(&sketch),
         before,
-        "this step stopped measuring a drag with nowhere to go"
+        "this gate stopped measuring a drag with nowhere to go"
     );
-    bench.step("drag-refused", 0.0, || {
-        // No rewind: a drag with nowhere to go leaves the sketch where it
-        // found it.
+    // No rewind: a drag with nowhere to go leaves the sketch where it found it.
+    AllocTester::new().run(|| {
         solver.drag(
             &mut sketch,
             &[Drive::Point(corner, nowhere)],
@@ -225,10 +214,17 @@ pub(crate) fn steps(bench: &mut AllocBench) {
         );
         black_box(&outcome);
     });
+}
 
-    // Reading a sketch nothing has moved, which is what a drawing does after an
-    // edit it did not make itself — an undo, or a step replayed.
-    bench.step("measure", 0.0, || {
+/// Reading a sketch nothing has moved, which is what a drawing does after an
+/// edit it did not make itself — an undo, or a step replayed.
+#[test]
+fn measuring_a_settled_sketch_allocates_nothing() {
+    let mut sketch = fixture();
+    let mut solver = Solver::default();
+    let mut outcome = Outcome::default();
+    solver.solve(&mut sketch, &mut outcome);
+    AllocTester::new().run(|| {
         solver.measure(&sketch, &mut outcome);
         black_box(&outcome);
     });

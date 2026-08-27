@@ -837,8 +837,12 @@ fn spares<T>(
     doomed
 }
 
-#[cfg(any(test, feature = "bench"))]
-mod drawing {
+/// Drawing a sketch in one call, which only a harness wants.
+///
+/// An application draws through the tool the pointer is holding, a click at a
+/// time. What this is for is standing a known shape up in a line.
+#[cfg(any(test, feature = "internals"))]
+mod internals {
     use crate::sketch::{PointId, Sketch};
     use glam::DVec2;
 
@@ -856,7 +860,7 @@ mod drawing {
         }
 
         /// A closed run of segments through `corners`, and the points it planted.
-        pub(crate) fn outline(&mut self, corners: &[(f64, f64)]) -> Vec<PointId> {
+        pub fn outline(&mut self, corners: &[(f64, f64)]) -> Vec<PointId> {
             let placed = self.polyline(corners);
             self.add_segment(placed[placed.len() - 1], placed[0]);
             placed

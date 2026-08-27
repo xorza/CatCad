@@ -163,11 +163,7 @@ pub(crate) struct Shown<'a> {
 /// one of them moved whenever a row did. An id is stated by the control itself,
 /// so a test resolves it against the frame that drew it and a layout change
 /// stops being a test change. See [`control`].
-///
-/// Gated on `bench` as well as `test`: the two callers are the unit tests and
-/// the allocation bench, and the wider `internals` gate would leave this dead
-/// in a build that turned `internals` on for the renderer reach-in alone.
-#[cfg(any(test, feature = "bench"))]
+#[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use palantir::WidgetId;
 

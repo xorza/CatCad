@@ -579,8 +579,8 @@ fn standoff(sketch: &Sketch, row: &mut JacobianRow<'_>, standing: Gap<'_>) -> f6
     side * reach - distance
 }
 
-#[cfg(any(test, feature = "bench"))]
-mod stating {
+#[cfg(any(test, feature = "internals"))]
+mod internals {
     use crate::sketch::PointId;
     use crate::sketch::constraint::{Along, Constraint, Dimension};
 
@@ -592,7 +592,7 @@ mod stating {
         /// wherever it is written in full. Which way a distance is read is the
         /// whole subject of one test next door, and that one writes its own out
         /// — being the one place the choice is worth seeing at the call site.
-        pub(crate) fn apart(a: PointId, b: PointId, value: f64) -> Self {
+        pub fn apart(a: PointId, b: PointId, value: f64) -> Self {
             Self::Distance {
                 a,
                 b,

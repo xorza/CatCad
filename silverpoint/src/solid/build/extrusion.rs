@@ -535,14 +535,14 @@ impl Builder {
 /// bench fixture raised once outside every window wants either, and saying so
 /// once here keeps the published surface to what the application actually
 /// calls — see `.notes/KERNEL.md` §6.
-#[cfg(any(test, feature = "bench"))]
-pub(crate) mod internals {
+#[cfg(any(test, feature = "internals"))]
+mod internals {
     use crate::solid::build::extrusion::{Builder, Extrusion};
     use crate::solid::topology::body::Body;
 
     impl Extrusion<'_> {
         /// Build it into a body of its own.
-        pub(crate) fn body(&self) -> Body {
+        pub fn body(&self) -> Body {
             let mut body = Body::default();
             Builder::default().extrude(self, &mut body);
             body

@@ -22,32 +22,21 @@ aperture3d = { path = "aperture3d" }
 common = { path = "common" }
 palantir = { path = "palantir" }
 silverpoint = { path = "silverpoint" }
-# Pinned to palantir's versions: `GpuInitCtx` hands out a `wgpu::Device`, so a
-# second semver-incompatible wgpu would make that a foreign type.
 bytemuck = { version = "1.25", features = ["derive"] }
 glam = { version = "0.33", default-features = false, features = ["std"] }
 wgpu = { version = "30.0", default-features = false, features = ["std", "wgsl"] }
-# The exact arithmetic behind `number/` — see `.notes/KERNEL.md` §4.2. Only the
-# rational crate, which pulls `dashu-base` and `dashu-int` and nothing else: the
-# umbrella `dashu` would bring arbitrary-precision floats and complex numbers,
-# neither of which a kernel that is exact or nothing has any use for. Pure Rust,
-# so no C toolchain — which is what rules out `rug` (GMP) and, with it, `inari`
-# for the interval filter.
-#
-# Two entries for one library: `dashu-base` holds the traits `dashu-ratio`'s
-# types are operated through, and a crate that calls a transitive dependency's
-# API without naming it is a crate that breaks when the middle one reshuffles
-# its graph.
 dashu-base = { version = "0.6", default-features = false, features = ["std"] }
 dashu-ratio = { version = "0.6", default-features = false, features = ["std"] }
-# The document format. `serde` is palantir's already and so is in the graph
-# whatever this says; what `ron` adds is the backend it is written through —
-# text that takes comments, and that writes a Rust enum as itself rather than
-# as the tagged object JSON would make of one.
 ron = "0.12"
 serde = { version = "1.0", features = ["derive"] }
 rfd = "0.17"
-dhat = "0.3"
+# Resolved lazily, only where an allocation test fails: `common`'s counting
+# allocator captures an unresolved stack per allocation inside a measured
+# window, so a gate that trips names the line that allocated.
+backtrace = "0.3"
+# PNG alone, for the golden-image suite: the goldens are written and read back
+# in one format, and every other codec would be a decoder nothing decodes.
+image = { version = "0.25", default-features = false, features = ["png"] }
 
 [workspace.lints.rust]
 missing_debug_implementations = "deny"
@@ -85,8 +74,6 @@ strip = "symbols"
 debug = false
 incremental = false
 
-# `"*"` is every package that isn't a workspace member, so workspace code keeps
-# its debug build while the dependency graph stays optimized.
 [profile.dev.package."*"]
 opt-level = 3
 
@@ -96,11 +83,5 @@ opt-level = 3
 # put `aperture3d`'s two paint gates 36 and 39 blocks/run over limits authored
 # where objc2 is not in the graph at all; without it they measure 90 and 93
 # against 102 and 106, so the two backends agree about what a frame costs.
-#
-# Off rather than measured around, because a dependency is built once for the
-# whole of `cargo build` and `cargo test` alike — there is no scope that could
-# hold it for one and not the other. What is given up is a check on calls
-# `wgpu-hal` makes and this workspace does not, on the one platform objc2
-# compiles on.
 [profile.dev.package.objc2]
 debug-assertions = false

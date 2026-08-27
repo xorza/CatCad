@@ -1,40 +1,41 @@
 //! Small things more than one crate in this workspace needs.
 //!
 //! Nothing here is about sketches, rendering or the application — it is what
-//! those three would otherwise each keep a copy of. Every part is behind a
-//! feature, so depending on this crate for one thing never builds the rest.
+//! those three would otherwise each keep a copy of. Today that is one thing:
+//! the allocation-test harness.
 //!
-//! | feature | what it adds |
-//! |---|---|
-//! | `bench` | [`AllocBench`], the harness every `tests/alloc.rs` here drives, and the `dhat` allocator it needs |
+//! # Allocation tests
 //!
-//! # The allocation bench
+//! Every crate here answers the same question the same way — warm the work up,
+//! hold every measured run to a budget, name the run that broke it — and
+//! differs only in what it runs and what the budget is. [`AllocTester`] is the
+//! part that does not differ.
 //!
-//! Every crate here answers the same question the same way — warm up, count
-//! what a window of steady-state runs allocates, hold it against a budget —
-//! and differs only in what it runs and what the budget is. [`AllocBench`] is
-//! the part that does not differ, so a bench target is its own steps plus three
-//! lines — see its own docs for them, which is where an example calling it can
-//! be compiled rather than only read.
+//! Behind the `internals` feature, and reached only from a `[dev-dependencies]`
+//! entry — nothing published depends on this, and a production build never
+//! compiles a line of it.
 //!
-//! Counts, never times: `dhat::Alloc` taxes every allocation 10-30x, so a
-//! duration measured under it says nothing.
-//!
-//! `dhat::Alloc` also has to be *the* global allocator of the binary that
-//! runs, which is why an allocation bench is always its own target and never
-//! shares one with a timing harness. Each target declares it:
+//! A suite is a test target of its own, because [`CountingAllocator`] has to be
+//! *the* allocator of the binary that runs. Each declares it once:
 //!
 //! ```ignore
 //! #[global_allocator]
-//! static ALLOC: common::Alloc = common::Alloc;
+//! static ALLOC: common::CountingAllocator = common::CountingAllocator;
 //! ```
+//!
+//! Everything else in that binary is ordinary `#[test]` functions, so cargo
+//! names each one and runs them the way it runs the rest. The counters are per
+//! thread, so cargo running them in parallel cannot let one test's work land
+//! inside another's window — and the allocator costs a thread-local read
+//! outside a window, so the tests sharing the binary pay nothing for it.
+//!
+//! Counts, never times: a stack is captured for every allocation inside a
+//! window, so a duration measured under this says nothing.
 
-#[cfg(feature = "bench")]
-pub(crate) mod alloc_bench;
+#[cfg(any(test, feature = "internals"))]
+mod alloc_tester;
 
-#[cfg(feature = "bench")]
-pub use alloc_bench::AllocBench;
-/// The global allocator every bench target installs. Re-exported so a target
-/// needs this crate and not `dhat` as well.
-#[cfg(feature = "bench")]
-pub use dhat::Alloc;
+#[cfg(any(test, feature = "internals"))]
+pub use alloc_tester::AllocTester;
+#[cfg(any(test, feature = "internals"))]
+pub use alloc_tester::counting_allocator::CountingAllocator;

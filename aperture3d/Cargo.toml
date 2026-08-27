@@ -17,7 +17,6 @@ palantir.workspace = true
 bytemuck.workspace = true
 glam.workspace = true
 wgpu.workspace = true
-common = { workspace = true, optional = true }
 
 [dev-dependencies]
 # For `headless_test_gpu`, which the pipeline tests lease a device from. Not
@@ -25,30 +24,32 @@ common = { workspace = true, optional = true }
 # interprocess lock, so this crate's GPU section and catcad's cannot run at
 # once under `cargo test --workspace`.
 palantir = { workspace = true, features = ["internals"] }
+# The allocation-test harness the `alloc` target below drives.
+common = { workspace = true, features = ["internals"] }
+# The crate on itself, to turn `internals` on for its own test targets and
+# nowhere else. An integration test links the library built normally —
+# `cfg(test)` is set only for the crate's own unit tests — so the reach-ins it
+# needs have to arrive as a feature. Dev-dependency features are resolved only
+# when building tests, which is what keeps them out of `cargo build` and out of
+# what a consumer of this crate is given.
+aperture3d = { path = ".", features = ["internals"] }
 
 [features]
-# Compiles the allocation-bench driver in `src/` and exposes the one call
-# `tests/alloc.rs` makes. Off by default: nothing published depends on it.
-# Carries `internals` because the driver stages scenes by hand, which is what
-# that feature is for.
-bench = ["dep:common", "common/bench", "internals"]
-
 # The reach-ins a harness assembling a scene by hand needs and an application
-# redrawing one does not: emptying a [`Batch`], shortening it, and saying it was
-# written to without writing to it. Off by default, so what the crate publishes
-# is the refill an app actually wants.
+# redrawing one does not: emptying a [`Batch`], shortening it, saying it was
+# written to without writing to it, re-flattening with no frame to ask for one,
+# and the pane that shows one scene and nothing else. Off by default, so what
+# the crate publishes is the refill an app actually wants.
 internals = []
 
-# Its own target because `dhat::Alloc` has to be *the* global allocator, which
-# is process-wide — anything sharing the binary pays a 10-30x allocator tax. A
-# test rather than a bench because that isolation is per *binary*, and an
-# integration test is one: what the bench profile bought was `lto = "fat"` and a
-# single codegen unit, which cost a minute of build for a measurement that
-# counts allocations rather than timing them.
+# Its own target because `CountingAllocator` has to be *the* allocator of the
+# binary that runs. Ordinary `#[test]` functions inside it, so cargo names each
+# gate and runs them the way it runs the rest. No `required-features`: the
+# `internals` it reaches through arrives from the dev-dependency above, so a
+# bare `cargo test` runs the gates rather than silently skipping them.
 [[test]]
 name = "alloc"
-harness = false
-required-features = ["bench"]
+path = "tests/alloc/main.rs"
 
 [lints]
 workspace = true

@@ -386,8 +386,9 @@ a boolean asks "what is across this edge" in its innermost loop.
 to end in one `Loops` on the topology and a face keeps the stretch of runs that
 are its; the faces of every shell and the cavities of every lump likewise. So emptying a body is a handful of
 `clear`s that keep every buffer, and a solid rebuilt on each frame of a drag
-reaches the heap not at all. CatCad's allocation gate is a strict zero on all
-four of its frames, with a body being built on every dragged one.
+reaches the heap not at all. CatCad's allocation gates are a strict zero on
+every frame the pointer can be in the middle of, with a body being built on
+every dragged one.
 
 ### 4.6 Geometry is closed enums, not traits — **the naturals are in the tree**
 

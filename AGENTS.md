@@ -43,10 +43,11 @@ the `anim-derive` it brings.
 - **`catcad`** — the application, and the workspace's only binary: window,
   viewport, input.
 - **`common`** — unpublished scaffolding no member should keep its own copy of,
-  today the allocation-bench harness.
+  today the allocation-test harness.
 - **`palantir`** — the GUI framework, a submodule of
   `github.com/xorza/palantir`.
 
 `catcad → {aperture3d, silverpoint, palantir}` and `aperture3d → palantir`;
-`common` hangs off the other three's `bench` feature, absent from an ordinary
-build.
+`common` is a dev-dependency of the other three and absent from an ordinary
+build. Each carries an `alloc` test target of its own — `tests/alloc/` — whose
+`#[test]`s hold the paths a frame takes to a per-run allocation budget.

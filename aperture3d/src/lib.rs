@@ -107,10 +107,11 @@ pub(crate) mod tag;
 pub(crate) mod text;
 pub(crate) mod viewport;
 
-/// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
-/// where it can reach what it measures.
-#[cfg(feature = "bench")]
-pub use renderer::bench::alloc_bench;
+/// What a harness painting whole frames needs, and an application never does.
+#[cfg(any(test, feature = "internals"))]
+pub mod internals {
+    pub use crate::renderer::internals::ScenePane;
+}
 
 pub use aim::Aim;
 pub use batch::Batch;

@@ -4,8 +4,6 @@
 //! of the app is reachable from a test — which is what lets the visual suite
 //! raise the real thing rather than a stand-in for it.
 
-#[cfg(feature = "bench")]
-mod bench;
 mod build;
 mod demo;
 mod dialog;
@@ -30,11 +28,6 @@ mod status;
 mod timeline;
 mod tool;
 mod wording;
-
-/// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
-/// where it can reach what it measures.
-#[cfg(feature = "bench")]
-pub use bench::alloc_bench;
 
 use std::path::PathBuf;
 
@@ -677,9 +670,11 @@ pub(crate) mod internals {
     use aperture::{Camera, Renderer};
 
     use crate::CatCad;
+    use crate::hud;
     #[cfg(test)]
     use crate::intent::{Intent, Intents};
     use crate::look::palette::Palette;
+    use crate::tool::Tool;
 
     /// The window every harness in this crate lays its frames out in.
     ///
@@ -833,6 +828,38 @@ pub(crate) mod internals {
         #[cfg(test)]
         pub fn empty_spot(&self) -> glam::Vec3 {
             self.document.empty_spot(self.editing())
+        }
+
+        /// Whether anything in the drawing is under the pointer.
+        ///
+        /// The answer rather than what is hovered, for the reason every forward
+        /// here is one: what a `Part` names is this crate's own vocabulary, and
+        /// a harness asking whether a frame hovers *something* has no use for
+        /// it.
+        pub fn hovering_anything(&self) -> bool {
+            self.view.hovered().is_some()
+        }
+
+        /// Whether the line tool is the one in hand.
+        pub fn drawing_a_line(&self) -> bool {
+            matches!(self.session.tool(), Tool::Line { .. })
+        }
+
+        /// Whether the tool in hand has one end of something down already.
+        ///
+        /// What says a rubber band is being drawn: the first click landed, and
+        /// the second has not.
+        pub fn tool_begun(&self) -> bool {
+            self.session.tool().started().is_some()
+        }
+
+        /// One tool on the rail, by the label it is named and captioned with.
+        ///
+        /// Associated rather than free, for the reason
+        /// [`CatCad::ground_srgb`] is: the module this sits in is `pub(crate)`,
+        /// so a free function in one reaches nobody.
+        pub fn tool_chip(label: &str) -> palantir::WidgetId {
+            hud::internals::tool(label)
         }
     }
 }

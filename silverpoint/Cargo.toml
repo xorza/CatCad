@@ -14,23 +14,34 @@ glam = { workspace = true, features = ["f64"] }
 # Exact rationals for `number/`. See the note in the workspace manifest.
 dashu-base = { workspace = true }
 dashu-ratio = { workspace = true }
-common = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The allocation-test harness the `alloc` target below drives.
+common = { workspace = true, features = ["internals"] }
+# The crate on itself, to turn `internals` on for its own test targets and
+# nowhere else. An integration test links the library built normally —
+# `cfg(test)` is set only for the crate's own unit tests — so the reach-ins it
+# needs have to arrive as a feature. Dev-dependency features are resolved only
+# when building tests, which is what keeps them out of `cargo build` and out of
+# what a consumer of this crate is given.
+silverpoint = { path = ".", features = ["internals"] }
 
 [features]
-# Compiles the allocation-bench driver in `src/` and exposes the one call
-# `tests/alloc.rs` makes. Off by default: nothing published depends on it.
-bench = ["dep:common", "common/bench"]
+# The reach-ins a harness staging geometry by hand needs and an application
+# never does: an arrangement stood up for one call, a closed outline drawn in
+# one, a distance stated the short way, a body raised without keeping the room
+# to raise the next, and how much a body shuts in. Off by default, so what the
+# crate publishes is what the application actually calls.
+internals = []
 
-# Its own target because `dhat::Alloc` has to be *the* global allocator, which
-# is process-wide — anything sharing the binary pays a 10-30x allocator tax. A
-# test rather than a bench because that isolation is per *binary*, and an
-# integration test is one: what the bench profile bought was `lto = "fat"` and a
-# single codegen unit, which cost a minute of build for a measurement that
-# counts allocations rather than timing them.
+# Its own target because `CountingAllocator` has to be *the* allocator of the
+# binary that runs. Ordinary `#[test]` functions inside it, so cargo names each
+# gate and runs them the way it runs the rest. No `required-features`: the
+# `internals` it reaches through arrives from the dev-dependency above, so a
+# bare `cargo test` runs the gates rather than silently skipping them.
 [[test]]
 name = "alloc"
-harness = false
-required-features = ["bench"]
+path = "tests/alloc/main.rs"
 
 [lints]
 workspace = true

@@ -215,8 +215,8 @@ impl Mesher {
     }
 }
 
-#[cfg(test)]
-pub(crate) mod internals {
+#[cfg(any(test, feature = "internals"))]
+mod internals {
     use crate::solid::mesh::{Mesher, Patch};
     use crate::solid::topology::body::Body;
     use crate::solid::topology::face::FaceId;
@@ -234,7 +234,7 @@ pub(crate) mod internals {
         ///
         /// Independent of where the origin sits, which is what lets a solid on
         /// a plane away from it be checked against the same arithmetic.
-        pub(crate) fn volume(&mut self, of: &Body, sagitta: f64) -> f64 {
+        pub fn volume(&mut self, of: &Body, sagitta: f64) -> f64 {
             let held: Vec<FaceId> = of.topology().faces().map(|(at, _)| at).collect();
             self.shut_in(of, &held, sagitta, &mut Patch::default())
         }

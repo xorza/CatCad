@@ -433,8 +433,8 @@ struct Scratch {
     bounding: Bounding,
 }
 
-#[cfg(any(test, feature = "bench"))]
-mod building {
+#[cfg(any(test, feature = "internals"))]
+mod internals {
     use crate::sketch::Sketch;
     use crate::sketch::arrangement::Arrangement;
 
@@ -446,7 +446,7 @@ mod building {
         /// saved by keeping the arrangement — what keeping it saves is pinned
         /// by `a_reused_arrangement_answers_exactly_as_a_fresh_one_would` and
         /// by the application's allocation gates.
-        pub(crate) fn of(sketch: &Sketch) -> Self {
+        pub fn of(sketch: &Sketch) -> Self {
             let mut found = Self::default();
             found.rebuild(sketch);
             found

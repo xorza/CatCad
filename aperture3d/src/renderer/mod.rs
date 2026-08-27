@@ -16,8 +16,6 @@ use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
 pub(crate) mod atlas;
 pub(crate) mod band;
-#[cfg(feature = "bench")]
-pub(crate) mod bench;
 pub(crate) mod cpu;
 pub(crate) mod gpu;
 pub(crate) mod pass;
@@ -305,17 +303,23 @@ mod shaping {
 }
 
 /// What a harness painting whole frames needs, and an application never does.
-///
-/// Gated on `bench` rather than on `internals`, though `bench` carries it: the
-/// two callers are this crate's own tests and its allocation bench, and a
-/// consumer that turns `internals` on — catcad's test targets do — wants the
-/// reach-ins into [`Batch`](crate::Batch) and not a pane it never paints.
-#[cfg(any(test, feature = "bench"))]
+#[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::renderer::Renderer;
     use palantir::{App, Configure, GpuPaint, GpuView, Sizing, Ui, WindowToken};
     use std::cell::RefCell;
     use std::rc::Rc;
+
+    impl Renderer {
+        /// Re-flatten whatever is marked, with no frame to ask for one.
+        ///
+        /// What [`Renderer::paint`] does first of all, reached on its own —
+        /// which is what an allocation gate over flattening wants, there being
+        /// no device in front of it.
+        pub fn flatten(&mut self, raster_scale: f32) {
+            self.refresh(raster_scale);
+        }
+    }
 
     /// A pane that draws one scene and does nothing else.
     ///
@@ -323,8 +327,8 @@ pub(crate) mod internals {
     /// at all needs something to show a [`GpuView`] from — this is the least of
     /// that.
     #[derive(Debug)]
-    pub(crate) struct ScenePane {
-        pub(crate) view: Rc<RefCell<Renderer>>,
+    pub struct ScenePane {
+        pub view: Rc<RefCell<Renderer>>,
     }
 
     impl App for ScenePane {

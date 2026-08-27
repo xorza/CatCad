@@ -451,8 +451,8 @@ impl Camera {
     }
 }
 
-#[cfg(any(test, feature = "bench"))]
-mod looking {
+#[cfg(any(test, feature = "internals"))]
+mod internals {
     use crate::camera::{Camera, Projection};
     use glam::Vec3;
 
@@ -470,7 +470,7 @@ mod looking {
         /// Every field is stated because none of [`Camera::default`] survives
         /// here: that one is angled, further off, narrower and clipped far
         /// nearer, and a fixture wanting arithmetic can borrow none of it.
-        pub(crate) fn head_on() -> Self {
+        pub fn head_on() -> Self {
             Self {
                 projection: Projection::Perspective,
                 target: Vec3::ZERO,

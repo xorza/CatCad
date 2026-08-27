@@ -11,13 +11,14 @@ repository.workspace = true
 publish = false
 
 [dependencies]
-dhat = { workspace = true, optional = true }
+backtrace = { workspace = true, optional = true }
 
 [features]
-# The allocation-bench harness, and the heap profiler under it. Off by
-# default, so a crate reaching here for anything else never builds a profiler
-# it has no use for.
-bench = ["dep:dhat"]
+# The allocation-test harness. Off by default, so a crate reaching here for
+# anything else builds no stack capture it has no use for — and so this crate
+# says out loud that it is scaffolding for test targets, which is the only
+# place it is ever depended on from.
+internals = ["dep:backtrace"]
 
 [lints]
 workspace = true

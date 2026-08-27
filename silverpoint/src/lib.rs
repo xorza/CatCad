@@ -36,8 +36,6 @@
 //! is twice the point count plus one per circle. Everything is `f64`: the
 //! residuals of a nearly-degenerate sketch do not survive `f32`.
 pub(crate) mod arena;
-#[cfg(feature = "bench")]
-pub(crate) mod bench;
 pub(crate) mod loops;
 pub(crate) mod math;
 pub(crate) mod number;
@@ -45,10 +43,6 @@ pub(crate) mod sketch;
 pub(crate) mod solid;
 
 pub use arena::Id;
-/// The one call `tests/alloc.rs` makes. The driver itself stays in `src/`,
-/// where it can reach what it measures.
-#[cfg(feature = "bench")]
-pub use bench::alloc_bench;
 pub use math::plane::Plane;
 pub use math::triangulate::Fill;
 pub use sketch::arrangement::Arrangement;
