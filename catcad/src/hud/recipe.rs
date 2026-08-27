@@ -1,8 +1,8 @@
 //! The recipe, down the right edge: a row per step, in the order they build.
 
 use palantir::{
-    Align, Background, Configure, Corners, HAlign, InternedStr, Panel, Rect, Sense, Sizing,
-    Spacing, Text, TextStyle, TextWrap, Ui, VAlign, WidgetId,
+    Align, Background, Color, Configure, Corners, FontWeight, HAlign, InternedStr, Panel, Rect,
+    Sense, Sizing, Spacing, Text, TextStyle, TextWrap, Ui, VAlign, WidgetId,
 };
 
 use crate::hud::pill::{self, Pill};
@@ -56,7 +56,22 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
         .width(theme.chrome.card)
         .gap(1.0)
         .show(ui, |ui| {
+            let chrome = &theme.chrome;
+            // Standing clear of the first row at both ends, so it reads as what
+            // the card is called rather than as a row above the list.
+            caption(
+                ui,
+                theme,
+                "recipe",
+                "RECIPE",
+                chrome.ink_dim,
+                Spacing::new(chrome.pad, chrome.gap * 0.5, 0.0, chrome.gap),
+            );
             let (mut planes, mut sketches, mut solids) = (0, 0, 0);
+            // Whether the walk has passed the last step the document built —
+            // see [`Models::rolled`](crate::model::Models::rolled), which names
+            // that step rather than marking the tail below it.
+            let mut built = true;
             for (at, feature) in models.steps() {
                 // The same words the status line uses for the same states, so the
                 // two say it the same way — see [`Status`](crate::status::Status).
@@ -87,15 +102,14 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                     Some(nth) => ui.fmt(format_args!("{named} {nth}{broken}")),
                     None => ui.fmt(format_args!("{named}{broken}")),
                 };
-                if row(
-                    ui,
-                    shown.icons,
-                    theme,
+                let showing = Row {
                     at,
                     glyph,
                     label,
-                    selection.contains(Part::Step(at)),
-                ) {
+                    picked: selection.contains(Part::Step(at)),
+                    built,
+                };
+                if row(ui, shown.icons, theme, showing) {
                     // Picked out and nothing else. What follows from picking a step
                     // is decided where everything else about a selection is — a
                     // sketch opens, a plane does not — see
@@ -107,24 +121,38 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                 // *tail*, so where it starts is the whole of what there is to show.
                 if models.rolled() == Some(at) {
                     rolled(ui, theme, shown.theme.drawing.free);
+                    built = false;
                 }
             }
         });
 }
 
-/// One row, and whether it was pressed.
-fn row(
-    ui: &mut Ui,
-    icons: &Icons,
-    theme: &Theme,
+/// What one row shows: which step it stands for, and what the document makes
+/// of that step.
+#[derive(Debug, Clone, Copy)]
+struct Row {
     at: FeatureId,
     glyph: Glyph,
     label: InternedStr,
     picked: bool,
-) -> bool {
+    /// Whether the document has built this step, or it lies past the rollback
+    /// bar — see [`Wearing::row`], which is what reads it.
+    built: bool,
+}
+
+/// One row, and whether it was pressed.
+fn row(ui: &mut Ui, icons: &Icons, theme: &Theme, showing: Row) -> bool {
+    let Row {
+        at,
+        glyph,
+        label,
+        picked,
+        built,
+    } = showing;
     let chrome = &theme.chrome;
     let id = step_id(at);
-    let wearing = Wearing::row(theme, picked, ui.response_for(id).hovered).eased(ui, id, theme);
+    let hovered = ui.response_for(id).hovered;
+    let wearing = Wearing::row(theme, picked, hovered, built).eased(ui, id, theme);
     let style = TextStyle {
         color: wearing.ink,
         font_size_px: chrome.readout_text,
@@ -167,7 +195,23 @@ fn row(
 /// How far the rollback bar stands clear of the card's inner edge.
 const BAR_INSET: f32 = 6.0;
 
-/// Where the build stops, drawn as a rule rather than as a run of dashes.
+/// How much room the bar leaves at either side of the words on it.
+const BAR_GAP: f32 = 6.0;
+
+/// What share of the bar the arm before the words takes.
+///
+/// Short, and the arm after it takes whatever is left: the words are set flush
+/// against the left of the card like every label on it, so a bar centred about
+/// them would put the caption where no other row starts.
+const BAR_ARM: f32 = 0.18;
+
+/// Where the build stops, drawn as a captioned rule rather than as a run of
+/// dashes.
+///
+/// **Said as well as drawn.** A rule across a list is a division and nothing
+/// more; what a person has to know is that everything under it is *not built*,
+/// and no line says that on its own. So the rule carries the words, and the two
+/// halves of it are what makes them read as a division rather than as a row.
 ///
 /// In the colour the drawing paints loose geometry, which is the same news said
 /// twice: a tail of the recipe is not built, so whatever it would have made is
@@ -177,6 +221,49 @@ const BAR_INSET: f32 = 6.0;
 /// what is rolled back is a *tail*, and where it starts is the whole of what
 /// there is to show.
 fn rolled(ui: &mut Ui, theme: &Theme, free: Vec3) {
-    let run = theme.chrome.card - (theme.chrome.pad + BAR_INSET) * 2.0;
-    pill::line(ui, "rolled", run, 1.0, drawing::tint(free));
+    let chrome = &theme.chrome;
+    let tint = drawing::tint(free);
+    let full = chrome.card - (chrome.pad + BAR_INSET) * 2.0;
+    Panel::hstack()
+        .id_salt("rolled")
+        .size((Sizing::fixed(full), Sizing::fixed(ROW * 0.5)))
+        .align(Align::CENTER)
+        .gap(BAR_GAP)
+        .background(Background::NONE)
+        .show(ui, |ui| {
+            // The arm before the words is measured and the one after it fills:
+            // a stated pair would have to be told how wide the caption came
+            // out, which the shaper decides.
+            pill::line(ui, "rolled.left", full * BAR_ARM, 1.0, tint);
+            caption(ui, theme, "rolled", "ROLLED BACK", tint, Spacing::ZERO);
+            pill::filling_line(ui, "rolled.right", 1.0, tint);
+        });
+}
+
+/// A surface's own name, or the words on a division of one.
+///
+/// Upper case and small, which is the whole of how a caption is told from a
+/// row: the rows are what the list is *for*, and a heading set at their size
+/// and in their case would read as one more of them.
+fn caption(
+    ui: &mut Ui,
+    theme: &Theme,
+    salt: &'static str,
+    text: &'static str,
+    color: Color,
+    margin: Spacing,
+) {
+    let style = TextStyle {
+        color,
+        font_size_px: theme.chrome.caption_text,
+        weight: FontWeight::Bold,
+        ..TextStyle::default()
+    };
+    Text::new(text)
+        .id_salt(salt)
+        .style(&style)
+        .size((Sizing::HUG, Sizing::HUG))
+        .align(Align::new(HAlign::Left, VAlign::Center))
+        .margin(margin)
+        .show(ui);
 }

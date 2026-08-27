@@ -126,14 +126,20 @@ pub(crate) struct Shown<'a> {
     /// set owns what the *host* has parsed and rasterized.
     pub(crate) theme: &'a Theme,
     pub(crate) tool: Tool,
+    /// Whatever the drawing has to say beyond how the solve went — see
+    /// [`Status::rest`](crate::status::Status::rest).
+    ///
+    /// The tail rather than the whole line, because the readout draws the solve
+    /// itself as fields: handed the sentence it would say the verdict, the
+    /// degrees of freedom and the iterations twice over.
+    ///
     /// Already in the pass's own text arena, so nothing here copies it — and it
     /// has to be lowered in the pass that minted it.
-    pub(crate) status: InternedStr,
+    pub(crate) rest: InternedStr,
     /// What the last solve made of the open sketch, where one is open.
     ///
-    /// Beside the line above rather than read out of it, because the two are
-    /// read differently: the line is a sentence and this is a state the meter
-    /// picks a colour by.
+    /// Beside the tail above rather than read out of it, because the two are
+    /// read differently: that is a sentence and this is what the fields report.
     pub(crate) solved: Option<Solved>,
     /// Where the document is being looked at from.
     ///

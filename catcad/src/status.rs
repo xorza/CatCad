@@ -123,6 +123,30 @@ impl fmt::Display for Solved {
     }
 }
 
+impl Status<'_> {
+    /// Everything it has to say *besides* how the solve went.
+    ///
+    /// **What a reader that shows the solve some other way is left with.** The
+    /// readout draws the verdict, the degrees of freedom and the iterations as
+    /// separate fields — a word, two figures and a swatch, rather than a clause
+    /// — and would repeat all three if it then wrote the whole line under them.
+    ///
+    /// A view rather than a second spelling: [`Display`](fmt::Display) writes
+    /// the solve clause and then this, so the wording of a cleanup or a lost
+    /// profile is stated once and the two cannot drift.
+    ///
+    /// Each clause carries its own leading separator, so the run reads as a
+    /// continuation of whatever it is written after and is empty when there is
+    /// no news.
+    pub(crate) fn rest(&self) -> Rest<'_> {
+        Rest(self)
+    }
+}
+
+/// [`Status`] less the solve clause — see [`Status::rest`].
+#[derive(Debug)]
+pub(crate) struct Rest<'a>(&'a Status<'a>);
+
 impl fmt::Display for Status<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // What the drawing is doing, or that there is no drawing being done.
@@ -132,36 +156,43 @@ impl fmt::Display for Status<'_> {
             Some(solved) => write!(f, "{solved}")?,
             None => f.write_str("no sketch open")?,
         }
-        if self.lost > 0 {
+        write!(f, "{}", self.rest())
+    }
+}
+
+impl fmt::Display for Rest<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let Self(status) = self;
+        if status.lost > 0 {
             // Named for what was lost rather than for the step that lost it: a
             // profile is what an extrude is grown from, and "1 extrude" would
             // read as though the extrude itself had gone.
-            write!(f, " · {} profile", self.lost)?;
-            if self.lost != 1 {
+            write!(f, " · {} profile", status.lost)?;
+            if status.lost != 1 {
                 f.write_str("s")?;
             }
             f.write_str(" lost")?;
         }
-        if self.unmerged > 0 {
+        if status.unmerged > 0 {
             // Named for the solid rather than for the step, like the clause
             // above: what a person sees is a solid standing apart from the
             // rest, and the step it came from is intact.
-            write!(f, " · {} solid", self.unmerged)?;
-            if self.unmerged != 1 {
+            write!(f, " · {} solid", status.unmerged)?;
+            if status.unmerged != 1 {
                 f.write_str("s")?;
             }
             f.write_str(" not merged")?;
         }
-        if self.unsaved {
+        if status.unsaved {
             f.write_str(" · unsaved")?;
         }
-        if let Some(filed) = self.filed {
+        if let Some(filed) = status.filed {
             write!(f, " · {filed}")?;
         }
-        if let Some(entity) = self.hovered {
+        if let Some(entity) = status.hovered {
             write!(f, " · {}", noun(entity))?;
         }
-        match self.cleaned {
+        match status.cleaned {
             None => Ok(()),
             Some(cleaned) if cleaned.is_empty() => write!(f, " · nothing to clean up"),
             Some(cleaned) => {

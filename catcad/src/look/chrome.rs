@@ -120,8 +120,13 @@ pub(crate) struct Chrome {
     /// of chips need no bound: a chip count is a width.
     pub(crate) card: f32,
     /// The same, for the solver's report, which holds a sentence rather than a
-    /// name — and is set so the *solve's* own line fits whole. What runs past
-    /// this is a path, and a path is the one clause worth losing the tail of.
+    /// name.
+    ///
+    /// Set so the fields fit whole with room for a clause of news beside them —
+    /// see [`readout`](crate::hud). The solve itself no longer runs in the
+    /// sentence, so what this has to hold is a word, two figures and a swatch.
+    /// What runs past it is a path, and a path is the one clause worth losing
+    /// the tail of.
     pub(crate) readout: f32,
 
     /// How much of a chip's box the artwork spans.
@@ -134,6 +139,12 @@ pub(crate) struct Chrome {
     pub(crate) chip_text: f32,
     /// The lines the overlay reads out in.
     pub(crate) readout_text: f32,
+    /// What a surface calls itself, and what it captions a division with.
+    ///
+    /// Smaller than anything a person *reads*, because a caption is not read: it
+    /// is glanced at once to learn what a surface is and then ignored, so it
+    /// takes the least room that still names the thing.
+    pub(crate) caption_text: f32,
 
     /// The solver's verdict swatch, which carries a colour and no number.
     pub(crate) verdict_run: f32,
@@ -200,10 +211,11 @@ impl Chrome {
             pad: 4.0,
             inset: 12.0,
             card: 176.0,
-            readout: 390.0,
+            readout: 300.0,
             icon: 17.0,
             chip_text: 12.0,
             readout_text: 11.5,
+            caption_text: 9.5,
             verdict_run: 46.0,
             verdict_weight: 4.0,
             cube: 76.0,

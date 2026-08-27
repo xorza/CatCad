@@ -350,7 +350,7 @@ impl CatCad {
         // minted it, which is the only pass it is good for.
         let reported = self.status();
         let solved = reported.solved;
-        let status = ui.fmt(format_args!("{reported}"));
+        let rest = ui.fmt(format_args!("{}", reported.rest()));
         // Taken up here rather than at construction, and afresh every frame:
         // a set is registered against the host that will draw it — see
         // [`Icons::load`].
@@ -366,7 +366,7 @@ impl CatCad {
                 icons,
                 theme: &self.theme,
                 tool: self.session.tool(),
-                status,
+                rest,
                 solved,
                 camera: self.document.camera(),
                 models: self.document.models(&self.build, self.session.editing()),

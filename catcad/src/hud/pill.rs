@@ -117,9 +117,22 @@ fn run(theme: &Theme) -> f32 {
 /// there is no extent to stretch against and the rule arrives with no length at
 /// all. Stated outright, it has one.
 pub(super) fn line(ui: &mut Ui, salt: &str, width: f32, height: f32, color: Color) {
+    laid(ui, salt, Sizing::fixed(width), height, color);
+}
+
+/// The same, taking whatever length is left where it stands.
+///
+/// For the far side of a rule the words on it divide: how much room the letters
+/// took is the shaper's answer, so the arm after them is the one length here
+/// that cannot be stated.
+pub(super) fn filling_line(ui: &mut Ui, salt: &str, height: f32, color: Color) {
+    laid(ui, salt, Sizing::FILL, height, color);
+}
+
+fn laid(ui: &mut Ui, salt: &str, width: Sizing, height: f32, color: Color) {
     Panel::hstack()
         .id_salt(salt)
-        .size((Sizing::fixed(width), Sizing::fixed(height)))
+        .size((width, Sizing::fixed(height)))
         .align(Align::CENTER)
         .background(Background::fill(color))
         .show(ui, |_| {});
