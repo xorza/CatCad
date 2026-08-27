@@ -202,7 +202,7 @@ impl Strips {
     /// Halves rather than any other split, because the two pieces then differ
     /// in nothing and neither is the awkward one. The corner is exactly on the
     /// circle, which the drawing's own corners need not be — see the tolerance
-    /// [`Extrusion`](super::extrusion::Extrusion) raises everything with.
+    /// [`Extrusion`](super::builder::Extrusion) raises everything with.
     fn split(&mut self, bound: Bound, from: usize, to: usize, turn: Turn) {
         let half = turn.sweep / 2.0;
         let between = self.corners.len();

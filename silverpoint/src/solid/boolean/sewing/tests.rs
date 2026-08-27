@@ -3,7 +3,7 @@ use crate::Plane;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::boolean::{Combining, Operation};
-use crate::solid::build::extrusion::Extrusion;
+use crate::solid::build::builder::Extrusion;
 use crate::solid::grown::Grown;
 use crate::solid::named::{Named, Step};
 

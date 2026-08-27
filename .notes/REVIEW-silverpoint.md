@@ -23,24 +23,6 @@ carries its neighbour's summary, and the item above carries none.
 - [ ] `solid/mesh/mod.rs:113-114` — `Mesher::shut_in` loses the paragraph break
   before the note about `into`.
 
-## Modules holding several major types
-
-The house rule puts one major struct in one file of that name. These files hold
-several, and three of them are the largest in the crate.
-
-- [ ] `solid/boolean/splitting/mod.rs` — 1339 lines. It holds `Cut` with twelve
-  methods, `Cells`, `Corner`, `Came`, `Side`, `Ends`, `Crested`, the `Marked`
-  trait and `Splitting`.
-- [ ] `solid/boolean/sewing/mod.rs` — 1049 lines. It holds `Sewing` with
-  twenty-two fields, `Join`, `Stepped`, `Runs`, `Pinned` and `Step`.
-- [ ] `solid/boolean/mod.rs` — 707 lines. It holds `Combining` with nineteen
-  fields, plus `Boolean`, `Operation`, `Kept` and two free functions.
-- [ ] `solid/build/extrusion.rs` — the file is named for `Extrusion`, a
-  five-field parameter bundle. The major struct in it is `Builder`, which holds
-  the scratch and every pass of the build.
-- [ ] `solid/mesh/refining.rs` — `Refining` holds eleven fields. Its doc is
-  sixty lines. The file has no siblings to split into yet.
-
 ## Scratch mixed in with the answer
 
 `Arrangement` holds its working buffers in a `Scratch` field, apart from the

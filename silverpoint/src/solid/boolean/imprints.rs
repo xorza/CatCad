@@ -16,10 +16,10 @@ struct Along {
 /// marked with.
 ///
 /// **Two tables and not one, because a mark has to answer two questions and
-/// they want opposite things of it.** [`Came::Arc`](super::splitting::Came) is
+/// they want opposite things of it.** [`Came::Arc`](super::splitting::corner::Came) is
 /// one number per stretch, and it is read by two sorts of caller:
 ///
-/// - *Is this the same stretch?* — [`passing`](super::splitting::passing), which
+/// - *Is this the same stretch?* — [`passing`](super::splitting::corner::passing), which
 ///   drops a corner the boundary merely carries on through. Two arcs of one
 ///   circle are two edges of a face with a vertex between them, no face being
 ///   allowed to wrap, and marked alike that vertex is dropped and a disc comes

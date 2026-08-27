@@ -3,7 +3,7 @@ use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
-use crate::solid::build::extrusion::Extrusion;
+use crate::solid::build::builder::Extrusion;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;

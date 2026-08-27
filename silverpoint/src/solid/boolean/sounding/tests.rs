@@ -2,7 +2,7 @@ use super::*;
 use crate::Plane;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
-use crate::solid::build::extrusion::Extrusion;
+use crate::solid::build::builder::Extrusion;
 use crate::solid::named::Step;
 
 /// The step every block below is grown by. Sounding asks where a place stands

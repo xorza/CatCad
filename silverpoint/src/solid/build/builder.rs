@@ -536,7 +536,7 @@ impl Builder {
 /// calls — see `.notes/KERNEL.md` §6.
 #[cfg(any(test, feature = "internals"))]
 mod internals {
-    use crate::solid::build::extrusion::{Builder, Extrusion};
+    use crate::solid::build::builder::{Builder, Extrusion};
     use crate::solid::topology::body::Body;
 
     impl Extrusion<'_> {

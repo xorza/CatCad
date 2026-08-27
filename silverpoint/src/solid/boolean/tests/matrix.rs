@@ -21,7 +21,7 @@ use crate::Plane;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::solid::boolean::{Boolean, Operation};
-use crate::solid::build::extrusion::Extrusion;
+use crate::solid::build::builder::Extrusion;
 use crate::solid::mesh::Mesher;
 use crate::solid::named::Step;
 use crate::solid::topology::body::Body;

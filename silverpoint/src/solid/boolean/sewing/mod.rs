@@ -18,9 +18,10 @@
 use crate::loops::Loops;
 use crate::number::predicate::ApproxEq;
 use crate::number::tolerance::{EXACT, PLACED};
+use crate::solid::boolean::CHORDED;
+use crate::solid::boolean::combining::Kept;
 use crate::solid::boolean::imprints::Imprints;
-use crate::solid::boolean::splitting::{self, Came, Corner};
-use crate::solid::boolean::{CHORDED, Kept};
+use crate::solid::boolean::splitting::corner::{self, Came, Corner};
 use crate::solid::buckets::{Buckets, Key};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
@@ -39,74 +40,20 @@ use crate::solid::topology::vertex::{Vertex, VertexId};
 use glam::{DVec2, DVec3};
 use std::f64::consts::{PI, TAU};
 
+use crate::solid::boolean::sewing::join::{Join, Step};
+use crate::solid::boolean::sewing::pinned::{Pinned, placed_on};
+use crate::solid::boolean::sewing::stepped::{Runs, Stepped};
 use std::ops::Range;
 
-/// One edge as it is being found.
-#[derive(Debug)]
-struct Join {
-    ends: [VertexId; 2],
-    /// A place halfway along it, which is what tells two edges between one
-    /// pair of vertices apart.
-    ///
-    /// **Two arcs of a circle share both their ends**, and a bore's rim is
-    /// exactly that: the block's face and the bore's wall each walk the circle
-    /// in two pieces, and the two pieces run between the same two vertices. Read
-    /// by their ends alone they are one edge claimed four times, which closes
-    /// nothing and reads as a body that will not sew. For a straight edge the
-    /// middle follows from the ends, so this changes nothing there — which is
-    /// why it is the rule for every edge rather than a case for round ones.
-    middle: DVec3,
-    /// What the edge runs along — see [`Runs`].
-    along: Runs,
-    /// The faces that have claimed it. Exactly two by the end, or the regions
-    /// did not close and there is no body to be had.
-    between: [Option<FaceId>; 2],
-    /// How many have claimed it, which is not how many are recorded above: a
-    /// third face reaching for an edge two already share has nowhere to be put
-    /// and is exactly the failure this counts.
-    claims: usize,
-}
-
-/// One vertex of one loop, and what the stretch leaving it runs along.
-///
-/// **One buffer rather than two kept in step**, which is the same argument
-/// [`Corner`] makes one stage earlier: the walk is truncated, popped and
-/// reversed in four places, and a second list beside it would be four chances
-/// to do one and forget the other.
-///
-/// The mark cannot be worked out from the vertices later, which is why it is
-/// carried at all: by the time an edge is made, the flattened corners it was
-/// collapsed out of are gone, and two vertices standing on one circle say
-/// nothing about which of the two arcs between them is the edge — or whether
-/// the edge is an arc at all.
-#[derive(Debug, Clone, Copy, PartialEq)]
-struct Stepped {
-    vertex: VertexId,
-    along: Runs,
-}
-
-/// What the stretch leaving one vertex of a loop runs along.
-///
-/// [`Came`] with the arc's *extent* filled in, which is the one thing a mark
-/// cannot carry and an edge cannot do without: two places on a circle say
-/// nothing about which of the two ways round between them the edge goes, and
-/// the corners that would have said were dropped on the way here. Worked out
-/// while they are still to hand — see [`swept`].
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Runs {
-    /// Straight to the next vertex.
-    Straight,
-    /// Along the imprint at this index, over these parameters — see
-    /// [`Edge::bounds`], whose convention this is: a start and a finish, the
-    /// second free to be the smaller where the walk runs backwards.
-    Arc { run: u32, bounds: [f64; 2] },
-}
+mod join;
+mod pinned;
+mod stepped;
 
 /// The imprint a loop runs along the whole way round, where it is one closed
 /// arc and nothing else.
 ///
 /// A circle bored through a face has no corner where one stretch meets a
-/// different one: every corner of it is a [`passing`](splitting::passing), so
+/// different one: every corner of it is a [`passing`](corner::passing), so
 /// the loop has no places at all and nothing to hang an edge between. Which is
 /// a case rather than a degenerate — it is what every hole a round tool cuts
 /// looks like — and [`Sewing::encircle`] is the answer to it.
@@ -118,45 +65,6 @@ fn encircled(walk: &[Corner]) -> Option<u32> {
         return None;
     };
     (walk.len() >= 3 && walk.iter().all(|it| it.came == Came::Arc(run))).then_some(run)
-}
-
-/// One place a curve already carries a vertex.
-///
-/// **What says where a closed imprint is split.** A circle has no corner of its
-/// own to begin at, but the *other* faces on it do: the wall of a bore is two
-/// faces of one cylinder split at a seam, and where that seam crosses the rim is
-/// a place a vertex already stands. Split anywhere else and the rim of the hole
-/// and the rim of the wall are two circles with four vertices between them,
-/// sharing no edge — so the shell never crosses from one to the other.
-///
-/// Kept as a place rather than as a parameter, because that is how the sewing
-/// tells any two things apart — see the module's own note — and because the two
-/// faces meeting there read the curve from different parameters.
-#[derive(Debug, Clone, Copy)]
-struct Pinned {
-    /// Which curve, and not which run — see [`Imprints`]. Two stretches on one
-    /// circle are two runs, and a place on either is a place on the circle.
-    curve: u32,
-    at: DVec3,
-    /// How far along that curve it stands.
-    ///
-    /// Carried rather than worked out by each reader: both of them want it,
-    /// and it is what the places on one curve are put in order of — see
-    /// [`Sewing::pin`].
-    along: f64,
-}
-
-/// The places pinned on the curve at `on`, in the order the curve runs.
-///
-/// A stretch of one run and a whole closed one both ask this — see
-/// [`Sewing::broken`] and [`Sewing::encircle`] — and neither can hold `&self`
-/// while it fills the buffer it answers in, which is why this takes the slice.
-///
-/// Halved rather than walked, the places being kept in curve order.
-fn placed_on(pinned: &[Pinned], on: u32) -> &[Pinned] {
-    let from = pinned.partition_point(|it| it.curve < on);
-    let to = pinned.partition_point(|it| it.curve <= on);
-    &pinned[from..to]
 }
 
 /// How far round `curve` the stretch from corner `from` to corner `to` goes,
@@ -203,13 +111,6 @@ fn swept(walk: &[Corner], from: usize, to: usize, on: Surface, curve: Curve) -> 
             break [start, start + sweep];
         }
     }
-}
-
-/// One step of one loop: the edge it walks and which way.
-#[derive(Debug, Clone, Copy)]
-struct Step {
-    join: usize,
-    forward: bool,
 }
 
 /// A vertex made, and where it stands.
@@ -415,7 +316,7 @@ impl Sewing {
             for run in region.loops.clone() {
                 let walk = loops.get(run);
                 for step in 0..walk.len() {
-                    if splitting::passing(walk, step) {
+                    if corner::passing(walk, step) {
                         continue;
                     }
                     let before = walk[(step + walk.len() - 1) % walk.len()].came;
@@ -638,7 +539,7 @@ impl Sewing {
             self.turning.clear();
             self.turning.extend_from_slice(loops.get(run));
             if !region.outward {
-                splitting::turned(&mut self.turning);
+                corner::turned(&mut self.turning);
             }
             // A loop that is one closed arc has no place of its own to begin
             // at, and is put down whole rather than walked — see
@@ -648,10 +549,10 @@ impl Sewing {
                 continue;
             }
             // Which corners are places rather than the ones a flattening put
-            // there — see [`splitting::passing`].
+            // there — see [`corner::passing`].
             self.kept.clear();
             self.kept.extend(
-                (0..self.turning.len()).filter(|&step| !splitting::passing(&self.turning, step)),
+                (0..self.turning.len()).filter(|&step| !corner::passing(&self.turning, step)),
             );
             for which in 0..self.kept.len() {
                 let step = self.kept[which];

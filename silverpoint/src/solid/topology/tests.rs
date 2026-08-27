@@ -2,7 +2,7 @@ use crate::math::plane::Plane;
 use crate::number::tolerance::EXACT;
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
-use crate::solid::build::extrusion::Extrusion;
+use crate::solid::build::builder::Extrusion;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;

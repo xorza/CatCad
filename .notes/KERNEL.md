@@ -515,7 +515,7 @@ profile arrives as an `Arrangement` and a face position.
 
 ```
 silverpoint/src/
-  arena.rs  loops.rs  sided.rs
+  arena.rs  inline.rs  loops.rs  sided.rs
   number/          mod.rs, predicate/, tolerance.rs, field.rs,
                    rational.rs, quadratic.rs, filtered.rs
                    — to come: expansion, lazy
@@ -529,11 +529,14 @@ silverpoint/src/
                    — to come: quartic, torus, nurbs
     topology/      mod (Topology, Walked), body, lump, shell, face, edge,
                    vertex, coedge, spreading, validity, tests
-    build/         mod, extrusion, strip, tests
+    build/         mod, builder (Builder, Extrusion), strip, tests
     meeting/       mod (Meeting, Curves), tests
                    — to come: the algebraic route, beside it
-    mesh/          mod (Mesher, Patch), lattice, refining, tests
-    boolean/       mod, imprints, splitting/, sounding/, sewing/, tests/
+    mesh/          mod (Mesher, Patch), lattice, refining/, tests
+    boolean/       mod (Boolean), combining, operation, imprints,
+                   sounding/, tests/
+      splitting/   mod (Splitting), cut, corner, cells, oval, ripple, tests
+      sewing/      mod (Sewing), join, stepped, pinned, tests
 ```
 
 The published surface is `Body`, `Grown`, `Extrusion`, `Builder`, `Mesher`,

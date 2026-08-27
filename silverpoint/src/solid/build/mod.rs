@@ -6,7 +6,7 @@
 //! resolved, which is the line `.notes/KERNEL.md` §6 draws around what `solid`
 //! may reach.
 
-pub(crate) mod extrusion;
+pub(crate) mod builder;
 mod strip;
 
 #[cfg(test)]

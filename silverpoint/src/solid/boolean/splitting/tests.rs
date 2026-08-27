@@ -1,5 +1,7 @@
 use super::*;
 use crate::math::winding::swept;
+use crate::solid::boolean::splitting::corner::{Came, passing, turned};
+use crate::solid::boolean::splitting::cut::ROUNDED;
 use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use std::f64::consts::PI;

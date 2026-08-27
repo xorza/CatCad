@@ -6,14 +6,19 @@ use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
-use crate::solid::build::extrusion::Extrusion;
+use crate::solid::boolean::combining::Kept;
+use crate::solid::build::builder::Extrusion;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
+use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::ellipse::Ellipse;
+use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
 use crate::solid::named::{Named, Step};
 use crate::solid::topology::edge::Edge;
+use crate::solid::topology::face::Face;
+use glam::{DVec2, DVec3};
 use std::f64::consts::{PI, SQRT_2, TAU};
 
 /// The two steps the blocks below are grown by.
@@ -706,9 +711,9 @@ fn two_rods_alongside_each_other_join_into_one() {
 ///
 /// The curve is an ellipse, and it needs writing down twice over: on the
 /// cutting plane it is an ellipse in that plane's own parameters, which is what
-/// [`Cut::Round`](super::splitting::Cut) became; on the cylinder it is a *graph
+/// [`Cut::Round`](super::splitting::cut::Cut) became; on the cylinder it is a *graph
 /// over the angle*, `v = level + swing·cos(θ − phase)`, which is
-/// [`Cut::Wave`](super::splitting::Cut).
+/// [`Cut::Wave`](super::splitting::cut::Cut).
 ///
 /// A unit rod up `+y`, cut by a plane through its axis at half height leaning
 /// forty-five degrees. What comes back is four faces — the base, the two halves
