@@ -9,7 +9,7 @@ use palantir::internals::headless_test_gpu;
 use palantir::{App, Configure, GpuPaint, GpuView, OffscreenHost, Sizing, Ui, WindowToken, wgpu};
 use std::cell::RefCell;
 use std::rc::Rc;
-use std::sync::mpsc;
+use std::sync::{OnceLock, mpsc};
 
 /// What palantir composites into, and so what comes back.
 const FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -38,29 +38,45 @@ impl Frame {
         self.image.get_pixel(at.x, at.y).0
     }
 
-    /// Whether a pixel is scene rather than background. Everything drawn is
-    /// lit well clear of this; the clear colour is near black, so the gap is
-    /// wide enough that the threshold never has to be tuned.
+    /// Whether a pixel is scene rather than background.
+    ///
+    /// Asked as "is this the ground colour" rather than "is this bright
+    /// enough", because a brightness floor is a claim about the whole palette:
+    /// it held while every face was lit well clear of it and stopped holding
+    /// the first time a regenerated table darkened one. The ground is one
+    /// colour the application states, so the question has an exact answer.
     pub(crate) fn lit(&self, at: UVec2) -> bool {
-        let [r, g, b, _] = self.pixel(at);
-        (u32::from(r) + u32::from(g) + u32::from(b)) / 3 > 90
+        !self.wearing(at, ground())
+    }
+
+    /// Whether the pixel at `at` is `paint` as the target encoded it.
+    ///
+    /// **A few counts of slack and no more.** The overlay paints flat, so a
+    /// mark arrives as the palette's own bytes; what moves them is the trip
+    /// through an sRGB target, which is worth a count or two and never a
+    /// shade. Wide enough to swallow that, narrow enough that a second colour
+    /// of the same hue is a different answer.
+    ///
+    /// The three channels and not the fourth: a composited frame is opaque
+    /// everywhere, so alpha tells one pixel from another nowhere.
+    pub(crate) fn wearing(&self, at: UVec2, paint: [u8; 3]) -> bool {
+        const SLACK: u8 = 8;
+        std::iter::zip(self.pixel(at), paint).all(|(had, want)| had.abs_diff(want) <= SLACK)
     }
 
     /// Where the pinned marker sits, as the centroid of the pixels carrying
     /// its colour.
     ///
-    /// It is the one red thing on screen. The free markers are orange, and a
-    /// shaded solid keeps whatever ratio its own colour has however the key
-    /// light falls on it — the orange cube's is nowhere near this red for how
-    /// little green it carries.
+    /// The marker is painted flat, so its pixels are the palette's own bytes
+    /// and nothing else on screen is: a shaded solid in the same hue is shaded,
+    /// and lands somewhere the flat colour is not.
     pub(crate) fn pinned_marker(&self) -> Vec2 {
         let mut sum = Vec2::ZERO;
         let mut count = 0u32;
+        let pinned = CatCad::pinned_srgb();
         for y in 0..self.size.y {
             for x in 0..self.size.x {
-                let [r, g, b, _] = self.pixel(UVec2::new(x, y));
-                let (r, g, b) = (f32::from(r), f32::from(g), f32::from(b));
-                if r > 120.0 && g < r * 0.55 && b < r * 0.45 {
+                if self.wearing(UVec2::new(x, y), pinned) {
                     sum += Vec2::new(x as f32, y as f32);
                     count += 1;
                 }
@@ -71,6 +87,17 @@ impl Frame {
         // is half a pixel further on than its index.
         sum / count as f32 + Vec2::splat(0.5)
     }
+}
+
+/// What the drawing's background is painted in, parsed once for the process.
+///
+/// Held rather than fetched because [`Frame::lit`] asks per pixel and the
+/// palette is a table this crate parses rather than a constant it compiles in:
+/// a sweep of one frame asked half a million times. The two colours beside it
+/// are read once per sweep and need nothing.
+fn ground() -> [u8; 3] {
+    static GROUND: OnceLock<[u8; 3]> = OnceLock::new();
+    *GROUND.get_or_init(CatCad::ground_srgb)
 }
 
 /// Anything the harness can paint and then ask which camera it painted with.

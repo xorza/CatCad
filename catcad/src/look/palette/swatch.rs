@@ -101,13 +101,32 @@ impl Visitor<'_> for Hex {
     }
 }
 
-#[cfg(test)]
+#[cfg(any(test, feature = "internals"))]
 pub(crate) mod internals {
     use crate::look::palette::swatch::Swatch;
+
+    impl Swatch {
+        /// The three channels as the file wrote them, still sRGB.
+        ///
+        /// What a check reading pixels off a rendered frame holds them
+        /// against: the target is encoded sRGB, and everything the overlay
+        /// paints flat lands on it as the very bytes here — so a comparison in
+        /// this currency is exact where one in
+        /// [`Color`](palantir::Color)'s would be a comparison of two
+        /// approximations.
+        ///
+        /// Nothing the application itself draws needs this. The theme takes
+        /// the linear form, so a reading in the file's own currency exists for
+        /// whatever reads pixels back.
+        pub(crate) const fn srgb(self) -> [u8; 3] {
+            [(self.0 >> 16) as u8, (self.0 >> 8) as u8, self.0 as u8]
+        }
+    }
 
     /// The swatch `text` names, which is the only way to build one: a palette
     /// is parsed, so a test that stated a colour any other way would be stating
     /// it in a currency the file does not use.
+    #[cfg(test)]
     pub(crate) fn hex(text: &str) -> Swatch {
         ron::from_str(&format!("{text:?}")).expect(text)
     }
@@ -160,9 +179,7 @@ mod tests {
     fn the_channels_pack_red_high_and_blue_low() {
         let swatch: Swatch = ron::from_str("\"#123456\"").unwrap();
         assert_eq!(swatch, Swatch(0x123456));
-        assert_eq!(swatch.0 >> 16, 0x12);
-        assert_eq!(swatch.0 >> 8 & 0xff, 0x34);
-        assert_eq!(swatch.0 & 0xff, 0x56);
+        assert_eq!(swatch.srgb(), [0x12, 0x34, 0x56]);
         let color = swatch.color();
         assert!(color.r < color.g && color.g < color.b, "{color:?}");
         assert_eq!(swatch.ink(), Vec3::new(color.r, color.g, color.b));

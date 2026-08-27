@@ -104,15 +104,21 @@ mod tests {
     /// One value out of each roster, chosen where a mistake would be quiet: a
     /// ground that came back a shade off is a seam, and a hue off the freedom
     /// ladder is a drawing making a claim it does not mean.
+    ///
+    /// **Written out rather than read back off the table**, which is the only
+    /// way it says anything: a check that fetched its own expectation would
+    /// pass whatever the generator emitted. So these six move by hand whenever
+    /// the palette upstream is regenerated, and that is the moment somebody
+    /// looks at what moved.
     #[test]
     fn the_shipped_palette_parses_and_holds_the_mapped_colours() {
         let palette = Palette::default();
         assert_eq!(palette.ground, hex("#1e1e1e"));
-        assert_eq!(palette.chip, hex("#313131"));
-        assert_eq!(palette.determined, hex("#7adcf3"));
-        assert_eq!(palette.pinned, hex("#ff6b52"));
-        assert_eq!(palette.selected, hex("#daff58"));
-        assert_eq!(palette.goes, hex("#668a2f"));
+        assert_eq!(palette.chip, hex("#373737"));
+        assert_eq!(palette.determined, hex("#87e2fe"));
+        assert_eq!(palette.pinned, hex("#fd8974"));
+        assert_eq!(palette.selected, hex("#b9dd0d"));
+        assert_eq!(palette.goes, hex("#687e04"));
     }
 
     /// Every grey in the table is grey.

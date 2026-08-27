@@ -17,7 +17,7 @@ pub(crate) mod form;
 pub(crate) mod icons;
 pub(crate) mod lighting;
 pub(crate) mod motion;
-mod palette;
+pub(crate) mod palette;
 
 use std::cell::OnceCell;
 

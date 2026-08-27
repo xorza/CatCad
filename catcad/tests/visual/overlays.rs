@@ -330,12 +330,12 @@ fn a_rim_seen_edge_on_thins_rather_than_fanning_out() {
             }
         });
         let mut ink = 0;
+        let free = CatCad::free_srgb();
         for y in 0..frame.size.y {
             for x in 0..frame.size.x {
-                let [r, g, b, _] = frame.pixel(UVec2::new(x, y));
-                // The free-geometry orange. Tight enough to leave out the
-                // demo's orange cube, which carries far more blue.
-                if r > 200 && (150..=220).contains(&g) && b < 110 {
+                // The free-geometry colour exactly, which leaves out the demo's
+                // orange cube: the cube is shaded and the marks are not.
+                if frame.wearing(UVec2::new(x, y), free) {
                     ink += 1;
                 }
             }

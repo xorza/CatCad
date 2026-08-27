@@ -679,6 +679,7 @@ pub(crate) mod internals {
     use crate::CatCad;
     #[cfg(test)]
     use crate::intent::{Intent, Intents};
+    use crate::look::palette::Palette;
 
     /// The window every harness in this crate lays its frames out in.
     ///
@@ -700,6 +701,35 @@ pub(crate) mod internals {
         /// `pub(crate)` and a free function in one reaches nobody.
         pub fn edge_width(&self) -> f32 {
             self.theme.drawing.edge
+        }
+
+        /// The sRGB bytes the drawing's background is painted in.
+        ///
+        /// Off the table for the reason [`CatCad::edge_width`] is off the
+        /// theme: a frame sweep that counted a colour written out beside it
+        /// would be a sweep the palette can walk away from — and the palette is
+        /// generated upstream, so it does walk. Everything the overlay paints
+        /// flat lands on the target as these very bytes, so what a sweep asks
+        /// is equality and not a window.
+        ///
+        /// Three calls rather than one taking which colour it wants, because
+        /// naming a role would mean a type an integration test can reach and
+        /// this module is not one — see the note above. Associated rather than
+        /// taken off an instance, because a sweep runs per pixel and the
+        /// application it swept has been dropped by then.
+        pub fn ground_srgb() -> [u8; 3] {
+            Palette::default().ground.srgb()
+        }
+
+        /// The sRGB bytes a pinned point is painted in.
+        pub fn pinned_srgb() -> [u8; 3] {
+            Palette::default().pinned.srgb()
+        }
+
+        /// The sRGB bytes geometry the constraints have not pinned is painted
+        /// in.
+        pub fn free_srgb() -> [u8; 3] {
+            Palette::default().free.srgb()
         }
 
         /// The renderer behind the view, so a harness can reach the scene
