@@ -42,16 +42,16 @@ pub(crate) struct Dressed {
 
 impl Dressed {
     pub(crate) fn of(theme: &Theme) -> Self {
-        let palette = theme.palette();
+        let roles = theme.roles();
         let Theme { form, motion, .. } = theme;
         let lift = motion.lift;
         Self {
-            palantir: Rc::new(theme.dress(&palette)),
-            field: field(&palette, lift),
-            goes: answer(&palette, form.goes, lift),
-            stops: answer(&palette, form.stops, lift),
-            chosen: answer(&palette, form.doing, lift),
-            offered: answer(&palette, form.doing.lerp(Color::BLACK, 0.5), lift),
+            palantir: Rc::new(theme.dress(&roles)),
+            field: field(&roles, lift),
+            goes: answer(&roles, form.goes, lift),
+            stops: answer(&roles, form.stops, lift),
+            chosen: answer(&roles, form.doing, lift),
+            offered: answer(&roles, form.doing.lerp(Color::BLACK, 0.5), lift),
         }
     }
 }
@@ -67,7 +67,7 @@ impl Dressed {
 /// The size and weight come from the same constant for the same reason. Nothing
 /// else is touched: the box, the caret and the wash are palantir's, and a field
 /// in the drawing has no cause to look unlike a field anywhere else.
-fn field(palette: &palantir::Palette, lift: AnimSpec) -> TextEditTheme {
+fn field(roles: &palantir::Palette, lift: AnimSpec) -> TextEditTheme {
     let text = TextStyle {
         font_size_px: MARK_FONT.size_px,
         family: MARK_FONT.family,
@@ -80,7 +80,7 @@ fn field(palette: &palantir::Palette, lift: AnimSpec) -> TextEditTheme {
         line_height_mult: MARK_FONT.line_height_px / MARK_FONT.size_px,
         ..TextStyle::default()
     };
-    let mut theme = TextEditTheme::from_palette(palette);
+    let mut theme = TextEditTheme::from_palette(roles);
     theme.anim = Some(lift);
     // Destructured rather than swept, so a fifth state added to a look is a
     // compile error here rather than one state quietly left in the wrong face.
@@ -101,11 +101,11 @@ fn field(palette: &palantir::Palette, lift: AnimSpec) -> TextEditTheme {
 /// One recipe for all four, because what differs between them is a colour and
 /// nothing else — written out apiece, they would be four chances for the hovered
 /// state of one to drift from another's.
-fn answer(palette: &palantir::Palette, ink: Color, lift: AnimSpec) -> ButtonTheme {
-    let mut theme = ButtonTheme::from_palette(palette);
+fn answer(roles: &palantir::Palette, ink: Color, lift: AnimSpec) -> ButtonTheme {
+    let mut theme = ButtonTheme::from_palette(roles);
     // Lifted like every other control, and stated here rather than inherited:
-    // these are built from the palette rather than from the palantir theme
-    // beside them, so they take nothing that theme was given.
+    // these are built from the roles rather than from the palantir theme beside
+    // them, so they take nothing that theme was given.
     theme.anim = Some(lift);
     // No padding of its own: the button is sized outright, so padding would be
     // asking for a square and then adding to two of its sides.

@@ -4,23 +4,35 @@ use glam::Vec3;
 use palantir::Color;
 use silverpoint::Freedom;
 
+use crate::look::palette::Palette;
 use crate::timeline::feature::World;
 
 /// Everything that decides how the geometry itself looks.
 ///
 /// **Linear-RGB triples, not [`Color`]**, because that is what aperture shades
-/// and strokes with and this half is drawn by aperture alone. The overlay reads
-/// four of them to report in the drawing's own colours, and reaches them through
-/// [`tint`] — a reinterpretation, since both sides hold linear RGB.
+/// and strokes with, and almost all of this is drawn by aperture. What palantir
+/// wants of it — the handful the corner *reports* in, and the ground the window
+/// is cleared to — comes through [`tint`], a reinterpretation rather than a
+/// conversion, since both sides hold linear RGB.
 ///
 /// Every field is named for the *role* it plays and never for the colour or the
 /// number it happens to hold, so a second preset is a second table rather than a
 /// rethink.
 #[derive(Debug, Clone)]
 pub(crate) struct Drawing {
+    /// What everything is drawn against.
+    ///
+    /// **Here rather than with the chrome**, though the window is cleared to it
+    /// too. Only a sliver of the window is ever seen — the viewport fills the
+    /// rest — so the two have to agree, and one of them stating it while the
+    /// other derives it is the only arrangement in which they cannot drift. The
+    /// scene is the half that decides, because this is what a drawing is read
+    /// against.
+    pub(crate) ground: Vec3,
+
     /// What a solid the document has grown is shaded in.
     ///
-    /// Warm grey, and the one colour here that is not about state. Everything a
+    /// Plain grey, and the one colour here that is not about state. Everything a
     /// *drawing* is painted in says how much freedom the constraints have left
     /// it; a solid has no freedom to report — it is what a feature made, and
     /// either it is there or its profile was lost — so it reads as material
@@ -117,9 +129,9 @@ pub(crate) struct Drawing {
 
     /// What the arrow carrying a solid's depth is drawn in.
     ///
-    /// A control rather than geometry, and warm grey for it: what it is about is
-    /// the solid, so it takes the solid's own family rather than a state colour
-    /// that would read as a claim about the drawing.
+    /// A control rather than geometry, and grey for it: what it is about is the
+    /// solid, so it takes the solid's own family rather than a state colour that
+    /// would read as a claim about the drawing.
     pub(crate) depth_arrow: Vec3,
 
     /// How wide a sketch stroke is drawn, in logical pixels.
@@ -167,35 +179,37 @@ impl Drawing {
         }
     }
 
-    /// The one preset.
-    const DARK: Self = Self {
-        solid: Vec3::new(0.62, 0.60, 0.56),
-        determined: Vec3::new(0.35, 0.55, 0.80),
-        partly: Vec3::new(0.85, 0.74, 0.20),
-        free: Vec3::new(0.88, 0.50, 0.10),
-        pinned: Vec3::new(0.80, 0.14, 0.05),
-        dormant: Vec3::new(0.42, 0.45, 0.50),
-        dormant_face: Vec3::new(0.11, 0.20, 0.29),
-        face: Vec3::new(0.18, 0.32, 0.46),
-        ghost: Vec3::new(0.72, 0.74, 0.78),
-        sheet_ground: Vec3::new(0.30, 0.46, 0.32),
-        sheet_front: Vec3::new(0.30, 0.40, 0.56),
-        sheet_side: Vec3::new(0.52, 0.34, 0.32),
-        sheet_datum: Vec3::new(0.42, 0.46, 0.54),
-        mark: Vec3::new(0.62, 0.58, 0.78),
-        redundant: Vec3::new(0.90, 0.30, 0.25),
-        depth_arrow: Vec3::new(0.78, 0.76, 0.70),
-        edge: 1.6,
-        sheet: 1.0,
-        gizmo: 2.0,
-        fixed_marker: 9.0,
-        free_marker: 7.0,
-    };
-}
-
-impl Default for Drawing {
-    fn default() -> Self {
-        Self::DARK
+    /// The drawing this palette paints, at the weights it is drawn with.
+    ///
+    /// **Colour from the table, weight from here**, by the rule
+    /// [`Chrome::from_palette`](crate::look::chrome::Chrome::from_palette)
+    /// keeps: how wide a stroke is answers how a drawing reads against a shaded
+    /// model, which no palette knows about.
+    pub(super) fn from_palette(palette: &Palette) -> Self {
+        Self {
+            ground: palette.ground.ink(),
+            solid: palette.solid.ink(),
+            determined: palette.determined.ink(),
+            partly: palette.partly.ink(),
+            free: palette.free.ink(),
+            pinned: palette.pinned.ink(),
+            dormant: palette.dormant.ink(),
+            dormant_face: palette.dormant_face.ink(),
+            face: palette.face.ink(),
+            ghost: palette.ghost.ink(),
+            sheet_ground: palette.sheet_ground.ink(),
+            sheet_front: palette.sheet_front.ink(),
+            sheet_side: palette.sheet_side.ink(),
+            sheet_datum: palette.sheet_datum.ink(),
+            mark: palette.mark.ink(),
+            redundant: palette.redundant.ink(),
+            depth_arrow: palette.depth_arrow.ink(),
+            edge: 1.6,
+            sheet: 1.0,
+            gizmo: 2.0,
+            fixed_marker: 9.0,
+            free_marker: 7.0,
+        }
     }
 }
 

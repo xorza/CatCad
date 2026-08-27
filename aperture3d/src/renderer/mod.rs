@@ -11,6 +11,7 @@
 use crate::camera::Camera;
 use crate::highlight::{Highlights, Lit};
 use crate::scene::Scene;
+use glam::Vec3;
 use palantir::{GpuFrameCtx, GpuInitCtx, GpuPaint, TextShaper};
 
 pub(crate) mod atlas;
@@ -31,6 +32,14 @@ use crate::renderer::cpu::triangles::Order;
 use crate::renderer::gpu::Gpu;
 use crate::renderer::uniforms::{Frame, Uniforms};
 
+/// What a view is cleared to when its owner says nothing.
+///
+/// Near black and flat, so a drawing reads against it and a window whose own
+/// clear is a different black meets it without a seam. An application with a
+/// theme states its own — see [`Renderer::set_ground`] — and nothing here is in
+/// a position to know what that is.
+const GROUND: Vec3 = Vec3::splat(0.02);
+
 /// A scene, where it is looked at from, and the two mirrors of it that get
 /// drawn.
 ///
@@ -46,6 +55,12 @@ pub struct Renderer {
     /// there is, and holding one inside the scene let a caller pick through it
     /// without ever naming it.
     camera: Camera,
+    /// What the view is cleared to behind the scene.
+    ///
+    /// The renderer's rather than the scene's: what is behind everything is not
+    /// one of the things there are, and a scene shown in two views could be
+    /// cleared to two different grounds without either of them being wrong.
+    ground: Vec3,
     /// At most one entry per tag, which is what lets a lookup stop at the
     /// first match rather than having to find the last.
     highlights: Highlights,
@@ -79,12 +94,22 @@ impl Renderer {
         Self {
             scene,
             camera: Camera::default(),
+            ground: GROUND,
             highlights: Highlights::default(),
             relight: true,
             cpu: Cpu::default(),
             gpu: None,
             shaper: None,
         }
+    }
+
+    /// Clear the view to `ground`, in linear RGB.
+    ///
+    /// Takes effect on the next paint and invalidates nothing: a clear is one
+    /// operation at the head of the pass rather than anything the scene was
+    /// flattened into.
+    pub fn set_ground(&mut self, ground: Vec3) {
+        self.ground = ground;
     }
 
     pub fn scene(&self) -> &Scene {
@@ -261,7 +286,7 @@ impl GpuPaint for Renderer {
         // The size is spent here and nowhere else: the draw is confined to
         // whatever this built.
         gpu.resize(ctx.device, frame.size);
-        gpu.draw(ctx.encoder, ctx.target);
+        gpu.draw(ctx.encoder, ctx.target, self.ground);
     }
 }
 

@@ -1,16 +1,17 @@
 //! What a form standing on the drawing is set in.
 
 use palantir::Color;
-use serde::{Deserialize, Serialize};
+
+use crate::look::palette::Palette;
 
 /// The colours and the size a prompt's own controls are built on.
 ///
 /// **Its own roster and not the drawing's**, which is the one thing worth
-/// saying about it. What [`PINNED`](crate::look::ink::PINNED) says is a fact
-/// about a point; what the red here says is which button you are about to
-/// press. Two meanings sharing a hue would be two meanings nobody could tell
-/// apart, so a form spends its own.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// saying about it. What a pinned point's red says is a fact about that point;
+/// what the red here says is which button you are about to press. Two meanings
+/// sharing a hue would be two meanings nobody could tell apart, so a form spends
+/// its own.
+#[derive(Debug, Clone)]
 pub(crate) struct Form {
     /// Green for the answer that goes through and red for the one that does
     /// not.
@@ -43,17 +44,13 @@ pub(crate) struct Form {
 }
 
 impl Form {
-    /// The one preset.
-    const DARK: Self = Self {
-        goes: Color::rgb(0.24, 0.52, 0.30),
-        stops: Color::rgb(0.58, 0.22, 0.20),
-        doing: Color::rgb(0.26, 0.36, 0.52),
-        button: 19.0,
-    };
-}
-
-impl Default for Form {
-    fn default() -> Self {
-        Self::DARK
+    /// The form this palette sets, at the size its buttons are built on.
+    pub(super) fn from_palette(palette: &Palette) -> Self {
+        Self {
+            goes: palette.goes.color(),
+            stops: palette.stops.color(),
+            doing: palette.doing.color(),
+            button: 19.0,
+        }
     }
 }

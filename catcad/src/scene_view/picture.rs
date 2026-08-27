@@ -71,8 +71,10 @@ impl Picture {
     pub(super) fn new(models: Models<'_>, theme: &Theme) -> Self {
         let mut layout = Layout::default();
         let scene = paint::scene(models, theme, &mut layout);
+        let mut renderer = Renderer::new(scene);
+        renderer.set_ground(theme.drawing.ground);
         Self {
-            renderer: Rc::new(RefCell::new(Renderer::new(scene))),
+            renderer: Rc::new(RefCell::new(renderer)),
             layout,
             lit: Vec::new(),
         }

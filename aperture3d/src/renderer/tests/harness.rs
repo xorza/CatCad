@@ -142,6 +142,11 @@ impl<'a> Framed<'a> {
         staging(view.scene_mut());
     }
 
+    /// Clear the view to `ground` on every frame from here.
+    pub(super) fn ground(&mut self, ground: Vec3) {
+        self.pane.view.borrow_mut().set_ground(ground);
+    }
+
     /// Paint one frame, on a display of `scale` physical pixels to the logical
     /// one — which leaves the target and the framing alone and changes only what
     /// a logical pixel is worth.

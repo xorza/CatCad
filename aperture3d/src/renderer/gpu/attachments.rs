@@ -1,16 +1,7 @@
 //! What a frame is drawn into before palantir composites it.
 
 use crate::renderer::target::{DEPTH_FORMAT, SAMPLES};
-use glam::UVec2;
-
-/// Cleared behind the scene. Linear-RGB — the target is sRGB, so the GPU
-/// encodes on write.
-const BACKGROUND: wgpu::Color = wgpu::Color {
-    r: 0.02,
-    g: 0.02,
-    b: 0.025,
-    a: 1.0,
-};
+use glam::{UVec2, Vec3};
 
 /// The two textures a frame is drawn into, and the size they were built for.
 ///
@@ -58,10 +49,14 @@ impl Attachments {
     /// only place a frame's size is kept. A caller handing one in would be
     /// stating a second time what these textures were built to, and the two are
     /// only ever right together.
+    ///
+    /// `ground` is linear RGB, which the target being sRGB is what makes right:
+    /// the GPU encodes on write, so a value encoded here would be encoded twice.
     pub(super) fn begin<'pass>(
         &self,
         encoder: &'pass mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
+        ground: Vec3,
     ) -> wgpu::RenderPass<'pass> {
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("aperture.pass"),
@@ -70,7 +65,12 @@ impl Attachments {
                 resolve_target: Some(target),
                 depth_slice: None,
                 ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(BACKGROUND),
+                    load: wgpu::LoadOp::Clear(wgpu::Color {
+                        r: f64::from(ground.x),
+                        g: f64::from(ground.y),
+                        b: f64::from(ground.z),
+                        a: 1.0,
+                    }),
                     store: wgpu::StoreOp::Discard,
                 },
             })],

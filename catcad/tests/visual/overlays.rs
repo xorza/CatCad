@@ -145,13 +145,18 @@ fn a_ring_stays_round_at_a_radius_that_would_facet_a_polyline() {
         .expect("the camera is aimed at the origin");
 
     // Every pixel of the rim, by how far it sits from where the centre
-    // projected. Picked out by its blue rather than by brightness, because the
+    // projected. Picked out by its hue rather than by brightness, because the
     // app's own status line is drawn over the viewport and is neither.
+    //
+    // The ring above is a cool blue, so its channels climb — red under green
+    // under blue. A gap between red and blue alone does not name that: a violet
+    // has the same gap with its green below both ends rather than between them,
+    // and the overlay spends a violet on the marks it reads out.
     let mut reach: Vec<f32> = Vec::new();
     for y in 0..frame.size.y {
         for x in 0..frame.size.x {
-            let [r, _, b, _] = frame.pixel(UVec2::new(x, y));
-            if f32::from(b) - f32::from(r) > 30.0 {
+            let [r, g, b, _] = frame.pixel(UVec2::new(x, y));
+            if r < g && g < b && f32::from(b) - f32::from(r) > 30.0 {
                 reach.push(centre.distance(Vec2::new(x as f32 + 0.5, y as f32 + 0.5)));
             }
         }

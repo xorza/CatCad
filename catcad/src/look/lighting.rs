@@ -3,6 +3,7 @@
 use aperture::{Highlight, Tint};
 use glam::Vec3;
 
+use crate::look::palette::Palette;
 use crate::part::Part;
 
 /// How the thing under the cursor and the things picked out are drawn.
@@ -66,18 +67,14 @@ impl Lighting {
         }
     }
 
-    /// The one preset.
-    const DARK: Self = Self {
-        hovered: Vec3::new(1.0, 0.85, 0.25),
-        selected: Vec3::new(0.30, 0.95, 0.45),
-        hover_scale: 1.8,
-        select_scale: 1.5,
-        step_lift: 1.9,
-    };
-}
-
-impl Default for Lighting {
-    fn default() -> Self {
-        Self::DARK
+    /// The lighting this palette gives, at the sizes a highlight is grown by.
+    pub(super) fn from_palette(palette: &Palette) -> Self {
+        Self {
+            hovered: palette.hovered.ink(),
+            selected: palette.selected.ink(),
+            hover_scale: 1.8,
+            select_scale: 1.5,
+            step_lift: 1.9,
+        }
     }
 }

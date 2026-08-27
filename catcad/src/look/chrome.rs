@@ -1,7 +1,8 @@
 //! What the overlay is drawn in, and the sizes it is built on.
 
 use palantir::Color;
-use serde::{Deserialize, Serialize};
+
+use crate::look::palette::Palette;
 
 /// Everything that decides how a control floating over the drawing looks.
 ///
@@ -13,14 +14,14 @@ use serde::{Deserialize, Serialize};
 /// Every field is named for the *role* it plays and never for the colour or the
 /// number it happens to hold, so a second preset is a second table rather than a
 /// rethink.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub(crate) struct Chrome {
     /// The translucent slab a group of controls stands on.
     ///
-    /// Dark, cool and short of opaque, so a pill holds its own over the
-    /// near-black ground *and* over a lit solid it happens to sit on. Nothing is
-    /// blurred: palantir composites a flat fill, and translucency alone is what
-    /// keeps the drawing faintly readable through the chrome.
+    /// Dark and short of opaque, so a pill holds its own over the near-black
+    /// ground *and* over a lit solid it happens to sit on. Nothing is blurred:
+    /// palantir composites a flat fill, and translucency alone is what keeps the
+    /// drawing faintly readable through the chrome.
     pub(crate) pill: Color,
     /// The hairline round a pill.
     ///
@@ -63,6 +64,13 @@ pub(crate) struct Chrome {
     /// The ink on a held control — the pill's own dark, so the inversion is
     /// complete rather than a light fill under a light mark.
     pub(crate) on_held: Color,
+    /// What palantir rings a widget the keyboard has reached with.
+    ///
+    /// Its own colour rather than [`Chrome::chip_held`], which it currently
+    /// equals. The two answer different questions — one is what a control wears
+    /// while what it stands for is held, the other is where typing would go —
+    /// and a palette that wanted to tell them apart could.
+    pub(crate) focus: Color,
 
     /// A control's ink at rest, and lit.
     pub(crate) ink: Color,
@@ -83,13 +91,6 @@ pub(crate) struct Chrome {
     /// cube whose faces swapped shades as it came round.
     pub(crate) cube_low: Color,
     pub(crate) cube_high: Color,
-
-    /// What the window is cleared to.
-    ///
-    /// Only ever seen in a sliver, because the viewport fills the window — so it
-    /// is set to agree with what aperture clears the *scene* to rather than
-    /// chosen for its own sake. A sliver in a different black is a seam.
-    pub(crate) ground: Color,
 
     /// The side of a square control, in logical pixels.
     ///
@@ -167,44 +168,46 @@ impl Chrome {
         (self.cube * 0.5 - self.cube_margin) / std::f32::consts::SQRT_2
     }
 
-    /// The one preset.
-    const DARK: Self = Self {
-        pill: Color::hexa(0x181C21CC),
-        pill_edge: Color::hexa(0xBECDDC24),
-        rule: Color::hexa(0xBECDDC59),
-        chip: Color::hex(0x31363C),
-        chip_lit: Color::hex(0x3D444B),
-        chip_active: Color::hex(0x49515A),
-        chip_held: Color::hex(0xD6DDE4),
-        on_held: Color::hex(0x141A20),
-        ink: Color::hex(0x8B949E),
-        ink_lit: Color::hex(0xD3DAE1),
-        ink_dim: Color::hex(0x5C646D),
-        cube_low: Color::hex(0x2C3138),
-        cube_high: Color::hex(0x59626C),
-        // Linear, because that is what aperture holds its clear in: the same
-        // value re-authored in sRGB would land a shade off and put the seam
-        // back.
-        ground: Color::linear_rgb(0.02, 0.02, 0.025),
-        chip_side: 30.0,
-        chip_radius: 6.0,
-        gap: 6.0,
-        pad: 4.0,
-        inset: 12.0,
-        card: 176.0,
-        readout: 390.0,
-        icon: 17.0,
-        chip_text: 12.0,
-        readout_text: 11.5,
-        verdict_run: 46.0,
-        verdict_weight: 4.0,
-        cube: 76.0,
-        cube_margin: 5.0,
-    };
-}
-
-impl Default for Chrome {
-    fn default() -> Self {
-        Self::DARK
+    /// The chrome this palette dresses, at the sizes the overlay is built on.
+    ///
+    /// **Colour from the table, size from here.** A stroke width and the side of
+    /// a chip are facts about the interface rather than about the palette, and a
+    /// second theme is a second set of colours at the same sizes.
+    ///
+    /// The three translucent surfaces take their opacity here for the same
+    /// reason. How much of the drawing shows through a pill is a decision about
+    /// how the overlay reads, so it sits with the numbers that decide the rest
+    /// of that and not in a table shared with a text editor.
+    pub(super) fn from_palette(palette: &Palette) -> Self {
+        Self {
+            pill: palette.pill.fade(0xCC),
+            pill_edge: palette.pill_edge.fade(0x24),
+            rule: palette.rule.fade(0x59),
+            chip: palette.chip.color(),
+            chip_lit: palette.chip_lit.color(),
+            chip_active: palette.chip_active.color(),
+            chip_held: palette.chip_held.color(),
+            on_held: palette.on_held.color(),
+            focus: palette.focus.color(),
+            ink: palette.ink.color(),
+            ink_lit: palette.ink_lit.color(),
+            ink_dim: palette.ink_dim.color(),
+            cube_low: palette.cube_low.color(),
+            cube_high: palette.cube_high.color(),
+            chip_side: 30.0,
+            chip_radius: 6.0,
+            gap: 6.0,
+            pad: 4.0,
+            inset: 12.0,
+            card: 176.0,
+            readout: 390.0,
+            icon: 17.0,
+            chip_text: 12.0,
+            readout_text: 11.5,
+            verdict_run: 46.0,
+            verdict_weight: 4.0,
+            cube: 76.0,
+            cube_margin: 5.0,
+        }
     }
 }

@@ -472,9 +472,14 @@ impl Gpu {
     /// surface has to have been drawn before it. The opaque kinds write depth
     /// and can go in any order among themselves, because there the depth test is
     /// the whole answer.
-    pub(super) fn draw(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    pub(super) fn draw(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        ground: Vec3,
+    ) {
         let attachments = self.attachments.as_ref().expect("resize runs before draw");
-        let mut pass = attachments.begin(encoder, target);
+        let mut pass = attachments.begin(encoder, target, ground);
         pass.set_bind_group(0, &self.bind_group, &[]);
         self.solids.draw(&mut pass);
         // Every ordinary pass before any highlight, rather than each kind's two

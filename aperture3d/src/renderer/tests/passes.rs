@@ -148,3 +148,38 @@ fn a_gizmo_sorts_against_a_face_by_which_is_nearer_rather_than_by_pass_order() {
          colour than one behind it ({under:?})"
     );
 }
+
+/// The view is cleared to what its renderer was handed, and to a flat near-black
+/// when it was handed nothing.
+///
+/// The clear is the one colour the scene does not carry, so nothing else in this
+/// file would notice it going wrong: every other test reads a pixel the drawing
+/// put there.
+#[test]
+fn the_frame_is_cleared_to_the_ground_the_renderer_was_given() {
+    let gpu = headless_test_gpu();
+    let mut framed = Framed::new(&gpu, square_on());
+
+    // Nothing in the scene, so the middle pixel is the clear and nothing else.
+    // The default is 0.02 linear, which an sRGB target encodes to 39.
+    framed.paint(1.0);
+    let [r, g, b] = framed.middle();
+    assert!(
+        r == g && g == b,
+        "the default ground carries a tint: {r} {g} {b}"
+    );
+    assert!((r - 39).abs() <= 2, "the default ground encoded to {r}");
+
+    // Three different channels, so a clear that swapped two of them or spent
+    // one on all three fails here rather than passing on a grey. 0.05, 0.2 and
+    // 0.5 linear encode to 63, 124 and 188.
+    framed.ground(Vec3::new(0.05, 0.2, 0.5));
+    framed.paint(1.0);
+    let got = framed.middle();
+    for (channel, want) in got.iter().zip([63, 124, 188]) {
+        assert!(
+            (channel - want).abs() <= 2,
+            "the ground reached the clear as {got:?}"
+        );
+    }
+}
