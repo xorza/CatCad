@@ -209,17 +209,18 @@ pub(crate) enum Opening {
     Extrude { sketch: FeatureId, region: usize },
 }
 
-/// What the application answers: putting the document away, and fetching one
-/// back.
+/// What the application answers, being the one reader that can see all of it at
+/// once.
 ///
-/// The fourth group, and the odd one out. The other three each land on
-/// something the application holds — the document, the history, the session —
-/// and this one lands on the application itself, because opening a file
-/// replaces all three at once: a different document, nothing done to it yet, and
-/// nothing in hand. Nothing below the application could answer that, which is
-/// why it is not a [`Change`].
+/// The fourth group, and the odd one out. The other three each land on one
+/// thing the application holds — the document, the history, the session — and
+/// what gathers these is that no single one of them could answer. Opening a
+/// file *replaces* all three at once: a different document, nothing done to it
+/// yet, and nothing in hand. Framing the model needs two of them together: the
+/// view knows how far the scene reaches and the document owns the camera that
+/// has to take it in.
 ///
-/// **None of these carries a path.** An [`Intent`] is `Copy` and load-bearingly
+/// **None of these carries a payload.** An [`Intent`] is `Copy` and load-bearingly
 /// so, and a [`PathBuf`](std::path::PathBuf) would end that — applying one could
 /// no longer lift it out of the inbox. It would be the wrong place for one
 /// anyway: which file is a question the desktop answers, and it is asked when
@@ -227,11 +228,12 @@ pub(crate) enum Opening {
 /// Where the answer then lives is [`Filing`](crate::filing::Filing)'s.
 ///
 /// Landing twice is harmless, by the rule every intent here follows — though
-/// none of them can, because all three are gated on a keypress or a click and
+/// none of them can, because each is gated on a keypress or a click and
 /// palantir delivers those to one pass of a frame. Writing the same document to
 /// the same path twice would put the same bytes there; opening the same file
-/// twice would arrive at the same document. Neither is a step, so neither asks
-/// the history for anything.
+/// twice would arrive at the same document; framing an already-framed model
+/// frames it where it already is. None is a step, so none asks the history for
+/// anything.
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum Errand {
     /// Start again on an empty document — three world planes and nothing drawn
@@ -249,6 +251,15 @@ pub(crate) enum Errand {
     SaveAs,
     /// Ask which document to open.
     Open,
+    /// Aim the camera to take the whole model in.
+    ///
+    /// Here rather than beside the camera's other moves, because it is the one
+    /// that cannot name where it wants to end up: what to frame is the
+    /// *scene's* extent, and a scene is the view's. So this asks for the
+    /// framing and lets the application work out where that puts the camera —
+    /// which is also what keeps the walk off every frame, since it runs only on
+    /// the press that asks for it.
+    Fit,
 }
 
 /// Everything asked for during one frame.

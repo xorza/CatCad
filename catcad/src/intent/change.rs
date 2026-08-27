@@ -225,7 +225,19 @@ pub(crate) enum Change {
     /// place.
     RollTo { through: Option<FeatureId> },
     /// Turn the camera about what it is looking at, in radians.
+    ///
+    /// The one thing here that names a *step* rather than a destination, and it
+    /// is safe for the reason nothing else is: what raises one is a drag, which
+    /// measures against a total the first pass of a settling frame already took.
+    /// Anything naming a view outright wants [`Change::Aim`].
     Orbit { yaw: f32, pitch: f32 },
+    /// Point the camera down a stated direction, in radians.
+    ///
+    /// Absolute where [`Change::Orbit`] is a step, because what raises one is a
+    /// press rather than a drag: a replayed pass has to land on the same view,
+    /// and a turn asked for twice by the amount would arrive twice as far
+    /// round.
+    Aim { yaw: f32, pitch: f32 },
     /// Move the camera in or out by a multiple of how far off it is.
     Dolly { factor: f32 },
     /// Slide the camera across the view, without turning it or changing how
@@ -308,6 +320,7 @@ impl Change {
             // nothing to take back and nothing to solve again — though rolling
             // does change what is *drawn*, and says so where it lands.
             Change::Orbit { .. }
+            | Change::Aim { .. }
             | Change::Dolly { .. }
             | Change::Pan { .. }
             | Change::Project(_)

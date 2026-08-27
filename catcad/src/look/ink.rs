@@ -199,6 +199,16 @@ pub(crate) const CHIP_HELD: Color = Color::hex(0xD6DDE4);
 /// inversion is complete rather than a light fill under a light mark.
 pub(crate) const CHROME_ON_HELD: Color = Color::hex(0x141A20);
 
+/// What a face of the orientation cube is filled with, unlit and fully lit.
+///
+/// A pair rather than one shade per face, because which face is bright follows
+/// from where the cube has been turned to rather than from which face it is: a
+/// face is lit against a light fixed in the world, and lands somewhere between
+/// these two. A ladder of three fixed tints would be a cube whose faces swapped
+/// shades as it came round.
+pub(crate) const CUBE_LOW: Color = Color::hex(0x2C3138);
+pub(crate) const CUBE_HIGH: Color = Color::hex(0x59626C);
+
 /// The ink a control at rest is drawn in, and what it lifts to.
 pub(crate) const CHROME_INK: Color = Color::hex(0x8B949E);
 pub(crate) const CHROME_LIT: Color = Color::hex(0xD3DAE1);

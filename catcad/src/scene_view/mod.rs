@@ -23,6 +23,14 @@ mod gesture;
 mod picture;
 mod pointing;
 
+/// Radians of orbit per logical pixel of drag.
+///
+/// Here rather than beside the pointer that spends it, because the orientation
+/// cube is dragged for the same reason and has to turn at the same rate: two
+/// gestures that both orbit and disagree about how fast read as two different
+/// cameras.
+pub(crate) const ORBIT_RATE: f32 = 0.008;
+
 /// What the viewport is recorded under.
 ///
 /// Named rather than derived from the call site, because the pointer is read a

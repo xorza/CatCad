@@ -1,9 +1,10 @@
 //! What floats over the viewport: five surfaces, one per edge and corner.
 
-use aperture::Projection;
+use aperture::Camera;
 use palantir::{Align, Background, Configure, InternedStr, Panel, Sizing, Spacing, Ui, WidgetId};
 use std::hash::Hash;
 
+use crate::hud::cube::Cube;
 use crate::intent::Intents;
 use crate::look;
 use crate::look::icons::Icons;
@@ -15,6 +16,7 @@ use silverpoint::Constraint;
 
 mod camera;
 mod chip;
+mod cube;
 mod papers;
 mod pill;
 mod rail;
@@ -59,6 +61,10 @@ pub(crate) struct Hud {
     /// Scratch: what a dimension *is* lives in the sketch, and this is only what
     /// one gesture has made of it so far.
     draft: f64,
+    /// The view the orientation cube is on its way to, if it is on its way
+    /// anywhere. The same kind of thing as the draft above: one gesture's
+    /// worth of intent, where the camera itself is the document's.
+    cube: Cube,
 }
 
 impl Hud {
@@ -92,7 +98,7 @@ impl Hud {
                 rail::show(ui, shown, intents);
             });
         recipe::show(ui, shown, intents);
-        camera::show(ui, shown, intents);
+        camera::show(ui, &mut self.cube, shown, intents);
         readout::show(ui, shown);
         relations::show(ui, shown, &mut self.offers, &mut self.draft, intents);
     }
@@ -122,7 +128,12 @@ pub(crate) struct Shown<'a> {
     /// read differently: the line is a sentence and this is a state the meter
     /// picks a colour by.
     pub(crate) solved: Option<Solved>,
-    pub(crate) projection: Projection,
+    /// Where the document is being looked at from.
+    ///
+    /// The whole camera rather than the projection alone, because the cube is
+    /// drawn *in* it: which faces are turned toward the eye is what the gizmo
+    /// is a picture of.
+    pub(crate) camera: Camera,
     /// Every sketch the document holds, and which of them is open.
     ///
     /// The model rather than the drawing, because a control here reads what is

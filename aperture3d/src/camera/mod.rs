@@ -388,6 +388,18 @@ impl Camera {
         self.pitch = (self.pitch + pitch_delta).clamp(-PITCH_LIMIT, PITCH_LIMIT);
     }
 
+    /// Point the eye down a stated direction, in radians.
+    ///
+    /// The absolute twin of [`Camera::orbit`], for a caller that knows where it
+    /// wants to end up rather than how far to turn: a gizmo naming a view, or a
+    /// key bound to one. Pitch is clamped exactly as an orbit clamps it —
+    /// straight up is where the look-at degenerates, and it degenerates however
+    /// the camera got there.
+    pub fn aim(&mut self, yaw: f32, pitch: f32) {
+        self.yaw = yaw;
+        self.pitch = pitch.clamp(-PITCH_LIMIT, PITCH_LIMIT);
+    }
+
     /// Scale the orbit distance — `factor` below 1 moves the eye in.
     pub fn dolly(&mut self, factor: f32) {
         self.distance = (self.distance * factor).max(MIN_DISTANCE);

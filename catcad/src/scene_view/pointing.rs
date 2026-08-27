@@ -15,12 +15,9 @@ use crate::scene_view::aimed::{self, Aimed};
 use crate::scene_view::click::{Click, clicked};
 use crate::scene_view::gesture::Gesture;
 use crate::scene_view::picture::Picture;
-use crate::scene_view::view_id;
+use crate::scene_view::{ORBIT_RATE, view_id};
 use crate::session::Session;
 use crate::tool::Tool;
-
-/// Radians of orbit per logical pixel of drag.
-const ORBIT_RATE: f32 = 0.008;
 
 /// Distance multiplier per wheel notch scrolled down.
 pub(super) const ZOOM_RATE: f32 = 1.12;

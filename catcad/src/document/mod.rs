@@ -589,6 +589,7 @@ impl Document {
                 build.revised();
             }
             Change::Orbit { yaw, pitch } => self.camera.orbit(yaw, pitch),
+            Change::Aim { yaw, pitch } => self.camera.aim(yaw, pitch),
             Change::Dolly { factor } => self.camera.dolly(factor),
             Change::Pan { by } => self.camera.pan(by),
             Change::Project(projection) => self.camera.projection = projection,

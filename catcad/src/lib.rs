@@ -356,7 +356,7 @@ impl CatCad {
                 tool: self.session.tool(),
                 status,
                 solved,
-                projection: self.document.camera().projection,
+                camera: self.document.camera(),
                 models: self.document.models(&self.build, self.session.editing()),
                 selection: self.session.selection(),
             },
@@ -477,6 +477,14 @@ impl CatCad {
                 Errand::Open => {
                     if let Some(path) = dialog::open(self.filing.path()) {
                         self.read(path);
+                    }
+                }
+                // The one errand that reads the *view*: how far the scene
+                // reaches is the picture's to answer, and walking it is why
+                // this is asked for rather than offered every frame.
+                Errand::Fit => {
+                    if let Some(extent) = self.view.extent() {
+                        self.document.frame(extent);
                     }
                 }
             }
