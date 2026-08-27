@@ -23,7 +23,7 @@ use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
 use crate::solid::named::Named;
 use crate::solid::topology::body::Body;
-use crate::solid::topology::face::Face;
+use crate::solid::topology::face::{Face, FaceId};
 use glam::{DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, TAU};
 use std::ops::Range;
@@ -106,8 +106,8 @@ struct Scratch {
     /// a handful rather than compared against every surface already collected.
     met: Vec<Surface>,
     reached: Buckets,
-    /// The box each face of the two bodies fills, one body's run after the
-    /// other's, and where the second run begins.
+    /// Each face of the two bodies with the box it fills, one body's run
+    /// after the other's, and where the second run begins.
     ///
     /// **Both bodies at once, because each is wanted twice.** Cutting one
     /// against the other asks how far the *first* reaches, to know which of the
@@ -116,8 +116,20 @@ struct Scratch {
     /// of its faces' — so measured a call at a time, every boundary of both
     /// bodies is traced twice over, on the path a document is rebuilt down
     /// sixty times a second.
-    boxed: Vec<Bounds>,
+    boxed: Vec<Boxed>,
     between: usize,
+}
+
+/// One face of a body and the box it fills.
+///
+/// The face travels with its box rather than being counted to afterwards: what
+/// reads a stretch of [`Scratch::boxed`] is not the walk that filled it, and
+/// two walks agreeing about which face is which is an agreement that would
+/// break without a word.
+#[derive(Debug, Clone, Copy)]
+struct Boxed {
+    face: FaceId,
+    fills: Bounds,
 }
 
 impl Combining {
@@ -144,9 +156,9 @@ impl Combining {
 
     /// Take in the box every face of `body` fills — see [`Scratch::boxed`].
     fn box_up(&mut self, body: &Body) {
-        for (_, face) in body.topology().faces() {
+        for (id, face) in body.topology().faces() {
             let fills = self.reach(body, face);
-            self.scratch.boxed.push(fills);
+            self.scratch.boxed.push(Boxed { face: id, fills });
         }
     }
 
@@ -210,14 +222,16 @@ impl Combining {
         };
         let mut reach = Bounds::default();
         for at in here {
-            reach.swallow(self.scratch.boxed[at]);
+            reach.swallow(self.scratch.boxed[at].fills);
         }
         self.scratch.met.clear();
         self.scratch.reached.clear();
-        for ((_, other), at) in theirs.topology().faces().zip(there) {
-            if !self.scratch.boxed[at].meets(reach, CHORDED) {
+        for at in there {
+            let Boxed { face, fills } = self.scratch.boxed[at];
+            if !fills.meets(reach, CHORDED) {
                 continue;
             }
+            let other = theirs.topology().face(face);
             // Through the index rather than by walking what is already here:
             // every face of one body asks about every surface of the other,
             // and the cost of a walk grows as the square of the body. Equality

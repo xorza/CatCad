@@ -20,21 +20,6 @@ carries its neighbour's summary, and the item above carries none.
 - [ ] `solid/mesh/mod.rs:113-114` — `Mesher::shut_in` loses the paragraph break
   before the note about `into`.
 
-## Ordering agreements that nothing asserts
-
-Each of these depends on two separate walks visiting the same things in the
-same order. Nothing checks it, and a change would fail without a message.
-
-- [ ] `solid/boolean/mod.rs:338` — `Combining::against` zips
-  `theirs.topology().faces()` against a stretch of `self.boxed`, which an
-  earlier and separate walk filled.
-- [ ] `solid/boolean/sewing/mod.rs:903-916` — `Sewing::write` walks `steps`
-  with a running cursor. It assumes `steps` was filled in the same order
-  `owned` and `starts` are read in.
-- [ ] `solid/boolean/sounding/mod.rs:150,167` — `facing` and `count` name a
-  face by where it fell in `body.topology().faces()`, against the `faces`
-  list `flatten` filled by the same walk.
-
 ## Cross-call flags in place of return values
 
 - [ ] `solid/boolean/splitting/mod.rs:783` — `Splitting::beyond` records a

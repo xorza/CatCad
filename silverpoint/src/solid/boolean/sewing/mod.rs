@@ -714,6 +714,10 @@ impl Sewing {
                         }
                     };
                     let claimed = self.claim(ends, middle, along, face);
+                    // What lets [`Sewing::write`] read a loop's steps at the
+                    // very range [`Sewing::starts`] gives its corners, rather
+                    // than counting to it a loop at a time.
+                    debug_assert_eq!(self.steps.len(), step, "a step left its corner");
                     self.steps.push(claimed);
                 }
             }
@@ -822,13 +826,10 @@ impl Sewing {
 
     /// Write each face's loops, now that every edge it walks exists.
     fn write(&mut self, into: &mut Body) {
-        let mut step = 0;
         for (which, &face) in self.raised.iter().enumerate() {
             let from = into.topology().loops_added();
             for run in self.owned[which].clone() {
-                let walk = self.starts[run]..self.starts[run + 1];
-                let steps = &self.steps[step..step + walk.len()];
-                step += walk.len();
+                let steps = &self.steps[self.starts[run]..self.starts[run + 1]];
                 let edges = &self.edges;
                 into.topology_mut().add_loop(|into| {
                     into.extend(steps.iter().map(|it| Coedge {

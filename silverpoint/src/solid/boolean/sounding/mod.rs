@@ -28,6 +28,7 @@ use crate::number::predicate;
 use crate::number::tolerance::PLACED;
 use crate::solid::boolean::CHORDED;
 use crate::solid::topology::body::Body;
+use crate::solid::topology::face::FaceId;
 use glam::{DVec2, DVec3};
 use std::f64::consts::TAU;
 use std::ops::Range;
@@ -78,6 +79,12 @@ const CASTS: [DVec3; 4] = [
 /// face.
 #[derive(Debug)]
 struct Covered {
+    /// The face this is the reading of.
+    ///
+    /// Named rather than counted to: what reads these is not the walk that
+    /// filled them, and two walks agreeing about which face is which is an
+    /// agreement that would break without a word.
+    face: FaceId,
     /// Which of the sounder's loops are this face's — the outline first, then
     /// its holes.
     loops: Range<usize>,
@@ -114,7 +121,7 @@ pub(super) struct Sounding {
     walk: Vec<DVec2>,
     /// Where each of those loops begins, with a sentinel on the end.
     starts: Vec<usize>,
-    /// What each face of the body came to, in the order it holds them.
+    /// What each face of the body came to.
     faces: Vec<Covered>,
 }
 
@@ -145,27 +152,26 @@ impl Sounding {
     /// Which way `body` faces where it passes through `at` — out of its
     /// material — or `None` where `at` is not on its boundary at all.
     fn facing(&self, at: DVec3, body: &Body) -> Option<DVec3> {
-        body.topology()
-            .faces()
-            .enumerate()
-            .find_map(|(which, (_, face))| {
-                if !self.faces[which].on {
-                    return None;
-                }
-                // On the face, or on an edge of it: both are the boundary, and
-                // the second is what `covers` declines to call either way.
-                let uv = face.surface.uv(at);
-                self.covers(which, uv)
-                    .unwrap_or(true)
-                    .then(|| face.normal(uv))
-            })
+        self.faces.iter().find_map(|covered| {
+            if !covered.on {
+                return None;
+            }
+            // On the face, or on an edge of it: both are the boundary, and the
+            // second is what `covers` declines to call either way.
+            let face = body.topology().face(covered.face);
+            let uv = face.surface.uv(at);
+            self.covers(covered, uv)
+                .unwrap_or(true)
+                .then(|| face.normal(uv))
+        })
     }
 
     /// How many faces of `body` a ray from `at` running `way` crosses, or
     /// `None` where it grazed something and the count cannot be trusted.
     fn count(&self, at: DVec3, way: DVec3, body: &Body) -> Option<usize> {
         let mut crossings = 0;
-        for (which, (_, face)) in body.topology().faces().enumerate() {
+        for covered in &self.faces {
+            let face = body.topology().face(covered.face);
             let met = face.surface.met_by(at, way);
             // **A ray lying *in* the surface cannot be counted against it.** It
             // crosses nothing, and it may run along an edge of the face — which
@@ -177,7 +183,7 @@ impl Sounding {
             // start on what it grazes, and one running parallel and clear of a
             // plane does not start on that either. A sphere cannot hold a line
             // at all, so this never fires for one.
-            if met.all().is_empty() && self.faces[which].on {
+            if met.all().is_empty() && covered.on {
                 return None;
             }
             for &along in met.all() {
@@ -187,17 +193,17 @@ impl Sounding {
                 if along <= PLACED {
                     continue;
                 }
-                crossings += usize::from(self.covers(which, face.surface.uv(at + way * along))?);
+                crossings += usize::from(self.covers(covered, face.surface.uv(at + way * along))?);
             }
         }
         Some(crossings)
     }
 
-    /// Whether the face at `which` covers the place its own parameters put at
+    /// Whether `covered` holds the place its own face's parameters put at
     /// `uv`, or `None` where that place sits on the face's own boundary and the
     /// answer is neither.
-    fn covers(&self, which: usize, uv: DVec2) -> Option<bool> {
-        let Covered { loops, anchor, .. } = &self.faces[which];
+    fn covers(&self, covered: &Covered, uv: DVec2) -> Option<bool> {
+        let Covered { loops, anchor, .. } = covered;
         // **Into the branch the boundary was laid out in.** A face on a round
         // surface is unwrapped so its loop comes out continuous, and an
         // inversion answers in a half turn either side of the reference — so a
@@ -237,16 +243,13 @@ impl Sounding {
     /// Takes the place being sounded as well as the body, for the one thing
     /// about a face that both readers below need and neither should decide
     /// twice — see [`Covered::on`].
-    ///
-    /// In the order the body holds its faces, which is what lets everything
-    /// afterwards name one by where it fell in that walk.
     fn flatten(&mut self, at: DVec3, body: &Body) {
         let topology = body.topology();
         self.walk.clear();
         self.starts.clear();
         self.starts.push(0);
         self.faces.clear();
-        for (_, face) in topology.faces() {
+        for (id, face) in topology.faces() {
             let from = self.starts.len() - 1;
             let began = self.walk.len();
             for round in topology.loops_of(face) {
@@ -258,6 +261,7 @@ impl Sounding {
                 self.starts.push(self.walk.len());
             }
             self.faces.push(Covered {
+                face: id,
                 on: predicate::touching(face.surface.off(at), PLACED),
                 loops: from..self.starts.len() - 1,
                 // Somewhere on the boundary's own branch, which is any corner
