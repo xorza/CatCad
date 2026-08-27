@@ -35,8 +35,13 @@
 /// A non-positive pivot means the damping is too low to hold the matrix
 /// definite against rounding. That is the same answer a singular matrix used to
 /// give, and the caller answers it the same way, by damping harder and retrying.
+///
+/// An answer holding an infinity or a NaN is the same failure found later,
+/// where a pivot passed and then divided into something too large. Read off the
+/// back substitution, which is the pass that settles each entry.
 pub(crate) fn solve_in_place(a: &mut [f64], n: usize, first: &[usize], b: &mut [f64]) -> bool {
     debug_assert_eq!(first.len(), n, "an envelope of another matrix");
+    debug_assert_eq!(b.len(), n, "a right-hand side of another matrix");
     // Cholesky–Banachiewicz: row `i` is built from the rows above it, so every
     // read runs along a row of the layout the matrix is already stored in.
     for i in 0..n {
@@ -74,14 +79,16 @@ pub(crate) fn solve_in_place(a: &mut [f64], n: usize, first: &[usize], b: &mut [
     // `x[i]` is known it is subtracted from everything row `i` reaches, which is
     // exactly its envelope. Same arithmetic, same terms, in the order the layout
     // already stores.
+    let mut finite = true;
     for i in (0..n).rev() {
         b[i] /= a[i * n + i];
         let resolved = b[i];
+        finite &= resolved.is_finite();
         for k in first[i]..i {
             b[k] -= a[i * n + k] * resolved;
         }
     }
-    b.iter().all(|value| value.is_finite())
+    finite
 }
 
 /// Sum of squares — a norm with its square root left off, for a caller

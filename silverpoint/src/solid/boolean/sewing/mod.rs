@@ -611,8 +611,8 @@ impl Sewing {
             }
             // The loop closes, so its last vertex meeting its first is the same
             // doubling read round the end.
-            let ends = |walk: &[Stepped]| walk.last().map(|it| it.vertex);
-            if self.walks[at..].len() > 1 && ends(&self.walks) == ends(&self.walks[at..=at]) {
+            let count = self.walks.len();
+            if count > at + 1 && self.walks[count - 1].vertex == self.walks[at].vertex {
                 self.walks.pop();
             }
             // **Three places, or two and something curved between them.** Three

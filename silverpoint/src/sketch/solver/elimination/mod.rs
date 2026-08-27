@@ -24,6 +24,19 @@ const RANK_TOLERANCE: f64 = 1e-9;
 /// rows are compared as.
 const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
 
+/// One pivot of the reduction: the column it decided, and the row it was taken
+/// in.
+///
+/// One record rather than two lists in step. The rows are never moved, so a row
+/// *is* the equation it was assembled from, and partial pivoting is a matter of
+/// recording which one was chosen rather than of shuffling it into place — which
+/// is why the row is worth carrying at all.
+#[derive(Debug, Clone, Copy)]
+struct Pivot {
+    column: usize,
+    row: usize,
+}
+
 /// Where one row of the reduction holds anything, the columns the walk passed
 /// over aside.
 ///
@@ -38,19 +51,6 @@ const DEAD: f64 = RANK_TOLERANCE * RANK_TOLERANCE;
 /// against 998, on a sketch with ten freedoms left. [`Stretch::spans`] carries
 /// them beside the stretch instead, and is how every reader that needs a row
 /// whole gets one.
-/// One pivot of the reduction: the column it decided, and the row it was taken
-/// in.
-///
-/// One record rather than two lists in step. The rows are never moved, so a row
-/// *is* the equation it was assembled from, and partial pivoting is a matter of
-/// recording which one was chosen rather than of shuffling it into place — which
-/// is why the row is worth carrying at all.
-#[derive(Debug, Clone, Copy)]
-struct Pivot {
-    column: usize,
-    row: usize,
-}
-
 #[derive(Debug, Clone, Copy)]
 struct Stretch {
     low: usize,
@@ -58,16 +58,6 @@ struct Stretch {
 }
 
 impl Stretch {
-    /// Every column from `low` rightwards that a row with this stretch can hold
-    /// anything in: the stretch, and the passed-over columns short of it.
-    ///
-    /// **The one place the exclusion above is made good.** Two walks need a row
-    /// whole — the update, and the substitution that reads the null space — over
-    /// different spans, and each was spelling out the same rule against its own
-    /// bound. Stated once because getting it wrong is silent: back when partial
-    /// pivoting still moved rows, a third walk spelt it out too and let the two
-    /// halves overlap, swapping a column twice so that it landed back where it
-    /// started. It showed up only as a null-space entry parts-in-1e12 adrift.
     /// Where this stretch sits in row `row` of a matrix `n` columns wide.
     ///
     /// A stretch is a pair of columns, and every use of one as a slice has to
@@ -79,7 +69,21 @@ impl Stretch {
         row * n + self.low..=row * n + self.high
     }
 
-    fn spans<'a>(self, free: &'a [usize]) -> impl Iterator<Item = usize> + 'a {
+    /// Every column from `low` rightwards that a row with this stretch can hold
+    /// anything in: the stretch, and the passed-over columns short of it.
+    ///
+    /// **The one place the exclusion above is made good.** Two walks need a row
+    /// whole — the update, and the substitution that reads the null space — over
+    /// different spans, and each was spelling out the same rule against its own
+    /// bound. Stated once because getting it wrong is silent: back when partial
+    /// pivoting still moved rows, a third walk spelt it out too and let the two
+    /// halves overlap, swapping a column twice so that it landed back where it
+    /// started. It showed up only as a null-space entry parts-in-1e12 adrift.
+    ///
+    /// `free` is [`Elimination::free`] at both callers, and arrives as an
+    /// argument because neither can ask through `self`: both hold
+    /// [`Elimination::rows`] mutably across the same walk.
+    fn spans(self, free: &[usize]) -> impl Iterator<Item = usize> {
         free.iter()
             .copied()
             .take_while(move |&passed| passed < self.low)
