@@ -2,10 +2,7 @@
 
 use std::rc::Rc;
 
-use palantir::{
-    AnimSpec, Background, ButtonTheme, Color, Corners, Spacing, StatefulLook, Stroke,
-    TextEditTheme, TextStyle, WidgetLook,
-};
+use palantir::{AnimSpec, StatefulLook, TextEditTheme, TextStyle};
 
 use crate::look::Theme;
 // The one face the theme does not yet own: a mark's font is the *drawing's*, and
@@ -20,7 +17,7 @@ use crate::paint::MARK_FONT;
 /// over moves all of it at once.
 ///
 /// Built once and kept, because it is not cheap — palantir's own recipe
-/// assembles sixteen widget themes, and five more are built on top of it here.
+/// assembles sixteen widget themes, and the field is built on top of it here.
 #[derive(Debug)]
 pub(crate) struct Dressed {
     /// What every widget this crate does not draw itself resolves against.
@@ -30,28 +27,14 @@ pub(crate) struct Dressed {
     pub(crate) palantir: Rc<palantir::Theme>,
     /// The field a dimension is retyped in.
     pub(crate) field: TextEditTheme,
-    /// The button that commits the form, and the one that throws it away.
-    pub(crate) goes: ButtonTheme,
-    pub(crate) stops: ButtonTheme,
-    /// The operation the form is set to, and the two it is not — the same
-    /// recipe, dimmed, so the row reads as one control rather than as three
-    /// equal presses.
-    pub(crate) chosen: ButtonTheme,
-    pub(crate) offered: ButtonTheme,
 }
 
 impl Dressed {
     pub(crate) fn of(theme: &Theme) -> Self {
         let roles = theme.roles();
-        let Theme { form, motion, .. } = theme;
-        let lift = motion.lift;
         Self {
             palantir: Rc::new(theme.dress(&roles)),
-            field: field(&roles, lift),
-            goes: answer(&roles, form.goes, lift),
-            stops: answer(&roles, form.stops, lift),
-            chosen: answer(&roles, form.doing, lift),
-            offered: answer(&roles, form.doing.lerp(Color::BLACK, 0.5), lift),
+            field: field(&roles, theme.motion.lift),
         }
     }
 }
@@ -93,45 +76,5 @@ fn field(roles: &palantir::Palette, lift: AnimSpec) -> TextEditTheme {
     for state in [normal, hovered, active, disabled] {
         state.text = Some(text.clone());
     }
-    theme
-}
-
-/// The stock button in `ink`, its four states told apart by how bright it is.
-///
-/// One recipe for all four, because what differs between them is a colour and
-/// nothing else — written out apiece, they would be four chances for the hovered
-/// state of one to drift from another's.
-fn answer(roles: &palantir::Palette, ink: Color, lift: AnimSpec) -> ButtonTheme {
-    let mut theme = ButtonTheme::from_palette(roles);
-    // Lifted like every other control, and stated here rather than inherited:
-    // these are built from the roles rather than from the palantir theme beside
-    // them, so they take nothing that theme was given.
-    theme.anim = Some(lift);
-    // No padding of its own: the button is sized outright, so padding would be
-    // asking for a square and then adding to two of its sides.
-    theme.padding = Spacing::ZERO;
-    let face = |fill: Color| {
-        Background::rounded(fill, Corners::all(4.0))
-            .with_stroke(Stroke::solid(fill.lerp(Color::WHITE, 0.25), 1.0))
-    };
-    let StatefulLook {
-        normal,
-        hovered,
-        active,
-        disabled,
-    } = &mut theme.looks;
-    normal.background = face(ink);
-    hovered.background = face(ink.lerp(Color::WHITE, 0.18));
-    active.background = face(ink.lerp(Color::BLACK, 0.15));
-    // Never reached — a form shows both answers or neither — and stated anyway,
-    // so a disabled button would read as one rather than falling back to the
-    // stock grey and looking like a different control.
-    disabled.background = face(ink.lerp(Color::BLACK, 0.35));
-    let label = TextStyle::default().with_color(Color::WHITE);
-    for state in [normal, hovered, active] {
-        state.text = Some(label.clone());
-    }
-    let WidgetLook { text, .. } = disabled;
-    *text = Some(label);
     theme
 }

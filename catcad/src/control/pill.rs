@@ -14,34 +14,32 @@ use crate::look::Theme;
 /// carries the group's identity too — three chips on one pill are one thing to
 /// look at, where three loose chips are three.
 #[derive(Debug)]
-pub(super) struct Pill {
+pub(crate) struct Pill<'a> {
+    /// Kept rather than spent at construction, because two of the choices below
+    /// are made *after* one — where it is pinned, and whether it stands on the
+    /// drawing — and each of them wants a colour or a metric off it.
+    theme: &'a Theme,
     panel: Panel,
-    /// How far from the view's edge it sits, kept for [`Pill::align`] alone.
-    ///
-    /// The one metric a pill still needs after it is built: everything else is
-    /// spent on the panel at construction, and a pill that is never pinned never
-    /// spends this.
-    inset: f32,
 }
 
-impl Pill {
+impl<'a> Pill<'a> {
     /// A row of controls.
     ///
     /// Salted rather than left to `auto_id`, which reads the line it is written
     /// on: every pill built through here would otherwise share one id.
-    pub(super) fn hstack(theme: &Theme, salt: &str) -> Self {
+    pub(crate) fn hstack(theme: &'a Theme, salt: &str) -> Self {
         Self::of(theme, Panel::hstack(), salt)
     }
 
     /// A column of them.
-    pub(super) fn vstack(theme: &Theme, salt: &str) -> Self {
+    pub(crate) fn vstack(theme: &'a Theme, salt: &str) -> Self {
         Self::of(theme, Panel::vstack(), salt)
     }
 
-    fn of(theme: &Theme, panel: Panel, salt: &str) -> Self {
+    fn of(theme: &'a Theme, panel: Panel, salt: &str) -> Self {
         let chrome = &theme.chrome;
         Self {
-            inset: chrome.inset,
+            theme,
             panel: panel
                 .id_salt(salt)
                 .size((Sizing::HUG, Sizing::HUG))
@@ -59,27 +57,46 @@ impl Pill {
     }
 
     /// Pin it to a corner of the view, inset by the shared margin.
-    pub(super) fn align(mut self, align: Align) -> Self {
-        self.panel = self.panel.align(align).margin(Spacing::all(self.inset));
+    pub(crate) fn align(mut self, align: Align) -> Self {
+        let inset = self.theme.chrome.inset;
+        self.panel = self.panel.align(align).margin(Spacing::all(inset));
         self
     }
 
     /// Hold it to a width, for a surface carrying text that could otherwise run
     /// on — see [`Chrome::card`](crate::look::chrome::Chrome).
-    pub(super) fn width(mut self, width: f32) -> Self {
+    pub(crate) fn width(mut self, width: f32) -> Self {
         self.panel = self.panel.size((Sizing::fixed(width), Sizing::HUG));
+        self
+    }
+
+    /// Stand it on the drawing rather than at an edge of the view.
+    ///
+    /// **Two things follow, and they are one decision.** What is *behind* it is
+    /// a lit solid rather than the near-black ground, so it takes the denser
+    /// fill — see [`Chrome::pill_over`](crate::look::chrome::Chrome::pill_over).
+    /// And what is *under* it is the geometry being edited, so a press it does
+    /// not use falls through: a form is paired with a handle in the drawing,
+    /// and a slab that claimed every press would be one that took that handle
+    /// away.
+    pub(crate) fn over_drawing(mut self) -> Self {
+        let chrome = &self.theme.chrome;
+        self.panel = self.panel.sense(Sense::NONE).background(
+            Background::rounded(chrome.pill_over, Corners::all(chrome.pill_radius()))
+                .with_stroke(Stroke::solid(chrome.pill_edge, 1.0)),
+        );
         self
     }
 
     /// Set the space between what stands on it, where the chip gap is wrong — a
     /// list of rows wants them nearly touching, so the list reads as one thing
     /// rather than as a column of separate slabs.
-    pub(super) fn gap(mut self, gap: f32) -> Self {
+    pub(crate) fn gap(mut self, gap: f32) -> Self {
         self.panel = self.panel.gap(gap);
         self
     }
 
-    pub(super) fn show(self, ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
+    pub(crate) fn show(self, ui: &mut Ui, body: impl FnOnce(&mut Ui)) {
         self.panel.show(ui, body);
     }
 }
@@ -96,12 +113,12 @@ const RULE_INSET: f32 = 4.0;
 /// on, which is this one for every rule the overlay draws — so two on one pill
 /// would collide on a single id. The salt is also the only place a rule says
 /// which division it is.
-pub(super) fn rule(ui: &mut Ui, theme: &Theme, salt: &str) {
+pub(crate) fn rule(ui: &mut Ui, theme: &Theme, salt: &str) {
     line(ui, salt, run(theme), 1.0, theme.chrome.rule);
 }
 
 /// The same, between two groups sharing one row.
-pub(super) fn divider(ui: &mut Ui, theme: &Theme, salt: &str) {
+pub(crate) fn divider(ui: &mut Ui, theme: &Theme, salt: &str) {
     line(ui, salt, 1.0, run(theme), theme.chrome.rule);
 }
 
@@ -116,7 +133,7 @@ fn run(theme: &Theme) -> f32 {
 /// which stretches to a parent's inner extent: a pill hugs the chips on it, so
 /// there is no extent to stretch against and the rule arrives with no length at
 /// all. Stated outright, it has one.
-pub(super) fn line(ui: &mut Ui, salt: &str, width: f32, height: f32, color: Color) {
+pub(crate) fn line(ui: &mut Ui, salt: &str, width: f32, height: f32, color: Color) {
     laid(ui, salt, Sizing::fixed(width), height, color);
 }
 
@@ -125,7 +142,7 @@ pub(super) fn line(ui: &mut Ui, salt: &str, width: f32, height: f32, color: Colo
 /// For the far side of a rule the words on it divide: how much room the letters
 /// took is the shaper's answer, so the arm after them is the one length here
 /// that cannot be stated.
-pub(super) fn filling_line(ui: &mut Ui, salt: &str, height: f32, color: Color) {
+pub(crate) fn filling_line(ui: &mut Ui, salt: &str, height: f32, color: Color) {
     laid(ui, salt, Sizing::FILL, height, color);
 }
 

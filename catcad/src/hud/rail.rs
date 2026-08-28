@@ -2,8 +2,8 @@
 
 use palantir::{Ui, WidgetId};
 
-use crate::hud::chip::Chip;
-use crate::hud::pill::{self, Pill};
+use crate::control::chip::Chip;
+use crate::control::pill::{self, Pill};
 use crate::hud::{Shown, control};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Intents};

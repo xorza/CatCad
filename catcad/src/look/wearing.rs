@@ -2,7 +2,9 @@
 
 use palantir::{AnimSlot, Animatable, Color, Ui, WidgetId};
 
+use crate::look;
 use crate::look::Theme;
+use crate::look::chrome::Chrome;
 
 /// The row a control's look is eased in. One per widget, carrying both colours
 /// together: a fill that arrived before its ink would be a control caught
@@ -24,14 +26,14 @@ const DOOMED_FILL: f32 = 0.33;
 /// two could change places and still compile — and a `built` swapped with a
 /// `doomed` paints a step nobody has built yet as one about to be taken away.
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Standing {
-    pub(super) picked: bool,
+pub(crate) struct Standing {
+    pub(crate) picked: bool,
     /// Whether the pointer is on it.
-    pub(super) hovered: bool,
+    pub(crate) hovered: bool,
     /// Whether the document has built it, or it lies past the rollback bar.
-    pub(super) built: bool,
+    pub(crate) built: bool,
     /// Whether a removal being offered would take it.
-    pub(super) doomed: bool,
+    pub(crate) doomed: bool,
 }
 
 /// The two colours one control wears this frame.
@@ -42,14 +44,14 @@ pub(super) struct Standing {
 /// differs between them is only the resting fill, and side by side that reads
 /// as the decision it is rather than as a coincidence.
 #[derive(Debug, Clone, Copy, PartialEq, Animatable)]
-pub(super) struct Wearing {
-    pub(super) fill: Color,
-    pub(super) ink: Color,
+pub(crate) struct Wearing {
+    pub(crate) fill: Color,
+    pub(crate) ink: Color,
 }
 
 impl Wearing {
     /// A chip on a pill: a slab at rest, lifting under the pointer.
-    pub(super) fn chip(theme: &Theme, held: bool, hovered: bool) -> Self {
+    pub(crate) fn chip(theme: &Theme, held: bool, hovered: bool) -> Self {
         Self::of(
             theme,
             held,
@@ -60,6 +62,52 @@ impl Wearing {
         )
     }
 
+    /// An answer a form carries: chrome at rest, and what it means under the
+    /// pointer.
+    ///
+    /// **The colour arrives on hover, and that is the whole of why this is its
+    /// own ladder.** A form stands on the model, so two filled blocks of chroma
+    /// there are the strongest thing on screen — stronger than the geometry
+    /// being decided, which is what is actually being looked at. Inked, the
+    /// pair still read as a green tick and a red cross; filled, they read in
+    /// the frame the press is about to happen in and in no other.
+    ///
+    /// Never held, which is why it is not an arm of [`Wearing::of`]: a confirm
+    /// is over the moment it is pressed, where a tool in hand stays in hand.
+    pub(crate) fn answer(theme: &Theme, means: Color, hovered: bool) -> Self {
+        let chrome = &theme.chrome;
+        match hovered {
+            true => Self {
+                fill: means,
+                ink: Self::reading_on(chrome, means),
+            },
+            false => Self {
+                fill: chrome.chip,
+                ink: means,
+            },
+        }
+    }
+
+    /// Whichever of the overlay's two inks reads on `fill`.
+    ///
+    /// **Derived rather than picked, because the palette decides.** How light a
+    /// form's answers are is the table's business, and the shipped one has had
+    /// them on both sides of the middle: the pill's own dark reads at 6.8 on a
+    /// bright green where the light ink reads at 2.0, and a muted green is the
+    /// other way about. Stated either way round, half the palettes would carry
+    /// a mark nobody could see.
+    ///
+    /// Judged by [`look::separation`], which is what the theme's own floors are
+    /// checked with — so the ink this picks and the check that grades it cannot
+    /// be two measures of one thing.
+    fn reading_on(chrome: &Chrome, fill: Color) -> Color {
+        let [lit, dark] = [chrome.ink_lit, chrome.on_held];
+        match look::separation(lit, fill) >= look::separation(dark, fill) {
+            true => lit,
+            false => dark,
+        }
+    }
+
     /// A row of the recipe: no fill at rest, because a list of slabs reads as a
     /// list of buttons — what a row is, until it is pointed at, is its label.
     ///
@@ -68,7 +116,7 @@ impl Wearing {
     /// built, so it names something that is not there. Only at rest — pointing
     /// at one still lights it and picking one still fills it, because a step
     /// that is not built is still a step a person selects and deletes.
-    pub(super) fn row(theme: &Theme, standing: Standing) -> Self {
+    pub(crate) fn row(theme: &Theme, standing: Standing) -> Self {
         let Standing {
             picked,
             hovered,
@@ -114,7 +162,7 @@ impl Wearing {
     /// **One row for the pair**, which is what keeps them together in time as
     /// well as in value: two rows would let a fill arrive before its ink and
     /// show a control half-way between two states.
-    pub(super) fn eased(self, ui: &mut Ui, id: WidgetId, theme: &Theme) -> Self {
+    pub(crate) fn eased(self, ui: &mut Ui, id: WidgetId, theme: &Theme) -> Self {
         ui.animate(id, LIFT, self, Some(theme.motion.lift))
     }
 

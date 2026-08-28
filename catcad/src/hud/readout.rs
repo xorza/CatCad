@@ -5,8 +5,8 @@ use palantir::{
     TextInput, TextStyle, TextWrap, Ui, VAlign,
 };
 
+use crate::control::pill::Pill;
 use crate::hud::Shown;
-use crate::hud::pill::Pill;
 use crate::look::Theme;
 use crate::look::drawing;
 use crate::status::Solved;

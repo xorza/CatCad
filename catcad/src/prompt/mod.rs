@@ -17,16 +17,19 @@
 
 use glam::Vec2;
 use palantir::{
-    Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing,
-    Text, TextEdit, TextRun, TextWrap, Tooltip, Ui, VAlign, WidgetId,
+    Align, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing, Spacing, Text,
+    TextEdit, TextRun, TextStyle, TextWrap, Ui, VAlign, WidgetId,
 };
 use silverpoint::{Entity, Operation, Sector, SegmentId};
 use std::fmt::Write;
 
+use crate::control::chip::Chip;
+use crate::control::pill::{self, Pill};
 use crate::drawing::anchor::Anchor;
 use crate::intent::change::Change;
 use crate::intent::{Choice, Intents, Opening, Step};
 use crate::look::Theme;
+use crate::look::icons::Icons;
 use crate::model::{Model, Models};
 use crate::paint::growing::Growing;
 use crate::paint::{DECIMALS, MARK_FONT};
@@ -119,6 +122,24 @@ impl Asking {
         }
     }
 
+    /// What this form calls itself, over the fields it asks for.
+    ///
+    /// **`None` for a dimension, and that is the placement rather than an
+    /// omission.** A dimension's field stands *over* the mark it replaces — see
+    /// [`Stands`] — so a caption there would be a second thing in a place that
+    /// holds exactly one, and it would cover the geometry the number is about.
+    /// Every form that stands *beside* what it is about has room to say what it
+    /// is, and nothing else on one does: two fields and three chips are the
+    /// same two fields and three chips whichever sweep they are for.
+    fn named(&self) -> Option<Marked> {
+        match self {
+            Asking::Dimension { .. } => None,
+            Asking::Circle { .. } => Some(marked::CIRCLE),
+            Asking::Extrude { .. } => Some(marked::EXTRUDE),
+            Asking::Revolve { .. } => Some(marked::REVOLVE),
+        }
+    }
+
     /// The region a solid is being raised from, whichever way it is raised.
     ///
     /// Wider than [`Asking::extruding`] beside it, and the two are not one:
@@ -173,12 +194,22 @@ pub(crate) enum Stands {
 /// underneath it.
 const STANDS_CLEAR: f32 = 14.0;
 
-/// How far apart a form sets the things it is made of, in logical pixels.
+/// What an angle a form asks for is stated in.
 ///
-/// One number for both directions and every row, so a label, a field and two
-/// answers read as one control rather than as four things that happen to be
-/// near each other.
-const GAP: f32 = 4.0;
+/// Degrees, which is what a person types. [`Prompt::sector`] is the one place
+/// they become the radians the kernel takes, and this is the one place the form
+/// says so — stated once, so what is shown and what is converted cannot come to
+/// mean two things.
+const DEGREES: &str = "\u{b0}";
+
+/// How tall the row naming the form is, and how far across the mark on it
+/// reaches, in logical pixels.
+///
+/// Smaller than a chip's artwork, because this is a caption's mark rather than
+/// a control: what it stands beside is the least lettering the overlay sets —
+/// see [`Chrome::caption_text`](crate::look::chrome::Chrome::caption_text).
+const NAMING_ROW: f32 = 15.0;
+const NAMING_ICON: f32 = 12.0;
 
 /// What a field opens showing, and so which of the two inputs starts with it.
 ///
@@ -201,6 +232,19 @@ enum Seed {
     /// half-made thing is decided from the moment the form opens — a solid at
     /// no depth rather than no solid.
     Offered(f64),
+}
+
+/// One value a form opens asking for.
+///
+/// **Named rather than a tuple in a row**, on the terms [`Said`] states about
+/// three bools: two of these are `&'static str`, so they could change places
+/// without a word from the compiler — and a label swapped with a unit is a
+/// field called `\u{b0}`.
+#[derive(Debug, Clone, Copy)]
+struct Asks {
+    label: &'static str,
+    unit: &'static str,
+    seed: Seed,
 }
 
 /// A depth being decided: the sketch whose plane it is measured along, and how
@@ -238,6 +282,15 @@ struct Field {
     /// — a dimension's field is the number, and a word beside it would be a
     /// word the drawing never had.
     label: &'static str,
+    /// What the number is in, set after the box in the size the overlay captions
+    /// with.
+    ///
+    /// **The one thing on a form nothing else could say.** Both of a revolve's
+    /// fields are degrees — [`Prompt::sector`] is where they become the radians
+    /// the kernel takes — and a box reading `360.00` over a solid says nothing
+    /// about which. Empty where the value is a length, because the document has
+    /// no unit for one yet and a guess would be worse than the silence.
+    unit: &'static str,
     /// The buffer [`TextEdit`] borrows, so the widget writes it and this reads
     /// it. Never re-seeded from the drawing: a draft is what the *user* has
     /// made of the value, and geometry that moved under it says nothing about
@@ -380,16 +433,26 @@ impl Prompt {
     /// carry the name — see [`Opening::Extrude`].
     pub(crate) fn opening(opening: Opening, form: Form) -> Option<Self> {
         Some(match opening {
-            Opening::Dimension { part, from } => {
-                Self::on(form, Asking::Dimension { part }, [("", Seed::Stated(from))])
-            }
+            Opening::Dimension { part, from } => Self::on(
+                form,
+                Asking::Dimension { part },
+                [Asks {
+                    label: "",
+                    unit: "",
+                    seed: Seed::Stated(from),
+                }],
+            ),
             // Offered rather than stated, like every form that *makes*
             // something: the pointer has the value until somebody types one,
             // and the field shows whichever is speaking. See [`Seed`].
             Opening::Circle { sketch, center } => Self::on(
                 form,
                 Asking::Circle { sketch, center },
-                [("Radius", Seed::Offered(0.0))],
+                [Asks {
+                    label: "Radius",
+                    unit: "",
+                    seed: Seed::Offered(0.0),
+                }],
             ),
             // At no depth at all, which is where the ask starts: the solid is on
             // screen from the moment the form opens, and a zero-depth prism is a
@@ -400,7 +463,11 @@ impl Prompt {
                     profile,
                     operation: Operation::Join,
                 },
-                [("Depth", Seed::Offered(0.0))],
+                [Asks {
+                    label: "Depth",
+                    unit: "",
+                    seed: Seed::Offered(0.0),
+                }],
             ),
             // A whole turn from the drawing's own place, which is where the
             // ask starts: the ring is on screen whole from the moment the form
@@ -419,8 +486,16 @@ impl Prompt {
                     operation: Operation::Join,
                 },
                 [
-                    ("Start", Seed::Offered(0.0)),
-                    ("Turn", Seed::Offered(Sector::WHOLE.sweep.to_degrees())),
+                    Asks {
+                        label: "Start",
+                        unit: DEGREES,
+                        seed: Seed::Offered(0.0),
+                    },
+                    Asks {
+                        label: "Turn",
+                        unit: DEGREES,
+                        seed: Seed::Offered(Sector::WHOLE.sweep.to_degrees()),
+                    },
                 ],
             ),
         })
@@ -436,28 +511,30 @@ impl Prompt {
     ///
     /// **A form with no field has to carry its own way out**, which is the one
     /// thing asserted here. Nothing to type into is fine, and a form dismissed
-    /// by *clicking away* and holding no button would be one nothing could
+    /// by *clicking away* and holding no chip would be one nothing could
     /// answer. That is [`Prompt::blurs`], so the two are asked together.
     ///
     /// And such a form stands *beside* what it is about, never over it:
     /// [`Prompt::over`] and [`Prompt::run`] index the first field rather than
     /// carry an `Option` for a state a dimension cannot be in.
-    fn on<const N: usize>(form: Form, about: Asking, values: [(&'static str, Seed); N]) -> Self {
+    fn on<const N: usize>(form: Form, about: Asking, values: [Asks; N]) -> Self {
         let made = Self {
             form,
             about,
             fields: values
                 .iter()
-                .map(|&(label, seed)| {
+                .map(|&Asks { label, unit, seed }| {
                     let said = |value: f64| format!("{value:.*}", DECIMALS);
                     match seed {
                         Seed::Stated(value) => Field {
                             label,
+                            unit,
                             draft: said(value),
                             suggested: String::new(),
                         },
                         Seed::Offered(value) => Field {
                             label,
+                            unit,
                             draft: String::new(),
                             suggested: said(value),
                         },
@@ -468,7 +545,7 @@ impl Prompt {
         };
         debug_assert!(
             N > 0 || !made.blurs(),
-            "a form that asks for nothing and has no button to answer with",
+            "a form that asks for nothing and has no chip to answer with",
         );
         made
     }
@@ -692,6 +769,7 @@ impl Prompt {
         &mut self,
         ui: &mut Ui,
         theme: &Theme,
+        icons: &Icons,
         stands: Stands,
         models: Models<'_>,
         intents: &mut Intents,
@@ -702,7 +780,7 @@ impl Prompt {
         let opening = !std::mem::replace(&mut self.shown, true);
         let done = match stands {
             Stands::Over(at) => self.over(ui, theme, at, opening),
-            Stands::Beside(anchor) => self.beside(ui, theme, anchor, opening),
+            Stands::Beside(anchor) => self.beside(ui, theme, icons, anchor, opening),
         };
         // Outside the bodies, because a value is read off a draft the widget
         // has only just finished writing.
@@ -719,13 +797,13 @@ impl Prompt {
     /// Whether losing focus is this form's cancel.
     ///
     /// It is where clicking away is the only way out, and it is *not* where the
-    /// form carries its own buttons: an extrude's depth is dragged by an arrow
+    /// form carries its own chips: an extrude's depth is dragged by an arrow
     /// in the drawing, and a form that threw itself away when the pointer went
     /// to that arrow would be one you could never drag.
     ///
     /// Read the other way round it is whether the form carries its own confirm
     /// and cancel, which is the same bit and deliberately so: a form is
-    /// dismissed by its buttons or by clicking away, never by both and never by
+    /// dismissed by its chips or by clicking away, never by both and never by
     /// neither.
     fn blurs(&self) -> bool {
         match self.about {
@@ -849,77 +927,44 @@ impl Prompt {
         WidgetId::from_hash(("catcad.prompt.field", nth))
     }
 
-    /// Show one of the form's square buttons, and say whether it was pressed.
-    ///
-    /// Both rows are the same button in a different colour, and were the same
-    /// five chained calls written twice: what tells them apart is which mark,
-    /// which theme, which id and how big, so those are what this takes. A
-    /// second spelling of the chain would be a second chance for one row's size
-    /// or hover to drift from the other's — which is the argument the theme's
-    /// own `answer` already makes about the four buttons, one level up.
-    ///
-    /// **Every square carries its word**, which is what a control drawn as a
-    /// glyph owes whoever is reading it — see [`marked`]. Here rather than at
-    /// the two rows, so a button added to either cannot be added without one.
-    fn button(ui: &mut Ui, id: WidgetId, marked: Marked, style: &ButtonTheme, side: f32) -> bool {
-        let shown = Button::new()
-            .id(id)
-            .label(marked.glyph)
-            .style(style)
-            .size((Sizing::fixed(side), Sizing::fixed(side)))
-            .show(ui);
-        // The snapshot and the click are both taken first, so the button's
-        // borrow of the frame has ended by the time the bubble records into it.
-        let snapshot = shown.snapshot();
-        let clicked = shown.left.clicked();
-        Tooltip::on(&snapshot).text(marked.word).show(ui);
-        clicked
-    }
-
-    /// What the button setting the form to `marked`'s operation is recorded
+    /// What the chip setting the form to `marked`'s operation is recorded
     /// under.
     ///
     /// Named rather than salted, for the reason a field's id is: a caller
     /// outside cannot work out an `auto_id`, and a test pressing the control
     /// has to find where it was laid out. By its glyph because that is what
-    /// tells the three apart and is already what the button carries — which is
+    /// tells the three apart and is already what the chip carries — which is
     /// also why no two rows of [`marked`] may share one.
     fn doing_id(marked: Marked) -> WidgetId {
         WidgetId::from_hash(("catcad.prompt.doing", marked.glyph))
     }
 
-    /// What the button answering with `marked` is recorded under.
+    /// What the chip answering with `marked` is recorded under.
     fn answer_id(marked: Marked) -> WidgetId {
         WidgetId::from_hash(("catcad.prompt.answer", marked.glyph))
     }
 
-    /// How wide the operation row's word has to be for the row to keep its
-    /// width.
+    /// How wide the column naming a form's fields has to be.
     ///
-    /// **The widest of the three, and not the one that is set.** The answers
-    /// sit under the row and are right-aligned against it, so a word that grew
-    /// as somebody pressed a square would carry the confirm out from under the
-    /// pointer about to press it. A revolve is where this bites: it has no
-    /// field row to set the form's width, so the word sets it alone.
+    /// **The widest of the labels, and not each label's own width.** Two fields
+    /// under labels of different lengths would otherwise open their boxes at two
+    /// different places, and what a form of two values should read as is a table
+    /// of two values.
     ///
-    /// Measured in the face the label is drawn in, which is the ambient one —
+    /// Measured in the ambient face, which is what the labels are drawn in —
     /// the same call [`Prompt::over`] measures a dimension's own run with.
-    fn naming(ui: &mut Ui) -> f32 {
+    fn labelling(ui: &mut Ui, fields: &[Field]) -> f32 {
         let font = ui.theme().text.font();
-        [Operation::Join, Operation::Cut, Operation::Intersect]
-            .map(|operation| {
-                ui.probe_text(TextRun {
-                    text: marked::doing(operation).word,
-                    font,
-                    wrap: TextWrap::SingleLine,
-                    align: Align::default(),
-                    max_width_px: None,
-                })
-                .size()
-                .w
-            })
-            .into_iter()
-            .fold(0.0, f32::max)
+        fields.iter().fold(0.0, |so_far, field| {
+            let run = TextRun {
+                text: field.label,
+                font,
+                wrap: TextWrap::SingleLine,
+                align: Align::default(),
+                max_width_px: None,
+            };
+            so_far.max(ui.probe_text(run).size().w)
+        })
     }
 
     /// The first field's number, as that field will shape it.
@@ -928,10 +973,10 @@ impl Prompt {
     /// is what that draws. Unbounded and single-line: a dimension is one run
     /// that the box is sized to rather than the other way about.
     ///
-    /// The first and no other, because the only thing that measures a run is
-    /// the form that stands *over* a mark — see [`Prompt::over`] — and that is
-    /// the one-field kind. A row standing beside something is laid out by
-    /// palantir and measures nothing here.
+    /// The first and no other, because the only thing that measures a *number*
+    /// is the form that stands *over* a mark — see [`Prompt::over`] — and that
+    /// is the one-field kind. A form standing beside something is laid out by
+    /// palantir, and the one thing it measures is how wide its labels run.
     fn run(&self) -> TextRun<'_> {
         TextRun {
             text: &self.fields[0].draft,
@@ -998,21 +1043,29 @@ impl Prompt {
         self.resolve(said)
     }
 
-    /// Every field and both answers, in a row standing clear of `anchor`.
+    /// The whole form on a pill of its own, standing clear of `anchor`.
     ///
-    /// [`Popup`] does the placing: it resolves the row against the anchor from
+    /// [`Popup`] does the placing: it resolves the pill against the anchor from
     /// its own measured size and flips or shifts it to stay on the surface, so
-    /// a face near the bottom of the view gets its form above instead. Nothing
-    /// here measures anything.
+    /// a face near the bottom of the view gets its form above instead. The one
+    /// thing measured here is how wide the labels run, which is a question
+    /// about the fields rather than about where they land.
     ///
     /// [`ClickOutside::PassThrough`] because this annotates rather than
     /// interrupts. A modal popup installs a click-eater over the whole surface
     /// and claims the keyboard for every layer below, which for a form whose
     /// value is *also* dragged by an arrow in the drawing would mean a form you
     /// could never drag against.
-    fn beside(&mut self, ui: &mut Ui, theme: &Theme, anchor: Rect, opening: bool) -> Option<Done> {
+    fn beside(
+        &mut self,
+        ui: &mut Ui,
+        theme: &Theme,
+        icons: &Icons,
+        anchor: Rect,
+        opening: bool,
+    ) -> Option<Done> {
+        let chrome = &theme.chrome;
         let dressed = theme.dressed();
-        let side = theme.form.button;
         // Stood clear of what it is about rather than against it. [`Popup`]
         // places a body flush with its anchor, and flush with the outline of
         // the thing being measured is on top of it — so the anchor is grown by
@@ -1025,18 +1078,28 @@ impl Prompt {
             anchor.size.h + STANDS_CLEAR * 2.0,
         );
         let blurs = self.blurs();
+        // Measured before the popup, because the rows inside it borrow the
+        // fields the labels are read off.
+        let labelling = Self::labelling(ui, &self.fields);
         // Both borrowed off `self` at once, and they may be: they are different
         // fields, and the row below writes one while reading the other.
         let Self { about, fields, .. } = self;
+        let named = about.named();
         let doing = match about {
             Asking::Extrude { operation, .. } | Asking::Revolve { operation, .. } => {
                 Some(operation)
             }
             Asking::Dimension { .. } | Asking::Circle { .. } => None,
         };
-        // Before the popup rather than inside it, and only where the row it
-        // sizes is drawn.
-        let naming = doing.is_some().then(|| Self::naming(ui));
+        let label = TextStyle {
+            color: chrome.ink,
+            font_size_px: chrome.readout_text,
+            ..TextStyle::default()
+        };
+        let caption = TextStyle {
+            font_size_px: chrome.caption_text,
+            ..label.clone()
+        };
         let mut said = Said::default();
         let mut answered = None;
         Popup::below(anchor)
@@ -1051,7 +1114,7 @@ impl Prompt {
                 // which is the same question [`Prompt::blurs`] answers.
                 // Nothing to focus on a form with no field, and asking every
                 // frame for a widget that is not there would take focus off the
-                // buttons that *are*.
+                // chips that *are*.
                 //
                 // **What is held is that *a* field has the caret, not that the
                 // first one does.** Asked of the first alone, a second field
@@ -1062,121 +1125,192 @@ impl Prompt {
                 if (opening || (!blurs && !held)) && !fields.is_empty() {
                     ui.request_focus(Some(Self::field_id(0)));
                 }
-                // A column, so the answers sit under what they answer rather
-                // than running off to one side of it — two buttons on the end
-                // of a row put the whole form wider than the number it is
-                // about, and it is standing on a drawing.
-                Panel::vstack().id_salt("form").gap(GAP).show(ui, |ui| {
-                    Panel::hstack().id_salt("row").gap(GAP).show(ui, |ui| {
+                // **The overlay's own slab, at the overlay's own width.** A form
+                // used to float on the drawing with nothing under it, so what
+                // its words read against was whatever geometry happened to be
+                // behind them — and on a lit solid that is nothing at all.
+                //
+                // Stated rather than hugged, which is what lets every row line
+                // up: a label column, the boxes and the answers all end on one
+                // edge. It is also what keeps the confirm still. Hugged, the
+                // form would be as wide as the longest of Join, Cut and
+                // Intersect, so pressing a chip would carry the confirm out
+                // from under the pointer about to press it.
+                Pill::vstack(theme, "form")
+                    .width(chrome.card)
+                    .over_drawing()
+                    .show(ui, |ui| {
+                        // **What says which form is open.** Everything below it
+                        // is the same on an extrude and a revolve alike.
+                        if let Some(named) = named {
+                            Panel::hstack()
+                                .id_salt("named")
+                                .size((Sizing::FILL, Sizing::fixed(NAMING_ROW)))
+                                .show(ui, |ui| {
+                                    // A shape is not a layout item, so the
+                                    // word steps past it by hand — the reach
+                                    // the recipe's own rows are built on.
+                                    let lift = (NAMING_ROW - NAMING_ICON) * 0.5;
+                                    ui.add_shape(
+                                        icons
+                                            .shape(named.glyph)
+                                            .at(Rect::new(0.0, lift, NAMING_ICON, NAMING_ICON))
+                                            .tint(chrome.ink),
+                                    );
+                                    Text::new(named.word)
+                                        .id_salt("naming")
+                                        .style(&caption)
+                                        .align(Align::new(HAlign::Left, VAlign::Center))
+                                        .margin(Spacing::new(
+                                            NAMING_ICON + chrome.gap,
+                                            0.0,
+                                            0.0,
+                                            0.0,
+                                        ))
+                                        .show(ui);
+                                });
+                            pill::filling_line(ui, "under", 1.0, chrome.rule);
+                        }
+                        // A row apiece rather than a run of them, so both labels
+                        // end on one column and both boxes open on one column.
+                        // It is also what keeps a form narrow: it stands on a
+                        // drawing, and a row grows with every field.
                         for (nth, field) in fields.iter_mut().enumerate() {
-                            if !field.label.is_empty() {
-                                // Against the middle of the box beside it, not
-                                // the top of the row: a field is taller than
-                                // the word naming it, so a label left to its
-                                // own devices sits on the field's top edge.
-                                Text::new(field.label)
-                                    .id_salt(field.label)
-                                    .align(Align::v(VAlign::Center))
-                                    .show(ui);
-                            }
-                            let shown = TextEdit::new(&mut field.draft)
-                                .id(Self::field_id(nth))
-                                .style(&dressed.field)
-                                .select_all_on_focus()
-                                // Cloned because [`TextEdit::placeholder`]
-                                // takes a `Cow<'static, str>` and this string
-                                // is the form's, not the program's — a borrow
-                                // cannot satisfy that lifetime. One short
-                                // string a frame, and the only way in.
-                                .placeholder(field.suggested.clone())
-                                .text_align(Align::CENTER)
-                                .size((Sizing::HUG, Sizing::HUG))
-                                .show(ui);
-                            said = said.and(Said::of(&shown));
+                            Panel::hstack()
+                                .id_salt(("field", nth))
+                                .size((Sizing::FILL, Sizing::HUG))
+                                .gap(chrome.gap)
+                                .show(ui, |ui| {
+                                    if !field.label.is_empty() {
+                                        // Against the middle of the box beside
+                                        // it, not the top of the row: a field is
+                                        // taller than the word naming it, so a
+                                        // label left to its own devices sits on
+                                        // the field's top edge.
+                                        Text::new(field.label)
+                                            .id_salt("label")
+                                            .style(&label)
+                                            .size((Sizing::fixed(labelling), Sizing::HUG))
+                                            .align(Align::new(HAlign::Right, VAlign::Center))
+                                            .show(ui);
+                                    }
+                                    // Read out at once, so the field's borrow
+                                    // of the frame has ended by the time the
+                                    // unit beside it records into the same row.
+                                    said = said.and(Said::of(
+                                        &TextEdit::new(&mut field.draft)
+                                            .id(Self::field_id(nth))
+                                            .style(&dressed.field)
+                                            .select_all_on_focus()
+                                            // Cloned because
+                                            // [`TextEdit::placeholder`] takes a
+                                            // `Cow<'static, str>` and this
+                                            // string is the form's, not the
+                                            // program's — a borrow cannot
+                                            // satisfy that lifetime. One short
+                                            // string a frame, and the only way
+                                            // in.
+                                            .placeholder(field.suggested.clone())
+                                            .text_align(Align::CENTER)
+                                            .size((Sizing::FILL, Sizing::HUG))
+                                            .show(ui),
+                                    ));
+                                    if !field.unit.is_empty() {
+                                        Text::new(field.unit)
+                                            .id_salt("unit")
+                                            .style(&label)
+                                            .align(Align::new(HAlign::Left, VAlign::Center))
+                                            .show(ui);
+                                    }
+                                });
+                        }
+                        // **What the answer will do, where there is a choice
+                        // about it.** Only a sweep has one — a dimension
+                        // restates a number and a circle is drawn, and neither
+                        // does anything to a solid.
+                        if let Some(doing) = doing {
+                            Panel::hstack()
+                                .id_salt("doing")
+                                .size((Sizing::FILL, Sizing::HUG))
+                                .gap(chrome.gap)
+                                .show(ui, |ui| {
+                                    for operation in
+                                        [Operation::Join, Operation::Cut, Operation::Intersect]
+                                    {
+                                        let marked = marked::doing(operation);
+                                        // Which one is set is said by inverting
+                                        // it, which is what every held chip on
+                                        // the overlay wears — so the row reads
+                                        // as one control with a setting rather
+                                        // than as three chips any of which
+                                        // might be pressed.
+                                        let chip = Chip::icon(
+                                            Self::doing_id(marked),
+                                            marked.word,
+                                            marked.glyph,
+                                        )
+                                        .held(*doing == operation);
+                                        if chip.show(ui, icons, theme) {
+                                            *doing = operation;
+                                        }
+                                    }
+                                    // **The setting in a word, and not only on
+                                    // hover.** A picture of a result is read
+                                    // faster once you know it is a result, and a
+                                    // tooltip is read by somebody who already
+                                    // suspects there is something to read.
+                                    //
+                                    // Filling what the three chips leave, so the
+                                    // word takes the same room whichever of the
+                                    // three it is.
+                                    Text::new(marked::doing(*doing).word)
+                                        .id_salt("chosen")
+                                        .size((Sizing::FILL, Sizing::HUG))
+                                        .align(Align::new(HAlign::Left, VAlign::Center))
+                                        .show(ui);
+                                });
+                        }
+                        // Only where this is how the form is dismissed. A form
+                        // that blurs shut has no use for them, and two chips
+                        // that were not the way out would be two chips lying
+                        // about it.
+                        if !blurs {
+                            // Under the far end of the rows rather than their
+                            // start, so the answers line up with the boxes they
+                            // are about instead of with the words naming them.
+                            // Confirm last, which is where a hand looking for
+                            // the way on goes.
+                            Panel::hstack()
+                                .id_salt("answers")
+                                .gap(chrome.gap)
+                                .align(Align::h(HAlign::Right))
+                                .show(ui, |ui| {
+                                    for (marked, means, answer) in [
+                                        (marked::CANCEL, theme.form.stops, Done::Cancel),
+                                        (marked::CONFIRM, theme.form.goes, Done::Commit),
+                                    ] {
+                                        // Named like every other id on this
+                                        // form, where it was salted: a caller
+                                        // outside cannot work out an `auto_id`,
+                                        // and these are as pressable by a test
+                                        // as the row above them.
+                                        let chip = Chip::icon(
+                                            Self::answer_id(marked),
+                                            marked.word,
+                                            marked.glyph,
+                                        )
+                                        .answers(means);
+                                        if chip.show(ui, icons, theme) {
+                                            answered = Some(answer);
+                                        }
+                                    }
+                                });
                         }
                     });
-                    // **What the answer will do, where there is a choice about
-                    // it.** Under the number rather than beside it, for the
-                    // reason the answers are: a row grown by three more buttons
-                    // is a form wider than the thing it stands on. Only an
-                    // extrude has one — a dimension restates a number and a
-                    // circle is drawn, and neither does anything to a solid.
-                    if let Some(doing) = doing {
-                        Panel::hstack().id_salt("doing").gap(GAP).show(ui, |ui| {
-                            for operation in [Operation::Join, Operation::Cut, Operation::Intersect]
-                            {
-                                let marked = marked::doing(operation);
-                                // Which one is set is said by the other two
-                                // being dimmer — see
-                                // [`Dressed::chosen`](crate::look::dressed::Dressed).
-                                let style = if *doing == operation {
-                                    &dressed.chosen
-                                } else {
-                                    &dressed.offered
-                                };
-                                if Self::button(ui, Self::doing_id(marked), marked, style, side) {
-                                    *doing = operation;
-                                }
-                            }
-                            // **The setting in a word, and not only on hover.**
-                            // Three squares under a number read as a stepper,
-                            // and a tooltip is read by somebody who already
-                            // suspects there is something to read. It is also
-                            // what tells this row from the two answers below
-                            // it, which are the same square in another colour.
-                            //
-                            // Against the middle of the squares, as a field's
-                            // label is against its box.
-                            Text::new(marked::doing(*doing).word)
-                                .id_salt("chosen")
-                                .size((
-                                    Sizing::fixed(
-                                        naming.expect("the row that draws a word measured it"),
-                                    ),
-                                    Sizing::HUG,
-                                ))
-                                .align(Align::v(VAlign::Center))
-                                .show(ui);
-                        });
-                    }
-                    // Only where this is how the form is dismissed. A form that
-                    // blurs shut has no use for them, and two buttons that were
-                    // not the way out would be two buttons lying about it.
-                    if !blurs {
-                        // Under the far end of the row rather than its start,
-                        // so the answers line up with the number they are about
-                        // instead of with the word naming it.
-                        Panel::hstack()
-                            .id_salt("answers")
-                            .gap(GAP)
-                            .align(Align::h(HAlign::Right))
-                            .show(ui, |ui| {
-                                for (marked, style, answer) in [
-                                    (marked::CONFIRM, &dressed.goes, Done::Commit),
-                                    (marked::CANCEL, &dressed.stops, Done::Cancel),
-                                ] {
-                                    // Named like every other id on this form,
-                                    // where it was salted: a caller outside
-                                    // cannot work out an `auto_id`, and these
-                                    // are as pressable by a test as the row
-                                    // above them.
-                                    if Self::button(
-                                        ui,
-                                        Self::answer_id(marked),
-                                        marked,
-                                        style,
-                                        side,
-                                    ) {
-                                        answered = Some(answer);
-                                    }
-                                }
-                            });
-                    }
-                });
             });
-        // The buttons first: a press on one is an answer whatever the fields
-        // made of the same frame, and a field that lost focus *to* the button
-        // must not cancel out from under it.
+        // The chips first: a press on one is an answer whatever the fields made
+        // of the same frame, and a field that lost focus *to* the chip must not
+        // cancel out from under it.
         answered.or_else(|| self.resolve(said))
     }
 }
@@ -1220,16 +1354,16 @@ pub(crate) mod internals {
             Self::field_id(nth)
         }
 
-        /// What the button `marked` draws for an operation is recorded under —
+        /// What the chip `marked` draws for an operation is recorded under —
         /// see [`marked`](crate::prompt::marked), which is where the rows are.
         pub(crate) fn operation_id(marked: Marked) -> WidgetId {
             Self::doing_id(marked)
         }
 
-        /// What the button answering with `marked` is recorded under.
+        /// What the chip answering with `marked` is recorded under.
         ///
         /// Every form here is answered with Enter as well, which a harness
-        /// types. What this is for is a harness that means to press the button
+        /// types. What this is for is a harness that means to press the chip
         /// — the other way out, and the only one a form with no field has.
         pub(crate) fn answering_id(marked: Marked) -> WidgetId {
             Self::answer_id(marked)

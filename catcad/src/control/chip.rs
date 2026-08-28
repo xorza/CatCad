@@ -5,9 +5,9 @@ use palantir::{
     Sizing, Spacing, Text, TextStyle, Tooltip, Ui, WidgetId,
 };
 
-use crate::hud::wearing::Wearing;
 use crate::look::Theme;
 use crate::look::icons::{Glyph, Icons};
+use crate::look::wearing::Wearing;
 
 /// What a chip shows.
 ///
@@ -26,6 +26,23 @@ enum Face {
     Word(&'static str),
 }
 
+/// What a chip's colour is saying, and so which ladder it wears.
+///
+/// One field rather than a `held` beside a colour, because the two are
+/// exclusive and nothing downstream would look wrong for a chip that claimed
+/// both: an inversion says *this one is in hand* and a colour says *this is
+/// what pressing it does*, and a control saying both says neither.
+#[derive(Debug, Clone, Copy)]
+enum Says {
+    /// Nothing of its own — chrome at rest, lifting under the pointer.
+    Nothing,
+    /// That what it stands for is in hand.
+    Held,
+    /// What pressing it will do, in a colour of its own. See
+    /// [`Wearing::answer`].
+    Means(Color),
+}
+
 /// A control on a pill: a rounded slab carrying one mark, with a tooltip.
 ///
 /// **Held rather than pressed** is the one state it has of its own. A tool in
@@ -33,55 +50,70 @@ enum Face {
 /// down, so a held chip wears its look at rest and under the pointer alike —
 /// where a press is over by the time the frame is drawn.
 #[derive(Debug)]
-pub(super) struct Chip {
+pub(crate) struct Chip {
     id: WidgetId,
     tip: &'static str,
     face: Face,
-    held: bool,
+    says: Says,
 }
 
 impl Chip {
     /// A chip showing a piece of the icon set.
-    pub(super) fn icon(id: WidgetId, tip: &'static str, glyph: Glyph) -> Self {
+    pub(crate) fn icon(id: WidgetId, tip: &'static str, glyph: Glyph) -> Self {
         Self {
             id,
             tip,
             face: Face::Icon(glyph),
-            held: false,
+            says: Says::Nothing,
         }
     }
 
     /// A chip showing a mark the drawing also draws.
-    pub(super) fn mark(id: WidgetId, tip: &'static str, mark: &'static str) -> Self {
+    pub(crate) fn mark(id: WidgetId, tip: &'static str, mark: &'static str) -> Self {
         Self {
             id,
             tip,
             face: Face::Mark(mark),
-            held: false,
+            says: Says::Nothing,
         }
     }
 
     /// A chip showing a word, for an offer the drawing has no mark for.
-    pub(super) fn word(id: WidgetId, tip: &'static str, word: &'static str) -> Self {
+    pub(crate) fn word(id: WidgetId, tip: &'static str, word: &'static str) -> Self {
         Self {
             id,
             tip,
             face: Face::Word(word),
-            held: false,
+            says: Says::Nothing,
         }
     }
 
     /// Whether what it stands for is in hand.
-    pub(super) fn held(mut self, held: bool) -> Self {
-        self.held = held;
+    pub(crate) fn held(mut self, held: bool) -> Self {
+        self.says = match held {
+            true => Says::Held,
+            false => Says::Nothing,
+        };
+        self
+    }
+
+    /// What pressing it does, for a chip that carries an answer rather than a
+    /// setting — a form's confirm and its cancel.
+    pub(crate) fn answers(mut self, means: Color) -> Self {
+        self.says = Says::Means(means);
         self
     }
 
     /// Draw it, and say whether it was pressed.
-    pub(super) fn show(self, ui: &mut Ui, icons: &Icons, theme: &Theme) -> bool {
+    pub(crate) fn show(self, ui: &mut Ui, icons: &Icons, theme: &Theme) -> bool {
         let chrome = &theme.chrome;
         let hovered = ui.response_for(self.id).hovered;
-        let wearing = Wearing::chip(theme, self.held, hovered).eased(ui, self.id, theme);
+        let wearing = match self.says {
+            Says::Nothing => Wearing::chip(theme, false, hovered),
+            Says::Held => Wearing::chip(theme, true, hovered),
+            Says::Means(means) => Wearing::answer(theme, means, hovered),
+        }
+        .eased(ui, self.id, theme);
         // A word is measured by palantir; the other two are one glyph in a
         // square, and a square is a width.
         let width = match self.face {

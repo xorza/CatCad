@@ -80,6 +80,14 @@ pub(crate) struct Palette {
 
     pub(crate) goes: Swatch,
     pub(crate) stops: Swatch,
+    /// The blue a form's operations were once told apart by.
+    ///
+    /// **Nothing draws with it.** A form's controls are the overlay's chips
+    /// now, and a chip says *this one is set* by inverting rather than by a hue
+    /// — see [`Chrome::chip_held`](crate::look::chrome::Chrome::chip_held),
+    /// which is where that rule is argued. The role stays because this table is
+    /// the generator's and not this crate's: a field dropped here is a file
+    /// that will not parse the next time the palette repository emits one.
     pub(crate) doing: Swatch,
 }
 

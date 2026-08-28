@@ -18,10 +18,11 @@ pub(crate) mod icons;
 pub(crate) mod lighting;
 pub(crate) mod motion;
 pub(crate) mod palette;
+pub(crate) mod wearing;
 
 use std::cell::OnceCell;
 
-use palantir::{Spacing, TextStyle};
+use palantir::{Color, Spacing, TextStyle};
 
 use crate::look::chrome::Chrome;
 use crate::look::drawing::Drawing;
@@ -54,7 +55,7 @@ pub(crate) struct Theme {
     /// it is first wanted.
     ///
     /// **Cached, because building it is not cheap**: palantir's own recipe
-    /// assembles sixteen widget themes and the form's five are built on top of
+    /// assembles sixteen widget themes and the form's field is built on top of
     /// it, where a frame that has changed nothing should be handed the answer.
     ///
     /// A cell with no way to clear it, which is not an oversight: a theme is
@@ -62,6 +63,26 @@ pub(crate) struct Theme {
     /// with the value it belonged to. A cell that could be emptied would be one
     /// somebody has to remember to empty.
     dressed: OnceCell<Dressed>,
+}
+
+/// What a colour composites to over what is behind it, and how far apart the
+/// two land.
+///
+/// [`Color`] holds linear RGB, which is what the luminance coefficients want, so
+/// neither step needs a transfer function. An opaque top composites to itself,
+/// so one rule covers the chip ladder and the two translucent hairlines both.
+///
+/// **Read by the theme as well as checked by it**, which is why it is here
+/// rather than beside the test that holds the floors: a form's answer picks the
+/// ink that reads on it — see
+/// [`Wearing::answer`](crate::look::wearing::Wearing::answer) — and a rule that
+/// chose an ink by one measure while the check judged it by another would be
+/// two measures of one thing.
+pub(crate) fn separation(top: Color, under: Color) -> f32 {
+    let flat = under.lerp(top, top.a);
+    let luminance = |color: Color| 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
+    let (lit, dark) = (luminance(flat), luminance(under));
+    (lit.max(dark) + 0.05) / (lit.min(dark) + 0.05)
 }
 
 impl Default for Theme {
@@ -160,24 +181,9 @@ impl Theme {
 
 #[cfg(test)]
 mod tests {
-    use palantir::Color;
-
     use super::*;
     use crate::look::palette::swatch::internals::hex;
-
-    /// What a colour composites to over what is behind it, and how far apart the
-    /// two land.
-    ///
-    /// [`Color`] holds linear RGB, which is what the luminance coefficients want,
-    /// so neither step needs a transfer function. An opaque top composites to
-    /// itself, so one rule covers the chip ladder and the two translucent
-    /// hairlines both.
-    fn separation(top: Color, under: Color) -> f32 {
-        let flat = under.lerp(top, top.a);
-        let luminance = |color: Color| 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
-        let (lit, dark) = (luminance(flat), luminance(under));
-        (lit.max(dark) + 0.05) / (lit.min(dark) + 0.05)
-    }
+    use crate::look::wearing::Wearing;
 
     /// The nine roles palantir builds every widget out of are answered from the
     /// chrome, so a colour changed there reaches the widgets this crate does not
@@ -217,24 +223,16 @@ mod tests {
             palantir.button.padding,
             Spacing::new(theme.chrome.gap, 4.0, theme.chrome.gap, 4.0)
         );
-        // Every control the theme dresses lifts rather than snaps, including
-        // the form's own — which are built from the palette rather than from
-        // the theme beside them, and so inherit nothing unless told.
-        let dressed = theme.dressed();
-        for anim in [
-            palantir.button.anim,
-            dressed.field.anim,
-            dressed.goes.anim,
-            dressed.stops.anim,
-            dressed.chosen.anim,
-            dressed.offered.anim,
-        ] {
+        // Every control the theme dresses lifts rather than snaps, the form's
+        // field included — which is built from the palette rather than from the
+        // theme beside it, and so inherits nothing unless told.
+        for anim in [palantir.button.anim, theme.dressed().field.anim] {
             assert_eq!(anim, Some(theme.motion.lift));
         }
         assert!(
             std::rc::Rc::ptr_eq(palantir, &theme.dressed().palantir),
             "the derivation ran a second time, so every frame pays for \
-             twenty-one widget themes"
+             seventeen widget themes"
         );
     }
 
@@ -280,6 +278,7 @@ mod tests {
     fn the_layers_that_stack_in_one_pill_stay_separable() {
         let theme = Theme::default();
         let chrome = &theme.chrome;
+        let form = &theme.form;
         let ground = drawing::tint(theme.drawing.ground);
         let slab = ground.lerp(chrome.pill, chrome.pill.a);
         for (what, top, under) in [
@@ -299,6 +298,61 @@ mod tests {
         ] {
             let apart = separation(ink, under);
             assert!(apart >= 4.5, "{what} reads at {apart:.2}, which is faint");
+        }
+        // **A pill on the drawing is read against the model, not the ground**,
+        // which is the whole of why it has a fill of its own. The worst case is
+        // the brightest face a solid can show — its own shade lit whole — and
+        // anything darker behind it leaves more contrast rather than less.
+        //
+        // Held to the mark floor and not the letter floor, and that is a
+        // decision rather than a shortfall: the least opacity that clears 4.5
+        // there is 0.98, and a slab that opaque is a form you cannot see what
+        // it is about through. See [`Chrome::pill_over`].
+        let over = drawing::tint(theme.drawing.solid);
+        let slab_over = over.lerp(chrome.pill_over, chrome.pill_over.a);
+        assert!(
+            separation(chrome.pill_over, over) > separation(chrome.pill, over),
+            "a pill on the drawing hides no more of it than one at the view's edge",
+        );
+        for (what, ink) in [
+            ("a form's label", chrome.ink),
+            ("a form's own lettering", chrome.ink_lit),
+        ] {
+            let apart = separation(ink, slab_over);
+            assert!(
+                apart >= 3.0,
+                "{what} over a lit solid reads at {apart:.2}, which is faint",
+            );
+        }
+        // **A form's answer is a stroked mark rather than a run of letters**, so
+        // it is held to the lower floor in both of its states. Its colour is
+        // also the palette's to choose rather than this crate's, and the
+        // shipped table has moved it well across the ramp — a green that clears
+        // 4.9 against a chip one week and 3.3 the next is one no ink floor
+        // above this could be written for.
+        for (what, means) in [("confirm", form.goes), ("cancel", form.stops)] {
+            for (state, wearing) in [
+                ("resting", Wearing::answer(&theme, means, false)),
+                ("pointed-at", Wearing::answer(&theme, means, true)),
+            ] {
+                let apart = separation(wearing.ink, wearing.fill);
+                assert!(
+                    apart >= 3.0,
+                    "the mark on a {state} {what} reads at {apart:.2}, which is faint",
+                );
+            }
+            // And under the pointer it takes the *better* of the overlay's two
+            // inks, which is the reading [`Wearing::reading_on`] is for: a fill
+            // near the middle of the ramp is one no fixed ink reads on.
+            let wearing = Wearing::answer(&theme, means, true);
+            let other = match wearing.ink == chrome.ink_lit {
+                true => chrome.on_held,
+                false => chrome.ink_lit,
+            };
+            assert!(
+                separation(wearing.ink, wearing.fill) >= separation(other, wearing.fill),
+                "a pointed-at {what} took the fainter of the two inks",
+            );
         }
     }
 }

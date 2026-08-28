@@ -23,6 +23,15 @@ pub(crate) struct Chrome {
     /// palantir composites a flat fill, and translucency alone is what keeps the
     /// drawing faintly readable through the chrome.
     pub(crate) pill: Color,
+    /// The same slab, for a pill standing on the drawing rather than at the
+    /// edge of the view.
+    ///
+    /// **Denser, because what is behind it is different.** A surface pinned to
+    /// a corner is read against the near-black ground nine frames in ten; a
+    /// form stands on the very solid it is about, and one lit face behind a
+    /// word is enough to lose the word. Short of opaque still, so what the form
+    /// asks about stays faintly there under it.
+    pub(crate) pill_over: Color,
     /// The hairline round a pill.
     ///
     /// Faint, because it is not there to be seen: what separates a pill from the
@@ -185,13 +194,14 @@ impl Chrome {
     /// a chip are facts about the interface rather than about the palette, and a
     /// second theme is a second set of colours at the same sizes.
     ///
-    /// The three translucent surfaces take their opacity here for the same
-    /// reason. How much of the drawing shows through a pill is a decision about
-    /// how the overlay reads, so it sits with the numbers that decide the rest
-    /// of that and not in a table shared with a text editor.
+    /// The translucent surfaces take their opacity here for the same reason.
+    /// How much of the drawing shows through a pill is a decision about how the
+    /// overlay reads, so it sits with the numbers that decide the rest of that
+    /// and not in a table shared with a text editor.
     pub(super) fn from_palette(palette: &Palette) -> Self {
         Self {
             pill: palette.pill.fade(0xCC),
+            pill_over: palette.pill.fade(0xEE),
             pill_edge: palette.pill_edge.fade(0x24),
             rule: palette.rule.fade(0x59),
             chip: palette.chip.color(),

@@ -596,10 +596,12 @@ fn dragging_the_turn_arrow_writes_how_much_of_a_turn_is_swept() {
                     == Some(crate::part::Part::Turning)
             })
             .expect("the spinning solid has no arrow to turn it");
-        // The tip, on the terms the depth arrow's own test states: a control is
-        // a stroked outline, so the middle of the head is a gap between two
-        // strokes. In outline order the tip is corner 3.
-        arrow.points[3]
+        // The tail, where the depth arrow's own test takes the tip. Both are
+        // corners of a stroked outline and either would be pressed, but the
+        // head of a turn arrow sweeps far enough round the solid to end up
+        // under the form — which stands on the drawing and answers for the
+        // presses that land on it. In outline order the tail is corner 0.
+        arrow.points[0]
     };
 
     // A quarter turn back, taken about the very line the revolve spins about.

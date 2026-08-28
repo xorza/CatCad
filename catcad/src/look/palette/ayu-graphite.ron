@@ -10,46 +10,46 @@
 // different colour.
 (
     // Chrome — the surfaces and inks a control floating over the drawing wears.
-    ground:       "#1e1e1e",  // bg                  gray_24
-    pill:         "#2a2a2a",  // panel               gray_29
-    pill_edge:    "#eaeaea",  // text                gray_94
-    rule:         "#eaeaea",  // text                gray_94
-    chip:         "#373737",  // elem                gray_34
-    chip_lit:     "#444444",  // elem_hover          gray_39
-    chip_active:  "#515151",  // elem_active         gray_44
-    chip_held:    "#eaeaea",  // text                gray_94
-    on_held:      "#1e1e1e",  // bg                  gray_24
-    ink:          "#a4a4a4",  // text_muted          gray_72
-    ink_lit:      "#eaeaea",  // text                gray_94
-    ink_dim:      "#6a6a6a",  // (the ramp's gap)    between gray_44 and gray_72
-    cube_low:     "#2a2a2a",  // panel               gray_29
-    cube_high:    "#515151",  // line_number         gray_44
-    focus:        "#eaeaea",  // text                gray_94
+    ground:       "#1f1f1f",  // bg                 gray_1
+    pill:         "#2b2b2b",  // panel              gray_2
+    pill_edge:    "#ebebeb",  // text               gray_7
+    rule:         "#ebebeb",  // text               gray_7
+    chip:         "#383838",  // elem               gray_3
+    chip_lit:     "#454545",  // elem_hover         gray_4
+    chip_active:  "#525252",  // elem_active        gray_5
+    chip_held:    "#ebebeb",  // text               gray_7
+    on_held:      "#1f1f1f",  // bg                 gray_1
+    ink:          "#a4a4a4",  // text_muted         gray_6
+    ink_lit:      "#ebebeb",  // text               gray_7
+    ink_dim:      "#6b6b6b",  // (the ramp's gap)   between gray_5 and gray_6
+    cube_low:     "#2b2b2b",  // panel              gray_2
+    cube_high:    "#525252",  // line_number        gray_5
+    focus:        "#ebebeb",  // text               gray_7
 
     // Drawing — what the geometry and the solids beside it are painted in.
-    solid:        "#eaeaea",  // line_number_hover   gray_94
-    determined:   "#aadbfe",  // syn_type            blue_vivid
-    partly:       "#fecd12",  // warning             yellow_vivid
-    free:         "#f29407",  // syn_keyword         orange_bright
-    pinned:       "#fd8974",  // error               red_bright
-    dormant:      "#a4a4a4",  // text_muted          gray_72
-    dormant_face: "#013b58",  // info_bg             blue_dim
-    face:         "#207bae",  // info_border         blue_normal
-    ghost:        "#eaeaea",  // text                gray_94
-    sheet_ground: "#687e04",  // ansi_green          green_normal
-    sheet_front:  "#207bae",  // ansi_blue           blue_normal
-    sheet_side:   "#c33b26",  // ansi_red            red_normal
-    sheet_datum:  "#515151",  // line_number         gray_44
-    mark:         "#ffccc1",  // syn_number          red_vivid
-    redundant:    "#fd8974",  // ansi_bright_red     red_bright
-    depth_arrow:  "#eaeaea",  // selection_fg        gray_94
+    solid:        "#ebebeb",  // line_number_hover  gray_7
+    determined:   "#74c3f7",  // syn_type           blue_bright
+    partly:       "#fbdd89",  // warning            yellow_bright
+    free:         "#f8b065",  // syn_keyword        orange_bright
+    pinned:       "#f77f71",  // error              red_bright
+    dormant:      "#a4a4a4",  // text_muted         gray_6
+    dormant_face: "#003e5d",  // info_bg            blue_dim
+    face:         "#74c3f7",  // info_border        blue_bright
+    ghost:        "#ebebeb",  // text               gray_7
+    sheet_ground: "#6cea4e",  // ansi_green         green_bright
+    sheet_front:  "#74c3f7",  // ansi_blue          blue_bright
+    sheet_side:   "#f77f71",  // ansi_red           red_bright
+    sheet_datum:  "#525252",  // line_number        gray_5
+    mark:         "#a4a4a4",  // text_muted         gray_6
+    redundant:    "#f77f71",  // ansi_bright_red    red_bright
+    depth_arrow:  "#ebebeb",  // selection_fg       gray_7
 
     // Lighting — what singling something out looks like.
-    hovered:      "#fecfa1",  // syn_string_special  orange_vivid
-    selected:     "#b9dd0d",  // success             green_vivid
+    hovered:      "#ffffff",  // ansi_bright_white  white
+    selected:     "#6cea4e",  // success            green_bright
 
     // Form — the answers a prompt standing on the drawing offers.
-    goes:         "#687e04",  // success_border      green_normal
-    stops:        "#c33b26",  // error_border        red_normal
-    doing:        "#207bae",  // info_border         blue_normal
+    goes:         "#6cea4e",  // success_border     green_bright
+    stops:        "#f77f71",  // error_border       red_bright
+    doing:        "#74c3f7",  // info_border        blue_bright
 )

@@ -16,15 +16,12 @@ use crate::tool::Tool;
 use silverpoint::Constraint;
 
 mod camera;
-mod chip;
 mod cube;
 mod papers;
-mod pill;
 mod rail;
 mod readout;
 mod recipe;
 mod relations;
-mod wearing;
 
 /// A control's identity, stated rather than taken from the line it is written
 /// on.

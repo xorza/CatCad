@@ -6,13 +6,13 @@ use palantir::{
 };
 
 use crate::build::bodied::Built;
-use crate::hud::pill::{self, Pill};
-use crate::hud::wearing::{Standing, Wearing};
+use crate::control::pill::{self, Pill};
 use crate::hud::{Shown, control};
 use crate::intent::{Choice, Intents};
 use crate::look::Theme;
 use crate::look::drawing;
 use crate::look::icons::{Glyph, Icons};
+use crate::look::wearing::{Standing, Wearing};
 use crate::part::Part;
 use crate::timeline::FeatureId;
 use crate::timeline::feature::Feature;

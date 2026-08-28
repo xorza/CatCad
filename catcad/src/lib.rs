@@ -5,6 +5,7 @@
 //! raise the real thing rather than a stand-in for it.
 
 mod build;
+mod control;
 mod demo;
 mod dialog;
 mod document;
@@ -336,18 +337,23 @@ impl CatCad {
     /// known only once it has run. They land in the second apply, so a commit
     /// still reaches the document on the frame it was typed.
     fn draw(&mut self, ui: &mut Ui) {
+        // Taken up here rather than at construction, and afresh every frame: a
+        // set is registered against the host that will draw it — see
+        // [`Icons::load`]. Before the form as well as before the overlay,
+        // because both of them draw chips.
+        //
+        // Parked on the application and drawn through a clone, which is a
+        // reference count: what the record pass writes names the set, and the
+        // paint that reads it runs after recording has returned.
+        let icons = self.icons.insert(Icons::load(ui)).clone();
         self.view.draw(ui);
-        self.ask(ui);
+        self.ask(ui, &icons);
         // Formatted straight into the pass's own text arena — no `String` is
         // built on the way, and the handle is lowered by the same pass that
         // minted it, which is the only pass it is good for.
         let reported = self.status();
         let solved = reported.solved;
         let rest = ui.fmt(format_args!("{}", reported.rest()));
-        // Taken up here rather than at construction, and afresh every frame:
-        // a set is registered against the host that will draw it — see
-        // [`Icons::load`].
-        let icons = &*self.icons.insert(Icons::load(ui));
         // Palantir's own widgets resolve against whatever palette they are
         // handed, so the derived theme is installed before anything records.
         // Built on the frame it is first wanted and handed over as a reference
@@ -356,7 +362,7 @@ impl CatCad {
         self.hud.show(
             ui,
             Shown {
-                icons,
+                icons: &icons,
                 theme: &self.theme,
                 tool: self.session.tool(),
                 rest,
@@ -380,7 +386,7 @@ impl CatCad {
     /// widgets, so palantir routes presses and keystrokes to them the way it
     /// routes them to a button on the bar; there is no arbitration for this to
     /// do and no keyboard for it to drain.
-    fn ask(&mut self, ui: &mut Ui) {
+    fn ask(&mut self, ui: &mut Ui, icons: &Icons) {
         // How the drawing is being looked at, which is what placing a form
         // against it is answered in. `None` until the view has arranged, and
         // until then there is nowhere on screen for a form to stand.
@@ -402,7 +408,7 @@ impl CatCad {
         let Some(stands) = self.view.stands(prompt.about(), models, lens) else {
             return;
         };
-        prompt.show(ui, &self.theme, stands, models, &mut self.intents);
+        prompt.show(ui, &self.theme, icons, stands, models, &mut self.intents);
     }
 
     /// Land everything the frame asked for, on whichever of the three things a

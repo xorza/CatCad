@@ -50,7 +50,11 @@ fn grown() -> Prompt {
             profile: Profile::of(sketch, std::iter::empty()),
             operation: Operation::Join,
         },
-        [("Depth", Seed::Offered(0.0))],
+        [Asks {
+            label: "Depth",
+            unit: "",
+            seed: Seed::Offered(0.0),
+        }],
     )
 }
 
@@ -68,7 +72,11 @@ fn a_form_opens_on_the_value_the_dimension_states() {
     let prompt = Prompt::on(
         Form::default(),
         Asking::Dimension { part },
-        [("", Seed::Stated(125.4))],
+        [Asks {
+            label: "",
+            unit: "",
+            seed: Seed::Stated(125.4),
+        }],
     );
     assert_eq!(prompt.marks(), Some(part));
     assert_eq!(
@@ -90,7 +98,11 @@ fn a_draft_that_is_not_a_number_has_no_value() {
     let mut prompt = Prompt::on(
         Form::default(),
         Asking::Dimension { part: dimension() },
-        [("", Seed::Stated(12.0))],
+        [Asks {
+            label: "",
+            unit: "",
+            seed: Seed::Stated(12.0),
+        }],
     );
     for (draft, value) in [
         ("40", Some(40.0)),
@@ -167,7 +179,7 @@ fn what_a_form_means_and_what_it_draws_come_apart_on_a_draft_mid_word() {
     assert_eq!(grown.shows(0), Some(7.0), "the drawing lost its depth");
 }
 
-/// **A form is dismissed by its buttons or by clicking away, never by both.**
+/// **A form is dismissed by its chips or by clicking away, never by both.**
 ///
 /// The one rule that differs between the two kinds, and it has to: an extrude's
 /// depth is dragged by an arrow in the drawing, so a form that threw itself
@@ -179,7 +191,11 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
     let typed = Prompt::on(
         Form::default(),
         Asking::Dimension { part: dimension() },
-        [("", Seed::Stated(1.0))],
+        [Asks {
+            label: "",
+            unit: "",
+            seed: Seed::Stated(1.0),
+        }],
     );
     assert!(typed.blurs(), "a dimension form has no other way out");
     assert_eq!(
@@ -218,46 +234,27 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
     );
 }
 
-/// **Every button on the form has a glyph to draw it.**
+/// **Every mark on the form carries a word, and no two of them collide.**
 ///
-/// The failure this guards is silent and total, and it is the one the
-/// constraint marks are guarded against for the same reason: a character the
-/// fonts lack rasterizes to nothing, so the button is laid out, painted and
-/// clickable, and reads as a blank block of colour. Nothing else notices.
+/// What is left for this to say now that the marks are artwork rather than
+/// characters. That the artwork *exists* is the icon table's own check —
+/// `every_source_sits_at_its_own_glyph_and_paints_in_one_colour`, which walks
+/// all of it rather than the eight rows a form draws.
 ///
-/// The size a button sets its label at rather than the mark's, because that is
-/// what these are drawn as — a glyph missing at one size and present at another
-/// is not a thing, but reading it off the wrong style would still be asking a
-/// question nobody has.
+/// The collisions are this table's alone, and both are silent. A form records a
+/// chip under its glyph, so two of them sharing one would be two controls
+/// sharing an id — the second would never be pressed. Two rows under one word
+/// would be a tooltip saying the same thing twice, and two forms under one mark
+/// would be two forms that look alike.
 #[test]
-fn every_button_on_the_form_is_drawn_and_named() {
-    let shaper = palantir::TextShaper::new();
-    let mut shaped = shaper.glyphs();
-    let mut placed = Vec::new();
-
-    for button in EVERY {
-        shaped.line(button.glyph, crate::paint::MARK_FONT, 1.0, &mut placed);
-        let [glyph] = placed[..] else {
-            panic!("{:?} shaped to {} glyphs", button.glyph, placed.len());
-        };
-        let image = shaped
-            .rasterize(glyph.raster_key)
-            .unwrap_or_else(|| panic!("{:?} has no glyph", button.glyph));
+fn every_mark_on_the_form_is_drawn_and_named() {
+    for mark in EVERY {
         assert!(
-            image.placement.width > 0 && image.placement.height > 0,
-            "{:?} rasterized to nothing, so the button draws blank",
-            button.glyph,
-        );
-        assert!(
-            !button.word.trim().is_empty(),
-            "{:?} carries no word, so nothing on the form says what it does",
-            button.glyph,
+            !mark.word.trim().is_empty(),
+            "{mark:?} carries no word, so nothing on the form says what it is",
         );
     }
 
-    // Two rows under one mark would be two controls under one id, the form
-    // recording a button by its glyph; two under one word would be a tooltip
-    // saying the same thing twice.
     for (at, one) in EVERY.iter().enumerate() {
         for two in &EVERY[at + 1..] {
             assert_ne!(one.glyph, two.glyph, "{one:?} and {two:?} share a mark");
@@ -269,9 +266,9 @@ fn every_button_on_the_form_is_drawn_and_named() {
     // pairing carries the operation rather than dropping it.
     let [joins, cuts, shares] =
         [Operation::Join, Operation::Cut, Operation::Intersect].map(marked::doing);
-    assert_ne!(joins, cuts, "a join and a cut draw as one button");
-    assert_ne!(cuts, shares, "a cut and an intersect draw as one button");
-    assert_ne!(joins, shares, "a join and an intersect draw as one button");
+    assert_ne!(joins, cuts, "a join and a cut draw as one chip");
+    assert_ne!(cuts, shares, "a cut and an intersect draw as one chip");
+    assert_ne!(joins, shares, "a join and an intersect draw as one chip");
 }
 
 /// **What a form is about is what it stands over, asked once for both.**
@@ -293,7 +290,11 @@ fn a_form_is_about_exactly_the_mark_it_stands_over() {
     let typed = Prompt::on(
         Form::default(),
         Asking::Dimension { part },
-        [("", Seed::Stated(1.0))],
+        [Asks {
+            label: "",
+            unit: "",
+            seed: Seed::Stated(1.0),
+        }],
     );
     assert_eq!(typed.marks(), Some(part));
 
@@ -305,7 +306,11 @@ fn a_form_is_about_exactly_the_mark_it_stands_over() {
             sketch: at,
             center: crate::drawing::anchor::Anchor::On(middle),
         },
-        [("Radius", Seed::Offered(0.0))],
+        [Asks {
+            label: "Radius",
+            unit: "",
+            seed: Seed::Offered(0.0),
+        }],
     );
     assert_eq!(drawing.marks(), None);
 }

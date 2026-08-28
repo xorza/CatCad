@@ -3,8 +3,8 @@
 use palantir::{Align, DragValue, Ui, WidgetId};
 use silverpoint::{Constraint, ConstraintId, Entity, SegmentId};
 
-use crate::hud::chip::Chip;
-use crate::hud::pill::{self, Pill};
+use crate::control::chip::Chip;
+use crate::control::pill::{self, Pill};
 use crate::hud::{Shown, control};
 use crate::intent::change::Change;
 use crate::intent::{Choice, Intent, Intents, Opening, Step};

@@ -2,8 +2,8 @@
 
 use palantir::{Ui, WidgetId};
 
-use crate::hud::chip::Chip;
-use crate::hud::pill::Pill;
+use crate::control::chip::Chip;
+use crate::control::pill::Pill;
 use crate::hud::{Shown, control};
 use crate::intent::{Errand, Intents};
 use crate::look::icons::Glyph;
