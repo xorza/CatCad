@@ -101,10 +101,24 @@ pub(crate) struct Build {
     /// Cleared by every other edit — see [`Build::settle`] — because a
     /// count left standing would go on reporting a cleanup from two drags ago.
     ///
-    /// `None` and `Some(Removed::default())` are different answers, and the one
-    /// the reader most needs: a cleanup that found nothing has to say so, or
-    /// pressing the command on a tidy drawing looks like it did not work.
-    cleaned: Option<Removed>,
+    /// `None` and a cleanup that found nothing are different answers, and the
+    /// one the reader most needs: a command that answers a press with silence
+    /// reads as a command that did not work.
+    reported: Option<Reported>,
+}
+
+/// What the last edit is worth saying, where it is worth saying anything.
+///
+/// **One field for two reports rather than two kept in step.** Both are wiped
+/// by whatever is done next, and two would be two places to remember to wipe —
+/// which is one place too many for a count that goes on describing an edit from
+/// two drags ago.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Reported {
+    /// What a cleanup took out of a drawing.
+    Cleaned(Removed),
+    /// How many steps taking one away took out of the recipe.
+    Took(usize),
 }
 
 impl Build {
@@ -179,7 +193,7 @@ impl Build {
             solver,
             settled,
             revision,
-            cleaned,
+            reported,
             ..
         } = self;
         // Made on first use rather than by walking the timeline, because a
@@ -199,10 +213,10 @@ impl Build {
         };
         settled[at].settle(solver, sketch, settling);
         *revision = revision.next();
-        // Whatever this edit was, it is now the last thing done — so a cleanup
-        // before it has stopped describing the document. The one that *is* a
-        // cleanup writes its own answer back after this returns.
-        *cleaned = None;
+        // Whatever this edit was, it is now the last thing done — so a report
+        // before it has stopped describing the document. An edit that has
+        // something to say writes it back after this returns.
+        *reported = None;
     }
 
     /// Forget everything settled for the document that was open, for one that
@@ -222,7 +236,7 @@ impl Build {
     pub(crate) fn reopened(&mut self) {
         self.settled.clear();
         self.bodied.clear();
-        self.cleaned = None;
+        self.reported = None;
         self.revision = self.revision.next();
     }
 
@@ -352,7 +366,7 @@ impl Build {
         self.revision = self.revision.next();
         // Whatever this edit was, it is now the last thing done — for the same
         // reason [`Build::settle`] says so.
-        self.cleaned = None;
+        self.reported = None;
     }
 
     /// Record what a cleanup took out.
@@ -360,7 +374,14 @@ impl Build {
     /// After the settle rather than inside it, because settling is what wipes
     /// the last answer — writing this first would be writing it to be cleared.
     pub(crate) fn cleaned_up(&mut self, removed: Removed) {
-        self.cleaned = Some(removed);
+        self.reported = Some(Reported::Cleaned(removed));
+    }
+
+    /// Record how many steps a removal took out of the recipe.
+    ///
+    /// After the revision, on the terms the cleanup above states.
+    pub(crate) fn took_steps(&mut self, steps: usize) {
+        self.reported = Some(Reported::Took(steps));
     }
 
     /// What the last solve made of the sketch at `of`.
@@ -399,8 +420,8 @@ impl Build {
 
     /// What the last cleanup took out, or `None` where the last edit was not
     /// one.
-    pub(crate) fn cleaned(&self) -> Option<Removed> {
-        self.cleaned
+    pub(crate) fn reported(&self) -> Option<Reported> {
+        self.reported
     }
 }
 

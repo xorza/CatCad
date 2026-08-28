@@ -7,7 +7,7 @@ use palantir::{
 
 use crate::build::bodied::Built;
 use crate::hud::pill::{self, Pill};
-use crate::hud::wearing::Wearing;
+use crate::hud::wearing::{Standing, Wearing};
 use crate::hud::{Shown, control};
 use crate::intent::{Choice, Intents};
 use crate::look::Theme;
@@ -43,7 +43,7 @@ const ROW_ICON: f32 = 13.0;
 /// **One glyph per kind**, which is the one fact a row holds that a name does
 /// not: a plane, a drawing and a solid are three different things, and a list
 /// that drew them alike threw that away.
-pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
+pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, doomed: &[FeatureId], intents: &mut Intents) {
     let Shown {
         models, selection, ..
     } = shown;
@@ -124,6 +124,10 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                     label,
                     picked: selection.contains(Part::Step(at)),
                     built,
+                    // Scanned rather than hashed, on the terms
+                    // [`Timeline::doomed`](crate::timeline::Timeline) states:
+                    // a cascade is a handful of steps and is nearly always one.
+                    doomed: doomed.contains(&at),
                 };
                 if row(ui, shown.icons, theme, showing) {
                     // Picked out and nothing else. What follows from picking a step
@@ -151,9 +155,13 @@ struct Row {
     glyph: Glyph,
     label: InternedStr,
     picked: bool,
-    /// Whether the document has built this step, or it lies past the rollback
-    /// bar — see [`Wearing::row`], which is what reads it.
+    /// What the wear reads off a row, less the hover it asks for itself — see
+    /// [`Standing`], where the two are what they mean.
     built: bool,
+    /// Read a call before the card is drawn, so the bar that offers the removal
+    /// and this cannot disagree about what would go — see
+    /// [`Hud::show`](crate::hud::Hud).
+    doomed: bool,
 }
 
 /// One row, and whether it was pressed.
@@ -164,11 +172,18 @@ fn row(ui: &mut Ui, icons: &Icons, theme: &Theme, showing: Row) -> bool {
         label,
         picked,
         built,
+        doomed,
     } = showing;
     let chrome = &theme.chrome;
     let id = step_id(at);
     let hovered = ui.response_for(id).hovered;
-    let wearing = Wearing::row(theme, picked, hovered, built).eased(ui, id, theme);
+    let standing = Standing {
+        picked,
+        hovered,
+        built,
+        doomed,
+    };
+    let wearing = Wearing::row(theme, standing).eased(ui, id, theme);
     let style = TextStyle {
         color: wearing.ink,
         font_size_px: chrome.readout_text,

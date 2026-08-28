@@ -956,3 +956,75 @@ fn picking_two_regions_grows_one_solid_off_both() {
         "the step kept one of the two regions",
     );
 }
+
+/// **Picking a step offers to remove it, and the offer takes everything built
+/// on it.**
+///
+/// The whole gesture in one call: a step picked out, a chip that says what can
+/// be done with it, and one press that takes the step and the cascade under it.
+/// One Ctrl+Z puts every one of them back, which is what `Edit::Removed` exists
+/// for and is the half a removal that dropped its followers would fail.
+///
+/// **And a world plane is not offered one.** Everything is measured from the
+/// three the world comes with, however many links back — so the bar draws no
+/// chip rather than a chip that refuses, which is what it does everywhere else.
+#[test]
+fn picking_a_step_offers_to_remove_it_and_everything_built_on_it() {
+    let mut raised = Raised::new();
+    let steps = raised.models().chosen().count();
+    let sketch = raised.app.document.first_sketch();
+    // A world plane, found as the one step the recipe does not list: those
+    // three are the only ones nobody chose to put there.
+    let chosen: Vec<_> = raised.models().chosen().map(|(at, _)| at).collect();
+    let ground = raised
+        .app
+        .document
+        .recipe()
+        .into_iter()
+        .find(|at| !chosen.contains(at))
+        .expect("the demo stands on the world's own planes");
+
+    // A world plane picked out: the bar has nothing to offer that takes it.
+    raised.choose(Choice::Select(Some(Part::Step(ground))));
+    raised.frame();
+    assert!(
+        raised
+            .harness
+            .layout_rect(internals::relation("Remove"))
+            .is_none(),
+        "the bar offered to remove a plane everything is measured from",
+    );
+
+    // The sketch instead, which carries every solid grown from it.
+    let mut doomed = Vec::new();
+    raised.models().doomed_at(sketch, &mut doomed);
+    assert!(
+        doomed.len() > 1,
+        "the demo's sketch carries nothing, so a cascade proves nothing",
+    );
+    raised.choose(Choice::Select(Some(Part::Step(sketch))));
+    raised.frame();
+    assert!(
+        raised
+            .harness
+            .layout_rect(internals::relation("Remove"))
+            .is_some(),
+        "a picked step was offered no way to remove it",
+    );
+
+    raised.press(internals::relation("Remove"));
+    raised.frame();
+    assert_eq!(
+        raised.models().chosen().count(),
+        steps - doomed.len(),
+        "the press took the step alone, or took more than stood on it",
+    );
+
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(
+        raised.models().chosen().count(),
+        steps,
+        "one undo did not put the whole cascade back",
+    );
+}

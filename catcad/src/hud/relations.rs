@@ -28,6 +28,14 @@ pub(super) fn relation_id(label: &str) -> WidgetId {
     control("relation", label)
 }
 
+/// What the chip that takes a step away is recorded under.
+///
+/// Named rather than spelled at each of the two: the bar draws it and
+/// [`Hud::show`](crate::hud::Hud) reads whether it is hovered, and a chip
+/// pointed at under one name and read under another would be a preview that
+/// never showed.
+pub(super) const REMOVE: &str = "Remove";
+
 /// Show it, where there is anything to show.
 ///
 /// Shown only when there is something to offer, rather than a fixed bar of
@@ -48,16 +56,15 @@ pub(super) fn show(
     ui: &mut Ui,
     shown: Shown<'_>,
     offers: &mut Vec<Constraint>,
-    picked: &mut Picked,
+    picked: &Picked,
     draft: &mut f64,
     intents: &mut Intents,
 ) {
     let Shown {
         models, selection, ..
     } = shown;
-    picked.sort(selection);
-    let picked = &*picked;
     let startable = picked.plane(models);
+    let removable = picked.removable(models);
     let open = models.open();
     match open {
         Some(model) => model.offers(selection.picked(), offers),
@@ -75,6 +82,7 @@ pub(super) fn show(
         && region.is_none()
         && spinning.is_none()
         && startable.is_none()
+        && removable.is_none()
     {
         return;
     }
@@ -163,11 +171,28 @@ pub(super) fn show(
                     axis: spinnable.axis,
                 })));
             }
+            // Last of the things that *do* something, and the one that
+            // takes rather than makes — so the offers below it stay what can be
+            // said about a drawing.
+            //
+            // **What goes with it is on the card before the press**, worn by
+            // every row this would take: the cascade is read where both drawers
+            // can see one answer — see [`Hud::show`](crate::hud::Hud).
+            if let Some(step) = removable
+                && Chip::icon(relation_id(REMOVE), REMOVE, Glyph::Remove).show(
+                    ui,
+                    shown.icons,
+                    theme,
+                )
+            {
+                intents.push(Change::DeleteStep { step });
+            }
             if !offers.is_empty()
                 && (startable.is_some()
                     || dimension.is_some()
                     || region.is_some()
-                    || spinning.is_some())
+                    || spinning.is_some()
+                    || removable.is_some())
             {
                 pill::divider(ui, theme, "offers");
             }
@@ -237,7 +262,11 @@ pub(super) struct Picked {
 
 impl Picked {
     /// Sort `selection` into this, emptying whatever was there.
-    fn sort(&mut self, selection: &Selection) {
+    ///
+    /// Called before anything is drawn rather than by the bar that reads it,
+    /// because the recipe card reads it too — see
+    /// [`Hud::show`](crate::hud::Hud).
+    pub(super) fn sort(&mut self, selection: &Selection) {
         self.sketch = None;
         self.regions.clear();
         self.entities.clear();
@@ -323,6 +352,33 @@ impl Picked {
         })
     }
 
+    /// The one step picked out that may be taken away, if what is picked is
+    /// exactly that.
+    ///
+    /// One rather than any, and the reason is what the *card* does with it: a
+    /// removal shows what goes with it before it happens, and the cascade of
+    /// several heads at once is a different picture. The Delete key goes on
+    /// taking everything picked.
+    pub(super) fn removable(&self, models: Models<'_>) -> Option<FeatureId> {
+        self.step().filter(|&at| models.removable(at))
+    }
+
+    /// The one step picked out, if what is picked is exactly that.
+    ///
+    /// What the two readings either side of it both begin with, and neither
+    /// may answer for itself: a step picked *alongside* geometry says nothing
+    /// about either, and two spellings of that would be two chances to differ
+    /// over which of them to refuse.
+    fn step(&self) -> Option<FeatureId> {
+        if self.strays || !self.regions.is_empty() || !self.entities.is_empty() {
+            return None;
+        }
+        let [at] = self.steps[..] else {
+            return None;
+        };
+        Some(at)
+    }
+
     /// The one plane picked out, if what is picked is exactly that.
     ///
     /// **A plane and not merely a step**, which is the whole of what `models` is
@@ -331,16 +387,8 @@ impl Picked {
     /// follow is the timeline being asked for the frame of something that has
     /// none.
     fn plane(&self, models: Models<'_>) -> Option<FeatureId> {
-        if self.strays || !self.regions.is_empty() || !self.entities.is_empty() {
-            return None;
-        }
-        let [at] = self.steps[..] else {
-            return None;
-        };
-        models
-            .planes()
-            .any(|sheeted| sheeted.at == at)
-            .then_some(at)
+        self.step()
+            .filter(|&at| models.planes().any(|sheeted| sheeted.at == at))
     }
 }
 

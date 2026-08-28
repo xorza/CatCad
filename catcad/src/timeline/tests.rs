@@ -395,13 +395,20 @@ fn deleting_a_step_takes_everything_built_on_it_and_nothing_beside_it() {
         sketch: Sketch::default(),
     });
 
-    assert_eq!(timeline.doomed(held), [held, higher, drawn]);
-    assert_eq!(timeline.doomed(higher), [higher, drawn]);
-    assert_eq!(timeline.doomed(drawn), [drawn]);
+    // One buffer for every ask, which is what the out-param is for — and each
+    // ask has to leave nothing of the last in it.
+    let mut doomed = Vec::new();
+    let mut cascade = |at| {
+        timeline.doomed(at, &mut doomed);
+        doomed.clone()
+    };
+    assert_eq!(cascade(held), [held, higher, drawn]);
+    assert_eq!(cascade(higher), [higher, drawn]);
+    assert_eq!(cascade(drawn), [drawn]);
     // The sibling is nobody's dependent, and the ground is everybody's referent.
-    assert_eq!(timeline.doomed(beside), [beside]);
+    assert_eq!(cascade(beside), [beside]);
     assert_eq!(
-        timeline.doomed(ground),
+        cascade(ground),
         [ground, held, beside, higher, drawn],
         "the ground carries the whole document"
     );

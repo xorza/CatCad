@@ -11,6 +11,7 @@ use crate::look::icons::Icons;
 use crate::model::Models;
 use crate::selection::Selection;
 use crate::status::Solved;
+use crate::timeline::FeatureId;
 use crate::tool::Tool;
 use silverpoint::Constraint;
 
@@ -59,6 +60,9 @@ pub(crate) struct Hud {
     /// What is picked out, sorted into what the bar can be asked about — kept
     /// across frames for its room, like the offers above it.
     picked: relations::Picked,
+    /// Every step a removal would take, while one is being offered and pointed
+    /// at. Empty every other frame, and kept for its room like the two above.
+    doomed: Vec<FeatureId>,
     /// The number the dimension field is showing, re-seeded from the drawing
     /// every frame and written over by the widget while it is being scrubbed.
     /// Scratch: what a dimension *is* lives in the sketch, and this is only what
@@ -85,11 +89,27 @@ impl Hud {
     /// the status line wide enough to slide the tool bar out from under the
     /// pointer, so a click on Line armed nothing.
     pub(crate) fn show(&mut self, ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
+        // **Read once, before either drawer.** The bar offers the removal and
+        // the card wears what it would take, and the two are drawn a call
+        // apart — so a card that asked for itself could show a cascade the bar
+        // was no longer offering.
+        //
+        // Off the chip's own response, which is a frame behind like every
+        // other: the wear and the chip's own highlight then arrive together.
+        self.picked.sort(shown.selection);
+        self.doomed.clear();
+        if let Some(step) = self.picked.removable(shown.models)
+            && ui
+                .response_for(relations::relation_id(relations::REMOVE))
+                .hovered
+        {
+            shown.models.doomed_at(step, &mut self.doomed);
+        }
+        let chrome = &shown.theme.chrome;
         // The document commands and the tools in one column rather than two
         // surfaces at one corner: pinned to the same edge, they would otherwise
         // be drawn over each other. The column carries the margin, so the two
         // pills on it take the gap between siblings and nothing else.
-        let chrome = &shown.theme.chrome;
         Panel::vstack()
             .id_salt("left")
             .align(Align::TOP_LEFT)
@@ -101,14 +121,14 @@ impl Hud {
                 papers::show(ui, shown, intents);
                 rail::show(ui, shown, intents);
             });
-        recipe::show(ui, shown, intents);
+        recipe::show(ui, shown, &self.doomed, intents);
         camera::show(ui, &mut self.cube, shown, intents);
         readout::show(ui, shown);
         relations::show(
             ui,
             shown,
             &mut self.offers,
-            &mut self.picked,
+            &self.picked,
             &mut self.draft,
             intents,
         );

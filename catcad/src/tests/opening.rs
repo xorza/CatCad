@@ -9,7 +9,7 @@ use glam::{DVec2, Vec2};
 use silverpoint::{Drive, Freedom, Outcome, Plane, Solver};
 use silverpoint::{PointId, Removed};
 
-use crate::build::Build;
+use crate::build::{Build, Reported};
 use crate::demo;
 use crate::status::{Solved, Status};
 
@@ -180,7 +180,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             lost: 0,
             unmerged: 0,
             hovered: None,
-            cleaned: None,
+            reported: None,
             unsaved: false,
             filed: None,
         }
@@ -224,7 +224,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
                 lost: 0,
                 unmerged: 0,
                 hovered: Some(hovered),
-                cleaned: None,
+                reported: None,
                 unsaved: false,
                 filed: None,
             }
@@ -245,7 +245,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             lost: 0,
             unmerged: 0,
             hovered: None,
-            cleaned: None,
+            reported: None,
             unsaved: false,
             filed: None,
         }
@@ -256,7 +256,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     // A cleanup answers the press that asked for it, and answering "nothing"
     // is the half that matters: a command that goes quiet when it finds no work
     // reads as a command that did not run.
-    let after = |cleaned| {
+    let after = |reported| {
         Status {
             solved: Some(Solved {
                 converged: true,
@@ -267,7 +267,7 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
             lost: 0,
             unmerged: 0,
             hovered: None,
-            cleaned: Some(cleaned),
+            reported: Some(reported),
             unsaved: false,
             filed: None,
         }
@@ -275,33 +275,41 @@ fn the_status_line_reads_the_report_and_what_is_under_the_pointer() {
     };
     let head = "solved · 0 dof · 0 redundant · 4 iterations";
     assert_eq!(
-        after(Removed::default()),
+        after(Reported::Cleaned(Removed::default())),
         format!("{head} · nothing to clean up")
     );
     // Singular and plural, and only the kinds it actually took.
     assert_eq!(
-        after(Removed {
+        after(Reported::Cleaned(Removed {
             points: 1,
             segments: 0,
             circles: 0,
-        }),
+        })),
         format!("{head} · removed 1 point")
     );
     assert_eq!(
-        after(Removed {
+        after(Reported::Cleaned(Removed {
             points: 3,
             segments: 1,
             circles: 2,
-        }),
+        })),
         format!("{head} · removed 3 points, 1 edge, 2 circles")
     );
     assert_eq!(
-        after(Removed {
+        after(Reported::Cleaned(Removed {
             points: 0,
             segments: 0,
             circles: 4,
-        }),
+        })),
         format!("{head} · removed 4 circles")
+    );
+    // And the recipe's own removal, which shares the word and nothing else:
+    // that one names what it took out of a drawing, this one how many steps it
+    // took out of the list.
+    assert_eq!(after(Reported::Took(1)), format!("{head} · removed 1 step"));
+    assert_eq!(
+        after(Reported::Took(3)),
+        format!("{head} · removed 3 steps")
     );
 
     // And the app's own opening state agrees with the demo's solve. It reads

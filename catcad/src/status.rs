@@ -2,8 +2,9 @@
 
 use std::fmt;
 
+use crate::build::Reported;
 use crate::part::Part;
-use silverpoint::{Entity, Removed};
+use silverpoint::Entity;
 
 /// What the status line says: the solve's verdict, and what the pointer is
 /// over.
@@ -46,13 +47,12 @@ pub(crate) struct Status<'a> {
     /// [`Models::unmerged`](crate::model::Models::unmerged).
     pub(crate) unmerged: usize,
     pub(crate) hovered: Option<Part>,
-    /// What the last cleanup took out, where that was the last thing done.
+    /// What the last edit is worth saying, where it was the last thing done.
     ///
-    /// Three states rather than two counts: nothing to say, a cleanup that
-    /// found nothing, and a cleanup that took something. The middle one is the
-    /// reason this is an `Option` — a command that answers a press with silence
-    /// reads as a command that did not work.
-    pub(crate) cleaned: Option<Removed>,
+    /// An `Option` for the reason a cleanup that found nothing is still worth
+    /// reporting: a command that answers a press with silence reads as a
+    /// command that did not work.
+    pub(crate) reported: Option<Reported>,
     /// Whether the document has been changed since it was last written.
     pub(crate) unsaved: bool,
     /// What the last thing asked of the filing came to, where anything has
@@ -193,10 +193,19 @@ impl fmt::Display for Rest<'_> {
         if let Some(entity) = status.hovered {
             write!(f, " · {}", noun(entity))?;
         }
-        match status.cleaned {
+        match status.reported {
             None => Ok(()),
-            Some(cleaned) if cleaned.is_empty() => write!(f, " · nothing to clean up"),
-            Some(cleaned) => {
+            Some(Reported::Took(steps)) => {
+                write!(f, " · removed {steps} step")?;
+                if steps != 1 {
+                    f.write_str("s")?;
+                }
+                Ok(())
+            }
+            Some(Reported::Cleaned(cleaned)) if cleaned.is_empty() => {
+                write!(f, " · nothing to clean up")
+            }
+            Some(Reported::Cleaned(cleaned)) => {
                 f.write_str(" · removed ")?;
                 // In the drawing's words rather than the sketch's, like
                 // everything else a person reads here — see [`noun`].

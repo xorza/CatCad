@@ -578,6 +578,25 @@ impl<'a> Models<'a> {
             .then(|| self.build.bodied(at).built())
     }
 
+    /// Whether the step at `at` is one somebody may take away.
+    ///
+    /// The three planes the world comes with are not: everything is measured
+    /// from them, however many links back — see
+    /// [`Timeline::removable`](crate::timeline::Timeline).
+    pub(crate) fn removable(self, at: FeatureId) -> bool {
+        self.timeline.removable(at)
+    }
+
+    /// Every step taking `at` away would take with it, written into `into`.
+    ///
+    /// **Asked before it happens as well as when it does.** The recipe wears
+    /// the cascade while the pointer rests on what would take it, which is why
+    /// the buffer is the caller's — see
+    /// [`Timeline::doomed`](crate::timeline::Timeline).
+    pub(crate) fn doomed_at(self, at: FeatureId, into: &mut Vec<FeatureId>) {
+        self.timeline.doomed(at, into);
+    }
+
     /// The last step currently built, or `None` for all of them — see
     /// [`Timeline::rolled`](crate::timeline::Timeline).
     ///

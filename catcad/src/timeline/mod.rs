@@ -501,15 +501,20 @@ impl Timeline {
     /// the handful of steps standing on one, walked against the steps after it;
     /// a set would cost an allocation and a hash apiece to save a comparison
     /// against a list that is nearly always one long.
-    pub(crate) fn doomed(&self, at: FeatureId) -> Vec<FeatureId> {
+    ///
+    /// **Written into `into` rather than handed back**, because one of its two
+    /// readers asks every frame: the recipe wears the cascade while the pointer
+    /// rests on what would take it, where a removal asks once. A buffer the
+    /// caller keeps is what tells those two apart.
+    pub(crate) fn doomed(&self, at: FeatureId, into: &mut Vec<FeatureId>) {
         let from = self.position(at).expect(REMOVED_STEP);
-        let mut doomed = vec![at];
+        into.clear();
+        into.push(at);
         for step in &self.steps[from + 1..] {
-            if step.feature.referents().any(|on| doomed.contains(&on)) {
-                doomed.push(step.id);
+            if step.feature.referents().any(|on| into.contains(&on)) {
+                into.push(step.id);
             }
         }
-        doomed
     }
 
     /// Every step, in the order they are built, each with the handle that names

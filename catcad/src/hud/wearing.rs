@@ -9,6 +9,31 @@ use crate::look::Theme;
 /// half-way between two states.
 const LIFT: AnimSlot = AnimSlot::new("lift");
 
+/// How much of the refusal's red a row that is merely *going with* the removal
+/// is filled with.
+///
+/// A third, which is what tells the cascade from its head at a glance while
+/// leaving both plainly the same colour — the head is what somebody picked, and
+/// the rest is what that picking costs.
+const DOOMED_FILL: f32 = 0.33;
+
+/// How a row of the recipe stands this frame.
+///
+/// **Named rather than four bools in a row**, on the terms
+/// [`Said`](crate::prompt) states about three: they are all one type, so any
+/// two could change places and still compile — and a `built` swapped with a
+/// `doomed` paints a step nobody has built yet as one about to be taken away.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct Standing {
+    pub(super) picked: bool,
+    /// Whether the pointer is on it.
+    pub(super) hovered: bool,
+    /// Whether the document has built it, or it lies past the rollback bar.
+    pub(super) built: bool,
+    /// Whether a removal being offered would take it.
+    pub(super) doomed: bool,
+}
+
 /// The two colours one control wears this frame.
 ///
 /// **One type for two ladders, so they cannot drift.** A chip and a row of the
@@ -43,7 +68,33 @@ impl Wearing {
     /// built, so it names something that is not there. Only at rest — pointing
     /// at one still lights it and picking one still fills it, because a step
     /// that is not built is still a step a person selects and deletes.
-    pub(super) fn row(theme: &Theme, picked: bool, hovered: bool, built: bool) -> Self {
+    pub(super) fn row(theme: &Theme, standing: Standing) -> Self {
+        let Standing {
+            picked,
+            hovered,
+            built,
+            doomed,
+        } = standing;
+        // **A step about to go says so over everything else it is.** Picked is
+        // where it stands and hovered is where the pointer is; this is what is
+        // about to happen to it, and there is nothing about a row worth seeing
+        // more.
+        //
+        // The head wears the whole of the refusal's own red and the rest a
+        // third of it, so which removal this is reads off the card without a
+        // second device — the same way a picked row and a pointed-at one
+        // already differ by their fill and nothing else. One red, because the
+        // application has one for refusing and this is that.
+        if doomed {
+            let stops = theme.form.stops;
+            return Self {
+                fill: match picked {
+                    true => stops,
+                    false => stops.with_alpha(DOOMED_FILL),
+                },
+                ink: theme.chrome.ink_lit,
+            };
+        }
         let ink = match built {
             true => theme.chrome.ink,
             false => theme.chrome.ink_dim,

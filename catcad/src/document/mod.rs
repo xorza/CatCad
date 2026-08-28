@@ -564,9 +564,15 @@ impl Document {
                 // Nothing is revised either: a document that did not move has no
                 // reason to be drawn again.
                 shaped = Shaped::Took(if self.timeline.removable(step) {
-                    let doomed = self.timeline.doomed(step);
+                    // A buffer of its own, this being the one reader that asks
+                    // once per gesture — see [`Timeline::doomed`], whose other
+                    // reader asks every frame and keeps one.
+                    let mut doomed = Vec::new();
+                    self.timeline.doomed(step, &mut doomed);
                     let pulled = self.pulled(build, &doomed);
                     build.revised();
+                    // After the revision, which is what wipes the last report.
+                    build.took_steps(pulled.len());
                     pulled
                 } else {
                     Vec::new()

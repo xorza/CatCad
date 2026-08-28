@@ -18,6 +18,7 @@ pub(crate) enum Glyph {
     Circle,
     Dimension,
     Tidy,
+    Remove,
     Finish,
     New,
     Open,
@@ -36,13 +37,14 @@ pub(crate) enum Glyph {
 /// by `glyph as usize` rather than search. The atlas sorts its own table by
 /// name, so the ids are resolved back by name into this order — the two orders
 /// are unrelated and neither may be assumed of the other.
-const SOURCES: [(Glyph, &str, &str); 16] = [
+const SOURCES: [(Glyph, &str, &str); 17] = [
     (Glyph::Pointer, "pointer", POINTER),
     (Glyph::Point, "point", POINT),
     (Glyph::Line, "line", LINE),
     (Glyph::Circle, "circle", CIRCLE),
     (Glyph::Dimension, "dimension", DIMENSION),
     (Glyph::Tidy, "tidy", TIDY),
+    (Glyph::Remove, "remove", REMOVE),
     (Glyph::Finish, "finish", FINISH),
     (Glyph::New, "new", NEW),
     (Glyph::Open, "open", OPEN),
@@ -136,6 +138,8 @@ const NEW: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24
 const OPEN: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 18.5V6.2A1.2 1.2 0 0 1 4.2 5h4.9l2.1 2.6h7.6A1.2 1.2 0 0 1 20 8.8v1.7" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M3 18.5l2.7-8h16L19 18.5z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>"##;
 
 const SAVE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4 4.8h11.4L20 9.4V19a1.2 1.2 0 0 1-1.2 1.2H5.2A1.2 1.2 0 0 1 4 19z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M8 4.8v5h7v-5M7.5 20.2v-5.6h9v5.6" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>"##;
+
+const REMOVE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M4.5 6.8h15M9.4 6.8V4.4h5.2v2.4" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/><path d="M6.6 6.8l.9 13.4h9l.9-13.4" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/><path d="M10.4 10.4v6.4M13.6 10.4v6.4" fill="none" stroke="#fff" stroke-width="1.6" stroke-linecap="round"/></svg>"##;
 
 const PLANE: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M2.5 16.5L9 7.5h12.5L15 16.5z" fill="none" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>"##;
 
