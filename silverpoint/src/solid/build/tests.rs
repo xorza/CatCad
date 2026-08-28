@@ -4,7 +4,7 @@ use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
 use crate::solid::build::builder::Extrusion;
-use crate::solid::build::revolving::Revolution;
+use crate::solid::build::revolving::{PARTS, Revolution};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
@@ -510,7 +510,8 @@ fn a_drawing_that_folded_nothing_raises_a_body_that_stands_for_nothing() {
 /// figure is the ring's own: `2π²·major·minor²` by Pappus, genus one, and a
 /// count of faces, edges and vertices that is forced rather than chosen — the
 /// circle wraps, so the drawing hands over two arcs; each is spun a whole turn
-/// and so is cut in two again; and `4 − 8 + 4` is nought, which is `2(1 − 1)`.
+/// and so is cut in three again; and `6 − 12 + 6` is nought, which is
+/// `2(1 − 1)`.
 ///
 /// **And it is not exact**, a torus being the fitted tier's own surface. That
 /// is the whole point of the feature: nothing else in the tree builds one.
@@ -527,8 +528,8 @@ fn a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces() {
     assert_eq!(reckoning.genus, 1, "a ring is a ring: {reckoning:?}");
     assert_eq!(
         body.topology().faces().count(),
-        4,
-        "the wall was not quartered"
+        2 * PARTS,
+        "the wall was not cut in three"
     );
     assert!(!body.exact(), "a body standing on a torus is not exact");
 
@@ -577,7 +578,11 @@ fn a_trapezoid_spun_sweeps_a_cylinder_a_cone_and_two_annuli() {
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 1, "a spun ring is a ring: {reckoning:?}");
-    assert_eq!(body.topology().faces().count(), 8, "four walls, halved");
+    assert_eq!(
+        body.topology().faces().count(),
+        4 * PARTS,
+        "four walls, cut in three"
+    );
     assert!(body.exact(), "a cylinder, a cone and two planes are exact");
     assert_eq!(body.strays(), 0.0, "an exact body strays nowhere");
 
@@ -592,7 +597,11 @@ fn a_trapezoid_spun_sweeps_a_cylinder_a_cone_and_two_annuli() {
             other => panic!("a trapezoid swept {other:?}"),
         }
     }
-    assert_eq!([cylinders, cones, planes], [2, 2, 4], "the wrong surfaces");
+    assert_eq!(
+        [cylinders, cones, planes],
+        [PARTS, PARTS, 2 * PARTS],
+        "the wrong surfaces"
+    );
 
     let want = 32.0 * PI / 3.0;
     let off = (volume(&body) - want).abs();
@@ -643,7 +652,11 @@ fn an_arc_about_a_centre_on_the_line_sweeps_a_sphere() {
         reckoning.genus, 1,
         "a spun segment is a ring: {reckoning:?}"
     );
-    assert_eq!(body.topology().faces().count(), 4, "two walls, halved");
+    assert_eq!(
+        body.topology().faces().count(),
+        2 * PARTS,
+        "two walls, cut in three"
+    );
     assert!(body.exact(), "a sphere and a cylinder are exact");
     let mut spheres = 0;
     for (_, face) in body.topology().faces() {
@@ -656,7 +669,7 @@ fn an_arc_about_a_centre_on_the_line_sweeps_a_sphere() {
             spheres += 1;
         }
     }
-    assert_eq!(spheres, 2, "the arc swept no sphere");
+    assert_eq!(spheres, PARTS, "the arc swept no sphere");
 
     // Coarser than [`FINE`] for the reason the ring is: a sphere is cut in
     // both of its angles at once, so the cells go as the square of what a
@@ -668,5 +681,100 @@ fn an_arc_about_a_centre_on_the_line_sweeps_a_sphere() {
     // sagitta times the area it spans.
     let tall = 2.0 * (radius * radius - chord * chord).sqrt();
     let slack = (2.0 / 3.0) * 1e-4 * TAU * (radius + chord) * tall;
+    assert!(off < slack, "{off} off {want}");
+}
+
+/// **A profile spun about one of its own sides closes at a pole**, which is the
+/// commonest revolve there is and the one a corner standing on the line makes.
+///
+/// A right triangle `(0,0) → (1,0) → (0,2)` about the drawing's own `y`: the
+/// side up the axis sweeps nothing at all, the base sweeps a disc closing to the
+/// point at the origin, and the slanted side a cone closing at `(0,2)`. So both
+/// ends of the solid are poles, and the whole of it is two walls.
+///
+/// **A pole is one vertex, not one per part.** A corner on the line sweeps a
+/// *point*, and a face reaching it is a side of the region collapsed to that
+/// point — the same shape the hand-built ball has at each of its own two. So
+/// the loop of such a face is three edges where every other is four.
+///
+/// **A cone by Pappus, and by the schoolbook.** The triangle's area is one and
+/// its middle stands a third out, so `2π·(1/3)·1` is `2π/3` — which is
+/// `πr²h/3` for a radius of one and a height of two.
+#[test]
+fn a_profile_spun_about_its_own_side_closes_at_a_pole() {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(0.0, 0.0), (1.0, 0.0), (0.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
+    let body = Revolution::new(&found, 0, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+
+    let reckoning = body.reckoning();
+    assert_eq!(reckoning.genus, 0, "a cone is a ball: {reckoning:?}");
+    assert!(body.exact(), "a cone and a plane are exact");
+    // The side lying *on* the line sweeps nothing, so two walls rather than
+    // three — and each is cut in three, no face being allowed to wrap.
+    assert_eq!(
+        body.topology().faces().count(),
+        2 * PARTS,
+        "the third side raised a wall",
+    );
+    // **A pole is one vertex**, where the rim carries one per part: a corner on
+    // the line sweeps a point rather than a circle.
+    assert_eq!(
+        body.topology().vertices().count(),
+        2 + PARTS,
+        "a pole raised more than one vertex",
+    );
+
+    let want = 2.0 * PI / 3.0;
+    let off = (volume(&body) - want).abs();
+    // Only the cone is chorded, the disc being flat: `2π·1` round by its own
+    // slant of `√5`. What a chord cuts off goes as two thirds of the sagitta
+    // times the area it spans.
+    let slack = (2.0 / 3.0) * FINE * TAU * 5.0_f64.sqrt();
+    assert!(off < slack, "{off} off {want}");
+}
+
+/// **A hole of the profile sweeps a cavity, not a hole through it.**
+///
+/// An extrusion's two caps join the wall of a hole to the wall outside it, so
+/// one shell goes round both. A whole turn raises no cap, so what a hub inside
+/// a region sweeps is a shell of its own with the solid all around it — and a
+/// body whose lump did not say so would list faces its own outer shell cannot
+/// reach.
+///
+/// A ring of two about `(5, 0)` with a hole of one in it, spun about the
+/// drawing's `y`. By Pappus the solid is `2π·5·(π·2² − π·1²)`, the two circles
+/// sharing a middle five out.
+#[test]
+fn a_hole_in_the_profile_sweeps_a_cavity_of_its_own() {
+    let (out, at, hole) = (5.0_f64, 2.0_f64, 1.0_f64);
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::new(out, 0.0));
+    sketch.add_circle(middle, at);
+    sketch.add_circle(middle, hole);
+    let found = Arrangement::of(&sketch);
+
+    let mut ringed = None;
+    for face in 0..found.faces().len() {
+        let body = Revolution::new(&found, face, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+        let (_, lump) = body
+            .topology()
+            .lumps()
+            .next()
+            .expect("a spun region encloses a lump");
+        if !lump.voids.is_empty() {
+            assert!(ringed.is_none(), "two faces of the drawing swept a cavity");
+            ringed = Some(body);
+        }
+    }
+    let body = ringed.expect("the ring between the two circles swept no cavity");
+    let (_, lump) = body.topology().lumps().next().expect("the lump");
+    assert_eq!(lump.voids.len(), 1, "the hub swept more than one cavity");
+
+    let want = TAU * out * PI * (at * at - hole * hole);
+    let off = (Mesher::default().volume(&body, 1e-3) - want).abs();
+    // Both tubes are chorded, and each is `2π·out` round by `2π·minor`. What a
+    // chord cuts off goes as two thirds of the sagitta times the area it spans.
+    let slack = (2.0 / 3.0) * 1e-3 * TAU * TAU * out * (at + hole);
     assert!(off < slack, "{off} off {want}");
 }

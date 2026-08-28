@@ -11,7 +11,7 @@ use crate::solid::geometry::surface::Surface;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::FaceId;
 use crate::solid::topology::lump::Lump;
-use crate::solid::topology::shell::Shell;
+use crate::solid::topology::shell::{Shell, ShellId};
 
 pub(crate) mod builder;
 pub(crate) mod revolving;
@@ -37,21 +37,24 @@ struct Running {
     bounds: [f64; 2],
 }
 
-/// Gather `faces` into the one shell around the one lump.
-///
-/// Every feature here raises a body of one lump — a region is one piece and a
-/// sweep of it is too — so what varies between them is which faces there are
-/// and never how they are shelled.
-fn gathered(into: &mut Body, faces: impl Iterator<Item = FaceId>) {
+/// Gather `faces` into one shell.
+fn shelled(into: &mut Body, faces: impl Iterator<Item = FaceId>) -> ShellId {
     let topology = into.topology_mut();
     let from = topology.faces_shelled();
     for face in faces {
         topology.add_shelled(face);
     }
     let to = topology.faces_shelled();
-    let shell = topology.add_shell(Shell { faces: from..to });
-    topology.add_lump(Lump {
-        outer: shell,
-        voids: 0..0,
-    });
+    topology.add_shell(Shell { faces: from..to })
+}
+
+/// Gather `faces` into the one shell around the one lump.
+///
+/// **Only where the sweep closed every hole of the profile off**, which an
+/// extrusion's two caps do and a whole turn does not — see
+/// [`Revolving::gather`](revolving::Revolving::gather), which shells a cavity
+/// per hole instead.
+fn gathered(into: &mut Body, faces: impl Iterator<Item = FaceId>) {
+    let outer = shelled(into, faces);
+    into.topology_mut().add_lump(Lump { outer, voids: 0..0 });
 }
