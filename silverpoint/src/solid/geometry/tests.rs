@@ -1,5 +1,7 @@
 use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
+use crate::number::exact::field::Field;
+use crate::number::exact::rational::Rational;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
@@ -7,6 +9,7 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::quadric::Quadric;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
 use glam::{DVec2, DVec3};
@@ -772,4 +775,109 @@ fn a_key_moves_with_every_number_a_surface_or_a_curve_is_made_of() {
             assert_ne!(one.key(), two.key(), "{one:?} keys as {two:?}");
         }
     }
+}
+
+/// **Every natural surface is the exact zero set of its own matrix.**
+///
+/// The floor M3b stands on — see [`Quadric`], which the pencil and everything
+/// after it read instead of the four kinds. What it has to be is *exact*: a
+/// place on the surface gives nought and no rounding, and a place off it gives
+/// the number the algebra says and not one near it.
+///
+/// Hand-computed throughout, over Pythagorean places so that every value is a
+/// whole number.
+///
+/// - **The plane** through `(1, 2, 3)` lying flat is the double plane `(y−2)²`,
+///   so a place three above it reads nine. Rank one rather than three, which is
+///   what a plane *is* as a quadric.
+/// - **The sphere** of five about the origin reads `|p|² − 25`, so `(3, 4, 0)`
+///   is on it and `(3, 4, 1)` is one outside.
+/// - **The cylinder** of five about the upright line through `(1, 2, 3)` reads
+///   `|p × w|² − 25|w|²`, so `(4, 6, 3)` is on it wherever it stands along the
+///   axis, and `(7, 10, 3)` — twice as far out — reads seventy-five.
+///
+/// **The cone is the one that cannot be exact, and the reason is worth
+/// knowing.** Its parameter is an *angle*, where every other surface's are
+/// places and lengths — so `cos²θ` is a float and the matrix is the cone that
+/// float names, a rounding from the cone the angle names. Its apex is still
+/// exact, that being the constant term. Everything M3b does after this is
+/// exact over whatever the matrix holds, so the rounding stops here rather
+/// than growing.
+#[test]
+fn every_natural_surface_is_the_exact_zero_set_of_its_own_matrix() {
+    let flat = Surface::Plane(Plane {
+        origin: DVec3::new(1.0, 2.0, 3.0),
+        ..Plane::GROUND
+    });
+    let ball = Surface::Sphere(Sphere {
+        axis: upright(),
+        radius: 5.0,
+    });
+    let pipe = Surface::Cylinder(Cylinder {
+        axis: Axis::new(DVec3::new(1.0, 2.0, 3.0), DVec3::Z, DVec3::X),
+        radius: 5.0,
+    });
+
+    for (surface, at, want) in [
+        (&flat, DVec3::new(9.0, 2.0, -9.0), 0.0),
+        (&flat, DVec3::new(9.0, 5.0, -9.0), 9.0),
+        (&flat, DVec3::new(9.0, -1.0, -9.0), 9.0),
+        (&ball, DVec3::new(3.0, 4.0, 0.0), 0.0),
+        (&ball, DVec3::new(0.0, -3.0, -4.0), 0.0),
+        (&ball, DVec3::new(3.0, 4.0, 1.0), 1.0),
+        (&ball, DVec3::ZERO, -25.0),
+        (&pipe, DVec3::new(4.0, 6.0, 3.0), 0.0),
+        (&pipe, DVec3::new(4.0, 6.0, 99.0), 0.0),
+        (&pipe, DVec3::new(7.0, 10.0, 3.0), 75.0),
+        (&pipe, DVec3::new(1.0, 2.0, 3.0), -25.0),
+    ] {
+        assert_eq!(
+            Quadric::of(surface).on(at),
+            Rational::of(want),
+            "{surface:?} at {at:?}",
+        );
+    }
+
+    // A place inside and a place outside fall either side of nought, which is
+    // the whole of what the sign is read for.
+    let ball = Quadric::of(&ball);
+    assert_eq!(
+        ball.on(DVec3::new(0.0, 0.0, 6.0)),
+        Rational::of(11.0),
+        "one outside the sphere",
+    );
+
+    // The cone of a quarter turn about the upright line, apex at the origin.
+    let point = Surface::Cone(Cone {
+        axis: upright(),
+        half_angle: FRAC_PI_4,
+    });
+    let point = Quadric::of(&point);
+    assert_eq!(
+        point.on(DVec3::ZERO),
+        Rational::ZERO,
+        "the apex is the apex"
+    );
+    // On the surface, and only to what a float holds an angle to: the place
+    // `(3, 3, 0)` stands at a quarter turn from the axis, where the form comes
+    // to `9 − 18·cos²`. A quarter turn's cosine is out by half an ulp of itself
+    // and squaring it costs another, so `18·cos²` is out by about `27·2⁻⁵³` —
+    // and eighteen ulps is a bound that can be worked out rather than measured.
+    let off = point.on(DVec3::new(3.0, 3.0, 0.0)).nearest();
+    assert!(
+        off != 0.0,
+        "the cosine stopped rounding, so this proves nothing"
+    );
+    assert!(
+        off.abs() < 18.0 * f64::EPSILON,
+        "the cone reads {off} at a place on it"
+    );
+    // And square to the axis, three out from the apex, the form is `−9·cos²` —
+    // four and a half for a quarter turn, which is a number no rounding is
+    // anywhere near.
+    let across = point.on(DVec3::new(3.0, 0.0, 0.0)).nearest();
+    assert!(
+        (across + 4.5).abs() < 9.0 * f64::EPSILON,
+        "the cone reads {across} square to its axis"
+    );
 }

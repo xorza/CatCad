@@ -846,10 +846,32 @@ from the current camera — and neither is worth a pass on its own yet.
 
 What is left of §7.3: a smooth quartic parameterized exactly as
 `X₁(u,v) ± X₂(u,v)·√Δ(u,v)`, all components separated, all degeneracies handled,
-near-optimal in square roots. A pencil, a repeated-root test by polynomial gcd,
-exact 4×4 congruence diagonalization, a ruled member found by choosing an
-integer point, a split into hyperbolic planes, and the quadratic tower. `Curve`
-gains its `Quartic` arm (§4.6).
+near-optimal in square roots. `Curve` gains its `Quartic` arm (§4.6).
+
+**The matrix is in.** Every natural surface is the exact zero set of a symmetric
+4×4 over `Rational` — `geometry::quadric::Quadric` — which is the one
+description a pencil can be taken of and the only thing the rest of the route
+reads. A plane comes back as the double plane it is, rank one and not a
+degeneracy to guard against. Nothing is assumed to be unit: a cylinder is
+`|p × w|² = r²|w|²`, right whatever the axis direction came in as. And the cone
+is the one surface whose matrix is a rounding from what its parameters name, its
+parameter being an *angle* where every other's are places and lengths — the
+rounding stops there rather than growing, everything after it being exact over
+whatever the matrix holds.
+
+**The rest, in this order, and each stands alone:**
+
+1. **The pencil.** `det(λQ₁ + μQ₂)` as a binary quartic — five determinants
+   interpolated exactly rather than a symbolic expansion — and a repeated-root
+   test by polynomial gcd, which is what says whether the intersection is
+   smooth.
+2. **A ruled member**, found by choosing an integer point and solving for the λ
+   through it, then exact 4×4 congruence diagonalization and a split into
+   hyperbolic planes.
+3. **The parameterization.** A ruling substituted into the other quadric is a
+   quadratic in the ruling's own parameter, and its roots are `X₁ ± X₂√Δ` in the
+   quadratic tower.
+4. **`Curve::Quartic`**, and every closed match on `Curve` that follows.
 
 **Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
 the published classification, and every result is asserted to be in the exact
