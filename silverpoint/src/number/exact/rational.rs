@@ -51,13 +51,12 @@ impl Rational {
 
     /// The whole number `at`.
     ///
-    /// **Nothing in production hands one in yet.** What reaches here comes off
-    /// a drawing, and a drawing is `f64` throughout. Kept because the pencil
-    /// route in M3b picks an integer point on a quadric to find its ruled
-    /// member — see `.notes/KERNEL.md` §7.3 — and because the tests below are
-    /// written in whole numbers, where reading them through [`Rational::of`]
-    /// would be checking a conversion rather than the arithmetic.
-    #[allow(dead_code)]
+    /// What a drawing never hands in — it is `f64` throughout — and what the
+    /// algebra over it does: a pencil is sampled at whole `λ` to be
+    /// interpolated, and M3b's ruled member is found by choosing an integer
+    /// point (`.notes/KERNEL.md` §7.3). The tests below are written in whole
+    /// numbers too, where reading them through [`Rational::of`] would be
+    /// checking a conversion rather than the arithmetic.
     pub(crate) fn whole(at: i64) -> Self {
         Self(RBig::from(at))
     }

@@ -9,6 +9,7 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
@@ -880,4 +881,80 @@ fn every_natural_surface_is_the_exact_zero_set_of_its_own_matrix() {
         (across + 4.5).abs() < 9.0 * f64::EPSILON,
         "the cone reads {across} square to its axis"
     );
+}
+
+/// **A pencil's characteristic form is the one the algebra says, and its
+/// discriminant says whether the two meet in a smooth quartic.**
+///
+/// M3b's second piece — see [`Pencil`]. Two cases, hand-computed, and they are
+/// the two answers the form can give.
+///
+/// **Two concentric spheres of one and two.** Their matrices are
+/// `diag(1, 1, 1, −1)` and `diag(1, 1, 1, −4)`, so the member at `λ` is
+/// `diag(λ+1, λ+1, λ+1, −λ−4)` and the form is `−(λ+1)³(λ+4)`, which multiplies
+/// out to `−λ⁴ − 7λ³ − 15λ² − 13λ − 4`. A triple root at `λ = −1`, so the
+/// discriminant is nought — and the two meet in no smooth quartic, which is
+/// right, because they meet nowhere at all.
+///
+/// **Two unequal cylinders on crossing axes**, radius two about the upright and
+/// radius three about the sideways, which is the case `.notes/KERNEL.md` M3b
+/// owes. `diag(1, 1, 0, −4)` and `diag(0, 1, 1, −9)` give `λ(λ+1)(−4λ−9)`,
+/// which is `−4λ³ − 13λ² − 9λ`. Both the leading and the trailing coefficient
+/// are nought — every cylinder's matrix is singular — and the form still has
+/// its four roots: `λ = 0`, `μ = 0`, `λ = −1` and `λ = −9/4`. All four are
+/// distinct, so the discriminant stands well away from nought and the two cross
+/// in a smooth quartic. `I` comes to 61 there and `J` to 182, so
+/// `Δ = (4·61³ − 182²)/27 = 32400`.
+///
+/// **Three cross-checks that do not go through the interpolation.** The
+/// coefficient of `λ⁴` has to be `det Q₁` and the constant `det Q₂`, whatever
+/// the middle three came out as. And the form read at `λ = 3` — a place it was
+/// never sampled at — has to be the determinant of the member standing there.
+#[test]
+fn a_pencil_reads_the_characteristic_form_the_algebra_says() {
+    let ball = |radius: f64| {
+        Quadric::of(&Surface::Sphere(Sphere {
+            axis: upright(),
+            radius,
+        }))
+    };
+    let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Surface::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, direction, reference),
+            radius,
+        }))
+    };
+
+    for (one, two, want, discriminant) in [
+        (ball(1.0), ball(2.0), [-1.0, -7.0, -15.0, -13.0, -4.0], 0.0),
+        (
+            pipe(DVec3::Z, DVec3::X, 2.0),
+            pipe(DVec3::X, DVec3::Y, 3.0),
+            [0.0, -4.0, -13.0, -9.0, 0.0],
+            32400.0,
+        ),
+    ] {
+        let (quartic, constant) = (one.determinant(), two.determinant());
+        let pencil = Pencil::of(one, two);
+        let form = pencil.characteristic();
+        assert_eq!(form, &want.map(Rational::of), "the characteristic form");
+        assert_eq!(form[0], quartic, "the λ⁴ coefficient is not det Q₁");
+        assert_eq!(form[4], constant, "the constant is not det Q₂");
+        assert_eq!(
+            pencil.discriminant(),
+            Rational::of(discriminant),
+            "the discriminant of {want:?}",
+        );
+
+        // The member at three, which nothing above sampled.
+        let three = Rational::whole(3);
+        let read = form.iter().fold(Rational::ZERO, |total, term| {
+            total * three.clone() + term.clone()
+        });
+        assert_eq!(
+            read,
+            pencil.at(&three).determinant(),
+            "the form and the member disagree at three",
+        );
+    }
 }

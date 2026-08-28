@@ -859,19 +859,33 @@ parameter being an *angle* where every other's are places and lengths — the
 rounding stops there rather than growing, everything after it being exact over
 whatever the matrix holds.
 
+**And the pencil over it.** `geometry::pencil::Pencil` carries
+`det(λQ₁ + μQ₂)` as a binary quartic, taken from five determinants interpolated
+exactly rather than from a symbolic expansion of a 4×4 over two matrices — the
+same number either way, and a great deal less of it for a reader to have to
+believe. Binary and not a polynomial in `λ` alone, because every cylinder and
+every cone has a singular matrix: the leading coefficient is nought for both,
+and what would look like a dropped degree is a singular member at `μ = 0` like
+any other.
+
+Whether the intersection is a *smooth* quartic is that form's discriminant, and
+it comes off the classical invariants `I = 12ae − 3bd + c²` and
+`J = 72ace + 9bcd − 27ad² − 27b²e − 2c³` as `(4I³ − J²)/27`. **The polynomial
+gcd this was expected to need is not needed for it** — two short formulas
+against the discriminant's own fourteen terms, and invariants of the *binary*
+form, so a nought leading coefficient costs nothing. Two unequal cylinders on
+crossing axes give `−4λ³ − 13λ² − 9λ` and `Δ = 32400`, which is half of the
+owed test below.
+
 **The rest, in this order, and each stands alone:**
 
-1. **The pencil.** `det(λQ₁ + μQ₂)` as a binary quartic — five determinants
-   interpolated exactly rather than a symbolic expansion — and a repeated-root
-   test by polynomial gcd, which is what says whether the intersection is
-   smooth.
-2. **A ruled member**, found by choosing an integer point and solving for the λ
+1. **A ruled member**, found by choosing an integer point and solving for the λ
    through it, then exact 4×4 congruence diagonalization and a split into
    hyperbolic planes.
-3. **The parameterization.** A ruling substituted into the other quadric is a
+2. **The parameterization.** A ruling substituted into the other quadric is a
    quadratic in the ruling's own parameter, and its roots are `X₁ ± X₂√Δ` in the
    quadratic tower.
-4. **`Curve::Quartic`**, and every closed match on `Curve` that follows.
+3. **`Curve::Quartic`**, and every closed match on `Curve` that follows.
 
 **Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
 the published classification, and every result is asserted to be in the exact

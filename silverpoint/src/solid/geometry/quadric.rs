@@ -93,7 +93,7 @@ impl Quadric {
             }
             Surface::Cylinder(cylinder) => {
                 let [x, y, z] = placed(cylinder.axis.direction);
-                let along = square([x.clone(), y.clone(), z.clone()]);
+                let along = length_squared([x.clone(), y.clone(), z.clone()]);
                 let radius = Rational::of(cylinder.radius);
                 Self::about(
                     [
@@ -114,8 +114,8 @@ impl Quadric {
                 // the cosine it read, so that this and `Cone::met_by` are the
                 // same surface to the last bit rather than to a rounding.
                 let cosine = cone.half_angle.cos();
-                let narrow =
-                    Rational::of(cosine * cosine) * square([x.clone(), y.clone(), z.clone()]);
+                let narrow = Rational::of(cosine * cosine)
+                    * length_squared([x.clone(), y.clone(), z.clone()]);
                 Self::about(
                     [
                         x.clone() * x.clone() - narrow.clone(),
@@ -169,6 +169,46 @@ impl Quadric {
                         term.clone() + term
                     };
             }
+        }
+        total
+    }
+
+    /// `by·self + other`, which is the member of the pencil the two span that
+    /// leans on this one by `by`.
+    ///
+    /// One method rather than a scaling and an addition, because a member is
+    /// worked out once per candidate `λ` and each of those would be ten heap
+    /// blocks of its own.
+    pub(crate) fn summed(&self, by: &Rational, other: &Self) -> Self {
+        Self {
+            held: std::array::from_fn(|at| {
+                by.clone() * self.held[at].clone() + other.held[at].clone()
+            }),
+        }
+    }
+
+    /// Its determinant, exactly.
+    ///
+    /// **What a pencil is read through.** `det(λQ₁ + μQ₂)` is the binary
+    /// quartic whose roots are the pencil's singular members, and every
+    /// question the algebraic route asks first is a question about those — see
+    /// [`Pencil`](super::pencil::Pencil).
+    ///
+    /// Expanded along the first row into four 3×3 minors. Nothing clever: a
+    /// quadric is 4×4 and no larger, and the arithmetic under it has no
+    /// pivoting to be careful about.
+    pub(crate) fn determinant(&self) -> Rational {
+        let minor = |skip: usize| {
+            let col = |at: usize| if at < skip { at } else { at + 1 };
+            let held = |row: usize, at: usize| self.held(row + 1, col(at)).clone();
+            held(0, 0) * (held(1, 1) * held(2, 2) - held(1, 2) * held(2, 1))
+                - held(0, 1) * (held(1, 0) * held(2, 2) - held(1, 2) * held(2, 0))
+                + held(0, 2) * (held(1, 0) * held(2, 1) - held(1, 1) * held(2, 0))
+        };
+        let mut total = Rational::ZERO;
+        for skip in 0..4 {
+            let term = self.held(0, skip).clone() * minor(skip);
+            total = total + if skip % 2 == 0 { term } else { -term };
         }
         total
     }
@@ -231,7 +271,7 @@ fn crossed(one: DVec3, two: DVec3) -> [Rational; 3] {
 }
 
 /// `|of|²`, exactly.
-fn square(of: [Rational; 3]) -> Rational {
+fn length_squared(of: [Rational; 3]) -> Rational {
     let [x, y, z] = of;
     x.clone() * x + y.clone() * y + z.clone() * z
 }
