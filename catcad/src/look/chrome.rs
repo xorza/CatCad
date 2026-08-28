@@ -203,14 +203,21 @@ impl Chrome {
     /// how it looks from one angle — so it fits its box from every angle rather
     /// than growing out of it as it turns.
     ///
-    /// The widest is the point where a face meets a bevel, seen from the
-    /// direction bisecting the two axes it spans: one coordinate at the whole
-    /// half-cube and the next at what the cut left of it, which comes to
-    /// `(2 - chamfer)/√2`. A plain cube is that with no cut at all, and its
-    /// corner is the `√2` this used to be written as — so a cube whose edges are
-    /// cut fits a tenth more of its box, and the lettering on it grows with it.
+    /// Every point of the solid reaches the whole half-cube on one axis and
+    /// stops short on the other two, so the widest it ever comes to is a point
+    /// seen from the direction bisecting two of them — `(2 - chamfer)/√2` — or
+    /// from a corner, where all three count: `√3 · (1 - chamfer)`. Which of the
+    /// two wins moves with the cut, so both are asked and the larger taken.
+    ///
+    /// A plain cube is the first of those with no cut at all, and its corner is
+    /// the `√2` this used to be written as — so a solid whose edges are cut
+    /// fits more of its box, and the lettering on it grows with it.
     pub(crate) fn cube_scale(&self) -> f32 {
-        let widest = (2.0 - self.cube_chamfer) / std::f32::consts::SQRT_2;
+        let chamfer = self.cube_chamfer;
+        let widest = f32::max(
+            3f32.sqrt() * (1.0 - chamfer),
+            (2.0 - chamfer) / std::f32::consts::SQRT_2,
+        );
         (self.cube * 0.5 - self.cube_margin) / widest
     }
 
@@ -254,9 +261,9 @@ impl Chrome {
             caption_text: 9.5,
             verdict_run: 46.0,
             verdict_weight: 4.0,
-            cube: 112.0,
-            cube_margin: 8.0,
-            cube_chamfer: 0.2,
+            cube: 124.0,
+            cube_margin: 7.0,
+            cube_chamfer: 0.24,
             cube_letter: 1.3,
         }
     }

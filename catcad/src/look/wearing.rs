@@ -79,11 +79,11 @@ impl Wearing {
         match hovered {
             true => Self {
                 fill: means,
-                ink: Self::reading_on(chrome, means),
+                ink: Self::on_fill(chrome, means),
             },
             false => Self {
                 fill: chrome.chip,
-                ink: means,
+                ink: look::reading_on(means, chrome.chip, chrome.ink_lit),
             },
         }
     }
@@ -97,10 +97,15 @@ impl Wearing {
     /// other way about. Stated either way round, half the palettes would carry
     /// a mark nobody could see.
     ///
+    /// A choice between two rather than a lift toward one — see
+    /// [`look::reading_on`], which is what the *resting* answer takes. A fill
+    /// this sits on is the answer's own colour and is not the crate's to move;
+    /// at rest the fill is a chip and it is the ink that gives.
+    ///
     /// Judged by [`look::separation`], which is what the theme's own floors are
     /// checked with — so the ink this picks and the check that grades it cannot
     /// be two measures of one thing.
-    fn reading_on(chrome: &Chrome, fill: Color) -> Color {
+    fn on_fill(chrome: &Chrome, fill: Color) -> Color {
         let [lit, dark] = [chrome.ink_lit, chrome.on_held];
         match look::separation(lit, fill) >= look::separation(dark, fill) {
             true => lit,

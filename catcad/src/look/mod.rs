@@ -80,9 +80,53 @@ pub(crate) struct Theme {
 /// two measures of one thing.
 pub(crate) fn separation(top: Color, under: Color) -> f32 {
     let flat = under.lerp(top, top.a);
-    let luminance = |color: Color| 0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b;
     let (lit, dark) = (luminance(flat), luminance(under));
     (lit.max(dark) + 0.05) / (lit.min(dark) + 0.05)
+}
+
+/// How much light a colour carries.
+///
+/// Its own function because [`separation`] is not the only reader: a colour
+/// lifted to *land* on a floor is solved from this, and a second spelling of
+/// the coefficients would be a lift that missed the floor the check then
+/// applied.
+pub(crate) fn luminance(color: Color) -> f32 {
+    0.2126 * color.r + 0.7152 * color.g + 0.0722 * color.b
+}
+
+/// How far a stroked mark has to stand out from what it sits on to be read.
+///
+/// **Lower than the floor a run of letters is held to**, and that is a decision
+/// rather than a shortfall. What a form's answers carry is a tick and a cross
+/// drawn in two strokes, not words — and at the moment one matters, what
+/// carries the press is the block of colour under the mark as much as the mark.
+/// The letter floor stays where it is checked, on the inks that set text.
+pub(crate) const MARK: f32 = 3.0;
+
+/// `ink` lifted toward `toward` by the least that clears [`MARK`] on `under`.
+///
+/// **The palette says how dark a colour is and this crate says what a mark has
+/// to clear, so the lift is the arithmetic between them.** The shipped table has
+/// had a form's green bright enough to read at 4.9 against a chip and muted
+/// enough to read at 2.4, and an ink taken straight is one that half the
+/// palettes leave unreadable. Lifted by the least that clears, an answer keeps
+/// as much of the colour the palette gave it as the floor allows.
+///
+/// Solved rather than stepped: luminance is linear in the channels and a lerp is
+/// linear in its share, so the lift that lands exactly on the floor is one
+/// division. A colour already clear of it is left alone.
+pub(crate) fn reading_on(ink: Color, under: Color, toward: Color) -> Color {
+    // **Past the floor rather than onto it.** A lift solved to land exactly on
+    // it lands a rounding either side, and a mark reading at 2.9999 is one the
+    // check calls faint. A twentieth is far below what an eye can tell apart
+    // and far above what the arithmetic can lose.
+    const CLEARS: f32 = 0.05;
+    let want = (MARK + CLEARS) * (luminance(under) + 0.05) - 0.05;
+    let (from, room) = (luminance(ink), luminance(toward) - luminance(ink));
+    match room > f32::EPSILON {
+        true => ink.lerp(toward, ((want - from) / room).clamp(0.0, 1.0)),
+        false => ink,
+    }
 }
 
 impl Default for Theme {
@@ -337,13 +381,28 @@ mod tests {
             ] {
                 let apart = separation(wearing.ink, wearing.fill);
                 assert!(
-                    apart >= 3.0,
+                    apart >= MARK,
                     "the mark on a {state} {what} reads at {apart:.2}, which is faint",
                 );
             }
-            // And under the pointer it takes the *better* of the overlay's two
-            // inks, which is the reading [`Wearing::reading_on`] is for: a fill
-            // near the middle of the ramp is one no fixed ink reads on.
+            // **And what the lift buys is a mark that still reads as its own
+            // colour.** Clearing the floor is arithmetic and would be satisfied
+            // by handing back plain white; what says the answer still means
+            // *goes* or *stops* is that the channel the palette leaned on is
+            // still the one this leans on.
+            let resting = Wearing::answer(&theme, means, false).ink;
+            let leans = |it: Color| match it.r >= it.g {
+                true => "red",
+                false => "green",
+            };
+            assert_eq!(
+                leans(resting),
+                leans(means),
+                "a lifted {what} stopped reading as the colour it means",
+            );
+            // Under the pointer it takes the *better* of the overlay's two
+            // inks: an answer's own colour is the fill there, and a fill near
+            // the middle of the ramp is one no fixed ink reads on.
             let wearing = Wearing::answer(&theme, means, true);
             let other = match wearing.ink == chrome.ink_lit {
                 true => chrome.on_held,

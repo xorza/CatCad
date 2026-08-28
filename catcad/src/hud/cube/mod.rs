@@ -186,6 +186,7 @@ impl Cube {
             .sense(Sense::CLICK | Sense::DRAG)
             .show(ui, |ui| {
                 ui.add_shape(Shape::mesh(mesh));
+                edges(ui, &seen, ring, flat, stroke, under);
                 // Away while the cube itself is under the pointer, so they do
                 // not compete with the thing they sit beside.
                 if under.is_none() {
@@ -396,6 +397,45 @@ fn solid(
             seen,
             flat,
             lit(seen.theme, facet, under == Some(facet)),
+        );
+    }
+}
+
+/// Every piece run round with a stroke of its own colour.
+///
+/// **What makes the solid's edges smooth.** A mesh is rasterized by whether a
+/// pixel's centre falls inside a triangle and by nothing else, so every
+/// boundary it draws is a staircase — which on a gizmo of two dozen small
+/// facets is most of what you see. A stroke is drawn with analytic coverage.
+/// Run round each piece in the very shade that piece is filled with, it changes
+/// no colour at all and feathers every boundary: the silhouette against the
+/// drawing, and the join between one facet and the next.
+///
+/// The ring is closed by repeating where it began, because a stroke has two
+/// ends and an outline has none.
+fn edges(
+    ui: &mut Ui,
+    seen: &Seen<'_>,
+    ring: &mut Vec<Vec3>,
+    flat: &mut Vec<Vec2>,
+    stroke: &mut Vec<UiVec2>,
+    under: Option<Facet>,
+) {
+    for facet in facet::EVERY {
+        if !seen.shows(facet) {
+            continue;
+        }
+        seen.outline(facet, ring, flat);
+        stroke.clear();
+        stroke.extend(flat.iter().map(|&at| seen.boxed(at)));
+        stroke.push(stroke[0]);
+        ui.add_shape(
+            Shape::polyline(
+                stroke,
+                PolylineColors::Single(lit(seen.theme, facet, under == Some(facet))),
+                1.0,
+            )
+            .join(LineJoin::Miter),
         );
     }
 }

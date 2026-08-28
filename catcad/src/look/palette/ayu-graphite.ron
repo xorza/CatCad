@@ -28,28 +28,28 @@
 
     // Drawing — what the geometry and the solids beside it are painted in.
     solid:        "#ebebeb",  // line_number_hover  gray_7
-    determined:   "#74c3f7",  // syn_type           blue_bright
-    partly:       "#fbdd89",  // warning            yellow_bright
-    free:         "#f8b065",  // syn_keyword        orange_bright
-    pinned:       "#f77f71",  // error              red_bright
+    determined:   "#20acfd",  // syn_type           blue_bright
+    partly:       "#ccab00",  // warning            yellow_bright
+    free:         "#f5912b",  // syn_keyword        orange_bright
+    pinned:       "#ff8a78",  // error              red_bright
     dormant:      "#a4a4a4",  // text_muted         gray_6
-    dormant_face: "#003e5d",  // info_bg            blue_dim
-    face:         "#74c3f7",  // info_border        blue_bright
+    dormant_face: "#003c5e",  // info_bg            blue_dim
+    face:         "#0072ad",  // info_border        blue_normal
     ghost:        "#ebebeb",  // text               gray_7
-    sheet_ground: "#6cea4e",  // ansi_green         green_bright
-    sheet_front:  "#74c3f7",  // ansi_blue          blue_bright
-    sheet_side:   "#f77f71",  // ansi_red           red_bright
+    sheet_ground: "#3e7f2f",  // ansi_green         green_normal
+    sheet_front:  "#0072ad",  // ansi_blue          blue_normal
+    sheet_side:   "#b65345",  // ansi_red           red_normal
     sheet_datum:  "#525252",  // line_number        gray_5
-    mark:         "#a4a4a4",  // text_muted         gray_6
-    redundant:    "#f77f71",  // ansi_bright_red    red_bright
+    mark:         "#aa5e00",  // ansi_magenta       orange_normal
+    redundant:    "#ff8a78",  // ansi_bright_red    red_bright
     depth_arrow:  "#ebebeb",  // selection_fg       gray_7
 
     // Lighting — what singling something out looks like.
     hovered:      "#ffffff",  // ansi_bright_white  white
-    selected:     "#6cea4e",  // success            green_bright
+    selected:     "#69bc56",  // success            green_bright
 
     // Form — the answers a prompt standing on the drawing offers.
-    goes:         "#6cea4e",  // success_border     green_bright
-    stops:        "#f77f71",  // error_border       red_bright
-    doing:        "#74c3f7",  // info_border        blue_bright
+    goes:         "#3e7f2f",  // success_border     green_normal
+    stops:        "#b65345",  // error_border       red_normal
+    doing:        "#0072ad",  // info_border        blue_normal
 )

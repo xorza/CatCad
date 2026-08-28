@@ -66,50 +66,75 @@ impl Facet {
     /// agree rather than which sign they agree on. What it does owe is that
     /// consecutive points are neighbours, so the outline does not cross itself.
     ///
-    /// **Every point of the solid is a `(±1, ±m, ±m)` and its two rotations**,
-    /// where `m` is what is left of the half-cube after the cut. That one set of
-    /// twenty-four is what makes the three kinds fall out: the four with a `1`
-    /// on one axis are a face, the four sharing a `1` and an `m` on two axes are
-    /// an edge, and the three with a `1` on each are a corner. Cut a cube's
-    /// corners alone and the twelve edges survive as edges, which is a solid
-    /// with fourteen pieces and no bevel to press.
+    /// **Every point of the solid reaches the full half-cube on one axis, stops
+    /// short of the edge on the next and short of the corner on the third** —
+    /// forty-eight of them, three axes by two partners by eight quarters. That
+    /// one set is what makes the three kinds fall out, and what makes each of
+    /// them the shape it is: a face is an octagon, an edge bevel a rectangle,
+    /// and a corner a hexagon that runs face, bevel, face, bevel, face, bevel
+    /// round its six sides.
     ///
-    /// `chamfer` is how far each cut reaches in from the edge, as a share of the
-    /// half-cube — see
-    /// [`Chrome::cube_chamfer`](crate::look::chrome::Chrome::cube_chamfer).
+    /// **The corner is cut back by the same amount the edge is**, which is why
+    /// that hexagon is regular: three of its sides are the width of an edge cut
+    /// and the other three the width of a corner cut, and one number sets both.
+    /// Cut the corner *less* and it collapses to the triangle a plain chamfer
+    /// leaves; cut it not at all and the twelve edges survive as edges, which
+    /// is a solid with fourteen pieces and no bevel to press.
+    ///
+    /// `chamfer` is how far each cut reaches in, as a share of the half-cube —
+    /// see [`Chrome::cube_chamfer`](crate::look::chrome::Chrome::cube_chamfer).
     pub(super) fn ring(self, chamfer: f32, into: &mut Vec<Vec3>) {
         into.clear();
-        let left = 1.0 - chamfer;
+        // How far a face reaches toward the edge it shares with a bevel, and
+        // toward the corner beyond it — a corner being cut three times over,
+        // once by each edge that runs into it and once by itself.
+        let edged = 1.0 - chamfer;
+        let cornered = 1.0 - 2.0 * chamfer;
         let sign = self.0.as_vec3();
         match self.0.abs().element_sum() {
-            // A square: the face itself, pulled in on all four sides.
+            // An octagon: the face, cut where each of its four corners was.
             1 => {
                 let axis = (0..3).find(|&at| self.0[at] != 0).expect("a face has one");
                 let [u, v] = [(axis + 1) % 3, (axis + 2) % 3];
-                for (across, along) in [(1.0, 1.0), (-1.0, 1.0), (-1.0, -1.0), (1.0, -1.0)] {
+                for (across, along) in [
+                    (edged, cornered),
+                    (cornered, edged),
+                    (-cornered, edged),
+                    (-edged, cornered),
+                    (-edged, -cornered),
+                    (-cornered, -edged),
+                    (cornered, -edged),
+                    (edged, -cornered),
+                ] {
                     let mut at = Vec3::ZERO;
                     at[axis] = sign[axis];
-                    at[u] = across * left;
-                    at[v] = along * left;
+                    at[u] = across;
+                    at[v] = along;
                     into.push(at);
                 }
             }
-            // A rectangle, running the length of the edge it was cut from.
+            // A rectangle, running the length of the edge it was cut from. The
+            // axis it does not span is the one it was cut *along*, so its two
+            // ends are where the corners took over.
             2 => {
                 let free = (0..3).find(|&at| self.0[at] == 0).expect("an edge has one");
                 let [a, b] = [(free + 1) % 3, (free + 2) % 3];
-                for (out, ends) in [(a, 1.0), (b, 1.0), (b, -1.0), (a, -1.0)] {
-                    let mut at = sign * left;
-                    at[out] = sign[out];
-                    at[free] = ends * left;
+                for (toward, ends) in [(b, 1.0), (a, 1.0), (a, -1.0), (b, -1.0)] {
+                    let mut at = sign;
+                    at[toward] *= edged;
+                    at[free] = ends * cornered;
                     into.push(at);
                 }
             }
-            // A triangle, one point per face that ran into the corner.
+            // A hexagon, alternating between the three faces and the three
+            // bevels that run into the corner. Regular, because the corner is
+            // cut back by the same amount the edges are — three of its sides
+            // are the width of an edge cut and three the width of a corner cut.
             _ => {
-                for out in 0..3 {
-                    let mut at = sign * left;
-                    at[out] = sign[out];
+                for [toward, away] in [[1, 2], [0, 2], [2, 0], [1, 0], [0, 1], [2, 1]] {
+                    let mut at = sign;
+                    at[toward] *= edged;
+                    at[away] *= cornered;
                     into.push(at);
                 }
             }
@@ -194,7 +219,7 @@ mod tests {
     /// and every piece of it is bounded by the right number of points.
     ///
     /// Six faces, twelve edges and eight corners is what a chamfered cube is;
-    /// four, four and three points is what each of those is bounded by. Both
+    /// eight, four and six points is what each of those is bounded by. Both
     /// halves are asserted because the ring is *built* from the direction
     /// rather than looked up, so a construction that lost a point would draw a
     /// heptagon nobody would notice was one.
@@ -207,9 +232,9 @@ mod tests {
             counted[kind] += 1;
             facet.ring(0.25, &mut ring);
             let want = match kind {
-                1 => 4,
+                1 => 8,
                 2 => 4,
-                _ => 3,
+                _ => 6,
             };
             assert_eq!(ring.len(), want, "{facet:?} is bounded by {}", ring.len());
             // Every point sits on the facet's own plane, which is what says the
@@ -220,6 +245,21 @@ mod tests {
             for at in &ring {
                 let off = at.dot(facet.out()) - reach;
                 assert!(off.abs() < 1e-5, "{at:?} is {off} off {facet:?}'s plane");
+            }
+            // **A corner is a regular hexagon**, which is the whole of what
+            // says the corner is cut back by the same amount its edges are:
+            // three of its sides are the width of an edge cut and three the
+            // width of a corner cut. A quarter cut leaves each of them the
+            // diagonal of a quarter square — `√2 × 0.25`, or `0.3536`.
+            if kind == 3 {
+                for at in 0..ring.len() {
+                    let side = (ring[(at + 1) % ring.len()] - ring[at]).length();
+                    let want = std::f32::consts::SQRT_2 * 0.25;
+                    assert!(
+                        (side - want).abs() < 1e-5,
+                        "a corner's side runs {side} rather than {want}",
+                    );
+                }
             }
         }
         assert_eq!(
