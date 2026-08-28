@@ -25,7 +25,6 @@
 //! `Plane` — see [`Meeting::Same`].
 
 use crate::inline::Inline;
-use crate::math::intersect::chord::Chord;
 use crate::math::plane::Plane;
 use crate::number::predicate::{self, ApproxEq};
 use crate::number::tolerance::{ALIGNED, PLACED};
@@ -38,7 +37,10 @@ use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::meeting::chord::Chord;
 use glam::DVec3;
+
+mod chord;
 
 /// What two surfaces have in common.
 ///

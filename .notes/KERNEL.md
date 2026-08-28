@@ -884,13 +884,35 @@ are in this order because the second cannot be done first:
   corners having been worked out rather than read off the drawing. That is
   §4.1's claim, held by a test rather than argued.
 
-  What is left is *where* a crossing falls, as a place. A round one is
-  `(−b ± √Δ)/2a` and leaves ℚ, so an exact corner is not a `DVec2` — and §4.2's
-  answer is not to hold one but to hold what *made* it and re-evaluate, which is
-  what `number::exact::lazy` is for and what nothing yet uses. Two corners from
-  *different* pairs would then be compared across two quadratic extensions,
-  which is a compositum and not the two storeys §4.2 caps the tower at. That is
-  the half nobody costed, and the cost is now visible.
+  **And a round crossing is placed as well as it is decided**, which a decided
+  sign alone does not buy. A root leaves ℚ — `(−leaning ± √apart)/along` has a
+  square root in it — so the place is the machine's and cannot be the tier's.
+  What the tier can do is hand the machine numbers with nothing cancelled in
+  them: the quadratic's four coefficients are worked out exactly and read back,
+  and the root comes off those. Whether that is needed is asked rather than
+  assumed. `Filtered` carries a bound through the root and the division too, so
+  a routine holds the place it worked out against what any check of that place
+  could tell, and reaches the exact tier only where the two do not agree.
+
+  A discriminant keeps its sign long after it has stopped keeping its digits,
+  and a chord across the outer part of a large circle is where the two part:
+  read off `b² − 4ac` it lands sixty thousand times `PLACED` from where the
+  drawing put it, and off the exact tier it lands on the whole numbers the drawing has.
+  Two rings are the same story through their chord. And the *guard* is what
+  keeps a drawing off the heap: a pair that meets nowhere is answered before
+  any place is worked out, because the clamped root of a discriminant under
+  nothing is wide enough to send every miss to the bignums for an answer nobody
+  reads. There is a gate on it.
+
+  What is left is a corner *held* exactly rather than worked out exactly — the
+  construction DAG in `number::exact::lazy`, which still has no caller. Nothing
+  the drawing does needs one: a place good to the machine's own floor is a place
+  nothing downstream can tell from the truth. What would need one is comparing
+  two round corners from *different* pairs, and that is a compositum of two
+  quadratic extensions rather than the two storeys §4.2 caps the tower at. The
+  fold compares them within `PLACED` and records the gap, which is §4.1's rule
+  rather than a shortcut past it. So the half nobody costed is not in the way of
+  anything, and M3b is what will find out whether it ever is.
 
   **And the tolerance model allows for where a body is drawn.**
   `predicate::slack` gave a check an absolute nanometre where a float's error is

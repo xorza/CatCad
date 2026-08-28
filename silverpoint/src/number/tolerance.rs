@@ -26,10 +26,12 @@ pub(crate) const EXACT: f64 = 0.0;
 /// is the machine, and a check that compared to [`EXACT`] would be checking the
 /// rounding rather than the geometry.
 ///
-/// **Only a check reads it.** Nothing constructs to this width and nothing
+/// **A check reads it, and so does a construction that has to beat one** — see
+/// [`slack`](crate::number::predicate::slack), which is where this and
+/// [`DRIFTING`] are added up. Nothing is *built* to this width and nothing
 /// records having used it, because there is no decision here to record: the two
 /// answers were the same answer. It goes to zero when the arithmetic goes
-/// exact, and the checks that read it go on reading it unchanged.
+/// exact, and everything that reads it goes on reading it unchanged.
 pub(crate) const ROUNDING: f64 = 1e-9;
 
 /// How far a chord of a curved edge may fall from it, in world units, wherever
@@ -71,9 +73,9 @@ pub(crate) const CHORDED: f64 = 1e-3;
 /// such a check goes through: a plane's point is an origin and two scaled axes,
 /// and a curve's is much the same.
 ///
-/// **Only a check reads it**, exactly as [`ROUNDING`] is read. Nothing is
-/// constructed to it and nothing records having used it, because there is no
-/// decision here to record: the two answers were the same answer, and the
+/// **Read wherever [`ROUNDING`] is read**, and for the same two reasons.
+/// Nothing is built to it and nothing records having used it, because there is
+/// no decision here to record: the two answers were the same answer, and the
 /// machine wrote them down differently.
 pub(crate) const DRIFTING: f64 = 8.0 * f64::EPSILON;
 

@@ -1,5 +1,4 @@
-use crate::math::quadratic::{roots, roots_given};
-use std::cmp::Ordering;
+use crate::math::quadratic::roots;
 
 /// **The roots are the roots, in order, and a graze is a miss.**
 ///
@@ -32,44 +31,4 @@ fn a_quadratic_answers_both_its_roots_in_order() {
     assert_eq!(roots(1.0, 0.0, 1.0), None, "a miss reported a hit");
     // And nothing quadratic about it at all.
     assert_eq!(roots(0.0, 2.0, -1.0), None);
-}
-
-/// The branch the caller names is the branch that is taken, and a graze comes
-/// back as the double root it stands for.
-///
-/// Hand-computed: `(t−2)² = t² − 4t + 4` touches nought at 2 and nowhere
-/// else, and `t²` touches it at nought — the case where `b` is nought as
-/// well, which the `c / split` arm would answer `0 / 0`.
-///
-/// **And the caller's branch outranks the coefficients**, which is the whole
-/// reason it is the caller's: told a discriminant is nought, the same
-/// coefficients that would give two roots give the one they touch at.
-#[test]
-fn a_graze_is_the_double_root_it_stands_for() {
-    assert_eq!(
-        roots_given(1.0, -4.0, 4.0, Ordering::Equal),
-        Some([2.0, 2.0])
-    );
-    assert_eq!(
-        roots_given(1.0, 0.0, 0.0, Ordering::Equal),
-        Some([0.0, 0.0])
-    );
-    assert_eq!(
-        roots_given(3.0, 0.0, 0.0, Ordering::Equal),
-        Some([0.0, 0.0])
-    );
-    // A real crossing pair, and a miss, are what `roots` says they are.
-    assert_eq!(
-        roots_given(1.0, -3.0, 2.0, Ordering::Greater),
-        roots(1.0, -3.0, 2.0),
-    );
-    assert_eq!(roots_given(1.0, 0.0, 1.0, Ordering::Less), None);
-    assert_eq!(roots_given(0.0, 2.0, -1.0, Ordering::Greater), None);
-
-    // `t² − 3t + 2` cuts at 1 and 2, and told it grazes it answers the place
-    // between them — which is where a caller that knows better puts the touch.
-    assert_eq!(
-        roots_given(1.0, -3.0, 2.0, Ordering::Equal),
-        Some([1.5, 1.5])
-    );
 }

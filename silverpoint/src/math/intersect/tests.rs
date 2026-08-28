@@ -474,10 +474,13 @@ fn two_tangent_rings_touch_once_however_the_chord_reads() {
 
     // The machine's own reading, asserted so that a fixture which stopped
     // rounding fails here rather than going on passing for the wrong reason.
+    // Half the chord is `√(r₁² − along²)` with `along` how far along the line
+    // of centres its middle stands, which is the route a drawing took before
+    // the branch was decided off the centres and the radii.
     let apart = (there.center - here.center).length();
-    let chord = Chord::of(here.radius, there.radius, apart);
-    assert!(!chord.grazing, "the chord no longer misreads the touch");
-    let half = chord.half().expect("the chord reads as having width");
+    let along =
+        (apart * apart + here.radius * here.radius - there.radius * there.radius) / (2.0 * apart);
+    let half = (here.radius * here.radius - along * along).sqrt();
     assert!(
         half > 1.0,
         "the misreading is {half} wide, which is no failure to fix",
@@ -497,4 +500,127 @@ fn two_tangent_rings_touch_once_however_the_chord_reads() {
         "{:?} rather than the touch at {at:?}",
         touch.at,
     );
+}
+
+/// **A chord across a large circle lands on the whole numbers it was drawn
+/// at, though the machine's own roots do not.**
+///
+/// A circle of radius `10⁸ + 1` about the origin, cut by the level line
+/// `y = 10⁸ − 1`. Every number is whole and so is the answer: the half-chord is
+/// `√(r² − h²) = √((10⁸+1)² − (10⁸−1)²) = √(4·10⁸) = 2·10⁴`, so the two
+/// crossings stand at `(±20000, 99999999)` and nowhere else.
+///
+/// **The branch survives the machine and the place does not**, which is the
+/// half a decided sign does not buy. `Δ/4` is `r²|d|² − (f ⟂ d)²`, whose terms
+/// run to `3.6·10³³` and whose difference is `1.44·10²⁶` — a cancellation of
+/// seven decades, which leaves the sign beyond doubt and eight of the digits
+/// gone. Read off `b² − 4ac` the crossings come back `6·10⁻⁵` from where they
+/// belong: sixty thousand times [`PLACED`], and a hundred times what anything
+/// checking a body raised there would give them.
+///
+/// Placed through the exact tier instead they are exactly the whole numbers,
+/// and stand for nothing.
+#[test]
+fn a_flat_chord_lands_on_the_whole_numbers_it_was_drawn_at() {
+    const R: f64 = 100000001.0;
+    const H: f64 = 99999999.0;
+    let hoop = ring((0.0, 0.0), R);
+    let cut = span((-3.0 * R, H), (3.0 * R, H));
+    let want = [DVec2::new(-20000.0, H), DVec2::new(20000.0, H)];
+    let floor = predicate::slack(EXACT, cut.size().max(hoop.size()));
+
+    // The machine's own reading, asserted so that a fixture which stopped
+    // rounding fails here rather than going on passing for the wrong reason.
+    let along = cut.along();
+    let out = cut.from - hoop.center;
+    let naive = roots(
+        along.length_squared(),
+        2.0 * out.dot(along),
+        out.length_squared() - hoop.radius * hoop.radius,
+    )
+    .expect("the machine reads it as a crossing")
+    .map(|t| cut.from + along * t);
+    let strayed = naive[0].distance(want[0]).max(naive[1].distance(want[1]));
+    assert!(
+        strayed > 100.0 * floor,
+        "the machine's own roots are {strayed} out, which is no failure to fix",
+    );
+
+    // And the filter is what says so, which is what sends the pair to the
+    // exact tier: the branch it can still take, the place it cannot.
+    let made = aimed(Filtered::of, cut, hoop);
+    assert!(
+        made.tells().is_some(),
+        "the branch needed deciding exactly, so this proves nothing about the place",
+    );
+    assert!(
+        made.rooted(along.length()).wander > floor,
+        "the machine placed them well enough, so nothing falls through to the exact tier",
+    );
+
+    let found: Vec<Crossing> = span_ring(cut, hoop).into_iter().collect();
+    assert_eq!(found.len(), 2, "the chord came back as something else");
+    for (crossing, at) in found.iter().zip(want) {
+        assert_eq!(crossing.at, at, "{:?} rather than {at:?}", crossing.at);
+        assert_eq!(
+            crossing.reached, EXACT,
+            "a crossing placed exactly stands for something",
+        );
+    }
+}
+
+/// **Two large rings meet on the whole numbers they were drawn at, though the
+/// machine's own chord does not.**
+///
+/// The same triple one dimension over: two circles of radius `10⁸ + 1` with
+/// their centres `2·(10⁸ − 1)` apart, which meet on the perpendicular bisector
+/// at `(99999999, ±20000)`.
+///
+/// `4d²r₁² − (d² + r₁² − r₂²)²` runs to `1.6·10³³` and comes to `6.4·10²⁵`, so
+/// the chord cancels seven decades exactly as the span's discriminant does.
+/// Worked out from the distance instead — the chord's middle at
+/// `(d² + r₁² − r₂²)/2d` and half of it at `√(r² − along²)` — it reads `5·10⁻⁵`
+/// wide of the truth. That is fifty thousand times [`PLACED`], on a pair of
+/// crossings the drawing put at whole numbers.
+#[test]
+fn a_flat_lens_meets_on_the_whole_numbers_it_was_drawn_at() {
+    const R: f64 = 100000001.0;
+    const A: f64 = 99999999.0;
+    let here = ring((0.0, 0.0), R);
+    let there = ring((2.0 * A, 0.0), R);
+    let want = [DVec2::new(A, 20000.0), DVec2::new(A, -20000.0)];
+    let floor = predicate::slack(EXACT, here.size().max(there.size()));
+
+    // The machine's own reading, asserted so that a fixture which stopped
+    // rounding fails here rather than going on passing for the wrong reason.
+    // The route a drawing took before the chord was placed off the centres and
+    // the radii: a distance out of a square root, and the half-chord out of a
+    // subtraction over numbers that run to `10¹⁶`.
+    let apart = (there.center - here.center).length();
+    let along = (apart * apart + R * R - R * R) / (2.0 * apart);
+    let naive = (R * R - along * along).sqrt();
+    assert!(
+        (naive - 20000.0).abs() > 50.0 * floor,
+        "the chord reads {naive} wide, which is no failure to fix",
+    );
+
+    let made = shared(Filtered::of, here, there);
+    assert!(
+        made.chord.decided().is_some(),
+        "the branch needed deciding exactly, so this proves nothing about the place",
+    );
+    assert!(
+        made.halved(apart).wander > floor,
+        "the machine placed them well enough, so nothing falls through to the exact tier",
+    );
+
+    let found: Vec<Crossing> = rings(here, there).into_iter().collect();
+    assert_eq!(found.len(), 2, "the lens came back as something else");
+    for (crossing, at) in found.iter().zip(want) {
+        assert_eq!(crossing.at, at, "{:?} rather than {at:?}", crossing.at);
+        assert_eq!(
+            crossing.reached, EXACT,
+            "a crossing placed exactly stands for something",
+        );
+    }
 }

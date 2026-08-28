@@ -87,8 +87,13 @@ pub(crate) fn touching(off: f64, given: f64) -> bool {
 /// because only the caller knows: a distance handed in has already lost the
 /// magnitudes it came from.
 ///
-/// Only checks read this. Nothing is *constructed* to it, because there is no
-/// decision here to record: two routes to one place answered the same answer.
+/// **A check reads it, and so does a construction that has to beat one.**
+/// Nothing is *built* to this width, there being no decision here to record:
+/// two routes to one place answered the same answer. What a construction reads
+/// it for is the other way round — `intersect::span_ring` asks how well it
+/// could place a round crossing and pays the exact tier where the answer is
+/// worse than this, a place no check can tell from the truth being a place
+/// worth no more work.
 pub(crate) fn slack(tolerance: f64, size: f64) -> f64 {
     debug_assert!(tolerance >= 0.0, "a negative {tolerance} admits nothing");
     debug_assert!(size >= 0.0, "a size is a magnitude, not {size}");

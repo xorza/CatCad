@@ -20,8 +20,11 @@
 //! question.
 //!
 //! **Most of this has a caller now.** `math::intersect` decides a crossing with
-//! [`filtered`] and [`expansion`], and a tangency with [`rational`] through
-//! [`field`], so none of those carries a blanket allow and each goes on saying
+//! [`filtered`] and [`expansion`], decides a tangency with [`rational`] through
+//! [`field`], and *places* a round crossing through both — the coefficients
+//! worked out in the exact tier and read back into the filter, which carries a
+//! bound through the square root the place has in it. So none of those carries
+//! a blanket allow and each goes on saying
 //! when something of theirs has stopped being called. [`quadratic`] and
 //! [`lazy`] are still waiting on the pencil route in M3b, and the arithmetic
 //! lands ahead of the route that needs it because the milestone it belongs to

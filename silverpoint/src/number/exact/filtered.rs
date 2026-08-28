@@ -2,7 +2,7 @@
 
 use super::decides::Decides;
 use std::cmp::Ordering;
-use std::ops::{Add, Mul, Neg, Sub};
+use std::ops::{Add, Div, Mul, Neg, Sub};
 
 /// Half an ulp of one, which is the most a single rounding can move a result
 /// relative to its own size.
@@ -45,14 +45,29 @@ pub(crate) struct Filtered {
     /// What the machine made of it.
     at: f64,
     /// How far from the truth that could be, never less than the truth of it.
-    slack: f64,
+    bound: f64,
 }
 
 impl Filtered {
     /// Exactly the `f64` `at`, which is exact because a float *is* the number
     /// it holds — nothing has been rounded yet.
     pub(crate) fn of(at: f64) -> Self {
-        Self { at, slack: 0.0 }
+        Self { at, bound: 0.0 }
+    }
+
+    /// A reading of a number that was worked out exactly somewhere else.
+    ///
+    /// **Half an ulp and not nought**, which is the whole difference from
+    /// [`Filtered::of`]: that one takes a float that *is* the number, and this
+    /// one takes the nearest float to a number the exact tier holds. What a
+    /// caller does with it is carry on in the machine's arithmetic from a
+    /// starting point the machine could not have reached itself, which is what
+    /// `math::intersect` places a round crossing through.
+    pub(crate) fn read(at: f64) -> Self {
+        Self {
+            at,
+            bound: (HALF_ULP * at.abs()).next_up(),
+        }
     }
 
     /// What the machine made of it, without the bound.
@@ -65,6 +80,45 @@ impl Filtered {
         self.at
     }
 
+    /// How far from the truth the reading could be.
+    ///
+    /// What a *construction* reads, where a predicate reads
+    /// [`Filtered::sign`]: a place worked out through here is worth what this
+    /// says and no more, and a caller that cannot afford the width asks the
+    /// exact tier and reads the answer again through [`Filtered::read`].
+    ///
+    /// Named for what it is rather than for the room a comparison is given —
+    /// [`slack`](crate::number::predicate::slack) next door is that, and the
+    /// two meet in `math::intersect` where a place is held against a check.
+    pub(crate) fn bound(self) -> f64 {
+        self.bound
+    }
+
+    /// Its square root, with the bound carried through.
+    ///
+    /// **A reading under nothing is a rounding rather than a number with no
+    /// root.** Whoever asks wants the root of a value it holds to be positive,
+    /// and what the machine made of that value is the one thing here that can
+    /// have gone under nought — so the reading is clamped there, and the bound
+    /// is what covers the clamp. A caller whose value really is negative reads
+    /// nought and a width, which is the honest answer to a question it should
+    /// not have asked.
+    ///
+    /// The bound is the whole width of what the root could be rather than half
+    /// of it, because the reading is somewhere in that width too and the
+    /// distance between them is what has to be covered.
+    pub(crate) fn root(self) -> Self {
+        let at = self.at.max(0.0);
+        let high = (at + self.bound).sqrt();
+        let low = (at - self.bound).max(0.0).sqrt();
+        // A sum, a difference and two roots, and one more for the subtraction
+        // of the two: five.
+        Self {
+            at: at.sqrt(),
+            bound: upward(high - low, 5),
+        }
+    }
+
     /// Which side of nothing it falls, or `None` where the bound reaches across
     /// nought and the exact tier has to be asked.
     ///
@@ -72,13 +126,13 @@ impl Filtered {
     /// whose every step happened to be exact — see the note on [`Filtered`] for
     /// why a bound of any width can never answer it.
     pub(crate) fn sign(self) -> Option<Ordering> {
-        if self.slack == 0.0 {
+        if self.bound == 0.0 {
             return self.at.partial_cmp(&0.0);
         }
-        if self.at > self.slack {
+        if self.at > self.bound {
             return Some(Ordering::Greater);
         }
-        if self.at < -self.slack {
+        if self.at < -self.bound {
             return Some(Ordering::Less);
         }
         None
@@ -109,7 +163,7 @@ impl Add for Filtered {
         // A product and two sums: three.
         Self {
             at,
-            slack: upward(self.slack + other.slack + HALF_ULP * at.abs(), 3),
+            bound: upward(self.bound + other.bound + HALF_ULP * at.abs(), 3),
         }
     }
 }
@@ -136,10 +190,10 @@ impl Mul for Filtered {
         // Three products and two sums here, a product and a sum below: seven.
         // Taking an absolute value rounds nothing and does not count.
         let carried =
-            self.at.abs() * other.slack + other.at.abs() * self.slack + self.slack * other.slack;
+            self.at.abs() * other.bound + other.at.abs() * self.bound + self.bound * other.bound;
         Self {
             at,
-            slack: upward(carried + HALF_ULP * at.abs(), 7),
+            bound: upward(carried + HALF_ULP * at.abs(), 7),
         }
     }
 }
@@ -151,7 +205,37 @@ impl Neg for Filtered {
     fn neg(self) -> Self {
         Self {
             at: -self.at,
-            slack: self.slack,
+            bound: self.bound,
+        }
+    }
+}
+
+/// `(δa + |q|·δb) / (|b| − δb)` for the two bounds carried in, and one more
+/// rounding for the division itself.
+///
+/// **A divisor that could be nought divides by nothing knowable**, and the
+/// bound says so: the quotient is then unbounded rather than wide, and a
+/// caller reading it finds every comparison it makes declined. That is the
+/// right answer and not a failure — what it means is that the machine has no
+/// business working this out at all.
+impl Div for Filtered {
+    type Output = Self;
+
+    fn div(self, other: Self) -> Self {
+        let at = self.at / other.at;
+        let room = other.at.abs() - other.bound;
+        if room <= 0.0 {
+            return Self {
+                at,
+                bound: f64::INFINITY,
+            };
+        }
+        // A difference for the room, two products, two sums and a quotient:
+        // six. Taking an absolute value rounds nothing and does not count.
+        let carried = (self.bound + at.abs() * other.bound) / room;
+        Self {
+            at,
+            bound: upward(carried + HALF_ULP * at.abs(), 6),
         }
     }
 }
@@ -240,5 +324,65 @@ mod tests {
             }
         }
         assert_eq!(answered, 32);
+    }
+
+    /// **A root, a quotient and a reading all carry a bound that covers the
+    /// truth** — which is what makes a *construction* out of the filter rather
+    /// than only a predicate.
+    ///
+    /// Over a difference that cancels, that being the only case worth
+    /// bounding. `(10⁸+1)² − (10⁸−1)²` is exactly `4·10⁸`, and the two squares
+    /// the machine takes it from run to `10¹⁶`: eight of the difference's
+    /// digits are gone and its sign is beyond doubt, which is the whole shape
+    /// of the problem a placed crossing has.
+    #[test]
+    fn a_root_and_a_quotient_carry_a_bound_that_covers_the_truth() {
+        let over = Filtered::of(100000001.0);
+        let under = Filtered::of(99999999.0);
+        let apart = over * over - under * under;
+        assert_eq!(apart.sign(), Some(Ordering::Greater), "the sign was lost");
+        assert!(
+            apart.bound() > 1.0,
+            "the difference did not cancel, so nothing here is being tested",
+        );
+        assert!(
+            (apart.nearest() - 4e8).abs() <= apart.bound(),
+            "the bound on {} misses the 4·10⁸ it stands for",
+            apart.nearest(),
+        );
+
+        // `√(4·10⁸)` is 20000, and the bound comes down with the slope rather
+        // than being carried across whole — which is the whole reason a root is
+        // worth taking on a filtered number at all.
+        let root = apart.root();
+        assert!(
+            (root.nearest() - 20000.0).abs() <= root.bound(),
+            "the root's bound misses the 20000 it stands for",
+        );
+        assert!(root.bound() < apart.bound(), "a root widened its own bound");
+
+        // A quotient by a number the filter is sure of keeps the width it was
+        // handed, in the units the division leaves it in.
+        let quarter = root / Filtered::of(4.0);
+        assert!(
+            (quarter.nearest() - 5000.0).abs() <= quarter.bound(),
+            "the quotient's bound misses the 5000 it stands for",
+        );
+
+        // And one by a number it is not sure of divides by nothing knowable.
+        // The answer says so rather than claiming a width nothing supports.
+        let nothing = (over - over) + (under - under);
+        assert_eq!(nothing.sign(), None, "the divisor was decidable after all");
+        assert!(
+            (root / nothing).bound().is_infinite(),
+            "a divisor that reaches across nought bounded its quotient",
+        );
+
+        // A reading of a number worked out somewhere else is out by half an ulp
+        // of itself, where a float handed in *is* the number and is out by
+        // nothing at all.
+        assert_eq!(Filtered::of(1.0).bound(), 0.0);
+        assert!(Filtered::read(1.0).bound() > HALF_ULP);
+        assert!(Filtered::read(1.0).bound() < f64::EPSILON);
     }
 }

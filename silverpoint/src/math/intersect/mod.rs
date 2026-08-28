@@ -9,18 +9,16 @@
 //! distance, and no part of a sketch reaches in.
 
 use crate::inline::Inline;
-use crate::math::intersect::chord::Chord;
-use crate::math::quadratic;
 use crate::number::exact::decides::Decides;
 use crate::number::exact::expansion::Expansion;
+use crate::number::exact::field::Field;
 use crate::number::exact::filtered::Filtered;
 use crate::number::exact::rational::Rational;
+use crate::number::predicate;
 use crate::number::tolerance::{ALIGNED, EXACT, NO_DIRECTION, PLACED, ROUNDING};
 use glam::DVec2;
 use std::cmp::Ordering;
 use std::ops::{Add, Mul, Neg, Sub};
-
-pub(crate) mod chord;
 
 /// A straight span between two corners — a segment as geometry, with the
 /// sketch's handles left behind.
@@ -35,6 +33,17 @@ impl Span {
     fn along(self) -> DVec2 {
         self.to - self.from
     }
+
+    /// How large the arithmetic that reads it works.
+    ///
+    /// The *arithmetic's* magnitude and not the answer's, which is the
+    /// distinction `Curve::reach` draws one dimension up: a span reaching back
+    /// from a long way out crosses a ring beside the origin off terms a
+    /// hundred million wide, and what the machine can hold a place to is set
+    /// by the terms rather than by where they land.
+    fn size(self) -> f64 {
+        self.from.length().max(self.to.length())
+    }
 }
 
 /// A circle as geometry, likewise.
@@ -42,6 +51,13 @@ impl Span {
 pub(crate) struct Ring {
     pub(crate) center: DVec2,
     pub(crate) radius: f64,
+}
+
+impl Ring {
+    /// How large the arithmetic that reads it works — see [`Span::size`].
+    fn size(self) -> f64 {
+        self.center.length() + self.radius
+    }
 }
 
 /// Where two curves were found to meet, and how far a tolerance had to reach to
@@ -138,57 +154,6 @@ fn turned<T: Sub<Output = T> + Mul<Output = T>>(
     (of(a.x) - of(b.x)) * (of(c.y) - of(d.y)) - (of(a.y) - of(b.y)) * (of(c.x) - of(d.x))
 }
 
-/// Which side of nothing the discriminant of `span` against `ring` falls,
-/// exactly.
-///
-/// **Lagrange's identity turns it into a difference of two squares.** The
-/// quadratic a span makes against a ring has `Δ/4 = r²·|d|² − (f ⟂ d)²`, with
-/// `d` the span's own reach and `f` the reach from the ring's centre to where
-/// the span starts. So whether the span misses, grazes or cuts is two squares
-/// and a subtraction over five numbers — polynomial throughout, and answerable
-/// without a rounding.
-///
-/// **This is the tangency every kernel's bug list is made of** — see
-/// `.notes/KERNEL.md` §7.3. Read off the machine it turns on which side of
-/// nought a cancelled subtraction landed, so a square drawn against the circle
-/// it just touches splits at the touch or misses it depending on the arithmetic
-/// rather than on the drawing.
-///
-/// **Through the rational tier rather than the expansions**, which is where the
-/// two part company: an expansion of the square of a determinant runs to five
-/// hundred terms and its sums grow as the square of that, where a rational of a
-/// few hundred bits multiplies in one step. The filter goes in front of it as
-/// everywhere else, so only a span within a rounding of tangency ever pays.
-fn parting(span: Span, ring: Ring) -> Ordering {
-    if let Some(sign) = aimed(Filtered::of, span, ring).apart.decided() {
-        return sign;
-    }
-    aimed(Rational::of, span, ring)
-        .apart
-        .decided()
-        .expect("the exact tier decides")
-}
-
-/// Whether each root lands between the ends of `span`, exactly — the nearer
-/// first.
-///
-/// The round half of what [`lands_between`] answers for two straight spans, and
-/// it matters for the same reason: read off a parameter the machine worked out,
-/// a crossing drawn on the end of a span reads a rounding past it, and a corner
-/// the drawing put there stands for something it need not.
-///
-/// Both at once, because both come off one quadratic and building it twice
-/// would be building it twice. The nearer root is the one with the root
-/// subtracted, `along` being a square and so never under nothing.
-fn roots_land(span: Span, ring: Ring) -> [bool; 2] {
-    let near = aimed(Filtered::of, span, ring);
-    if let (Some(low), Some(high)) = (near.lands(false), near.lands(true)) {
-        return [low, high];
-    }
-    let exact = aimed(Rational::of, span, ring);
-    [false, true].map(|far| exact.lands(far).expect("the exact tier decides"))
-}
-
 /// The quadratic `span` makes against `ring`, in whatever arithmetic `of` reads
 /// a coordinate into.
 ///
@@ -209,9 +174,11 @@ fn aimed<T: Clone + Add<Output = T> + Sub<Output = T> + Mul<Output = T>>(
     );
     let along = reach.0.clone() * reach.0.clone() + reach.1.clone() * reach.1.clone();
     let radius = of(ring.radius);
+    let radius = radius.clone() * radius;
     Aimed {
-        leaning: out.0 * reach.0 + out.1 * reach.1,
-        apart: radius.clone() * radius * along.clone() - across.clone() * across,
+        leaning: out.0.clone() * reach.0 + out.1.clone() * reach.1,
+        outside: out.0.clone() * out.0 + out.1.clone() * out.1 - radius.clone(),
+        apart: radius * along.clone() - across.clone() * across,
         along,
     }
 }
@@ -227,16 +194,84 @@ struct Aimed<T> {
     along: T,
     /// `f · d`.
     leaning: T,
+    /// `|f|² − r²`.
+    ///
+    /// The quadratic's constant term, and the fourth number rather than one
+    /// the other three could be worked back to: the far root is reached
+    /// *through* it, and reaching it the other way is the subtraction of two
+    /// near-equal numbers that the halved form exists to avoid.
+    outside: T,
     /// `r²·|d|² − (f ⟂ d)²`, which is `Δ/4`.
+    ///
+    /// **Lagrange's identity turns the discriminant into a difference of two
+    /// squares**, so whether the span misses, grazes or cuts is two squares and
+    /// a subtraction over five numbers — polynomial throughout, and answerable
+    /// without a rounding.
     apart: T,
+}
+
+/// What a tier makes of the quadratic: which of the three the span does to the
+/// ring, and whether each root lands between the ends of the span.
+///
+/// Both at once, because both come off one quadratic and asking them apart
+/// would be building it twice.
+#[derive(Debug, Clone, Copy)]
+struct Told {
+    /// Which side of nothing the discriminant falls: under it the span misses,
+    /// on it the span grazes, over it the span goes through.
+    under: Ordering,
+    /// Whether each root lands between the ends of the span, nearer first.
+    lands: [bool; 2],
+}
+
+/// Where the two roots sit along a span, and how far from the truth the machine
+/// could have put them.
+#[derive(Debug, Clone, Copy)]
+struct Rooted {
+    /// The two parameters, nearer first.
+    at: [f64; 2],
+    /// How far along the span either place could be from where it truly is, in
+    /// world units — so a caller holds it against a tolerance rather than
+    /// against a parameter.
+    wander: f64,
 }
 
 impl<T> Aimed<T>
 where
     T: Clone + Add<Output = T> + Sub<Output = T> + Mul<Output = T> + Neg<Output = T> + Decides,
 {
+    /// Everything this tier can decide about the pair, or `None` where it
+    /// declined any part of it.
+    ///
+    /// **This is the tangency every kernel's bug list is made of** — see
+    /// `.notes/KERNEL.md` §7.3. Read off the machine the branch turns on which
+    /// side of nought a cancelled subtraction landed, so a square drawn against
+    /// the circle it just touches splits at the touch or misses it depending on
+    /// the arithmetic rather than on the drawing.
+    ///
+    /// A miss is told alone: where the span does not reach the ring there is no
+    /// root for a landing to be asked about.
+    fn tells(&self) -> Option<Told> {
+        let under = self.apart.decided()?;
+        if under == Ordering::Less {
+            return Some(Told {
+                under,
+                lands: [false; 2],
+            });
+        }
+        Some(Told {
+            under,
+            lands: [self.lands(false)?, self.lands(true)?],
+        })
+    }
+
     /// Whether the root on the `far` branch lands between the ends of the span,
     /// or `None` where this tier declines to say.
+    ///
+    /// It matters for the same reason [`lands_between`] does for two straight
+    /// spans: read off a parameter the machine worked out, a crossing drawn on
+    /// the end of a span reads a rounding past it, and a corner the drawing put
+    /// there stands for something it need not.
     ///
     /// **The square root is squared away**, which is what keeps a round
     /// crossing inside a ladder that has no square root in it. `t ≥ 0` asks
@@ -285,44 +320,163 @@ where
     }
 }
 
-/// Which side of nothing a pair of rings' shared chord falls, exactly.
-///
-/// The round-against-round half of what [`parting`] answers for a span, and
-/// polynomial for the same reason: the chord's own discriminant is
-/// `4d²r₁² − (d² + r₁² − r₂²)²`, with `d²` the square of how far the centres
-/// stand apart, and every term of it is a square of coordinates and radii. The
-/// distance itself has a square root in it and the *decision* does not.
-///
-/// Above nothing where the two cross, nought where they graze, under it where
-/// they miss altogether.
-fn sharing(one: Ring, two: Ring) -> Ordering {
-    if let Some(sign) = shared(Filtered::of, one, two).decided() {
-        return sign;
+impl Aimed<Rational> {
+    /// The four numbers as the machine will use them, each carrying the half
+    /// ulp that reading it cost.
+    ///
+    /// **What makes an exactly-decided crossing an exactly-placed one.** The
+    /// branch is a sign and survives being read off a cancelled subtraction;
+    /// the *place* does not, and a discriminant keeps its sign long after it
+    /// has stopped keeping its digits. Worked out here instead and read back,
+    /// the roots come off numbers whose only error is the reading — so the
+    /// place is as good as the machine can hold one.
+    fn read(&self) -> Aimed<Filtered> {
+        Aimed {
+            along: Filtered::read(self.along.nearest()),
+            leaning: Filtered::read(self.leaning.nearest()),
+            outside: Filtered::read(self.outside.nearest()),
+            apart: Filtered::read(self.apart.nearest()),
+        }
     }
-    shared(Rational::of, one, two)
-        .decided()
-        .expect("the exact tier decides")
 }
 
-/// `4d²r₁² − (d² + r₁² − r₂²)²` for the two rings, in whatever arithmetic `of`
-/// reads a coordinate into.
+impl Aimed<Filtered> {
+    /// Where the two roots sit, and how far out the machine could be about it.
+    ///
+    /// **The stable form**, which is worth the two lines. Taking
+    /// `(−leaning ± √apart)/along` both ways subtracts two near-equal numbers
+    /// for whichever root is small, which is exactly the root a span nearly
+    /// missing a ring has — so the naive form is least accurate where the
+    /// geometry is hardest. The other root comes off Vieta instead, through
+    /// `outside`.
+    ///
+    /// The bound falls out of the arithmetic rather than being reasoned about
+    /// here: every step is taken in [`Filtered`], which carries what each
+    /// rounding could have come to, and the parameter's own width times the
+    /// span's length is how far the place can be out.
+    fn rooted(&self, reach: f64) -> Rooted {
+        let root = self.apart.root();
+        if root.nearest() == 0.0 {
+            // A graze, two crossings the machine cannot tell apart, or a miss
+            // whose roots the caller is about to throw away: one place, at the
+            // middle of a chord that has closed. Nothing cancels in it, so a
+            // miss never falls through to the exact tier for a place it has
+            // no use for.
+            let doubled = -self.leaning / self.along;
+            return Rooted {
+                at: [doubled.nearest(); 2],
+                wander: doubled.bound() * reach,
+            };
+        }
+        // Away from whichever of the two sums would cancel, which is the sign
+        // of `leaning` and nothing else.
+        let split = if self.leaning.nearest() < 0.0 {
+            root - self.leaning
+        } else {
+            -(self.leaning + root)
+        };
+        let one = split / self.along;
+        let two = self.outside / split;
+        let (near, far) = if one.nearest() <= two.nearest() {
+            (one, two)
+        } else {
+            (two, one)
+        };
+        Rooted {
+            at: [near.nearest(), far.nearest()],
+            wander: near.bound().max(far.bound()) * reach,
+        }
+    }
+}
+
+/// What two rings make of each other, in whatever arithmetic `of` reads a
+/// coordinate into.
 ///
 /// Written once, for the reason [`turned`] is.
 fn shared<T: Clone + Add<Output = T> + Sub<Output = T> + Mul<Output = T>>(
     of: impl Fn(f64) -> T + Copy,
     one: Ring,
     two: Ring,
-) -> T {
+) -> Shared<T> {
     let gap = (
         of(two.center.x) - of(one.center.x),
         of(two.center.y) - of(one.center.y),
     );
-    let apart = gap.0.clone() * gap.0.clone() + gap.1.clone() * gap.1.clone();
+    let squared = gap.0.clone() * gap.0.clone() + gap.1.clone() * gap.1.clone();
     let here = of(one.radius);
     let there = of(two.radius);
     let (here, there) = (here.clone() * here, there.clone() * there);
-    let leaning = apart.clone() + here.clone() - there;
-    of(4.0) * apart * here - leaning.clone() * leaning
+    let leaning = squared.clone() + here.clone() - there;
+    Shared {
+        chord: of(4.0) * squared.clone() * here - leaning.clone() * leaning.clone(),
+        leaning,
+        squared,
+    }
+}
+
+/// What two rings make of each other, with no distance ever taken between
+/// them.
+///
+/// **The distance has a square root in it and none of this does.** Where the
+/// two cross, and where the crossings then stand, are both worked out from the
+/// square of how far the centres are apart — so the pair is decided and placed
+/// over squares of coordinates and radii throughout, which is what makes both
+/// answerable without a rounding.
+#[derive(Debug)]
+struct Shared<T> {
+    /// `d²`, the square of how far the centres stand apart.
+    squared: T,
+    /// `d² + r₁² − r₂²`, which is twice `d²` times how far along the line of
+    /// centres the middle of the chord stands, as a fraction of that line.
+    leaning: T,
+    /// `4d²r₁² − (d² + r₁² − r₂²)²`, the chord's own discriminant.
+    ///
+    /// Above nothing where the two cross, nought where they graze, under it
+    /// where they miss altogether — and four `d²` times the square of half the
+    /// chord, so it places the crossings as well as deciding them.
+    chord: T,
+}
+
+/// Where two rings' crossings stand, as fractions of the line between their
+/// centres.
+#[derive(Debug, Clone, Copy)]
+struct Halved {
+    /// How far along that line the middle of the chord sits.
+    along: f64,
+    /// Half the chord, across that line and in the same fraction.
+    half: f64,
+    /// How far from the truth either could put a crossing, in world units.
+    wander: f64,
+}
+
+impl Shared<Rational> {
+    /// The three numbers as the machine will use them — see
+    /// [`Aimed::read`], which is the same trade for a span.
+    fn read(&self) -> Shared<Filtered> {
+        Shared {
+            squared: Filtered::read(self.squared.nearest()),
+            leaning: Filtered::read(self.leaning.nearest()),
+            chord: Filtered::read(self.chord.nearest()),
+        }
+    }
+}
+
+impl Shared<Filtered> {
+    /// Where the crossings stand along and across the line of centres, and how
+    /// far out the machine could be about it.
+    ///
+    /// `apart` is how long that line is, which turns a bound on the two
+    /// fractions into a bound on the place.
+    fn halved(&self, apart: f64) -> Halved {
+        let twice = self.squared + self.squared;
+        let along = self.leaning / twice;
+        let half = self.chord.root() / twice;
+        Halved {
+            along: along.nearest(),
+            half: half.nearest(),
+            wander: (along.bound() + half.bound()) * apart,
+        }
+    }
 }
 
 /// Whether the crossing of the two spans falls between the ends of both,
@@ -431,57 +585,76 @@ pub(crate) fn spans(one: Span, two: Span) -> Crossings {
 /// itself: a line through a circle meets it twice, and a span that stops short
 /// of the far side meets it once.
 ///
-/// **Grazing counts**, which is why the branch comes from [`parting`] rather
-/// than from [`roots`](quadratic::roots): a span tangent to a circle touches it
-/// at a place the arrangement has to split at, and read off the coefficients
-/// that touch is a knife edge — the same tangent scaled up until the products
-/// need more than a float holds comes back as two crossings a bus length
-/// apart.
+/// **Grazing counts**: a span tangent to a circle touches it at a place the
+/// arrangement has to split at, and read off coefficients that have already
+/// rounded that touch is a knife edge — the same tangent scaled up until the
+/// products need more than a float holds comes back as two crossings a bus
+/// length apart.
+///
+/// **And the place is worked out to the same standard as the branch**, which
+/// is the half of this that the sign alone does not buy. A discriminant keeps
+/// its sign long after it has stopped keeping its digits, so a chord across
+/// the outer part of a large circle can be decided rightly and placed wrongly
+/// — by sixty thousand times the width two places have to be within to count
+/// as one. See [`Aimed::read`].
 pub(crate) fn span_ring(span: Span, ring: Ring) -> Crossings {
     let along = span.along();
     let reach = along.length();
     if reach < NO_DIRECTION {
         return Crossings::none();
     }
-    // **The branch is asked of the geometry and the roots of the machine.**
-    // Which of the three a span does to a ring — miss it, graze it, or go
-    // through — is a polynomial in the places and the radius, so it is decided
-    // without a rounding; where the two crossings then *are* is a square root,
-    // which is not.
-    let under = parting(span, ring);
-    // `|from + t·along − centre|² = radius²`, gathered into `at² + bt + c`.
-    let from = span.from - ring.center;
-    let Some(roots) = quadratic::roots_given(
-        reach * reach,
-        2.0 * from.dot(along),
-        from.length_squared() - ring.radius * ring.radius,
-        under,
-    ) else {
+    let made = aimed(Filtered::of, span, ring);
+    let told = made.tells();
+    // A miss the machine can settle for itself is answered before any place is
+    // worked out, there being no crossing for it to have put anywhere. Most
+    // pairs a drawing offers are this one, and answering it here is what keeps
+    // the place and the floor it is held against off all of them.
+    if told.map(|it| it.under) == Some(Ordering::Less) {
         return Crossings::none();
+    }
+    // What anything reading this crossing will give it, and so what placing it
+    // any better than would buy nothing: below this the machine's own answer
+    // and the truth are the same answer written down differently.
+    let floor = predicate::slack(EXACT, span.size().max(ring.size()));
+    let rooted = made.rooted(reach);
+    // **Through the rational tier rather than the expansions**, which is where
+    // the two part company: an expansion of the square of a determinant runs to
+    // five hundred terms and its sums grow as the square of that, where a
+    // rational of a few hundred bits multiplies in one step. Two doors reach
+    // it, and the second is the wider — a span within a rounding of tangency,
+    // whose branch the machine cannot take, and one whose crossing the machine
+    // can decide but cannot place.
+    let (told, rooted) = match told {
+        Some(told) if rooted.wander <= floor => (told, rooted),
+        _ => {
+            let exact = aimed(Rational::of, span, ring);
+            let rooted = exact.read().rooted(reach);
+            (exact.tells().expect("the exact tier decides"), rooted)
+        }
     };
-    let slack = PLACED / reach;
-    // Two roots the machine handed back equal are two places it could not tell
-    // apart, wherever the discriminant is not nought — so what folds them below
-    // has a rounding to record rather than nothing, and the span is not
-    // reported as touching where it went through.
-    let split = if under == Ordering::Greater && roots[0] == roots[1] {
-        ROUNDING
-    } else {
-        EXACT
-    };
-    // **Decided exactly and measured approximately**, as a pair of straight
-    // spans is: whether a root is on the span turns on nothing that rounds, and
-    // how far past an end it sits where it is not is a magnitude nobody decides
-    // anything by.
-    let lands = roots_land(span, ring);
+    if told.under == Ordering::Less {
+        return Crossings::none();
+    }
+    // Whatever of the wander the machine's own floor does not already cover:
+    // nought wherever the exact tier could place the crossing, which is
+    // everywhere it is asked, and how far the place could be out where even
+    // that leaves the root standing on nothing.
+    let placed = (rooted.wander - floor).max(EXACT);
+    // A distance turned into the parameter it is worth on the span, which is
+    // what keeps a long edge and a short one equally forgiving about a corner
+    // that lands a rounding short of them.
+    let admitted = PLACED / reach;
+    // **Decided exactly, placed exactly, and measured approximately**: whether
+    // a root is on the span turns on nothing that rounds, and how far past an
+    // end it sits where it is not is a magnitude nobody decides anything by.
     let kept = [0, 1].map(|which| {
-        let (t, inside) = (roots[which], lands[which]);
-        (inside || holds(t, slack)).then(|| Crossing {
+        let (t, inside) = (rooted.at[which], told.lands[which]);
+        (inside || holds(t, admitted)).then(|| Crossing {
             at: span.from + along * t,
             reached: if inside {
-                split
+                placed
             } else {
-                (past(t) * reach).max(ROUNDING).max(split)
+                (past(t) * reach).max(ROUNDING).max(placed)
             },
         })
     });
@@ -509,34 +682,57 @@ pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
     if apart < PLACED {
         return Crossings::none();
     }
-    // **Which of the three, decided off the centres and the radii.** Read off a
-    // chord worked out in `f64` it turns on which side of nought a cancelled
-    // subtraction landed, exactly as a span against a ring does.
-    let sharing = sharing(one, two);
-    if sharing == Ordering::Less {
+    let made = shared(Filtered::of, one, two);
+    let told = made.chord.decided();
+    // A miss the machine can settle for itself is answered before any place is
+    // worked out. Two rings that do not meet have no crossing to put anywhere,
+    // and the clamped root of a chord under nothing carries a bound wide enough
+    // to send every one of them to the exact tier for an answer nobody reads.
+    if told == Some(Ordering::Less) {
         return Crossings::none();
     }
-    let chord = Chord::of(one.radius, two.radius, apart);
-    // The two crossings stand either side of the middle of the chord.
-    let base = one.center + between * (chord.along / apart);
-    if sharing == Ordering::Equal {
-        // Grazing, inside or out: the two meet on the line of centres and
-        // nowhere else, and nothing had to stretch to say so.
-        return Crossings::one(Crossing::exactly(base));
+    let floor = predicate::slack(EXACT, one.size().max(two.size()));
+    let halved = made.halved(apart);
+    // **Which of the three, and where, both decided off the centres and the
+    // radii.** Read off a chord worked out in `f64` the branch turns on which
+    // side of nought a cancelled subtraction landed, exactly as a span against
+    // a ring does — and the place goes wrong many decades before the branch
+    // does, the same subtraction losing its digits long before its sign.
+    let (told, halved) = match told {
+        Some(told) if halved.wander <= floor => (told, halved),
+        _ => {
+            let exact = shared(Rational::of, one, two);
+            let halved = exact.read().halved(apart);
+            (
+                exact.chord.decided().expect("the exact tier decides"),
+                halved,
+            )
+        }
+    };
+    if told == Ordering::Less {
+        return Crossings::none();
     }
-    let Some(half) = chord.half() else {
-        // The machine's own chord closed to nothing where the geometry says it
-        // has width, so the two crossings stand closer than a float can tell
-        // apart — one place, and a rounding is what it stands for.
+    let placed = (halved.wander - floor).max(EXACT);
+    // The two crossings stand either side of the middle of the chord.
+    let base = one.center + between * halved.along;
+    if told == Ordering::Equal {
+        // Grazing, inside or out: the two meet on the line of centres and
+        // nowhere else.
         return Crossings::one(Crossing {
             at: base,
-            reached: ROUNDING,
+            reached: placed,
         });
-    };
-    let step = between.perp() * (half / apart);
+    }
+    let step = between.perp() * halved.half;
     crossed(
-        Crossing::exactly(base + step),
-        Crossing::exactly(base - step),
+        Crossing {
+            at: base + step,
+            reached: placed,
+        },
+        Crossing {
+            at: base - step,
+            reached: placed,
+        },
     )
 }
 

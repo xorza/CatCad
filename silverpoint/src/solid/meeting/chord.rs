@@ -5,12 +5,16 @@ use crate::number::tolerance::PLACED;
 /// The chord shared by two circles of radii `here` and `there`, their centres
 /// `apart`.
 ///
-/// Radii and one distance with no frame at all, which is what lets three
-/// readers share it. Two rings in a drawing share their chord in the plane they
-/// are drawn on; two spheres share theirs in the plane through both centres;
-/// two cylinders alongside each other share theirs in the plane square to both
-/// axes, lifted back out along the direction they run. One piece of arithmetic,
-/// so the three cannot come to disagree about where a tangency is.
+/// Radii and one distance with no frame at all, which is what lets two readers
+/// share it. Two spheres share their chord in the plane through both centres,
+/// and two cylinders alongside each other share theirs in the plane square to
+/// both axes, lifted back out along the direction they run. One piece of
+/// arithmetic, so the two cannot come to disagree about where a tangency is.
+///
+/// A drawing has no reader here. Two rings in one decide a tangency off the
+/// centres and the radii and place the crossings off them too, where nothing
+/// rounds at all — `intersect::Shared`. Spheres and cylinders have no such
+/// reading yet, which is the whole of why this is still written.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct Chord {
     /// How far from the first centre, along the line between the two centres,
@@ -45,12 +49,6 @@ impl Chord {
         let along = (apart * apart + here * here - there * there) / (2.0 * apart);
         // Outside each other, and one inside the other: the two ways two
         // circles have of touching exactly once.
-        //
-        // **Read for a solid rather than for a drawing.** A drawing decides a
-        // tangency off the centres and the radii, where nothing rounds — see
-        // `intersect::sharing` — and reaches here only for the chord's own
-        // numbers. What still asks this is `solid::meeting`, whose spheres and
-        // cylinders have no such reading yet.
         let missed = (apart - (here + there))
             .abs()
             .min((apart - (here - there).abs()).abs());
