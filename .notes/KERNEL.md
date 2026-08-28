@@ -898,13 +898,13 @@ is `(−Q₂(p) : Q₁(p))` and the search is that read once per candidate until
 signature says ruled. `(1, 1, 1)` against the two cylinders gives
 `diag(7, 5, −2, −10)`, which is two and two.
 
-**And the rulings.** `geometry::ruling::Rulings` hands back the two lines a
-quadric holds through one of its own places. Both run through the place, so both
-lie in the tangent plane there — and the place is in the radical of what the
-quadric comes to on that plane, which leaves a *binary* form in two directions.
-A binary form has one discriminant, so a ruling costs **one square root and no
-more**, and that is `√δ`. Where a route through the diagonal would have wanted
-two roots and a compositum, the tangent plane wants one.
+**And the rulings.** `Quadric::rulings` hands back the two lines a quadric holds
+through one of its own places. Both run through the place, so both lie in the
+tangent plane there — and the place is in the radical of what the quadric comes
+to on that plane, which leaves a *binary* form in two directions. A binary form
+has one discriminant, so a ruling costs **one square root and no more**, and
+that is `√δ`. A route through the diagonal instead would want a root for each
+pair of its terms, and two roots are a compositum §4.2 does not carry.
 
 `None` is an answer twice over: a discriminant under nought is a place with no
 real line through it, which every place of a sphere is, and a place the quadric
@@ -914,18 +914,34 @@ above ℚ — which is what a cylinder gives, its two rulings being one line and
 discriminant nought. The ruled member of the two cylinders gives `δ = 400/7`,
 not a square, which is §4.2's ordinary case.
 
-**One radicand for the pair rather than one per component**, which is
-`Quadratic`'s own note taken at its word: a direction is eight rationals and a
-root they share where eight of those values would be twenty-four and eight
-copies of one δ. What wants the tower is the step after, where two directions
-are multiplied together.
+**And where a ruling meets the other quadric.** `Quadric::met_by` substitutes a
+line into a quadric and hands back the two places, and a place on a line being
+*linear* in how far along it stands is the whole reason the answer is
+`X₁ ± X₂·√Δ` — one rootless half between the two, and opposite roots. It is
+projective in how far along, which is what keeps the answer two places rather
+than one: a line whose `dᵀQd` is nought runs through the quadric's own place at
+infinity rather than meeting it once.
 
-**The rest:**
+**That reaches the second storey, and nothing before it did.** A ruling's
+direction already stands one root above ℚ, so `Δ` does too and `√Δ` is a root
+above that — `ℚ(√δ)(√Δ)`, which §4.2 caps the tower at. Both places off the two
+cylinders' ruled member are held against *both* cylinders and come to nought
+exactly, asked once by the two halves apart and once through the tower itself.
 
-1. **The parameterization.** A ruling substituted into the other quadric is a
-   quadratic in the ruling's own parameter, and its two roots are `X₁ ± X₂√Δ` in
-   the tower's second storey.
-2. **`Curve::Quartic`**, and every closed match on `Curve` that follows.
+**One solve serves both**, which is `geometry::roots::Roots`: a tangent plane's
+form and a substitution's are the same binary quadratic, with the same three
+cases and one square root apiece.
+
+**What is left is the *family*.** All of the above is one ruling. Covering the
+curve wants the one-parameter family of them — the bilinear parameterization of
+the ruled member, where `X` is linear in the ruling's own parameter *and* in
+which ruling it is, so that `Δ` comes out a quartic in the second. Getting the
+member to the `XY = ZW` normal form that gives is the published construction
+(Dupont, Lazard, Lazard and Petitjean), and it is the one step here that should
+be read rather than derived: a route through the diagonal wants two square roots
+and the paper's does not, and which is which is not something to guess at.
+
+Then **`Curve::Quartic`**, and every closed match on `Curve` that follows.
 
 **Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
 the published classification, and every result is asserted to be in the exact

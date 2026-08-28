@@ -12,13 +12,14 @@
 pub(crate) mod axis;
 pub(crate) mod circle;
 pub(crate) mod cone;
+pub(crate) mod congruence;
 pub(crate) mod curve;
 pub(crate) mod cylinder;
 pub(crate) mod ellipse;
 pub(crate) mod line;
 pub(crate) mod pencil;
 pub(crate) mod quadric;
-pub(crate) mod ruling;
+pub(crate) mod roots;
 pub(crate) mod sphere;
 pub(crate) mod surface;
 

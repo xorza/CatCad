@@ -6,13 +6,13 @@ use crate::number::exact::rational::Rational;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
+use crate::solid::geometry::congruence::{Congruence, Signature};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::pencil::Pencil;
-use crate::solid::geometry::quadric::{Quadric, Signature};
-use crate::solid::geometry::ruling::Rulings;
+use crate::solid::geometry::quadric::Quadric;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
 use glam::{DVec2, DVec3};
@@ -1065,17 +1065,17 @@ fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
         (&member, 2, 2, "the member through (1, 1, 1)"),
         (&crossing, 1, 1, "two planes crossing"),
     ] {
-        let found = of.diagonalized();
+        let found = Congruence::of(of);
         let want: [[Rational; 4]; 4] = std::array::from_fn(|row| {
             std::array::from_fn(|col| {
                 if row == col {
-                    found.diagonal()[row].clone()
+                    found.diagonal[row].clone()
                 } else {
                     Rational::ZERO
                 }
             })
         });
-        assert_eq!(congruent(of, found.basis()), want, "{what}: PᵀQP");
+        assert_eq!(congruent(of, &found.basis), want, "{what}: PᵀQP");
         assert_eq!(
             found.signature(),
             Signature { above, below },
@@ -1090,7 +1090,7 @@ fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
     // through, which is the whole of what the search is for.
     assert_eq!(member.on(DVec3::ONE), Rational::ZERO, "the member missed");
     assert!(
-        member.diagonalized().signature().ruled(),
+        Congruence::of(&member).signature().ruled(),
         "and is not ruled"
     );
 
@@ -1104,12 +1104,11 @@ fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
         })
     });
     let (upright, sheared) = (
-        ball.diagonalized(),
-        quadric(&congruent(&ball, &shear)).diagonalized(),
+        Congruence::of(&ball),
+        Congruence::of(&quadric(&congruent(&ball, &shear))),
     );
     assert_ne!(
-        sheared.diagonal(),
-        upright.diagonal(),
+        sheared.diagonal, upright.diagonal,
         "the shear changed nothing, so this proves nothing",
     );
     assert_eq!(
@@ -1122,7 +1121,7 @@ fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
 /// **A ruling is a whole line the quadric holds, and naming one takes a single
 /// square root.**
 ///
-/// M3b's fourth piece — see [`Rulings`]. A line `p + s·d` lies in a quadric
+/// M3b's fourth piece — see [`Quadric::rulings`]. A line `p + s·d` lies in a quadric
 /// exactly when three things vanish: `pᵀQp`, because the place is on it;
 /// `pᵀQd`, because the direction is in the tangent plane there; and `dᵀQd`,
 /// because the direction is asymptotic. The first is the fixture's own claim
@@ -1172,7 +1171,7 @@ fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
         DVec3::new(0.0, 3.0, 4.0),
         DVec3::new(5.0, 0.0, 0.0),
     ] {
-        assert!(Rulings::of(&ball, at).is_none(), "a sphere ruled at {at:?}");
+        assert!(ball.rulings(at).is_none(), "a sphere ruled at {at:?}");
     }
 
     let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
@@ -1219,20 +1218,21 @@ fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
     ] {
         let place = Quadric::raised(at);
         assert_eq!(of.on(at), Rational::ZERO, "{what}: the place is not on it");
-        let found = Rulings::of(of, at).unwrap_or_else(|| panic!("{what} ruled nowhere"));
+        let found = of
+            .rulings(at)
+            .unwrap_or_else(|| panic!("{what} ruled nowhere"));
         assert_eq!(
-            *found.radicand(),
-            radicand,
+            found.under, radicand,
             "{what}: what the directions are written over",
         );
         assert_eq!(
-            found.plain()[0] == found.plain()[1] && found.times()[0] == found.times()[1],
+            found.plain[0] == found.plain[1] && found.times[0] == found.times[1],
             doubled,
             "{what}: whether the two rulings are one",
         );
 
         for which in 0..2 {
-            let (plain, times) = (&found.plain()[which], &found.times()[which]);
+            let (plain, times) = (&found.plain[which], &found.times[which]);
             assert!(
                 plain.iter().any(|of| !of.is_zero()) || times.iter().any(|of| !of.is_zero()),
                 "{what}: a ruling with no direction in it",
@@ -1243,14 +1243,14 @@ fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
             // Asymptotic, likewise: `dᵀQd` is `uᵀQu + δ·vᵀQv` with `2·uᵀQv`
             // roots of it, and neither half may stand.
             assert_eq!(
-                of.between(plain, plain) + found.radicand().clone() * of.between(times, times),
+                of.between(plain, plain) + found.under.clone() * of.between(times, times),
                 Rational::ZERO,
                 "{what}: the rootless half of dᵀQd",
             );
             assert_eq!(of.between(plain, times), Rational::ZERO, "{what}: uᵀQv");
 
             // And the same, asked of the tower rather than of the halves.
-            if let Some(field) = Quadratic::root(found.radicand().clone()) {
+            if let Some(field) = Quadratic::root(found.under.clone()) {
                 let lift = |of: &Rational| field.at(of.clone(), Rational::ZERO);
                 let along: [Quadratic<Rational>; 4] =
                     std::array::from_fn(|held| field.at(plain[held].clone(), times[held].clone()));
@@ -1262,6 +1262,103 @@ fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
                 }
                 assert!(total.is_zero(), "{what}: dᵀQd over the tower");
             }
+        }
+    }
+}
+
+/// **A ruling meets the other quadric in two places, and both are on the
+/// intersection curve exactly.**
+///
+/// M3b's last piece before the curve itself — see
+/// [`Quadric::met_by`](crate::solid::geometry::quadric::Quadric). A ruled
+/// member of the pencil is covered by lines, each meets the other quadric in
+/// two places, and a place on a line is *linear* in how far along it stands —
+/// so the substitution is a quadratic and the two answers differ in one square
+/// root and nothing else. That is `X₁ ± X₂·√Δ`, which is the shape
+/// `.notes/KERNEL.md` §7.3 commits to.
+///
+/// **The whole tower, for the first time.** The two cylinders' ruled member
+/// rules through `(1, 1, 1)` in directions over `ℚ(√(400/7))`, so `Δ` lives
+/// there too and `√Δ` is a root above it: `ℚ(√δ)(√Δ)`, which §4.2 caps the
+/// tower at and which nothing before this reached.
+///
+/// **And the answer has the published shape.** The two places share one
+/// rootless half and carry opposite roots, which is what `±` means and what a
+/// pair of unrelated answers would not do.
+///
+/// **What is asserted is the milestone's own claim.** Each place is held
+/// against *both* cylinders and has to be exactly nought on each — which is to
+/// say it is a point of the curve they cross in, with no tolerance anywhere in
+/// the saying. Asked twice over: once by the two halves apart, which is what
+/// `√Δ` being irrational means, and once through the tower itself.
+#[test]
+fn a_ruling_meets_the_other_quadric_in_two_exact_places() {
+    let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Surface::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, direction, reference),
+            radius,
+        }))
+    };
+    let (upright, sideways) = (pipe(DVec3::Z, DVec3::X, 2.0), pipe(DVec3::X, DVec3::Y, 3.0));
+    let pencil = Pencil::of(upright.clone(), sideways.clone());
+    let member = pencil.at(&pencil
+        .through(DVec3::ONE)
+        .expect("(1, 1, 1) is on neither cylinder"));
+    let ruled = member.rulings(DVec3::ONE).expect("the member is ruled");
+    let field = Quadratic::root(ruled.under.clone()).expect("δ is not a square");
+    let lift = |of: &Rational| field.at(of.clone(), Rational::ZERO);
+    let along: [Quadratic<Rational>; 4] =
+        std::array::from_fn(|at| field.at(ruled.plain[0][at].clone(), ruled.times[0][at].clone()));
+
+    let place = Quadric::raised(DVec3::ONE);
+    let found = sideways
+        .met_by(&place, &along, &lift)
+        .expect("the ruling crosses the other cylinder");
+    let storey = Quadratic::root(found.under.clone()).expect("Δ is not a square");
+    let raise = |of: &Rational| storey.at(lift(of), lift(&Rational::ZERO));
+    assert!(
+        !found.under.is_zero(),
+        "Δ came out a square, so the second storey is never reached",
+    );
+    // **`X₁ ± X₂·√Δ` and not two unrelated places**, which is the whole of the
+    // shape: one rootless half between them, and the root halves opposite.
+    assert_eq!(found.plain[0], found.plain[1], "the two share no X₁");
+    for held in 0..4 {
+        assert_eq!(
+            found.times[0][held],
+            -found.times[1][held].clone(),
+            "the root halves are not opposite at {held}",
+        );
+    }
+    assert!(
+        found.times[0].iter().any(|of| !of.is_zero()),
+        "the two places are one",
+    );
+
+    for which in 0..2 {
+        let (plain, times) = (&found.plain[which], &found.times[which]);
+        for (of, what) in [(&upright, "the upright"), (&sideways, "the sideways")] {
+            // `XᵀQX` for `X = plain + times·√Δ`, in halves: the rootless one is
+            // `plainᵀQplain + Δ·timesᵀQtimes` and the other is twice
+            // `plainᵀQtimes`, and neither may stand.
+            assert!(
+                (of.spanning(plain, plain, &lift)
+                    + found.under.clone() * of.spanning(times, times, &lift))
+                .is_zero(),
+                "place {which} is off {what} cylinder, rootless half",
+            );
+            assert!(
+                of.spanning(plain, times, &lift).is_zero(),
+                "place {which} is off {what} cylinder, root half",
+            );
+
+            // And the same asked of the whole tower rather than of the halves.
+            let at: [Quadratic<Quadratic<Rational>>; 4] =
+                std::array::from_fn(|held| storey.at(plain[held].clone(), times[held].clone()));
+            assert!(
+                of.spanning(&at, &at, &raise).is_zero(),
+                "place {which} is off {what} cylinder, over the tower",
+            );
         }
     }
 }
