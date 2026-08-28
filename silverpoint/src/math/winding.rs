@@ -52,14 +52,27 @@ impl Place for DVec2 {
 /// The run is closed whether or not its last corner repeats its first — the
 /// walk wraps — so a caller need not decide which convention it is using.
 pub(crate) fn swept(walk: &[impl Place]) -> f64 {
-    let Some(first) = walk.first() else {
+    swept_over(walk.iter().map(|it| it.place()))
+}
+
+/// The same, over a run read once rather than held in a slice.
+///
+/// **One rule and two ways in, not two rules.** A caller whose corners are
+/// worked out as they are walked has no slice to hand over, and a buffer for
+/// one would be a heap block on the path a body is rebuilt down — see
+/// `Traced::holds`. The body is here and [`swept`] is a call to it.
+///
+/// The closing term is nought, the last corner sweeping nothing against the
+/// first, so the run needs no wrap of its own.
+pub(crate) fn swept_over(places: impl Iterator<Item = DVec2>) -> f64 {
+    let mut places = places;
+    let Some(first) = places.next() else {
         return 0.0;
     };
-    let first = first.place();
-    let mut total = 0.0;
-    for (at, &here) in walk.iter().enumerate() {
-        let next = walk[(at + 1) % walk.len()].place() - first;
-        total += (here.place() - first).perp_dot(next);
+    let (mut total, mut here) = (0.0, first);
+    for next in places {
+        total += (here - first).perp_dot(next - first);
+        here = next;
     }
     total
 }

@@ -1,7 +1,7 @@
 use super::*;
 use crate::Plane;
 use crate::math::winding;
-use crate::number::tolerance::EXACT;
+use crate::number::tolerance::{CHORDED, EXACT};
 use crate::sketch::Sketch;
 use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
@@ -983,6 +983,83 @@ fn a_ring_turned_down_on_a_coaxial_rod_is_the_volume_pappus_says() {
         // chord cuts off goes as two thirds of the sagitta times the area it
         // spans.
         let walls = 4.0 * PI * PI * major * minor + TAU * radius * 2.0 * minor;
+        let slack = (2.0 / 3.0) * sagitta * walls;
+        let off = (mesher.volume(&into, sagitta) - want).abs();
+        assert!(off < slack, "{off} off {want} at a sagitta of {sagitta}");
+        assert!(off < last, "{sagitta} read no nearer than the last: {off}");
+        last = off;
+    }
+}
+
+/// **A ring halved by a plane no closed form can meet it in**, which is the
+/// first boolean anywhere here over a curve that was walked rather than written
+/// down.
+///
+/// A plane through the ring's middle, leaning forty-five degrees off the axis.
+/// The two circle cases a table answers are the plane that holds the axis and
+/// the plane at the bitangent lean — `cos α = √(R² − r²)/R`, which for three by
+/// one is nineteen and a half degrees — and this is neither, so what the two
+/// meet in is a spiric quartic in two pieces. Each piece runs right round the
+/// tube, so neither closes in a face's own parameters, which is the regime
+/// `Traced::closed` is false for.
+///
+/// **Exactly half, and by an argument rather than by quadrature.** A torus is
+/// carried onto itself by the point reflection through its own centre, and that
+/// reflection swaps the two sides of any plane through the centre — so the two
+/// halves are congruent and each is `π²Rr²`. Nothing about how a marched cut
+/// works produces that by accident.
+///
+/// **And the body records what it cost.** Every surface it stands on is still
+/// exact or not as it always was — the ring is fitted, so it is not — and the
+/// edges it gained carry the sagitta they were walked at, which is what
+/// `Body::strays` reads.
+#[test]
+fn a_ring_halved_by_a_leaning_plane_is_marched_and_comes_out_half() {
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let ring = Body::ring(major, minor);
+    // A plane through the origin whose normal leans forty-five degrees off the
+    // ring's axis, with a block on it deep enough and wide enough to swallow
+    // everything on that side.
+    let leaning = Plane {
+        origin: DVec3::ZERO,
+        x: DVec3::new(1.0, -1.0, 0.0).normalize(),
+        y: DVec3::NEG_Z,
+    };
+    let half = block(
+        leaning,
+        &[(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)],
+        20.0,
+        TOOL,
+    );
+
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(&ring, &half, Operation::Intersect, &mut into),
+        "a ring halved by a leaning plane was turned away",
+    );
+
+    let reckoning = into.reckoning();
+    assert_eq!(
+        reckoning.genus, 0,
+        "half a ring is a bent rod: {reckoning:?}"
+    );
+    assert!(!into.exact(), "a body standing on a torus is not exact");
+    assert!(
+        into.strays() > 0.0 && into.strays() <= CHORDED,
+        "a marched edge carries the sagitta it was walked at: {}",
+        into.strays(),
+    );
+
+    let want = PI * PI * major * minor * minor;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-3, 1e-4] {
+        // Half the ring's own wall is `2π²·major·minor`, and the flat the plane
+        // leaves is two ovals of about `π·minor·(minor/cos 45°)` between them.
+        // What a chord cuts off goes as two thirds of the sagitta times the
+        // area it spans.
+        let walls = 2.0 * PI * PI * major * minor + TAU * minor * minor * SQRT_2;
         let slack = (2.0 / 3.0) * sagitta * walls;
         let off = (mesher.volume(&into, sagitta) - want).abs();
         assert!(off < slack, "{off} off {want} at a sagitta of {sagitta}");

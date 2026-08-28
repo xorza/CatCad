@@ -1,7 +1,6 @@
 //! A bounded piece of surface.
 
 use crate::arena::Id;
-use crate::math::branch;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::named::Named;
 use glam::{DVec2, DVec3};
@@ -128,17 +127,11 @@ impl Face {
         if self.surface.singular(corner) {
             return None;
         }
-        let mut uv = self.surface.uv(corner);
-        if let Some(last) = last {
-            let round = self.surface.round();
-            if round.x {
-                uv.x = branch::nearest(uv.x, last.x);
-            }
-            if round.y {
-                uv.y = branch::nearest(uv.y, last.y);
-            }
-        }
-        Some(uv)
+        let uv = self.surface.uv(corner);
+        Some(match last {
+            Some(last) => self.surface.carried(uv, last),
+            None => uv,
+        })
     }
 
     /// Where each corner [`Face::flatten`] writes stands in the world.

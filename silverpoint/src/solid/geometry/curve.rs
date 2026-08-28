@@ -29,11 +29,7 @@ pub(crate) enum Curve {
     /// A curve of the fitted tier, laid down as places rather than written
     /// down — see [`Marched`], and `.notes/KERNEL.md` §4.1 for the tier.
     ///
-    /// **Nothing builds one yet.** What will is the boolean, meeting a pair it
-    /// has to march, and that is the rest of §9.2's list — the same standing
-    /// [`Fitted`](super::fitted::Fitted) has next door, and the whole of what
-    /// the allow says.
-    #[allow(dead_code)]
+    /// What builds one is the boolean, meeting a pair it has to march.
     Marched(Marched),
 }
 
@@ -101,6 +97,20 @@ impl Curve {
             }
             Self::Saddle(saddle) => saddle.along(at),
             Self::Marched(of) => marched.along(of.run, at),
+        }
+    }
+
+    /// How far the pieces it is made of stray from the curve itself.
+    ///
+    /// **Nought for every curve of the exact tier**, which is written down
+    /// rather than laid down: a place read off one is the curve's own place to
+    /// a rounding. A marched curve is a run of chords and answers what its
+    /// walk measured, which is the bound `.notes/KERNEL.md` §4.1 says a fitted
+    /// result carries — and what the edge on it stands for.
+    pub(crate) fn strays(&self, marched: &Marchings) -> f64 {
+        match self {
+            Self::Line(_) | Self::Circle(_) | Self::Ellipse(_) | Self::Saddle(_) => 0.0,
+            Self::Marched(of) => marched.strayed(of.run).most,
         }
     }
 

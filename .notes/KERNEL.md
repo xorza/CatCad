@@ -1360,10 +1360,122 @@ that carries the two surfaces answers `side` in closed form and finds a crossing
 by bisecting it, and only the three that lay corners down — `down`, `between`
 and `walk` — want the run at all.
 
-*Cost:* a `Cut` carrying two surfaces is some two hundred bytes where the widest
-today is sixty, so `Side::of` takes it by reference rather than by value. That
-is the trade the other way round from the one `Curve` made, and it is the right
-way round here: a cut's questions are pointwise and a curve's are not.
+**`splitting::traced::Traced` is that cut, and it is in, wired.** How far off a
+place stands is read off the other surface and comes out as the true distance,
+sign and all; a run across it is bisected on that reading, there being nothing
+to solve; and the corners it lays down are the marched run's own places carried
+into the face's parameters by the rule `Face::flatten` keeps.
+
+**Which way it runs and whether it closes are measured, not reasoned.** Which
+way a marcher walked a run is its own business and neither surface's orientation
+is the cut's, so the direction is one step along it with a look to the left. And
+a curve closed in the *world* is not closed in a face's parameters where those
+wrap — a plane through a ring's middle cuts two pieces and each goes right round
+the tube, coming back a whole turn along in `v` rather than to where it began.
+Both regimes are held by tests, and the second was found by one.
+
+**And the build moved the design twice, both times against what is written
+above.**
+
+**One cut for the whole meeting rather than one per piece.** The reading that
+makes this cut cheap is the same reading that makes it indivisible: how far a
+place stands off it is read off the *other surface*, so it comes to nought on
+every piece of the meeting at once, and a cut carrying one piece would call a
+place on another piece its own. So `Cut::Traced` carries the pieces together and
+`down` is a whole turn to a piece — the pieces being disjoint, ordering by that
+orders along each of them and never runs one into the next. What is per piece
+per face is `traced::Piece`: which run, which imprint run, where its parameter
+reads nought, how many turns it is carried by, the stretch it fills, which way
+it runs and whether it closes.
+
+*Cost, paid in three places:* `Cut::walk` hands back **loops** rather than one
+loop and `Splitting::punch` punches each of them, which is what a plane through
+a ring's middle needs — two closed loops on one flat, and a cut that punched one
+lost the other outright. `Cut::came` is asked of a *place*, two pieces being two
+curves and two edges. And `Cut::between` answers whether the stretch exists at
+all: two chains on different pieces have no stretch of cut running between them,
+and that is refused rather than closed with a chord.
+
+**And the cut borrows where the curve carries.** `Cut` takes a lifetime and
+holds the two surfaces, the store and the pieces by reference. That is the
+opposite of `Curve`'s answer one shelf down and it is the right way round for
+each: a curve is *stored* — in an edge, in the imprints — so a lifetime on one
+would reach the whole topology, where a cut lives for the one call that splits
+by it. Carried instead, a `Cut` would be some two hundred bytes where the widest
+arm today is sixty, and every corner of every region is asked about one by
+value.
+
+**Two things a wrapping parameter takes and this has to give back.** A run is
+carried on to stay continuous, which leaves it in whichever turn its walk was
+*seeded* in — so a run right round a tube, walked the way the angle shrinks,
+comes out a whole turn below the face that holds it. The whole run is moved to
+the turn its middle stands nearest the face's, and the face's own stretch is
+what says which that is: `splitting::traced::Laid`, which `imprinted` already
+wanted the middle of. And a corner is laid only where that stretch holds it —
+the end of a stretch and the run's own beginning are one place read a whole turn
+apart, and a parameter comparison decides that by a rounding where the face
+decides it outright.
+
+**A run's parameter reads nought where the face is not.** A run is closed in
+space and its parameter is a whole turn round it, so where that turn reads
+nought is wherever the walk happened to be seeded — and a piece that merely
+*crosses* a face is then a stretch of parameter with the wrap in the middle of
+it, which is an ordering the reassembly cannot use. `traced::Clear` walks the
+run once and takes the middle of the longest stretch standing clear of the face.
+
+**And `Combining` seeds, walks and files.** `Meeting::of` stays pure and goes on
+answering `Marched`; what walks is `Combining::march`, which keeps its own
+`Marching` and files the pieces in `Combining::marched`. **Once for the two
+bodies rather than once per face** — a cylinder is two faces of one surface and
+a ring is four, so a pair reaches the cutting once for each face standing on
+either of them, and a march is thousands of corrections where every other
+meeting here is a formula. The pairs already walked are indexed by a key over
+the two surfaces taken smaller first, which is the same key the curves are filed
+under and is what makes a crossing met from either side key alike.
+
+**And a pair that misses is not a pair nobody can seed.** `seeded` answers
+`None` for a pair no reading is written for and no seeds at all where the two
+genuinely do not meet — two answers where it had one. The boolean has already
+been told the pair meets somewhere unwritable, so the first has to refuse it
+where the second divides nothing: without the split, a block whose far wall
+merely *reaches* a ring refuses the whole operation.
+
+**And three things in the sewing that only a marched edge asks for.**
+
+A vertex is the place a face **pinned**, not the curve read back at its
+parameter. Those are one thing for every exact curve and two for a marched one:
+a place read off a run lands on the chord between two of its samples, a sagitta
+from the place another face put there — and read that way the two faces meet at
+two vertices a chord apart and the shell never closes.
+
+The runs change hands **before** the shells are sorted rather than after. What
+sorts them sounds the body, which walks its own edges, and an edge on a marched
+curve has nothing to walk until the body holds what it is made of.
+
+And a marched edge stands for a **tube as wide as its own walk**, which drags
+the vertices at its ends out to hold it. That is §4.1's bargain in the tolerance
+model: the curve is a run of chords and the vertices are exact crossings of two
+surfaces, so the two disagree by the sagitta and the model has to say so rather
+than have the validity check discover it. `Body::strays` reads the worst of them
+back, which is the fit bound this milestone owed.
+
+**The first boolean over a curve nothing can write down** is a ring halved by a
+plane through its middle at forty-five degrees. That is neither of the two
+circle cases the table answers — not the plane holding the axis and not the
+bitangent lean, which for three by one is nineteen and a half degrees — so the
+two meet in a spiric quartic in two pieces, each running right round the tube
+and neither closing in a face's own parameters. **Exactly half, and by an
+argument rather than by quadrature:** a torus is carried onto itself by the point
+reflection through its own centre, and that reflection swaps the two sides of any
+plane through the centre, so each half is `π²Rr²`. Genus nought, not exact, and
+its stray is the sagitta it was walked at.
+
+**What is left of the cut** is a face two pieces of one meeting both cross. Its
+chains would have to be joined along one piece and wrapped within it, and the
+reassembly wraps over the whole cut — so `Cut::between` refuses that join rather
+than closing it with a chord. Nothing built today reaches it: the pieces of a
+plane-torus meeting stand in different quarters of the ring, and on the plane
+itself they are closed loops the boundary never meets.
 2. **`Meeting::of` stays pure and goes on answering `Marched`.** What produces a
    run is `Combining`, which seeds, walks and files it when it meets such a
    pair — so the routine every test calls keeps its signature, and the store is
@@ -1374,11 +1486,13 @@ way round here: a cut's questions are pointwise and a curve's are not.
    exactly as it does a circle. Keying over the samples would work and is the
    wrong answer: it makes the identity of a curve depend on how finely it
    happened to be walked.
-4. **`at`, `along` and `steps` take the store; `key` and `reach` do not**, both
-   of those being on the arm — so `Imprints`, which asks only for a key, goes on
-   holding a bare `Curve`. That is nine call sites, in `Edge`, `Walked`,
-   `Checking` and `Sewing`, and every one of them already has a `Topology` or a
-   `Body`.
+4. **`at`, `along`, `steps` and `strays` take the store; `key` and `reach` do
+   not**, both of those being on the arm — so `Imprints`, which asks only for a
+   key, goes on holding a bare `Curve`. Every call site already has a
+   `Topology`, a `Body` or the operation's own runs. `strays` is the fourth and
+   was not foreseen: it is nought for every curve written down and the walk's
+   own sagitta for one laid down, which is what an edge of the fitted tier
+   stands for.
 5. **The parameter is arc length round the run, scaled to a whole turn.** A
    closed marched curve then splits at its own nought and half turn exactly as a
    circle does — `Sewing::encircle` needs no arm of its own, which is the whole
@@ -1408,19 +1522,29 @@ per corner of a face, so the cost is the sample count squared again — and the
 sample count is set by the sagitta the curve was walked at. Two ways out, and
 the first build has to measure before choosing: carry a hint into `along`, the
 callers all walking in order anyway, or index the run's places by a coarse grid.
-Until one of them lands, the walk's sagitta is the classification one and a
-marched edge is drawn at it.
+Until one of them lands, the walk's sagitta is the classification one — a run is
+laid down at `CHORDED` — and a marched edge is drawn at it. **The measurement is
+still owed** and there is now something to measure it on: the boolean below
+walks a ring against a plane and asks `along` once per corner of four faces.
+`Marchings::nearest` is the one call to time, `along` being a reading of it.
 
 No *feature* builds a torus yet either — a revolve makes one, and so does a
 plane-cylinder fillet, and neither is written.
 
-**Tests.** The reducible table is paid — every circle it hands back is held
-against the closed form and sampled onto both surfaces, Villarceau's included —
-and so is the walking. What is left waits on the seeding and on the arena: a
-marched intersection reaching a *body*, its fit bound recorded there, the same
-cut over the exact tier still reporting exact, and the case the literature says
-will be missed — a shallow near-tangential meeting that produces a small closed
-loop.
+**Tests, and they are paid.** The reducible table is held against the closed
+form and sampled onto both surfaces, Villarceau's included; the walking is held
+against the table and against a spiric section no closed form writes down; the
+seeding is held against a sweep that does not ask where the pieces are; and the
+cut answers its side, its loop, its crossing and its graze against the two
+surfaces rather than against the run. A marched intersection reaches a *body*
+and the volume is a symmetry argument, with the fit bound recorded there and read
+back by `Body::strays`.
+
+**Two are left.** The same cut over the exact tier still reporting exact, which
+wants a pair of quadrics standing where this one does. And the case the
+literature says will be missed — a shallow near-tangential meeting that produces
+a small closed loop — which the seeding answers in two `acos` and the boolean has
+not been asked.
 
 ### 9.3 M7 — fillet, chamfer, STEP
 

@@ -2,6 +2,7 @@
 
 use crate::inline::Inline;
 use crate::math::bounds::Bounds;
+use crate::math::branch;
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::natural::Natural;
 use glam::{BVec2, DVec2, DVec3};
@@ -179,5 +180,28 @@ impl Surface {
             Self::Natural(of) => of.round(),
             Self::Fitted(of) => of.round(),
         }
+    }
+
+    /// `uv` carried on from `from`, in whichever parameters run round.
+    ///
+    /// **The rule that keeps a flattened loop in one piece.** An inversion
+    /// answers in a half turn either side of the reference, so a loop crossing
+    /// the far side of a cylinder comes back as two stretches a whole turn
+    /// apart unless each reading is taken at the turn the last one was. Both of
+    /// a torus's parameters want it, which is §4.4 biting twice.
+    pub(crate) fn carried(&self, uv: DVec2, from: DVec2) -> DVec2 {
+        let round = self.round();
+        DVec2::new(
+            if round.x {
+                branch::nearest(uv.x, from.x)
+            } else {
+                uv.x
+            },
+            if round.y {
+                branch::nearest(uv.y, from.y)
+            } else {
+                uv.y
+            },
+        )
     }
 }

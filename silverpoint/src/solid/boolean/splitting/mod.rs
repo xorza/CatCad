@@ -38,6 +38,7 @@ pub(super) mod corner;
 pub(super) mod cut;
 pub(super) mod oval;
 pub(super) mod ripple;
+pub(super) mod traced;
 
 /// Which side of a cut a corner fell.
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -51,7 +52,7 @@ enum Side {
 }
 
 impl Side {
-    fn of(cut: Cut, point: DVec2) -> Self {
+    fn of(cut: Cut<'_>, point: DVec2) -> Self {
         let off = cut.side(point);
         if predicate::touching(off.abs(), PLACED) {
             Self::On
@@ -70,11 +71,18 @@ impl Side {
 /// an outline standing clear of a hole the cut lies along, most often.
 ///
 /// Where every corner is on it, the region *is* what the cut bounds, and then
-/// the middle of the cut is the one place inside it there is to ask. A straight
-/// cut has no middle and needs none: a region every corner of which lies on one
-/// line has no width, and bounds nothing on either side of it.
-fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut) -> bool {
+/// what the cut shuts in is the one thing left to ask about. A shape answers
+/// that at its own middle and a marched cut by which way its loop winds, and
+/// both want somewhere the region stands — which is any corner of it, every one
+/// of them being on the cut. A straight cut needs none of this: a region every
+/// corner of which lies on one line has no width, and bounds nothing on either
+/// side of it.
+fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut<'_>) -> bool {
+    let mut anywhere = None;
     for walk in region {
+        if anywhere.is_none() {
+            anywhere = walk.first().map(|corner| corner.at);
+        }
         for corner in walk {
             match Side::of(cut, corner.at) {
                 Side::On => continue,
@@ -85,9 +93,16 @@ fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut) -> bool {
     match cut {
         Cut::Round(oval) => cut.side(oval.middle) > 0.0,
         Cut::Bow(bow) if bow.closed() => cut.side(bow.middle()) > 0.0,
+        // No middle to read, a marched loop being places rather than a shape —
+        // so the same question is asked of which way the piece the region lies
+        // on winds.
+        Cut::Traced(traced) if traced.closed() => match anywhere {
+            Some(at) => traced.holds(at),
+            None => false,
+        },
         // None of these is closed, so a region every corner of which lies on
         // one has no width and bounds nothing on either side of it.
-        Cut::Straight { .. } | Cut::Wave(_) | Cut::Bow(_) => false,
+        Cut::Straight { .. } | Cut::Wave(_) | Cut::Bow(_) | Cut::Traced(_) => false,
     }
 }
 
@@ -96,8 +111,9 @@ fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut) -> bool {
 pub(super) struct Splitting {
     /// Which side of the cut each corner of the loop being walked fell.
     sides: Vec<Side>,
-    /// A closed cut as a loop of its own, flattened — see [`Cut::walk`].
-    round: Vec<Corner>,
+    /// A closed cut as loops of its own, flattened — see [`Cut::walk`], which
+    /// hands back several where a marched meeting came in pieces.
+    round: Loops<Corner>,
     /// One loop with a place put in each dip the cut takes out of it — see
     /// [`Splitting::dip`].
     dipped: Vec<Corner>,
@@ -207,7 +223,7 @@ impl Splitting {
     /// `into` is emptied first. What comes back is every region the cut leaves,
     /// each wholly to one side of it — which is the property a boolean needs
     /// before it can ask of any of them whether to keep it.
-    pub(super) fn split(&mut self, from: &Cells, cut: Cut, into: &mut Cells) -> bool {
+    pub(super) fn split(&mut self, from: &Cells, cut: Cut<'_>, into: &mut Cells) -> bool {
         into.clear();
         // Both sides walked whatever the first came to: the two write into one
         // list, and stopping halfway would leave it holding one side of the cut
@@ -218,7 +234,7 @@ impl Splitting {
     }
 
     /// The same, onto whatever `into` already holds.
-    fn append(&mut self, from: &Cells, cut: Cut, into: &mut Cells) -> bool {
+    fn append(&mut self, from: &Cells, cut: Cut<'_>, into: &mut Cells) -> bool {
         let mut written = true;
         for at in 0..from.len() {
             written &= self.region(from.cell(at), cut, into);
@@ -232,7 +248,7 @@ impl Splitting {
     fn region<'a>(
         &mut self,
         region: impl Iterator<Item = &'a [Corner]> + Clone,
-        cut: Cut,
+        cut: Cut<'_>,
         into: &mut Cells,
     ) -> bool {
         self.chains.clear();
@@ -280,7 +296,7 @@ impl Splitting {
             self.punch(held, cut, into);
             return written;
         }
-        self.close(cut);
+        written &= self.close(cut);
         self.gather(into);
         written
     }
@@ -289,13 +305,13 @@ impl Splitting {
     ///
     /// **Four answers off two questions**, which is why this is not the walk
     /// with a special case bolted on. The cut met no boundary, so every corner
-    /// of the region is on one side of it — and the region either holds the
-    /// circle or does not:
+    /// of the region is on one side of it — and each loop the cut makes either
+    /// lies within the region or does not:
     ///
-    /// | | circle within the region | circle clear of it |
+    /// | | loop within the region | loop clear of it |
     /// | --- | --- | --- |
-    /// | corners kept | the region, the circle punched out of it | the region whole |
-    /// | corners dropped | the disc, and the region's holes inside it | nothing |
+    /// | corners kept | the region, that loop punched out of it | the region whole |
+    /// | corners dropped | the disc it bounds, and the region's holes inside it | nothing |
     ///
     /// The two on the left are the cut dividing something it never touched,
     /// which is what a plane meeting a cylinder does to the end of a block it
@@ -303,52 +319,57 @@ impl Splitting {
     /// are why "the corners are on the dropped side" is not on its own an
     /// answer: a region swallowed whole by the disc has every corner *kept* and
     /// nothing punched out of it.
+    ///
+    /// **A loop at a time, because a marched meeting comes in pieces** and one
+    /// cut carries all of them — see [`Traced`](traced::Traced). A plane
+    /// through a ring's middle leaves two closed loops on one flat, and each
+    /// takes its own row of the table.
     fn punch<'a>(
         &mut self,
         held: impl Iterator<Item = &'a [Corner]> + Clone,
-        cut: Cut,
+        cut: Cut<'_>,
         into: &mut Cells,
     ) {
         self.round.clear();
         cut.walk(&mut self.round);
-        let Some(somewhere) = self.round.first().map(|corner| corner.at) else {
-            return;
-        };
         let mut loops = held.clone();
         let Some(outline) = loops.next() else {
             return;
         };
-        // Within the region, which is within its outline and within none of its
-        // holes. Asked of one point of the circle because the circle meets no
-        // boundary: every point of it stands where that one does.
-        let within = holds(outline, somewhere) && !loops.any(|walk| holds(walk, somewhere));
+        let holes = loops;
         // Which side the region is on, off any corner of it — the cut met no
         // boundary, so they are all on the one side.
         let kept = cut.side(outline[0].at) > 0.0;
+        // Within the region, which is within its outline and within none of
+        // its holes. Asked of one point of each loop because no loop meets the
+        // boundary: every point of one stands where that one does.
         let round = &self.round;
-        match (kept, within) {
-            // The region, with one more hole in it.
-            (true, true) => into.add(|write| {
+        let within = |walk: &[Corner]| {
+            let somewhere = walk[0].at;
+            holds(outline, somewhere) && !holes.clone().any(|hole| holds(hole, somewhere))
+        };
+        if kept {
+            // The region, with one more hole in it for each loop that fell
+            // inside — and untouched where none did.
+            into.add(|write| {
                 for walk in held {
                     write.push(walk);
                 }
-                write.push(round);
-            }),
-            // The region, untouched.
-            (true, false) => into.add(|write| {
-                for walk in held {
+                for walk in round.iter().filter(|walk| within(walk)) {
                     write.push(walk);
                 }
-            }),
-            // The disc, and the region's own holes that fell in it.
-            (false, true) => into.add(|write| {
-                write.push(round);
-                for walk in held.skip(1).filter(|walk| holds(round, walk[0].at)) {
-                    write.push(walk);
+            });
+            return;
+        }
+        // A disc apiece, each with the region's own holes that fell in it, and
+        // nothing at all for a cut that missed.
+        for walk in round.iter().filter(|walk| within(walk)) {
+            into.add(|write| {
+                write.push(walk);
+                for hole in held.clone().skip(1).filter(|hole| holds(walk, hole[0].at)) {
+                    write.push(hole);
                 }
-            }),
-            // A cut that missed.
-            (false, false) => {}
+            });
         }
     }
 
@@ -370,7 +391,7 @@ impl Splitting {
     /// Walking again would find the same thing and put the same place, so it is
     /// refused instead — the one thing here that must not be a loop that never
     /// ends.
-    fn dip(&mut self, walk: &[Corner], cut: Cut) -> Chained {
+    fn dip(&mut self, walk: &[Corner], cut: Cut<'_>) -> Chained {
         let count = walk.len();
         // Lent out and handed back, because [`Splitting::chain`] writes the
         // buffers beside it and cannot be called while this one is borrowed.
@@ -402,7 +423,7 @@ impl Splitting {
     /// does cross comes through as open chains, each recorded with where along
     /// the cut it began and ended, because that is what says which chain
     /// carries on from which.
-    fn chain(&mut self, walk: &[Corner], cut: Cut) -> Chained {
+    fn chain(&mut self, walk: &[Corner], cut: Cut<'_>) -> Chained {
         let count = walk.len();
         self.sides.clear();
         self.sides
@@ -448,7 +469,7 @@ impl Splitting {
             // carries whatever it already carried.
             let onto = |at: DVec2| Corner {
                 at,
-                came: cut.came(),
+                came: cut.came(at),
             };
             let back = |at: DVec2| Corner {
                 at,
@@ -517,7 +538,7 @@ impl Splitting {
     /// so every stretch on the kept side was entered before it could be left.
     /// Reaching here with nothing open would mean the walk had lost count of
     /// which side it was on.
-    fn shut(&mut self, entered: &mut Option<f64>, at: Corner, cut: Cut) {
+    fn shut(&mut self, entered: &mut Option<f64>, at: Corner, cut: Cut<'_>) {
         let entered = entered.take().expect("a chain is left only once entered");
         self.stretch.push(at);
         let left = cut.down(at.at);
@@ -532,7 +553,8 @@ impl Splitting {
     /// next chain to begin at or after that point. Sorted, that is the next one
     /// along — which is the whole of the reassembly, and the reason the ends
     /// were measured rather than merely remembered.
-    fn close(&mut self, cut: Cut) {
+    fn close(&mut self, cut: Cut<'_>) -> bool {
+        let mut joined = true;
         self.closed.clear();
         self.order.clear();
         self.order.extend(0..self.chains.len());
@@ -577,7 +599,7 @@ impl Splitting {
                     let next = if found == order.len() { 0 } else { found };
                     // Along the cut itself, where the cut has a length worth
                     // walking. A straight one has not — see [`Cut::between`].
-                    cut.between(left, chains.by(order[next]).entered, into);
+                    joined &= cut.between(left, chains.by(order[next]).entered, into);
                     // **Back where the loop began, which is what closes it.**
                     // Asked of the position rather than of whether the chain
                     // has been walked: a chain reached again is the loop coming
@@ -596,6 +618,7 @@ impl Splitting {
         for walk in self.whole.iter() {
             self.closed.push(walk);
         }
+        joined
     }
 
     /// Sort the closed loops and the untouched ones into regions.
@@ -673,7 +696,7 @@ mod internals {
         /// [`Cut::turned`]. What production wants is both sides at once, which
         /// is [`Splitting::split`]; one side is what a test asks for, to say
         /// which of the two a given piece ended up in.
-        pub(super) fn halve(&mut self, from: &Cells, cut: Cut, into: &mut Cells) -> bool {
+        pub(super) fn halve(&mut self, from: &Cells, cut: Cut<'_>, into: &mut Cells) -> bool {
             into.clear();
             self.append(from, cut, into)
         }

@@ -1,12 +1,8 @@
 //! Walking a curve two surfaces meet in that neither of them can write down.
 //!
-//! **No production caller yet**, and the reason is the same one
-//! [`Curve::Quartic`](crate::solid::geometry::curve::Curve) waits on: what a
-//! walk lays down is a run of places, and both `Curve` and `Cut` are `Copy`
-//! value types with nowhere to put one. The walking is the half of M6 the spike
-//! found easy and this is it; the seeding and the loop detection are the half
-//! it found hard, and neither is here. See `.notes/KERNEL.md` §9.2.
-#![allow(dead_code)]
+//! The half of M6 the spike found easy. What it lays down is a run of places,
+//! which [`Marchings`](crate::solid::geometry::marchings::Marchings) holds and
+//! a curve names — see `.notes/KERNEL.md` §9.2.
 
 use crate::solid::geometry::surface::Surface;
 use glam::DVec3;

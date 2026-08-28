@@ -193,6 +193,18 @@ impl Topology {
         self.lumps.insert(lump)
     }
 
+    /// Widen the ball the vertex at `id` stands for to hold `tolerance`.
+    ///
+    /// **Only ever wider**, which is what keeps the ladder a tolerance model
+    /// wants: a vertex's ball holds the end of every edge that names it, so an
+    /// edge of the fitted tier drags the vertices at its ends out to its own
+    /// bound — see [`Edge::tolerance`](crate::solid::topology::edge::Edge).
+    /// Nothing narrows one.
+    pub(crate) fn widen(&mut self, id: VertexId, tolerance: f64) {
+        let vertex = self.vertices.get_mut(id).expect(STALE);
+        vertex.tolerance = vertex.tolerance.max(tolerance);
+    }
+
     pub(crate) fn vertex(&self, id: VertexId) -> &Vertex {
         self.vertices.get(id).expect(STALE)
     }

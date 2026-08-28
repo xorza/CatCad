@@ -31,7 +31,7 @@ fn corners(of: &[(f64, f64)]) -> Vec<Corner> {
 ///
 /// Running *up*, because the side kept is the left of the way the cut runs and
 /// the left of up is the side with the smaller `x`.
-fn leftward(x: f64) -> Cut {
+fn leftward(x: f64) -> Cut<'static> {
     Cut::Straight {
         at: DVec2::new(x, 0.0),
         along: DVec2::Y,
@@ -248,7 +248,7 @@ fn chorded(radius: f64) -> f64 {
 }
 
 /// A wave `v = level + swing·cos(θ − phase)`, keeping what stands above it.
-fn wave(level: f64, swing: f64, phase: f64, run: u32) -> Cut {
+fn wave(level: f64, swing: f64, phase: f64, run: u32) -> Cut<'static> {
     Cut::Wave(Ripple {
         level,
         swing,
@@ -259,7 +259,7 @@ fn wave(level: f64, swing: f64, phase: f64, run: u32) -> Cut {
 }
 
 /// A circular cut about `middle` of `radius`, keeping the disc.
-fn disc(middle: (f64, f64), radius: f64, run: u32) -> Cut {
+fn disc(middle: (f64, f64), radius: f64, run: u32) -> Cut<'static> {
     Cut::Round(Oval {
         middle: DVec2::new(middle.0, middle.1),
         along: DVec2::X,

@@ -1,5 +1,6 @@
 //! A cut across a face, and what a region is asked about one.
 
+use crate::loops::Loops;
 use crate::math::arc;
 use crate::math::quadratic;
 use crate::number::tolerance::PLACED;
@@ -7,6 +8,7 @@ use crate::solid::boolean::splitting::bow::{Bow, Bowed};
 use crate::solid::boolean::splitting::corner::{Came, Corner};
 use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::ripple::Ripple;
+use crate::solid::boolean::splitting::traced::Traced;
 use glam::DVec2;
 use std::f64::consts::TAU;
 
@@ -26,13 +28,18 @@ pub(super) const ROUNDED: f64 = 1e-3;
 /// The side kept is always the *left* of the way the cut runs, which is what
 /// makes cutting both ways one operation asked twice — see [`Cut::turned`].
 ///
-/// Four shapes, and what they have in common is that each divides the whole of
+/// Five shapes, and what they have in common is that each divides the whole of
 /// a face rather than a stretch of one. What a cut is *not* is a segment —
 /// every stage downstream needs each region to be wholly one thing or the
 /// other, and a cut that stopped part way would leave a region straddling it.
 /// See `.notes/KERNEL.md` §7.4.
+///
+/// **Borrowed for the one call that splits by it**, which is what the fifth
+/// shape asks and what nothing here loses by: a cut is built by `imprinted`
+/// and read by [`Splitting::split`](super::Splitting::split), and no stage
+/// keeps one. See [`Traced`], which is the arm that carries the borrow.
 #[derive(Debug, Clone, Copy)]
-pub(crate) enum Cut {
+pub(crate) enum Cut<'a> {
     /// A straight cut, the left of `along` kept.
     Straight {
         /// Somewhere on it.
@@ -59,9 +66,12 @@ pub(crate) enum Cut {
     /// its own [`Bow::closed`] says — see [`Bow`], which is the one shape here
     /// that is either.
     Bow(Bow),
+    /// A cut along a curve that was walked rather than written down, which is
+    /// the fitted tier's own — see [`Traced`].
+    Traced(Traced<'a>),
 }
 
-impl Cut {
+impl<'a> Cut<'a> {
     /// The same cut with the other side kept.
     pub(super) fn turned(self) -> Self {
         match self {
@@ -82,20 +92,32 @@ impl Cut {
                 inward: !bow.inward,
                 ..bow
             }),
+            Self::Traced(traced) => Self::Traced(traced.turned()),
         }
     }
 
-    /// What the corners this cut puts down are marked with.
+    /// What the corners this cut puts down at `at` are marked with.
     ///
     /// A straight imprint needs nothing remembered about it — a line between
     /// two places is the same line whoever drew it — so only a circle is
     /// numbered.
-    pub(super) fn came(self) -> Came {
+    ///
+    /// **Asked of a place, because a marched cut is several curves.** A meeting
+    /// walked rather than written down comes in pieces and the cut is the whole
+    /// of it, so which curve a corner lies on is which piece it stands on — see
+    /// [`Traced`]. Every other shape is one curve and reads nothing, so a run
+    /// of corners along one asks this once and carries the answer.
+    ///
+    /// `at` has to be a place *on* the cut: a marched one finds the piece
+    /// nearest it, and a place off the cut answers with whichever piece it
+    /// happens to lie nearest.
+    pub(super) fn came(self, at: DVec2) -> Came {
         match self {
             Self::Straight { run: Some(run), .. }
             | Self::Round(Oval { run, .. })
             | Self::Wave(Ripple { run, .. })
             | Self::Bow(Bow { run, .. }) => Came::Arc(run),
+            Self::Traced(traced) => traced.came(at),
             Self::Straight { run: None, .. } => Came::Edge,
         }
     }
@@ -106,6 +128,7 @@ impl Cut {
         match self {
             Self::Round(_) => true,
             Self::Bow(bow) => bow.closed(),
+            Self::Traced(traced) => traced.closed(),
             Self::Straight { .. } | Self::Wave(_) => false,
         }
     }
@@ -135,6 +158,9 @@ impl Cut {
             // Two measures in one arm, a bow being closed or open — see
             // [`Bow::side`], where each is argued.
             Self::Bow(bow) => bow.side(point),
+            // The true distance to the *other surface*, which is the one shape
+            // here that has one to give — see [`Traced::side`].
+            Self::Traced(traced) => traced.side(point),
         }
     }
 
@@ -174,6 +200,9 @@ impl Cut {
             // An angle round the loop where it is closed and the cylinder's own
             // angle where it is not, which is the two above under one call.
             Self::Bow(bow) => bow.down(point),
+            // How far round the run it was walked as, measured from a place
+            // the face does not hold — see [`Traced::down`].
+            Self::Traced(traced) => traced.down(point),
         }
     }
 
@@ -187,6 +216,9 @@ impl Cut {
         if let Self::Straight { .. } = self {
             let (here, there) = (self.side(from), self.side(to));
             return from.lerp(to, here / (here - there));
+        }
+        if let Self::Traced(traced) = self {
+            return traced.crossing(from, to);
         }
         let along = self
             .met(from, to)
@@ -206,6 +238,9 @@ impl Cut {
     /// walk would otherwise step straight over. A line has no such case, and
     /// [`Cut::met`] answers with nothing for one.
     pub(super) fn grazes(self, from: DVec2, to: DVec2) -> Option<[DVec2; 2]> {
+        if let Self::Traced(traced) = self {
+            return traced.grazes(from, to);
+        }
         // **Two, or the run went across rather than dipping.** One crossing is
         // a boundary that ends on the far side and the walk has it already;
         // none at all, or the one a straight cut always answers, is nothing to
@@ -224,15 +259,19 @@ impl Cut {
     /// which whatever closes the loop has already got. A circle's is not, and a
     /// loop closed without this cuts the corner with a chord — a quarter disc
     /// coming back as the triangle under it.
-    pub(super) fn between(self, from: f64, to: f64, into: &mut Vec<Corner>) {
+    ///
+    /// `false` where there is no such stretch, which only a marched cut has —
+    /// see [`Traced::between`].
+    pub(super) fn between(self, from: f64, to: f64, into: &mut Vec<Corner>) -> bool {
         match self {
             Self::Straight { .. } => {}
             Self::Round(oval) => {
                 let sweep = (to - from).rem_euclid(TAU);
                 let count = arc::chords(oval.half.x, sweep, oval.half.x * ROUNDED);
+                let came = self.came(oval.at(from));
                 into.extend((1..count).map(|step| Corner {
                     at: oval.at(from + sweep * step as f64 / count as f64),
-                    came: self.came(),
+                    came,
                 }));
             }
             // Not wrapped, a wave being open: it runs from one edge of the
@@ -240,9 +279,10 @@ impl Cut {
             Self::Wave(ripple) => {
                 let sweep = to - from;
                 let count = ripple.steps(sweep);
+                let came = self.came(ripple.at(from));
                 into.extend((1..count).map(|step| Corner {
                     at: ripple.at(from + sweep * step as f64 / count as f64),
-                    came: self.came(),
+                    came,
                 }));
             }
             // Wrapped where the loop closes and not where it does not, which
@@ -255,15 +295,20 @@ impl Cut {
                     to - from
                 };
                 let count = bow.steps(sweep);
+                let came = self.came(bow.at(from));
                 into.extend((1..count).map(|step| Corner {
                     at: bow.at(from + sweep * step as f64 / count as f64),
-                    came: self.came(),
+                    came,
                 }));
             }
+            // The piece's own places rather than a shape read at a step, a
+            // marched curve having no formula to read — see [`Traced::lay`].
+            Self::Traced(traced) => return traced.between(from, to, into),
         }
+        true
     }
 
-    /// The cut as a loop of corners, wound so the side kept is on its left.
+    /// The cut as loops of corners, each wound so the side kept is on its left.
     ///
     /// **Appends nothing for a cut that is not closed**, which is not a loop
     /// and cannot bound anything on its own.
@@ -273,24 +318,29 @@ impl Cut {
     /// falls in and how much one covers; the *body* takes its curve from the
     /// meeting that produced the cut and never from here — see
     /// `.notes/KERNEL.md` §7.4.
-    pub(super) fn walk(self, into: &mut Vec<Corner>) {
+    pub(super) fn walk(self, into: &mut Loops<Corner>) {
         match self {
-            Self::Round(oval) => {
+            Self::Round(oval) => into.add(|write| {
                 let count = arc::chords(oval.half.x, TAU, oval.half.x * ROUNDED);
-                into.reserve_exact(count);
-                into.extend((0..count).map(|step| Corner {
+                let came = self.came(oval.at(0.0));
+                write.reserve_exact(count);
+                write.extend((0..count).map(|step| Corner {
                     at: oval.at(TAU * step as f64 / count as f64),
-                    came: self.came(),
+                    came,
                 }));
-            }
-            Self::Bow(bow) if bow.closed() => {
+            }),
+            Self::Bow(bow) if bow.closed() => into.add(|write| {
                 let count = bow.steps(TAU);
-                into.reserve_exact(count);
-                into.extend((0..count).map(|step| Corner {
+                let came = self.came(bow.at(0.0));
+                write.reserve_exact(count);
+                write.extend((0..count).map(|step| Corner {
                     at: bow.at(TAU * step as f64 / count as f64),
-                    came: self.came(),
+                    came,
                 }));
-            }
+            }),
+            // **Several loops rather than one**, a marched meeting coming in
+            // pieces — see [`Traced`].
+            Self::Traced(traced) => traced.walk(into),
             Self::Straight { .. } | Self::Wave(_) | Self::Bow(_) => {}
         }
     }
@@ -301,10 +351,14 @@ impl Cut {
     /// met once and [`Cut::crossing`] has a better reading of where, so what
     /// this is for — a boundary that crosses the cut and comes back — a line
     /// does not have.
+    ///
+    /// And nothing for a marched one, which is met more times than an inline
+    /// answer holds: both of its callers reach [`Traced`] before they reach
+    /// here.
     fn met(self, from: DVec2, to: DVec2) -> Bowed {
         let mut met = Bowed::none();
         match self {
-            Self::Straight { .. } => {}
+            Self::Straight { .. } | Self::Traced(_) => {}
             Self::Round(oval) => {
                 // In the frame the ellipse is the unit circle in, where the run
                 // is still a straight run and the meeting is still a quadratic.

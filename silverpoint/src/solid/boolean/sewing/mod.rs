@@ -257,7 +257,7 @@ struct Scratch {
     /// see [`Sewing::pin`] — and the angles one closed imprint is broken at,
     /// in the order its loop walks them.
     pinned: Vec<Pinned>,
-    around: Vec<f64>,
+    around: Vec<Pinned>,
     /// The room the validity check works in, held for the reason the rest is.
     checking: Checking,
 }
@@ -288,17 +288,18 @@ impl Sewing {
             into.clear();
             return false;
         }
-        self.link(imprints, into);
+        self.link(imprints, marched, into);
         self.write(into);
+        // **The runs change hands here**, which is after everything that reads
+        // them from the operation and before anything that reads them off the
+        // body: what sorts the shells below sounds them, and the checker walks
+        // their edges, and an edge on a marched curve has nothing to walk until
+        // the body holds what it is made of.
+        into.topology_mut().trade_marched(marched);
         if !self.gather(into) {
             into.clear();
             return false;
         }
-        // **The runs change hands here**, which is after everything above has
-        // read them and before anything below does: the checker walks the
-        // body's own edges, and an edge on a marched curve has nothing to walk
-        // until the body holds what it is made of.
-        into.topology_mut().trade_marched(marched);
         if cfg!(debug_assertions) {
             self.scratch.checking.run(into);
         }
@@ -427,7 +428,13 @@ impl Sewing {
     }
 
     /// The places another face has already put a vertex along `curve` between
-    /// `bounds`, as parameters and in the order the run walks them.
+    /// `bounds`, in the order the run walks them.
+    ///
+    /// **The place a face pinned rather than the curve read at its parameter**,
+    /// which is one thing for every exact curve and two for a marched one: a
+    /// place read back off a run lands on the chord between two of its samples,
+    /// a sagitta off the place another face put there. Read that way the two
+    /// faces meet at two vertices a chord apart and the shell never closes.
     ///
     /// **A run of one arc is one edge only where nothing else broke it.** The
     /// wall of a shaft is two faces of one cylinder split at a seam, so the rim
@@ -455,12 +462,19 @@ impl Sewing {
             // to run anywhere.
             let place = pinned.along + TAU * ((lo - pinned.along) / TAU).ceil();
             if place < hi {
-                around.push(place);
+                around.push(Pinned {
+                    along: place,
+                    ..*pinned
+                });
             }
         }
         // Lifting turns the order the places arrived in, which was the curve's
         // own, into that order begun somewhere else along it.
-        around.sort_by(|one, two| one.partial_cmp(two).expect("an angle is finite"));
+        around.sort_by(|one, two| {
+            one.along
+                .partial_cmp(&two.along)
+                .expect("an angle is finite")
+        });
         if to < from {
             around.reverse();
         }
@@ -497,9 +511,16 @@ impl Sewing {
         around.clear();
         // Already in the order the curve runs, which is what [`Sewing::pin`]
         // left them in — so there is nothing to sort here.
-        around.extend(placed_on(pinned, lies).iter().map(|it| it.along));
+        around.extend_from_slice(placed_on(pinned, lies));
+        // Nowhere else broke it, so it is split at its own nought and half turn
+        // — which no other face has a vertex at, so the place is read off the
+        // curve rather than carried in from one.
         if around.is_empty() {
-            around.extend([0.0, PI]);
+            around.extend([0.0, PI].map(|along| Pinned {
+                curve: lies,
+                at: curve.at(along, marched),
+                along,
+            }));
         }
         // Which way the loop goes round the curve, off the flattening that is
         // about to be thrown away — the arcs have to be walked the way the
@@ -520,8 +541,9 @@ impl Sewing {
             self.scratch.around.reverse();
         }
         for which in 0..self.scratch.around.len() {
-            let at = self.scratch.around[which];
-            let next = self.scratch.around[(which + 1) % self.scratch.around.len()];
+            let broke = self.scratch.around[which];
+            let at = broke.along;
+            let next = self.scratch.around[(which + 1) % self.scratch.around.len()].along;
             // One place is broken nowhere, so the arc leaving it is the whole
             // turn; the difference would read as nought.
             let step = match self.scratch.around.len() {
@@ -530,7 +552,7 @@ impl Sewing {
                 _ if forward => (next - at).rem_euclid(TAU),
                 _ => -((at - next).rem_euclid(TAU)),
             };
-            let vertex = self.vertex(curve.at(at, marched), into);
+            let vertex = self.vertex(broke.at, into);
             self.walks.push(Stepped {
                 vertex,
                 along: Runs::Arc {
@@ -623,16 +645,16 @@ impl Sewing {
                         self.broken(run, imprints, marched, bounds);
                         let mut from = bounds[0];
                         for piece in 0..self.scratch.around.len() {
-                            let to = self.scratch.around[piece];
+                            let broke = self.scratch.around[piece];
                             self.walks.push(Stepped {
                                 vertex,
                                 along: Runs::Arc {
                                     run,
-                                    bounds: [from, to],
+                                    bounds: [from, broke.along],
                                 },
                             });
-                            vertex = self.vertex(curve.at(to, marched), into);
-                            from = to;
+                            vertex = self.vertex(broke.at, into);
+                            from = broke.along;
                         }
                         Runs::Arc {
                             run,
@@ -811,7 +833,7 @@ impl Sewing {
     }
 
     /// Make the edges, now that each knows both the faces that use it.
-    fn link(&mut self, imprints: &Imprints, into: &mut Body) {
+    fn link(&mut self, imprints: &Imprints, marched: &Marchings, into: &mut Body) {
         self.edges.clear();
         for join in &self.joins {
             let between = join
@@ -844,6 +866,13 @@ impl Sewing {
                     [0.0, here.distance(there)],
                 ),
             };
+            // **A marched edge is as wide as its own walk**, which is the
+            // fitted tier's bargain read out loud: the curve is a run of chords
+            // and a place read off one stands a sagitta from the true curve,
+            // where the vertices at its ends are exact crossings of two
+            // surfaces. So the edge stands for that tube, and the balls at its
+            // ends are widened to hold it.
+            let strays = curve.strays(marched);
             let edge = into.topology_mut().add_edge(Edge {
                 curve,
                 bounds,
@@ -851,8 +880,13 @@ impl Sewing {
                 to,
                 between,
                 artificial: smooth,
-                tolerance: PLACED,
+                tolerance: PLACED.max(strays),
             });
+            if strays > 0.0 {
+                for end in [from, to] {
+                    into.topology_mut().widen(end, strays);
+                }
+            }
             self.edges.push(edge);
         }
     }

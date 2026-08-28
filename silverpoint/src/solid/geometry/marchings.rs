@@ -5,10 +5,8 @@
 //! `Copy` value and a run of places is not, so the run lives here and the curve
 //! names it, exactly as a face names the stretch of loops that is its.
 //!
-//! **No production caller yet.** What fills one is the boolean, meeting a pair
-//! it has to march; what reads one is every walk over an edge. Both wait on the
-//! rest of §9.2's list.
-#![allow(dead_code)]
+//! What fills one is the boolean, meeting a pair it has to march; what reads
+//! one is every walk over an edge.
 
 use crate::loops::Loops;
 use glam::DVec3;
@@ -68,6 +66,15 @@ pub(crate) struct Marched {
     pub(crate) reach: f64,
 }
 
+/// Where a run passes nearest a place, and how near it comes.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Nearest {
+    /// The parameter of the nearest place on the run — a whole turn to a lap,
+    /// as [`Marchings::at`] reads it.
+    pub(crate) along: f64,
+    pub(crate) off: f64,
+}
+
 /// Every marched curve a body stands on, laid end to end.
 ///
 /// **Flat, so that nothing an arena holds owns a heap block.** A body is
@@ -87,6 +94,11 @@ impl Marchings {
     /// Forget every run, keeping the room they took.
     pub(crate) fn clear(&mut self) {
         self.runs.clear();
+    }
+
+    /// How many runs are filed, which is the number the next one takes.
+    pub(crate) fn len(&self) -> u32 {
+        self.runs.len() as u32
     }
 
     /// File `walked` as a run of its own, no chord of it straying further than
@@ -111,7 +123,7 @@ impl Marchings {
             self.filing.push(Sample { at, round });
             last = Some(at);
         }
-        let run = self.runs.len() as u32;
+        let run = self.len();
         self.runs
             .push_by(Strayed { most, round, reach }, &self.filing);
         run
@@ -120,6 +132,18 @@ impl Marchings {
     /// What the run at `run` comes to as a whole.
     pub(crate) fn strayed(&self, run: u32) -> Strayed {
         *self.runs.by(run as usize)
+    }
+
+    /// How far the furthest chord of any run filed here strays from the curve
+    /// it was walked on, and nought where none is filed.
+    ///
+    /// **The bound §4.1 says a fitted result carries**, gathered over the whole
+    /// store: a body's own is the worst of the curves it stands on, there being
+    /// no reading of it finer than its coarsest edge.
+    pub(crate) fn strays(&self) -> f64 {
+        (0..self.len())
+            .map(|run| self.strayed(run).most)
+            .fold(0.0, f64::max)
     }
 
     /// Where the parameter `t` lands on the run at `run`.
@@ -149,16 +173,27 @@ impl Marchings {
 
     /// Which parameter puts the run at `run` at `at`.
     ///
+    /// The place has to be on the run, which every caller has — see
+    /// [`Curve::along`](super::curve::Curve::along), where that rule is stated.
+    pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
+        self.nearest(run, at).along
+    }
+
+    /// How near the run at `run` passes `at`, and at what parameter.
+    ///
     /// **Walked rather than searched**, and that is what caps how finely a run
     /// may be laid down: a place says nothing about where round it stands, so
     /// the chord nearest it is every chord. See `.notes/KERNEL.md` §9.2, where
     /// the two ways out of that are named.
     ///
-    /// The place has to be on the run, which every caller has — see
-    /// [`Curve::along`](super::curve::Curve::along), where that rule is stated.
-    pub(crate) fn along(&self, run: u32, at: DVec3) -> f64 {
+    /// How far off is what tells one run of a meeting from another, several
+    /// runs being one cut — see the boolean's own `Traced`.
+    pub(crate) fn nearest(&self, run: u32, at: DVec3) -> Nearest {
         let (samples, strayed) = (self.runs.get(run as usize), self.strayed(run));
-        let mut found = (f64::INFINITY, 0.0);
+        let mut found = Nearest {
+            along: 0.0,
+            off: f64::INFINITY,
+        };
         for pair in samples.windows(2) {
             let (from, along) = (pair[0], pair[1].at - pair[0].at);
             let chord = along.length_squared();
@@ -167,15 +202,40 @@ impl Marchings {
             } else {
                 ((at - from.at).dot(along) / chord).clamp(0.0, 1.0)
             };
-            let off = at.distance_squared(from.at + along * share);
-            if off < found.0 {
-                found = (off, from.round + share * chord.sqrt());
+            let off = at.distance(from.at + along * share);
+            if off < found.off {
+                found = Nearest {
+                    along: from.round + share * chord.sqrt(),
+                    off,
+                };
             }
         }
-        if strayed.round == 0.0 {
-            return 0.0;
+        if strayed.round != 0.0 {
+            found.along *= TAU / strayed.round;
+        } else {
+            found.along = 0.0;
         }
-        TAU * found.1 / strayed.round
+        found
+    }
+
+    /// Every place of the run at `run`, with the parameter it stands at.
+    ///
+    /// **In the order it was walked**, which is what lets a reader lay corners
+    /// down along it without asking where each of them stands: a parameter read
+    /// off a place is a walk of the whole run — see [`Marchings::along`] — and
+    /// read out here it is a division.
+    ///
+    /// The place it began at stands at the end as well, at a whole turn.
+    pub(crate) fn sampled(&self, run: u32) -> impl Iterator<Item = (f64, DVec3)> {
+        let (samples, strayed) = (self.runs.get(run as usize), self.strayed(run));
+        samples.iter().map(move |sample| {
+            let along = if strayed.round == 0.0 {
+                0.0
+            } else {
+                TAU * sample.round / strayed.round
+            };
+            (along, sample.at)
+        })
     }
 
     /// How many chords a stretch of `span` parameter of the run at `run` is

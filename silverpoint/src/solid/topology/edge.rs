@@ -50,8 +50,12 @@ pub(crate) struct Edge {
     /// The radius of the tube this edge stands for.
     ///
     /// Parasolid's tube, and the middle rung of the ladder: at most its
-    /// vertices' tolerance and at least its faces'. Zero wherever both faces
-    /// are exact, which today is everywhere.
+    /// vertices' tolerance and at least its faces'.
+    ///
+    /// A place over the exact tier, the curve being written down and read back
+    /// to a rounding. Over the fitted tier it is the sagitta the curve was
+    /// walked at — see [`Curve::strays`](crate::solid::geometry::curve::Curve)
+    /// — which is what drags the vertices at its ends out to hold it.
     pub(crate) tolerance: f64,
 }
 

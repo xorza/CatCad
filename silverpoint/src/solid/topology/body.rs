@@ -83,6 +83,20 @@ impl Body {
         self.topology.faces().all(|(_, face)| face.surface.exact())
     }
 
+    /// How far the worst edge of it strays from the curve it lies on.
+    ///
+    /// **What [`Body::exact`] answers `false` for, in a number.** An exact body
+    /// strays nowhere and answers nought; one with a marched curve in it
+    /// answers the sagitta that curve was walked at, which is fixed where it
+    /// was laid down and cannot be refined afterwards: nothing that reads a
+    /// marched curve holds the surfaces it would take to walk it again.
+    ///
+    /// Nought is not the same claim as [`Body::exact`]: a body may stand on a
+    /// torus, and so be inexact, while every edge of it is a circle.
+    pub fn strays(&self) -> f64 {
+        self.topology.marched().strays()
+    }
+
     /// The pieces of surface `named` covers — several where one face of the
     /// body comes in disjoint patches.
     pub(crate) fn patches(&self, named: Named) -> impl Iterator<Item = (FaceId, &Face)> {

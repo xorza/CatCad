@@ -11,11 +11,6 @@
 //! reducible table strikes one shelf up. What the pairs share is the *shape* of
 //! the answer rather than its arithmetic — see [`Reading`].
 //!
-//! **No production caller yet**, and the reason is the one
-//! [`Marching`](super::marching::Marching) gives: what a walk lays down is a run
-//! of places, and no `Curve` can carry one until there is an arena to put it in.
-#![allow(dead_code)]
-
 use crate::inline::Inline;
 use crate::math::sinusoid;
 use crate::number::predicate;
@@ -33,15 +28,17 @@ use std::f64::consts::TAU;
 /// leaves both stretches either side of it holding, and eight is what that
 /// allows. See [`Reading::ends`], where those ends are laid.
 ///
-/// Nothing for a pair no reading is written for, and nothing where the two do
-/// not meet at all. A coaxial pair is not here: it reduces to circles outright
-/// and never wants walking — see
-/// [`Meeting::coaxial`](crate::solid::meeting::Meeting).
-pub(crate) fn seeded(surface: &Surface, torus: &Torus) -> Inline<DVec3, 8> {
+/// **`None` for a pair no reading is written for, and none of them where the
+/// two genuinely do not meet.** Those are two answers and not one: what asks is
+/// a boolean that has already been told the pair meets somewhere unwritable, so
+/// a pair nobody can seed has to refuse it where a pair that misses divides
+/// nothing and is no trouble at all.
+///
+/// A coaxial pair is not here: it reduces to circles outright and never wants
+/// walking — see [`Meeting::coaxial`](crate::solid::meeting::Meeting).
+pub(crate) fn seeded(surface: &Surface, torus: &Torus) -> Option<Inline<DVec3, 8>> {
     let mut found = Inline::none();
-    let Some(reading) = Reading::of(surface, torus) else {
-        return found;
-    };
+    let reading = Reading::of(surface, torus)?;
     let ends = reading.ends();
     let ends = ends.all();
     // **No end anywhere is its own answer.** The curve then covers every angle
@@ -52,7 +49,7 @@ pub(crate) fn seeded(surface: &Surface, torus: &Torus) -> Inline<DVec3, 8> {
                 found.push(at);
             }
         }
-        return found;
+        return Some(found);
     }
     for step in 0..ends.len() {
         let (from, to) = (ends[step], ends[(step + 1) % ends.len()]);
@@ -60,7 +57,7 @@ pub(crate) fn seeded(surface: &Surface, torus: &Torus) -> Inline<DVec3, 8> {
             found.push(at);
         }
     }
-    found
+    Some(found)
 }
 
 /// What a surface comes to in a torus's own two angles.
@@ -271,7 +268,7 @@ mod tests {
         let torus = ring();
         let round = Surface::Fitted(Fitted::Torus(torus));
         let reading = Reading::of(surface, &torus).expect("the pair has a reading");
-        let found = seeded(surface, &torus);
+        let found = seeded(surface, &torus).expect("the pair has a reading");
         assert!(!found.all().is_empty(), "{what}: nothing was seeded");
         let mut marching = Marching::default();
         let mut walked = Vec::new();
@@ -372,7 +369,7 @@ mod tests {
         let inside = 0.05;
         let out = torus.major + torus.minor - inside;
         let grazing = facing(DVec3::X * out, DVec3::X);
-        let found = seeded(&grazing, &torus);
+        let found = seeded(&grazing, &torus).expect("a plane inside the equator has a reading");
         assert_eq!(found.all().len(), 1, "{:?}", found.all());
 
         let round = Surface::Fitted(Fitted::Torus(torus));
@@ -423,6 +420,7 @@ mod tests {
         for (got, want) in ends.all().iter().zip(want) {
             assert!((got - want).abs() < 1e-12, "{:?} misses {want}", ends.all());
         }
-        assert_eq!(seeded(&rod, &torus).all().len(), 2, "one piece each way");
+        let found = seeded(&rod, &torus).expect("a parallel rod has a reading");
+        assert_eq!(found.all().len(), 2, "one piece each way");
     }
 }
