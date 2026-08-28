@@ -1616,11 +1616,18 @@ own handle the way a region is named by its bounds: so it survives the geometry
 moving and being cut into pieces, one drawing holds both, and a drag through the
 sketch carries the axis along with the profile.
 
-**Two picks and no form.** Every other thing the bar builds takes picks and then
-a *number*, and a whole turn asks for none — so what is picked says everything
-and the press is the whole of the gesture. It joins, that being what a second
-solid means unless somebody says otherwise; what a revolve does with the solid
-standing before it is the one thing a form is still for.
+**Two picks and no number.** Every other form takes picks and then a *number*,
+and a whole turn asks for none — so the ring is on screen whole from the moment
+the form opens, and the one thing left to choose is what it does to the model.
+It opens on a join, which is what a second solid means unless somebody says
+otherwise, and it is answered by its own button rather than by an Enter it has
+no field to take.
+
+*Which cost the form one rule and bought it a better one.* A form asking for
+nothing used to be a compile error, because one would stand on the drawing with
+no way to be answered. That was two claims in one: a form with no field is fine
+where it carries its own buttons, and a form dismissed by clicking away is what
+must not be empty. The two are asked together now.
 
 **And one word covers both sweeps.** What a step does to a region is
 `timeline::Sweep` — carried a distance, or spun about a line — resolved where

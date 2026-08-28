@@ -4,6 +4,7 @@ use crate::build::Build;
 use crate::document::Document;
 use crate::model::Models;
 use crate::paint::growing::*;
+use crate::timeline::Sweep;
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
 use glam::DVec2;
@@ -93,7 +94,7 @@ fn shown(staged: &Staged, distance: f64, operation: Operation) -> Shown {
     let deciding = Growing {
         sketch: staged.tool,
         region: 0,
-        distance,
+        sweep: Sweep::Carried(distance),
         operation,
     }
     .body(
@@ -197,7 +198,7 @@ fn a_region_that_has_gone_shows_nothing() {
     let deciding = Growing {
         sketch: staged.tool,
         region: 7,
-        distance: 4.0,
+        sweep: Sweep::Carried(4.0),
         operation: Operation::Cut,
     }
     .body(

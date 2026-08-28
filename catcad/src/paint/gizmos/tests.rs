@@ -5,6 +5,7 @@ use crate::look::Theme;
 use crate::paint::growing::Growing;
 use crate::paint::{MARK_FONT, redraw};
 use crate::preview::Preview;
+use crate::timeline::Sweep;
 use aperture::Scene;
 use silverpoint::{Along, Dimension, Operation, Sketch};
 
@@ -183,7 +184,7 @@ fn the_depth_arrow_turns_its_face_to_the_camera() {
         growing: Some(Growing {
             sketch: document.first_sketch(),
             region: 0,
-            distance: 0.5,
+            sweep: Sweep::Carried(0.5),
             operation: Operation::Join,
         }),
         ..Showing::default()

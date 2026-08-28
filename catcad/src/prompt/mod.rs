@@ -20,7 +20,7 @@ use palantir::{
     Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing,
     Text, TextEdit, TextRun, TextWrap, Ui, VAlign, WidgetId,
 };
-use silverpoint::{Entity, Operation};
+use silverpoint::{Entity, Operation, SegmentId};
 use std::fmt::Write;
 
 use crate::drawing::anchor::Anchor;
@@ -32,7 +32,7 @@ use crate::paint::growing::Growing;
 use crate::paint::{DECIMALS, MARK_FONT};
 use crate::part::Part;
 use crate::profile::Profile;
-use crate::timeline::FeatureId;
+use crate::timeline::{Axle, FeatureId, Sweep};
 use crate::tool::Tool;
 
 pub(crate) mod glyphs;
@@ -85,6 +85,21 @@ pub(crate) enum Asking {
         profile: Profile,
         operation: Operation,
     },
+    /// A solid being spun off a region, *before* it reaches the timeline.
+    ///
+    /// The extrude's twin, and it holds a [`Profile`] for the same reason: the
+    /// viewport stays live under an open form, so a position would name a
+    /// different region by the time it committed.
+    ///
+    /// **No field at all**, which is what a whole turn asks for: there is no
+    /// number to type. What is left for the form is the one choice a revolve
+    /// still has — what it does with the solid standing before it — and its own
+    /// two buttons, there being no Enter on an empty form to commit with.
+    Revolve {
+        profile: Profile,
+        axis: SegmentId,
+        operation: Operation,
+    },
 }
 
 impl Asking {
@@ -99,6 +114,18 @@ impl Asking {
     fn extruding(&self) -> Option<&Profile> {
         match self {
             Asking::Extrude { profile, .. } => Some(profile),
+            Asking::Dimension { .. } | Asking::Circle { .. } | Asking::Revolve { .. } => None,
+        }
+    }
+
+    /// The region a solid is being raised from, whichever way it is raised.
+    ///
+    /// Wider than [`Asking::extruding`] beside it, and the two are not one:
+    /// what a *depth arrow* needs is a depth, which only an extrude has, where
+    /// what the drawing shows is a solid either way.
+    fn raising(&self) -> Option<&Profile> {
+        match self {
+            Asking::Extrude { profile, .. } | Asking::Revolve { profile, .. } => Some(profile),
             Asking::Dimension { .. } | Asking::Circle { .. } => None,
         }
     }
@@ -348,6 +375,21 @@ impl Prompt {
                 },
                 [("Depth", Seed::Offered(0.0))],
             ),
+            // No field at all, a whole turn asking for no number — so the ring
+            // is on screen whole from the moment the form opens, and what is
+            // still being decided is what it does to the model.
+            Opening::Revolve {
+                sketch,
+                region,
+                axis,
+            } => Self::on(
+                Asking::Revolve {
+                    profile: models.at(sketch)?.profile(region),
+                    axis,
+                    operation: Operation::Join,
+                },
+                [],
+            ),
         })
     }
 
@@ -359,17 +401,17 @@ impl Prompt {
     /// pair the match then builds from, because the seeds are arrays and two
     /// arms of different *lengths* would not agree on a type.
     ///
-    /// **An array rather than a slice, so that a form asking for nothing is a
-    /// compile error.** One that did would stand on the drawing with nothing to
-    /// type into and no way to be answered — and it is what lets
+    /// **A form with no field has to carry its own way out**, which is the one
+    /// thing asserted here. Nothing to type into is fine — a whole turn asks
+    /// for no number — but a form dismissed by *clicking away* and holding no
+    /// button would be one nothing could answer. That is [`Prompt::blurs`], so
+    /// the two are asked together.
+    ///
+    /// And such a form stands *beside* what it is about, never over it:
     /// [`Prompt::over`] and [`Prompt::run`] index the first field rather than
-    /// carry an `Option` for a state that cannot arise. The length is in the
-    /// type, so the check below runs when this is monomorphised and costs
-    /// nothing at all afterwards; a `debug_assert` here would have left the
-    /// release build believing a promise nothing kept.
+    /// carry an `Option` for a state a dimension cannot be in.
     fn on<const N: usize>(about: Asking, values: [(&'static str, Seed); N]) -> Self {
-        const { assert!(N > 0, "a form that asks for nothing") };
-        Self {
+        let made = Self {
             about,
             fields: values
                 .iter()
@@ -390,7 +432,12 @@ impl Prompt {
                 })
                 .collect(),
             shown: false,
-        }
+        };
+        debug_assert!(
+            N > 0 || !made.blurs(),
+            "a form that asks for nothing and has no button to answer with",
+        );
+        made
     }
 
     /// What the form is about.
@@ -432,7 +479,7 @@ impl Prompt {
     pub(crate) fn marks(&self) -> Option<Part> {
         match &self.about {
             Asking::Dimension { part } => Some(*part),
-            Asking::Extrude { .. } | Asking::Circle { .. } => None,
+            Asking::Extrude { .. } | Asking::Circle { .. } | Asking::Revolve { .. } => None,
         }
     }
 
@@ -449,15 +496,31 @@ impl Prompt {
     /// what the [`Profile`] is for: a position is only good for the arrangement
     /// it was read from, and a form outlives several.
     pub(crate) fn growing(&self, models: Models<'_>) -> Option<Growing> {
-        let Asking::Extrude { profile, operation } = &self.about else {
-            return None;
+        let profile = self.about.raising()?;
+        let sweep = match &self.about {
+            Asking::Extrude { .. } => Sweep::Carried(self.shows(0)?),
+            Asking::Revolve { axis, .. } => Sweep::Spun(Axle::of(
+                models.at(profile.sketch())?.drawing().sketch(),
+                *axis,
+            )),
+            Asking::Dimension { .. } | Asking::Circle { .. } => return None,
         };
         Some(Growing {
             sketch: profile.sketch(),
             region: profile.face_of(models)?,
-            distance: self.shows(0)?,
-            operation: *operation,
+            sweep,
+            operation: self.doing()?,
         })
+    }
+
+    /// What the solid this form is deciding would do to what stands.
+    fn doing(&self) -> Option<Operation> {
+        match self.about {
+            Asking::Extrude { operation, .. } | Asking::Revolve { operation, .. } => {
+                Some(operation)
+            }
+            Asking::Dimension { .. } | Asking::Circle { .. } => None,
+        }
     }
 
     /// What the `nth` field says as a number, or `None` where it says something
@@ -599,7 +662,7 @@ impl Prompt {
     fn blurs(&self) -> bool {
         match self.about {
             Asking::Dimension { .. } => true,
-            Asking::Extrude { .. } | Asking::Circle { .. } => false,
+            Asking::Extrude { .. } | Asking::Circle { .. } | Asking::Revolve { .. } => false,
         }
     }
 
@@ -685,6 +748,25 @@ impl Prompt {
                     sketch,
                     region,
                     distance,
+                    operation: *operation,
+                });
+            }
+            // The same, and simpler for having nothing to read off a field: a
+            // whole turn asks for no number, so what is settled here is the
+            // one choice the form was open for.
+            Asking::Revolve {
+                profile,
+                axis,
+                operation,
+            } => {
+                let sketch = profile.sketch();
+                let Some(region) = profile.face_of(models) else {
+                    return;
+                };
+                intents.push(Change::Revolve {
+                    sketch,
+                    region,
+                    axis: *axis,
                     operation: *operation,
                 });
             }
@@ -850,7 +932,9 @@ impl Prompt {
         // fields, and the row below writes one while reading the other.
         let Self { about, fields, .. } = self;
         let doing = match about {
-            Asking::Extrude { operation, .. } => Some(operation),
+            Asking::Extrude { operation, .. } | Asking::Revolve { operation, .. } => {
+                Some(operation)
+            }
             Asking::Dimension { .. } | Asking::Circle { .. } => None,
         };
         let mut said = Said::default();
@@ -865,7 +949,10 @@ impl Prompt {
                 // it was by the time the press lands. A form that is dismissed
                 // by *clicking away* is the opposite case and must not be held,
                 // which is the same question [`Prompt::blurs`] answers.
-                if opening || !blurs {
+                // Nothing to focus on a form with no field, and asking every
+                // frame for a widget that is not there would take focus off the
+                // buttons that *are* — which for a revolve are the only way out.
+                if (opening || !blurs) && !fields.is_empty() {
                     ui.request_focus(Some(Self::field_id(0)));
                 }
                 // A column, so the answers sit under what they answer rather
@@ -993,6 +1080,15 @@ pub(crate) mod internals {
         /// glyphs are.
         pub(crate) fn operation_id(glyph: &str) -> WidgetId {
             Self::doing_id(glyph)
+        }
+
+        /// What the button answering with `glyph` is recorded under.
+        ///
+        /// A form with a field is answered with Enter, which a harness types.
+        /// One with none — a whole turn asks for no number — can only be
+        /// answered by pressing what it draws.
+        pub(crate) fn answering_id(glyph: &str) -> WidgetId {
+            Self::answer_id(glyph)
         }
     }
 }

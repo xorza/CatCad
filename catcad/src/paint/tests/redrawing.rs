@@ -10,6 +10,7 @@ use crate::paint::tests::fixtures::{controls_untouched, stamp, stamp_controls, u
 use crate::paint::*;
 use crate::part::Part;
 use crate::preview::{Ends, Preview};
+use crate::timeline::Sweep;
 use aperture::{Camera, Viewport};
 use aperture::{Scene, Tag};
 use glam::UVec2;
@@ -129,7 +130,7 @@ fn a_redraw_makes_again_only_the_stages_whose_own_inputs_moved() {
             growing: Some(Growing {
                 sketch: editing,
                 region: 0,
-                distance: 1.0,
+                sweep: Sweep::Carried(1.0),
                 operation: Operation::Join,
             }),
             ..Showing::default()
@@ -212,7 +213,7 @@ fn a_stage_rewritten_on_its_own_leaves_every_name_where_it_was() {
             growing: Some(Growing {
                 sketch: editing,
                 region: 0,
-                distance: 1.0,
+                sweep: Sweep::Carried(1.0),
                 operation: Operation::Join,
             }),
             ..Showing::default()

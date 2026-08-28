@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 use glam::DVec2;
-use silverpoint::{Operation, Plane, SegmentId, Step};
+use silverpoint::{Operation, Plane, SegmentId, Sketch, Step};
 
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
@@ -687,17 +687,11 @@ impl Timeline {
     /// where the sketch is: what crosses into [`Build`](crate::build::Build) is
     /// what each step names and nothing else, and a segment's two ends are the
     /// drawing's to answer for.
-    ///
-    /// Walked rather than looked up, a sketch offering no reading of a handle
-    /// that may have been rubbed out — and a handle that has been is exactly
-    /// the `None` here. One walk per revolve per rebuild.
     fn axle(&self, profile: &Profile, axis: SegmentId) -> Option<Axle> {
         let Feature::Sketch { sketch, .. } = self.feature(profile.sketch()) else {
             return None;
         };
-        let (_, segment) = sketch.segments().find(|(at, _)| *at == axis)?;
-        let [at, to] = [segment.a, segment.b].map(|end| sketch.point(end).position);
-        Some(Axle { at, along: to - at })
+        Axle::of(sketch, axis)
     }
 
     /// Which plane the sketch at `at` is drawn on.
@@ -846,6 +840,23 @@ pub(crate) struct Axle {
     pub(crate) at: DVec2,
     /// Tail to head, and not unit — which is the kernel's to normalize.
     pub(crate) along: DVec2,
+}
+
+impl Axle {
+    /// The line the segment at `axis` of `sketch` is, or `None` where that
+    /// drawing no longer holds it.
+    ///
+    /// **Walked rather than looked up**, a sketch offering no reading of a
+    /// handle that may have been rubbed out — and a handle that has been is
+    /// exactly the `None` here. One walk per revolve per rebuild.
+    ///
+    /// Here rather than at either caller because two want it: the timeline,
+    /// resolving a step, and the form still deciding what a revolve does.
+    pub(crate) fn of(sketch: &Sketch, axis: SegmentId) -> Option<Self> {
+        let (_, segment) = sketch.segments().find(|(at, _)| *at == axis)?;
+        let [at, to] = [segment.a, segment.b].map(|end| sketch.point(end).position);
+        Some(Self { at, along: to - at })
+    }
 }
 
 /// One step of a timeline, and the handle that names it.

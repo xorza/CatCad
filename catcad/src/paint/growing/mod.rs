@@ -1,6 +1,6 @@
 //! A solid the user is still deciding the depth of.
 
-use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Step};
+use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Step};
 
 use crate::build::bodied;
 use crate::lens::Lens;
@@ -8,7 +8,7 @@ use crate::model::Models;
 use crate::paint::LIVE_FACES;
 use crate::paint::cut::Cut;
 use crate::paint::gizmos::Carried;
-use crate::timeline::FeatureId;
+use crate::timeline::{FeatureId, Sweep};
 
 /// The step a solid nobody has taken one for is grown by.
 ///
@@ -59,16 +59,18 @@ pub(super) struct Raising<'a> {
 /// A solid being decided: a region, how deep it currently reads, and what it
 /// does to what stands.
 ///
-/// What a form asking for a depth hands the drawing, so the solid is on screen
-/// from the moment it is asked for. Everything a body is built from is here —
-/// an arrangement, a region, a plane, a distance and an operation — so all of
-/// this is drawable without a step existing, and cancelling the form leaves the
+/// What an open form hands the drawing, so the solid is on screen from the
+/// moment it is asked for. Everything a body is built from is here — an
+/// arrangement, a region, a plane, a sweep and an operation — so all of this is
+/// drawable without a step existing, and cancelling the form leaves the
 /// timeline never having heard of it.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Growing {
     pub(crate) sketch: FeatureId,
     pub(crate) region: usize,
-    pub(crate) distance: f64,
+    /// What is done to that region, resolved — see [`Sweep`], which the
+    /// timeline's own steps are read through as well.
+    pub(crate) sweep: Sweep,
     pub(crate) operation: Operation,
 }
 
@@ -88,11 +90,17 @@ impl Growing {
     /// camera: how far the depth carries the arrow, and which way it is laid to
     /// face the viewer.
     pub(super) fn carried(self, models: Models<'_>, cut: &Cut, lens: Lens) -> Option<Carried> {
+        // A whole turn has nothing to drag. What a revolve's own handle would
+        // move is the line it spins about, which is a segment of a drawing and
+        // is dragged there.
+        let Sweep::Carried(distance) = self.sweep else {
+            return None;
+        };
         let model = models.at(self.sketch)?;
         let plane = model.plane();
         let normal = plane.normal().as_vec3();
         Some(Carried::new(
-            cut.inside() + normal * self.distance as f32,
+            cut.inside() + normal * distance as f32,
             normal,
             // Square to the view rather than to the sketch: the outline is
             // flat, and one laid out in a plane of the sketch's own collapses
@@ -146,14 +154,35 @@ impl Growing {
             boolean,
             raised,
         } = raising;
-        let extrusion = Extrusion::new(
-            model.arrangement(),
-            self.region,
-            model.plane(),
-            self.distance,
-            UNTAKEN,
-        );
-        builder.extrude(&extrusion, raised);
+        match self.sweep {
+            Sweep::Carried(distance) => {
+                let extrusion = Extrusion::new(
+                    model.arrangement(),
+                    self.region,
+                    model.plane(),
+                    distance,
+                    UNTAKEN,
+                );
+                builder.extrude(&extrusion, raised);
+            }
+            // The line has been rubbed out from under the form, which is
+            // nothing to show and the last one must not be left standing.
+            Sweep::Spun(None) => {
+                into.clear();
+                return Deciding::Nothing;
+            }
+            Sweep::Spun(Some(axle)) => {
+                let revolution = Revolution::new(
+                    model.arrangement(),
+                    self.region,
+                    model.plane(),
+                    axle.at,
+                    axle.along,
+                    UNTAKEN,
+                );
+                builder.revolve(&revolution, raised);
+            }
+        }
 
         let standing = models
             .model()

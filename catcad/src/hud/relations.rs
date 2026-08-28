@@ -1,7 +1,7 @@
 //! What can be asked of what is picked out, along the bottom.
 
 use palantir::{Align, DragValue, Ui, WidgetId};
-use silverpoint::{Constraint, ConstraintId, Entity, Operation, SegmentId};
+use silverpoint::{Constraint, ConstraintId, Entity, SegmentId};
 
 use crate::hud::chip::Chip;
 use crate::hud::pill::{self, Pill};
@@ -135,11 +135,10 @@ pub(super) fn show(
                     region: growable.region,
                 })));
             }
-            // **Builds rather than asks**, unlike the extrude above — see
-            // [`Change::Revolve`], on why a whole turn opens no form. And it
-            // joins, which is what a second solid means unless somebody says
-            // otherwise: what a revolve does with what stands before it is the
-            // one thing a form would still be for.
+            // Asks rather than builds, as the extrude above does — the ring
+            // appears whole from the moment the form opens, there being no
+            // number to wait for, and the form beside it decides what it does
+            // to the model.
             //
             // The extrude's own glyph until a revolve has one drawn for it, as
             // the recipe's row does — the word is what tells the two apart.
@@ -150,12 +149,11 @@ pub(super) fn show(
                     theme,
                 )
             {
-                intents.push(Change::Revolve {
+                intents.push(Choice::Ask(Some(Opening::Revolve {
                     sketch: spinnable.sketch,
                     region: spinnable.region,
                     axis: spinnable.axis,
-                    operation: Operation::Join,
-                });
+                })));
             }
             if !offers.is_empty()
                 && (startable.is_some()

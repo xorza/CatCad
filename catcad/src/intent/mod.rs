@@ -7,8 +7,9 @@
 
 pub(crate) mod change;
 
-use crate::drawing::anchor::Anchor;
+use silverpoint::SegmentId;
 
+use crate::drawing::anchor::Anchor;
 use crate::intent::change::Change;
 use crate::part::Part;
 use crate::timeline::FeatureId;
@@ -207,6 +208,16 @@ pub(crate) enum Opening {
     /// [`Asking::Extrude`](crate::prompt::Asking) — so this names the region
     /// rather than a step, and cancelling leaves the document untouched.
     Extrude { sketch: FeatureId, region: usize },
+    /// Spin a solid a whole turn off a region, about a line of that drawing.
+    ///
+    /// The extrude's twin above, and it names its region the same way and for
+    /// the same reason. It seeds no number, a whole turn asking for none — so
+    /// the form is open for the one choice a revolve still has.
+    Revolve {
+        sketch: FeatureId,
+        region: usize,
+        axis: SegmentId,
+    },
 }
 
 /// What the application answers, being the one reader that can see all of it at

@@ -744,19 +744,24 @@ fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
     );
 }
 
-/// **Picking a region and a line offers a revolve, and pressing it grows one**
-/// — which is what `.notes/KERNEL.md` §10's first rule owes M6: a step of a
-/// document a user can make.
+/// **Picking a region and a line offers a revolve, and the form settles what it
+/// does** — which is what `.notes/KERNEL.md` §10's first rule owes M6: a step of
+/// a document a user can make.
 ///
-/// **Two picks and no form**, unlike the extrude above. A whole turn asks for
-/// no number, so what is picked says everything and the press is the whole of
-/// the gesture. What the two make of each other is the kernel's to answer, and
-/// it does — see `a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces`.
+/// **Two picks and no number.** A whole turn asks for none, so the ring is on
+/// screen whole from the moment the form opens and the one thing left to choose
+/// is what it does to the model. It opens on a join, as the extrude's form
+/// does, and the cut here is what says the choice reaches the timeline.
 ///
-/// And the step is one a Ctrl+Z takes back, which a creation nothing recorded
-/// would not be.
+/// **And it is answered by its own button**, there being no field to press
+/// Enter in. What the two picks make of each other is the kernel's to answer,
+/// and it does — see
+/// `a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces`.
+///
+/// The step is one a Ctrl+Z takes back, which a creation nothing recorded would
+/// not be.
 #[test]
-fn picking_a_region_and_a_line_offers_a_revolve_and_pressing_it_grows_one() {
+fn picking_a_region_and_a_line_offers_a_revolve_and_the_form_settles_what_it_does() {
     let mut raised = Raised::new();
     let steps = raised.models().chosen().count();
 
@@ -796,6 +801,32 @@ fn picking_a_region_and_a_line_offers_a_revolve_and_pressing_it_grows_one() {
     raised.press(internals::relation("Revolve"));
     raised.frame();
 
+    // The button *asks* rather than builds, as the extrude's does — and what it
+    // asks about is the one thing left to choose, there being no number.
+    assert!(
+        matches!(
+            raised.app.session.prompt().map(Prompt::about),
+            Some(Asking::Revolve {
+                operation: Operation::Join,
+                ..
+            })
+        ),
+        "pressing Revolve opened no form, or opened it on the wrong word: {}",
+        raised.app.status()
+    );
+    assert_eq!(
+        raised.models().chosen().count(),
+        steps,
+        "pressing Revolve reached the document before the form was answered"
+    );
+
+    // The word changed, and then answered by the form's own button — there
+    // being no field to press Enter in.
+    raised.press(Prompt::operation_id(crate::prompt::glyphs::CUTS));
+    raised.frame();
+    raised.press(Prompt::answering_id(crate::prompt::glyphs::CONFIRM));
+    raised.frame();
+
     let (_, feature) = raised
         .models()
         .chosen()
@@ -803,8 +834,15 @@ fn picking_a_region_and_a_line_offers_a_revolve_and_pressing_it_grows_one() {
         .last()
         .expect("pressing Revolve grew no step");
     assert!(
-        matches!(feature, Feature::Revolve { axis: about, .. } if *about == axis),
-        "the line that was picked did not reach the timeline: {feature:?}",
+        matches!(
+            feature,
+            Feature::Revolve {
+                axis: about,
+                operation: Operation::Cut,
+                ..
+            } if *about == axis
+        ),
+        "the pick and the form's own word did not both reach the timeline: {feature:?}",
     );
     assert_eq!(
         raised.models().chosen().count(),
