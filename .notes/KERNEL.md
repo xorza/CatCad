@@ -1217,9 +1217,37 @@ the spike settles is that the easy half is easy and the whole of the difficulty
 is the other three warnings, exactly where the literature says it is.
 
 **Two of those three are no longer the marching's**, the table above answering
-the tangent circle and the bitangent pair outright. What is left of the
-difficulty is the seeding: a small closed loop found or missed by luck, and a
-seed that has to be bisected onto the curve rather than taken at a grid node.
+the tangent circle and the bitangent pair outright.
+
+**And the third is answered for the first pair, in closed form.**
+`meeting::seeding::spiric` hands back one place on *each piece* of what a plane
+and a torus meet in, and both of the spike's warnings go with it. A place of the
+torus stands on the plane exactly where
+`k(major + minor·cos v)·cos(u − phase) = c − minor·m·sin v`, which reads as
+`A(v)·cos(u − phase) = B(v)`: two angles at each `v` where `|B| < A`, one where
+they are equal, none beyond. So the curve is the stretches of `v` where
+`|B| ≤ A`, their ends are `α cos v + β sin v = γ` — four at most, one `acos`
+each — and every stretch carries one closed piece. Where there is no end at all
+the two halves never join and are two pieces, which is a cross drilling's own
+pair of regimes (§9.1) met again.
+
+**Nothing is sampled and nothing is bisected.** The small loop the spike found
+by luck at 512×512 is two `acos` here, and a seed is a place of the torus rather
+than a grid node that has to be walked onto — which is warnings three and four
+together. Held to the ellipse the loop closes on for a plane a twentieth inside
+the outer equator: semi-axes `√(2·minor·d)` and `√(2(major + minor)d)`, matched
+to two parts in a hundred at that depth.
+
+**And held to a sweep that does not ask where the pieces are.** The places of
+the curve at five hundred angles round the tube are had from the same reading
+without its ends, and each has to stand on some loop that was walked — so a
+piece nobody was seeded on shows up as a place far from all of them. That is
+what caught the ends being solved a sign the wrong way round: through the middle
+the equation is symmetric enough to hide it, and one stretch still leaves a
+midpoint on the curve to seed from. Only a plane that leans, stands off the
+middle *and* cuts two stretches tells the two apart.
+
+What is left of the seeding is the other pairs, each its own closed form.
 
 **And the walking is in.** `meeting::marching::Marching` corrects a place onto
 both surfaces at once and steps along the cross of their normals. A place off
@@ -1248,7 +1276,9 @@ spike measured, asserted rather than assumed.
 
 **What the walking has no home for is what it lays down.** A run of places is
 not a `Copy` value, so `Curve` has nowhere to put one — the same arena §9.1 owes
-`Curve::Quartic`, and the two will land together.
+`Curve::Quartic`, and the two will land together. That arena is now what stands
+between a marched curve and a body: the seeding finds the pieces and the walking
+lays them down, and neither can reach the boolean until a curve can carry one.
 
 No *feature* builds a torus yet either — a revolve makes one, and so does a
 plane-cylinder fillet, and neither is written.

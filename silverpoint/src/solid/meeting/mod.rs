@@ -45,6 +45,7 @@ use crate::solid::meeting::chord::Chord;
 use glam::DVec3;
 
 pub(crate) mod marching;
+pub(crate) mod seeding;
 
 mod chord;
 
