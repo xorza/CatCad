@@ -5,8 +5,10 @@
 //! it. The tests in `solid::geometry` hold it up until there is one.
 #![allow(dead_code)]
 
+use crate::number::exact::field::Field;
 use crate::number::exact::rational::Rational;
 use crate::solid::geometry::quadric::Quadric;
+use glam::DVec3;
 
 /// The pencil `λQ₁ + μQ₂` two quadrics span.
 ///
@@ -48,7 +50,10 @@ impl Pencil {
     /// Sampled at `0, ±1, ±2`, because symmetric samples split the form into
     /// its even and odd halves and each half is then two unknowns in two sums.
     pub(crate) fn of(one: Quadric, two: Quadric) -> Self {
-        let at = |lambda: i64| one.summed(&Rational::whole(lambda), &two).determinant();
+        let at = |lambda: i64| {
+            one.summed(&Rational::whole(lambda), &two, &Rational::ONE)
+                .determinant()
+        };
         let whole = Rational::whole;
         let e = at(0);
         let (up, down) = (at(1), at(-1));
@@ -72,9 +77,31 @@ impl Pencil {
         }
     }
 
-    /// The member `λ·Q₁ + Q₂`.
-    pub(crate) fn at(&self, lambda: &Rational) -> Quadric {
-        self.one.summed(lambda, &self.two)
+    /// The member standing at `(λ : μ)`.
+    ///
+    /// Projective, so `(1 : 0)` names the first quadric itself — which is a
+    /// member like any other, and the one every place on `Q₁` picks out.
+    pub(crate) fn at(&self, member: &[Rational; 2]) -> Quadric {
+        let [lambda, mu] = member;
+        self.one.summed(lambda, &self.two, mu)
+    }
+
+    /// Which member holds `place`, as `(λ : μ)`, or `None` where every one of
+    /// them does.
+    ///
+    /// **How a ruled member is found.** The member at `(λ : μ)` comes to
+    /// `λ·Q₁(p) + μ·Q₂(p)` at a place, so the one that holds `p` is
+    /// `(−Q₂(p) : Q₁(p))` and there is nothing to solve. Choosing whole places
+    /// and asking each in turn is the search `.notes/KERNEL.md` §7.3 describes,
+    /// and what it is searching *for* is a member the signature calls ruled —
+    /// which then has a known place on it to parameterize from.
+    ///
+    /// `None` is the place being on both quadrics, and so on the intersection
+    /// itself: every member of the pencil runs through it, and the search
+    /// learns nothing from it.
+    pub(crate) fn through(&self, place: DVec3) -> Option<[Rational; 2]> {
+        let (one, two) = (self.one.on(place), self.two.on(place));
+        (!one.is_zero() || !two.is_zero()).then(|| [-two, one])
     }
 
     /// `det(λQ₁ + μQ₂)`, highest power of `λ` first.

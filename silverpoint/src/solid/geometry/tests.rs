@@ -10,7 +10,7 @@ use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::pencil::Pencil;
-use crate::solid::geometry::quadric::Quadric;
+use crate::solid::geometry::quadric::{Quadric, Signature};
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
 use glam::{DVec2, DVec3};
@@ -953,8 +953,166 @@ fn a_pencil_reads_the_characteristic_form_the_algebra_says() {
         });
         assert_eq!(
             read,
-            pencil.at(&three).determinant(),
+            pencil.at(&[three, Rational::ONE]).determinant(),
             "the form and the member disagree at three",
         );
     }
+}
+
+/// `PᵀQP`, over a basis held by column.
+fn congruent(of: &Quadric, basis: &[[Rational; 4]; 4]) -> [[Rational; 4]; 4] {
+    let stepped: [[Rational; 4]; 4] = std::array::from_fn(|row| {
+        std::array::from_fn(|col| {
+            (0..4).fold(Rational::ZERO, |total, at| {
+                total + of.held(row, at).clone() * basis[col][at].clone()
+            })
+        })
+    });
+    std::array::from_fn(|row| {
+        std::array::from_fn(|col| {
+            (0..4).fold(Rational::ZERO, |total, at| {
+                total + basis[row][at].clone() * stepped[at][col].clone()
+            })
+        })
+    })
+}
+
+/// The quadric a symmetric 4×4 stands for, read off its upper triangle.
+fn quadric(of: &[[Rational; 4]; 4]) -> Quadric {
+    let mut held = Vec::with_capacity(10);
+    for (row, entries) in of.iter().enumerate() {
+        held.extend(entries.iter().skip(row).cloned());
+    }
+    Quadric::over(held.try_into().expect("ten of them"))
+}
+
+/// **A quadric diagonalizes by congruence exactly, and how it leans says
+/// whether it is ruled.**
+///
+/// M3b's third piece — see [`Congruence`](crate::solid::geometry::quadric).
+/// What the algebraic route wants of a pencil is a *ruled* member, and this is
+/// what tells one: a ruled quadric's rulings are lines, a line meets the other
+/// quadric in two places, and those two are the `±√Δ` of the parameterization.
+///
+/// **The claim held over every case is `PᵀQP = D`, exactly.** That is the whole
+/// of what a congruence promises, and nothing weaker is worth asserting: an
+/// elimination that dropped a term would still hand back a plausible diagonal.
+///
+/// The five cases are the five shapes the classification has, and each signature
+/// is read straight off the surface:
+///
+/// - **A sphere** is `diag(1, 1, 1, −r²)` — three and one, and an ellipsoid
+///   holds no line at all.
+/// - **A cylinder** loses its axis direction, so it is two and one over a rank
+///   of three: a cone in projective terms, and ruled by the lines up its wall.
+/// - **A cone** is one and two, ruled through its apex.
+/// - **A plane** is the double plane, rank one, which has nothing to be
+///   even-handed about and is ruled outright.
+/// - **A member of the two-cylinder pencil** — the one holding `(1, 1, 1)`,
+///   which is `diag(7, 5, −2, −10)` — is two and two, the one case a full-rank
+///   quadric is ruled in. That is the member the parameterization is built
+///   through.
+///
+/// **And two planes, which no surface here makes.** `2xy = 0` has nothing on
+/// its diagonal to eliminate with, so the elimination has to add one coordinate
+/// to another before it can start. Hand-computed, that leaves `2u² − v²/2` over
+/// `u = (x+y)/2` and `v = x−y`, which is one and one.
+///
+/// **Sylvester's law of inertia**, last: the same sphere sheared by a whole
+/// matrix of determinant one is a different diagonal and the same signature.
+/// Without it the counts would be an artefact of the order the elimination took
+/// its steps in rather than a property of the surface.
+#[test]
+fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
+    let ball = Quadric::of(&Surface::Sphere(Sphere {
+        axis: upright(),
+        radius: 5.0,
+    }));
+    let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Surface::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, direction, reference),
+            radius,
+        }))
+    };
+    let point = Quadric::of(&Surface::Cone(Cone {
+        axis: upright(),
+        half_angle: FRAC_PI_4,
+    }));
+    let flat = Quadric::of(&Surface::Plane(Plane {
+        origin: DVec3::new(1.0, 2.0, 3.0),
+        ..Plane::GROUND
+    }));
+    let pencil = Pencil::of(pipe(DVec3::Z, DVec3::X, 2.0), pipe(DVec3::X, DVec3::Y, 3.0));
+    let member = pencil.at(&pencil
+        .through(DVec3::ONE)
+        .expect("(1, 1, 1) is on neither cylinder"));
+    // `2xy = 0`, whose only entry is off the diagonal.
+    let crossing = Quadric::over(std::array::from_fn(|at| {
+        if at == 1 {
+            Rational::ONE
+        } else {
+            Rational::ZERO
+        }
+    }));
+
+    for (of, above, below, what) in [
+        (&ball, 3, 1, "a sphere"),
+        (&pipe(DVec3::Z, DVec3::X, 5.0), 2, 1, "a cylinder"),
+        (&point, 1, 2, "a cone"),
+        (&flat, 1, 0, "a plane"),
+        (&member, 2, 2, "the member through (1, 1, 1)"),
+        (&crossing, 1, 1, "two planes crossing"),
+    ] {
+        let found = of.diagonalized();
+        let want: [[Rational; 4]; 4] = std::array::from_fn(|row| {
+            std::array::from_fn(|col| {
+                if row == col {
+                    found.diagonal()[row].clone()
+                } else {
+                    Rational::ZERO
+                }
+            })
+        });
+        assert_eq!(congruent(of, found.basis()), want, "{what}: PᵀQP");
+        assert_eq!(
+            found.signature(),
+            Signature { above, below },
+            "{what}: how it leans",
+        );
+        // Rank four is ruled only at two and two; below it, one of each will do.
+        let ruled = above.min(below) >= (above + below) / 2;
+        assert_eq!(found.signature().ruled(), ruled, "{what}: whether it rules");
+    }
+
+    // The member the pencil found is the one that holds the place it was found
+    // through, which is the whole of what the search is for.
+    assert_eq!(member.on(DVec3::ONE), Rational::ZERO, "the member missed");
+    assert!(
+        member.diagonalized().signature().ruled(),
+        "and is not ruled"
+    );
+
+    // Sylvester: sheared by a whole matrix of determinant one, the sphere keeps
+    // its signature and loses its diagonal.
+    let shear: [[Rational; 4]; 4] = std::array::from_fn(|col| {
+        std::array::from_fn(|row| match (row, col) {
+            _ if row == col => Rational::ONE,
+            (1, 0) | (2, 1) | (3, 2) => Rational::ONE,
+            _ => Rational::ZERO,
+        })
+    });
+    let (upright, sheared) = (
+        ball.diagonalized(),
+        quadric(&congruent(&ball, &shear)).diagonalized(),
+    );
+    assert_ne!(
+        sheared.diagonal(),
+        upright.diagonal(),
+        "the shear changed nothing, so this proves nothing",
+    );
+    assert_eq!(
+        sheared.signature(),
+        upright.signature(),
+        "the signature is not an invariant after all",
+    );
 }

@@ -9,9 +9,11 @@
 //! are what hold it up until there is a caller.
 #![allow(dead_code)]
 
+use crate::number::exact::field::Field;
 use crate::number::exact::rational::Rational;
 use crate::solid::geometry::surface::Surface;
 use glam::DVec3;
+use std::cmp::Ordering;
 
 /// A surface as the symmetric 4×4 matrix `Q` with `xᵀQx` nought exactly on it,
 /// over homogeneous places `x = (p, 1)`.
@@ -173,17 +175,77 @@ impl Quadric {
         total
     }
 
-    /// `by·self + other`, which is the member of the pencil the two span that
-    /// leans on this one by `by`.
+    /// `by·self + and·other`, which is the member of the pencil the two span
+    /// standing at `(by : and)`.
     ///
-    /// One method rather than a scaling and an addition, because a member is
-    /// worked out once per candidate `λ` and each of those would be ten heap
+    /// One method rather than two scalings and an addition, because a member is
+    /// worked out once per candidate member and each of those would be ten heap
     /// blocks of its own.
-    pub(crate) fn summed(&self, by: &Rational, other: &Self) -> Self {
+    ///
+    /// Both weights rather than one, because the pencil is *projective*: the
+    /// member at `(1 : 0)` is the first quadric itself, and a route that could
+    /// only write `λQ₁ + Q₂` could not name it.
+    pub(crate) fn summed(&self, by: &Rational, other: &Self, and: &Rational) -> Self {
         Self {
             held: std::array::from_fn(|at| {
-                by.clone() * self.held[at].clone() + other.held[at].clone()
+                by.clone() * self.held[at].clone() + and.clone() * other.held[at].clone()
             }),
+        }
+    }
+
+    /// The same quadric in coordinates that make it diagonal.
+    ///
+    /// **Lagrange's method, which is Gaussian elimination done to both sides at
+    /// once.** Clearing a column of a symmetric matrix and clearing the
+    /// matching row is one congruence `EᵀQE`, so the matrix stays symmetric
+    /// through every step and the basis is whatever those steps multiply to.
+    /// Exact over [`Rational`], so there is no pivoting to be careful about —
+    /// any non-nought entry will do, and the only choices left are the ones the
+    /// algebra forces.
+    ///
+    /// **The step that is not elimination** is what a matrix with nothing on
+    /// its diagonal needs: `2xy` has no square to clear with, so one coordinate
+    /// is added to another to make one. That is the hyperbolic plane split, and
+    /// it is why two planes come back as a difference of two squares rather
+    /// than as the product they were written as.
+    pub(crate) fn diagonalized(&self) -> Congruence {
+        let mut walk = Elimination {
+            at: std::array::from_fn(|row| std::array::from_fn(|col| self.held(row, col).clone())),
+            basis: std::array::from_fn(|col| {
+                std::array::from_fn(|row| {
+                    if row == col {
+                        Rational::ONE
+                    } else {
+                        Rational::ZERO
+                    }
+                })
+            }),
+        };
+        for step in 0..4 {
+            if walk.at[step][step].is_zero() {
+                if let Some(other) = (step + 1..4).find(|&other| !walk.at[other][other].is_zero()) {
+                    walk.swapped(step, other);
+                } else if let Some(other) =
+                    (step + 1..4).find(|&other| !walk.at[step][other].is_zero())
+                {
+                    walk.added(step, other, &Rational::ONE);
+                } else {
+                    // This row is empty from here on, so its own entry is
+                    // nought. What is left below it is the next step's.
+                    continue;
+                }
+            }
+            for below in step + 1..4 {
+                if walk.at[below][step].is_zero() {
+                    continue;
+                }
+                let by = -(walk.at[below][step].clone() / walk.at[step][step].clone());
+                walk.added(below, step, &by);
+            }
+        }
+        Congruence {
+            diagonal: std::array::from_fn(|held| walk.at[held][held].clone()),
+            basis: walk.basis,
         }
     }
 
@@ -254,6 +316,124 @@ impl Quadric {
     }
 }
 
+/// A symmetric matrix in coordinates that make it diagonal.
+///
+/// **Congruence and not similarity**, which is the whole difference for a
+/// quadric: `PᵀQP` is the same surface written in another basis where `P⁻¹QP`
+/// would be another surface. So the diagonal is this quadric, seen along its
+/// own axes.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct Congruence {
+    /// `P`, by column: `basis[at]` is the `at`th new direction, in the old
+    /// coordinates.
+    basis: [[Rational; 4]; 4],
+    diagonal: [Rational; 4],
+}
+
+impl Congruence {
+    /// The new basis, by column.
+    pub(crate) fn basis(&self) -> &[[Rational; 4]; 4] {
+        &self.basis
+    }
+
+    /// What the quadric comes to along each of those.
+    pub(crate) fn diagonal(&self) -> &[Rational; 4] {
+        &self.diagonal
+    }
+
+    /// How many ways it leans.
+    ///
+    /// **Sylvester's law of inertia** is what makes this worth asking: the
+    /// diagonal a congruence lands on depends on the order the elimination took
+    /// its steps in, and how many of its entries fall either side of nought
+    /// does not. So the counts are a property of the surface where the numbers
+    /// are a property of the route.
+    pub(crate) fn signature(&self) -> Signature {
+        let leaning = |want: Ordering| self.diagonal.iter().filter(|of| of.sign() == want).count();
+        Signature {
+            above: leaning(Ordering::Greater),
+            below: leaning(Ordering::Less),
+        }
+    }
+}
+
+/// How many of a quadric's own directions it stands above nought along, and
+/// how many below.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Signature {
+    pub(crate) above: usize,
+    pub(crate) below: usize,
+}
+
+impl Signature {
+    /// How many directions the quadric says anything at all along.
+    pub(crate) fn rank(self) -> usize {
+        self.above + self.below
+    }
+
+    /// Whether a real line runs through every place of the surface.
+    ///
+    /// **What the algebraic route is looking for.** A ruled quadric is one a
+    /// pencil can be parameterized through: its rulings are lines, a line meets
+    /// the other quadric in two places, and those two places are the `±√Δ` of
+    /// `.notes/KERNEL.md` §7.3's parameterization.
+    ///
+    /// `min(above, below) ≥ rank/2`, which is the whole classification in one
+    /// comparison. A full-rank quadric is ruled only when it is even-handed —
+    /// two and two, the one-sheeted hyperboloid and the hyperbolic paraboloid,
+    /// where three and one is an ellipsoid or a two-sheeted hyperboloid and
+    /// neither holds a line. Below full rank, one of each is enough: a cone
+    /// rules through its apex, and two planes are ruled outright. And a quadric
+    /// of rank one is a doubled plane, which has nothing to be even-handed
+    /// about.
+    pub(crate) fn ruled(self) -> bool {
+        self.above.min(self.below) >= self.rank() / 2
+    }
+}
+
+/// A symmetric matrix part way through Lagrange's method, and the basis the
+/// steps so far multiply to.
+///
+/// The two together rather than apart, because the whole of what makes the
+/// elimination a *congruence* is that every step reaches both. Held apart they
+/// would be two things a caller has to remember to keep in step.
+#[derive(Debug)]
+struct Elimination {
+    at: [[Rational; 4]; 4],
+    basis: [[Rational; 4]; 4],
+}
+
+impl Elimination {
+    /// Swap `one` and `two` everywhere, which stays symmetric.
+    fn swapped(&mut self, one: usize, two: usize) {
+        self.at.swap(one, two);
+        for row in self.at.iter_mut() {
+            row.swap(one, two);
+        }
+        self.basis.swap(one, two);
+    }
+
+    /// `into += by·from`, as a row and then as a column, which is `EᵀQE` for the
+    /// elementary `E` the basis picks up.
+    ///
+    /// The column runs after the row and over what the row left, which is what
+    /// makes the pair one congruence rather than two half-done ones.
+    fn added(&mut self, into: usize, from: usize, by: &Rational) {
+        debug_assert_ne!(into, from, "a row cannot be added to itself this way");
+        let row = self.at[from].clone();
+        for (held, term) in self.at[into].iter_mut().zip(row) {
+            *held = held.clone() + by.clone() * term;
+        }
+        for row in self.at.iter_mut() {
+            row[into] = row[into].clone() + by.clone() * row[from].clone();
+        }
+        let column = self.basis[from].clone();
+        for (held, term) in self.basis[into].iter_mut().zip(column) {
+            *held = held.clone() + by.clone() * term;
+        }
+    }
+}
+
 /// The three coordinates of `place`, exactly.
 fn placed(place: DVec3) -> [Rational; 3] {
     [place.x, place.y, place.z].map(Rational::of)
@@ -274,4 +454,20 @@ fn crossed(one: DVec3, two: DVec3) -> [Rational; 3] {
 fn length_squared(of: [Rational; 3]) -> Rational {
     let [x, y, z] = of;
     x.clone() * x + y.clone() * y + z.clone() * z
+}
+
+#[cfg(test)]
+mod internals {
+    use super::*;
+
+    impl Quadric {
+        /// A quadric straight from its upper triangle.
+        ///
+        /// For a test that wants a matrix no surface makes: the elimination has
+        /// a branch for a diagonal of nothing but noughts, and `2xy = 0` is two
+        /// planes that no plane, cylinder, cone or sphere is.
+        pub(crate) fn over(held: [Rational; 10]) -> Self {
+            Self { held }
+        }
+    }
 }

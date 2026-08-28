@@ -877,15 +877,36 @@ form, so a nought leading coefficient costs nothing. Two unequal cylinders on
 crossing axes give `−4λ³ − 13λ² − 9λ` and `Δ = 32400`, which is half of the
 owed test below.
 
-**The rest, in this order, and each stands alone:**
+**And a member is told ruled from not.** `Quadric::diagonalized` takes a
+symmetric 4×4 to diagonal form by exact congruence — Lagrange's method, which is
+Gaussian elimination done to the rows and the columns at once, so the matrix
+stays symmetric through every step and the basis is what those steps multiply
+to. It needs no pivoting, the arithmetic having no precision to lose, and its
+one step that is not elimination is the hyperbolic one: `2xy` has no square to
+clear with, so a coordinate is added to another to make one.
 
-1. **A ruled member**, found by choosing an integer point and solving for the λ
-   through it, then exact 4×4 congruence diagonalization and a split into
-   hyperbolic planes.
-2. **The parameterization.** A ruling substituted into the other quadric is a
-   quadratic in the ruling's own parameter, and its roots are `X₁ ± X₂√Δ` in the
-   quadratic tower.
-3. **`Curve::Quartic`**, and every closed match on `Curve` that follows.
+**Ruled is `min(above, below) ≥ rank/2`**, which is the whole classification in
+one comparison. Full rank rules only when it is even-handed — two and two is the
+one-sheeted hyperboloid and the hyperbolic paraboloid, where three and one is an
+ellipsoid or a two-sheeted hyperboloid and neither holds a line. Below full rank
+one of each will do: a cone rules through its apex and two planes rule outright,
+and rank one is a doubled plane with nothing to be even-handed about.
+
+Finding one costs no solve at all. The member at `(λ : μ)` comes to
+`λ·Q₁(p) + μ·Q₂(p)` at a place, so the member holding a chosen whole place `p`
+is `(−Q₂(p) : Q₁(p))` and the search is that read once per candidate until the
+signature says ruled. `(1, 1, 1)` against the two cylinders gives
+`diag(7, 5, −2, −10)`, which is two and two.
+
+**The rest, and each stands alone:**
+
+1. **The rulings, and the parameterization over them.** A ruled member's
+   diagonal pairs off into differences of two squares, and each difference
+   factors into two planes — which is where `√δ` enters, and why §4.2 found the
+   fully rational case unreachable. A ruling substituted into the other quadric
+   is a quadratic in the ruling's own parameter, and its roots are `X₁ ± X₂√Δ`
+   in the tower.
+2. **`Curve::Quartic`**, and every closed match on `Curve` that follows.
 
 **Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
 the published classification, and every result is asserted to be in the exact
