@@ -1,8 +1,6 @@
 //! The solid one sweep leaves behind, and what it was built from.
 
-use silverpoint::{
-    Arrangement, Body, Boolean, Builder, Extrusion, Operation, Plane, Revolution, Sector,
-};
+use silverpoint::{Arrangement, Body, Boolean, Builder, Extrusion, Operation, Plane, Revolution};
 
 use crate::build::Revision;
 use crate::timeline::{FeatureId, Sweep};
@@ -146,19 +144,22 @@ impl Bodied {
                 );
                 builder.extrude(&extrusion, raised);
             }
-            Sweep::Spun(None) => {
+            Sweep::Spun { axle: None, .. } => {
                 self.body.clear();
                 self.built = Built::Lost;
                 return;
             }
-            Sweep::Spun(Some(axis)) => {
+            Sweep::Spun {
+                axle: Some(axle),
+                sector,
+            } => {
                 let revolution = Revolution::new(
                     arrangement,
                     regions,
                     digest.plane(),
-                    axis.at,
-                    axis.along,
-                    Sector::WHOLE,
+                    axle.at,
+                    axle.along,
+                    sector,
                     self.of.step(),
                 );
                 builder.revolve(&revolution, raised);

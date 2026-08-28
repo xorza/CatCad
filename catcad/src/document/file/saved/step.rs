@@ -10,7 +10,7 @@ use crate::document::file::saved::sketch::Sketch;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, Feature, World};
 use crate::timeline::{FeatureId, Timeline};
-use silverpoint::Operation;
+use silverpoint::{Operation, Sector};
 
 /// One step, as a file holds it.
 ///
@@ -39,13 +39,14 @@ pub(super) enum Step {
         distance: f64,
         operation: Operated,
     },
-    /// A solid spun a whole turn off a region of an earlier sketch, about a
-    /// line of that same sketch.
+    /// A solid spun off a region of an earlier sketch, about a line of that
+    /// same sketch.
     Revolve {
         profile: Profiled,
         /// Which of that sketch's segments the line is, in the numbering
         /// [`Profiled`]'s own bounds are written in.
         axis: usize,
+        sector: Sectored,
         operation: Operated,
     },
 }
@@ -84,6 +85,44 @@ impl Operated {
             Operated::Cut => Operation::Cut,
             Operated::Intersect => Operation::Intersect,
         }
+    }
+}
+
+/// How much of a turn a revolve sweeps, as a file holds it.
+///
+/// A mirror of [`Sector`] on the terms [`Operated`] states, and a plain pair of
+/// numbers rather than the type itself: what a file's vocabulary is belongs
+/// here, and a field added to the kernel's own must be a decision taken here
+/// rather than a format that quietly grew.
+#[derive(Debug, Serialize, Deserialize)]
+pub(super) struct Sectored {
+    from: f64,
+    sweep: f64,
+}
+
+impl Sectored {
+    /// `sector` as a file would hold it.
+    fn of(sector: Sector) -> Self {
+        Self {
+            from: sector.from,
+            sweep: sector.sweep,
+        }
+    }
+
+    /// The same, as a timeline holds one, or the first thing wrong with it.
+    ///
+    /// **The angles are checked and the sweep is not bounded**, which is the
+    /// split every reader here makes: a number that is not one at all poisons
+    /// the first build with no way to report it, where a sweep of more than a
+    /// turn is geometry the kernel answers for by raising nothing — see
+    /// [`Revolution`](silverpoint::Revolution).
+    fn sector(&self, at: usize) -> Result<Sector, Fault> {
+        finite(at, self.from)?;
+        finite(at, self.sweep)?;
+        Ok(Sector {
+            from: self.from,
+            sweep: self.sweep,
+        })
     }
 }
 
@@ -204,10 +243,12 @@ impl Step {
             Feature::Revolve {
                 profile,
                 axis,
+                sector,
                 operation,
             } => Step::Revolve {
                 axis: handles[steps.of(profile.sketch())].of_segment(*axis),
                 profile: Profiled::of(profile, steps, handles),
+                sector: Sectored::of(*sector),
                 operation: Operated::of(*operation),
             },
         }
@@ -262,6 +303,7 @@ impl Step {
             Step::Revolve {
                 profile,
                 axis,
+                sector,
                 operation,
             } => {
                 // The profile first, which is what says the sketch it names is
@@ -271,6 +313,7 @@ impl Step {
                 Ok(Loaded::plain(Feature::Revolve {
                     axis: handles[profile.sketch()].segment(at, *axis)?,
                     profile: region,
+                    sector: sector.sector(at)?,
                     operation: operation.operation(),
                 }))
             }

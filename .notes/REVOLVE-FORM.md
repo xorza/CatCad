@@ -75,27 +75,30 @@ either side of a third of a turn, the same solid spun backwards, a cone wedge
 that keeps both poles, and a partial turn of a profile with a hole reporting no
 cavity.
 
-#### 2b. The document carries the turn
+#### 2b. The document carries the turn — **done**
 
-**Step 2b.1 — the step.**
-- `Feature::Revolve { profile, axis, from, sweep, operation }` in
-  `catcad/src/timeline/feature.rs`. Update `Clone` and `clone_from`, which are
-  written out by hand there.
+A step carries the kernel's own `Sector` rather than two loose numbers: one
+type, one meaning, and it is exactly what `Revolution::new` takes.
 
-**Step 2b.2 — the reading.**
-- `Sweep::Spun(Option<Axle>)` in `catcad/src/timeline/mod.rs` becomes
-  `Sweep::Spun { axle: Option<Axle>, from: f64, sweep: f64 }`.
-- The `Option` stays on the axle alone. It means the line was rubbed out. The
-  two angles are always there.
-- `Digest` in `catcad/src/build/bodied.rs` already holds a `Sweep` by value, so
-  the rebuild cache key follows with no further change. That is the payoff of
-  the `Sweep` shape and is worth keeping.
+- `Feature::Revolve { profile, axis, sector, operation }`, and how much of a
+  turn is one field rather than two kinds of step — the argument the extrude
+  makes about a cut and a boss.
+- `Sweep::Spun { axle: Option<Axle>, sector }`. The `Option` stays on the line
+  alone: how much of a turn is what a step *says*, where the line is what it
+  *names*, and a name is the half that can stop fitting.
+- `Change::Revolve` carries it, and the document hands it straight on.
+- The file spells a `Sectored { from, sweep }` mirror, on the terms `Operated`
+  states — a file's vocabulary is its own, so a field added to the kernel's type
+  is a decision taken here. Its two angles are refused where they are not
+  numbers; the sweep is not bounded here, that being geometry the kernel answers
+  for by raising nothing.
+- `Digest` holds a `Sweep` by value, so the rebuild cache key followed with no
+  change at all.
 
-**Step 2b.3 — the change and the file.**
-- `Change::Revolve` in `catcad/src/intent/change.rs` gains the two numbers.
-- `saved::step::Step::Revolve` in `catcad/src/document/file/saved/step.rs`
-  gains them too. No compatibility shim: the house rule is that the format
-  changes and old files are not read.
+The form still asks for a whole turn. Tests: a step spun a quarter raises the
+two caps a whole turn does not, the written file spells the sector out, a
+document with one comes back the way it went in, and a sweep that is not a
+number is refused.
 
 #### 2c. The form asks for the two angles
 
@@ -153,8 +156,6 @@ support.
 - `Prompt::beside` — the focus comment on a form with no field.
 - `Prompt::internals::answering_id` — *"One with none … can only be answered by
   pressing what it draws."*
-- `Feature::Revolve` — *"A whole turn and no other … caps of a kind the kernel
-  does not raise yet."*
 - `.notes/KERNEL.md` §9.2 — *"Two picks and no number"*, and *"What is left of
   the revolve is a partial turn"*, which this closes.
 
@@ -162,7 +163,7 @@ support.
 
 ## Order
 
-2b, then 2c. 2d is convenience and comes last.
+2c, then 2d, which is convenience and comes last.
 
 ## Related, still open
 

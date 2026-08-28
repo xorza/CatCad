@@ -6,7 +6,7 @@ use crate::document::file::error::Missing;
 use crate::profile::Profile;
 use crate::timeline::feature::{Datum, World};
 use glam::DVec2;
-use silverpoint::{Constraint, Dimension, Operation};
+use silverpoint::{Constraint, Dimension, Operation, Sector};
 
 /// The text `timeline` is written as.
 ///
@@ -55,6 +55,10 @@ fn document(version: u32, steps: &str) -> String {
 /// and is not what the test is about.
 const A_SKETCH: &str = "sketch: (points: [(at: (0.0, 0.0))], segments: [], circles: [], \
                         relations: [])";
+
+/// The same with a line in it, for the one step that names a segment.
+const A_LINE: &str = "sketch: (points: [(at: (0.0, 0.0)), (at: (0.0, 1.0))], \
+                      segments: [(a: 0, b: 1)], circles: [], relations: [])";
 
 /// The demo comes back exactly as it went in — both sketches, both planes, and
 /// the camera.
@@ -205,6 +209,35 @@ fn a_document_is_written_exactly_like_this() {
         distance: 1.5,
         operation: Operation::Join,
     });
+    // And a revolve beside it, which is what says the file spells a *sector*:
+    // where the turn starts and how far it goes, in the same radians the kernel
+    // is handed. A whole turn would write the same two fields and prove less.
+    timeline.add(Feature::Revolve {
+        profile: Profile::of(
+            drawn,
+            [[Bound {
+                of: Entity::Circle(rim),
+                along: true,
+            }]
+            .as_slice()]
+            .into_iter(),
+        ),
+        axis: edge,
+        sector: Sector {
+            from: 0.0,
+            sweep: std::f64::consts::FRAC_PI_2,
+        },
+        operation: Operation::Cut,
+    });
+
+    // And back again, which is what says the reading matches the writing. A
+    // sector especially: it is the one field here a file spells out of a type
+    // the kernel owns, so the two spellings have two chances to differ.
+    let read = Saved::parse(&written(&timeline))
+        .expect("the text is a document")
+        .timeline()
+        .expect("the document makes sense");
+    assert_eq!(read, timeline, "a document did not come back as it went in");
 
     assert_eq!(
         written(&timeline),
@@ -256,6 +289,20 @@ fn a_document_is_written_exactly_like_this() {
             ),
             distance: 1.5,
             operation: Join,
+        ),
+        Revolve(
+            profile: (
+                sketch: 4,
+                regions: [
+                    [Circle(at: 0, along: true)],
+                ],
+            ),
+            axis: 0,
+            sector: (
+                from: 0.0,
+                sweep: 1.5707963267948966,
+            ),
+            operation: Cut,
         ),
     ],
     rolled: None,
@@ -434,7 +481,7 @@ fn saving_compacts_the_holes_an_edit_left() {
 /// two pieces of this program; a file is neither piece.
 #[test]
 fn a_document_that_says_something_impossible_is_refused() {
-    let refused: [(String, Fault); 13] = [
+    let refused: [(String, Fault); 14] = [
         // A version this cannot claim to understand, whatever it goes on to
         // say — here the one that came before, which is the way a stamp is
         // actually met in the wild.
@@ -499,6 +546,20 @@ fn a_document_that_says_something_impossible_is_refused() {
                 at: 2,
                 what: Missing::Segment(3),
             },
+        ),
+        // A solid spun through an angle that is not one, which is the same
+        // complaint the distance below gets and reached through the sector a
+        // revolve carries.
+        (
+            document(
+                VERSION,
+                &format!(
+                    "Ground, Sketch(on: 0, {A_LINE}), \
+                     Revolve(profile: (sketch: 1, regions: []), axis: 0, \
+                     sector: (from: 0.0, sweep: inf), operation: Join)"
+                ),
+            ),
+            Fault::NotFinite { at: 2 },
         ),
         // A solid grown an impossible distance, which would otherwise reach a
         // renderer as geometry nobody could draw.

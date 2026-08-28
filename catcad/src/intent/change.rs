@@ -2,7 +2,7 @@
 
 use aperture::Projection;
 use glam::Vec3;
-use silverpoint::{Constraint, ConstraintId, Entity, Operation, SegmentId};
+use silverpoint::{Constraint, ConstraintId, Entity, Operation, Sector, SegmentId};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -137,8 +137,8 @@ pub(crate) enum Change {
         /// What it does with the solid the steps before it left standing.
         operation: Operation,
     },
-    /// Spin a solid a whole turn off the regions a profile names, about a line
-    /// drawn in that same sketch.
+    /// Spin a solid off the regions a profile names, about a line drawn in that
+    /// same sketch.
     ///
     /// The third change that *adds* a step, and it names its regions the way
     /// [`Change::Extrude`] does and for the same reason. The axis is a handle
@@ -147,6 +147,8 @@ pub(crate) enum Change {
     Revolve {
         profile: Profile,
         axis: SegmentId,
+        /// How much of a turn, and where round the line it starts.
+        sector: Sector,
         /// What it does with the solid the steps before it left standing.
         operation: Operation,
     },

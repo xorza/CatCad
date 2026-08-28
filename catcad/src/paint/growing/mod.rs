@@ -1,6 +1,6 @@
 //! A solid the user is still deciding the depth of.
 
-use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Sector, Step};
+use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Step};
 
 use crate::build::bodied;
 use crate::lens::Lens;
@@ -111,9 +111,10 @@ impl Growing<'_> {
     /// camera: how far the depth carries the arrow, and which way it is laid to
     /// face the viewer.
     pub(super) fn carried(self, models: Models<'_>, cut: &Cut, lens: Lens) -> Option<Carried> {
-        // A whole turn has nothing to drag. What a revolve's own handle would
-        // move is the line it spins about, which is a segment of a drawing and
-        // is dragged there.
+        // A spin has no depth, so there is no arrow to carry one. What a
+        // revolve's own handle would move is the line it spins about, which is
+        // a segment of a drawing and is dragged there — and how much of a turn,
+        // which nothing drags yet.
         let Sweep::Carried(distance) = self.sweep else {
             return None;
         };
@@ -190,18 +191,21 @@ impl Growing<'_> {
             }
             // The line has been rubbed out from under the form, which is
             // nothing to show and the last one must not be left standing.
-            Sweep::Spun(None) => {
+            Sweep::Spun { axle: None, .. } => {
                 into.clear();
                 return Deciding::Nothing;
             }
-            Sweep::Spun(Some(axle)) => {
+            Sweep::Spun {
+                axle: Some(axle),
+                sector,
+            } => {
                 let revolution = Revolution::new(
                     model.arrangement(),
                     regions,
                     model.plane(),
                     axle.at,
                     axle.along,
-                    Sector::WHOLE,
+                    sector,
                     UNTAKEN,
                 );
                 builder.revolve(&revolution, raised);

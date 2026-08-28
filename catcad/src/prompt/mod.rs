@@ -20,7 +20,7 @@ use palantir::{
     Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing,
     Text, TextEdit, TextRun, TextWrap, Tooltip, Ui, VAlign, WidgetId,
 };
-use silverpoint::{Entity, Operation, SegmentId};
+use silverpoint::{Entity, Operation, Sector, SegmentId};
 use std::fmt::Write;
 
 use crate::drawing::anchor::Anchor;
@@ -510,10 +510,10 @@ impl Prompt {
         let profile = self.about.raising()?;
         let sweep = match &self.about {
             Asking::Extrude { .. } => Sweep::Carried(self.shows(0)?),
-            Asking::Revolve { axis, .. } => Sweep::Spun(Axle::of(
-                models.at(profile.sketch())?.drawing().sketch(),
-                *axis,
-            )),
+            Asking::Revolve { axis, .. } => Sweep::Spun {
+                axle: Axle::of(models.at(profile.sketch())?.drawing().sketch(), *axis),
+                sector: Sector::WHOLE,
+            },
             Asking::Dimension { .. } | Asking::Circle { .. } => return None,
         };
         Some(Growing {
@@ -766,6 +766,7 @@ impl Prompt {
                 intents.push(Change::Revolve {
                     profile: profile.clone(),
                     axis: *axis,
+                    sector: Sector::WHOLE,
                     operation: *operation,
                 });
             }

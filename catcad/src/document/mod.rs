@@ -513,11 +513,13 @@ impl Document {
             Change::Revolve {
                 profile,
                 axis,
+                sector,
                 operation,
             } => {
                 shaped = Shaped::Made(self.timeline.add(Feature::Revolve {
                     profile,
                     axis,
+                    sector,
                     operation,
                 }));
                 build.revised();

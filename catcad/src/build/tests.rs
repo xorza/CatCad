@@ -8,7 +8,8 @@ use crate::model::{Broken, Models};
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
 use glam::{DVec2, Vec3};
-use silverpoint::{Entity, Operation, Plane, SegmentId};
+use silverpoint::{Entity, Operation, Plane, Sector, SegmentId};
+use std::f64::consts::FRAC_PI_2;
 
 /// A square: four free points and the edges between them, which shuts one
 /// region in and leaves eight degrees of freedom.
@@ -48,6 +49,59 @@ impl Lathed {
         let high = sketch.add_point(DVec2::new(0.0, 1.0));
         let axis = sketch.add_segment(low, high);
         Self { sketch, axis }
+    }
+}
+
+/// A document holding one revolve, and what it takes to read the solid back.
+///
+/// Everything owned, because the three are made together and a reading borrows
+/// all of them: a test that kept only the document would have nothing to hand
+/// [`Document::models`].
+struct Spun {
+    document: Document,
+    build: Build,
+    sketch: FeatureId,
+}
+
+impl Spun {
+    /// [`Lathed`]'s ring spun through `sector`, by the whole path a press
+    /// takes: a change naming a region and a segment, a step of the timeline,
+    /// and a body built from it.
+    fn new(sector: Sector) -> Self {
+        let mut timeline = Timeline::default();
+        let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+        let drawn = Lathed::new(3.0, 1.0);
+        let sketch = timeline.add(Feature::Sketch {
+            on: ground,
+            sketch: drawn.sketch,
+        });
+        let mut build = Build::default();
+        timeline.edit(sketch).opened(&mut build);
+        let mut document = Document::new(&mut build, timeline);
+        let profile = document
+            .models(&build, Some(sketch))
+            .at(sketch)
+            .expect("a fixture names the sketch it drew")
+            .profile(&[0]);
+        document.apply(
+            &mut build,
+            Change::Revolve {
+                profile,
+                axis: drawn.axis,
+                sector,
+                operation: Operation::Join,
+            },
+        );
+        Self {
+            document,
+            build,
+            sketch,
+        }
+    }
+
+    /// What it built, and what the drawing made of it.
+    fn models(&self) -> Models<'_> {
+        self.document.models(&self.build, Some(self.sketch))
     }
 }
 
@@ -637,38 +691,25 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
 /// marched.
 #[test]
 fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
-    let mut timeline = Timeline::default();
-    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
-    let drawn = Lathed::new(3.0, 1.0);
-    let sketch = timeline.add(Feature::Sketch {
-        on: ground,
-        sketch: drawn.sketch,
-    });
-
-    let mut build = Build::default();
-    timeline.edit(sketch).opened(&mut build);
-    let mut document = Document::new(&mut build, timeline);
-    let profile = document
-        .models(&build, Some(sketch))
-        .at(sketch)
-        .expect("a fixture names the sketch it drew")
-        .profile(&[0]);
-    document.apply(
-        &mut build,
-        Change::Revolve {
-            profile,
-            axis: drawn.axis,
-            operation: Operation::Join,
-        },
-    );
-
-    let models = document.models(&build, Some(sketch));
+    let whole = Spun::new(Sector::WHOLE);
+    let models = whole.models();
     assert_eq!(models.lost(), 0, "the revolve lost its footing");
     let (_, body) = models.solids().next().expect("the revolve raised no solid");
     assert!(!body.exact(), "a ring stands on a torus");
-    // One name over the four faces a whole turn is cut into, a wall being named
-    // by the curve it came off rather than by how the kernel had to cut it.
+    // One name over the faces a whole turn is cut into, a wall being named by
+    // the curve it came off rather than by how the kernel had to cut it.
     assert_eq!(body.names().count(), 1, "the ring is more than one wall");
-
     assert_eq!(body.strays(), 0.0, "a ring's own edges are all circles");
+
+    // **And a step says how much of a turn**, which is what carrying a sector
+    // buys. Asked by the names, which is what a document sees: a whole turn is
+    // the one wall, and a quarter is that wall and the two caps a part of a
+    // turn has ends to raise.
+    let quarter = Spun::new(Sector {
+        from: 0.0,
+        sweep: FRAC_PI_2,
+    });
+    let models = quarter.models();
+    let (_, body) = models.solids().next().expect("the revolve raised no solid");
+    assert_eq!(body.names().count(), 3, "a quarter turn raised no caps");
 }

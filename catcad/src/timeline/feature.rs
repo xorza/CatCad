@@ -1,6 +1,6 @@
 //! One step of a timeline, and the kinds there are.
 
-use silverpoint::{Operation, Plane, SegmentId, Sketch};
+use silverpoint::{Operation, Plane, Sector, SegmentId, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::FeatureId;
@@ -48,8 +48,8 @@ pub(crate) enum Feature {
         distance: f64,
         operation: Operation,
     },
-    /// A solid spun off a region of a sketch, a whole turn about a line drawn
-    /// in that same sketch.
+    /// A solid spun off a region of a sketch, through part of a turn or the
+    /// whole of one, about a line drawn in that same sketch.
     ///
     /// **The axis is a segment of the drawing the profile is a region of**, and
     /// it is named the way the profile is: by the sketch's own handle, which
@@ -58,12 +58,15 @@ pub(crate) enum Feature {
     /// thing spun about it is, one gesture names both, and a drag through the
     /// sketch carries the axis along with the profile.
     ///
-    /// A whole turn and no other, which is what a step says rather than what
-    /// the kernel can make: [`Sector`](silverpoint::Sector) carries any part of
-    /// a turn, and nothing here asks for one yet.
+    /// **How much of a turn is one field and not two kinds of step**, which is
+    /// the argument the extrude above makes about a cut and a boss: a wedge and
+    /// a ring share a profile, an axis, a body, a form and a file record, so
+    /// what varies is the [`Sector`] and everything else is written once. Its
+    /// sweep is signed, so which way it spins needs no second field either.
     Revolve {
         profile: Profile,
         axis: SegmentId,
+        sector: Sector,
         operation: Operation,
     },
 }
@@ -92,10 +95,12 @@ impl Clone for Feature {
             Feature::Revolve {
                 profile,
                 axis,
+                sector,
                 operation,
             } => Feature::Revolve {
                 profile: profile.clone(),
                 axis: *axis,
+                sector: *sector,
                 operation: *operation,
             },
         }
@@ -133,16 +138,19 @@ impl Clone for Feature {
                 Feature::Revolve {
                     profile,
                     axis,
+                    sector,
                     operation,
                 },
                 Feature::Revolve {
                     profile: from,
                     axis: about,
+                    sector: through,
                     operation: doing,
                 },
             ) => {
                 profile.clone_from(from);
                 *axis = *about;
+                *sector = *through;
                 *operation = *doing;
             }
             // A plane is a handful of numbers, and two steps of different kinds

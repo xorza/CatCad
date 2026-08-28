@@ -7,7 +7,7 @@
 use std::ops::Range;
 
 use glam::DVec2;
-use silverpoint::{Operation, Plane, SegmentId, Sketch, Step};
+use silverpoint::{Operation, Plane, Sector, SegmentId, Sketch, Step};
 
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
@@ -666,8 +666,16 @@ impl Timeline {
                 Feature::Revolve {
                     profile,
                     axis,
+                    sector,
                     operation,
-                } => (profile, Sweep::Spun(self.axle(profile, *axis)), *operation),
+                } => (
+                    profile,
+                    Sweep::Spun {
+                        axle: self.axle(profile, *axis),
+                        sector: *sector,
+                    },
+                    *operation,
+                ),
                 Feature::Plane(_) | Feature::Sketch { .. } => return None,
             };
             Some(Swept {
@@ -829,9 +837,12 @@ pub(crate) enum Sweep {
     /// Carried that far off the plane the region was drawn on, signed — which
     /// is what makes which way it grows the one number rather than a flag.
     Carried(f64),
-    /// Spun a whole turn about a line of the same drawing, or `None` where that
-    /// drawing no longer holds the line.
-    Spun(Option<Axle>),
+    /// Spun through `sector` about a line of the same drawing.
+    ///
+    /// The line is `None` where the drawing no longer holds it, and the sector
+    /// is not: how much of a turn is what a step *says*, where the line is what
+    /// it names — and a name is the half that can stop fitting.
+    Spun { axle: Option<Axle>, sector: Sector },
 }
 
 /// A line of a drawing to spin about, in that drawing's own coordinates.
