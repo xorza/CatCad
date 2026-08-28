@@ -5,6 +5,7 @@ use palantir::{
     Sense, Sizing, Spacing, Text, TextStyle, TextWrap, Ui, VAlign, WidgetId,
 };
 
+use crate::build::bodied::Built;
 use crate::hud::pill::{self, Pill};
 use crate::hud::wearing::Wearing;
 use crate::hud::{Shown, control};
@@ -12,7 +13,6 @@ use crate::intent::{Choice, Intents};
 use crate::look::Theme;
 use crate::look::drawing;
 use crate::look::icons::{Glyph, Icons};
-use crate::model::Broken;
 use crate::part::Part;
 use crate::timeline::FeatureId;
 use crate::timeline::feature::Feature;
@@ -73,12 +73,21 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
             // that step rather than marking the tail below it.
             let mut built = true;
             for (at, feature) in models.chosen() {
-                // The same words the status line uses for the same states, so the
-                // two say it the same way — see [`Status`](crate::status::Status).
-                let broken = match models.broken_at(at) {
-                    Some(Broken::Profile) => " · lost",
-                    Some(Broken::Unmerged) => " · apart",
-                    None => "",
+                // **What the step came to, matched whole.** The two faults
+                // share their words with the status line, so the two say it the
+                // same way — see [`Status`](crate::status::Status) — and coming
+                // to nothing is the recipe's alone, the status line reporting
+                // what is *wrong* and this listing what is there.
+                //
+                // Through what a step came to rather than through the faults
+                // alone, which is what let a row that built nothing read
+                // exactly like one that built: a fifth thing a step can come to
+                // is a compile error here instead.
+                let came = match models.came_at(at) {
+                    Some(Built::Lost) => " · lost",
+                    Some(Built::Refused) => " · apart",
+                    Some(Built::Empty) => " · empty",
+                    Some(Built::Made) | None => "",
                 };
                 // Numbered within its kind, and every row is: what the walk
                 // holds is what somebody put there, and the three the world
@@ -108,7 +117,7 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                 // Interned into the pass's own arena rather than formatted into a
                 // `String`: this is a row per step per frame, and the record pass is
                 // gated at zero allocations.
-                let label = ui.fmt(format_args!("{named} {nth}{broken}"));
+                let label = ui.fmt(format_args!("{named} {nth}{came}"));
                 let showing = Row {
                     at,
                     glyph,

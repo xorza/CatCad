@@ -398,10 +398,25 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
         },
     );
     assert_eq!(build.bodied(solid).built(), Built::Empty);
+    let models = document.models(&build, Some(drawn));
     assert_eq!(
-        document.models(&build, Some(drawn)).lost(),
+        models.lost(),
         0,
         "a depth of nothing was counted as a step that failed"
+    );
+    // **And a reader listing the steps can say so.** Coming to nothing is not
+    // being broken, so the fault reading answers `None` — which left a row that
+    // built nothing reading exactly like one that built. What a step *came to*
+    // is the wider question, and it is what the recipe words.
+    assert_eq!(
+        models.broken_at(solid),
+        None,
+        "an empty step read as broken"
+    );
+    assert_eq!(
+        models.came_at(solid),
+        Some(Built::Empty),
+        "an empty step read as one that built",
     );
     document.apply(
         &mut build,

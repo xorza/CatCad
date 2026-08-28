@@ -548,19 +548,32 @@ impl<'a> Models<'a> {
     /// for any: what is picked out or listed is a step, and being told its kind
     /// first is what a caller should not have to arrange.
     pub(crate) fn broken_at(self, at: FeatureId) -> Option<Broken> {
-        if !self.timeline.built(at) || !self.timeline.feature(at).grows() {
-            return None;
-        }
         // A table rather than two predicates asked in order, which is what it
         // was: `Built::failed` answers for both of these, so reading it second
         // worked only because the first had already taken one away. Matched
         // whole, a fifth thing a step can come to is a compile error here
         // instead of a step that quietly reads as fine.
-        match self.build.bodied(at).built() {
+        match self.came_at(at)? {
             Built::Lost => Some(Broken::Profile),
             Built::Refused => Some(Broken::Unmerged),
             Built::Made | Built::Empty => None,
         }
+    }
+
+    /// What the step at `at` came to, where it is one that grows a solid.
+    ///
+    /// **Wider than [`Models::broken_at`] beside it, and the source of it.**
+    /// That one answers what went *wrong*, which is two of the four; this
+    /// answers what a step came to at all, which a reader listing steps wants —
+    /// a step that came to nothing is not broken, and a list that could not say
+    /// so drew it exactly like one that built.
+    ///
+    /// Every other kind of step answers `None`, and not for want of asking: a
+    /// plane and a sketch are what they say they are, and neither has a solid
+    /// to come to anything.
+    pub(crate) fn came_at(self, at: FeatureId) -> Option<Built> {
+        (self.timeline.built(at) && self.timeline.feature(at).grows())
+            .then(|| self.build.bodied(at).built())
     }
 
     /// The last step currently built, or `None` for all of them — see

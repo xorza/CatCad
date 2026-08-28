@@ -224,25 +224,32 @@ impl Spinning {
         )
     }
 
-    /// Whether `turn` stands clear of the line along the whole of it.
+    /// Whether `turn` keeps to one side of the line along the whole of it,
+    /// with `ends` the two places it runs between.
     ///
-    /// **Asked of the arc and not of its ends**, which a straight run needs and
-    /// an arc does not: an arc bulges away from its own chord, so one drawn
-    /// from a place beside the line round to another can cross it in between
-    /// and come back. What it sweeps there is a surface folded through itself.
+    /// **Asked of the arc and not only of its ends**, which a straight run
+    /// needs and an arc does not: an arc bulges away from its own chord, so one
+    /// drawn from a place beside the line round to another can cross it in
+    /// between and come back. What it sweeps there is a surface folded through
+    /// itself.
     ///
     /// How far out an arc stands is a cosine of the angle round it, so the
     /// least of it is a radius inside the centre where the sweep reaches
     /// straight back at the line, and an end everywhere else.
-    fn clears(self, turn: Turn) -> bool {
+    ///
+    /// **An end *on* the line is a pole and is kept**, which is what a
+    /// semicircle spun about its own diameter is — the commonest ball there is.
+    /// An *interior* place on the line is not: the arc reaches the line and
+    /// leaves it again, so what it sweeps folds through itself. The ends come
+    /// in already snapped, a place within [`PLACED`] of the line being on it —
+    /// see [`Spinning::profile`].
+    fn clears(self, turn: Turn, ends: [DVec2; 2]) -> bool {
         let middle = self.profile(turn.center);
         let back = (self.out.to_angle() + PI - turn.start) * turn.sweep.signum();
         if back.rem_euclid(TAU) <= turn.sweep.abs() {
             return middle.y - turn.radius > 0.0;
         }
-        let ends = [turn.start, turn.end()]
-            .map(|angle| middle.y + self.out.dot(DVec2::from_angle(angle)) * turn.radius);
-        ends[0] > 0.0 && ends[1] > 0.0
+        ends[0].y >= 0.0 && ends[1].y >= 0.0
     }
 }
 
@@ -339,18 +346,25 @@ impl Revolving {
     ///
     /// **Which side of the line the region stands on is read rather than
     /// given**, so a caller need not say — and reading it is the same walk that
-    /// refuses a region straddling the line. A corner *on* the line says
-    /// nothing about which side that is, and is passed over: what it sweeps is
-    /// a pole.
+    /// refuses a region straddling the line. A place *on* the line says nothing
+    /// about which side that is, and is passed over: what it sweeps is a pole.
+    ///
+    /// **Three places per strip: its two ends and its middle.** The ends alone
+    /// answer for a straight run and not for an arc — one drawn from the line
+    /// round to the line again has both of them on it and says nothing, where
+    /// the bulge it stands off with says everything. The middle alone answers
+    /// for neither: a run that *crosses* the line has its two ends either way
+    /// of it and its middle on it, which is the case this refuses.
     fn framed(of: &Revolution<'_>, strips: &Strips) -> Option<Spinning> {
         let along = of.along.try_normalize()?;
         let perp = along.perp();
-        // The side the region stands on, off the first corner clear of the
-        // line — and every corner after it has to agree.
+        // The side the region stands on, off the first place clear of the
+        // line — and every place after it has to agree.
         let mut side = 0.0_f64;
         for strip in strips.all() {
-            for corner in [strip.from, strip.to] {
-                let off = perp.dot(strips.corners()[corner] - of.axis);
+            let corners = [strip.from, strip.to].map(|corner| strips.corners()[corner]);
+            for at in [corners[0], corners[1], laid(strips, *strip, 0.5).at] {
+                let off = perp.dot(at - of.axis);
                 if predicate::touching(off.abs(), PLACED) {
                     continue;
                 }
@@ -427,9 +441,15 @@ impl Revolving {
             // which is no wall at all — a profile revolved about one of its own
             // sides has one, and the solid is closed by what the sides either
             // way of it sweep.
-            if [strip.from, strip.to]
-                .iter()
-                .all(|&corner| spinning.poles(strips.corners()[corner]))
+            //
+            // **A straight run and no other.** An arc bulges off its own chord,
+            // so one running from the line round to the line again lies on
+            // neither: what it sweeps is a real surface, and a semicircle about
+            // its own diameter sweeps the commonest of them.
+            if strip.turn.is_none()
+                && [strip.from, strip.to]
+                    .iter()
+                    .all(|&corner| spinning.poles(strips.corners()[corner]))
             {
                 self.walls.push(None);
                 continue;
@@ -491,10 +511,10 @@ impl Revolving {
     /// which would spin into a torus passing through itself, a surface `Torus`
     /// refuses to be and a solid nothing bounds.
     fn wall_of(spinning: Spinning, strips: &Strips, strip: Strip) -> Option<Walled> {
-        let profiled = |corner: usize| spinning.profile(strips.corners()[corner]);
+        let ends = [strip.from, strip.to].map(|corner| spinning.profile(strips.corners()[corner]));
         let surface = match strip.turn {
             None => {
-                let (from, to) = (profiled(strip.from), profiled(strip.to));
+                let [from, to] = ends;
                 let way = spinning.spun(to, 0.0) - spinning.spun(from, 0.0);
                 let way = way.try_normalize()?;
                 if predicate::parallel(way, spinning.axis.direction) {
@@ -526,7 +546,7 @@ impl Revolving {
                 }
             }
             Some(turn) => {
-                if !spinning.clears(turn) {
+                if !spinning.clears(turn, ends) {
                     return None;
                 }
                 let middle = spinning.profile(turn.center);

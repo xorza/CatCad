@@ -1114,3 +1114,78 @@ fn a_partial_turn_keeps_a_pole_and_opens_a_cavity_into_a_hole() {
     let slack = (2.0 / 3.0) * 1e-3 * sweep * out * TAU * (at + hole);
     assert!(off < slack, "{off} off {want}");
 }
+
+/// **A semicircle spun about its own diameter is a ball**, which is the
+/// commonest revolve there is and the one an arc reaching the line makes.
+///
+/// The arc runs from the line round to the line again. It lies on neither —
+/// an arc bulges off its own chord — so what it sweeps is a sphere, and its two
+/// ends are the poles. The straight side closing the profile *does* lie on the
+/// line and sweeps nothing, so the whole ball is one wall.
+///
+/// **Three faces, three edges, two vertices**, and `2 − 3 + 3` is two: the wall
+/// is cut in three, no face being allowed to wrap, and the three seams are
+/// meridians running pole to pole. Nothing else bounds it — a corner on the
+/// line sweeps a point rather than a circle, so there is no equator.
+///
+/// `4πr³/3` by the schoolbook, and by Pappus: a half-disc of area `πr²/2` whose
+/// middle stands `4r/3π` out gives `2π · (4r/3π) · (πr²/2)`.
+#[test]
+fn a_semicircle_spun_about_its_own_diameter_is_a_ball() {
+    let radius = 1.0_f64;
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::ZERO);
+    sketch.add_circle(middle, radius);
+    // The diameter, drawn past the rim either way so the arrangement cuts both
+    // curves rather than leaving the line hanging in the disc.
+    let low = sketch.add_point(DVec2::new(0.0, -radius - 1.0));
+    let high = sketch.add_point(DVec2::new(0.0, radius + 1.0));
+    sketch.add_segment(low, high);
+    let found = Arrangement::of(&sketch);
+
+    // Either half is a ball, the two standing on opposite sides of the line —
+    // so the first that sweeps anything is the one under test.
+    let body = (0..found.faces().len())
+        .map(|at| {
+            Revolution::new(
+                &found,
+                &[at],
+                Plane::FRONT,
+                DVec2::ZERO,
+                DVec2::Y,
+                Sector::WHOLE,
+                STEP,
+            )
+            .body()
+        })
+        .find(|body| !body.is_empty())
+        .expect("no half of the disc swept a ball");
+
+    let reckoning = body.reckoning();
+    assert_eq!(reckoning.genus, 0, "a ball is a ball: {reckoning:?}");
+    let topology = body.topology();
+    assert_eq!(topology.faces().count(), MOST, "one wall, cut in three");
+    assert_eq!(
+        topology.edges().count(),
+        MOST,
+        "the seams are the only edges"
+    );
+    assert_eq!(topology.vertices().count(), 2, "a ball has two poles");
+    assert!(body.exact(), "a sphere is exact");
+    for (_, face) in topology.faces() {
+        assert!(
+            matches!(face.surface, Surface::Natural(Natural::Sphere(_))),
+            "the arc swept {:?}",
+            face.surface,
+        );
+    }
+
+    let want = 4.0 * PI * radius * radius * radius / 3.0;
+    // **Coarser than [`FINE`]**, on the terms the sphere zone above states: a
+    // sphere is cut in both of its angles at once, so the cells go as the
+    // *square* of what a cylinder's do and a sagitta fine enough for a flat
+    // answer is a million of them.
+    let off = (Mesher::default().volume(&body, 1e-4) - want).abs();
+    let slack = (2.0 / 3.0) * 1e-4 * TAU * radius * (PI * radius);
+    assert!(off < slack, "{off} off {want}");
+}
