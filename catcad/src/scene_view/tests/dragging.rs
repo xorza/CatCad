@@ -253,7 +253,7 @@ fn dragging_a_solids_far_end_carries_it_and_leaves_the_drawing_alone() {
             .chosen()
             .find_map(|(_, feature)| match feature {
                 Feature::Extrude { distance, .. } => Some(*distance),
-                Feature::Plane(_) | Feature::Sketch { .. } => None,
+                Feature::Plane(_) | Feature::Sketch { .. } | Feature::Revolve { .. } => None,
             })
             .expect("the demo grows a solid")
     };

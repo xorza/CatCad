@@ -8,7 +8,7 @@ use crate::model::{Broken, Models};
 use crate::timeline::Timeline;
 use crate::timeline::feature::{Datum, Feature, World};
 use glam::{DVec2, Vec3};
-use silverpoint::{Entity, Operation, Plane};
+use silverpoint::{Entity, Operation, Plane, SegmentId};
 
 /// A square: four free points and the edges between them, which shuts one
 /// region in and leaves eight degrees of freedom.
@@ -29,6 +29,26 @@ fn ring(x: f64, radius: f64) -> Sketch {
     let center = sketch.add_point(DVec2::new(x, 0.0));
     sketch.add_circle(center, radius);
     sketch
+}
+
+/// A drawing a revolve is made from, and the line in it to spin about.
+struct Lathed {
+    sketch: Sketch,
+    axis: SegmentId,
+}
+
+impl Lathed {
+    /// A circle of `minor` about `(major, 0)`, beside the drawing's own `y`
+    /// axis — so spun about that line it traces a ring of those two radii.
+    fn new(major: f64, minor: f64) -> Self {
+        let mut sketch = Sketch::default();
+        let center = sketch.add_point(DVec2::new(major, 0.0));
+        sketch.add_circle(center, minor);
+        let low = sketch.add_point(DVec2::new(0.0, -1.0));
+        let high = sketch.add_point(DVec2::new(0.0, 1.0));
+        let axis = sketch.add_segment(low, high);
+        Self { sketch, axis }
+    }
 }
 
 /// Two circles far enough apart to miss each other: two regions, and six
@@ -360,7 +380,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
     );
     assert_eq!(build.bodied(solid).region(), None);
     assert_eq!(document.models(&build, Some(drawn)).lost(), 1);
-    assert_eq!(build.bodied(solid).built(), Built::LostProfile);
+    assert_eq!(build.bodied(solid).built(), Built::Lost);
 }
 
 /// What a closed document built is gone too.
@@ -371,7 +391,7 @@ fn a_profile_holds_through_a_drag_and_is_lost_when_the_region_is_cut() {
 /// numbers its steps from zero — so an answer left behind would be one about an
 /// extrude that no longer exists, filed under the name of one that does.
 #[test]
-#[should_panic(expected = "this extrude has not been built")]
+#[should_panic(expected = "this sweep has not been built")]
 fn reopening_forgets_what_the_last_document_built() {
     let mut timeline = Timeline::default();
     let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
@@ -573,7 +593,7 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
         .into();
 
     // Forwards first, which is what every rebuild does today.
-    let walk: Vec<_> = timeline.extrudes().collect();
+    let walk: Vec<_> = timeline.swept().collect();
     build.rebuild(walk.iter().copied());
     let found: Vec<Option<usize>> = grown.iter().map(|&at| build.bodied(at).region()).collect();
     assert_eq!(
@@ -591,4 +611,52 @@ fn a_rebuild_files_every_extrude_by_handle_whatever_order_it_walked_them_in() {
         reversed, found,
         "an extrude resolved differently for having been walked later"
     );
+}
+
+/// **A circle spun about a line of its own drawing reaches the model as a
+/// ring**, which is what `.notes/KERNEL.md` §10's first rule owes M6: until a
+/// step of a document can make one, only a test raises a torus.
+///
+/// The whole path in one call — an intent naming a region and a segment, a
+/// durable name minted from the drawing, a step of the timeline, a body built
+/// from it and a model to show. What the ring *is* is the kernel's own to
+/// prove, and it does: see `a_circle_spun_about_a_line_beside_it_is_the_ring
+/// _it_traces`, where the volume is Pappus.
+///
+/// **And it is not exact**, a torus being the fitted tier's own surface — the
+/// one thing here no other solid a document can hold would say. Its edges are
+/// exact all the same, every one of them a circle, so nothing about it was
+/// marched.
+#[test]
+fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
+    let mut timeline = Timeline::default();
+    let ground = timeline.add(Feature::Plane(Datum::World(World::Ground)));
+    let drawn = Lathed::new(3.0, 1.0);
+    let sketch = timeline.add(Feature::Sketch {
+        on: ground,
+        sketch: drawn.sketch,
+    });
+
+    let mut build = Build::default();
+    timeline.edit(sketch).opened(&mut build);
+    let mut document = Document::new(&mut build, timeline);
+    document.apply(
+        &mut build,
+        Change::Revolve {
+            sketch,
+            region: 0,
+            axis: drawn.axis,
+            operation: Operation::Join,
+        },
+    );
+
+    let models = document.models(&build, Some(sketch));
+    assert_eq!(models.lost(), 0, "the revolve lost its footing");
+    let (_, body) = models.solids().next().expect("the revolve raised no solid");
+    assert!(!body.exact(), "a ring stands on a torus");
+    // One name over the four faces a whole turn is cut into, a wall being named
+    // by the curve it came off rather than by how the kernel had to cut it.
+    assert_eq!(body.names().count(), 1, "the ring is more than one wall");
+
+    assert_eq!(body.strays(), 0.0, "a ring's own edges are all circles");
 }

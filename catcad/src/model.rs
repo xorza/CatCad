@@ -534,21 +534,20 @@ impl<'a> Models<'a> {
     /// come through here, so what the tree marks and what the status line
     /// totals cannot come to disagree.
     ///
-    /// Only an extrude can, today. Every other kind answers `None`, and not for
-    /// want of asking: a plane and a sketch are what they say they are, and
-    /// there is nothing for either to fail at.
+    /// Only a step that grows a solid can. Every other kind answers `None`,
+    /// and not for want of asking: a plane and a sketch are what they say they
+    /// are, and there is nothing for either to fail at.
     ///
     /// **Failing and coming to nothing are different.** An extrusion of no
     /// depth leaves no solid and is not broken — the depth is a number somebody
     /// is still typing. See [`Built`].
     ///
-    /// A fair question of any step rather than of an extrude known to be one,
+    /// A fair question of any step rather than of a sweep known to be one,
     /// for the reason [`Timeline::movable`](crate::timeline::Timeline) answers
     /// for any: what is picked out or listed is a step, and being told its kind
     /// first is what a caller should not have to arrange.
     pub(crate) fn broken_at(self, at: FeatureId) -> Option<Broken> {
-        if !self.timeline.built(at) || !matches!(self.timeline.feature(at), Feature::Extrude { .. })
-        {
+        if !self.timeline.built(at) || !self.timeline.feature(at).grows() {
             return None;
         }
         // A table rather than two predicates asked in order, which is what it
@@ -557,7 +556,7 @@ impl<'a> Models<'a> {
         // whole, a fifth thing a step can come to is a compile error here
         // instead of a step that quietly reads as fine.
         match self.build.bodied(at).built() {
-            Built::LostProfile => Some(Broken::Profile),
+            Built::Lost => Some(Broken::Profile),
             Built::Refused => Some(Broken::Unmerged),
             Built::Made | Built::Empty => None,
         }
@@ -609,12 +608,12 @@ impl<'a> Models<'a> {
         Some(self.timeline.drawn_on(self.open()?.of()))
     }
 
-    /// How many extrudes no longer know which region they are grown from.
+    /// How many sweeps no longer know which region they are grown from.
     ///
     /// What a drawing can do to a feature standing downstream of it: a line
-    /// drawn across a region takes away the thing an extrude was built on, and
+    /// drawn across a region takes away the thing a sweep was built on, and
     /// neither of the two regions that replaced it is what the name meant. Said
-    /// as a count because that is what a reader can act on — which extrude went
+    /// as a count because that is what a reader can act on — which sweep went
     /// wrong is a question for the timeline, which nothing shows yet.
     ///
     /// Here rather than on the build, though the build could count these on its
@@ -642,7 +641,7 @@ impl<'a> Models<'a> {
     /// How many of the steps currently built came to `trouble`.
     fn broken(self, trouble: Broken) -> usize {
         self.timeline
-            .extrudes()
+            .swept()
             .filter(|step| self.broken_at(step.at) == Some(trouble))
             .count()
     }
@@ -712,7 +711,7 @@ impl<'a> Models<'a> {
             timeline, build, ..
         } = self;
         timeline
-            .extrudes()
+            .swept()
             .filter(|step| timeline.built(step.at))
             .filter(|step| build.bodied(step.at).built().merged())
             .map(|step| (step.at, build.bodied(step.at).body()))
@@ -721,7 +720,7 @@ impl<'a> Models<'a> {
 
     /// Every solid the document stands as, which is normally one.
     ///
-    /// **One body per run of steps that merged, and not one per extrude.** A
+    /// **One body per run of steps that merged, and not one per sweep.** A
     /// timeline is a recipe: each step joins its own solid to what the steps
     /// before it left standing or cuts it out of them, so what the document
     /// *is* is what the last of them left, and the bodies before it are the
@@ -734,7 +733,7 @@ impl<'a> Models<'a> {
     /// stands beside the model instead of in it, and [`Models::lost`] counts
     /// it. Where every step merges this yields exactly one body; where none of
     /// them can, it yields what the document showed before there were booleans
-    /// at all, which is one solid per extrude.
+    /// at all, which is one solid per sweep.
     ///
     /// A [`Body`] is a thing the document holds where a prism was a reading of
     /// one: it is built once by [`Build::rebuild`](crate::build::Build) and
@@ -746,7 +745,7 @@ impl<'a> Models<'a> {
         } = self;
         let model = self.model().map(|(at, _)| at);
         timeline
-            .extrudes()
+            .swept()
             .filter(move |step| timeline.built(step.at))
             .filter_map(move |step| {
                 let bodied = build.bodied(step.at);
@@ -759,7 +758,6 @@ impl<'a> Models<'a> {
 #[cfg(test)]
 mod internals {
     use crate::model::Models;
-    use crate::timeline::feature::Feature;
 
     impl Models<'_> {
         /// How many of the document's steps grew a solid of their own.
@@ -772,7 +770,7 @@ mod internals {
         pub(crate) fn grown(self) -> usize {
             self.chosen()
                 .filter(|(at, feature)| {
-                    matches!(feature, Feature::Extrude { .. })
+                    feature.grows()
                         && self.timeline.built(*at)
                         && self.build.bodied(*at).built().raised()
                 })

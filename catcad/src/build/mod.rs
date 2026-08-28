@@ -5,7 +5,7 @@ use silverpoint::{Body, Boolean, Builder, Drive, PointId, Removed, Sketch, Solve
 
 use crate::build::bodied::{Bodied, Digest, Rebuilding};
 use crate::build::settled::Settled;
-use crate::timeline::{Extruded, FeatureId};
+use crate::timeline::{FeatureId, Swept};
 
 pub(crate) mod bodied;
 pub(crate) mod settled;
@@ -50,11 +50,11 @@ pub(crate) struct Build {
     /// that way, which is the one thing this costs: a sketch is settled for the
     /// first time once per document, and read on every frame that draws one.
     settled: Vec<Settled>,
-    /// The solid each extrude stands for, **in handle order**, and searched as
+    /// The solid each sweep stands for, **in handle order**, and searched as
     /// such like the list above.
     ///
     /// Rewritten whole by [`Build::rebuild`] rather than kept in step entry by
-    /// entry: an extrude names its region by what bounds it, and every edit to
+    /// entry: a sweep names its region by what bounds it, and every edit to
     /// a sketch is an edit that could have taken one of those away. Whole, but
     /// not from scratch — an entry whose [`Digest`] has not moved keeps the
     /// body it already had, which is what makes an edit to one drawing cost
@@ -219,7 +219,7 @@ impl Build {
         self.revision = self.revision.next();
     }
 
-    /// Build the solid each extrude stands for afresh.
+    /// Build the solid each sweep stands for afresh.
     ///
     /// After a settle rather than inside one, because the two are about
     /// different things: a solve is about one sketch, and this is about every
@@ -238,7 +238,7 @@ impl Build {
     /// [`Document`](crate::document::Document)'s: what crosses between the two
     /// is what each step names and nothing else, which is the same line
     /// [`Models`](crate::model::Models) sits on.
-    pub(crate) fn rebuild<'a>(&mut self, extrudes: impl Iterator<Item = Extruded<'a>>) {
+    pub(crate) fn rebuild<'a>(&mut self, swept: impl Iterator<Item = Swept<'a>>) {
         let Self {
             settled,
             bodied,
@@ -250,7 +250,7 @@ impl Build {
         } = self;
         // Taken out and refilled rather than written over in place: a step may
         // have been added or taken away since the last time, and there is no
-        // position here worth keeping — a caller names an extrude by its
+        // position here worth keeping — a caller names a sweep by its
         // handle. What the old list is still good for is the bodies in it, so
         // it is emptied into a scratch rather than dropped, and each entry is
         // carried across to be rebuilt over rather than replaced.
@@ -267,14 +267,14 @@ impl Build {
         // builds on what *they* were handed. By position because the list it
         // points into is being pushed to — see [`Built::merged`].
         let mut model: Option<usize> = None;
-        for step in extrudes {
+        for step in swept {
             let settled = filed_under(settled, step.profile.sketch(), Settled::of, UNSETTLED);
             let on = model.map(|at| &bodied[at]);
             let digest = Digest::new(
                 settled.revision(),
                 step.plane,
                 step.profile.face_in(settled.arrangement()),
-                step.distance,
+                step.sweep,
                 step.operation,
                 on.map(Bodied::version).unwrap_or_default(),
             );
@@ -302,7 +302,7 @@ impl Build {
         // taken in only until something moves one — and this list is read by
         // halving it, which an unsorted list answers wrongly rather than
         // slowly. The walk cannot simply be taken in handle order instead:
-        // which region an extrude is grown from has to be worked out in the
+        // which region a sweep is grown from has to be worked out in the
         // order the recipe runs, and the two are about to differ.
         bodied.sort_unstable_by_key(Bodied::of);
     }
@@ -318,12 +318,12 @@ impl Build {
     /// cheaper than keeping every sketch a session ever held. See
     /// [`Document::replant_all`](crate::document::Document).
     ///
-    /// Handles that never had an entry — a plane, an extrude, a sketch nothing
+    /// Handles that never had an entry — a plane, a sweep, a sketch nothing
     /// settled — pass through, because what a caller has is the whole cascade
     /// rather than the sketches among it.
     ///
     /// `bodied` needs nothing: it is refilled whole by the [`Build::rebuild`]
-    /// that follows every edit, and an entry no extrude claims is dropped
+    /// that follows every edit, and an entry no sweep claims is dropped
     /// there.
     pub(crate) fn forgot(&mut self, gone: &[FeatureId]) {
         self.settled.retain(|settled| !gone.contains(&settled.of()));
@@ -361,11 +361,11 @@ impl Build {
         filed_under(&self.settled, of, Settled::of, UNSETTLED)
     }
 
-    /// What building the extrude at `of` came to.
+    /// What building the sweep at `of` came to.
     ///
-    /// Every extrude the document holds has been through [`Build::rebuild`] by
+    /// Every sweep the document holds has been through [`Build::rebuild`] by
     /// the time anything asks — raising a document rebuilds it, and so does
-    /// every edit — so an extrude with no answer here is one nothing has
+    /// every edit — so a sweep with no answer here is one nothing has
     /// replayed, which is a mistake in whatever raised the document rather than
     /// a state a reader has to handle. That the build *failed* is a different
     /// thing and a fair answer: see [`Built`](crate::build::bodied::Built).
@@ -426,7 +426,7 @@ fn filed_under<'a, T>(
 // which is a mistake in whatever raised it rather than anything a reader can
 // handle.
 const UNSETTLED: &str = "this sketch has not been settled";
-const UNBUILT: &str = "this extrude has not been built";
+const UNBUILT: &str = "this sweep has not been built";
 
 /// Which of the solver's entry points an edit is settled through.
 ///

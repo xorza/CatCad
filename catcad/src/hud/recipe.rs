@@ -97,6 +97,13 @@ pub(super) fn show(ui: &mut Ui, shown: Shown<'_>, intents: &mut Intents) {
                         solids += 1;
                         (Glyph::Extrude, "Extrude", solids)
                     }
+                    // The extrude's own glyph until a revolve has one drawn for
+                    // it. The row's word is what tells the two apart meanwhile,
+                    // and both are solids in one numbering because both are.
+                    Feature::Revolve { .. } => {
+                        solids += 1;
+                        (Glyph::Extrude, "Revolve", solids)
+                    }
                 };
                 // Interned into the pass's own arena rather than formatted into a
                 // `String`: this is a row per step per frame, and the record pass is

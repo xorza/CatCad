@@ -230,7 +230,7 @@ impl Document {
     /// Reads the document and writes only `build`, like everything derived: what
     /// an extrude says is written down, and where that currently lands is not.
     fn rebuilt(&self, build: &mut Build) {
-        build.rebuild(self.timeline.extrudes());
+        build.rebuild(self.timeline.swept());
     }
 
     /// Write the document to `path`, making it if it is not there and replacing
@@ -409,7 +409,9 @@ impl Document {
             // profile and distance are what they are; putting them back is the
             // whole of it, and where the drawing then *lands* is worked out by
             // whoever reads it.
-            Feature::Plane(_) | Feature::Extrude { .. } => build.revised(),
+            Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => {
+                build.revised()
+            }
         }
         self.rebuilt(build);
         self.edits = self.edits.next();
@@ -510,6 +512,26 @@ impl Document {
                 shaped = Shaped::Made(self.timeline.add(Feature::Extrude {
                     profile,
                     distance,
+                    operation,
+                }));
+                build.revised();
+            }
+            // The same, spun about a line of its own drawing rather than
+            // carried off the plane — see [`Change::Revolve`].
+            Change::Revolve {
+                sketch,
+                region,
+                axis,
+                operation,
+            } => {
+                let profile = self
+                    .models(build, Some(sketch))
+                    .at(sketch)
+                    .expect("a change names a sketch the timeline holds")
+                    .profile(region);
+                shaped = Shaped::Made(self.timeline.add(Feature::Revolve {
+                    profile,
+                    axis,
                     operation,
                 }));
                 build.revised();

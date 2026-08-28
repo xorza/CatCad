@@ -83,7 +83,9 @@ pub(super) fn plane_at(
     let &id = added.get(names).ok_or(Fault::UnknownStep { at, names })?;
     match timeline.feature(id) {
         Feature::Plane(_) => Ok(id),
-        Feature::Sketch { .. } | Feature::Extrude { .. } => Err(Fault::NotAPlane { at, names }),
+        Feature::Sketch { .. } | Feature::Extrude { .. } | Feature::Revolve { .. } => {
+            Err(Fault::NotAPlane { at, names })
+        }
     }
 }
 
@@ -102,7 +104,9 @@ pub(super) fn sketch_at(
     let &id = added.get(names).ok_or(Fault::UnknownStep { at, names })?;
     match timeline.feature(id) {
         Feature::Sketch { .. } => Ok(id),
-        Feature::Plane(_) | Feature::Extrude { .. } => Err(Fault::NotASketch { at, names }),
+        Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => {
+            Err(Fault::NotASketch { at, names })
+        }
     }
 }
 

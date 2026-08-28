@@ -2,7 +2,7 @@
 
 use aperture::Projection;
 use glam::Vec3;
-use silverpoint::{Constraint, ConstraintId, Entity, Operation};
+use silverpoint::{Constraint, ConstraintId, Entity, Operation, SegmentId};
 
 use crate::drawing::Grip;
 use crate::drawing::anchor::Anchor;
@@ -133,6 +133,28 @@ pub(crate) enum Change {
         sketch: FeatureId,
         region: usize,
         distance: f64,
+        /// What it does with the solid the steps before it left standing.
+        operation: Operation,
+    },
+    /// Spin a solid a whole turn off a region of a sketch, about a line drawn
+    /// in that same sketch.
+    ///
+    /// The third change that *adds* a step, and it names its region the way
+    /// [`Change::Extrude`] does and for the same reason. The axis is a handle
+    /// rather than a position, a segment being the drawing's own and durable
+    /// where a face of an arrangement is not.
+    ///
+    /// **No gesture raises one yet**, and that is what the allow below says: a
+    /// revolve takes two picks — a region and a line — where every form here
+    /// takes picks and then a *number*, and a whole turn asks for no number at
+    /// all. Everything behind this is built and held end to end by
+    /// `a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring`;
+    /// the tool is the one piece left.
+    #[allow(dead_code)]
+    Revolve {
+        sketch: FeatureId,
+        region: usize,
+        axis: SegmentId,
         /// What it does with the solid the steps before it left standing.
         operation: Operation,
     },
@@ -302,11 +324,13 @@ impl Change {
             | Change::Constrain { sketch, .. }
             | Change::Tidy { sketch }
             | Change::Delete { sketch, .. } => once(sketch),
-            // The two that make a step. What each names is what the new step is
+            // The three that make a step. What each names is what the new step is
             // built *on* rather than a step this is about: the one it makes does
             // not exist until it lands, so there is nothing here for a history
             // to record a *before* against.
-            Change::Extrude { .. } | Change::AddSketch { .. } => About::Makes,
+            Change::Extrude { .. } | Change::Revolve { .. } | Change::AddSketch { .. } => {
+                About::Makes
+            }
             // And the one that takes steps away, which has no *after* for the
             // same reason a creation has no before.
             Change::DeleteStep { .. } => About::Removes,

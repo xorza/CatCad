@@ -1,6 +1,6 @@
 //! One step of a timeline, and the kinds there are.
 
-use silverpoint::{Operation, Plane, Sketch};
+use silverpoint::{Operation, Plane, SegmentId, Sketch};
 
 use crate::profile::Profile;
 use crate::timeline::FeatureId;
@@ -48,6 +48,25 @@ pub(crate) enum Feature {
         distance: f64,
         operation: Operation,
     },
+    /// A solid spun off a region of a sketch, a whole turn about a line drawn
+    /// in that same sketch.
+    ///
+    /// **The axis is a segment of the drawing the profile is a region of**, and
+    /// it is named the way the profile is: by the sketch's own handle, which
+    /// survives the geometry moving and being cut into pieces by whatever is
+    /// drawn across it. So a line drawn to be spun about is drawn where the
+    /// thing spun about it is, one gesture names both, and a drag through the
+    /// sketch carries the axis along with the profile.
+    ///
+    /// A whole turn and no other, which is the whole of what the kernel makes
+    /// — see [`Revolution`](silverpoint::Revolution). Spun part way a region
+    /// has two ends, and those are caps of a kind the kernel does not raise
+    /// yet.
+    Revolve {
+        profile: Profile,
+        axis: SegmentId,
+        operation: Operation,
+    },
 }
 
 // Written out for `clone_from`, which `derive(Clone)` leaves at the trait's
@@ -69,6 +88,15 @@ impl Clone for Feature {
             } => Feature::Extrude {
                 profile: profile.clone(),
                 distance: *distance,
+                operation: *operation,
+            },
+            Feature::Revolve {
+                profile,
+                axis,
+                operation,
+            } => Feature::Revolve {
+                profile: profile.clone(),
+                axis: *axis,
                 operation: *operation,
             },
         }
@@ -102,6 +130,22 @@ impl Clone for Feature {
                 *distance = *to;
                 *operation = *doing;
             }
+            (
+                Feature::Revolve {
+                    profile,
+                    axis,
+                    operation,
+                },
+                Feature::Revolve {
+                    profile: from,
+                    axis: about,
+                    operation: doing,
+                },
+            ) => {
+                profile.clone_from(from);
+                *axis = *about;
+                *operation = *doing;
+            }
             // A plane is a handful of numbers, and two steps of different kinds
             // share nothing there would be any point writing over.
             (this, source) => *this = source.clone(),
@@ -122,8 +166,21 @@ impl Feature {
             // The sketch the region is of, and nothing else. The plane is not a
             // referent of this step but of that one — see [`Feature::Extrude`],
             // on why an extrude names no plane of its own.
-            Feature::Extrude { profile, .. } => Some(profile.sketch()).into_iter(),
+            Feature::Extrude { profile, .. } | Feature::Revolve { profile, .. } => {
+                Some(profile.sketch()).into_iter()
+            }
         }
+    }
+
+    /// Whether it raises a solid off a region of a drawing.
+    ///
+    /// **What every reader that does not care *how* asks.** A step that grows
+    /// material has a profile, an operation, a body of its own and a place in
+    /// the model; which sweep made it is the business of the build and of the
+    /// one form that edits it, and of nothing else. Written once so that a
+    /// third sweep is one arm here rather than a hunt through the callers.
+    pub(crate) fn grows(&self) -> bool {
+        matches!(self, Feature::Extrude { .. } | Feature::Revolve { .. })
     }
 
     /// Whether somebody chose to put this step in the document.
@@ -159,6 +216,7 @@ impl Feature {
             Feature::Plane(Datum::Offset { .. }) => "a plane",
             Feature::Sketch { .. } => "a sketch",
             Feature::Extrude { .. } => "an extrude",
+            Feature::Revolve { .. } => "a revolve",
         }
     }
 }

@@ -1,11 +1,11 @@
-//! The solid one extrude leaves behind, and what it was built from.
+//! The solid one sweep leaves behind, and what it was built from.
 
-use silverpoint::{Arrangement, Body, Boolean, Builder, Extrusion, Operation, Plane};
+use silverpoint::{Arrangement, Body, Boolean, Builder, Extrusion, Operation, Plane, Revolution};
 
 use crate::build::Revision;
-use crate::timeline::FeatureId;
+use crate::timeline::{FeatureId, Sweep};
 
-/// The body an extrude stands for, the reading it was built from, and how the
+/// The body a sweep stands for, the reading it was built from, and how the
 /// build went.
 ///
 /// **The body itself, kept.** A prism was a reading — an arrangement, a region
@@ -16,7 +16,7 @@ use crate::timeline::FeatureId;
 /// would answer the same can skip the work entirely.
 ///
 /// Beside [`Settled`](super::settled::Settled) rather than inside it, because
-/// an extrude is a step of the timeline in its own right: several may be grown
+/// a sweep is a step of the timeline in its own right: several may be grown
 /// from one sketch, and what a solve decided is about the sketch rather than
 /// about anything built on it.
 #[derive(Debug)]
@@ -56,18 +56,18 @@ pub(crate) struct Bodied {
 }
 
 impl Bodied {
-    /// A place for the extrude at `of`, holding nothing until it is built.
+    /// A place for the sweep at `of`, holding nothing until it is built.
     pub(super) fn new(of: FeatureId) -> Self {
         Self {
             of,
             digest: Digest::unbuilt(),
             body: Body::default(),
             version: Version::default(),
-            built: Built::LostProfile,
+            built: Built::Lost,
         }
     }
 
-    /// Which extrude this describes.
+    /// Which sweep this describes.
     pub(super) fn of(&self) -> FeatureId {
         self.of
     }
@@ -106,24 +106,44 @@ impl Bodied {
             raised,
             arrangement,
         } = room;
+        // Nothing of its own to contribute, and contributing nothing is not
+        // the same as taking everything away: what stands goes on standing,
+        // because a step that did not merge does not become what the step after
+        // it builds on. The tree says which step lost its footing — see
+        // [`Models::lost`](crate::model::Models).
         let Some(region) = digest.region() else {
-            // Nothing of its own to contribute, and contributing nothing is not
-            // the same as taking everything away: what stands goes on standing,
-            // because a step that did not merge does not become what the step
-            // after it builds on. The tree says which step lost its footing —
-            // see [`Models::lost`](crate::model::Models).
             self.body.clear();
-            self.built = Built::LostProfile;
+            self.built = Built::Lost;
             return;
         };
-        let extrusion = Extrusion::new(
-            arrangement,
-            region,
-            digest.plane(),
-            digest.distance(),
-            self.of.step(),
-        );
-        builder.extrude(&extrusion, raised);
+        match digest.sweep() {
+            Sweep::Carried(distance) => {
+                let extrusion = Extrusion::new(
+                    arrangement,
+                    region,
+                    digest.plane(),
+                    distance,
+                    self.of.step(),
+                );
+                builder.extrude(&extrusion, raised);
+            }
+            Sweep::Spun(None) => {
+                self.body.clear();
+                self.built = Built::Lost;
+                return;
+            }
+            Sweep::Spun(Some(axis)) => {
+                let revolution = Revolution::new(
+                    arrangement,
+                    region,
+                    digest.plane(),
+                    axis.at,
+                    axis.along,
+                    self.of.step(),
+                );
+                builder.revolve(&revolution, raised);
+            }
+        }
         // Whether *this step* raised anything, which is not whether anything
         // stands after it: a depth of nothing joined onto a model leaves the
         // model exactly as it was, and the step is still the one that came to
@@ -159,19 +179,21 @@ impl Bodied {
 ///
 /// A value the replay fills rather than a question asked afterwards. Whether a
 /// step built is not a thing a reader can work out from what is there — an
-/// extrude that lost its profile and one that cut away the whole of what it was
+/// sweep that lost its profile and one that cut away the whole of what it was
 /// cutting from both leave nothing behind, and they are different states with
 /// different things to say.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Built {
     /// It built, and what stands after it is what it made of the model.
     Made,
-    /// The profile no longer names a region.
+    /// What it was built on is no longer in the drawing.
     ///
     /// What a drawing can do to a step standing downstream of it: a line drawn
-    /// across a region takes away the thing an extrude was built on, and
-    /// neither of the two regions that replaced it is what the name meant.
-    LostProfile,
+    /// across a region takes away the thing a solid was built on, and neither
+    /// of the two regions that replaced it is what the name meant. A revolve
+    /// loses its footing the same way where the line it spins about is rubbed
+    /// out.
+    Lost,
     /// Its own solid encloses nothing — an extrusion of no depth.
     ///
     /// About the step and not about the model: joined onto what stands, an
@@ -208,7 +230,7 @@ impl Built {
     }
 }
 
-/// Everything one extrude's body was built from.
+/// Everything one sweep's body was built from.
 ///
 /// Compared whole: equal means the rebuild would answer what is already there,
 /// so the body is kept and nothing runs. Every field is here because it can
@@ -226,7 +248,9 @@ pub(crate) struct Digest {
     plane: Plane,
     /// What the profile currently resolves to among the faces of that sketch.
     region: Option<usize>,
-    distance: f64,
+    /// What is done to that region to raise a solid off it, resolved against
+    /// the drawing — see [`Sweep`], and the timeline, where it is resolved.
+    sweep: Sweep,
     operation: Operation,
     /// Which version of the model the step before this one left standing.
     ///
@@ -249,7 +273,7 @@ impl Digest {
             sketch: Revision::default(),
             plane: Plane::GROUND,
             region: None,
-            distance: 0.0,
+            sweep: Sweep::Carried(0.0),
             operation: Operation::Join,
             standing: Version::default(),
         }
@@ -259,7 +283,7 @@ impl Digest {
         sketch: Revision,
         plane: Plane,
         region: Option<usize>,
-        distance: f64,
+        sweep: Sweep,
         operation: Operation,
         standing: Version,
     ) -> Self {
@@ -267,7 +291,7 @@ impl Digest {
             sketch,
             plane,
             region,
-            distance,
+            sweep,
             operation,
             standing,
         }
@@ -278,9 +302,9 @@ impl Digest {
         self.region
     }
 
-    /// How far the extrude carries its region, and which way.
-    fn distance(self) -> f64 {
-        self.distance
+    /// What it does to that region to raise a solid off it.
+    fn sweep(self) -> Sweep {
+        self.sweep
     }
 
     /// Where the drawing lies in the world.
@@ -378,7 +402,7 @@ mod internals {
     }
 
     impl Bodied {
-        /// Which region of its drawing the extrude currently resolves to.
+        /// Which region of its drawing the sweep currently resolves to.
         ///
         /// Read off the digest, because that is where it is already kept. What
         /// asks is the sweep that says a name outlives the drawing moving under

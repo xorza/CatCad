@@ -6,7 +6,8 @@
 
 use std::ops::Range;
 
-use silverpoint::{Operation, Plane, Step};
+use glam::DVec2;
+use silverpoint::{Operation, Plane, SegmentId, Step};
 
 use crate::drawing::Drawing;
 use crate::drawing::sketching::Sketching;
@@ -221,7 +222,9 @@ impl Timeline {
                     ..base
                 }
             }
-            Feature::Sketch { .. } | Feature::Extrude { .. } => wrong_kind(at, "a plane", feature),
+            Feature::Sketch { .. } | Feature::Extrude { .. } | Feature::Revolve { .. } => {
+                wrong_kind(at, "a plane", feature)
+            }
         }
     }
 
@@ -235,7 +238,8 @@ impl Timeline {
             Feature::Plane(Datum::Offset { by, .. }) => *by = to,
             other @ (Feature::Plane(Datum::World(_))
             | Feature::Sketch { .. }
-            | Feature::Extrude { .. }) => wrong_kind(at, "a plane that can be moved", other),
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. }) => wrong_kind(at, "a plane that can be moved", other),
         }
     }
 
@@ -248,7 +252,10 @@ impl Timeline {
     pub(crate) fn carry(&mut self, at: FeatureId, to: f64) {
         match self.feature_mut(at) {
             Feature::Extrude { distance, .. } => *distance = to,
-            other @ (Feature::Plane(_) | Feature::Sketch { .. }) => {
+            // A revolve has no distance to carry. What its own drag would move
+            // is the line it spins about, which is a segment of a drawing and
+            // is dragged there.
+            other @ (Feature::Plane(_) | Feature::Sketch { .. } | Feature::Revolve { .. }) => {
                 wrong_kind(at, "an extrude", other)
             }
         }
@@ -267,7 +274,9 @@ impl Timeline {
                 at,
                 along: Along::on(self.plane_of(profile.sketch())),
             },
-            Feature::Plane(_) | Feature::Sketch { .. } => wrong_kind(at, "an extrude", feature),
+            Feature::Plane(_) | Feature::Sketch { .. } | Feature::Revolve { .. } => {
+                wrong_kind(at, "an extrude", feature)
+            }
         }
     }
 
@@ -579,9 +588,10 @@ impl Timeline {
             // recipe or a square in the view, so what may be dragged is a
             // question asked of whatever was picked rather than of a plane
             // known to be one.
-            Feature::Plane(Datum::World(_)) | Feature::Sketch { .. } | Feature::Extrude { .. } => {
-                None
-            }
+            Feature::Plane(Datum::World(_))
+            | Feature::Sketch { .. }
+            | Feature::Extrude { .. }
+            | Feature::Revolve { .. } => None,
         }
     }
 
@@ -606,7 +616,7 @@ impl Timeline {
     pub(crate) fn sketched(&self, at: FeatureId) -> Option<Drawing<'_>> {
         match self.held(at)? {
             Feature::Sketch { on, sketch } => Some(Drawing::new(sketch, self.plane(*on))),
-            Feature::Plane(_) | Feature::Extrude { .. } => None,
+            Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => None,
         }
     }
 
@@ -619,7 +629,7 @@ impl Timeline {
         let plane = self.plane_of(at);
         match self.feature_mut(at) {
             Feature::Sketch { sketch, .. } => Sketching::new(at, sketch, plane),
-            other @ (Feature::Plane(_) | Feature::Extrude { .. }) => {
+            other @ (Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. }) => {
                 wrong_kind(at, "a sketch", other)
             }
         }
@@ -645,21 +655,49 @@ impl Timeline {
     /// the distance together. Handing back the handle and making each caller
     /// fetch the step again would be a second lookup and a match on an arm the
     /// walk has already ruled out.
-    pub(crate) fn extrudes(&self) -> impl Iterator<Item = Extruded<'_>> {
-        self.steps().filter_map(|(at, feature)| match feature {
-            Feature::Extrude {
-                profile,
-                distance,
-                operation,
-            } => Some(Extruded {
+    pub(crate) fn swept(&self) -> impl Iterator<Item = Swept<'_>> {
+        self.steps().filter_map(|(at, feature)| {
+            let (profile, sweep, operation) = match feature {
+                Feature::Extrude {
+                    profile,
+                    distance,
+                    operation,
+                } => (profile, Sweep::Carried(*distance), *operation),
+                Feature::Revolve {
+                    profile,
+                    axis,
+                    operation,
+                } => (profile, Sweep::Spun(self.axle(profile, *axis)), *operation),
+                Feature::Plane(_) | Feature::Sketch { .. } => return None,
+            };
+            Some(Swept {
                 at,
                 profile,
-                distance: *distance,
-                operation: *operation,
+                sweep,
+                operation,
                 plane: self.plane_of(profile.sketch()),
-            }),
-            Feature::Plane(_) | Feature::Sketch { .. } => None,
+            })
         })
+    }
+
+    /// The line at `axis` in the drawing `profile` is a region of, or `None`
+    /// where that drawing no longer holds it.
+    ///
+    /// **Resolved here and not where the solid is built**, because this is
+    /// where the sketch is: what crosses into [`Build`](crate::build::Build) is
+    /// what each step names and nothing else, and a segment's two ends are the
+    /// drawing's to answer for.
+    ///
+    /// Walked rather than looked up, a sketch offering no reading of a handle
+    /// that may have been rubbed out — and a handle that has been is exactly
+    /// the `None` here. One walk per revolve per rebuild.
+    fn axle(&self, profile: &Profile, axis: SegmentId) -> Option<Axle> {
+        let Feature::Sketch { sketch, .. } = self.feature(profile.sketch()) else {
+            return None;
+        };
+        let (_, segment) = sketch.segments().find(|(at, _)| *at == axis)?;
+        let [at, to] = [segment.a, segment.b].map(|end| sketch.point(end).position);
+        Some(Axle { at, along: to - at })
     }
 
     /// Which plane the sketch at `at` is drawn on.
@@ -667,7 +705,9 @@ impl Timeline {
         let feature = self.feature(at);
         match feature {
             Feature::Sketch { on, .. } => *on,
-            Feature::Plane(_) | Feature::Extrude { .. } => wrong_kind(at, "a sketch", feature),
+            Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => {
+                wrong_kind(at, "a sketch", feature)
+            }
         }
     }
 
@@ -763,11 +803,11 @@ pub(crate) struct Uprooted {
 /// the step, and this is a way of looking at one rather than a thing the
 /// timeline holds.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Extruded<'a> {
+pub(crate) struct Swept<'a> {
     pub(crate) at: FeatureId,
     pub(crate) profile: &'a Profile,
-    /// How far it is carried off its region's plane, and which way.
-    pub(crate) distance: f64,
+    /// What is done to that region to raise a solid off it.
+    pub(crate) sweep: Sweep,
     /// What it does with the solid the steps before it left standing.
     pub(crate) operation: Operation,
     /// Where in the world the drawing it was grown from lies.
@@ -782,6 +822,30 @@ pub(crate) struct Extruded<'a> {
     /// needs it: a plane that moves solves no sketch and bumps no revision, and
     /// moves every solid grown off it.
     pub(crate) plane: Plane,
+}
+
+/// What one step does to a region to raise a solid off it.
+///
+/// **A field of the reading rather than a kind of step**, which is the same
+/// argument [`Feature::Extrude`](feature::Feature) makes about a cut and a
+/// boss: what varies is the sweep, and the profile, the operation, the body and
+/// the place in the model are written once.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) enum Sweep {
+    /// Carried that far off the plane the region was drawn on, signed — which
+    /// is what makes which way it grows the one number rather than a flag.
+    Carried(f64),
+    /// Spun a whole turn about a line of the same drawing, or `None` where that
+    /// drawing no longer holds the line.
+    Spun(Option<Axle>),
+}
+
+/// A line of a drawing to spin about, in that drawing's own coordinates.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Axle {
+    pub(crate) at: DVec2,
+    /// Tail to head, and not unit — which is the kernel's to normalize.
+    pub(crate) along: DVec2,
 }
 
 /// One step of a timeline, and the handle that names it.

@@ -39,6 +39,15 @@ pub(super) enum Step {
         distance: f64,
         operation: Operated,
     },
+    /// A solid spun a whole turn off a region of an earlier sketch, about a
+    /// line of that same sketch.
+    Revolve {
+        profile: Profiled,
+        /// Which of that sketch's segments the line is, in the numbering
+        /// [`Profiled`]'s own bounds are written in.
+        axis: usize,
+        operation: Operated,
+    },
 }
 
 /// What an extrude does with what stands before it, as a file holds it.
@@ -114,6 +123,14 @@ impl Profiled {
         }
     }
 
+    /// Which step of the file holds the sketch it is a region of.
+    ///
+    /// Read by the revolve beside it, whose axis is a segment of that same
+    /// sketch and so is numbered in that same drawing's handles.
+    fn sketch(&self) -> usize {
+        self.sketch
+    }
+
     /// This as a profile, or the first thing wrong with it.
     fn profile(
         &self,
@@ -171,6 +188,15 @@ impl Step {
                 distance: *distance,
                 operation: Operated::of(*operation),
             },
+            Feature::Revolve {
+                profile,
+                axis,
+                operation,
+            } => Step::Revolve {
+                axis: handles[steps.of(profile.sketch())].of_segment(*axis),
+                profile: Profiled::of(profile, steps, handles),
+                operation: Operated::of(*operation),
+            },
         }
     }
 
@@ -217,6 +243,21 @@ impl Step {
                 Ok(Loaded::plain(Feature::Extrude {
                     profile: profile.profile(at, timeline, added, handles)?,
                     distance: *distance,
+                    operation: operation.operation(),
+                }))
+            }
+            Step::Revolve {
+                profile,
+                axis,
+                operation,
+            } => {
+                // The profile first, which is what says the sketch it names is
+                // a sketch and stands earlier — so the numbering the axis is
+                // read through is one this step may reach.
+                let region = profile.profile(at, timeline, added, handles)?;
+                Ok(Loaded::plain(Feature::Revolve {
+                    axis: handles[profile.sketch()].segment(at, *axis)?,
+                    profile: region,
                     operation: operation.operation(),
                 }))
             }

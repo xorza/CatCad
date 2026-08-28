@@ -82,7 +82,9 @@ impl Saved {
             .steps()
             .map(|(_, feature)| match feature {
                 Feature::Sketch { sketch, .. } => Handles::of(sketch),
-                Feature::Plane(_) | Feature::Extrude { .. } => Handles::default(),
+                Feature::Plane(_) | Feature::Extrude { .. } | Feature::Revolve { .. } => {
+                    Handles::default()
+                }
             })
             .collect();
         Self {
