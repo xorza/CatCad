@@ -1,4 +1,5 @@
 use crate::solid::geometry::axis::Axis;
+use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
@@ -654,8 +655,8 @@ fn ring() -> Surface {
     }))
 }
 
-/// The radii of the circles a meeting came to, smallest first.
-fn radii(meeting: Meeting) -> Vec<f64> {
+/// What `of` reads off each circle a meeting came to, smallest first.
+fn measured(meeting: Meeting, of: fn(&Circle) -> f64) -> Vec<f64> {
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} holds no curves to measure");
     };
@@ -663,12 +664,17 @@ fn radii(meeting: Meeting) -> Vec<f64> {
         .all()
         .iter()
         .map(|curve| match curve {
-            Curve::Circle(circle) => circle.radius,
+            Curve::Circle(circle) => of(circle),
             other => panic!("{other:?} is not a circle"),
         })
         .collect();
     found.sort_by(f64::total_cmp);
     found
+}
+
+/// How wide each circle of a meeting is, smallest first.
+fn radii(meeting: Meeting) -> Vec<f64> {
+    measured(meeting, |circle| circle.radius)
 }
 
 /// **A plane square to a torus's axis cuts it in two circles about that axis**,
@@ -845,4 +851,65 @@ fn a_coaxial_cylinder_cuts_a_torus_in_two_circles_of_its_own_radius() {
         radius: 3.0,
     }));
     assert_eq!(Meeting::of(&torus, &past), Meeting::Marched);
+}
+
+/// **Two surfaces sharing a torus's axis meet in circles where their profiles
+/// cross**, which is one row for four pairs.
+///
+/// A ring of three by one is a circle of one about a place three out, in the
+/// half-plane of how far out and how far along. A sphere on the axis is a
+/// circle of its own radius about a place on that axis, and a second coaxial
+/// ring is a circle beside the first. Two circles cross in two places, each of
+/// them a whole circle about the axis, and every figure below is that solve
+/// done by hand.
+#[test]
+fn coaxial_surfaces_meet_in_the_circles_their_profiles_cross_at() {
+    let torus = ring();
+    let ball = |radius| {
+        Surface::Natural(Natural::Sphere(Sphere {
+            axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+            radius,
+        }))
+    };
+    let beside = |up: f64| {
+        Surface::Fitted(Fitted::Torus(Torus {
+            axis: Axis::new(DVec3::Y * up, DVec3::Y, DVec3::X),
+            major: 3.0,
+            minor: 1.0,
+        }))
+    };
+
+    // A sphere of three about the middle. The two profile circles stand three
+    // apart, so the crossing line is `(9 + 1 − 9)/6` along from the ring's own
+    // middle, which puts both circles `17/6` out and `√35/6` either way up.
+    let meeting = Meeting::of(&torus, &ball(3.0));
+    assert_eq!(radii(meeting), vec![17.0 / 6.0, 17.0 / 6.0]);
+    let ups = measured(meeting, |circle| circle.axis.origin.y);
+    for (got, want) in ups
+        .iter()
+        .zip([-35.0f64.sqrt() / 6.0, 35.0f64.sqrt() / 6.0])
+    {
+        assert!((got - want).abs() < NEAR, "{ups:?} rather than ±√35/6");
+    }
+    lies_on(meeting, &torus, &ball(3.0), "a sphere on the axis");
+
+    // And one small enough to sit in the ring's own hole meets nothing.
+    assert_eq!(Meeting::of(&torus, &ball(1.0)), Meeting::Apart);
+
+    // A second ring three halves up. The middles stand that far apart, so the
+    // crossing is `3/4` up and `√7/4` either side of three.
+    let meeting = Meeting::of(&torus, &beside(1.5));
+    let out = 7.0f64.sqrt() / 4.0;
+    for (got, want) in radii(meeting).iter().zip([3.0 - out, 3.0 + out]) {
+        assert!((got - want).abs() < NEAR, "{got} rather than {want}");
+    }
+    for up in measured(meeting, |circle| circle.axis.origin.y) {
+        assert!((up - 0.75).abs() < NEAR, "{up} rather than three quarters");
+    }
+    lies_on(meeting, &torus, &beside(1.5), "a second ring");
+
+    // Two minor radii up, where the two tubes touch along one circle, and
+    // further than that, where they miss.
+    assert_eq!(radii(Meeting::of(&torus, &beside(2.0))), vec![3.0]);
+    assert_eq!(Meeting::of(&torus, &beside(3.0)), Meeting::Apart);
 }

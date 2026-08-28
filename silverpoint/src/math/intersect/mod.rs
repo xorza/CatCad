@@ -1,4 +1,4 @@
-//! Where the sketch's curves cross each other, and which side of one a place
+//! Where two curves of a plane cross each other, and which side of one a place
 //! falls on.
 //!
 //! Which curve a crossing splits, and where along it, is the arrangement's to
@@ -7,7 +7,9 @@
 //!
 //! Geometry rather than handles, so every answer here is checkable against a
 //! drawing on paper: a span is two corners and a ring is a middle and a
-//! distance, and no part of a sketch reaches in.
+//! distance, and no part of a sketch reaches in. Which is what lets the solid
+//! read it too — a coaxial pair of surfaces meets where their two profiles
+//! cross, and those are a ring and a run like any other.
 
 use crate::inline::Inline;
 use crate::number::exact::decides::Decides;

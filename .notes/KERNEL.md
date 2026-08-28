@@ -1146,11 +1146,23 @@ them.
 **And the reducible half of the fitted tier is in**, which is M3a's argument
 one tier up: the general route for these pairs is a march, and a march is worst
 at exactly the cases a table answers in two lines. `Meeting::fitted` carries
-them, behind the same single arm the split bought — a plane square to a torus's
-axis cuts it in two circles about that axis, a plane holding the axis cuts it in
-the two tube circles it reaches, a plane through the middle at the bitangent
-lean cuts it in Villarceau's two, and a cylinder sharing the axis cuts it in two
-of its own radius. Everything else is still `Marched`.
+them, behind the same single arm the split bought. Everything else is still
+`Marched`.
+
+**Coaxial pairs are one row and not four**, and it is the shape of the surfaces
+rather than a table that makes it one. Every surface here is a curve spun about
+a line — `meeting::profile::Profile`, how far out and how far along — so two
+that share the line meet exactly where those two curves cross, and each crossing
+is a whole circle rather than a place. A plane square across the axis and a
+cylinder about it are straight runs; a sphere on the axis and a torus are
+circles. So a plane square across, a coaxial cylinder, a sphere on the axis and
+a second coaxial ring are four pairs and one solve, and the tangency rule — a
+touch is a crossing, because a circle of them divides a face — is written once
+where the line meets the circle.
+
+**And the plane's own two are what is left of the table**: a plane holding the
+axis cuts a torus in the two tube circles it reaches, and one through the middle
+at the bitangent lean cuts it in Villarceau's two.
 
 **Two of those are cases the marching cannot do at all**, which is the whole
 reason the table comes first. The plane on the top of the tube touches it along
@@ -1247,7 +1259,9 @@ the equation is symmetric enough to hide it, and one stretch still leaves a
 midpoint on the curve to seed from. Only a plane that leans, stands off the
 middle *and* cuts two stretches tells the two apart.
 
-What is left of the seeding is the other pairs, each its own closed form.
+What is left of the seeding is the other pairs, each its own closed form — and
+the coaxial ones are off that list, answered exactly by the row above rather
+than walked at all.
 
 **And the walking is in.** `meeting::marching::Marching` corrects a place onto
 both surfaces at once and steps along the cross of their normals. A place off
