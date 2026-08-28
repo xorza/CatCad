@@ -73,6 +73,13 @@ pub(crate) enum Part {
     /// and what a drag on it writes is the form's own draft. It goes here all
     /// the same, because a tag names a `Part` and the arrow has to be grabbable.
     Growing,
+    /// How much of a turn a solid still being decided sweeps, likewise.
+    ///
+    /// Its own arm rather than a field on the one above, because the two are
+    /// two handles: they stand in different places, travel on different
+    /// motions, and write different fields of the form. What they share is
+    /// naming no step, and that is the half neither has to say.
+    Turning,
 }
 
 impl Part {
@@ -90,7 +97,7 @@ impl Part {
     pub(crate) fn sketch(self) -> Option<FeatureId> {
         match self {
             Part::Entity { sketch, .. } | Part::Region { sketch, .. } => Some(sketch),
-            Part::Step(_) | Part::Solid { .. } | Part::Growing => None,
+            Part::Step(_) | Part::Solid { .. } | Part::Growing | Part::Turning => None,
         }
     }
 
@@ -102,7 +109,11 @@ impl Part {
     pub(crate) fn entity(self) -> Option<Entity> {
         match self {
             Part::Entity { entity, .. } => Some(entity),
-            Part::Region { .. } | Part::Step(_) | Part::Solid { .. } | Part::Growing => None,
+            Part::Region { .. }
+            | Part::Step(_)
+            | Part::Solid { .. }
+            | Part::Growing
+            | Part::Turning => None,
         }
     }
 }

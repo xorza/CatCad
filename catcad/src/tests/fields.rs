@@ -15,6 +15,8 @@ use silverpoint::Entity;
 use crate::CatCad;
 use crate::hud::internals;
 use crate::intent::Choice;
+use crate::timeline::Axle;
+use std::f64::consts::FRAC_PI_2;
 
 /// **A field opens over the dimension's own mark, takes what is typed, and
 /// Enter restates the dimension — as one step to take back.**
@@ -559,5 +561,99 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
         growing.profile.first_face_of(models).is_none(),
         "the form went on naming a region at the position its own one used to \
          hold, which is a different region"
+    );
+}
+
+/// **The arrow riding a growing solid's turn writes how much of one it sweeps.**
+///
+/// The revolve's twin of the depth arrow above, and the half that would be easy
+/// to get wrong in a way nothing looked wrong for: an angle is measured from a
+/// direction somebody chose, so a handle and a drag that chose differently
+/// would agree about nothing. Neither chooses: the press records where it
+/// landed, and what the drag hands back is how far round from there it
+/// travelled.
+///
+/// Dragged a known angle in the *world* rather than a distance in pixels, so
+/// what the field should come to is known by hand.
+#[test]
+fn dragging_the_turn_arrow_writes_how_much_of_a_turn_is_swept() {
+    let mut raised = Raised::new();
+
+    let open = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names");
+    let sketch = open.of();
+    let region = open.region(0);
+    let (axis, _) = raised
+        .app
+        .document
+        .drawn(sketch)
+        .sketch()
+        .segments()
+        .next()
+        .expect("the demo draws a line to spin about");
+    raised.choose(Choice::Select(Some(region)));
+    raised.choose(Choice::Include(crate::part::Part::Entity {
+        sketch,
+        entity: axis.into(),
+    }));
+    raised.frame();
+    raised.press(internals::relation("Revolve"));
+    raised.frame();
+
+    // A whole turn without anybody having typed one, which is where the ask
+    // starts — so the ring is on screen and the field is still the pointer's.
+    let open = raised.app.session.prompt().expect("the form is open");
+    assert_eq!(open.says(1), Some(360.0));
+
+    let at = {
+        let renderer = raised.app.view.renderer().borrow();
+        let arrow = renderer
+            .scene()
+            .gizmos
+            .iter()
+            .find(|gizmo| {
+                gizmo.tag.and_then(|tag| raised.app.view.part(tag))
+                    == Some(crate::part::Part::Turning)
+            })
+            .expect("the spinning solid has no arrow to turn it");
+        // The tip, on the terms the depth arrow's own test states: a control is
+        // a stroked outline, so the middle of the head is a gap between two
+        // strokes. In outline order the tip is corner 3.
+        arrow.points[3]
+    };
+
+    // A quarter turn back, taken about the very line the revolve spins about.
+    let drawing = raised.drawing();
+    let spindle = Axle::of(drawing.sketch(), axis)
+        .expect("the demo holds the line it drew")
+        .borne(drawing.plane())
+        .expect("the line has a direction");
+    let reference = spindle.direction.any_orthonormal_vector();
+    let reading = spindle.reads(reference, at.as_dvec3());
+    let turned = -FRAC_PI_2;
+    let to = spindle.spun(reference, reading, reading.angle + turned);
+
+    let start = raised.cursor_on(at);
+    raised.harness.press_at(start);
+    raised.frame();
+    let end = raised.cursor_on(to.as_vec3());
+    raised.harness.drag_to(end);
+    raised.frame();
+
+    let swept = raised
+        .app
+        .session
+        .prompt()
+        .and_then(|open| open.value(1))
+        .expect("the form stopped reading as a number");
+    // Exactly as far round as the pointer travelled, off the whole turn it
+    // started at. A test that only asked whether the turn had moved would pass
+    // on a handle that measured from its own reference and landed anywhere.
+    let want = 360.0 + turned.to_degrees();
+    assert!(
+        (swept - want).abs() < 0.5,
+        "a quarter turn of pointer swept the solid to {swept}, not {want}",
     );
 }

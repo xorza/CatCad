@@ -15,7 +15,8 @@
 use crate::paint::SHEET_REACH;
 use glam::DVec2;
 
-/// How far the arrow carrying a solid's depth reaches, in logical pixels.
+/// How far an arrow handling a number a form is deciding reaches, in logical
+/// pixels.
 ///
 /// A fixed length rather than one fitted to what is drawn: how big a handle is
 /// says nothing about the model, and one that shrank with the zoom would stop

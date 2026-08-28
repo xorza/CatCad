@@ -93,6 +93,7 @@ fn noun(part: Part) -> &'static str {
         // rather than about the thing being pointed at.
         Part::Solid { .. } => "face",
         Part::Growing => "depth",
+        Part::Turning => "turn",
     }
 }
 

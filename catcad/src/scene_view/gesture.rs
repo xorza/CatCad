@@ -2,7 +2,7 @@
 //! its travel writes.
 
 use aperture::{HitAt, Motion};
-use glam::{Vec2, Vec3};
+use glam::{DVec3, Vec2, Vec3};
 use silverpoint::{ConstraintId, Entity, Grown};
 
 use crate::document::Document;
@@ -16,8 +16,9 @@ use crate::scene_view::aimed::Aimed;
 use crate::scene_view::picture::{Picture, Under};
 use crate::session::Session;
 use crate::timeline::along::Along;
-use crate::timeline::{FeatureId, Movable};
+use crate::timeline::{Axle, FeatureId, Movable, Spindle};
 use crate::tool::Tool;
+use std::f64::consts::{PI, TAU};
 
 /// What the pointer is doing to the view, settled when the button goes down.
 ///
@@ -154,7 +155,7 @@ impl Held {
         // the open sketch's — see [`Grabbed`]. Only the two arms that *are* read
         // a drawing, and neither is reachable without one.
         let drawing = session.editing().and_then(|at| document.drawing_at(at));
-        let grabbed = Grabbed::under(part, hit.at, drawing, document, session)?;
+        let grabbed = Grabbed::under(part, hit.at, hit.world, drawing, document, session)?;
         let motion = grabbed.motion(drawing, hit.world);
         let carried = grabbed.carried(hit.world, drawing, picture, lens);
         Some(Held {
@@ -229,6 +230,28 @@ enum Grabbed {
     /// settled, and a parse of the draft on every press that grabbed anything at
     /// all.
     Growing { along: Along, depth: f64 },
+    /// How much of a turn a solid still being decided sweeps, which travels
+    /// round the line it spins about and writes a form's draft — see
+    /// [`Part::Turning`].
+    ///
+    /// **The angle travelled, not the angle reached.** Where a depth is a
+    /// number the line itself measures, an angle is measured from a direction
+    /// somebody has to choose — and the two that would have to agree on one are
+    /// the handle and the drag. So neither is told: the press records where it
+    /// landed, every frame reads how far round from there the pointer has gone,
+    /// and a difference of two angles is the same in any frame.
+    ///
+    /// The turn at the press rides along for the same reason a depth does: what
+    /// a drag hands back is that turn plus the travel.
+    Turning {
+        spindle: Spindle,
+        /// The direction the two angles are measured from, which says nothing
+        /// beyond being the same one twice.
+        reference: DVec3,
+        /// Where the press landed, and how much of a turn the form read then.
+        angle: f64,
+        sweep: f64,
+    },
     /// The far end of a solid, which travels along the normal of the plane its
     /// region was drawn on.
     ///
@@ -258,10 +281,13 @@ impl Grabbed {
     ///
     /// `drawing` is the sketch being worked in, which is what every edit lands
     /// on. The document is here for the two steps that are in no sketch, and the
-    /// session for the form a depth arrow is drawn from.
+    /// session for the form a handle is drawn from. `world` is where the press
+    /// landed, which one arm records — see [`Grabbed::Turning`], on why an
+    /// angle is measured from where a drag began.
     fn under(
         part: Part,
         on: HitAt,
+        world: Vec3,
         drawing: Option<Drawing<'_>>,
         document: &Document,
         session: &Session,
@@ -299,6 +325,21 @@ impl Grabbed {
                 Grabbed::Growing {
                     along: Along::on(document.drawing_at(carrying.sketch)?.plane()),
                     depth: carrying.depth,
+                }
+            }
+            // The arrow riding the circle a region's own middle sweeps. It
+            // travels on the plane square to the line, which is the one surface
+            // every angle about that line is reached on.
+            Part::Turning => {
+                let turning = session.prompt().and_then(Prompt::turning)?;
+                let drawing = document.drawing_at(turning.sketch)?;
+                let spindle = Axle::of(drawing.sketch(), turning.axis)?.borne(drawing.plane())?;
+                let reference = spindle.direction.any_orthonormal_vector();
+                Grabbed::Turning {
+                    spindle,
+                    reference,
+                    angle: spindle.reads(reference, world.as_dvec3()).angle,
+                    sweep: turning.sector.sweep,
                 }
             }
             // A dimension's number, which is the one thing a press can find that
@@ -340,6 +381,13 @@ impl Grabbed {
                 .motion(),
             Grabbed::Datum(movable) | Grabbed::Cap(movable) => movable.along.travel(at),
             Grabbed::Growing { along, .. } => along.travel(at),
+            // The plane square to the line, taken through the grab for the
+            // reason a line is — see
+            // [`Along::travel`](crate::timeline::along::Along::travel).
+            Grabbed::Turning { spindle, .. } => Motion::Plane {
+                origin: at,
+                normal: spindle.direction.as_vec3(),
+            },
         }
     }
 
@@ -381,7 +429,14 @@ impl Grabbed {
                         placed.mark.world(drawing) - at + placed.mark.standoff(drawing, lens)
                     })
             }
-            Grabbed::Sketch(_) | Grabbed::Datum(_) | Grabbed::Cap(_) => Vec3::ZERO,
+            // Nothing, and for the reason the three below carry nothing: the
+            // press and the value are one place. What the press landed on is
+            // the very angle the drag measures its travel from — see
+            // [`Grabbed::Turning`] — so a grab a stroke off centre is a start
+            // a stroke off centre, which cancels.
+            Grabbed::Sketch(_) | Grabbed::Datum(_) | Grabbed::Cap(_) | Grabbed::Turning { .. } => {
+                Vec3::ZERO
+            }
         }
     }
 
@@ -467,6 +522,31 @@ impl Grabbed {
                 }
                 .into(),
             ),
+            Grabbed::Turning {
+                spindle,
+                reference,
+                angle,
+                sweep,
+            } => {
+                // Wrapped to the half turn either way, which is the whole of
+                // what one drag can say: a pointer at some angle is at that
+                // angle and at every whole turn from it, and the nearest is the
+                // one it travelled to. Further than half a turn in a single
+                // gesture is a release and a second grab.
+                let reached = spindle.reads(reference, to.as_dvec3()).angle;
+                let travelled = (reached - angle + PI).rem_euclid(TAU) - PI;
+                Some(
+                    Choice::Set {
+                        nth: 1,
+                        // Held inside a whole turn, past which a revolve sweeps
+                        // the same space twice and the kernel raises nothing —
+                        // so a handle that could reach there would be a handle
+                        // that could rub the solid out.
+                        to: (sweep + travelled).clamp(-TAU, TAU).to_degrees(),
+                    }
+                    .into(),
+                )
+            }
         }
     }
 }

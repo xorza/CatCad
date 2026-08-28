@@ -1649,6 +1649,12 @@ units, so an angle is the first with a unit of its own. `Prompt::sector` states
 the turn once for both readings — what the drawing shows while somebody is
 typing, and what a commit settles.
 
+**And the turn has a handle**, which is the depth arrow laid round the line
+rather than along it. Neither the handle nor the drag picks a direction to
+measure an angle from: the press records where it landed and every frame reads
+how far round from there the pointer has gone, a difference of two angles being
+the same in any frame.
+
 *Which cost the form one rule and bought it a better one.* A form asking for
 nothing used to be a compile error, because one would stand on the drawing with
 no way to be answered. That was two claims in one: a form with no field is fine

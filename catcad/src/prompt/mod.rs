@@ -217,6 +217,20 @@ pub(crate) struct Carrying {
     pub(crate) depth: f64,
 }
 
+/// A turn being decided: the drawing whose line it spins about, which segment
+/// that line is, and how much of a turn it currently reads.
+///
+/// [`Carrying`]'s twin, and it carries the same shape of answer for the same
+/// reason: what a press on the handle needs, in one piece. The line is named
+/// rather than resolved, on the terms that one states — a handle is grabbed
+/// before anything asks the drawing anything.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Turning {
+    pub(crate) sketch: FeatureId,
+    pub(crate) axis: SegmentId,
+    pub(crate) sector: Sector,
+}
+
 /// One value being typed, and what to call it where two are asked for at once.
 #[derive(Debug)]
 struct Field {
@@ -480,6 +494,22 @@ impl Prompt {
         Some(Carrying {
             sketch: self.about.extruding()?.sketch(),
             depth: self.shows(0)?,
+        })
+    }
+
+    /// The turn this form is deciding, where deciding one is what it is about.
+    ///
+    /// [`Prompt::carrying`]'s twin. What it shows rather than what it says, on
+    /// the same terms: the handle has to stand where the solid is drawn, and a
+    /// draft mid-word is a number nothing should move against.
+    pub(crate) fn turning(&self) -> Option<Turning> {
+        let Asking::Revolve { profile, axis, .. } = &self.about else {
+            return None;
+        };
+        Some(Turning {
+            sketch: profile.sketch(),
+            axis: *axis,
+            sector: self.sector(Self::shows)?,
         })
     }
 

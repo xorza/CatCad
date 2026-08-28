@@ -1,7 +1,7 @@
 # The revolve form
 
-One thing is left, and it is convenience rather than a fault: a revolve's
-angles are typed where an extrude's depth is dragged.
+Nothing is left. What the note recorded is written out below, in the order it
+was done.
 
 Read with `.notes/KERNEL.md` §8 (the document) and §9.2 (the revolve record).
 
@@ -102,20 +102,24 @@ round. A turn of nothing raises no solid and loses no footing.
 
 ---
 
-## A revolve's angle has no handle
+### The angle gets a handle
 
-An extrude's depth has an arrow the pointer drags — `Prompt::carrying` and
-`gizmos::Carried`. A revolve's two angles have nothing, so they are typed and
-the placeholder never moves.
+The same arrow a depth is dragged along, laid **round** the line instead of
+along it — one shape, told apart by where it stands and which way it points.
 
-- Add a ring handle about the axis, dragged to set the sweep, on the model
-  `Carried` gives.
-- `Prompt::carrying` returns a `Carrying` that is an extrude depth by
-  construction. Widen it, or add its twin, when the handle exists.
-- Until then the two fields are typed. That is complete and honest. The handle
-  is convenience, which the posture ranks below correctness and precision.
+- It rides the circle the region's own middle sweeps, at the far end of the
+  turn, pointing the way the spin goes.
+- **Neither the handle nor the drag chooses a direction to measure from.** An
+  angle needs one, and two readers that chose differently would agree about
+  nothing — so the press records where it landed and every frame reads how far
+  round from there the pointer has gone. A difference of two angles is the same
+  in any frame.
+- Wrapped to the half turn either way, which is all one drag can say, and held
+  inside a whole turn, past which the kernel raises nothing.
+- `Part::Turning` beside `Part::Growing`: two handles, two motions, two fields.
 
----
+Tests: a quarter turn of pointer, taken about the very line the revolve spins
+about, moves the field by a quarter turn.
 
 ## Related, still open
 

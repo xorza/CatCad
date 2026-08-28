@@ -328,7 +328,7 @@ impl<'a> Model<'a> {
             // in the document at all — it is a form's own reading, and what
             // keeps it from outliving the form is the form closing. See
             // [`Models::holds`], which puts the question to whatever can.
-            Part::Step(_) | Part::Solid { .. } | Part::Growing => false,
+            Part::Step(_) | Part::Solid { .. } | Part::Growing | Part::Turning => false,
         }
     }
 }
@@ -591,7 +591,11 @@ impl<'a> Models<'a> {
     pub(crate) fn opens(self, part: Part) -> Option<FeatureId> {
         part.sketch().or_else(|| match part {
             Part::Step(at) => self.at(at).map(Model::of),
-            Part::Entity { .. } | Part::Region { .. } | Part::Solid { .. } | Part::Growing => None,
+            Part::Entity { .. }
+            | Part::Region { .. }
+            | Part::Solid { .. }
+            | Part::Growing
+            | Part::Turning => None,
         })
     }
 

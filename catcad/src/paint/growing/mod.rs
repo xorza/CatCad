@@ -1,5 +1,7 @@
-//! A solid the user is still deciding the depth of.
+//! A solid the user is still deciding: how deep it is carried, or how much of
+//! a turn it is spun.
 
+use glam::Vec3;
 use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Step};
 
 use crate::build::bodied;
@@ -124,17 +126,44 @@ impl Growing<'_> {
         Some(Carried::new(
             cut.inside() + normal * distance as f32,
             normal,
-            // Square to the view rather than to the sketch: the outline is
-            // flat, and one laid out in a plane of the sketch's own collapses
-            // to a line the moment the camera comes round to look along it —
-            // which for a handle is the moment it stops being grabbable. The
-            // fallback is the case where the camera looks straight down the
-            // arrow, where there is no widest side to turn and the whole shape
-            // is a dot whichever way it is laid out.
-            lens.facing()
-                .cross(normal)
-                .try_normalize()
-                .unwrap_or(plane.x.as_vec3()),
+            facing(lens, normal, plane.x.as_vec3()),
+        ))
+    }
+
+    /// Where the handle that turns this stands, or `None` where it is not a
+    /// spin or the line it spins about has gone.
+    ///
+    /// [`Growing::carried`]'s twin, and it lays the same arrow: what a depth
+    /// drags along a line, a turn drags round one. So the arrow stands on the
+    /// circle the region's own middle sweeps, at the far end of the turn, laid
+    /// along the way the spin goes there.
+    ///
+    /// **The angles are the kernel's own**, which is what lets a drag write the
+    /// sector directly: a revolve is framed with the region at an angle of
+    /// nought — see [`Revolution`] — and every point
+    /// of a region lies in the drawing's plane, so the way out to any of them is
+    /// the way the frame is built about.
+    pub(super) fn turned(self, models: Models<'_>, cut: &Cut, lens: Lens) -> Option<Carried> {
+        let Sweep::Spun {
+            axle: Some(axle),
+            sector,
+        } = self.sweep
+        else {
+            return None;
+        };
+        let spindle = axle.borne(models.at(self.profile.sketch())?.plane())?;
+        let inside = cut.inside().as_dvec3();
+        let reference = spindle.out(inside)?;
+        let reading = spindle.reads(reference, inside);
+        let angle = sector.from + sector.sweep;
+        let along = spindle.tangent(reference, angle) * sector.sweep.signum();
+        Some(Carried::new(
+            spindle.spun(reference, reading, angle).as_vec3(),
+            // Turned back where the spin runs the other way, so the arrow
+            // points the way a drag on it carries the turn rather than against
+            // it.
+            along.as_vec3(),
+            facing(lens, along.as_vec3(), reference.as_vec3()),
         ))
     }
 
@@ -238,6 +267,20 @@ impl Growing<'_> {
             None => Deciding::Beside,
         }
     }
+}
+
+/// Which way to lay a handle's flat outline so the camera can see it.
+///
+/// **Square to the view rather than to what the handle travels along.** The
+/// outline is flat, and one laid in a plane the camera comes round to look
+/// *down* collapses to a line — which for a handle is the moment it stops being
+/// grabbable.
+///
+/// `flat` is the answer where the camera looks straight along the handle, which
+/// is the one case there is no widest side to turn: the whole shape is a dot
+/// however it is laid, so any direction square to `along` will do.
+fn facing(lens: Lens, along: Vec3, flat: Vec3) -> Vec3 {
+    lens.facing().cross(along).try_normalize().unwrap_or(flat)
 }
 
 #[cfg(test)]

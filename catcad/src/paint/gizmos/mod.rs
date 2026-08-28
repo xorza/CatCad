@@ -100,12 +100,21 @@ pub(crate) fn write(
     // The region is cut only where the last cut was of another one — see
     // [`Cut`](crate::paint::cut::Cut), which is what keeps the filler off the
     // camera's schedule.
-    let carried = showing.growing.and_then(|growing| {
+    // Two handles and one cut, because a form decides one number or the other:
+    // an extrude has a depth and a revolve has a turn, and neither has both.
+    let handled = showing.growing.and_then(|growing| {
         // The first region, a handle standing on one face — see
         // [`Profile::first_face_of`](crate::profile::Profile).
         let region = growing.profile.first_face_of(models)?;
         let cut = cut.region(models, sheets, growing.profile.sketch(), region)?;
-        growing.carried(models, cut, lens)
+        let carried = growing
+            .carried(models, cut, lens)
+            .map(|carried| (Part::Growing, carried));
+        carried.or_else(|| {
+            growing
+                .turned(models, cut, lens)
+                .map(|turned| (Part::Turning, turned))
+        })
     });
     into.refill(
         // Which planes show a square — see [`Piece::Sheet`].
@@ -118,7 +127,7 @@ pub(crate) fn write(
                     Piece::Sheet(sheeted.plane, theme.drawing.sheet_ink(sheeted.world)),
                 )
             })
-            .chain(carried.map(|carried| (Some(Part::Growing), Piece::Depth(carried))))
+            .chain(handled.map(|(part, handle)| (Some(part), Piece::Handle(handle))))
             .chain(ruled(models, placed, *proposed, lens)),
         |curve, (part, piece)| {
             piece.stroke(curve, theme, lens);
@@ -237,9 +246,14 @@ enum Piece {
     /// cross at the origin, so two of them would stand across whatever is built
     /// there.
     Sheet(Plane, Vec3),
-    /// The arrow carrying a solid's depth, which stands out of its plane rather
-    /// than lying in one.
-    Depth(Carried),
+    /// An arrow handling a number a form is still deciding: the depth a solid
+    /// is carried, or how much of a turn it is spun.
+    ///
+    /// One shape for both, because a handle on a number is a handle on a
+    /// number — what tells them apart is where it stands and which way it
+    /// points, and both of those are the caller's. Which one a press found is
+    /// the *tag*, not the shape.
+    Handle(Carried),
     /// One stroke of a dimension: an extension line, the dimension line itself,
     /// or an arrowhead. Already sized — see [`ruled`].
     Ruled {
@@ -286,7 +300,7 @@ impl Piece {
                 curve.precedence = Precedence::Aside;
                 lay(curve, plane, &shape::sheet(), lens);
             }
-            Piece::Depth(carried) => {
+            Piece::Handle(carried) => {
                 // Standing out of a plane rather than lying in one, so it takes
                 // no plane's depth — see [`Carried`].
                 control(curve, theme, drawing.depth_arrow, None);

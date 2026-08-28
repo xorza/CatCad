@@ -127,7 +127,8 @@ pub(crate) struct Drawing {
     /// delete.
     pub(crate) redundant: Vec3,
 
-    /// What the arrow carrying a solid's depth is drawn in.
+    /// What an arrow handling a number a form is deciding is drawn in — a
+    /// solid's depth, or how much of a turn it sweeps.
     ///
     /// A control rather than geometry, and grey for it: what it is about is the
     /// solid, so it takes the solid's own family rather than a state colour that
