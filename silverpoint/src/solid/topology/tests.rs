@@ -73,6 +73,41 @@ fn a_loop_that_does_not_close_is_refused() {
     body.check();
 }
 
+/// **A loop that folds over itself bounds nothing**, however well every other
+/// thing about it holds.
+///
+/// The break every check before this one passes. The loop still closes, every
+/// edge is still walked twice and once each way, Euler is still two, and every
+/// face still lies on the surface it names — a boundary that crosses itself is
+/// none of those things' business. What it *is* is a region on both sides of
+/// its own edge, so what a triangulation makes of it, what a sounding says
+/// about a place in it, and what area it covers have no answers.
+///
+/// **The corner is moved and not the curve**, because a loop is walked through
+/// the places its vertices are stored at rather than through the curve
+/// evaluated at its ends — see [`Chorded::cut`](crate::math::chorded::Chorded),
+/// which is what keeps two faces meeting at a corner from landing a rounding
+/// apart there.
+///
+/// `(2, 0, 0)` is carried out past the far side of the wall it helps bound, to
+/// `(−1, 1.5, 0)`. The chord that leaves it then runs from `x = −1` across to
+/// `x = 2` and meets the wall's left edge at `y = 2`, which is inside the three
+/// that edge covers. The two are not neighbours in the loop, so nothing excuses
+/// them.
+#[test]
+#[should_panic(expected = "folds over itself")]
+fn a_loop_that_folds_over_itself_is_refused() {
+    let mut body = block();
+    let corner = body
+        .topology()
+        .vertices()
+        .find(|(_, vertex)| vertex.at == DVec3::new(2.0, 0.0, 0.0))
+        .map(|(at, _)| at)
+        .expect("the block has a corner there");
+    body.topology_mut().vertex_mut(corner).at = DVec3::new(-1.0, 1.5, 0.0);
+    body.check();
+}
+
 /// Where one of the block's walls keeps its loop.
 fn wall_loop(body: &Body) -> usize {
     body.topology()

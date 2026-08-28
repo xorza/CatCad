@@ -32,9 +32,14 @@ const TOOL: Step = Step(2);
 
 /// The ground, moved `by` along its own normal.
 fn raised(by: f64) -> Plane {
+    off(Plane::GROUND, by)
+}
+
+/// `plane`, moved `by` along its own normal.
+fn off(plane: Plane, by: f64) -> Plane {
     Plane {
-        origin: Plane::GROUND.origin + Plane::GROUND.normal() * by,
-        ..Plane::GROUND
+        origin: plane.origin + plane.normal() * by,
+        ..plane
     }
 }
 
@@ -820,3 +825,103 @@ fn a_pipe_mitred_across_keeps_the_ellipse_exact() {
 
 // Already inside a `cfg(test)` module, so it needs no gate of its own.
 mod matrix;
+
+/// **Two equal cylinders on crossing axes intersect in the Steinmetz solid**,
+/// whose volume is exactly `16r³/3`.
+///
+/// The analytic cross-check `.notes/KERNEL.md` M5 owes, and it catches nearly
+/// every error there is to make: a wall kept where it should be cut, an ellipse
+/// walked the wrong way round, a region classified inside out, a shell sewn
+/// with a seam left open — each of them moves this number, and none of them
+/// moves it to something else that is right.
+///
+/// **Why it is a cross-check and not a restatement.** Every other volume here
+/// is the arithmetic of the shapes that were put together, worked out the same
+/// way the kernel would. This one is a classical closed form with no cylinder
+/// in it at all: the bicylinder is `16r³/3` by Archimedes, where a sphere of
+/// the same radius is `4πr³/3` — so the answer is `4/π` of a ball, and nothing
+/// about how a boolean works could produce it by accident.
+///
+/// Two unit rods four deep, one up the world's `y` and one along its `z`, each
+/// standing a radius clear of the other at both ends so no cap plays any part.
+/// Their walls meet in two ellipses, which is the one reducible entry
+/// cylinder-meets-cylinder has (§7.3), so nothing here waits on the algebraic
+/// route.
+///
+/// Genus nought: a bicylinder is a ball with corners, not a ring.
+#[test]
+fn two_crossing_rods_intersect_in_the_steinmetz_solid() {
+    let upright = rod(raised(-2.0), DVec2::ZERO, 1.0, 4.0, CUBE);
+    let along = rod(off(Plane::FRONT, -2.0), DVec2::ZERO, 1.0, 4.0, TOOL);
+
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(&upright.body, &along.body, Operation::Intersect, &mut into),
+        "two crossing rods were turned away",
+    );
+
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "{reckoning:?}");
+    // Each rod keeps its own wall, in the two pieces the other cuts it into.
+    for wall in [upright.wall, along.wall] {
+        assert!(into.holds(wall), "{wall:?} was lost");
+        assert_eq!(into.patches(wall).count(), 2, "{wall:?} came apart wrongly");
+    }
+
+    let want = 16.0 / 3.0;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-4, 1e-5, 1e-6] {
+        // Both walls are chorded round their whole turn, and each covers two
+        // units of the other's diameter: what a chord cuts off goes as two
+        // thirds of the sagitta times the area it spans.
+        let slack = (2.0 / 3.0) * sagitta * TAU * 2.0 * 2.0;
+        let off = (mesher.volume(&into, sagitta) - want).abs();
+        assert!(off < slack, "{off} off {want} at a sagitta of {sagitta}");
+        assert!(off < last, "{sagitta} read no nearer than the last");
+        last = off;
+    }
+}
+
+/// **A cut that removes everything leaves nothing, and says it did.**
+///
+/// The case `.notes/KERNEL.md` M5 owes, and the one a modeller reaches by
+/// typing a depth one digit too long. A unit block wholly inside a larger one,
+/// cut the wrong way round: what is left of the small block after the big one
+/// is taken out of it is nothing at all.
+///
+/// **Nothing is an answer and not a refusal.** The combine comes back true —
+/// it knew what to do and did it — and what it wrote is a body with no faces.
+/// A caller that read the refusal instead would show the tool where the model
+/// used to be, which is the one thing a total cut must not look like.
+#[test]
+fn a_cut_that_removes_everything_leaves_a_body_with_nothing_in_it() {
+    let small = block(
+        Plane::GROUND,
+        &[(0.0, 0.0), (1.0, 0.0), (1.0, 1.0), (0.0, 1.0)],
+        1.0,
+        CUBE,
+    );
+    let large = block(
+        raised(-1.0),
+        &[(-1.0, -1.0), (2.0, -1.0), (2.0, 2.0), (-1.0, 2.0)],
+        3.0,
+        TOOL,
+    );
+
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(&small, &large, Operation::Cut, &mut into),
+        "a cut that swallows its whole body was refused",
+    );
+    assert_eq!(into.topology().faces().count(), 0, "something was left");
+    assert_eq!(Mesher::default().volume(&into, 1e-6), 0.0);
+
+    // And the other way round the same pair is the small block itself, so the
+    // fixture is one that genuinely overlaps rather than one that misses.
+    let mut kept = Body::default();
+    assert!(boolean.combine(&small, &large, Operation::Intersect, &mut kept));
+    assert_eq!(Mesher::default().volume(&kept, 1e-6), 1.0);
+}

@@ -1,5 +1,7 @@
 //! Everything a body promises, checked from scratch.
 
+use crate::math::chorded::Chorded;
+use crate::math::intersect::{self, Span};
 use crate::number::predicate::{self, ApproxEq, slack};
 use crate::number::tolerance::CHORDED;
 use crate::solid::meeting::Meeting;
@@ -10,6 +12,7 @@ use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::FaceId;
 use crate::solid::topology::shell::ShellId;
 use crate::solid::topology::spreading::Spreading;
+use glam::{DVec2, DVec3};
 
 /// The room the validity check works in, kept across runs.
 ///
@@ -38,6 +41,10 @@ pub(crate) struct Checking {
     /// The room measuring a shell takes — see [`Checking::volumes_are_signed`].
     mesher: Mesher,
     patch: Patch,
+    /// One loop walked in the world, and the same loop in its face's own
+    /// parameters — see [`Checking::loops_do_not_cross_themselves`].
+    traced: Vec<DVec3>,
+    flattened: Vec<DVec2>,
 }
 
 impl Checking {
@@ -53,10 +60,84 @@ impl Checking {
         self.faces_belong_to_one_shell(topology);
         self.shells_are_connected(topology);
         self.shells_are_closed_surfaces(topology);
+        self.loops_do_not_cross_themselves(topology);
         self.geometry_agrees(topology);
         self.creases_are_flagged(topology);
         self.tolerances_ladder(topology);
         self.volumes_are_signed(body);
+    }
+
+    /// No loop of a face crosses itself in that face's own parameters.
+    ///
+    /// **The one break that leaves a face looking like a face.** A loop that
+    /// crosses itself still closes, still walks each of its edges once, and
+    /// still lies on the surface it names — so nothing above sees it. What it
+    /// is not is a *boundary*: the region it is supposed to enclose is on both
+    /// sides of it at the crossing, so what a triangulation makes of it, what a
+    /// sounding says about a place in it, and what area it covers are all
+    /// answers to a question with no answer.
+    ///
+    /// **Chorded, and that is the whole of what it costs.** A loop is walked at
+    /// [`CHORDED`] into the surface's parameters, exactly as the boolean and the
+    /// mesher walk it, and a chorded loop that crosses itself is a true loop
+    /// that does too — the chords lie within a sagitta of the curve, and a
+    /// crossing is not a thing a sagitta hides.
+    ///
+    /// **Through [`intersect::spans`], which decides it exactly.** Two chords
+    /// that meet at a shared corner are the adjacent pair every loop has and
+    /// are skipped; every other pair that meets at all is a fold in the
+    /// boundary. Ends count, so a chord that merely touches the middle of
+    /// another is caught as well — that is a pinch rather than a crossing, and
+    /// a boundary that touches itself is no more a boundary than one that
+    /// crosses.
+    fn loops_do_not_cross_themselves(&mut self, topology: &Topology) {
+        let Self {
+            traced, flattened, ..
+        } = self;
+        for (at, face) in topology.faces() {
+            for walk in topology.loops_of(face) {
+                traced.clear();
+                for &coedge in walk {
+                    topology.walked(coedge).walk(CHORDED, traced);
+                }
+                flattened.clear();
+                face.flatten(&traced[..], flattened);
+                let held = flattened.len();
+                let chord = |step: usize| Span {
+                    from: flattened[step],
+                    to: flattened[(step + 1) % held],
+                };
+                // How far each chord reaches, so that the pair test below is
+                // four comparisons for the great many that are nowhere near
+                // each other and an exact predicate only for the few that are.
+                // A curved face's loop is a hundred and more chords and this
+                // runs after every operation — without it the application's own
+                // suites took five times as long.
+                let around = |step: usize| {
+                    let of = chord(step);
+                    [of.from.min(of.to), of.from.max(of.to)]
+                };
+                for one in 0..held {
+                    let [low, high] = around(one);
+                    // From two on, because the pair either side of every corner
+                    // shares it; and stopping short of the wrap for the same
+                    // reason at the other end.
+                    for two in one + 2..held - usize::from(one == 0) {
+                        let [other, across] = around(two);
+                        if low.cmpgt(across).any() || other.cmpgt(high).any() {
+                            continue;
+                        }
+                        let found = intersect::spans(chord(one), chord(two));
+                        assert!(
+                            found.all().is_empty(),
+                            "{at:?}: its loop folds over itself between chords \
+                             {one} and {two}, at {:?}",
+                            found.all().first().map(|of| of.at),
+                        );
+                    }
+                }
+            }
+        }
     }
 
     /// Every lump shuts in material, and every cavity shuts in the lack of it.

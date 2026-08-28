@@ -989,18 +989,34 @@ are walked and shown to differ. Every result is in the exact tier: no
 comparison anywhere in the route is against a tolerance, and the one rounding is
 the last, where a place is read out as three floats.
 
-### 9.2 M5's remaining tests, and §7.5's gap
+### 9.2 M5's remaining tests
 
-Both fall out of 9.1.
+**§7.5's gap is closed.** `Checking::loops_do_not_cross_themselves` walks every
+loop of every face at `CHORDED` into that face's own parameters and holds each
+pair of chords against `intersect::spans`, which decides it exactly. It is the
+one break every other check passes: a loop that folds still closes, still walks
+each of its edges once each way, still satisfies Euler and still lies on the
+surface it names — and it is not a boundary, because the region it is meant to
+enclose is on both sides of it. Broken one way in a test, as §7.5's own rule
+asks: a corner carried past the far side of its wall.
 
-**Tests.** Two equal perpendicular cylinders give the Steinmetz solid, whose
-intersection volume is exactly `16r³/3` — an analytic cross-check that catches
-nearly every possible error. Cross drilling with unequal diameters, offset axes
-and tangent axes. A cut removing everything reports `Built::Empty` and later
-steps still build.
+A box test in front of the exact one is what keeps it affordable. A curved
+face's loop is a hundred and more chords and the check runs after every
+operation, so the pairs nowhere near each other cost four comparisons — without
+it the application's own suites ran five times slower.
 
-**The checker.** Loops non-self-intersecting in parameter space, which wants the
-intersection routines it is meant to check.
+**Two of the three owed tests are paid.** Two equal cylinders on crossing axes
+intersect in the Steinmetz solid, whose `16r³/3` is a classical closed form with
+no cylinder in it — so a wall kept where it should be cut, an ellipse walked the
+wrong way, or a shell sewn with a seam open all move it, and none of them moves
+it to something else that is right. And a cut that swallows its whole body comes
+back *true* with nothing in it, which is an answer rather than a refusal: a
+caller reading a refusal there would show the tool where the model used to be.
+
+**What is left waits on the quartic reaching the boolean.** Cross drilling with
+unequal diameters, offset axes and tangent axes are all pairs whose meeting is
+the algebraic route's, and none of them can be cut until the splitter has a
+`Cut` it can make from one — see 9.1.
 
 ### 9.3 M6 — the fitted tier: torus, and marching
 
