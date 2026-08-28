@@ -1515,18 +1515,45 @@ sample count, per edge, per frame. With the length carried it is a search
 through a run that is already in order, and the extra number is eight bytes
 against a place's twenty-four.
 
-**`Curve::along` has no such answer, and that is what caps how finely a marched
-curve may be walked.** Reading a parameter off a *place* has nothing ordered to
-search: it is the nearest chord, which is the whole run. The sewing asks it once
-per corner of a face, so the cost is the sample count squared again — and the
-sample count is set by the sagitta the curve was walked at. Two ways out, and
-the first build has to measure before choosing: carry a hint into `along`, the
-callers all walking in order anyway, or index the run's places by a coarse grid.
-Until one of them lands, the walk's sagitta is the classification one — a run is
-laid down at `CHORDED` — and a marched edge is drawn at it. **The measurement is
-still owed** and there is now something to measure it on: the boolean below
-walks a ring against a plane and asks `along` once per corner of four faces.
-`Marchings::nearest` is the one call to time, `along` being a reading of it.
+**`Curve::along` has no such answer**, and it was expected to be the term that
+capped how finely a marched curve may be walked. Reading a parameter off a
+*place* has nothing ordered to search: it is the nearest chord, which is the
+whole run. The sewing asks it once per corner of a face, so the total is the
+sample count squared. Two ways out were written down — carry a hint into
+`along`, the callers all walking in order anyway, or index the run's places by a
+coarse grid — and the choice between them was left to a measurement.
+
+**Measured, and neither is worth building.** A ring halved by a leaning plane,
+in release, the whole model scaled by one, two, four and eight:
+
+| scale | combine | `nearest` calls | chords walked | walking | share |
+| --- | --- | --- | --- | --- | --- |
+| 1 | 17.0 ms | 986 | 117k | 0.47 ms | 2.8% |
+| 2 | 32.2 ms | 1362 | 226k | 0.90 ms | 2.8% |
+| 4 | 65.5 ms | 1914 | 450k | 1.88 ms | 2.9% |
+| 8 | 122.9 ms | 2658 | 872k | 3.52 ms | 2.9% |
+
+**The square is there and the share is flat**, which is the whole answer. The
+chords walked go as the samples squared — `2.75²` per row — exactly as feared.
+But the *rest* of the boolean grows the same way, because what asks `along` is a
+corner and what everything else costs is also a corner: the combine grows `7.2×`
+over the same eight, and `along` stays under three parts in a hundred of it. A
+hint or a grid would buy that three per cent and change nothing about the class.
+
+**And the sample count is not a caller's to raise.** A run is laid down at
+`CHORDED` and cannot be walked again, so nobody can ask for a finer one — the
+cap is decision 6 above rather than this. What the sample count does follow is
+the *model*: a marcher's step goes as `√(radius · sagitta)`, so eight times the
+ring is `2.75` times the samples and not eight.
+
+**What a marched boolean costs, for the record.** The same ring against a
+coaxial rod — every pair of which the exact table answers — takes `6.8 ms` at
+scale one against the marched pair's `17.0 ms`, and `43.9 ms` against `122.9 ms`
+at scale eight. So the fitted tier is a constant factor of about two and a half,
+flat in the model's size, and the growth in both is the corner count rather than
+the marching. **A boolean of this size is a frame of its own** and that is worth
+saying out loud: what §11's preview measures is faces before it combines, and a
+ring is where that guard starts to earn its keep.
 
 No *feature* builds a torus yet either — a revolve makes one, and so does a
 plane-cylinder fillet, and neither is written.
