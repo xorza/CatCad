@@ -1052,7 +1052,14 @@ impl Prompt {
                 // Nothing to focus on a form with no field, and asking every
                 // frame for a widget that is not there would take focus off the
                 // buttons that *are*.
-                if (opening || !blurs) && !fields.is_empty() {
+                //
+                // **What is held is that *a* field has the caret, not that the
+                // first one does.** Asked of the first alone, a second field
+                // took the caret on the frame it was clicked and lost it on the
+                // next — so a form of two fields had one nobody could reach.
+                let held =
+                    (0..fields.len()).any(|nth| ui.focused_id() == Some(Self::field_id(nth)));
+                if (opening || (!blurs && !held)) && !fields.is_empty() {
                     ui.request_focus(Some(Self::field_id(0)));
                 }
                 // A column, so the answers sit under what they answer rather

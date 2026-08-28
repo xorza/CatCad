@@ -10,11 +10,12 @@ use aperture::Viewport;
 use glam::Vec2;
 use palantir::Key;
 use palantir::Modifiers;
-use silverpoint::Entity;
+use silverpoint::{Entity, SegmentId};
 
 use crate::CatCad;
 use crate::hud::internals;
 use crate::intent::Choice;
+use crate::prompt::Prompt;
 use crate::timeline::Axle;
 use std::f64::consts::FRAC_PI_2;
 
@@ -577,30 +578,7 @@ fn a_form_loses_the_region_it_named_rather_than_finding_another_at_its_position(
 /// what the field should come to is known by hand.
 #[test]
 fn dragging_the_turn_arrow_writes_how_much_of_a_turn_is_swept() {
-    let mut raised = Raised::new();
-
-    let open = raised
-        .models()
-        .open()
-        .expect("a fixture opens the sketch it names");
-    let sketch = open.of();
-    let region = open.region(0);
-    let (axis, _) = raised
-        .app
-        .document
-        .drawn(sketch)
-        .sketch()
-        .segments()
-        .next()
-        .expect("the demo draws a line to spin about");
-    raised.choose(Choice::Select(Some(region)));
-    raised.choose(Choice::Include(crate::part::Part::Entity {
-        sketch,
-        entity: axis.into(),
-    }));
-    raised.frame();
-    raised.press(internals::relation("Revolve"));
-    raised.frame();
+    let (mut raised, axis) = revolving();
 
     // A whole turn without anybody having typed one, which is where the ask
     // starts — so the ring is on screen and the field is still the pointer's.
@@ -655,5 +633,73 @@ fn dragging_the_turn_arrow_writes_how_much_of_a_turn_is_swept() {
     assert!(
         (swept - want).abs() < 0.5,
         "a quarter turn of pointer swept the solid to {swept}, not {want}",
+    );
+}
+
+/// A document with a revolve's form open over the demo's own region and line.
+///
+/// Two tests want one, and the segment comes back with it: what a revolve is
+/// spun about is what the drag below has to resolve its angles against.
+fn revolving() -> (Raised, SegmentId) {
+    let mut raised = Raised::new();
+    let open = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names");
+    let sketch = open.of();
+    let region = open.region(0);
+    let (axis, _) = raised
+        .app
+        .document
+        .drawn(sketch)
+        .sketch()
+        .segments()
+        .next()
+        .expect("the demo draws a line to spin about");
+    raised.choose(Choice::Select(Some(region)));
+    raised.choose(Choice::Include(crate::part::Part::Entity {
+        sketch,
+        entity: axis.into(),
+    }));
+    raised.frame();
+    raised.press(internals::relation("Revolve"));
+    raised.frame();
+    (raised, axis)
+}
+
+/// **A form of two fields lets the second one keep the caret.**
+///
+/// A form standing beside geometry asks for focus on every frame, because it
+/// travels with what it is measuring and there is no clicking back into one
+/// that has moved. Asked for the *first* field alone, that made a second field
+/// nobody could reach: it took the caret on the frame it was clicked and lost
+/// it on the next, so nothing typed ever landed in it.
+#[test]
+fn a_form_of_two_fields_lets_the_second_take_the_caret() {
+    let (mut raised, _) = revolving();
+
+    let box_ = raised
+        .harness
+        .layout_rect(Prompt::nth_field_id(1))
+        .expect("the form drew no second field");
+    raised
+        .harness
+        .click_at(box_.min + Vec2::new(box_.size.w, box_.size.h) * 0.5);
+    raised.frame();
+    // The frame that used to take it back, and the typing after it.
+    raised.frame();
+    raised.harness.type_text("90");
+    raised.frame();
+
+    let open = raised.app.session.prompt().expect("the form is open");
+    assert_eq!(
+        open.value(1),
+        Some(90.0),
+        "the second field took nothing that was typed",
+    );
+    assert_eq!(
+        open.value(0),
+        None,
+        "the caret was taken back to the first field",
     );
 }
