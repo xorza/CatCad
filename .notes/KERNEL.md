@@ -1567,11 +1567,28 @@ surfaces rather than against the run. A marched intersection reaches a *body*
 and the volume is a symmetry argument, with the fit bound recorded there and read
 back by `Body::strays`.
 
-**Two are left.** The same cut over the exact tier still reporting exact, which
-wants a pair of quadrics standing where this one does. And the case the
-literature says will be missed — a shallow near-tangential meeting that produces
-a small closed loop — which the seeding answers in two `acos` and the boolean has
-not been asked.
+**And the two that were left are paid.** The same leaning plane halves a *rod*,
+which it meets in an ellipse — a `Wave` on the cylinder and a `Round` on the
+plane, both rows of the exact table — so nothing is marched, the body reports
+itself exact and `Body::strays` reads nought. Half a rod by the same reflection
+argument the ring's half is had by.
+
+**And the loop the literature says a march will miss is cut into a body.** A
+plane a twentieth inside the outer equator, which the spike found by luck at
+512×512 and missed at 256×256 once it was moved half a cell off a node. Nothing
+here samples. Its volume is a quadrature and the integral is one line of
+geometry: at each angle about the axis the cap's cross-section is the tube's own
+disc cut at `ρ = x₀/cos u`, which is a circular segment, so the volume is that
+segment's *first moment* about the axis integrated over the angle it reaches.
+The same area and moment the turned ring above is measured by, read the other
+way round.
+
+**And the mesh is what that converges with, not the walk.** The loop was laid
+down at `CHORDED` and cannot be laid down again, so a chord of it stands a
+thousandth from the true curve — yet the volume closes on the quadrature by a
+factor of eight per tenfold finer *mesh*. The two faces the loop bounds meet
+along it, so moving it moves no material to first order, and the walk's own
+sagitta does not hold the answer back.
 
 ### 9.3 M7 — fillet, chamfer, STEP
 

@@ -969,12 +969,10 @@ fn a_ring_turned_down_on_a_coaxial_rod_is_the_volume_pappus_says() {
     );
     assert!(!into.exact(), "a body standing on a torus is not exact");
 
-    let cut = radius - major;
-    let share = cut / minor;
-    let gone = minor * minor * (share.acos() - share * (1.0 - share * share).sqrt());
-    let area = PI * minor * minor - gone;
-    let moment = -(2.0 / 3.0) * (minor * minor - cut * cut).powf(1.5);
-    let want = TAU * (major * area + moment);
+    // What the rod takes off is the far side of the tube's own disc, so what is
+    // left is the whole disc less that and its moment turned over.
+    let gone = segment(minor, radius - major);
+    let want = TAU * (major * (PI * minor * minor - gone.area) - gone.moment);
     let mut mesher = Mesher::default();
     let mut last = f64::INFINITY;
     for sagitta in [1e-3, 1e-4] {
@@ -1017,20 +1015,7 @@ fn a_ring_turned_down_on_a_coaxial_rod_is_the_volume_pappus_says() {
 fn a_ring_halved_by_a_leaning_plane_is_marched_and_comes_out_half() {
     let (major, minor) = (3.0_f64, 1.0_f64);
     let ring = Body::ring(major, minor);
-    // A plane through the origin whose normal leans forty-five degrees off the
-    // ring's axis, with a block on it deep enough and wide enough to swallow
-    // everything on that side.
-    let leaning = Plane {
-        origin: DVec3::ZERO,
-        x: DVec3::new(1.0, -1.0, 0.0).normalize(),
-        y: DVec3::NEG_Z,
-    };
-    let half = block(
-        leaning,
-        &[(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)],
-        20.0,
-        TOOL,
-    );
+    let half = leaning_block();
 
     let mut boolean = Boolean::default();
     let mut into = Body::default();
@@ -1066,6 +1051,190 @@ fn a_ring_halved_by_a_leaning_plane_is_marched_and_comes_out_half() {
         assert!(off < last, "{sagitta} read no nearer than the last: {off}");
         last = off;
     }
+}
+
+/// **The same cut over the exact tier still reports itself exact**, which is the
+/// control the test above needs and the one thing a fitted result must not
+/// quietly become.
+///
+/// A rod of radius one about the world's `y`, four deep, halved by the very
+/// block that halves the ring. What the plane meets it in is an *ellipse* —
+/// a `Cut::Wave` on the cylinder and a `Cut::Round` on the plane, both rows of
+/// the exact table — so nothing is marched, nothing strays, and the body says
+/// so.
+///
+/// **Exactly half, by the argument the ring's own half is had by.** A cylinder
+/// is carried onto itself by the point reflection through the middle of its
+/// axis, and that reflection swaps the two sides of a plane through that
+/// middle. Read the other way round: over the disc the plane stands at `y = −x`
+/// and the piece above it is `∬(H + x) dA`, whose second term is the disc's own
+/// first moment and comes to nought.
+#[test]
+fn the_same_leaning_plane_over_the_exact_tier_stays_exact() {
+    let (radius, half) = (1.0_f64, 2.0_f64);
+    let rod = rod(raised(-half), DVec2::ZERO, radius, 2.0 * half, TOOL);
+    let block = leaning_block();
+
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(&rod.body, &block, Operation::Intersect, &mut into),
+        "a rod halved by a leaning plane was turned away",
+    );
+
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "half a rod is a ball: {reckoning:?}");
+    assert!(into.holds(rod.wall), "the rod lost its wall");
+    assert!(into.exact(), "every surface of a halved rod is exact");
+    assert_eq!(into.strays(), 0.0, "an exact body strays nowhere");
+
+    let want = PI * radius * radius * half;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-3, 1e-4] {
+        // The rod's own wall is `2π·radius` round by the `half` the slanted cut
+        // leaves on average, the cut standing at `y = −x` and `x` averaging
+        // nought over the circle. What a chord cuts off goes as two thirds of
+        // the sagitta times the area it spans.
+        let slack = (2.0 / 3.0) * sagitta * TAU * radius * half;
+        let off = (mesher.volume(&into, sagitta) - want).abs();
+        assert!(off < slack, "{off} off {want} at a sagitta of {sagitta}");
+        assert!(off < last, "{sagitta} read no nearer than the last: {off}");
+        last = off;
+    }
+}
+
+/// **The small closed loop the literature says a march will miss**, cut into a
+/// body.
+///
+/// A plane a twentieth inside the ring's outer equator meets it in one loop
+/// about `0.6` across — the case `.notes/KERNEL.md` §9.2's spike found by luck
+/// at 512×512 and missed at 256×256 once it was moved half a cell off a node.
+/// Nothing here samples: the seeding answers this loop in two `acos`.
+///
+/// **The volume is a quadrature, and the integral is one line of geometry.**
+/// At each angle `u` about the axis the cap's cross-section is the tube's own
+/// disc cut at `ρ = x₀/cos u`, which is a circular segment — see [`segment`].
+/// Pappus would turn that into `2π` times its first moment about the axis where
+/// it went the whole way round; this one does not, so what is left is that
+/// moment integrated over the angle the cap reaches. The integrand vanishes as
+/// `(u₀ − u)^{3/2}` at the end the segment closes at, which the midpoint rule
+/// below reaches eleven digits of.
+#[test]
+fn a_shallow_plane_leaves_the_small_loop_the_marching_would_miss() {
+    let (major, minor, inside) = (3.0_f64, 1.0_f64, 0.05_f64);
+    let ring = Body::ring(major, minor);
+    let over = major + minor - inside;
+    let cap = block(
+        Plane {
+            origin: DVec3::X * over,
+            x: DVec3::Y,
+            y: DVec3::Z,
+        },
+        &[(-5.0, -5.0), (5.0, -5.0), (5.0, 5.0), (-5.0, 5.0)],
+        2.0,
+        TOOL,
+    );
+
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(&ring, &cap, Operation::Intersect, &mut into),
+        "a ring grazed by a shallow plane was turned away",
+    );
+
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 0, "a cap is a ball: {reckoning:?}");
+    assert!(!into.exact(), "a body standing on a torus is not exact");
+    assert!(into.strays() > 0.0, "a marched edge carries its walk");
+
+    let want = shallow_cap(major, minor, over);
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-4, 1e-5] {
+        // Two patches of about the area the loop shuts in, one of the ring and
+        // one flat — and the loop is the ellipse of `√(2·minor·d)` by
+        // `√(2(major + minor)d)` the seeding is held to. What a chord cuts off
+        // goes as two thirds of the sagitta times the area it spans.
+        let walls =
+            2.0 * PI * (2.0 * minor * inside).sqrt() * (2.0 * (major + minor) * inside).sqrt();
+        let slack = (2.0 / 3.0) * sagitta * walls;
+        let off = (mesher.volume(&into, sagitta) - want).abs();
+        assert!(off < slack, "{off} off {want} at a sagitta of {sagitta}");
+        assert!(off < last, "{sagitta} read no nearer than the last: {off}");
+        last = off;
+    }
+    // **And the mesh is what it converges with**, not the walk. The loop was
+    // laid down at [`CHORDED`] and cannot be laid down again, so a chord of it
+    // stands a thousandth from the true curve — but the two faces it bounds
+    // *meet* along it, so moving it moves no material to first order and the
+    // volume is not held back by it.
+}
+
+/// The volume of a ring's cap beyond the plane `x = over`, by the quadrature
+/// its caller derives.
+fn shallow_cap(major: f64, minor: f64, over: f64) -> f64 {
+    const STEPS: usize = 4096;
+    // How far round the axis the cap reaches, which is where its cross-section
+    // closes.
+    let round = (over / (major + minor)).acos();
+    let mut sum = 0.0;
+    for step in 0..STEPS {
+        let u = round * (step as f64 + 0.5) / STEPS as f64;
+        let off = over / u.cos() - major;
+        // A midpoint stands short of the end, so this is a rounding away from
+        // the last step rather than a case — and the roots below answer `NaN`
+        // rather than nought past it.
+        if off >= minor {
+            continue;
+        }
+        let cross = segment(minor, off);
+        sum += major * cross.area + cross.moment;
+    }
+    2.0 * sum * round / STEPS as f64
+}
+
+/// What is left of a disc of `minor` when it is cut at `off` from its own
+/// middle and the far side kept.
+///
+/// **Two numbers, because a volume of revolution wants both.** Pappus turns a
+/// plane figure spun about an axis into `2π` times its first moment about that
+/// axis, which is how far out the figure sits times its area, plus its own
+/// moment about its middle. So a caller that knows how far out the disc stands
+/// reads the volume straight off, and one integrating over the angle reads the
+/// integrand.
+///
+/// The whole disc is `off = −minor`, which comes back as `π·minor²` and no
+/// moment at all.
+#[derive(Debug, Clone, Copy)]
+struct Segment {
+    area: f64,
+    /// About the disc's own middle, positive outward.
+    moment: f64,
+}
+
+fn segment(minor: f64, off: f64) -> Segment {
+    let share = off / minor;
+    Segment {
+        area: minor * minor * (share.acos() - share * (1.0 - share * share).sqrt()),
+        moment: (2.0 / 3.0) * (minor * minor - off * off).powf(1.5),
+    }
+}
+
+/// The block both halving tests cut with: a plane through the origin whose
+/// normal leans forty-five degrees off the world's `y`, deep enough and wide
+/// enough to swallow everything on that side.
+fn leaning_block() -> Body {
+    block(
+        Plane {
+            origin: DVec3::ZERO,
+            x: DVec3::new(1.0, -1.0, 0.0).normalize(),
+            y: DVec3::NEG_Z,
+        },
+        &[(-10.0, -10.0), (10.0, -10.0), (10.0, 10.0), (-10.0, 10.0)],
+        20.0,
+        TOOL,
+    )
 }
 
 // Already inside a `cfg(test)` module, so it needs no gate of its own.
