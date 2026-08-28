@@ -1316,6 +1316,36 @@ and two measurements the first build owes.
    is §4.5's rule that nothing in an arena owns a heap block. A body rebuilt on
    every frame of a drag reaches the allocator not at all, which is what the
    gates measure.
+
+   *And on the topology rather than beside it*, which reads at first like a
+   fourth place geometry and structure meet where §4.5 names three. It is not:
+   an edge still names its curve and nothing else, and the samples that curve is
+   made of lie in one buffer exactly as a face's own loops do. What forces it is
+   `Walked`, which carries a `&Topology` and answers `Chorded` — a store the
+   mesher and the checker would have had to thread down through four frames
+   otherwise.
+
+**`geometry::marchings::Marchings` is that store, and it is in.** A run is
+filed, read at a parameter, read back from a place and asked how many chords it
+holds. Held to a circle of three hundred and twenty equal chords: every probe on
+a sample is that sample, one half a chord along is that chord's own middle, and
+each reads back to the angle it came from.
+
+**And `Curve::Marched` is in, threaded.** `at`, `along` and `steps` take the
+store and `key` and `reach` come off the arm, so `Imprints` goes on holding a
+bare curve. Twelve call sites rather than the nine that were counted: `Walked`
+reads a place as well as a step count, and one line of the sewing asks for two
+places at once. Nothing builds one yet — that is `Combining`, and it is next.
+
+**The build found the one thing the design had not looked at.** `Sewing::sew`
+begins by *emptying* the body it writes, and the runs are laid down before it —
+so a store on the body would be wiped between being filled and being read. It
+lives on `Combining` instead, beside the `Imprints` it belongs with, and the
+sewing takes it. What settles the last of it is a swap: the body's own buffer
+goes back to `Combining` where the sew ends, so the two trade room each
+operation and neither reaches the allocator — the same trade `Combining`
+already makes between its two sets of regions. That swap lands with the
+producer.
 2. **`Meeting::of` stays pure and goes on answering `Marched`.** What produces a
    run is `Combining`, which seeds, walks and files it when it meets such a
    pair — so the routine every test calls keeps its signature, and the store is

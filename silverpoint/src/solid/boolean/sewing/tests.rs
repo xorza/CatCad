@@ -60,6 +60,7 @@ fn combined(one: &Body, two: &Body, doing: Operation) -> Option<Body> {
             combining.kept(),
             combining.loops(),
             combining.imprints(),
+            combining.marched(),
             &mut body,
         )
         .then_some(body)

@@ -15,6 +15,7 @@ use crate::arena::Arena;
 use crate::loops::Loops;
 use crate::math::chorded::Chorded;
 use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::marchings::Marchings;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::{Face, FaceId};
@@ -57,6 +58,14 @@ pub(crate) struct Topology {
     /// and ask for it again sixty times a second. See
     /// [`Face::loops`](face::Face).
     walks: Loops<Coedge>,
+    /// The places every marched curve of this body is made of, the same way.
+    ///
+    /// **Beside the loops rather than a fourth thing geometry and structure
+    /// meet at.** An edge still names its curve and nothing else; what lies
+    /// here is what one of those curves is *made of*, in one buffer, exactly as
+    /// a face's own loops are — see
+    /// [`Marchings`], where the argument for that is written down.
+    marched: Marchings,
     /// Every face of every shell, the same way — see [`Shell::faces`].
     shelled: Vec<FaceId>,
     /// Every cavity of every lump, the same way — see [`Lump::voids`].
@@ -144,13 +153,18 @@ impl Topology {
         &self.voided[start..end]
     }
 
+    /// The places this body's marched curves are made of.
+    pub(crate) fn marched(&self) -> &Marchings {
+        &self.marched
+    }
+
     /// Empty it, keeping every buffer it holds.
     ///
     /// Every position is freed and every generation bumped, so a handle minted
     /// before this is refused rather than answering with whatever refills its
     /// slot — which is the whole reason the stores are arenas. What survives is
-    /// the room: the slots, the free list, the loops, the shelled faces and the
-    /// cavities all keep the capacity they grew to.
+    /// the room: the slots, the free list, the loops, the marched runs, the
+    /// shelled faces and the cavities all keep the capacity they grew to.
     pub(crate) fn clear(&mut self) {
         self.vertices.retain(|_| false);
         self.edges.retain(|_| false);
@@ -158,6 +172,7 @@ impl Topology {
         self.shells.retain(|_| false);
         self.lumps.retain(|_| false);
         self.walks.clear();
+        self.marched.clear();
         self.shelled.clear();
         self.voided.clear();
     }
@@ -260,7 +275,9 @@ impl Chorded for Walked<'_> {
     type At = DVec3;
 
     fn steps(&self, sagitta: f64) -> usize {
-        self.topology.edge(self.coedge.edge).steps(sagitta)
+        self.topology
+            .edge(self.coedge.edge)
+            .steps(sagitta, self.topology.marched())
     }
 
     fn ends(&self) -> [DVec3; 2] {
@@ -277,8 +294,10 @@ impl Chorded for Walked<'_> {
             steps - step
         };
         let [start, end] = edge.bounds;
-        edge.curve
-            .at(start + (end - start) * step as f64 / steps as f64)
+        edge.curve.at(
+            start + (end - start) * step as f64 / steps as f64,
+            self.topology.marched(),
+        )
     }
 }
 

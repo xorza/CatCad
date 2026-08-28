@@ -22,6 +22,7 @@ use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::buckets::Buckets;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::fitted::Fitted;
+use crate::solid::geometry::marchings::Marchings;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
@@ -61,6 +62,9 @@ pub(super) struct Combining {
     /// here, and a list emptied between faces would have them pointing at each
     /// other's curves.
     imprints: Imprints,
+    /// The places every marched curve of this operation is made of — see
+    /// [`Combining::marched`].
+    marched: Marchings,
     kept: Vec<Kept>,
     scratch: Scratch,
 }
@@ -147,6 +151,7 @@ impl Combining {
         self.loops.clear();
         self.kept.clear();
         self.imprints.clear();
+        self.marched.clear();
         // Every curved edge of either body takes a curve in the imprint list
         // and a run per face that walks it, before one crossing has been found
         // — see [`Imprints::reserve`].
@@ -180,6 +185,18 @@ impl Combining {
     /// The curves those loops' arcs run along, and which run is which.
     pub(super) fn imprints(&self) -> &Imprints {
         &self.imprints
+    }
+
+    /// The places every marched curve of this operation is made of.
+    ///
+    /// **Kept here rather than on the body being written**, because the body is
+    /// emptied where the sewing begins and these are laid down before it — see
+    /// [`Sewing::sew`](super::sewing::Sewing::sew), which reads them. What
+    /// carries them on to the body they belong to is a swap that lands with the
+    /// producer, so that the two trade room rather than either reaching for
+    /// more.
+    pub(super) fn marched(&self) -> &Marchings {
+        &self.marched
     }
 
     /// Cut every face of `mine` against `theirs` and keep what survives.

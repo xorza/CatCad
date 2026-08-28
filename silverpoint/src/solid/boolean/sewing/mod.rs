@@ -25,6 +25,7 @@ use crate::solid::boolean::splitting::corner::{self, Came, Corner};
 use crate::solid::buckets::{Buckets, Key};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::marchings::Marchings;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
 use crate::solid::mesh::{Mesher, Patch};
@@ -93,8 +94,15 @@ fn encircled(walk: &[Corner]) -> Option<u32> {
 /// curve exactly for a cut like that and a chord's breadth inside it for a
 /// flattened one — and a place a chord's breadth inside a circle stands at the
 /// angle the arc's middle does.
-fn swept(walk: &[Corner], from: usize, to: usize, on: Surface, curve: Curve) -> [f64; 2] {
-    let angle = |at: DVec2| curve.along(on.at(at));
+fn swept(
+    walk: &[Corner],
+    from: usize,
+    to: usize,
+    on: Surface,
+    curve: Curve,
+    marched: &Marchings,
+) -> [f64; 2] {
+    let angle = |at: DVec2| curve.along(on.at(at), marched);
     let start = angle(walk[from].at);
     let (mut sweep, mut last) = (0.0, start);
     let mut step = from;
@@ -268,15 +276,16 @@ impl Sewing {
         kept: &[Kept],
         loops: &Loops<Corner>,
         imprints: &Imprints,
+        marched: &Marchings,
         into: &mut Body,
     ) -> bool {
         into.clear();
         self.reset();
-        self.pin(kept, loops, imprints);
+        self.pin(kept, loops, imprints, marched);
         for region in kept {
-            self.raise(region, loops, imprints, into);
+            self.raise(region, loops, imprints, marched, into);
         }
-        if !self.join(imprints, into) {
+        if !self.join(imprints, marched, into) {
             into.clear();
             return false;
         }
@@ -321,7 +330,13 @@ impl Sewing {
     /// arc meets a straight edge is on the arc just as much as one where two
     /// arcs meet. Passings are not places: they are where the flattening put a
     /// corner, and no vertex will stand there.
-    fn pin(&mut self, kept: &[Kept], loops: &Loops<Corner>, imprints: &Imprints) {
+    fn pin(
+        &mut self,
+        kept: &[Kept],
+        loops: &Loops<Corner>,
+        imprints: &Imprints,
+        marched: &Marchings,
+    ) {
         self.scratch.pinned.clear();
         for region in kept {
             for run in region.loops.clone() {
@@ -348,7 +363,7 @@ impl Sewing {
                         self.scratch.pinned.push(Pinned {
                             curve: imprints.on(run),
                             at,
-                            along: imprints.curve(run).along(at),
+                            along: imprints.curve(run).along(at, marched),
                         });
                     }
                 }
@@ -420,13 +435,13 @@ impl Sewing {
     /// Ends excluded, by where they are rather than by their parameter: the
     /// run's own two ends are vertices already, and a place standing on one of
     /// them is that vertex rather than another beside it.
-    fn broken(&mut self, run: u32, imprints: &Imprints, bounds: [f64; 2]) {
+    fn broken(&mut self, run: u32, imprints: &Imprints, marched: &Marchings, bounds: [f64; 2]) {
         let (curve, on) = (imprints.curve(run), imprints.on(run));
         let Scratch { pinned, around, .. } = &mut self.scratch;
         around.clear();
         let [from, to] = bounds;
         let (lo, hi) = (from.min(to), from.max(to));
-        let ends = [curve.at(from), curve.at(to)];
+        let ends = [curve.at(from, marched), curve.at(to, marched)];
         for pinned in placed_on(pinned, on) {
             if ends.iter().any(|&end| end.approx_eq(pinned.at, PLACED)) {
                 continue;
@@ -465,7 +480,14 @@ impl Sewing {
     /// [`Sewing::broken`] asks the same question of a run that has two ends.
     /// They cannot be one call: a closed run has no ends to be broken *between*
     /// until it has taken one of these places for a start.
-    fn encircle(&mut self, run: u32, imprints: &Imprints, on: Surface, into: &mut Body) {
+    fn encircle(
+        &mut self,
+        run: u32,
+        imprints: &Imprints,
+        marched: &Marchings,
+        on: Surface,
+        into: &mut Body,
+    ) {
         let (curve, lies) = (imprints.curve(run), imprints.on(run));
         let Scratch { pinned, around, .. } = &mut self.scratch;
         around.clear();
@@ -478,7 +500,7 @@ impl Sewing {
         // Which way the loop goes round the curve, off the flattening that is
         // about to be thrown away — the arcs have to be walked the way the
         // region's own boundary walked them or the face will face the wrong way.
-        let [from, round] = swept(&self.scratch.turning, 0, 0, on, curve);
+        let [from, round] = swept(&self.scratch.turning, 0, 0, on, curve, marched);
         // A loop of one closed imprint is the whole of that curve, so its lap
         // is a whole turn — and the sign of it is the only thing read below, so
         // a loop that was not would be turned into arcs the wrong way round
@@ -504,7 +526,7 @@ impl Sewing {
                 _ if forward => (next - at).rem_euclid(TAU),
                 _ => -((at - next).rem_euclid(TAU)),
             };
-            let vertex = self.vertex(curve.at(at), into);
+            let vertex = self.vertex(curve.at(at, marched), into);
             self.walks.push(Stepped {
                 vertex,
                 along: Runs::Arc {
@@ -528,6 +550,7 @@ impl Sewing {
         region: &Kept,
         loops: &Loops<Corner>,
         imprints: &Imprints,
+        marched: &Marchings,
         into: &mut Body,
     ) {
         let from = self.starts.len() - 1;
@@ -556,7 +579,7 @@ impl Sewing {
             // at, and is put down whole rather than walked — see
             // [`Sewing::encircle`].
             if let Some(run) = encircled(&self.scratch.turning) {
-                self.encircle(run, imprints, region.surface, into);
+                self.encircle(run, imprints, marched, region.surface, into);
                 continue;
             }
             // Which corners are places rather than the ones a flattening put
@@ -582,12 +605,18 @@ impl Sewing {
                     Came::Arc(run) => {
                         let ends = self.scratch.kept[(which + 1) % self.scratch.kept.len()];
                         let curve = imprints.curve(run);
-                        let bounds =
-                            swept(&self.scratch.turning, step, ends, region.surface, curve);
+                        let bounds = swept(
+                            &self.scratch.turning,
+                            step,
+                            ends,
+                            region.surface,
+                            curve,
+                            marched,
+                        );
                         // Broken where another face has already broken it — see
                         // [`Sewing::broken`]. Each place puts down the arc
                         // reaching it and becomes the head of the next.
-                        self.broken(run, imprints, bounds);
+                        self.broken(run, imprints, marched, bounds);
                         let mut from = bounds[0];
                         for piece in 0..self.scratch.around.len() {
                             let to = self.scratch.around[piece];
@@ -598,7 +627,7 @@ impl Sewing {
                                     bounds: [from, to],
                                 },
                             });
-                            vertex = self.vertex(curve.at(to), into);
+                            vertex = self.vertex(curve.at(to, marched), into);
                             from = to;
                         }
                         Runs::Arc {
@@ -689,7 +718,7 @@ impl Sewing {
 
     /// Find the edge every step of every loop walks, and say whether each was
     /// claimed by exactly two faces.
-    fn join(&mut self, imprints: &Imprints, into: &Body) -> bool {
+    fn join(&mut self, imprints: &Imprints, marched: &Marchings, into: &Body) -> bool {
         self.steps.clear();
         self.steps.reserve_exact(self.walks.len());
         for which in 0..self.raised.len() {
@@ -705,9 +734,9 @@ impl Sewing {
                     let ends = [self.walks[step].vertex, self.walks[next].vertex];
                     let along = self.walks[step].along;
                     let middle = match along {
-                        Runs::Arc { run, bounds } => {
-                            imprints.curve(run).at((bounds[0] + bounds[1]) / 2.0)
-                        }
+                        Runs::Arc { run, bounds } => imprints
+                            .curve(run)
+                            .at((bounds[0] + bounds[1]) / 2.0, marched),
                         Runs::Straight => {
                             let [from, to] = ends.map(|end| into.topology().vertex(end).at);
                             (from + to) / 2.0

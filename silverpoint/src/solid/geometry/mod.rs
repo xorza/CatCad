@@ -18,6 +18,7 @@ pub(crate) mod cylinder;
 pub(crate) mod ellipse;
 pub(crate) mod fitted;
 pub(crate) mod line;
+pub(crate) mod marchings;
 pub(crate) mod natural;
 pub(crate) mod pencil;
 pub(crate) mod quadric;

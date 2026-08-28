@@ -354,10 +354,11 @@ impl Checking {
                     vertex.tolerance,
                     edge.curve.reach(bound).max(vertex.at.length()),
                 );
+                let at = edge.curve.at(bound, topology.marched());
                 assert!(
-                    vertex.at.approx_eq(edge.curve.at(bound), given),
+                    vertex.at.approx_eq(at, given),
                     "edge {id:?} at {bound} is {} from vertex {end:?}, which stands for {given}",
-                    vertex.at.distance(edge.curve.at(bound)),
+                    vertex.at.distance(at),
                 );
             }
             for face in edge.between {
@@ -379,7 +380,7 @@ impl Checking {
         let [from, to] = edge.bounds;
         for sample in 0..=SAMPLES {
             let t = from + (to - from) * sample as f64 / SAMPLES as f64;
-            let at = edge.curve.at(t);
+            let at = edge.curve.at(t, topology.marched());
             let off = surface.off(at);
             // Per sample rather than per edge, the samples of a long edge
             // standing at wildly different sizes and each written down to a

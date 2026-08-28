@@ -61,6 +61,7 @@ impl Boolean {
             self.combining.kept(),
             self.combining.loops(),
             self.combining.imprints(),
+            self.combining.marched(),
             into,
         )
     }
