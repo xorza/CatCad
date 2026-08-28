@@ -28,19 +28,19 @@
 
     // Drawing — what the geometry and the solids beside it are painted in.
     solid:        "#eaeaea",  // line_number_hover   gray_94
-    determined:   "#87e2fe",  // syn_type            cyan_vivid
+    determined:   "#aadbfe",  // syn_type            blue_vivid
     partly:       "#fecd12",  // warning             yellow_vivid
     free:         "#f29407",  // syn_keyword         orange_bright
     pinned:       "#fd8974",  // error               red_bright
     dormant:      "#a4a4a4",  // text_muted          gray_72
     dormant_face: "#013b58",  // info_bg             blue_dim
-    face:         "#0179b1",  // info_border         blue_normal
+    face:         "#207bae",  // info_border         blue_normal
     ghost:        "#eaeaea",  // text                gray_94
     sheet_ground: "#687e04",  // ansi_green          green_normal
-    sheet_front:  "#0179b1",  // ansi_blue           blue_normal
+    sheet_front:  "#207bae",  // ansi_blue           blue_normal
     sheet_side:   "#c33b26",  // ansi_red            red_normal
     sheet_datum:  "#515151",  // line_number         gray_44
-    mark:         "#c698e2",  // syn_number          magenta_bright
+    mark:         "#ffccc1",  // syn_number          red_vivid
     redundant:    "#fd8974",  // ansi_bright_red     red_bright
     depth_arrow:  "#eaeaea",  // selection_fg        gray_94
 
@@ -51,5 +51,5 @@
     // Form — the answers a prompt standing on the drawing offers.
     goes:         "#687e04",  // success_border      green_normal
     stops:        "#c33b26",  // error_border        red_normal
-    doing:        "#0179b1",  // info_border         blue_normal
+    doing:        "#207bae",  // info_border         blue_normal
 )
