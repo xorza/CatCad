@@ -703,3 +703,34 @@ fn a_form_of_two_fields_lets_the_second_take_the_caret() {
         "the caret was taken back to the first field",
     );
 }
+
+/// **A right-click in a form's field opens its menu rather than bringing the
+/// window down.**
+///
+/// A form standing beside geometry is a popup, and a field in it is a text
+/// edit — which attaches a context menu to a secondary click. The menu used to
+/// record on the popup's own layer, so raising one from inside a popup asked
+/// the scene to push a layer onto itself: a panic in debug, and in release a
+/// menu drawn underneath the form that raised it.
+///
+/// Here rather than only in palantir, where the layer rule lives, because this
+/// is the composition that found it — every form this crate stands beside
+/// geometry is one.
+#[test]
+fn a_right_click_in_a_form_field_opens_its_menu() {
+    let (mut raised, _) = revolving();
+
+    let box_ = raised
+        .harness
+        .layout_rect(Prompt::nth_field_id(1))
+        .expect("the form drew no second field");
+    raised
+        .harness
+        .right_click_at(box_.min + Vec2::new(box_.size.w, box_.size.h) * 0.5);
+    raised.frame();
+
+    assert!(
+        raised.app.session.prompt().is_some(),
+        "the right click closed the form",
+    );
+}
