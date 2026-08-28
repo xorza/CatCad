@@ -1231,17 +1231,27 @@ is the other three warnings, exactly where the literature says it is.
 **Two of those three are no longer the marching's**, the table above answering
 the tangent circle and the bitangent pair outright.
 
-**And the third is answered for the first pair, in closed form.**
-`meeting::seeding::spiric` hands back one place on *each piece* of what a plane
-and a torus meet in, and both of the spike's warnings go with it. A place of the
-torus stands on the plane exactly where
-`k(major + minor·cos v)·cos(u − phase) = c − minor·m·sin v`, which reads as
-`A(v)·cos(u − phase) = B(v)`: two angles at each `v` where `|B| < A`, one where
-they are equal, none beyond. So the curve is the stretches of `v` where
-`|B| ≤ A`, their ends are `α cos v + β sin v = γ` — four at most, one `acos`
-each — and every stretch carries one closed piece. Where there is no end at all
-the two halves never join and are two pieces, which is a cross drilling's own
-pair of regimes (§9.1) met again.
+**And the third is answered in closed form, for two pairs so far.**
+`meeting::seeding::seeded` hands back one place on *each piece* of what a
+surface and a torus meet in, and both of the spike's warnings go with it.
+
+**What the pairs share is the shape and not the arithmetic.** Standing on the
+other surface is one equation in the torus's two angles, and for each pair it
+rearranges into `A(v)·cos(u − phase) = B(v)`: two angles at each `v` where
+`|B| < A`, one where they are equal, none beyond. So the curve is exactly the
+stretches of `v` where `|B| ≤ A`, and every stretch carries one closed piece —
+the two angles inside it are that piece's halves, joining where the stretch
+ends. Where there is no end at all the halves never join and are two pieces,
+which is a cross drilling's own pair of regimes (§9.1) met again. That walk is
+written once; `Reading::Against` holds what is per pair.
+
+For a plane, `A` is how far its normal reaches square to the axis times how far
+out the tube does, `B` is how far the plane stands less how far it leans, and
+the ends are `α cos v + β sin v = γ` — one angle either side of a bearing. For a
+cylinder running the torus's own way, `A` is `2·out·off` and `B` is
+`out² + off² − across²`, and the ends turn on how far out the tube reaches and
+on nothing else: `out = ±off ± across`, four distances the tube either reaches
+or does not. That second pair is the bolt hole through a flange.
 
 **Nothing is sampled and nothing is bisected.** The small loop the spike found
 by luck at 512×512 is two `acos` here, and a seed is a place of the torus rather
@@ -1259,9 +1269,10 @@ the equation is symmetric enough to hide it, and one stretch still leaves a
 midpoint on the curve to seed from. Only a plane that leans, stands off the
 middle *and* cuts two stretches tells the two apart.
 
-What is left of the seeding is the other pairs, each its own closed form — and
-the coaxial ones are off that list, answered exactly by the row above rather
-than walked at all.
+What is left of the seeding is the pairs whose ends are not a closed form: a
+cylinder that *leans* on the axis puts them behind a degree-eight polynomial,
+and a second torus does no better. The coaxial pairs are off that list
+altogether, answered exactly by the row above rather than walked at all.
 
 **And the walking is in.** `meeting::marching::Marching` corrects a place onto
 both surfaces at once and steps along the cross of their normals. A place off

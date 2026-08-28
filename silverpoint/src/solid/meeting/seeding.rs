@@ -8,7 +8,8 @@
 //! moved half a cell off a node.
 //!
 //! **So it is done per pair and in closed form**, which is the same bargain the
-//! reducible table strikes one shelf up. What is here is the first pair.
+//! reducible table strikes one shelf up. What the pairs share is the *shape* of
+//! the answer rather than its arithmetic — see [`Reading`].
 //!
 //! **No production caller yet**, and the reason is the one
 //! [`Marching`](super::marching::Marching) gives: what a walk lays down is a run
@@ -16,31 +17,38 @@
 #![allow(dead_code)]
 
 use crate::inline::Inline;
-use crate::math::plane::Plane;
 use crate::math::sinusoid;
+use crate::number::predicate;
+use crate::solid::geometry::natural::Natural;
+use crate::solid::geometry::surface::Surface;
 use crate::solid::geometry::torus::Torus;
 use glam::{DVec2, DVec3};
 use std::f64::consts::TAU;
 
-/// One place on each piece of the curve `plane` and `torus` meet in.
+/// One place on each piece of the curve `surface` and `torus` meet in.
 ///
-/// **Two at most**, and that is a count rather than a hope — see [`Spiric`],
-/// which is the reading the count falls out of.
+/// **As many as the ends allow rather than as many as the geometry gives.** The
+/// stretches that hold and the ones that do not alternate round the tube, so
+/// eight ends are four pieces — but an end where `|B|` merely *touches* `A`
+/// leaves both stretches either side of it holding, and eight is what that
+/// allows. See [`Reading::ends`], where those ends are laid.
 ///
-/// Nothing where the two do not meet, and nothing for a plane square to the
-/// axis: that one has no bearing to speak of and a reducible answer already.
-pub(crate) fn spiric(plane: &Plane, torus: &Torus) -> Inline<DVec3, 2> {
+/// Nothing for a pair no reading is written for, and nothing where the two do
+/// not meet at all. A coaxial pair is not here: it reduces to circles outright
+/// and never wants walking — see
+/// [`Meeting::coaxial`](crate::solid::meeting::Meeting).
+pub(crate) fn seeded(surface: &Surface, torus: &Torus) -> Inline<DVec3, 8> {
     let mut found = Inline::none();
-    let Some(spiric) = Spiric::of(plane, torus) else {
+    let Some(reading) = Reading::of(surface, torus) else {
         return found;
     };
-    let ends = spiric.ends();
+    let ends = reading.ends();
     let ends = ends.all();
     // **No end anywhere is its own answer.** The curve then covers every angle
     // round the tube, and its two halves never join to become one piece.
     if ends.is_empty() {
         for far in [false, true] {
-            if let Some(at) = spiric.at(0.0, far) {
+            if let Some(at) = reading.at(0.0, far) {
                 found.push(at);
             }
         }
@@ -48,68 +56,120 @@ pub(crate) fn spiric(plane: &Plane, torus: &Torus) -> Inline<DVec3, 2> {
     }
     for step in 0..ends.len() {
         let (from, to) = (ends[step], ends[(step + 1) % ends.len()]);
-        if let Some(at) = spiric.at(from + (to - from).rem_euclid(TAU) / 2.0, false) {
+        if let Some(at) = reading.at(from + (to - from).rem_euclid(TAU) / 2.0, false) {
             found.push(at);
         }
     }
     found
 }
 
-/// What a plane comes to in a torus's own two angles.
+/// What a surface comes to in a torus's own two angles.
 ///
-/// **`A(v)·cos(u − phase) = B(v)`.** A place of the torus stands on the plane
-/// exactly where `k(major + minor·cos v)·cos(u − phase) = c − minor·m·sin v`,
-/// with `m` the lean of the plane's normal on the axis, `k` and `phase` the
-/// size and bearing of what is left of that normal square to it, and `c` how
-/// far the plane stands from the axis's own origin along the normal. That
-/// leaves an angle to solve for at each `v`: two angles where `|B| < A`, one
-/// where they are equal, and none beyond.
+/// **`A(v)·cos(u − phase) = B(v)`, whatever the surface.** Standing on the
+/// other one is a single equation in the torus's two angles, and for every pair
+/// here it rearranges into that: an angle to solve for at each `v`, which is two
+/// angles where `|B| < A`, one where they are equal, and none beyond.
 ///
-/// **So the curve is exactly the stretches of `v` where `|B| ≤ A`**, and their
-/// ends are in closed form — four of them at most, which is two stretches.
-/// Each stretch carries one closed piece: the two angles at a `v` inside it are
-/// that piece's two halves, and they join where the stretch ends. Where there
-/// is no end at all the two halves never join and are two pieces of their own,
-/// which is the same pair of regimes a cross drilling has (§9.1).
+/// **So the curve is exactly the stretches of `v` where `|B| ≤ A`**, and each
+/// stretch carries one closed piece — the two angles at a `v` inside it are that
+/// piece's two halves, and they join where the stretch ends. Where there is no
+/// end at all the two halves never join and are two pieces of their own, which
+/// is the same pair of regimes a cross drilling has (§9.1).
+///
+/// What is per pair is `A`, `B` and where the stretches end, and that is all
+/// [`Against`] holds. Everything above it is one walk.
 #[derive(Debug, Clone, Copy)]
-struct Spiric {
+struct Reading {
     torus: Torus,
-    /// How far the plane's normal reaches square to the axis.
-    wide: f64,
-    /// Which way it reaches, in the torus's own first angle.
+    /// The bearing and the size of whatever the other surface offers square to
+    /// the axis: a plane's own normal turned that way, or how far a parallel
+    /// cylinder's axis stands off. Both pairs read it, and a surface that
+    /// offers nothing there stands square on the axis and reduces to circles.
     phase: f64,
-    /// How far the plane stands from the axis's origin along that normal.
-    over: f64,
-    /// How far the normal leans on the axis.
-    lean: f64,
+    wide: f64,
+    against: Against,
 }
 
-impl Spiric {
-    /// How `plane` reads in `torus`'s own angles, or `None` for a plane square
-    /// to the axis, which has no bearing to be read against.
-    fn of(plane: &Plane, torus: &Torus) -> Option<Self> {
+/// The half of a [`Reading`] that is the other surface's own.
+#[derive(Debug, Clone, Copy)]
+enum Against {
+    /// A plane that is not square to the axis: how far its normal leans on the
+    /// axis, and how far the plane stands from the axis's origin along it.
+    Flat { lean: f64, over: f64 },
+    /// A cylinder of radius `across` whose axis runs parallel to the torus's
+    /// own, standing off it by [`Reading::wide`].
+    Beside { across: f64 },
+}
+
+impl Reading {
+    /// How `surface` reads in `torus`'s own angles, or `None` for a pair no
+    /// reading is written for.
+    ///
+    /// A surface standing square on the axis has no bearing to be read against
+    /// — a plane square across it and a coaxial cylinder both — and each of
+    /// those reduces to circles outright anyway.
+    fn of(surface: &Surface, torus: &Torus) -> Option<Self> {
         let axis = torus.axis;
-        let normal = plane.normal();
-        let lean = normal.dot(axis.direction);
-        let across = normal - axis.direction * lean;
-        let wide = across.length();
-        (wide != 0.0).then(|| Self {
-            torus: *torus,
-            wide,
-            phase: axis.bearing(across),
-            over: normal.dot(plane.origin - axis.origin),
-            lean,
-        })
+        let square = |of: DVec3| of - axis.direction * of.dot(axis.direction);
+        let held = |across: DVec3, against: Against| {
+            let wide = across.length();
+            (wide != 0.0).then(|| Self {
+                torus: *torus,
+                phase: axis.bearing(across),
+                wide,
+                against,
+            })
+        };
+        match surface {
+            Surface::Natural(Natural::Plane(plane)) => {
+                let normal = plane.normal();
+                let across = square(normal);
+                held(
+                    across,
+                    Against::Flat {
+                        lean: normal.dot(axis.direction),
+                        over: normal.dot(plane.origin - axis.origin),
+                    },
+                )
+            }
+            // Parallel and standing off. One that leans wants a reading nobody
+            // has written yet.
+            Surface::Natural(Natural::Cylinder(tube)) => {
+                predicate::parallel(tube.axis.direction, axis.direction).then_some(())?;
+                held(
+                    square(tube.axis.origin - axis.origin),
+                    Against::Beside {
+                        across: tube.radius,
+                    },
+                )
+            }
+            _ => None,
+        }
     }
 
-    /// `A(v)`: how far the tube reaches across the plane's own normal at `v`.
+    /// How far out from the axis the torus reaches at `v`.
+    fn out(&self, v: f64) -> f64 {
+        self.torus.major + self.torus.minor * v.cos()
+    }
+
+    /// `A(v)`: how far the other surface can be reached at `v`.
     fn reaching(&self, v: f64) -> f64 {
-        self.wide * (self.torus.major + self.torus.minor * v.cos())
+        let reach = self.wide * self.out(v);
+        match self.against {
+            Against::Flat { .. } => reach,
+            Against::Beside { .. } => 2.0 * reach,
+        }
     }
 
-    /// `B(v)`: how far it has to reach to arrive at the plane.
+    /// `B(v)`: how far it has to be reached to arrive there.
     fn standing(&self, v: f64) -> f64 {
-        self.over - self.torus.minor * self.lean * v.sin()
+        match self.against {
+            Against::Flat { lean, over } => over - self.torus.minor * lean * v.sin(),
+            Against::Beside { across } => {
+                let out = self.out(v);
+                out * out + self.wide * self.wide - across * across
+            }
+        }
     }
 
     /// The place at `v` on the `far` half of the curve, or `None` where the
@@ -125,16 +185,35 @@ impl Spiric {
     /// The angles a piece of the curve begins or ends at, which are where the
     /// two halves fall together.
     ///
-    /// `B = ±A` is `α cos v + β sin v = γ`, which is one angle either side of
-    /// `atan2(β, α)` and nothing at all where `γ` outreaches the pair.
-    fn ends(&self) -> Inline<f64, 4> {
+    /// **`B = ±A`, and each pair solves it its own way.** A plane's is
+    /// `α cos v + β sin v = γ`, one angle either side of a bearing. A parallel
+    /// cylinder's turns on how far out the tube reaches and on nothing else:
+    /// `(out ∓ off)² = across²` is `out = ±off ± across`, four distances the
+    /// tube either reaches or does not, and one angle either way round where it
+    /// does.
+    fn ends(&self) -> Inline<f64, 8> {
         let mut ends = Inline::none();
-        for way in [1.0, -1.0] {
-            let round = -way * self.wide * self.torus.minor;
-            let up = -self.torus.minor * self.lean;
-            let past = way * self.wide * self.torus.major - self.over;
-            for turn in sinusoid::angles(round, up, past) {
-                ends.push(turn.rem_euclid(TAU));
+        let (torus, wide) = (self.torus, self.wide);
+        match self.against {
+            Against::Flat { lean, over } => {
+                for way in [1.0, -1.0] {
+                    let round = -way * wide * torus.minor;
+                    let up = -torus.minor * lean;
+                    let past = way * wide * torus.major - over;
+                    for turn in sinusoid::angles(round, up, past) {
+                        ends.push(turn.rem_euclid(TAU));
+                    }
+                }
+            }
+            Against::Beside { across } => {
+                for out in [wide + across, wide - across, across - wide, -wide - across] {
+                    let share = (out - torus.major) / torus.minor;
+                    if share.abs() > 1.0 {
+                        continue;
+                    }
+                    ends.push(share.acos());
+                    ends.push(TAU - share.acos());
+                }
             }
         }
         let sorted = ends.all_mut();
@@ -147,13 +226,12 @@ impl Spiric {
 mod tests {
     use super::*;
     use crate::solid::geometry::axis::Axis;
+    use crate::solid::geometry::cylinder::Cylinder;
     use crate::solid::geometry::fitted::Fitted;
-    use crate::solid::geometry::natural::Natural;
-    use crate::solid::geometry::surface::Surface;
     use crate::solid::meeting::marching::Marching;
 
-    /// The ring every plane below is held against: three out to the tube's own
-    /// centre, one thick, about the world's `+Y` through the origin.
+    /// The ring every surface below is held against: three out to the tube's
+    /// own centre, one thick, about the world's `+Y` through the origin.
     fn ring() -> Torus {
         Torus {
             axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
@@ -163,43 +241,50 @@ mod tests {
     }
 
     /// The plane through `origin` facing `normal`, framed however.
-    fn facing(origin: DVec3, normal: DVec3) -> Plane {
-        Axis::about(origin, normal.normalize()).plane()
+    fn facing(origin: DVec3, normal: DVec3) -> Surface {
+        Surface::Natural(Natural::Plane(
+            Axis::about(origin, normal.normalize()).plane(),
+        ))
     }
 
-    /// Assert that every seed stands on both the ring and `plane`.
-    fn lies_on(found: &Inline<DVec3, 2>, plane: &Plane, what: &str) {
-        let round = Surface::Fitted(Fitted::Torus(ring()));
-        for &at in found.all() {
-            let off = round.off(at);
-            assert!(off < 1e-12, "{what}: {at:?} stands {off} off the ring");
-            let along = (at - plane.origin).dot(plane.normal()).abs();
-            assert!(along < 1e-12, "{what}: {at:?} stands {along} off the plane");
-        }
+    /// A rod of `radius` running the ring's own way, `off` from its axis.
+    fn beside(off: f64, radius: f64) -> Surface {
+        Surface::Natural(Natural::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::X * off, DVec3::Y, DVec3::X),
+            radius,
+        }))
     }
 
     /// Assert that a fine sweep of the curve finds nothing the seeds missed.
     ///
     /// **What says every piece was found.** The places of the curve at a fine
     /// sweep of `v` are had without asking where the *pieces* are, which is the
-    /// one thing [`Spiric::ends`] decides and the one thing this does not use.
+    /// one thing [`Reading::ends`] decides and the one thing this does not use.
     /// So every place the sweep turns up has to stand on some loop that was
     /// walked, and a piece nobody was seeded on shows up as a place far from
     /// all of them.
-    fn every_piece_is_reached(plane: &Plane, what: &str) {
+    ///
+    /// Every seed is held against both surfaces on the way, to the last bits
+    /// the machine keeps: a seed here is a place of the torus worked out
+    /// outright rather than one walked onto.
+    fn every_piece_is_reached(surface: &Surface, what: &str) {
         let torus = ring();
         let round = Surface::Fitted(Fitted::Torus(torus));
-        let cut = Surface::Natural(Natural::Plane(*plane));
-        let reading = Spiric::of(plane, &torus).expect("the plane leans on the axis");
+        let reading = Reading::of(surface, &torus).expect("the pair has a reading");
+        let found = seeded(surface, &torus);
+        assert!(!found.all().is_empty(), "{what}: nothing was seeded");
         let mut marching = Marching::default();
         let mut walked = Vec::new();
-        for &seed in spiric(plane, &torus).all() {
+        for &seed in found.all() {
+            for (named, on) in [("the ring", &round), ("the other", surface)] {
+                let off = on.off(seed);
+                assert!(off < 1e-12, "{what}: {seed:?} stands {off} off {named}");
+            }
             marching
-                .walk(&round, &cut, seed, 1e-4)
+                .walk(&round, surface, seed, 1e-4)
                 .unwrap_or_else(|| panic!("{what}: a seeded walk did not close"));
             walked.extend_from_slice(marching.walked());
         }
-        assert!(!walked.is_empty(), "{what}: nothing was walked at all");
         for step in 0..512 {
             let v = TAU * step as f64 / 512.0;
             for far in [false, true] {
@@ -210,13 +295,18 @@ mod tests {
                     .iter()
                     .map(|on| on.distance(at))
                     .fold(f64::INFINITY, f64::min);
+                // A chord of the walk above is `√(8·ρ·sagitta)` long, which
+                // for a curve of this ring's own size is a few hundredths — so
+                // half of one is well under this, and a piece nobody walked is
+                // a whole loop away rather than a chord.
                 assert!(near < 0.05, "{what}: {at:?} stands {near} off every loop");
             }
         }
     }
 
-    /// **Every piece of the curve is reached, and a plane that both leans and
-    /// stands off the middle is where that stops being free.**
+    /// **Every piece of the curve a leaning plane cuts is seeded**, and a plane
+    /// that both leans and stands off the middle is where that stops being
+    /// free.
     ///
     /// Four planes, and the last is the one that needs the ends solved as
     /// written: it leans, it stands off the middle, *and* it cuts two stretches
@@ -244,41 +334,23 @@ mod tests {
         }
     }
 
-    /// **A plane through the middle of a ring cuts it in two pieces, and both
-    /// are seeded** — by either of the two routes there are to two.
+    /// **And every piece a rod bored the ring's own way cuts**, which is the
+    /// bolt hole through a flange.
     ///
-    /// Leaning at forty-five degrees, `|B|` never reaches `A` at all: the two
-    /// angles at every `v` are two halves that never join, and each is a piece.
-    /// Leaning gently, `|B|` reaches `A` four times, which is two stretches of
-    /// `v` with a piece apiece — the ring's own two equators, deformed. Both
-    /// stand clear of the bitangent `√8/3`, where the two would touch.
-    ///
-    /// **Walked from each seed, neither loop comes near the other's**, which is
-    /// the whole of what a second seed is for and the one thing that says two
-    /// pieces rather than one found twice.
+    /// A rod parallel to the axis meets the ring where
+    /// `2·out·off·cos(u − phase) = out² + off² − across²`, and the ends of that
+    /// turn on how far out the tube reaches and on nothing else. Three rods:
+    /// one straight through the tube's own middle, one biting the ring's outer
+    /// edge, and a wide one that swallows the axis and cuts the ring from
+    /// inside.
     #[test]
-    fn a_plane_through_a_ring_seeds_both_of_the_pieces_it_cuts() {
-        let round = Surface::Fitted(Fitted::Torus(ring()));
-        let mut marching = Marching::default();
-        for lean in [DVec3::new(1.0, 1.0, 0.0), DVec3::new(0.2, 1.0, 0.0)] {
-            let plane = facing(DVec3::ZERO, lean);
-            let found = spiric(&plane, &ring());
-            assert_eq!(found.all().len(), 2, "{lean:?}: {:?}", found.all());
-            lies_on(&found, &plane, "through the middle");
-
-            let cut = Surface::Natural(Natural::Plane(plane));
-            let [here, there] = [found.all()[0], found.all()[1]];
-            for (seed, other) in [(here, there), (there, here)] {
-                marching
-                    .walk(&round, &cut, seed, 1e-4)
-                    .expect("a seeded walk did not close");
-                let near = marching
-                    .walked()
-                    .iter()
-                    .map(|at| at.distance(other))
-                    .fold(f64::INFINITY, f64::min);
-                assert!(near > 0.1, "{lean:?}: the two seeds are {near} apart");
-            }
+    fn every_piece_of_a_rod_bored_the_rings_own_way_is_seeded() {
+        for (what, off, radius) in [
+            ("through the tube", 3.0, 0.3),
+            ("biting the outer edge", 3.8, 0.5),
+            ("swallowing the axis", 0.5, 2.6),
+        ] {
+            every_piece_is_reached(&beside(off, radius), what);
         }
     }
 
@@ -287,8 +359,8 @@ mod tests {
     /// A plane parallel to the axis, a twentieth inside the ring's outer
     /// equator, cuts one small closed piece near it. `.notes/KERNEL.md` §9.2's
     /// spike needed a 512×512 subdivision to find one of these once it stood
-    /// half a cell off a node; the ends of its stretch of `v` are two `acos`
-    /// here, and where it is comes out with them.
+    /// half a cell off a node; the ends of its stretch are two `acos` here, and
+    /// where it is comes out with them.
     ///
     /// **Held to the ellipse it closes on.** For a plane `d` inside the outer
     /// equator the piece is an ellipse of semi-axes `√(2·minor·d)` along the
@@ -296,32 +368,61 @@ mod tests {
     /// which for a twentieth of a ring of three by one is `0.316` by `0.632`.
     #[test]
     fn a_small_loop_just_inside_the_equator_is_seeded_by_arithmetic() {
+        let torus = ring();
         let inside = 0.05;
-        let out = ring().major + ring().minor - inside;
+        let out = torus.major + torus.minor - inside;
         let grazing = facing(DVec3::X * out, DVec3::X);
-        let found = spiric(&grazing, &ring());
+        let found = seeded(&grazing, &torus);
         assert_eq!(found.all().len(), 1, "{:?}", found.all());
-        lies_on(&found, &grazing, "grazing");
 
-        let round = Surface::Fitted(Fitted::Torus(ring()));
-        let cut = Surface::Natural(Natural::Plane(grazing));
+        let round = Surface::Fitted(Fitted::Torus(torus));
         let mut marching = Marching::default();
         marching
-            .walk(&round, &cut, found.all()[0], 1e-6)
+            .walk(&round, &grazing, found.all()[0], 1e-6)
             .expect("the small walk did not close");
         let reach = |of: fn(DVec3) -> f64| {
-            let spread = marching.walked().iter().map(|&at| of(at));
-            spread.fold(f64::NEG_INFINITY, f64::max)
+            marching
+                .walked()
+                .iter()
+                .map(|&at| of(at))
+                .fold(f64::NEG_INFINITY, f64::max)
         };
         let (up, across) = (reach(|at| at.y), reach(|at| at.z));
         let (tall, wide) = (
-            (2.0 * ring().minor * inside).sqrt(),
-            (2.0 * (ring().major + ring().minor) * inside).sqrt(),
+            (2.0 * torus.minor * inside).sqrt(),
+            (2.0 * (torus.major + torus.minor) * inside).sqrt(),
         );
         assert!((up - tall).abs() < tall / 50.0, "{up} rather than {tall}");
         assert!(
             (across - wide).abs() < wide / 50.0,
             "{across} rather than {wide}"
         );
+    }
+
+    /// **A rod through the tube's middle cuts two pieces**, and the angles they
+    /// end at are read off the arithmetic rather than off the walk.
+    ///
+    /// With the rod's axis three out — the tube's own centre circle — the tube
+    /// reaches it between `out = 3 ± 0.3`, which is `cos v = ±0.3`. Two
+    /// stretches, each a closed piece: the hole the rod makes going in and the
+    /// one it makes coming out.
+    #[test]
+    fn a_rod_through_the_tube_ends_where_the_arithmetic_says() {
+        let torus = ring();
+        let rod = beside(3.0, 0.3);
+        let reading = Reading::of(&rod, &torus).expect("a parallel rod reads");
+        let mut want = [
+            0.3f64.acos(),
+            TAU - 0.3f64.acos(),
+            (-0.3f64).acos(),
+            TAU - (-0.3f64).acos(),
+        ];
+        want.sort_by(f64::total_cmp);
+        let ends = reading.ends();
+        assert_eq!(ends.all().len(), 4, "{:?}", ends.all());
+        for (got, want) in ends.all().iter().zip(want) {
+            assert!((got - want).abs() < 1e-12, "{:?} misses {want}", ends.all());
+        }
+        assert_eq!(seeded(&rod, &torus).all().len(), 2, "one piece each way");
     }
 }
