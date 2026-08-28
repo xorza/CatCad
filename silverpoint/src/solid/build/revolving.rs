@@ -362,8 +362,8 @@ impl Revolving {
         // line — and every place after it has to agree.
         let mut side = 0.0_f64;
         for strip in strips.all() {
-            let corners = [strip.from, strip.to].map(|corner| strips.corners()[corner]);
-            for at in [corners[0], corners[1], laid(strips, *strip, 0.5).at] {
+            let [from, to] = [strip.from, strip.to].map(|corner| strips.corners()[corner]);
+            for at in [from, to, laid(strips, *strip, 0.5).at] {
                 let off = perp.dot(at - of.axis);
                 if predicate::touching(off.abs(), PLACED) {
                     continue;

@@ -540,8 +540,10 @@ impl<'a> Models<'a> {
     /// are, and there is nothing for either to fail at.
     ///
     /// **Failing and coming to nothing are different.** An extrusion of no
-    /// depth leaves no solid and is not broken — the depth is a number somebody
-    /// is still typing. See [`Built`].
+    /// depth leaves no solid and is not broken: the model goes on standing, and
+    /// the step after it builds on what this one was handed. What a step came
+    /// to at all is [`Models::came_at`], which is the reading a *list* of steps
+    /// wants — this one is for counting what went wrong.
     ///
     /// A fair question of any step rather than of a sweep known to be one,
     /// for the reason [`Timeline::movable`](crate::timeline::Timeline) answers
