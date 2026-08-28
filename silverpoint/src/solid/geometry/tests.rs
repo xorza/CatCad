@@ -1,6 +1,7 @@
 use crate::math::bounds::Bounds;
 use crate::math::plane::Plane;
 use crate::number::exact::field::Field;
+use crate::number::exact::quadratic::Quadratic;
 use crate::number::exact::rational::Rational;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
@@ -11,6 +12,7 @@ use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::{Quadric, Signature};
+use crate::solid::geometry::ruling::Rulings;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
 use glam::{DVec2, DVec3};
@@ -1115,4 +1117,151 @@ fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
         upright.signature(),
         "the signature is not an invariant after all",
     );
+}
+
+/// **A ruling is a whole line the quadric holds, and naming one takes a single
+/// square root.**
+///
+/// M3b's fourth piece — see [`Rulings`]. A line `p + s·d` lies in a quadric
+/// exactly when three things vanish: `pᵀQp`, because the place is on it;
+/// `pᵀQd`, because the direction is in the tangent plane there; and `dᵀQd`,
+/// because the direction is asymptotic. The first is the fixture's own claim
+/// and the other two are what is asserted, split into the half with the root in
+/// it and the half without — both of which have to vanish on their own, `√δ`
+/// being irrational.
+///
+/// **A sphere holds no line**, which is `None` here and is the same fact the
+/// signature reports about the surface as a whole. Held over four of its
+/// places, so that it is the surface answering and not one awkward place on it.
+///
+/// **A cylinder holds one, twice over.** Its tangent plane touches along a
+/// single line, so the binary form has a double root, `δ` is nought and the two
+/// directions come back the same. Hand-computed at `(5, 0, 7)`: the tangent
+/// plane is `x = 5`, the only asymptotic direction in it runs up the axis, and
+/// the answer `(10, 0, 0, 2)` is the place `(5, 0, 0)` — which with `(5, 0, 7)`
+/// names exactly that vertical line.
+///
+/// **A rational root is folded in rather than carried.** `x² + y² − z² − w² = 0`
+/// at `(1, 0, 0)` has the binary form `x² − y²`, whose discriminant is four —
+/// positive, so there really are two lines, and a square, so both are rational.
+/// The radicand comes back nought and the two directions are `(0, ±2, 2, 0)`,
+/// which are the hyperboloid's own rulings through that place. Carried instead
+/// of folded, a nought radicand would multiply the root away and leave the two
+/// as one wrong line.
+///
+/// **And the ruled member of the two-cylinder pencil holds two.** At `(1, 1, 1)`
+/// the tangent plane's binary form is `−(10/7)x² + (40/7)xy + (30/7)y²`, whose
+/// discriminant is `1600/49 + 1200/49 = 400/7`. That is positive and not a
+/// rational square, so the two directions are the ordinary case: one square
+/// root up, in `ℚ(√(400/7))`. The two are different, which is what a
+/// discriminant above nought means.
+///
+/// **The tower is asked the same question last**, over
+/// [`Quadratic`](crate::number::exact::quadratic::Quadratic) rather than over
+/// the two halves apart. It is the arithmetic the parameterization will be
+/// built in, and this is its first caller.
+#[test]
+fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
+    let ball = Quadric::of(&Surface::Sphere(Sphere {
+        axis: upright(),
+        radius: 5.0,
+    }));
+    for at in [
+        DVec3::new(3.0, 4.0, 0.0),
+        DVec3::new(-3.0, 4.0, 0.0),
+        DVec3::new(0.0, 3.0, 4.0),
+        DVec3::new(5.0, 0.0, 0.0),
+    ] {
+        assert!(Rulings::of(&ball, at).is_none(), "a sphere ruled at {at:?}");
+    }
+
+    let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Surface::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, direction, reference),
+            radius,
+        }))
+    };
+    let wall = pipe(DVec3::Z, DVec3::X, 5.0);
+    let pencil = Pencil::of(pipe(DVec3::Z, DVec3::X, 2.0), pipe(DVec3::X, DVec3::Y, 3.0));
+    let member = pencil.at(&pencil
+        .through(DVec3::ONE)
+        .expect("(1, 1, 1) is on neither cylinder"));
+
+    // `x² + y² − z² − w²`, a hyperboloid of one sheet: `diag(1, 1, −1, −1)`.
+    let even = Quadric::over(std::array::from_fn(|at| match at {
+        0 | 4 => Rational::ONE,
+        7 | 9 => -Rational::ONE,
+        _ => Rational::ZERO,
+    }));
+
+    for (of, at, radicand, doubled, what) in [
+        (
+            &wall,
+            DVec3::new(5.0, 0.0, 7.0),
+            Rational::ZERO,
+            true,
+            "a cylinder",
+        ),
+        (
+            &member,
+            DVec3::ONE,
+            Rational::ratio(400, 7),
+            false,
+            "the ruled member",
+        ),
+        (
+            &even,
+            DVec3::new(1.0, 0.0, 0.0),
+            Rational::ZERO,
+            false,
+            "a hyperboloid at a rational root",
+        ),
+    ] {
+        let place = Quadric::raised(at);
+        assert_eq!(of.on(at), Rational::ZERO, "{what}: the place is not on it");
+        let found = Rulings::of(of, at).unwrap_or_else(|| panic!("{what} ruled nowhere"));
+        assert_eq!(
+            *found.radicand(),
+            radicand,
+            "{what}: what the directions are written over",
+        );
+        assert_eq!(
+            found.plain()[0] == found.plain()[1] && found.times()[0] == found.times()[1],
+            doubled,
+            "{what}: whether the two rulings are one",
+        );
+
+        for which in 0..2 {
+            let (plain, times) = (&found.plain()[which], &found.times()[which]);
+            assert!(
+                plain.iter().any(|of| !of.is_zero()) || times.iter().any(|of| !of.is_zero()),
+                "{what}: a ruling with no direction in it",
+            );
+            // In the tangent plane, both halves apart.
+            assert_eq!(of.between(&place, plain), Rational::ZERO, "{what}: pᵀQu");
+            assert_eq!(of.between(&place, times), Rational::ZERO, "{what}: pᵀQv");
+            // Asymptotic, likewise: `dᵀQd` is `uᵀQu + δ·vᵀQv` with `2·uᵀQv`
+            // roots of it, and neither half may stand.
+            assert_eq!(
+                of.between(plain, plain) + found.radicand().clone() * of.between(times, times),
+                Rational::ZERO,
+                "{what}: the rootless half of dᵀQd",
+            );
+            assert_eq!(of.between(plain, times), Rational::ZERO, "{what}: uᵀQv");
+
+            // And the same, asked of the tower rather than of the halves.
+            if let Some(field) = Quadratic::root(found.radicand().clone()) {
+                let lift = |of: &Rational| field.at(of.clone(), Rational::ZERO);
+                let along: [Quadratic<Rational>; 4] =
+                    std::array::from_fn(|held| field.at(plain[held].clone(), times[held].clone()));
+                let mut total = lift(&Rational::ZERO);
+                for (row, held) in along.iter().enumerate() {
+                    for (col, other) in along.iter().enumerate() {
+                        total = total + lift(of.held(row, col)) * held.clone() * other.clone();
+                    }
+                }
+                assert!(total.is_zero(), "{what}: dᵀQd over the tower");
+            }
+        }
+    }
 }

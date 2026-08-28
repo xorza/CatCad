@@ -898,14 +898,33 @@ is `(−Q₂(p) : Q₁(p))` and the search is that read once per candidate until
 signature says ruled. `(1, 1, 1)` against the two cylinders gives
 `diag(7, 5, −2, −10)`, which is two and two.
 
-**The rest, and each stands alone:**
+**And the rulings.** `geometry::ruling::Rulings` hands back the two lines a
+quadric holds through one of its own places. Both run through the place, so both
+lie in the tangent plane there — and the place is in the radical of what the
+quadric comes to on that plane, which leaves a *binary* form in two directions.
+A binary form has one discriminant, so a ruling costs **one square root and no
+more**, and that is `√δ`. Where a route through the diagonal would have wanted
+two roots and a compositum, the tangent plane wants one.
 
-1. **The rulings, and the parameterization over them.** A ruled member's
-   diagonal pairs off into differences of two squares, and each difference
-   factors into two planes — which is where `√δ` enters, and why §4.2 found the
-   fully rational case unreachable. A ruling substituted into the other quadric
-   is a quadratic in the ruling's own parameter, and its roots are `X₁ ± X₂√Δ`
-   in the tower.
+`None` is an answer twice over: a discriminant under nought is a place with no
+real line through it, which every place of a sphere is, and a place the quadric
+is singular at has no tangent plane to take a form on. A rational root is folded
+in rather than carried, so a nought radicand means the directions want no field
+above ℚ — which is what a cylinder gives, its two rulings being one line and its
+discriminant nought. The ruled member of the two cylinders gives `δ = 400/7`,
+not a square, which is §4.2's ordinary case.
+
+**One radicand for the pair rather than one per component**, which is
+`Quadratic`'s own note taken at its word: a direction is eight rationals and a
+root they share where eight of those values would be twenty-four and eight
+copies of one δ. What wants the tower is the step after, where two directions
+are multiplied together.
+
+**The rest:**
+
+1. **The parameterization.** A ruling substituted into the other quadric is a
+   quadratic in the ruling's own parameter, and its two roots are `X₁ ± X₂√Δ` in
+   the tower's second storey.
 2. **`Curve::Quartic`**, and every closed match on `Curve` that follows.
 
 **Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match

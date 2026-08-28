@@ -1,7 +1,10 @@
 //! One square root away from whatever is below it.
 //!
-//! **No caller yet** — the pencil route in M3b is the first, and the
-//! arithmetic lands ahead of it deliberately. See [`exact`](super).
+//! **No production caller yet** — the parameterization in M3b is the first,
+//! and the arithmetic lands ahead of it deliberately. `solid::geometry` asks it
+//! the same question it asks the rationals, though, over the directions a ruled
+//! quadric hands back: a line that lies in a surface has to lie in it over the
+//! field its direction is written in too. See [`exact`](super).
 #![allow(dead_code)]
 
 use crate::number::exact::field::Field;

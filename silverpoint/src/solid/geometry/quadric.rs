@@ -156,23 +156,31 @@ impl Quadric {
     /// sphere and inside a cone's own nappe both read one way — so a caller
     /// reads it against another place rather than against a rule.
     pub(crate) fn on(&self, place: DVec3) -> Rational {
-        let [x, y, z] = placed(place);
-        let raised = [x, y, z, Rational::ONE];
+        let at = Self::raised(place);
+        self.between(&at, &at)
+    }
+
+    /// `oneᵀ Q two`, exactly.
+    ///
+    /// **The form itself rather than only its diagonal**, which is what
+    /// anything working on the surface asks: a place is on the quadric where
+    /// this comes to nought against itself, a direction is in the tangent plane
+    /// at a place where it comes to nought against that place, and a line lies
+    /// wholly in the quadric where all three of those vanish at once — see
+    /// [`Rulings`](super::ruling::Rulings).
+    pub(crate) fn between(&self, one: &[Rational; 4], two: &[Rational; 4]) -> Rational {
         let mut total = Rational::ZERO;
-        for row in 0..4 {
-            for col in row..4 {
-                let term = self.held(row, col).clone() * raised[row].clone() * raised[col].clone();
-                // Off the diagonal the entry stands for both halves of the
-                // matrix, the upper triangle being all that is held.
-                total = total
-                    + if row == col {
-                        term
-                    } else {
-                        term.clone() + term
-                    };
+        for (row, held) in one.iter().enumerate() {
+            for (col, other) in two.iter().enumerate() {
+                total = total + self.held(row, col).clone() * held.clone() * other.clone();
             }
         }
         total
+    }
+
+    /// `place` as the homogeneous 4-vector the form reads.
+    pub(crate) fn raised(place: DVec3) -> [Rational; 4] {
+        [place.x, place.y, place.z, 1.0].map(Rational::of)
     }
 
     /// `by·self + and·other`, which is the member of the pencil the two span

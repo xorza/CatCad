@@ -18,6 +18,7 @@ pub(crate) mod ellipse;
 pub(crate) mod line;
 pub(crate) mod pencil;
 pub(crate) mod quadric;
+pub(crate) mod ruling;
 pub(crate) mod sphere;
 pub(crate) mod surface;
 
