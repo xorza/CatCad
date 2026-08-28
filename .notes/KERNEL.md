@@ -1074,9 +1074,49 @@ each surface which arm it is. A walk and not a flag, so nothing can set it and
 be wrong — held by a test that puts one torus on one face of a block and watches
 the answer turn over.
 
-**What is left is the spike, then the marching.** §10's rule 2 wants a throwaway
-one outside the workspace first. Nothing builds a torus yet either — a revolve
-makes one, and so does a plane-cylinder fillet.
+**The spike is done**, per §10's rule 2 — a throwaway outside the workspace,
+marching a torus against a plane and a cylinder. Six findings, and the last of
+them changes what M6 is.
+
+1. **The marching itself is easy and accurate.** Newton onto both surfaces at
+   once through the 2×3 pseudo-inverse, stepping along `∇T × ∇S`. The fit bound
+   goes as the *square* of the step — `0.4 → 4.4·10⁻³`, `0.2 → 1.1·10⁻³`,
+   `0.1 → 2.8·10⁻⁴` — which is the law `arc::widest` already states, so a
+   sagitta sets the step through a square root and nothing new is needed.
+2. **Right on every ordinary case**, held against closed forms. A plane across
+   the tube gives two circles of `R ± r·√3/2`. A coaxial cylinder gives two of
+   its own radius. A plane `d` inside the outer equator gives an *ellipse* of
+   semi-axes `√(8d)` and `√(2d)` — matched to three parts in ten thousand, the
+   rest being the chording.
+3. **A small closed loop is found or missed by luck.** With its tangency on a
+   grid node, a 32×32 subdivision finds a loop `0.137` around. Moved half a cell
+   off, the same loop needs **512×512** — a quarter of a million samples. A test
+   that placed one on a node would pass for the wrong reason.
+4. **A seed has to be bisected onto the curve**, not taken at the grid node. At
+   the node the two surfaces are nearly tangent and the projection has no
+   direction to correct in; every small-loop case refused to start until the
+   seed was refined along the sign-changing edge.
+5. **A tangential meeting is invisible to sign-change subdivision.** The plane on
+   the tube's top touches the torus along a whole circle of radius `R`, and the
+   sign never changes: nought seeds at 1024×1024. That circle divides a face, so
+   a boolean needs it.
+6. **The bitangent plane defeats the method outright.** Its two Villarceau
+   circles cross at the two tangency points. Subdivision gives *one* seed for two
+   curves, the sign-change cells touching and flooding together; and the march
+   has no direction at a crossing, so it slips from one circle onto the other and
+   walks `574.6` where the truth is `2 × 18.85 = 37.70`. **A tangency guard does
+   not save it**: at `10⁻³` it still walks 433, and at `10⁻²` it stops at 5.7
+   against one circle's 18.85. No threshold gives the answer.
+
+**So M6 is not "subdivide, then march".** The singular places come first — where
+`∇T × ∇S` vanishes is a system of its own and solvable — then the branches
+leaving each of them, then a march *between* singular places. Loop detection
+cannot rest on a grid either, which is what §7.3's Gauss-map bound is for. What
+the spike settles is that the easy half is easy and the whole of the difficulty
+is the other three warnings, exactly where the literature says it is.
+
+Nothing builds a torus yet either — a revolve makes one, and so does a
+plane-cylinder fillet.
 
 **Tests.** A torus built by hand validates and reports its volume `2π²Rr²`,
 which waits on the arm. A plane cutting a torus at the Villarceau angle gives
