@@ -12,6 +12,7 @@ use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::operation::Operation;
 use crate::solid::boolean::sounding::Sounding;
 use crate::solid::boolean::splitting::Splitting;
+use crate::solid::boolean::splitting::bow::Bow;
 use crate::solid::boolean::splitting::cells::Cells;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
 use crate::solid::boolean::splitting::cut::Cut;
@@ -589,6 +590,57 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
                 phase: across.y.atan2(across.x),
                 above: true,
                 run: run.expect("an ellipse is numbered"),
+            }))
+        }
+        // **A saddle is a bow on either of the two cylinders it was cut
+        // from**, and which of them the face stands on decides the regime and
+        // nothing else — see [`Bow`], where the shape is derived. The wider
+        // cylinder, which the saddle is written on, sees a closed loop; the
+        // narrower one sees a single branch of a cut that runs right round it.
+        //
+        // Which turn of the loop, for the wider one, is the question a ruling
+        // line answers above: the angle wraps and a face may not, so the turn
+        // taken is the one nearest the middle the face was laid out about.
+        (Surface::Natural(Natural::Cylinder(tube)), Curve::Saddle(saddle)) => {
+            let run = run.expect("a saddle is numbered");
+            let axis = tube.axis;
+            // Where the two axes come nearest, read along whichever of them
+            // this face stands on — which is the same reading either way, the
+            // saddle's own origin being that place.
+            let level = (saddle.axis.origin - axis.origin).dot(axis.direction);
+            // The wider cylinder by exact equality, and sound for the reason
+            // [`Combining::against`] tells two faces of one surface apart that
+            // way: the saddle was *given* this direction rather than working
+            // one out.
+            if axis.direction == saddle.axis.direction {
+                let phase = axis.bearing(saddle.axis.reference);
+                let turns = ((about - phase) / TAU).round();
+                return Some(Cut::Bow(Bow {
+                    across: saddle.across,
+                    reach: saddle.reach,
+                    phase: phase + turns * TAU,
+                    off: saddle.off,
+                    level,
+                    // The loop is both branches, so there is no branch to pick.
+                    upper: true,
+                    inward: true,
+                    run,
+                }));
+            }
+            // The narrower cylinder reads the same numbers the other way round:
+            // the offset is the same length square to both axes, and which
+            // branch this loop is is which way the narrower axis was taken —
+            // see [`Saddle`], where the two loops are that one flip.
+            let upper = saddle.axis.reference.dot(axis.direction) > 0.0;
+            Some(Cut::Bow(Bow {
+                across: saddle.reach,
+                reach: saddle.across,
+                phase: axis.bearing(saddle.axis.direction),
+                off: if upper { saddle.off } else { -saddle.off },
+                level,
+                upper,
+                inward: true,
+                run,
             }))
         }
         // Everything else.

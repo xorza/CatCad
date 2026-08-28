@@ -741,10 +741,9 @@ hang it on.
 - an edge flagged smooth exactly when its two faces lie on one surface;
 - every lump shutting in material and every cavity the lack of it, measured
   through the mesher and read for its sign alone — the one break a shell turned
-  through itself does not otherwise show.
-
-One gap, and it is 9.2: **loops non-self-intersecting in parameter space**,
-which wants the intersection routines it is meant to check.
+  through itself does not otherwise show;
+- **loops non-self-intersecting in parameter space**, each pair of chords held
+  against `intersect::spans` behind a box test.
 
 Run after every operation under `cfg!(debug_assertions)`, and directly in every
 test. **A kernel that cannot produce an invalid body has only local bugs.** Each
@@ -807,8 +806,8 @@ mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 
 ## 9. What is left, in order
 
-M0, M1, M2, M3a, M4, and M5 less its quartic are in the tree. Four pieces of
-work are not. Verification per house rule, one `-p` per crate touched:
+M0 through M5 are in the tree. Three pieces of work are not. Verification per
+house rule, one `-p` per crate touched:
 
 ```
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
@@ -834,6 +833,26 @@ is a determinant and not a quotient. And three sums that were taken about the
 world origin are taken about the loop's or the shell's own first corner — two
 shoelaces and the divergence theorem, without which a two-by-two block drawn at
 a hundred and twenty million shut in six.
+
+**M5 is done, and the last of it was its own tests.** The check §7.5 owed is
+`Checking::loops_do_not_cross_themselves`, which walks every loop of every face
+at `CHORDED` into that face's own parameters and holds each pair of chords
+against `intersect::spans`, which decides it exactly. It is the one break every other
+check passes: a loop that folds still closes, still walks each of its edges once
+each way, still satisfies Euler and still lies on the surface it names — and it
+is not a boundary, because the region it is meant to enclose is on both sides of
+it. A box test in front of the exact one is what keeps it affordable, a curved
+face's loop being a hundred and more chords and the check running after every
+operation.
+
+And three cross-checks stand behind the boolean. Two equal cylinders on crossing
+axes intersect in the Steinmetz solid, whose `16r³/3` is a classical closed form
+with no cylinder in it. A cut that swallows its whole body comes back *true*
+with nothing in it, which is an answer rather than a refusal: a caller reading a
+refusal there would show the tool where the model used to be. And a bar
+cross-drilled by a narrower rod, through the middle and off it, comes out the
+volume a quadrature says — see 9.1, where that pair's closed form is written
+down.
 
 **One thing left over is a ghost**, and it wants work in `aperture3d` rather
 than in `paint/`: an `Object` carries a `Vec3` colour and the only translucent
@@ -969,34 +988,54 @@ own rule for a construction. Two unequal cylinders on crossing axes give a
 smooth quartic every read place of which is on both, to a rounding of the model's
 own size, the arithmetic under it being exact all the way to the reading.
 
-**What is left is `Curve::Quartic` and a cut it can be made into**, which are
-one piece of work rather than two: the arm alone is a curve the boolean still
-refuses, and §10's first rule says the pair lands together or not at all.
+**And one pair of quadrics reaches the boolean by a closed form rather than by
+that route.** Two cylinders on square axes with *unequal* radii meet in a
+quartic in space — but on either cylinder's own parameters that quartic is
+`v = level ± √(across² − (reach·sin(θ − phase) − off)²)`, which is a graph over
+the angle with a root in it where `Ripple` has a cosine. Derived rather than
+fitted: being on the other cylinder is `|(p − o) × e|² = across²`, and for axes
+that cross *square* — which every drilling does — the linear term of the
+resulting quadratic in `v` vanishes outright. Offset axes come free, `off` being
+the only thing they move.
 
-**And the cut wants one more closed form rather than a traced polyline.** Two
-cylinders on crossing axes with *unequal* radii meet in a quartic in space — but
-on either cylinder's own parameters that quartic is
-`v = ±√(across² − (reach·sin(θ − phase) − off)²)`, which is a graph over the
-angle with a root in it where `Ripple` has a cosine. Derived rather than fitted:
-being on the other cylinder is `|(p − o) × e|² = across²`, and for axes that
-cross *square* — which every drilling does — the linear term of the resulting
-quadratic in `v` vanishes outright. Offset axes come free, `off` being the only
-thing they move; a tangent pair is where the root closes.
+`splitting::bow::Bow` carries it, and it answers the nine questions a `Cut`
+does. **Both regimes fall out of one drilling**: on the bar the imprint is a
+closed loop, the drill being narrower, and on the drill it is cut right round.
+Its crossing solve is fenced *twice*, which is what makes it rigorous where a
+root has no closed form to solve against: the squared difference is a run
+against a sinusoid of twice the angle, whose second derivative is a quadratic in
+`sin ψ` and so has closed-form roots — fenced there the first derivative
+bisects, and fenced at *its* roots the difference does.
 
-`splitting::bow::Bow` carries it. **Both regimes fall out of one drilling**: on
-the bar the imprint is a closed loop, the drill being narrower, and on the drill
-it is cut right round. Its crossing solve is fenced *twice*, which is what makes
-it rigorous where a root has no closed form to solve against: the squared
-difference is a run against a sinusoid of twice the angle, whose second
-derivative is a quadratic in `sin ψ` and so has closed-form roots — fenced there
-the first derivative bisects, and fenced at *its* roots the difference does.
+**And a closed bow is one loop of two, told from the other by an unwound sine.**
+A drilling leaves an entry and an exit, and a plain sine reads them alike, being
+as small half a turn on as it is here. Run on to two instead of turning back at
+a quarter turn, it is one to one over a whole turn and the far loop stands
+further off than any radius reaches — so the two loops are the same numbers with
+the drill's axis taken the other way round, and no case selects between them.
 
-**What is left of the pair.** `Bow` answering the nine questions a `Cut` does,
-in its two regimes; a matching `Curve` arm for the quartic in space, which is
-the same six numbers and so stays `Copy`; and `combining::imprinted` gaining the
-unequal-cylinder row. The general traced cut and `Curve::Quartic` proper wait
-until a pair needs them — cylinder against cone is the first that will, and
-neither is built by anything today.
+**`Curve::Saddle` is the curve in space**, and it is a frame and three lengths.
+The frame's origin is where the two axes come nearest, its direction is the
+wider cylinder's axis and its reference the narrower one's, so the phase and the
+level a `Bow` needs are read off it rather than carried beside it. Written on
+the *wider* cylinder always, which is what makes every saddle a closed loop of
+one cylinder's own parameters — and parameterized by the angle round the circle
+those two numbers trace, which is regular the whole way round where a graph over
+the cylinder's angle stands vertical at the loop's ends.
+
+**Nested cross-sections, and the rest is refused.** `Meeting::saddled` answers
+where the narrower cylinder passes wholly through the wider one, and hands the
+overlapping and the tangent cases to the algebraic route: an overlapping pair
+meets in a loop that doubles back in either cylinder's own angle and a tangent
+one in a curve that crosses itself, and neither is a graph over an angle. A pair
+standing further apart than its two radii together is `Apart`, which keeps a
+boolean from being refused over cylinders that never meet.
+
+**What is left is `Curve::Quartic` and a general cut it can be made into**,
+which are one piece of work rather than two: the arm alone is a curve the
+boolean still refuses, and §10's first rule says the pair lands together or not
+at all. Both wait until a pair needs them — cylinder against cone is the first
+that will, and neither is built by anything today.
 
 That larger route is an arena and a `Copy` handle apiece, §4.5's own shape:
 `Cut` and `Curve` are both `Copy` value types and a general quartic holds some
@@ -1010,36 +1049,14 @@ are walked and shown to differ. Every result is in the exact tier: no
 comparison anywhere in the route is against a tolerance, and the one rounding is
 the last, where a place is read out as three floats.
 
-### 9.2 M5's remaining tests
+And the closed form is held twice over. Every place of both saddles is on both
+cylinders, sampled right round; a closed bow walks its loop once and reads every
+place back to the parameter it came from, with the side kept on the left; and
+the two loops of one drilling each refuse the other's middle, which is what the
+unwound sine is for. Then §9's own record puts the whole of it through the
+boolean.
 
-**§7.5's gap is closed.** `Checking::loops_do_not_cross_themselves` walks every
-loop of every face at `CHORDED` into that face's own parameters and holds each
-pair of chords against `intersect::spans`, which decides it exactly. It is the
-one break every other check passes: a loop that folds still closes, still walks
-each of its edges once each way, still satisfies Euler and still lies on the
-surface it names — and it is not a boundary, because the region it is meant to
-enclose is on both sides of it. Broken one way in a test, as §7.5's own rule
-asks: a corner carried past the far side of its wall.
-
-A box test in front of the exact one is what keeps it affordable. A curved
-face's loop is a hundred and more chords and the check runs after every
-operation, so the pairs nowhere near each other cost four comparisons — without
-it the application's own suites ran five times slower.
-
-**Two of the three owed tests are paid.** Two equal cylinders on crossing axes
-intersect in the Steinmetz solid, whose `16r³/3` is a classical closed form with
-no cylinder in it — so a wall kept where it should be cut, an ellipse walked the
-wrong way, or a shell sewn with a seam open all move it, and none of them moves
-it to something else that is right. And a cut that swallows its whole body comes
-back *true* with nothing in it, which is an answer rather than a refusal: a
-caller reading a refusal there would show the tool where the model used to be.
-
-**What is left waits on the quartic reaching the boolean.** Cross drilling with
-unequal diameters, offset axes and tangent axes are all pairs whose meeting is
-the algebraic route's, and none of them can be cut until the splitter has a
-`Cut` it can make from one — see 9.1.
-
-### 9.3 M6 — the fitted tier: torus, and marching
+### 9.2 M6 — the fitted tier: torus, and marching
 
 Marched intersection, loop detection, fit bounds recorded, and the body's
 exactness report going false for the first time. §10's rule 2 wants a throwaway
@@ -1146,7 +1163,7 @@ itself fitted, and the same cut over the exact tier still reports exact. And the
 case the literature says will be missed: a shallow near-tangential intersection
 that produces a small closed loop.
 
-### 9.4 M7 — fillet, chamfer, STEP
+### 9.3 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-

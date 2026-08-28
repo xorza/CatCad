@@ -5,15 +5,17 @@ use crate::solid::buckets::Key;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::saddle::Saddle;
 use glam::DVec3;
 
 /// One of the curves an edge may lie on.
 ///
-/// Three of them, because three is what the exact tier can currently *make*: a
-/// sketch draws lines and circles, and where two of the surfaces raised off one
-/// meet reducibly the answer is a line, a circle or an ellipse. The quartic a
-/// general pair of quadrics gives arrives with the routine that parameterizes
-/// it — see `.notes/KERNEL.md` §7.3.
+/// Three conics, because three is what a sketch and the reducible meetings off
+/// it make: a line, a circle or an ellipse. The fourth is the first curve that
+/// is none of those — the quartic a cross drilling leaves, which
+/// [`Saddle`] carries for the one pair that produces it.
+/// The general quartic a general pair of quadrics gives arrives with the
+/// routine that parameterizes it — see `.notes/KERNEL.md` §7.3.
 ///
 /// Untrimmed, like a [`Surface`](super::surface::Surface): where a curve starts
 /// and stops belongs to the [`Edge`](crate::solid::topology::edge::Edge) on it.
@@ -22,6 +24,7 @@ pub(crate) enum Curve {
     Line(Line),
     Circle(Circle),
     Ellipse(Ellipse),
+    Saddle(Saddle),
 }
 
 impl Curve {
@@ -50,6 +53,13 @@ impl Curve {
                 .float(ellipse.major)
                 .float(ellipse.minor)
                 .done(),
+            Self::Saddle(saddle) => saddle
+                .axis
+                .keyed(Key::default().word(3))
+                .float(saddle.reach)
+                .float(saddle.across)
+                .float(saddle.off)
+                .done(),
         }
     }
 
@@ -76,6 +86,7 @@ impl Curve {
                 (out.dot(ellipse.axis.quarter()) / ellipse.minor)
                     .atan2(out.dot(ellipse.axis.reference) / ellipse.major)
             }
+            Self::Saddle(saddle) => saddle.along(at),
         }
     }
 
@@ -95,6 +106,9 @@ impl Curve {
             Self::Line(line) => line.origin.length() + t.abs(),
             Self::Circle(circle) => circle.axis.origin.length() + circle.radius,
             Self::Ellipse(ellipse) => ellipse.axis.origin.length() + ellipse.major,
+            // Both radii, the loop standing one out from the axis it is
+            // written on and the other along it.
+            Self::Saddle(saddle) => saddle.axis.origin.length() + saddle.reach + saddle.across,
         }
     }
 
@@ -104,6 +118,7 @@ impl Curve {
             Self::Line(line) => line.at(t),
             Self::Circle(circle) => circle.at(t),
             Self::Ellipse(ellipse) => ellipse.at(t),
+            Self::Saddle(saddle) => saddle.at(t),
         }
     }
 
@@ -124,6 +139,9 @@ impl Curve {
             Self::Line(_) => 1,
             Self::Circle(circle) => arc::chords(circle.radius, span, sagitta),
             Self::Ellipse(ellipse) => arc::chords(ellipse.major, span, sagitta),
+            // **Its own bound rather than a radius**, a saddle having no
+            // circle it bends no harder than — see [`Saddle::bending`].
+            Self::Saddle(saddle) => arc::chords(saddle.bending(), span, sagitta),
         }
     }
 }

@@ -245,28 +245,120 @@ fn two_equal_cylinders_crossing_square_meet_in_two_ellipses() {
     lies_on(meeting, &along, &across, "cross-drilled");
 }
 
-/// **Unequal cylinders, and skew ones, are left to the algebraic route.**
+/// **Unequal cylinders on square axes meet in two saddles**, which is the
+/// cross drilling and the first curve here that is no conic.
 ///
-/// Not nothing and not a failure: they do meet, in a quartic that does not
-/// factor, and saying which is what keeps a caller from taking silence for
-/// absence.
+/// A bar of radius two about +Y, drilled through by a hole of radius one about
+/// +Z. Both loops are written on the *bar*, which is what makes each of them a
+/// closed run of one cylinder's own angle — and the two are the same six
+/// numbers with the hole's axis taken the other way round, which is the entry
+/// and the exit.
+///
+/// Every figure by hand. The bar's angle is measured from +X and turns toward
+/// −Z, so the hole's own direction stands at `−π/2` and that is the phase. On
+/// the bar the imprint is `4cos²θ + v² = 1`, so the loop reaches only where
+/// `|cos θ| ≤ ½` and stands `±1` high at the angle facing the hole. The
+/// parameter's nought is where the root closes, at `asin(½)` past the phase,
+/// and its quarter turn is the top of the loop.
 #[test]
-fn cylinders_that_do_not_reduce_are_named_as_such() {
-    let along = upright(2.0);
-    let unequal = Surface::Natural(Natural::Cylinder(Cylinder {
+fn two_unequal_cylinders_crossing_square_meet_in_two_saddles() {
+    let bar = upright(2.0);
+    let hole = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::ZERO, DVec3::Z, DVec3::X),
         radius: 1.0,
     }));
-    assert_eq!(Meeting::of(&along, &unequal), Meeting::Algebraic);
 
-    // Equal, and close enough to overlap, but the axes pass without meeting —
-    // which is the whole of what the second condition is for. Two along +X
-    // apart, the +Z one never reaches the +Y one however far either is walked.
-    let skew = Surface::Natural(Natural::Cylinder(Cylinder {
-        axis: Axis::new(DVec3::X * 2.0, DVec3::Z, DVec3::X),
-        radius: 2.0,
+    let meeting = Meeting::of(&bar, &hole);
+    let Meeting::Along(curves) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Saddle(near), Curve::Saddle(far)] = curves.all() else {
+        panic!("{:?} is not two saddles", curves.all());
+    };
+    for saddle in [near, far] {
+        assert_eq!(saddle.reach, 2.0, "written on the bar");
+        assert_eq!(saddle.across, 1.0, "against the hole");
+        assert_eq!(saddle.off, 0.0, "the two axes cross");
+        assert_eq!(saddle.axis.origin, DVec3::ZERO, "where they cross");
+        assert_eq!(saddle.axis.direction, DVec3::Y, "along the bar");
+    }
+    // The frame's own zero points along the hole, one loop each way.
+    assert_eq!(near.axis.reference, DVec3::Z, "{near:?}");
+    assert_eq!(far.axis.reference, DVec3::NEG_Z, "{far:?}");
+
+    // The root closes a sixth of a turn either side of the phase, and the top
+    // of the loop stands a whole radius of the hole along the bar.
+    let ends = near.at(0.0);
+    assert!(
+        (ends - DVec3::new(1.0, 0.0, 3.0f64.sqrt())).length() < NEAR,
+        "{ends:?}"
+    );
+    let top = near.at(PI / 2.0);
+    assert!((top - DVec3::new(0.0, 1.0, 2.0)).length() < NEAR, "{top:?}");
+    lies_on(meeting, &bar, &hole, "cross-drilled unequal");
+
+    // Offset axes are the same shape with two numbers moved: the hole passes
+    // the bar's axis by one along +X and meets it two up the bar.
+    let bar = upright(3.0);
+    let past = Surface::Natural(Natural::Cylinder(Cylinder {
+        axis: Axis::new(DVec3::new(1.0, 2.0, 0.0), DVec3::Z, DVec3::X),
+        radius: 1.0,
     }));
+    let meeting = Meeting::of(&bar, &past);
+    let Meeting::Along(curves) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Saddle(near), Curve::Saddle(far)] = curves.all() else {
+        panic!("{:?} is not two saddles", curves.all());
+    };
+    // The offset is square to both axes, and the frame stands where the two
+    // come nearest — two up the bar.
+    assert_eq!(near.off, 1.0, "{near:?}");
+    assert_eq!(far.off, -1.0, "{far:?}");
+    assert_eq!(near.axis.origin, DVec3::Y * 2.0, "{near:?}");
+    lies_on(meeting, &bar, &past, "cross-drilled off the axis");
+}
+
+/// **Skew cylinders, leaning ones and overlapping ones are left to the
+/// algebraic route**, and ones that stand clear of each other are apart.
+///
+/// Not nothing and not a failure: the first three do meet, in a quartic this
+/// route does not write down, and saying which is what keeps a caller from
+/// taking silence for absence. The last one genuinely never meets, and saying
+/// *that* keeps a boolean from being refused over a pair standing well clear
+/// of it.
+#[test]
+fn cylinders_that_do_not_reduce_are_named_as_such() {
+    let along = upright(2.0);
+    let placed = |origin: DVec3, direction: DVec3, radius: f64| {
+        Surface::Natural(Natural::Cylinder(Cylinder {
+            axis: Axis::about(origin, direction.normalize()),
+            radius,
+        }))
+    };
+    // Equal, and close enough to overlap, but the axes pass without meeting —
+    // two along +X apart, and the +Z one never reaches the +Y one however far
+    // either is walked.
+    let skew = placed(DVec3::X * 2.0, DVec3::Z, 2.0);
     assert_eq!(Meeting::of(&along, &skew), Meeting::Algebraic);
+
+    // Unequal and crossing, but leaning rather than square, which is what the
+    // graph over the angle needs.
+    let leaning = placed(DVec3::ZERO, DVec3::Z + DVec3::Y, 1.0);
+    assert_eq!(Meeting::of(&along, &leaning), Meeting::Algebraic);
+
+    // Square and crossing, but the two cross-sections merely overlap: the
+    // meeting is one loop that doubles back in either cylinder's own angle.
+    let wide = placed(DVec3::X, DVec3::Z, 1.5);
+    assert_eq!(Meeting::of(&along, &wide), Meeting::Algebraic);
+
+    // And tangent, where the loop closes on itself.
+    let tangent = placed(DVec3::X, DVec3::Z, 1.0);
+    assert_eq!(Meeting::of(&along, &tangent), Meeting::Algebraic);
+
+    // Further apart than the two radii together, which is nowhere at all.
+    let clear = placed(DVec3::X * 5.0, DVec3::Z, 1.0);
+    assert_eq!(Meeting::of(&along, &clear), Meeting::Apart);
 }
 
 /// **Two cylinders sharing an axis are one surface or nowhere at all**, and

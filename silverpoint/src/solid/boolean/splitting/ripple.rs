@@ -1,8 +1,10 @@
 //! The open cut an ellipse makes in a cylinder's own parameters.
 
 use crate::inline::Inline;
+use crate::math::arc;
+use crate::math::sinusoid;
+use crate::solid::boolean::splitting::cut::ROUNDED;
 use glam::DVec2;
-use std::f64::consts::{PI, TAU};
 
 /// A cut along `v = level + swing·cos(θ − phase)`, everything above it kept
 /// where `above`.
@@ -57,6 +59,17 @@ impl Ripple {
         DVec2::new(across, self.crest(across))
     }
 
+    /// How many chords a stretch of `sweep` of the wave is worth.
+    ///
+    /// Within [`ROUNDED`] of its own swing, which is both how far the wave
+    /// reaches and how hard it bends — `level + swing·cos` has a second
+    /// derivative of exactly `swing`. Through [`arc::chords`], which is the one
+    /// rule everything that turns a curve into corners reads.
+    pub(crate) fn steps(self, sweep: f64) -> usize {
+        let swing = self.swing.abs();
+        arc::chords(swing, sweep, swing * ROUNDED)
+    }
+
     /// Where along the run from `from` to `to` the wave is met, in order.
     ///
     /// **Bisected, there being nothing to solve.** A straight run against
@@ -83,18 +96,8 @@ impl Ripple {
         // turn — and which way round it runs says nothing about that, which is
         // why the span is taken as a range rather than walked from one end.
         let mut turns: Inline<f64, 4> = Inline::two(0.0, 1.0);
-        let leaning = -run.y / (self.swing * run.x);
-        if run.x != 0.0 && leaning.abs() <= 1.0 {
-            let (lo, hi) = (from.x.min(to.x), from.x.max(to.x));
-            let first = leaning.asin();
-            for turn in [first, PI - first] {
-                let over = ((lo - self.phase - turn) / TAU).ceil();
-                let across = self.phase + turn + TAU * over;
-                let along = (across - from.x) / run.x;
-                if across < hi && (0.0..1.0).contains(&along) {
-                    turns.push(along);
-                }
-            }
+        for turn in sinusoid::met(-run.y / (self.swing * run.x), self.phase, from, to) {
+            turns.push(turn);
         }
         let turns = turns.all_mut();
         turns.sort_by(|one, two| one.partial_cmp(two).expect("a run is finite"));

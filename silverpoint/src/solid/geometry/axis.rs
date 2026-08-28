@@ -96,8 +96,18 @@ impl Axis {
 
     /// Which angle `at` stands at, in `(-π, π]`.
     pub(crate) fn angle_of(self, at: DVec3) -> f64 {
-        let out = at - self.origin;
-        out.dot(self.quarter()).atan2(out.dot(self.reference))
+        self.bearing(at - self.origin)
+    }
+
+    /// Which angle the direction `way` points, in `(-π, π]`.
+    ///
+    /// [`Axis::radial`] read backwards. The difference from [`Axis::angle_of`]
+    /// is what it is asked of — a direction rather than a place, so there is no
+    /// origin to take off first, and a caller with a direction that reached for
+    /// the other would be asking about a point one length away from nowhere in
+    /// particular.
+    pub(crate) fn bearing(self, way: DVec3) -> f64 {
+        way.dot(self.quarter()).atan2(way.dot(self.reference))
     }
 
     /// The plane square to it, framed by its own two square directions.

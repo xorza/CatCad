@@ -84,9 +84,10 @@ fn kept<'a>(region: impl Iterator<Item = &'a [Corner]>, cut: Cut) -> bool {
     }
     match cut {
         Cut::Round(oval) => cut.side(oval.middle) > 0.0,
-        // Neither of these is closed, so a region every corner of which lies on
+        Cut::Bow(bow) if bow.closed() => cut.side(bow.middle()) > 0.0,
+        // None of these is closed, so a region every corner of which lies on
         // one has no width and bounds nothing on either side of it.
-        Cut::Straight { .. } | Cut::Wave(_) => false,
+        Cut::Straight { .. } | Cut::Wave(_) | Cut::Bow(_) => false,
     }
 }
 

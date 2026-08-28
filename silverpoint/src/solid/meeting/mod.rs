@@ -36,6 +36,7 @@ use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::natural::Natural;
+use crate::solid::geometry::saddle::Saddle;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::chord::Chord;
@@ -294,7 +295,7 @@ impl Meeting {
     }
 
     /// Two cylinders: lines where their axes run parallel, two ellipses where
-    /// equal ones cross, and a quartic otherwise.
+    /// equal ones cross, and [`Meeting::saddled`] for the rest.
     fn cylinder_cylinder(one: &Cylinder, two: &Cylinder) -> Self {
         if predicate::parallel(one.axis.direction, two.axis.direction) {
             return Self::sided(one, two);
@@ -308,7 +309,7 @@ impl Meeting {
         let skew = here.cross(there);
         let past = between.dot(skew).abs() / skew.length();
         if !predicate::touching(past, PLACED) || !one.radius.approx_eq(two.radius, PLACED) {
-            return Self::Algebraic;
+            return Self::saddled(one, two);
         }
         let crossing =
             one.axis.origin + here * (between.cross(there).dot(skew) / skew.length_squared());
@@ -325,6 +326,62 @@ impl Meeting {
             // two branches above let a parallel or antiparallel pair through.
             (near, far) => unreachable!("a bisecting plane cut {near:?} and {far:?}"),
         }
+    }
+
+    /// Two cylinders on square axes whose radii differ, which meet in a
+    /// quartic.
+    ///
+    /// **The one pair here whose meeting is not a conic**, and the shape a
+    /// cross drilling leaves — see [`Saddle`], which carries it. Square axes
+    /// and nothing else: how far a place of one cylinder stands from the
+    /// other's axis is a quadratic in how far along that cylinder it is, and
+    /// the quadratic loses its linear term only where the two axes stand
+    /// square. Everything else is [`Meeting::Algebraic`].
+    ///
+    /// So is a pair whose cross-sections are not nested. Where the narrower
+    /// cylinder passes wholly through the wider one the meeting is two loops,
+    /// each a graph over the wider cylinder's angle with a root in it; where
+    /// the two merely overlap it is one loop that doubles back in that angle,
+    /// and where they are tangent the curve crosses itself. Neither of those
+    /// is a graph, and neither is written down here.
+    ///
+    /// **Apart is an answer.** Two axes that pass further from each other than
+    /// the two radii together belong to cylinders that never meet, and saying
+    /// so keeps a boolean from being refused for a pair standing well clear of
+    /// it.
+    fn saddled(one: &Cylinder, two: &Cylinder) -> Self {
+        let (wide, narrow) = if one.radius >= two.radius {
+            (one, two)
+        } else {
+            (two, one)
+        };
+        let (here, there) = (wide.axis.direction, narrow.axis.direction);
+        if !predicate::square(here, there) {
+            return Self::Algebraic;
+        }
+        let between = narrow.axis.origin - wide.axis.origin;
+        let off = between.dot(here.cross(there).normalize());
+        let apart = off.abs() - wide.radius - narrow.radius;
+        if apart > 0.0 && !predicate::touching(apart, PLACED) {
+            return Self::Apart;
+        }
+        let nested = wide.radius - narrow.radius - off.abs();
+        if nested <= 0.0 || predicate::touching(nested, PLACED) {
+            return Self::Algebraic;
+        }
+        // The two loops are the narrower axis taken each way round, which
+        // negates the offset with it — see [`Saddle`], where that is the whole
+        // of how one loop is told from the other.
+        let foot = wide.axis.origin + here * between.dot(here);
+        let loop_ = |reference: DVec3, off: f64| {
+            Curve::Saddle(Saddle {
+                axis: Axis::new(foot, here, reference),
+                reach: wide.radius,
+                across: narrow.radius,
+                off,
+            })
+        };
+        Self::Along(Curves::two(loop_(there, off), loop_(-there, -off)))
     }
 
     /// Two cylinders whose axes run the same way.

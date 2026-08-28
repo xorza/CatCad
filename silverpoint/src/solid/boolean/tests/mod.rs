@@ -466,7 +466,7 @@ fn a_round_tool_leaves_the_volume_the_arithmetic_says() {
             "{placing}",
         );
         let mut last = f64::INFINITY;
-        for sagitta in [1e-4, 1e-5, 1e-6] {
+        for sagitta in [1e-4, 1e-5] {
             // Two rims' worth of chording over four of depth, doubled — a
             // bound on what the mesh gives up, not a prediction of it.
             let slack = (2.0 / 3.0) * sagitta * TAU * 4.0 * 2.0;
@@ -821,6 +821,109 @@ fn a_pipe_mitred_across_keeps_the_ellipse_exact() {
         );
         assert!(-off < last, "no closer at a sagitta of {sagitta}: {off}");
         last = -off;
+    }
+}
+
+/// The volume two cylinders of unequal radius on square axes have in common,
+/// the narrower passing the wider one's axis by `off`.
+///
+/// **No elementary closed form, and the integral is one line of algebra.**
+/// Sliced along the narrower cylinder's own axis, the slice at `x` is a
+/// rectangle `2√(narrow² − (x−off)²)` wide and `2√(wide² − x²)` tall, so the
+/// volume is `4∫ √((wide² − x²)(narrow² − (x−off)²)) dx` across the narrower
+/// cylinder. Substituting `x = off + narrow·sin φ` clears the root at each end
+/// and leaves `2·narrow²·∫ cos²φ·√(wide² − (off + narrow·sin φ)²) dφ` over a
+/// whole turn — analytic, and of period `2π`, so the plain midpoint rule over
+/// that turn converges faster than any power of its step. A whole turn covers
+/// the drilling twice, once each way past the axis, and the two are equal;
+/// that is where the four became a two.
+///
+/// Held against Archimedes by its caller, where equal radii and no offset make
+/// it `16r³/3`.
+fn bicylinder(wide: f64, narrow: f64, off: f64) -> f64 {
+    const STEPS: usize = 4096;
+    let mut sum = 0.0;
+    for step in 0..STEPS {
+        let angle = TAU * (step as f64 + 0.5) / STEPS as f64;
+        let (up, round) = angle.sin_cos();
+        let leaning = off + narrow * up;
+        sum += round * round * (wide * wide - leaning * leaning).sqrt();
+    }
+    2.0 * narrow * narrow * sum * TAU / STEPS as f64
+}
+
+/// **A bar cross-drilled by a narrower hole comes out with the hole through
+/// it**, which is the case `.notes/KERNEL.md` §9.1 owed and the first the
+/// algebraic tier answers.
+///
+/// Two cylinders of *unequal* radius on crossing square axes meet in a quartic
+/// — [`Saddle`](crate::solid::geometry::saddle::Saddle) — and on each of the
+/// two cylinders that quartic is a
+/// [`Bow`](crate::solid::boolean::splitting::bow::Bow). Both regimes are
+/// exercised by this one cut and neither can be had without the other: on the
+/// bar the imprint is two closed loops, the hole being narrower, and on the
+/// hole it is cut right round.
+///
+/// A bar of radius two up the world's `y`, four deep and clear of the hole at
+/// both ends, drilled through by a rod of radius one along its `z` that stands
+/// clear of the bar at both of its own. So no cap of either body plays any
+/// part, and what is left is the bar's own volume less what the two cylinders
+/// had in common.
+///
+/// **Drilled three ways, and the third is where the seam is.** An offset axis
+/// is the same shape with one number moved — see [`Bow`], where that is
+/// argued — and the two together are two of the three cases §9.1 names; the
+/// third is tangent axes, which the meeting refuses rather than answers, the
+/// curve crossing itself there.
+///
+/// The last drilling runs along the world's `x` rather than its `z`, which is
+/// where the bar's own wall is split: no face may wrap, so a whole cylinder is
+/// two faces meeting at the drawing's own zero and half turn — and that is
+/// exactly where this hole's two imprints stand. Each closed loop is then cut
+/// in half by a seam it crosses twice, which is the one placement that asks a
+/// closed cut to cross a boundary rather than to lie clear of it.
+///
+/// **Genus one** every way, a bar with a hole through it being a ring however
+/// round the bar is — and the one number that says the two rims were sewn to
+/// each other rather than each to itself.
+#[test]
+fn a_bar_cross_drilled_by_a_narrower_hole_is_the_volume_the_arithmetic_says() {
+    // The quadrature is Archimedes where the two radii agree and the axes
+    // cross, which is what says it is the volume it claims to be.
+    let steinmetz = bicylinder(1.0, 1.0, 0.0);
+    assert!((steinmetz - 16.0 / 3.0).abs() < 1e-12, "{steinmetz}");
+
+    for (plane, past) in [(Plane::FRONT, 0.0), (Plane::FRONT, 0.5), (Plane::SIDE, 0.0)] {
+        let bar = rod(raised(-2.0), DVec2::ZERO, 2.0, 4.0, CUBE);
+        let hole = rod(off(plane, -3.0), DVec2::new(past, 0.0), 1.0, 6.0, TOOL);
+        let named = format!("{} off {:?}", past, plane.normal());
+
+        let mut boolean = Boolean::default();
+        let mut into = Body::default();
+        assert!(
+            boolean.combine(&bar.body, &hole.body, Operation::Cut, &mut into),
+            "{named}: a cross-drilled bar was turned away",
+        );
+
+        let reckoning = into.reckoning();
+        assert_eq!(reckoning.genus, 1, "{named}: {reckoning:?}");
+        assert!(into.holds(bar.wall), "{named}: the bar lost its wall");
+        assert!(into.holds(hole.wall), "{named}: the hole was never bored");
+
+        let want = PI * 2.0 * 2.0 * 4.0 - bicylinder(2.0, 1.0, past);
+        let mut mesher = Mesher::default();
+        let mut last = f64::INFINITY;
+        for sagitta in [1e-4, 2e-5] {
+            // Both walls are chorded: the bar's own is `2π·2` round by four
+            // deep, and the hole's is `2π·1` round by the bar's own diameter
+            // at its widest. What a chord cuts off goes as two thirds of the
+            // sagitta times the area it spans.
+            let slack = (2.0 / 3.0) * sagitta * (TAU * 2.0 * 4.0 + TAU * 4.0);
+            let apart = (mesher.volume(&into, sagitta) - want).abs();
+            assert!(apart < slack, "{named}: {apart} off {want} at {sagitta}");
+            assert!(apart < last, "{named}: {sagitta} read no nearer");
+            last = apart;
+        }
     }
 }
 

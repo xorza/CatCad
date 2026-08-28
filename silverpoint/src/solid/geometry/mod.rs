@@ -24,6 +24,7 @@ pub(crate) mod quadric;
 pub(crate) mod quartic;
 pub(crate) mod roots;
 pub(crate) mod ruled;
+pub(crate) mod saddle;
 pub(crate) mod sphere;
 pub(crate) mod surface;
 pub(crate) mod torus;
