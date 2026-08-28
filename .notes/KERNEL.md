@@ -1216,15 +1216,50 @@ cannot rest on a grid either, which is what §7.3's Gauss-map bound is for. What
 the spike settles is that the easy half is easy and the whole of the difficulty
 is the other three warnings, exactly where the literature says it is.
 
+**Two of those three are no longer the marching's**, the table above answering
+the tangent circle and the bitangent pair outright. What is left of the
+difficulty is the seeding: a small closed loop found or missed by luck, and a
+seed that has to be bisected onto the curve rather than taken at a grid node.
+
+**And the walking is in.** `meeting::marching::Marching` corrects a place onto
+both surfaces at once and steps along the cross of their normals. A place off
+the curve is off two surfaces, which is two numbers against three to move in, so
+the correction is the smallest one that clears both — a two-by-two solve in the
+plane the normals span, and nothing of the curve's own direction in it, which is
+what keeps a correction from sliding the place along.
+
+**The sagitta is measured and not predicted.** How far a chord strays depends on
+how hard the curve bends, which is nothing either surface can be asked — so each
+step is taken, its chord probed at three places along it, and a step that
+strayed too far is halved and taken again. The next step is the one just taken
+times `√(sagitta/sag)`, held to a doubling, which is the square law read
+backwards. What comes back is how far the furthest accepted chord strayed, and
+that is the bound §4.1 says a fitted result carries. A walk must have *left*
+before it may come back: a step grows by at most a doubling, so standing further
+off than two of them is having gone somewhere.
+
+**Held two ways.** Against the table, which is two routes to one answer with no
+arithmetic between them: a level plane and a coaxial rod are walked and come
+back as the circles the closed form names, to `2πr`. And on a spiric section no
+closed form writes down, where every place stands on both surfaces, the loop
+runs from the ring's outer equator to its inner one, and the length closes on
+its limit from below by a tenth per tenfold finer sagitta — which is the law the
+spike measured, asserted rather than assumed.
+
+**What the walking has no home for is what it lays down.** A run of places is
+not a `Copy` value, so `Curve` has nowhere to put one — the same arena §9.1 owes
+`Curve::Quartic`, and the two will land together.
+
 No *feature* builds a torus yet either — a revolve makes one, and so does a
 plane-cylinder fillet, and neither is written.
 
 **Tests.** The reducible table is paid — every circle it hands back is held
-against the closed form and sampled onto both surfaces, Villarceau's included.
-What is left waits on the marching: a marched intersection's fit bound
-recorded, the same cut over the exact tier still reporting exact, and the case
-the literature says will be missed — a shallow near-tangential meeting that
-produces a small closed loop.
+against the closed form and sampled onto both surfaces, Villarceau's included —
+and so is the walking. What is left waits on the seeding and on the arena: a
+marched intersection reaching a *body*, its fit bound recorded there, the same
+cut over the exact tier still reporting exact, and the case the literature says
+will be missed — a shallow near-tangential meeting that produces a small closed
+loop.
 
 ### 9.3 M7 — fillet, chamfer, STEP
 

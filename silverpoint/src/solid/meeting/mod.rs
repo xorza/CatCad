@@ -44,6 +44,8 @@ use crate::solid::geometry::torus::Torus;
 use crate::solid::meeting::chord::Chord;
 use glam::DVec3;
 
+pub(crate) mod marching;
+
 mod chord;
 
 /// What two surfaces have in common.
