@@ -323,6 +323,11 @@ OCCT's seam edges — one edge appearing twice in a loop with opposite
 orientations — are a permanent source of special cases in every algorithm that
 walks a loop.
 
+**Twice over on a torus**, whose two parameters both run round: a ring is four
+faces rather than two, and every reader of a face's own parameters unwraps in
+whichever of them the surface closes — `Surface::round` answers a pair, and
+`Face::flatten` and the sounder's own branch both read it.
+
 *This is only cheap because of the naming*: `Grown::Side(Bound)` names a wall by
 the sketch circle it was swept from, and a name may resolve to several patches
 (§5), so the split faces both carry the same name and nothing above the kernel
@@ -1112,6 +1117,32 @@ each surface which arm it is. A walk and not a flag, so nothing can set it and
 be wrong — held by a test that puts one torus on one face of a block and watches
 the answer turn over.
 
+**And a torus bounds a solid.** `Body::ring` builds one by hand — four faces,
+eight edges, four vertices, `4 − 8 + 4 = 2(1 − 1)` — and it validates, meshes to
+Pappus's `2π²Rr²` and sounds right. Every edge of it is a circle and no face is,
+so what puts the body in the fitted tier is its surfaces alone.
+
+**Two things that only a doubly-round surface asks for.** §4.4's rule about
+wrapping now bites twice in the code as well as on paper: a face of a ring
+straddles the far side of the ring or the far side of the tube, so `round`
+answers a *pair* and both `Face::flatten` and the sounder's branch read it.
+Broken one way apiece and shown caught — the mesher refuses the half-face, and
+the sounder calls a place well clear of the ring inside it.
+
+And `Fitted::strides` gives each angle *half* the sagitta rather than dividing
+the cell's diagonal by the square root of two. A sphere may divide, its straying
+being the true distance; a torus's is the sum of two bounds, so a cell wide
+enough for one whole sagitta in each angle leaves a triangle in its corner
+straying by both. `radius · bulge(widest(radius, s))` is `s` again, so two
+halves add to exactly the sagitta and no argument about how a triangle leans is
+needed.
+
+**Sounded over a grid rather than at chosen places**, which is the spike's third
+finding applied to a test: four faces cover four quarters and a handful of
+places can miss one of them entirely. Whether a place is in the tube is
+`(√(x² + z²) − R)² + y² < r²`, and the sounder is held to that at six hundred of
+them.
+
 **The spike is done**, per §10's rule 2 — a throwaway outside the workspace,
 marching a torus against a plane and a cylinder. Six findings, and the last of
 them changes what M6 is.
@@ -1153,15 +1184,14 @@ cannot rest on a grid either, which is what §7.3's Gauss-map bound is for. What
 the spike settles is that the easy half is easy and the whole of the difficulty
 is the other three warnings, exactly where the literature says it is.
 
-Nothing builds a torus yet either — a revolve makes one, and so does a
-plane-cylinder fillet.
+No *feature* builds a torus yet either — a revolve makes one, and so does a
+plane-cylinder fillet, and neither is written.
 
-**Tests.** A torus built by hand validates and reports its volume `2π²Rr²`,
-which waits on the arm. A plane cutting a torus at the Villarceau angle gives
-two circles. A marched intersection's fit bound is recorded, the body reports
-itself fitted, and the same cut over the exact tier still reports exact. And the
-case the literature says will be missed: a shallow near-tangential intersection
-that produces a small closed loop.
+**Tests.** A plane cutting a torus at the Villarceau angle gives two circles. A
+marched intersection's fit bound is recorded, the body reports itself fitted,
+and the same cut over the exact tier still reports exact. And the case the
+literature says will be missed: a shallow near-tangential intersection that
+produces a small closed loop.
 
 ### 9.3 M7 — fillet, chamfer, STEP
 

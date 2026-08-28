@@ -20,8 +20,6 @@ use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::Edge;
 use crate::solid::topology::face::{Face, FaceId};
-use crate::solid::topology::lump::Lump;
-use crate::solid::topology::shell::Shell;
 use crate::solid::topology::vertex::Vertex;
 use glam::DVec3;
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
@@ -375,23 +373,8 @@ fn cone() -> Body {
     });
     body.topology_mut().face_mut(base).loops = at..at + 1;
 
-    sealed(&mut body, &[here, there, base]);
+    body.sealed(&[here, there, base]);
     body
-}
-
-/// Gather `faces` into one shell and that shell into one lump, which is how a
-/// closed body ends however it was built.
-fn sealed(body: &mut Body, faces: &[FaceId]) {
-    let from = body.topology().faces_shelled();
-    for &face in faces {
-        body.topology_mut().add_shelled(face);
-    }
-    let to = body.topology().faces_shelled();
-    let shell = body.topology_mut().add_shell(Shell { faces: from..to });
-    body.topology_mut().add_lump(Lump {
-        outer: shell,
-        voids: 0..0,
-    });
 }
 
 /// How tall the cone stands, which is also its base radius at forty-five
@@ -493,12 +476,17 @@ fn ball() -> Body {
         body.topology_mut().face_mut(face).loops = at..at + 1;
     }
 
-    sealed(&mut body, &[here, there]);
+    body.sealed(&[here, there]);
     body
 }
 
 /// How large the ball above is.
 const ROUND: f64 = 3.0;
+
+/// How large the ring the two tests below ask about is: [`MAJOR`] out to the
+/// tube's own centre and [`MINOR`] thick.
+const MAJOR: f64 = 3.0;
+const MINOR: f64 = 1.0;
 
 /// **And the cone meshes to the volume the arithmetic says.**
 ///
@@ -553,6 +541,56 @@ fn a_sphere_meshes_to_the_volume_its_arithmetic_says() {
         last < want / 200.0,
         "the sphere never converged: {last} short"
     );
+}
+
+/// **A torus, built by hand and validated as a body** — the first of the fitted
+/// tier to bound a solid rather than merely to exist.
+///
+/// What one is made of is `Body::ring`'s own note. What this asks is that the
+/// four quarters close over each other: an Euler characteristic of nought, the
+/// genus of one that implies, and every check a body off the builder passes.
+/// Worth building rather than assuming because every other surface here is cut
+/// once and this one twice — §4.4's rule about wrapping bites both ways on it.
+#[test]
+fn a_torus_built_by_hand_is_a_valid_body() {
+    let body = Body::ring(MAJOR, MINOR);
+    body.check();
+
+    let reckoning = body.reckoning();
+    assert_eq!(reckoning.characteristic, 0, "{reckoning:?}");
+    assert_eq!(reckoning.genus, 1, "{reckoning:?}");
+    assert_eq!(body.topology().faces().count(), 4);
+    assert_eq!(body.topology().edges().count(), 8);
+    assert_eq!(body.topology().vertices().count(), 4);
+    assert!(!body.exact(), "a torus stands on no exact surface");
+}
+
+/// **And the torus meshes to the volume the arithmetic says.**
+///
+/// `2π²Rr²` by Pappus — the tube's own disc of `πr²` carried once round a
+/// circle of `2πR` — which for a ring of [`MAJOR`] by [`MINOR`] is `6π²`. It is
+/// the second wrap that makes this worth asserting: a face read without it
+/// comes back as two pieces of parameter space a whole turn apart, and what a
+/// mesher makes of that is not a shell.
+///
+/// Chorded both ways, and the two errors do not cancel: outside the tube a
+/// chord cuts material away and inside it a chord adds some, so what is
+/// asserted is that the difference closes rather than which side it falls.
+#[test]
+fn a_torus_meshes_to_the_volume_its_arithmetic_says() {
+    let body = Body::ring(MAJOR, MINOR);
+    let want = 2.0 * PI * PI * MAJOR * MINOR * MINOR;
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-2, 1e-3, 1e-4] {
+        // What a chord cuts off goes as two thirds of the sagitta times the
+        // area it spans, and a torus has `4π²Rr` of it.
+        let slack = (2.0 / 3.0) * sagitta * 4.0 * PI * PI * MAJOR * MINOR;
+        let off = (mesher.volume(&body, sagitta) - want).abs();
+        assert!(off < slack, "{off} off {want} at a sagitta of {sagitta}");
+        assert!(off < last, "{sagitta} read no nearer than the last: {off}");
+        last = off;
+    }
 }
 
 /// **A body says whether it is exact, and the answer is a walk over its own

@@ -10,6 +10,7 @@
 pub(crate) mod arc;
 pub(crate) mod bisect;
 pub(crate) mod bounds;
+pub(crate) mod branch;
 pub(crate) mod chorded;
 pub(crate) mod dense;
 pub(crate) mod direction;

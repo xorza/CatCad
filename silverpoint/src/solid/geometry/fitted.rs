@@ -6,8 +6,7 @@ use crate::math::bounds::Bounds;
 use crate::solid::buckets::Key;
 use crate::solid::geometry::surface::Crossings;
 use crate::solid::geometry::torus::Torus;
-use glam::{DVec2, DVec3};
-use std::f64::consts::SQRT_2;
+use glam::{BVec2, DVec2, DVec3};
 
 /// One of the surfaces past the quadrics.
 ///
@@ -22,10 +21,11 @@ use std::f64::consts::SQRT_2;
 /// M7; the torus is what a revolve makes and what a plane-cylinder fillet is.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) enum Fitted {
-    /// **Nothing builds one yet.** A revolve makes a torus and so does a
+    /// **No feature builds one yet.** A revolve makes a torus and so does a
     /// plane-cylinder fillet, and neither is written — the same standing the
     /// cone and the sphere have next door, and the whole of what the allow
-    /// says.
+    /// says. A test builds one by hand: see
+    /// [`Body::ring`](crate::solid::topology::body::Body).
     #[allow(dead_code)]
     Torus(Torus),
 }
@@ -122,19 +122,22 @@ impl Fitted {
 
     /// How far apart the parameter lines of a face's grid must stand.
     ///
-    /// **Both ways, as a sphere's are**, because a cell on a torus bends along
-    /// each of its two angles — so it is the cell's *diagonal* that must be no
-    /// wider than one chord, and a square of that diagonal has sides shorter by
-    /// the square root of two. Each angle takes its own radius: `u` turns at
-    /// the outermost the tube reaches, and `v` at the tube itself.
+    /// **Half the sagitta each way**, which is what [`Fitted::straying`] being a
+    /// *sum* of two turns asks for: a cell as wide as one whole sagitta in each
+    /// angle leaves a triangle in its corner straying by both. Each angle takes
+    /// its own radius — the first turns at the outermost the tube reaches and
+    /// the second at the tube itself — and `radius · bulge(widest(radius, s))`
+    /// is `s` again by [`arc::widest`]'s own identity, so the two halves add to
+    /// exactly the sagitta with no argument about how a triangle leans.
+    ///
+    /// A sphere next door divides by the square root of two instead, and can:
+    /// its own straying is the true distance rather than a sum of bounds.
     pub(crate) fn strides(&self, sagitta: f64) -> DVec2 {
         match self {
-            Self::Torus(torus) => {
-                DVec2::new(
-                    arc::widest(torus.major + torus.minor, sagitta),
-                    arc::widest(torus.minor, sagitta),
-                ) / SQRT_2
-            }
+            Self::Torus(torus) => DVec2::new(
+                arc::widest(torus.major + torus.minor, sagitta / 2.0),
+                arc::widest(torus.minor, sagitta / 2.0),
+            ),
         }
     }
 
@@ -150,14 +153,15 @@ impl Fitted {
         }
     }
 
-    /// Whether the first parameter runs round the surface, so that a face on it
+    /// Which of the two parameters run round the surface, so that a face on it
     /// could wrap.
     ///
     /// Both of a torus's do, where every other surface here has at most one —
-    /// which is why §4.4's rule about wrapping bites twice on one.
-    pub(crate) fn round(&self) -> bool {
+    /// which is why §4.4's rule about wrapping bites twice on one, and the
+    /// whole reason this is a pair of answers rather than one.
+    pub(crate) fn round(&self) -> BVec2 {
         match self {
-            Self::Torus(_) => true,
+            Self::Torus(_) => BVec2::TRUE,
         }
     }
 }

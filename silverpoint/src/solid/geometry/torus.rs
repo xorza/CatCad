@@ -4,14 +4,6 @@
 //! before it is a quadric, and two quadrics meet in a curve that can be written
 //! down; a torus is a quartic surface, and what it meets anything in is marched
 //! and fitted rather than parameterized.
-//!
-//! **Not a [`Surface`](super::surface::Surface) arm yet**, and the reason is
-//! worth stating: that enum's `met_by` answers at most two crossings, because
-//! every surface in it so far is a quadric. A ray meets a torus in *four*. The
-//! solve for those four is here; what the arm still wants is
-//! [`Crossings`](super::surface::Crossings) widened to hold them, and that
-//! belongs with the `Natural`/`Fitted` split (§4.6) rather than ahead of it.
-#![allow(dead_code)]
 
 use crate::inline::Inline;
 use crate::math::quartic;

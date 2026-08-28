@@ -2,6 +2,7 @@
 
 use crate::loops::Loops;
 use crate::math::bounds::Bounds;
+use crate::math::branch;
 use crate::math::chorded::Chorded;
 use crate::math::triangulate::{Cutter, Fill};
 use crate::math::winding;
@@ -27,7 +28,7 @@ use crate::solid::named::Named;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::{Face, FaceId};
 use glam::{DVec2, DVec3};
-use std::f64::consts::{FRAC_PI_2, TAU};
+use std::f64::consts::FRAC_PI_2;
 use std::ops::Range;
 
 /// One region of one face that a boolean kept, and what it inherited.
@@ -534,9 +535,8 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
             if predicate::parallel(line.direction, tube.axis.direction) =>
         {
             let angle = tube.axis.angle_of(line.origin);
-            let turns = ((about - angle) / TAU).round();
             Some(Cut::Straight {
-                at: DVec2::new(angle + turns * TAU, 0.0),
+                at: DVec2::new(branch::nearest(angle, about), 0.0),
                 along: DVec2::Y,
                 run: None,
             })
@@ -614,11 +614,10 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
             // one out.
             if axis.direction == saddle.axis.direction {
                 let phase = axis.bearing(saddle.axis.reference);
-                let turns = ((about - phase) / TAU).round();
                 return Some(Cut::Bow(Bow {
                     across: saddle.across,
                     reach: saddle.reach,
-                    phase: phase + turns * TAU,
+                    phase: branch::nearest(phase, about),
                     off: saddle.off,
                     level,
                     // The loop is both branches, so there is no branch to pick.

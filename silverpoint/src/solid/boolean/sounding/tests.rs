@@ -217,3 +217,66 @@ fn a_cylinder_holds_what_is_within_it() {
     faces(&body, (0.0, 0.0), 0.0, DVec3::NEG_Y);
     faces(&body, (0.0, 0.0), 2.0, DVec3::Y);
 }
+
+/// **A ring holds what is inside its tube, and its own hole is outside it.**
+///
+/// The first body sounded here that stands on a fitted surface, and the first
+/// whose parameters run round *both* ways — see
+/// [`Surface::round`](crate::solid::geometry::surface::Surface). Each of its
+/// four faces straddles the far side of the ring or the far side of the tube,
+/// so a reading that unwrapped one angle and not the other would cut a face in
+/// two and let a ray through the gap between the halves.
+///
+/// **And the hole is the case no quadric has.** A ray straight through the
+/// middle of a ring crosses the tube four times, which is what a crossing count
+/// is four wide for — see
+/// [`Crossings`](crate::solid::geometry::surface::Crossings).
+#[test]
+fn a_ring_holds_its_tube_and_not_its_hole() {
+    let (major, minor) = (3.0, 1.0);
+    let body = Body::ring(major, minor);
+    let at = |x, y, z| Sounding::default().standing(DVec3::new(x, y, z), &body);
+
+    // **Over a grid, and held against the closed form**, which is what keeps
+    // this from passing by luck: a ring's four faces cover four quarters and a
+    // handful of chosen places can miss one of them entirely. Whether a place
+    // is in the tube is `(√(x² + z²) − major)² + y² < minor²`, and the sounder
+    // has to agree at every place that stands clear of the surface — the four
+    // quarters of the tube, the ring's own hole and the room around it alike.
+    for x in -5..=5 {
+        for up in -2..=2 {
+            for z in -5..=5 {
+                let place = DVec3::new(x as f64, up as f64, z as f64);
+                let out = DVec2::new(
+                    (place.x * place.x + place.z * place.z).sqrt() - major,
+                    place.y,
+                )
+                .length();
+                // Clear of the surface, where `On` is the answer and neither of
+                // the other two is wrong.
+                if (out - minor).abs() < 0.1 {
+                    continue;
+                }
+                let want = if out < minor {
+                    Standing::Inside
+                } else {
+                    Standing::Outside
+                };
+                let found = Sounding::default().standing(place, &body);
+                assert_eq!(
+                    found, want,
+                    "{place:?} stands {out} out from the tube's middle"
+                );
+            }
+        }
+    }
+
+    // And the places a whole-number grid steps over: a tenth either side of the
+    // surface, well up the axis, well clear of everything, and on the surface
+    // itself, where it faces up the axis.
+    assert_eq!(at(3.9, 0.0, 0.0), Standing::Inside, "just inside the tube");
+    assert_eq!(at(4.1, 0.0, 0.0), Standing::Outside, "just outside it");
+    assert_eq!(at(0.0, 5.0, 0.0), Standing::Outside, "up the axis");
+    assert_eq!(at(9.0, 9.0, 9.0), Standing::Outside, "well clear");
+    faces(&body, (0.0, -3.0), 1.0, DVec3::Y);
+}

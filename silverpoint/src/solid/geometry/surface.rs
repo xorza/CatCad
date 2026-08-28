@@ -4,7 +4,7 @@ use crate::inline::Inline;
 use crate::math::bounds::Bounds;
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::natural::Natural;
-use glam::{DVec2, DVec3};
+use glam::{BVec2, DVec2, DVec3};
 
 /// One of the surfaces a face may lie on, told apart by its *tier*.
 ///
@@ -163,12 +163,18 @@ impl Surface {
         }
     }
 
-    /// Whether the first parameter runs round the surface, so that a face on it
+    /// Which of the two parameters run round the surface, so that a face on it
     /// could wrap.
     ///
     /// What the split in `.notes/KERNEL.md` §4.4 is decided by, and what tells
-    /// a mesher whether an angle traced along a loop has to be unwrapped.
-    pub(crate) fn round(&self) -> bool {
+    /// a reader of a face's own parameters which of them a loop traced into
+    /// them has to be unwrapped in.
+    ///
+    /// **A pair and not one answer**, because a torus runs round both ways: a
+    /// face on one may straddle the far side of the ring and the far side of
+    /// the tube at once, and a reading that unwrapped only the first would cut
+    /// such a face in half.
+    pub(crate) fn round(&self) -> BVec2 {
         match self {
             Self::Natural(of) => of.round(),
             Self::Fitted(of) => of.round(),

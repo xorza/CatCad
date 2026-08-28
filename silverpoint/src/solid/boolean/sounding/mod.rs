@@ -22,6 +22,7 @@
 //! comes out of here decides which regions a boolean keeps, not what shape any
 //! of them is.
 
+use crate::math::branch;
 use crate::math::chorded::Chorded;
 use crate::math::winding;
 use crate::number::predicate;
@@ -30,7 +31,6 @@ use crate::number::tolerance::PLACED;
 use crate::solid::topology::body::Body;
 use crate::solid::topology::face::FaceId;
 use glam::{DVec2, DVec3};
-use std::f64::consts::TAU;
 use std::ops::Range;
 
 /// Where a place stands in relation to a body.
@@ -88,9 +88,10 @@ struct Covered {
     /// Which of the sounder's loops are this face's — the outline first, then
     /// its holes.
     loops: Range<usize>,
-    /// Somewhere on the boundary's own branch, or `None` where the surface does
-    /// not run round and there are no branches to be in.
-    anchor: Option<f64>,
+    /// Somewhere on the boundary's own branch, in each parameter — and `None`
+    /// in one the surface does not run round, where there are no branches to
+    /// be in.
+    anchor: [Option<f64>; 2],
     /// Whether the place being sounded stands on this face's surface.
     ///
     /// **Asked once for the whole query**, because it is asked twice over
@@ -202,19 +203,16 @@ impl Sounding {
     /// Whether `covered` holds the place its own face's parameters put at
     /// `uv`, or `None` where that place sits on the face's own boundary and the
     /// answer is neither.
+    ///
+    /// Both parameters are put into the boundary's own branch, a torus running
+    /// round twice over where every other surface here runs round once — see
+    /// [`Surface::round`](crate::solid::geometry::surface::Surface).
     fn covers(&self, covered: &Covered, uv: DVec2) -> Option<bool> {
         let Covered { loops, anchor, .. } = covered;
-        // **Into the branch the boundary was laid out in.** A face on a round
-        // surface is unwrapped so its loop comes out continuous, and an
-        // inversion answers in a half turn either side of the reference — so a
-        // face straddling the far side of a cylinder is a whole turn away from
-        // where this place would be asked about. No face may wrap
-        // (`.notes/KERNEL.md` §4.4), so there is exactly one branch it could
-        // be in and the nearest is it.
-        let uv = match anchor {
-            Some(anchor) => DVec2::new(uv.x + TAU * ((anchor - uv.x) / TAU).round(), uv.y),
-            None => uv,
-        };
+        let uv = DVec2::new(
+            anchor[0].map_or(uv.x, |to| branch::nearest(uv.x, to)),
+            anchor[1].map_or(uv.y, |to| branch::nearest(uv.y, to)),
+        );
         let mut within = false;
         for (at, run) in loops.clone().enumerate() {
             let loop_ = &self.walk[self.starts[run]..self.starts[run + 1]];
@@ -267,9 +265,11 @@ impl Sounding {
                 // Somewhere on the boundary's own branch, which is any corner
                 // of it: the loops were laid out continuously, so they are all
                 // in the one branch.
-                anchor: match face.surface.round() {
-                    true => self.walk.get(began).map(|corner| corner.x),
-                    false => None,
+                anchor: {
+                    let round = face.surface.round();
+                    self.walk.get(began).map_or([None, None], |corner| {
+                        [round.x.then_some(corner.x), round.y.then_some(corner.y)]
+                    })
                 },
             });
         }

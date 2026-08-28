@@ -1,4 +1,5 @@
 use crate::math::arc;
+use crate::math::branch;
 use crate::math::plane::Plane;
 use crate::number::predicate;
 use crate::sketch::Sketch;
@@ -18,7 +19,7 @@ use crate::solid::mesh::{Mesher, Patch};
 use crate::solid::named::Step;
 use crate::solid::topology::body::Body;
 use glam::{DVec2, DVec3};
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::PI;
 
 /// The step every body below is grown by.
 ///
@@ -375,7 +376,7 @@ fn a_curved_face_wider_than_it_is_tall_still_follows_its_surface() {
                 // like one covering the whole cylinder.
                 let mut uv = [a, b, c].map(|at| face.surface.uv(at));
                 for uv in &mut uv[1..] {
-                    uv.x += TAU * ((corner.x - uv.x) / TAU).round();
+                    uv.x = branch::nearest(uv.x, corner.x);
                 }
                 // To within a rounding, a cell being allowed to come out that
                 // much wide — the same reading `Refining::held` takes.

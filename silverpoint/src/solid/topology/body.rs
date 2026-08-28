@@ -131,8 +131,25 @@ impl Body {
 
 #[cfg(test)]
 pub(crate) mod internals {
+    use crate::number::tolerance::EXACT;
+    use crate::solid::geometry::axis::Axis;
+    use crate::solid::geometry::circle::Circle;
+    use crate::solid::geometry::curve::Curve;
+    use crate::solid::geometry::fitted::Fitted;
+    use crate::solid::geometry::surface::Surface;
+    use crate::solid::geometry::torus::Torus;
+    use crate::solid::grown::Grown;
+    use crate::solid::named::Step;
     use crate::solid::topology::body::Body;
+    use crate::solid::topology::coedge::Coedge;
+    use crate::solid::topology::edge::Edge;
+    use crate::solid::topology::face::{Face, FaceId};
+    use crate::solid::topology::lump::Lump;
+    use crate::solid::topology::shell::Shell;
     use crate::solid::topology::validity::{Checking, Reckoning};
+    use crate::solid::topology::vertex::Vertex;
+    use glam::DVec3;
+    use std::f64::consts::{PI, TAU};
 
     impl Body {
         /// Everything a body promises, checked from scratch — panicking on the
@@ -164,6 +181,155 @@ pub(crate) mod internals {
                 .next()
                 .expect("a body with no lumps encloses nothing to reckon");
             Checking::default().reckoning(self.topology(), lump.outer)
+        }
+
+        /// A torus of `major` by `minor` about the world's `+Y` through the
+        /// origin, quartered at the angles either of its parameters reads
+        /// nought and a half turn at.
+        ///
+        /// **Four faces, eight edges, four vertices**, and `4 − 8 + 4` is
+        /// nought, which is `2(1 − 1)`: a ring. Both parameters run round, so
+        /// `.notes/KERNEL.md` §4.4's rule about wrapping bites twice — the ring
+        /// is cut at two angles about the axis *and* at two round the tube, and
+        /// four faces is the fewest that leaves none of them wrapping either
+        /// way.
+        ///
+        /// **Every edge is a circle and no face is.** The four seams are exact
+        /// curves — the two equators about the axis, of `major ± minor`, and
+        /// the two tube circles of `minor` — so what puts this body in the
+        /// fitted tier is its surfaces alone.
+        ///
+        /// Here rather than beside one of the tests that want it because two
+        /// do: what a body is made of is asked of it in one place, and what a
+        /// ray through its hole crosses in another.
+        pub(crate) fn ring(major: f64, minor: f64) -> Self {
+            let axis = Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X);
+            let surface = Surface::Fitted(Fitted::Torus(Torus { axis, major, minor }));
+            // The two equators run round the torus's own axis, so their
+            // parameter is its first; the two tube circles are framed so theirs
+            // is its second.
+            let equator = |radius| Circle { axis, radius };
+            let tube = |out: DVec3| Circle {
+                axis: Axis::new(out * major, out.cross(DVec3::Y), out),
+                radius: minor,
+            };
+
+            let mut body = Self::default();
+            let named = Step::default().grew(Grown::Base);
+            body.named(named);
+            let mut corner = |out: f64| {
+                body.topology_mut().add_vertex(Vertex {
+                    at: DVec3::X * out,
+                    tolerance: EXACT,
+                })
+            };
+            // Where the two seams cross, which is the four places both angles
+            // read nought or a half turn: out on the equator and in on it, each
+            // way round.
+            let (out_near, in_near) = (corner(major + minor), corner(major - minor));
+            let (out_far, in_far) = (corner(-major - minor), corner(-major + minor));
+
+            let mut face = || {
+                body.topology_mut().add_face(Face {
+                    surface,
+                    outward: true,
+                    loops: 0..0,
+                    name: named,
+                    tolerance: EXACT,
+                })
+            };
+            // The quarters, named for the half of each angle they cover.
+            let (near_top, far_top) = (face(), face());
+            let (far_under, near_under) = (face(), face());
+
+            let mut seam = |curve, bounds: [f64; 2], from, to, between| {
+                body.topology_mut().add_edge(Edge {
+                    curve: Curve::Circle(curve),
+                    bounds,
+                    from,
+                    to,
+                    between,
+                    // One torus on both sides of it — see §4.4.
+                    artificial: true,
+                    tolerance: EXACT,
+                })
+            };
+            let (half, back) = ([0.0, PI], [PI, TAU]);
+            let (outer, inner) = (equator(major + minor), equator(major - minor));
+            let (here, there) = (tube(DVec3::X), tube(DVec3::NEG_X));
+            let out_over = seam(outer, half, out_near, out_far, [near_top, near_under]);
+            let out_back = seam(outer, back, out_far, out_near, [far_top, far_under]);
+            let in_over = seam(inner, half, in_near, in_far, [near_top, near_under]);
+            let in_back = seam(inner, back, in_far, in_near, [far_top, far_under]);
+            let near_over = seam(here, half, out_near, in_near, [near_top, far_top]);
+            let near_back = seam(here, back, in_near, out_near, [far_under, near_under]);
+            let far_over = seam(there, half, out_far, in_far, [near_top, far_top]);
+            let far_back = seam(there, back, in_far, out_far, [far_under, near_under]);
+
+            // Counterclockwise in each quarter's own parameters: along the seam
+            // it starts at, round the tube at the far angle, back along the
+            // other seam and round the tube again.
+            for (face, walk) in [
+                (
+                    near_top,
+                    [
+                        (out_over, true),
+                        (far_over, true),
+                        (in_over, false),
+                        (near_over, false),
+                    ],
+                ),
+                (
+                    far_top,
+                    [
+                        (out_back, true),
+                        (near_over, true),
+                        (in_back, false),
+                        (far_over, false),
+                    ],
+                ),
+                (
+                    far_under,
+                    [
+                        (in_back, true),
+                        (near_back, true),
+                        (out_back, false),
+                        (far_back, false),
+                    ],
+                ),
+                (
+                    near_under,
+                    [
+                        (in_over, true),
+                        (far_back, true),
+                        (out_over, false),
+                        (near_back, false),
+                    ],
+                ),
+            ] {
+                let at = body.topology_mut().add_loop(|into| {
+                    into.extend(walk.map(|(edge, forward)| Coedge { edge, forward }));
+                });
+                body.topology_mut().face_mut(face).loops = at..at + 1;
+            }
+
+            body.sealed(&[near_top, far_top, far_under, near_under]);
+            body
+        }
+
+        /// Gather `faces` into one shell and that shell into one lump, which is
+        /// how a closed body ends however it was built.
+        pub(crate) fn sealed(&mut self, faces: &[FaceId]) {
+            let from = self.topology().faces_shelled();
+            for &face in faces {
+                self.topology_mut().add_shelled(face);
+            }
+            let to = self.topology().faces_shelled();
+            let shell = self.topology_mut().add_shell(Shell { faces: from..to });
+            self.topology_mut().add_lump(Lump {
+                outer: shell,
+                voids: 0..0,
+            });
         }
     }
 }

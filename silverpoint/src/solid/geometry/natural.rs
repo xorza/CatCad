@@ -10,7 +10,7 @@ use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Crossings;
-use glam::{DVec2, DVec3};
+use glam::{BVec2, DVec2, DVec3};
 use std::f64::consts::SQRT_2;
 
 /// One of the four *natural quadrics*.
@@ -326,15 +326,16 @@ impl Natural {
         }
     }
 
-    /// Whether the first parameter runs round the surface, so that a face on it
+    /// Which of the two parameters run round the surface, so that a face on it
     /// could wrap.
     ///
-    /// What the split in `.notes/KERNEL.md` §4.4 is decided by, and what tells
-    /// a mesher whether an angle traced along a loop has to be unwrapped.
-    pub(crate) fn round(&self) -> bool {
+    /// The first only, here: every natural surface's second parameter is a
+    /// height or a distance along a ruling, and none of them closes. A torus
+    /// next door is the one that answers otherwise.
+    pub(crate) fn round(&self) -> BVec2 {
         match self {
-            Self::Plane(_) => false,
-            Self::Cylinder(_) | Self::Cone(_) | Self::Sphere(_) => true,
+            Self::Plane(_) => BVec2::FALSE,
+            Self::Cylinder(_) | Self::Cone(_) | Self::Sphere(_) => BVec2::new(true, false),
         }
     }
 }

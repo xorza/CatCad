@@ -1,10 +1,10 @@
 //! A bounded piece of surface.
 
 use crate::arena::Id;
+use crate::math::branch;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::named::Named;
 use glam::{DVec2, DVec3};
-use std::f64::consts::TAU;
 use std::ops::Range;
 
 pub(crate) type FaceId = Id<Face>;
@@ -61,11 +61,13 @@ impl Face {
 
     /// Read a traced loop into this face's own parameters.
     ///
-    /// **Unwrapped as it goes** where the surface runs round: an inversion
-    /// answers in a half-turn either side of the reference direction, so a face
-    /// straddling the far side of a cylinder would otherwise come back as two
-    /// pieces of parameter space with a whole turn between them. Nothing is
-    /// decided by the absolute offset, only by the loop being continuous.
+    /// **Unwrapped as it goes** in whichever parameters the surface runs round:
+    /// an inversion answers in a half-turn either side of the reference
+    /// direction, so a face straddling the far side of a cylinder would
+    /// otherwise come back as two pieces of parameter space with a whole turn
+    /// between them. Both ways on a torus, which runs round twice over — see
+    /// [`Surface::round`]. Nothing is decided by the absolute offset, only by
+    /// the loop being continuous.
     ///
     /// **A corner the surface says nothing about is written twice** — see
     /// [`Surface::singular`]. A cone's apex is one place however far the angle
@@ -91,43 +93,52 @@ impl Face {
         // down owes: a corner at the head of the loop that the surface says
         // nothing about takes its angle from the corner at the tail, so where
         // the chain comes round to has to be known before the writing starts.
-        // The first walk works that out and remembers one number.
+        // The first walk works that out and remembers where.
         let mut behind = None;
         for &corner in traced {
-            behind = self.angle(corner, behind).or(behind);
+            behind = self.parameters(corner, behind).or(behind);
         }
         into.reserve(traced.len());
         let mut last = None;
         for (at, &corner) in traced.iter().enumerate() {
-            let up = self.surface.uv(corner).y;
-            if let Some(angle) = self.angle(corner, last) {
-                into.push(DVec2::new(angle, up));
-                last = Some(angle);
+            if let Some(uv) = self.parameters(corner, last) {
+                into.push(uv);
+                last = Some(uv);
                 continue;
             }
-            let before = last.or(behind).unwrap_or_default();
+            // The second parameter of a surface with a singular place is a
+            // height rather than an angle — a cone's apex and a sphere's poles
+            // are the whole of the case — so it is read as it comes and only
+            // the angle is put back twice.
+            let up = self.surface.uv(corner).y;
+            let before = last.or(behind).map_or(0.0, |uv| uv.x);
             let after = (1..traced.len())
                 .map(|off| traced[(at + off) % traced.len()])
-                .find_map(|corner| self.angle(corner, last))
-                .unwrap_or(before);
+                .find_map(|corner| self.parameters(corner, last))
+                .map_or(before, |uv| uv.x);
             into.push(DVec2::new(before, up));
             into.push(DVec2::new(after, up));
         }
     }
 
-    /// Which angle `corner` stands at, carried on from `last` where the surface
-    /// runs round — or `None` where it has no angle to give.
-    fn angle(&self, corner: DVec3, last: Option<f64>) -> Option<f64> {
+    /// Which parameters `corner` stands at, carried on from `last` in whichever
+    /// of them the surface runs round — or `None` where it has no angle to
+    /// give.
+    fn parameters(&self, corner: DVec3, last: Option<DVec2>) -> Option<DVec2> {
         if self.surface.singular(corner) {
             return None;
         }
-        let mut along = self.surface.uv(corner).x;
-        if let Some(last) = last
-            && self.surface.round()
-        {
-            along += TAU * ((last - along) / TAU).round();
+        let mut uv = self.surface.uv(corner);
+        if let Some(last) = last {
+            let round = self.surface.round();
+            if round.x {
+                uv.x = branch::nearest(uv.x, last.x);
+            }
+            if round.y {
+                uv.y = branch::nearest(uv.y, last.y);
+            }
         }
-        Some(along)
+        Some(uv)
     }
 
     /// Where each corner [`Face::flatten`] writes stands in the world.
