@@ -4,7 +4,7 @@ use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
 use crate::solid::build::builder::Extrusion;
-use crate::solid::build::revolving::{PARTS, Revolution};
+use crate::solid::build::revolving::{MOST, Revolution, Sector};
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
@@ -13,7 +13,7 @@ use crate::solid::mesh::Mesher;
 use crate::solid::named::{Named, Step};
 use crate::solid::topology::body::Body;
 use glam::{DVec2, DVec3};
-use std::f64::consts::{PI, TAU};
+use std::f64::consts::{FRAC_PI_2, PI, TAU};
 
 /// The step every body below is grown by.
 ///
@@ -522,13 +522,22 @@ fn a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces() {
     let middle = sketch.add_point(DVec2::new(major, 0.0));
     let drawn = sketch.add_circle(middle, minor);
     let found = Arrangement::of(&sketch);
-    let body = Revolution::new(&found, &[0], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+    let body = Revolution::new(
+        &found,
+        &[0],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector::WHOLE,
+        STEP,
+    )
+    .body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 1, "a ring is a ring: {reckoning:?}");
     assert_eq!(
         body.topology().faces().count(),
-        2 * PARTS,
+        2 * MOST,
         "the wall was not cut in three"
     );
     assert!(!body.exact(), "a body standing on a torus is not exact");
@@ -574,13 +583,22 @@ fn a_trapezoid_spun_sweeps_a_cylinder_a_cone_and_two_annuli() {
     let mut sketch = Sketch::default();
     sketch.outline(&[(1.0, 0.0), (3.0, 0.0), (2.0, 2.0), (1.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Revolution::new(&found, &[0], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+    let body = Revolution::new(
+        &found,
+        &[0],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector::WHOLE,
+        STEP,
+    )
+    .body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 1, "a spun ring is a ring: {reckoning:?}");
     assert_eq!(
         body.topology().faces().count(),
-        4 * PARTS,
+        4 * MOST,
         "four walls, cut in three"
     );
     assert!(body.exact(), "a cylinder, a cone and two planes are exact");
@@ -599,7 +617,7 @@ fn a_trapezoid_spun_sweeps_a_cylinder_a_cone_and_two_annuli() {
     }
     assert_eq!(
         [cylinders, cones, planes],
-        [PARTS, PARTS, 2 * PARTS],
+        [MOST, MOST, 2 * MOST],
         "the wrong surfaces"
     );
 
@@ -638,7 +656,16 @@ fn an_arc_about_a_centre_on_the_line_sweeps_a_sphere() {
 
     let mut spun = None;
     for at in 0..found.faces().len() {
-        let body = Revolution::new(&found, &[at], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+        let body = Revolution::new(
+            &found,
+            &[at],
+            Plane::FRONT,
+            DVec2::ZERO,
+            DVec2::Y,
+            Sector::WHOLE,
+            STEP,
+        )
+        .body();
         // Every other face of the drawing straddles the line, and a revolve of
         // one is refused — see [`Revolving::raise`].
         if !body.is_empty() {
@@ -654,7 +681,7 @@ fn an_arc_about_a_centre_on_the_line_sweeps_a_sphere() {
     );
     assert_eq!(
         body.topology().faces().count(),
-        2 * PARTS,
+        2 * MOST,
         "two walls, cut in three"
     );
     assert!(body.exact(), "a sphere and a cylinder are exact");
@@ -669,7 +696,7 @@ fn an_arc_about_a_centre_on_the_line_sweeps_a_sphere() {
             spheres += 1;
         }
     }
-    assert_eq!(spheres, PARTS, "the arc swept no sphere");
+    assert_eq!(spheres, MOST, "the arc swept no sphere");
 
     // Coarser than [`FINE`] for the reason the ring is: a sphere is cut in
     // both of its angles at once, so the cells go as the square of what a
@@ -705,7 +732,16 @@ fn a_profile_spun_about_its_own_side_closes_at_a_pole() {
     let mut sketch = Sketch::default();
     sketch.outline(&[(0.0, 0.0), (1.0, 0.0), (0.0, 2.0)]);
     let found = Arrangement::of(&sketch);
-    let body = Revolution::new(&found, &[0], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+    let body = Revolution::new(
+        &found,
+        &[0],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector::WHOLE,
+        STEP,
+    )
+    .body();
 
     let reckoning = body.reckoning();
     assert_eq!(reckoning.genus, 0, "a cone is a ball: {reckoning:?}");
@@ -714,14 +750,14 @@ fn a_profile_spun_about_its_own_side_closes_at_a_pole() {
     // three — and each is cut in three, no face being allowed to wrap.
     assert_eq!(
         body.topology().faces().count(),
-        2 * PARTS,
+        2 * MOST,
         "the third side raised a wall",
     );
     // **A pole is one vertex**, where the rim carries one per part: a corner on
     // the line sweeps a point rather than a circle.
     assert_eq!(
         body.topology().vertices().count(),
-        2 + PARTS,
+        2 + MOST,
         "a pole raised more than one vertex",
     );
 
@@ -756,8 +792,16 @@ fn a_hole_in_the_profile_sweeps_a_cavity_of_its_own() {
 
     let mut ringed = None;
     for face in 0..found.faces().len() {
-        let body =
-            Revolution::new(&found, &[face], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+        let body = Revolution::new(
+            &found,
+            &[face],
+            Plane::FRONT,
+            DVec2::ZERO,
+            DVec2::Y,
+            Sector::WHOLE,
+            STEP,
+        )
+        .body();
         let (_, lump) = body
             .topology()
             .lumps()
@@ -835,10 +879,19 @@ fn a_profile_of_two_regions_raises_one_body_of_two_lumps() {
         volume(&carried),
     );
 
-    let spun = Revolution::new(&found, &[0, 1], Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+    let spun = Revolution::new(
+        &found,
+        &[0, 1],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector::WHOLE,
+        STEP,
+    )
+    .body();
     assert_eq!(
         spun.topology().faces().count(),
-        8 * PARTS,
+        8 * MOST,
         "eight walls, each cut in three",
     );
     assert_eq!(spun.names().count(), 8, "one name per side of each square");
@@ -873,7 +926,16 @@ fn a_profile_straddling_the_line_in_two_pieces_sweeps_nothing() {
     assert_eq!(found.faces().len(), 2, "two squares, two regions");
 
     let spun = |at: &[usize]| {
-        Revolution::new(&found, at, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body()
+        Revolution::new(
+            &found,
+            at,
+            Plane::FRONT,
+            DVec2::ZERO,
+            DVec2::Y,
+            Sector::WHOLE,
+            STEP,
+        )
+        .body()
     };
     for at in 0..2 {
         assert!(
@@ -885,4 +947,170 @@ fn a_profile_straddling_the_line_in_two_pieces_sweeps_nothing() {
         spun(&[0, 1]).is_empty(),
         "two regions either side of the line swept two lumps of one space",
     );
+}
+
+/// **A partial turn is capped at both ends**, and the caps are what tell it
+/// from a whole one.
+///
+/// A circle of one, three out, spun a quarter turn about the drawing's `y`. Two
+/// arcs sweep a quarter of a torus each; the two ends are the circle itself
+/// lying in the half-plane the spin carried it to.
+///
+/// **Genus nought where a whole turn gives one.** A ring is a handle; a quarter
+/// of one is a bent rod, which is a ball. `4 − 6 + 4` is two, and the reckoning
+/// is what says the caps closed it rather than leaving it open.
+///
+/// **And one face per wall, not three.** Every part spans at most a third of a
+/// turn — see [`MOST`] — and a quarter is under a third, so nothing is cut. The
+/// boundary is asserted beside it: a sweep either side of a third of a turn
+/// gives two parts and one, which is what says the count follows the sweep.
+///
+/// Pappus holds for a part of a turn as it does for the whole: the figure shuts
+/// in `|sweep|` times its first moment about the line.
+#[test]
+fn a_partial_turn_is_capped_at_both_ends() {
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::new(major, 0.0));
+    sketch.add_circle(middle, minor);
+    let found = Arrangement::of(&sketch);
+    let spun = |sweep: f64| {
+        Revolution::new(
+            &found,
+            &[0],
+            Plane::FRONT,
+            DVec2::ZERO,
+            DVec2::Y,
+            Sector { from: 0.0, sweep },
+            STEP,
+        )
+        .body()
+    };
+
+    let quarter = spun(FRAC_PI_2);
+    let reckoning = quarter.reckoning();
+    assert_eq!(reckoning.genus, 0, "a bent rod is a ball: {reckoning:?}");
+    assert_eq!(
+        quarter.topology().faces().count(),
+        4,
+        "two walls and two caps",
+    );
+    assert_eq!(
+        quarter.topology().lumps().next().expect("one lump").1.voids,
+        0..0,
+        "a capped turn has no cavity",
+    );
+    // The two caps are planes, which the two torus walls are not.
+    let planes = quarter
+        .topology()
+        .faces()
+        .filter(|(_, face)| matches!(face.surface, Surface::Natural(Natural::Plane(_))))
+        .count();
+    assert_eq!(planes, 2, "the two ends are not the two planes");
+
+    let want = FRAC_PI_2 * major * PI * minor * minor;
+    let off = (Mesher::default().volume(&quarter, 1e-3) - want).abs();
+    // The same slack the whole ring is measured with, over a quarter of it.
+    let slack = (2.0 / 3.0) * 1e-3 * FRAC_PI_2 * major * TAU * minor;
+    assert!(off < slack, "{off} off {want}");
+
+    // **The count of parts follows the sweep**, and a third of a turn is where
+    // it steps. One wall each way, so the face counts are twice the parts plus
+    // the two caps.
+    let third = TAU / 3.0;
+    let under = spun(third - 1e-6).topology().faces().count();
+    let over = spun(third + 1e-6).topology().faces().count();
+    assert_eq!(under, 2 + 2, "a third of a turn was cut in two");
+    assert_eq!(
+        over,
+        4 + 2,
+        "just over a third of a turn was not cut in two"
+    );
+    assert_ne!(under, over, "the sweep does not decide the count");
+}
+
+/// **A partial turn keeps the pole, and a hole in it is a hole again.**
+///
+/// The two things a cap changes, asked of the two profiles that show them.
+///
+/// A right triangle spun a quarter turn about its own side is a wedge of the
+/// cone the whole turn gives — one pole at each end still, and the two caps are
+/// the triangle itself. By Pappus `(π/2)·(1/3)·1` is `π/6`, which is a quarter
+/// of the `2π/3` the whole turn shuts in.
+///
+/// And a ring of two about `(5, 0)` with a hole of one, spun part way: the caps
+/// join the hole's wall to the wall outside it, so there is **one shell and no
+/// cavity** — which is the answer an extrusion gives and the opposite of the
+/// whole turn's.
+#[test]
+fn a_partial_turn_keeps_a_pole_and_opens_a_cavity_into_a_hole() {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(0.0, 0.0), (1.0, 0.0), (0.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
+    let wedge = Revolution::new(
+        &found,
+        &[0],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector {
+            from: 0.0,
+            sweep: FRAC_PI_2,
+        },
+        STEP,
+    )
+    .body();
+    assert_eq!(wedge.reckoning().genus, 0, "a wedge is a ball");
+    // The side on the line sweeps nothing, so two walls of one part each — and
+    // the two caps, which are the triangle itself.
+    assert_eq!(
+        wedge.topology().faces().count(),
+        2 + 2,
+        "the third side raised a wall, or an end raised no cap",
+    );
+    // **Two poles still.** The rim carries one vertex per seam and a corner on
+    // the line carries one however the turn is cut.
+    assert_eq!(
+        wedge.topology().vertices().count(),
+        2 + 2,
+        "a pole raised more than one vertex",
+    );
+    let want = FRAC_PI_2 * (1.0 / 3.0) * 1.0;
+    let off = (volume(&wedge) - want).abs();
+    let slack = (2.0 / 3.0) * FINE * FRAC_PI_2 * 5.0_f64.sqrt();
+    assert!(off < slack, "{off} off {want}");
+
+    let (out, at, hole) = (5.0_f64, 2.0_f64, 1.0_f64);
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::new(out, 0.0));
+    sketch.add_circle(middle, at);
+    sketch.add_circle(middle, hole);
+    let found = Arrangement::of(&sketch);
+    let ringed = found
+        .faces()
+        .iter()
+        .position(|face| face.holes() == 1)
+        .expect("the hub is a hole of the ring");
+    let sweep = FRAC_PI_2;
+    let body = Revolution::new(
+        &found,
+        &[ringed],
+        Plane::FRONT,
+        DVec2::ZERO,
+        DVec2::Y,
+        Sector { from: 0.0, sweep },
+        STEP,
+    )
+    .body();
+    let (_, lump) = body.topology().lumps().next().expect("one lump");
+    assert!(
+        lump.voids.is_empty(),
+        "a capped turn left the hub a cavity of its own",
+    );
+
+    let want = sweep * out * PI * (at * at - hole * hole);
+    let off = (Mesher::default().volume(&body, 1e-3) - want).abs();
+    // Both tubes are chorded, each `sweep·out` round by `2π·minor`.
+    let slack = (2.0 / 3.0) * 1e-3 * sweep * out * TAU * (at + hole);
+    assert!(off < slack, "{off} off {want}");
 }

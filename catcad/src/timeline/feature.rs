@@ -58,10 +58,9 @@ pub(crate) enum Feature {
     /// thing spun about it is, one gesture names both, and a drag through the
     /// sketch carries the axis along with the profile.
     ///
-    /// A whole turn and no other, which is the whole of what the kernel makes
-    /// — see [`Revolution`](silverpoint::Revolution). Spun part way a region
-    /// has two ends, and those are caps of a kind the kernel does not raise
-    /// yet.
+    /// A whole turn and no other, which is what a step says rather than what
+    /// the kernel can make: [`Sector`](silverpoint::Sector) carries any part of
+    /// a turn, and nothing here asks for one yet.
     Revolve {
         profile: Profile,
         axis: SegmentId,

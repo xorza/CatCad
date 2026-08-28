@@ -203,11 +203,10 @@ impl Builder {
     /// swept are: a ring is not, a torus being of the fitted tier.
     ///
     /// **A body with no faces where there is no solid to make**, which is the
-    /// answer a distance of nothing gives above and means the same thing.
-    /// Three things have no solid: a line with no direction, a region that
-    /// crosses the line, and an arc that reaches it — the last of which would
-    /// sweep a surface folded through itself. A region merely *touching* the
-    /// line has one, and what it touches with is a pole.
+    /// answer a distance of nothing gives above and means the same thing. A
+    /// line with no direction, a region that crosses the line, an arc that
+    /// reaches it, a sweep of nothing and a sweep of more than a whole turn are
+    /// the five that have none.
     pub fn revolve(&mut self, of: &Revolution<'_>, into: &mut Body) {
         let Self {
             strips,

@@ -1,6 +1,8 @@
 //! The solid one sweep leaves behind, and what it was built from.
 
-use silverpoint::{Arrangement, Body, Boolean, Builder, Extrusion, Operation, Plane, Revolution};
+use silverpoint::{
+    Arrangement, Body, Boolean, Builder, Extrusion, Operation, Plane, Revolution, Sector,
+};
 
 use crate::build::Revision;
 use crate::timeline::{FeatureId, Sweep};
@@ -156,6 +158,7 @@ impl Bodied {
                     digest.plane(),
                     axis.at,
                     axis.along,
+                    Sector::WHOLE,
                     self.of.step(),
                 );
                 builder.revolve(&revolution, raised);

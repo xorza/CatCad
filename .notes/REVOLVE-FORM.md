@@ -3,7 +3,11 @@
 One fault is left, found by use. It has a cause in the structure, not in a
 detail. This note gives the cause and the steps.
 
-Two are closed.
+Read with `.notes/KERNEL.md` §8 (the document) and §9.2 (the revolve record).
+
+---
+
+## Done
 
 **The form's three squares said nothing.** Each one now carries its word on
 hover, and the row names the setting that is on. One table in
@@ -15,8 +19,6 @@ selection now, not its shape, and several regions are one step: `Profile` names
 several, `Extrusion` and `Revolution` take a slice and raise a lump apiece, and
 an intent carries the durable name rather than positions it resolves a pass
 later.
-
-Read with `.notes/KERNEL.md` §8 (the document) and §9.2 (the revolve record).
 
 ---
 
@@ -45,73 +47,33 @@ both follow.
 
 Four layers, in order. Each one compiles and is testable on its own.
 
-#### 2a. The kernel takes a turn
+#### 2a. The kernel takes a turn — **done**
 
-**Step 2a.1 — name the turn.**
-- Add a satellite beside `Revolution` in `revolving.rs`:
-  `struct Turn { from: f64, sweep: f64 }`, both in radians, `sweep` signed.
-- `Revolution::new` takes it. A whole turn is `Turn { from: 0.0, sweep: TAU }`.
-- A negative `sweep` spins the other way about the axis. This is the same
-  argument `Feature::Extrude` makes for a signed distance: which way it goes is
-  the sign of the one number, not a second field.
-- The axis direction fixes which way is positive. The segment runs tail to
-  head, so the spin is right-handed about it.
+`Revolution` takes a `Sector { from, sweep }`, both in radians and the sweep
+signed. `Sector::WHOLE` is what every caller passes today.
 
-**Step 2a.2 — the part count follows from the sweep.**
-- `PARTS` is a constant of 3 today. Replace it with a function of the sweep.
-- The rule to state: **every part spans at most a third of a turn.** So
-  `parts(sweep) = max(1, ceil(|sweep| / (TAU / 3)))`.
-- A whole turn gives 3, which is what is built now. A quarter turn gives 1.
-- This keeps both reasons the constant exists. §4.4 refuses a face that wraps
-  its own surface, and a part of at most `2π/3` never wraps. The pole tie is a
-  face whose two seams stand exactly `π` apart, and `2π/3` is strictly less.
-- `seamed(part)` becomes `from + sweep * part as f64 / parts as f64`.
-- The arrays `[VertexId; PARTS]` become `Vec` runs or a fixed maximum. Prefer a
-  flat `Vec<VertexId>` with the part count beside it, per the house rule against
-  nested and per-element allocation. The arrays are indexed by part only.
+- **The part count follows the sweep.** Every part spans at most a third of a
+  turn, so a whole turn is three faces per wall and a quarter turn is one.
+  `MOST` is that ceiling, and the arrays are sized by it with a live count
+  beside them.
+- **Two caps where the turn does not close.** Each is the profile itself in the
+  half-plane the spin carried it to, and its loops are the seam edges the walls
+  already raised — the outline first, then one per hole, which is the shape an
+  extrusion's caps have.
+- **A seam at an end is a crease.** Between two parts of one wall it is still
+  what splitting the turn left behind.
+- **A hole is a hole again.** The caps join its wall to the wall outside it, so
+  a partial turn is one shell and no cavity.
+- **A strip on the line is a side of both caps.** It sweeps no wall and is one
+  edge, the line itself, which both ends walk.
+- **A negative sweep is the same solid the other way round**, not one wound
+  inside out — the sign folds into the frame.
+- Refused: a sweep of nothing, and one of more than a whole turn.
 
-**Step 2a.3 — raise the two caps.**
-- A partial turn has two ends. Each end is the profile itself, borne into the
-  half-plane through the axis at `from` and at `from + sweep`.
-- The face is planar. Its plane contains the axis line and the radial direction
-  at that angle.
-- Its loops are the **seam edges already raised** at `part = 0` and at
-  `part = parts`. One loop per run of strips: the outline first, then one per
-  hole. `Topology::add_loop` requires that order.
-- This is the same shape as `builder.rs`'s `Raising { base, far }` and
-  `Builder::cap`. Share the loop walk if it comes out the same; do not share the
-  plane, which differs.
-- A pole is unchanged. The side of the profile that lies on the line is part of
-  the cap's loop like any other side.
-
-**Step 2a.4 — a seam at an end is a crease, not an artefact.**
-- `Revolving::seam` sets `artificial: true` for every seam, because two parts of
-  one wall lie on one surface.
-- With caps this is true only *between* parts. The seam at `part = 0` and at
-  `part = parts` divides a wall from a cap, which is a real crease.
-- Set `artificial` from whether both sides are parts of the same wall.
-
-**Step 2a.5 — a hole is a hole again.**
-- `Revolving::gather` builds an outer shell plus one void per hole. That is
-  correct for a whole turn, which raises no cap.
-- A partial turn's caps join the wall of a hole to the wall outside it, exactly
-  as an extrusion's caps do. So a partial turn uses `build::gathered` — one
-  shell, one lump, no voids.
-- The condition is already named in `build/mod.rs`'s doc on `gathered`. Branch
-  on it.
-
-**Step 2a.6 — tests.**
-- Pappus holds for a partial turn: `V = |sweep| · r̄ · A`, where `r̄` is the
-  centroid radius and `A` the profile area. The whole-turn tests are the same
-  formula at `sweep = TAU`.
-- Cover: a quarter turn of the ring test's own circle; a partial turn of the
-  triangle about its own side, which is a cone wedge and keeps its pole; a
-  partial turn of the profile with a hole, which must report **no void** and a
-  genus the caps close.
-- Cover the part count: a sweep just over `2π/3` raises two parts per wall and a
-  sweep just under raises one. Assert the two counts differ.
-- Assert `body.exact()` still holds, and that a validity check passes at each
-  sweep. The checker is what caught the pole fold.
+Tests: a quarter torus by Pappus with its caps and its genus, the part count
+either side of a third of a turn, the same solid spun backwards, a cone wedge
+that keeps both poles, and a partial turn of a profile with a hole reporting no
+cavity.
 
 #### 2b. The document carries the turn
 
@@ -193,9 +155,6 @@ support.
   pressing what it draws."*
 - `Feature::Revolve` — *"A whole turn and no other … caps of a kind the kernel
   does not raise yet."*
-- `Revolution` and `Revolving::raise` in `revolving.rs` — the same claim, twice.
-- `PARTS` — the constant becomes a function, and its argument stands.
-- `build::gathered` — its doc names the condition; make the branch match.
 - `.notes/KERNEL.md` §9.2 — *"Two picks and no number"*, and *"What is left of
   the revolve is a partial turn"*, which this closes.
 
@@ -203,8 +162,7 @@ support.
 
 ## Order
 
-**Fault 2**, 2a first. The kernel is the work. 2b, 2c and 2d follow it and are
-each small.
+2b, then 2c. 2d is convenience and comes last.
 
 ## Related, still open
 

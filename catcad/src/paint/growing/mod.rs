@@ -1,6 +1,6 @@
 //! A solid the user is still deciding the depth of.
 
-use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Step};
+use silverpoint::{Body, Boolean, Builder, Extrusion, Operation, Revolution, Sector, Step};
 
 use crate::build::bodied;
 use crate::lens::Lens;
@@ -201,6 +201,7 @@ impl Growing<'_> {
                     model.plane(),
                     axle.at,
                     axle.along,
+                    Sector::WHOLE,
                     UNTAKEN,
                 );
                 builder.revolve(&revolution, raised);

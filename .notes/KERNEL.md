@@ -1657,8 +1657,17 @@ step that grows a solid is written once: the profile, the operation, the body,
 the place in the model, and `Feature::grows` for every reader that does not care
 which.
 
-What is left of the revolve is a *partial* turn, which is the same profile with
-two caps and no halving, and the plane-cylinder fillet that also makes a torus.
+**And a part of a turn is the same profile with two caps.** `Sector` says where
+the turn starts and how far it goes, signed about the line; the sweep decides
+how many faces a wall is cut into, every part spanning at most a third of a
+turn; and the two ends are the profile itself in the half-plane the spin carried
+it to, their loops being the seam edges the walls already raised. A hole is a
+hole through again there, the caps joining its wall to the wall outside it —
+which is the extrusion's answer, and the opposite of the whole turn's. Pappus
+holds for a part of a turn as it does for the whole.
+
+What is left of the revolve is the document and the form carrying those two
+angles, and the plane-cylinder fillet that also makes a torus.
 
 **Tests, and they are paid.** The reducible table is held against the closed
 form and sampled onto both surfaces, Villarceau's included; the walking is held
