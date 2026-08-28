@@ -846,14 +846,16 @@ impl Axle {
     /// The line the segment at `axis` of `sketch` is, or `None` where that
     /// drawing no longer holds it.
     ///
-    /// **Walked rather than looked up**, a sketch offering no reading of a
-    /// handle that may have been rubbed out — and a handle that has been is
-    /// exactly the `None` here. One walk per revolve per rebuild.
+    /// **Asked before it is read**, a handle outliving what it names whenever a
+    /// step that drew geometry is taken back — and a restore puts the sketch
+    /// back arenas and all, so the next line drawn takes the very handle the
+    /// rubbed-out one had. See [`Sketch::holds`], which is the one accessor
+    /// that answers rather than expecting a live handle.
     ///
     /// Here rather than at either caller because two want it: the timeline,
     /// resolving a step, and the form still deciding what a revolve does.
     pub(crate) fn of(sketch: &Sketch, axis: SegmentId) -> Option<Self> {
-        let (_, segment) = sketch.segments().find(|(at, _)| *at == axis)?;
+        let segment = sketch.holds(axis).then(|| sketch.segment(axis))?;
         let [at, to] = [segment.a, segment.b].map(|end| sketch.point(end).position);
         Some(Self { at, along: to - at })
     }

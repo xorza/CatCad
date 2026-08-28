@@ -251,7 +251,9 @@ mod internals {
         ///
         /// Independent of where the origin sits, which is what lets a solid on
         /// a plane away from it be checked against the same arithmetic — and
-        /// which [`Mesher::shut_in`] earns rather than assumes.
+        /// which the sum is written to earn rather than assume: every term is
+        /// a product of three whole coordinates, so it is taken about a corner
+        /// of the shell rather than about the world's own nought.
         pub fn volume(&mut self, of: &Body, sagitta: f64) -> f64 {
             let held: Vec<FaceId> = of.topology().faces().map(|(at, _)| at).collect();
             self.shut_in(of, &held, sagitta, &mut Patch::default())
