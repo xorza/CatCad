@@ -13,6 +13,7 @@ use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
+use crate::solid::geometry::ruled::Ruled;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
 use glam::{DVec2, DVec3};
@@ -1310,7 +1311,7 @@ fn a_ruling_meets_the_other_quadric_in_two_exact_places() {
     let along: [Quadratic<Rational>; 4] =
         std::array::from_fn(|at| field.at(ruled.plain[0][at].clone(), ruled.times[0][at].clone()));
 
-    let place = Quadric::raised(DVec3::ONE);
+    let place: [Quadratic<Rational>; 4] = Quadric::raised(DVec3::ONE).map(|of| lift(&of));
     let found = sideways
         .met_by(&place, &along, &lift)
         .expect("the ruling crosses the other cylinder");
@@ -1358,6 +1359,157 @@ fn a_ruling_meets_the_other_quadric_in_two_exact_places() {
             assert!(
                 of.spanning(&at, &at, &raise).is_zero(),
                 "place {which} is off {what} cylinder, over the tower",
+            );
+        }
+    }
+}
+
+/// **A ruled quadric is bilinear in two parameters, and that is what makes the
+/// curve a quartic.**
+///
+/// M3b's last derivation — see [`Ruled`]. Over the basis `{p, d₊, d₋, e}` the
+/// Gram matrix collapses to two entries: `pᵀQp` is nought because the place is
+/// on the quadric, `pᵀQd±` because the directions lie in its tangent plane, and
+/// `d±ᵀQd±` because they are rulings. Moving `e` by multiples of the other
+/// three kills `d±ᵀQe` and `eᵀQe` as well, and none of that takes a root. What
+/// is left is `αε·m + βγ·k = 0`, which is `XY = ZW` under other letters.
+///
+/// **The net is that every place it names is on the quadric, exactly**, over a
+/// grid of two hundred and twenty-five rational parameter pairs. A construction
+/// off by anything at all fails on the first of them, which is what makes
+/// deriving this safe rather than a guess.
+///
+/// **And the degrees are the check against the literature**, which states them
+/// as: substituting a ruled quadric's parameterization into another member
+/// gives an equation of degree two in each parameter, and solving it for one
+/// gives `X₁ ± X₂·√Δ` with `X₁` of degree three, `X₂` of degree one and `Δ` of
+/// degree four. `.notes/KERNEL.md` §4.1 carries the same figures. A place is
+/// linear in `t` for each `u` and linear in `u` for each `t`, so the
+/// substitution's `α`, `β` and `γ` are quadratic in `u` and `β² − 4αγ` is
+/// quartic — asserted here by its *fifth* difference over six rulings coming to
+/// nought, and its fourth not, which is a quartic and nothing else. Reaching
+/// the published degrees off an independent derivation is the strongest thing
+/// this can say without the paper in hand.
+#[test]
+fn a_ruled_quadric_is_bilinear_in_two_parameters() {
+    let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Surface::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, direction, reference),
+            radius,
+        }))
+    };
+    let (upright, sideways) = (pipe(DVec3::Z, DVec3::X, 2.0), pipe(DVec3::X, DVec3::Y, 3.0));
+    let pencil = Pencil::of(upright.clone(), sideways.clone());
+    let member = pencil.at(&pencil
+        .through(DVec3::ONE)
+        .expect("(1, 1, 1) is on neither cylinder"));
+    let ruled = member.rulings(DVec3::ONE).expect("the member is ruled");
+
+    // **The field is the one the literature names.** Dupont, Lazard, Lazard and
+    // Petitjean take the extension from `det R`, where this takes it from the
+    // tangent plane's discriminant — and the two have to generate the same
+    // field, which is to say differ by a rational square. Here that is
+    // `700 · 400/7 = 200²`.
+    let named = member.determinant() * ruled.under.clone();
+    assert!(
+        named.rooted().is_some(),
+        "δ and det R generate different fields: {named:?} is no square",
+    );
+
+    let field = Quadratic::root(ruled.under.clone()).expect("δ is not a square");
+    let lift = |of: &Rational| field.at(of.clone(), Rational::ZERO);
+    let whole = |of: i64| lift(&Rational::whole(of));
+    let along: [[Quadratic<Rational>; 4]; 2] = std::array::from_fn(|which| {
+        std::array::from_fn(|at| {
+            field.at(
+                ruled.plain[which][at].clone(),
+                ruled.times[which][at].clone(),
+            )
+        })
+    });
+    let place: [Quadratic<Rational>; 4] = Quadric::raised(DVec3::ONE).map(|of| lift(&of));
+    let bilinear = Ruled::of(&member, &place, &along, &lift).expect("the member writes bilinearly");
+
+    // The corner the whole basis was built from.
+    assert_eq!(
+        bilinear.at(&[whole(1), whole(0)], &[whole(1), whole(0)]),
+        place,
+        "the first corner is not the place it was built at",
+    );
+
+    // The net.
+    let steps = [-1i64, 0, 1, 2];
+    let mut walked = 0;
+    for one in steps {
+        for two in steps {
+            for three in steps {
+                for four in steps {
+                    if (one == 0 && two == 0) || (three == 0 && four == 0) {
+                        continue;
+                    }
+                    let at = bilinear.at(&[whole(one), whole(two)], &[whole(three), whole(four)]);
+                    assert!(
+                        member.spanning(&at, &at, &lift).is_zero(),
+                        "({one} : {two}), ({three} : {four}) is off the quadric",
+                    );
+                    walked += 1;
+                }
+            }
+        }
+    }
+    // Fifteen pairs apiece: sixteen from the four steps, less the one that
+    // names no parameter at all.
+    assert_eq!(walked, 225, "the grid is not the grid");
+
+    // `Δ` over six rulings, worked out here rather than read off `met_by`,
+    // which folds a square root away where the discriminant happens to be one.
+    // Two differences say it is a quartic: a quartic's fifth is nought and its
+    // fourth is not.
+    let under = |at: i64| {
+        let [from, along] = bilinear.ruling(&[whole(at), whole(1)]);
+        let leaning = sideways.spanning(&from, &along, &lift);
+        let beta = leaning.clone() + leaning;
+        beta.clone() * beta
+            - whole(4)
+                * sideways.spanning(&from, &from, &lift)
+                * sideways.spanning(&along, &along, &lift)
+    };
+    let sampled: Vec<Quadratic<Rational>> = (0..=5).map(under).collect();
+    let differenced = |by: &[i64]| {
+        by.iter()
+            .enumerate()
+            .fold(whole(0), |total, (at, &weight)| {
+                total + whole(weight) * sampled[at].clone()
+            })
+    };
+    assert!(
+        differenced(&[-1, 5, -10, 10, -5, 1]).is_zero(),
+        "Δ is not a quartic in which ruling it is",
+    );
+    assert!(
+        !differenced(&[1, -4, 6, -4, 1, 0]).is_zero(),
+        "Δ is of lower degree than a quartic, so nothing here is being tested",
+    );
+
+    // And a ruling that is not the one through the place still crosses the
+    // other cylinder in two places, both on both cylinders.
+    let [from, along] = bilinear.ruling(&[whole(1), whole(1)]);
+    let found = sideways
+        .met_by(&from, &along, &lift)
+        .expect("the ruling crosses the other cylinder");
+    let storey = Quadratic::root(found.under.clone()).expect("Δ is not a square");
+    let raise = |of: &Rational| storey.at(lift(of), lift(&Rational::ZERO));
+    for which in 0..2 {
+        let at: [Quadratic<Quadratic<Rational>>; 4] = std::array::from_fn(|held| {
+            storey.at(
+                found.plain[which][held].clone(),
+                found.times[which][held].clone(),
+            )
+        });
+        for (of, what) in [(&upright, "the upright"), (&sideways, "the sideways")] {
+            assert!(
+                of.spanning(&at, &at, &raise).is_zero(),
+                "place {which} of the second ruling is off {what} cylinder",
             );
         }
     }

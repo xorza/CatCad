@@ -297,18 +297,17 @@ impl Quadric {
     /// written over.
     pub(crate) fn met_by<T: Field>(
         &self,
-        place: &[Rational; 4],
+        place: &[T; 4],
         along: &[T; 4],
         lift: &impl Fn(&Rational) -> T,
     ) -> Option<Along<T>> {
-        let raised: [T; 4] = std::array::from_fn(|held| lift(&place[held]));
-        let leaning = self.spanning(&raised, along, lift);
+        let leaning = self.spanning(place, along, lift);
         let found = Roots::of(
-            &self.spanning(&raised, &raised, lift),
+            &self.spanning(place, place, lift),
             &(leaning.clone() + leaning),
             &self.spanning(along, along, lift),
         )?;
-        Some(found.along(&raised, along))
+        Some(found.along(place, along))
     }
 
     /// Its determinant, exactly.

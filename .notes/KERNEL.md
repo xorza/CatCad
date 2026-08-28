@@ -932,14 +932,34 @@ exactly, asked once by the two halves apart and once through the tower itself.
 form and a substitution's are the same binary quadratic, with the same three
 cases and one square root apiece.
 
-**What is left is the *family*.** All of the above is one ruling. Covering the
-curve wants the one-parameter family of them — the bilinear parameterization of
-the ruled member, where `X` is linear in the ruling's own parameter *and* in
-which ruling it is, so that `Δ` comes out a quartic in the second. Getting the
-member to the `XY = ZW` normal form that gives is the published construction
-(Dupont, Lazard, Lazard and Petitjean), and it is the one step here that should
-be read rather than derived: a route through the diagonal wants two square roots
-and the paper's does not, and which is which is not something to guess at.
+**And the family.** `geometry::ruled::Ruled` writes a ruled member so a place on
+it is bilinear in two parameters — `u₀t₀·A + u₀t₁·B + u₁t₀·C + u₁t₁·D`, linear
+in `t` for each `u` and in `u` for each `t`, which is the two families of lines.
+Substituting that into another member is therefore quadratic in `t` with
+coefficients quadratic in `u`, so `Δ` is a **quartic** in `u` and the roots are
+`X₁(u) ± X₂(u)·√Δ(u)` with `X₁` cubic and `X₂` linear.
+
+**The Gram matrix collapses, and that is the whole derivation.** Over the basis
+`{p, d₊, d₋, e}`, `pᵀQp` is nought because the place is on the quadric, `pᵀQd±`
+because the directions lie in its tangent plane, and `d±ᵀQd±` because they are
+rulings. Moving `e` by multiples of the other three kills `d±ᵀQe` and `eᵀQe`
+too, and none of that takes a root. What is left is `αε·m + βγ·k = 0`, which is
+`XY = ZW` under other letters, and
+`(α, β, γ, ε) = (u₀t₀, n·u₀t₁, u₁t₀, u₁t₁)` with `n = −m/k` solves it. **So the
+whole route from two quadrics to their curve takes `√δ` once and `√Δ` once**,
+which is the two storeys §4.2 caps the tower at and not one more.
+
+**Derived here and checked against the literature, in that order.** The net is
+that every place the writing names is on the quadric exactly, over a grid of two
+hundred and twenty-five rational parameter pairs — a construction off by
+anything fails on the first of them. Then the published account (Dupont, Lazard,
+Lazard and Petitjean; Levin before them) agrees on every count: the pencil holds
+a ruled member and the curve is parameterized through it; a member of inertia
+(2, 2) holding a rational point takes at most one square root; the substitution
+is of degree two in each parameter; and the output is `X₁ ± X₂√Δ` with degrees
+three, one and four. The extension is named there from `det R` and here from the
+tangent plane's discriminant, and the two agree: `700 · 400/7 = 200²`, so they
+generate one field.
 
 Then **`Curve::Quartic`**, and every closed match on `Curve` that follows.
 

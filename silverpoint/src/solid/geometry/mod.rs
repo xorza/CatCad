@@ -20,6 +20,7 @@ pub(crate) mod line;
 pub(crate) mod pencil;
 pub(crate) mod quadric;
 pub(crate) mod roots;
+pub(crate) mod ruled;
 pub(crate) mod sphere;
 pub(crate) mod surface;
 
