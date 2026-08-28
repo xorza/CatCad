@@ -1,8 +1,9 @@
-//! Where the sketch's curves cross each other.
+//! Where the sketch's curves cross each other, and which side of one a place
+//! falls on.
 //!
-//! Positions and nothing else. Which curve a crossing splits, and where along
-//! it, is the arrangement's to work out — a crossing is a *place*, and both
-//! curves that made it describe that place equally well.
+//! Which curve a crossing splits, and where along it, is the arrangement's to
+//! work out — a crossing is a *place*, and both curves that made it describe
+//! that place equally well.
 //!
 //! Geometry rather than handles, so every answer here is checkable against a
 //! drawing on paper: a span is two corners and a ring is a middle and a
@@ -736,25 +737,69 @@ pub(crate) fn rings(one: Ring, two: Ring) -> Crossings {
     )
 }
 
+/// Whether a ray cast rightward from `at` runs into `span`.
+///
+/// **The predicate every containment in the crate is counted out of.** Odd is
+/// within, which is the Jordan curve theorem — so what this answers is not a
+/// measurement that a rounding nudges but a *parity* that a rounding turns
+/// over, and one edge decided wrongly puts a place inside a face that does not
+/// hold it.
+///
+/// **Decided exactly, because the quotient cannot be.** The crossing's own x is
+/// `from.x + t·(to.x − from.x)`, a small step added to a large coordinate — so
+/// out where a drawing runs to a hundred million it rounds to the same place
+/// the ray was cast from, and every place within an ulp of the edge is put on
+/// whichever side the addition landed. Those places are a good deal further
+/// apart than [`PLACED`], so the drawing calls them distinct and the machine
+/// cannot say which side of an edge they fall.
+///
+/// Multiplied out instead there is no quotient: `x > at.x` holds exactly when
+/// `(to − from) ⟂ (at − from)` agrees in sign with the rise, which is one
+/// determinant of the three places and [`swept`] answers it. A place exactly on
+/// the span answers no, which is what the strict comparison it replaces did.
+pub(crate) fn blocks(span: Span, at: DVec2) -> bool {
+    if !straddles(span, at) {
+        return false;
+    }
+    let (from, to) = (span.from, span.to);
+    // Which side of the span the place stands. Reading it as left or right
+    // depends on which way the span runs through the level line, and the
+    // straddle is what says the rise is not nought.
+    let side = swept(to, from, at, from);
+    if to.y > from.y {
+        side == Ordering::Greater
+    } else {
+        side == Ordering::Less
+    }
+}
+
+/// Whether `span` reaches across the level line through `at`.
+///
+/// **Half-open in y: an end sitting exactly on the line counts as below it.**
+/// That is what a ray running through a corner needs — the two edges meeting
+/// there answer once between them where they carry on past the line, and twice
+/// or not at all where they turn back from it, which is the parity that makes a
+/// crossing count mean anything.
+///
+/// Written once because it is a *convention* and not a computation, and two
+/// copies of a convention are two conventions.
+fn straddles(span: Span, at: DVec2) -> bool {
+    (span.from.y > at.y) != (span.to.y > at.y)
+}
+
 /// Where `span` crosses the level line through `at` — the x it crosses at, or
 /// `None` where it stays on one side of that line.
 ///
-/// The one piece shared by every ray cast rightward from a point: whether an
-/// edge is in the way at all, and where. What each caller does with the answer
-/// differs — counting how many are to the right says whether a point is inside
-/// a loop, and taking the nearest says what a bridge would run into — so the
-/// comparison against `at.x` is theirs and only the straddle is here.
-///
-/// Half-open in y: an end sitting exactly on the level line counts as below it.
-/// That is what a ray running through a corner needs — the two edges meeting
-/// there answer once between them where they carry on past the line, and twice
-/// or not at all where they turn back from it, which is the parity that makes
-/// the count mean anything.
+/// **A measurement, where [`blocks`] is a decision**, and the only caller is the
+/// one that wants to know which of several edges a ray runs into *first*.
+/// Nothing turns on the last bit of it: a bridge is laid to a corner of
+/// whichever edge is nearest, and two edges a rounding apart in the way are two
+/// bridges that both work.
 pub(crate) fn rightward(span: Span, at: DVec2) -> Option<f64> {
-    let (from, to) = (span.from, span.to);
-    if (from.y > at.y) == (to.y > at.y) {
+    if !straddles(span, at) {
         return None;
     }
+    let (from, to) = (span.from, span.to);
     Some(from.x + (at.y - from.y) / (to.y - from.y) * (to.x - from.x))
 }
 

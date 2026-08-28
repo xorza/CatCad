@@ -342,6 +342,14 @@ impl Arrangement {
     /// agree except where a straight edge and an arc meet at a corner the ray
     /// passes exactly through, which is a coincidence this does not guard
     /// against.
+    ///
+    /// **The straight half is decided exactly and the round half is not.**
+    /// [`intersect::blocks`] takes its side off one determinant of the three
+    /// places, where an arc is met through a square root and an angle — so a
+    /// drawing of segments is counted rightly however far from the origin it
+    /// stands, and one of arcs is counted as well as an `f64` can. That is the
+    /// same split M6 will have to close, and it is written down rather than
+    /// hidden.
     fn encloses(&self, boundary: &[Half], at: DVec2) -> bool {
         let mut crossings = 0;
         for half in boundary {
@@ -353,7 +361,7 @@ impl Arrangement {
                         from: self.corners[from],
                         to: self.corners[to],
                     };
-                    usize::from(intersect::rightward(span, at).is_some_and(|x| x > at.x))
+                    usize::from(intersect::blocks(span, at))
                 }
                 Shape::Arc {
                     center,
@@ -413,13 +421,24 @@ impl Arrangement {
     ///
     /// The shoelace over the corners, plus what each arc bulges past the chord
     /// across it — which is the whole of the difference between a drawing of
-    /// circles and a drawing of the polygons through their ends.
+    /// circles and a drawing of the polygons through their ends. Its own
+    /// spelling rather than [`winding::swept`](crate::math::winding), which
+    /// walks places and has no arc to add.
+    ///
+    /// **About the loop's own first corner**, exactly as that one is and for
+    /// the same reason: taken about the origin the terms are products of whole
+    /// coordinates, and a small loop a long way out is the difference between
+    /// two of them. A two-by-two square at a hundred million comes back
+    /// enclosing nothing and is thrown away for a sliver. The bulge is a radius
+    /// and a sweep and does not move.
     fn area(&self, boundary: &[Half]) -> f64 {
+        let start = boundary[0];
+        let first = self.corners[self.edges[start.edge].ends(start.forward)[0]];
         let mut total = 0.0;
         for half in boundary {
             let edge = &self.edges[half.edge];
             let [from, to] = edge.ends(half.forward);
-            total += self.corners[from].perp_dot(self.corners[to]);
+            total += (self.corners[from] - first).perp_dot(self.corners[to] - first);
             total += edge.bulge(half.forward);
         }
         total / 2.0

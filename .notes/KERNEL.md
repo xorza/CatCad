@@ -922,16 +922,30 @@ are in this order because the second cannot be done first:
   rather than the answer's — a line reaching back from far away lands next to
   the origin off terms a hundred million wide — so a curve says how large it
   works and the check asks it.
-- **The predicates pointed through the exact tier.** `number/`'s predicates are
-  a façade over `f64` today, which is the whole reason the façade was written
-  first.
+- **The predicates over the drawing point through the exact tier.** The one that
+  had to is the ray cast. A containment is a *parity*, so one edge decided
+  wrongly puts a place inside a face that does not hold it, and there is no
+  tolerance for it to be nearly right by. `intersect::blocks` takes it off one
+  determinant of three places rather than off a crossing worked out with a
+  division, and `winding::holds` and `Arrangement::encloses` both go through it.
+  Out at a hundred million the quotient rounds onto the very grid the places sit
+  on: it got twenty-seven of sixty-four wrong, over places the drawing itself
+  calls fifteen `PLACED` apart.
 
-**Why that way round.** A sign taken on coordinates the arrangement has already
-folded to `PLACED` has nothing exact to be exact about: the shoelace in
-`math::winding` decides a face from a hole, and what it is held against is
-`ENCLOSED` rather than nought. Pointing that at the exact tier would make it
-exact about a number the drawing rounded first. So the drawing goes exact, and
-then the predicates over it mean something.
+  **The shoelace is conditioned rather than pointed anywhere**, and that is the
+  answer rather than a shortcut. It is held against `ENCLOSED` and not against
+  nought, so what it wants is digits and not a sign — and taken about the loop's
+  own first corner instead of about the origin it has them, its terms being the
+  size of the loop rather than products of whole coordinates. Taken about the
+  origin a two-by-two square at a hundred million shut in *nothing*: the
+  arrangement threw the face away for a sliver and the drawing lost it. There
+  were two spellings of that sum, `math::winding` and `Arrangement::area`, and
+  the second is why one fix was not one fix. Both are moved.
+
+**Why that way round.** The predicates had to wait for the drawing. A sign taken
+on a corner the arrangement rounded first is exact about the wrong number, so
+the crossings went exact and then the questions over them started meaning
+something.
 
 **The arithmetic is built.** The tower `ℚ(√δ)(√Δ)` and the interval filter were
 there; the expansions and the lazy construction DAG (§4.2) are there now — a

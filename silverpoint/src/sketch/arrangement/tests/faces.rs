@@ -294,3 +294,36 @@ fn crossings_within_a_rounding_of_each_other_fold_to_one_corner() {
         }
     }
 }
+
+/// **A drawing a hundred million units out encloses what it was drawn to.**
+///
+/// A four-by-four square with a two-by-two square inside it, both about
+/// `(10⁸, 10⁸)`. On the page that is a ring of twelve with one hole and a disc
+/// of four, and `4·4 − 2·2` is the whole hand computation.
+///
+/// Out there it used to be nothing at all. The shoelace was taken about the
+/// origin, so its terms ran to `10¹⁶` where a place in the last is worth two —
+/// the sixteen and the four both came back under [`ENCLOSED`] and both loops
+/// were thrown away as slivers. Taken about each loop's own first corner they
+/// are the areas the drawing has. See [`winding::swept`](crate::math::winding).
+///
+/// **And the hole finds the face it was cut from by a ray**, which out there is
+/// the decision a quotient cannot take: the crossing it works out rounds onto
+/// the same grid the places sit on. See `intersect::blocks`.
+#[test]
+fn a_drawing_far_from_the_origin_encloses_what_it_was_drawn_to() {
+    const K: f64 = 1e8;
+    let mut sketch = Sketch::default();
+    for (low, high) in [(0.0, 4.0), (1.0, 3.0)] {
+        let corner = [(low, low), (high, low), (high, high), (low, high)]
+            .map(|(x, y)| sketch.add_point(DVec2::new(K + x, K + y)));
+        for at in 0..4 {
+            sketch.add_segment(corner[at], corner[(at + 1) % 4]);
+        }
+    }
+
+    let found = Arrangement::of(&sketch);
+    assert!(covers(&found, &[12.0, 4.0]), "{:?}", areas(&found));
+    let holes: Vec<usize> = found.faces().iter().map(Face::holes).collect();
+    assert_eq!(holes, [1, 0], "the hole did not land in the ring");
+}

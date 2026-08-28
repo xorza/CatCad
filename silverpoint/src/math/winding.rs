@@ -39,12 +39,27 @@ impl Place for DVec2 {
 /// other holds it against a bound it can halve as easily as this can double.
 /// Doubling it here and halving it there would be two roundings for no gain.
 ///
+/// **About the run's own first corner, and that is not a nicety.** The shoelace
+/// is the same sum wherever it is taken from, so moving it costs nothing and is
+/// exact rather than approximate — but taken about the origin every term is a
+/// product of two whole coordinates, and what is wanted is the difference
+/// between terms the size of the loop. A unit square at a hundred million has
+/// terms of `10¹⁶`, whose places in the last are worth two apiece, so twice its
+/// area comes back as nought and the arrangement throws the face away for a
+/// sliver. About the first corner the terms are the size of the loop itself and
+/// the answer is the answer.
+///
 /// The run is closed whether or not its last corner repeats its first — the
 /// walk wraps — so a caller need not decide which convention it is using.
 pub(crate) fn swept(walk: &[impl Place]) -> f64 {
+    let Some(first) = walk.first() else {
+        return 0.0;
+    };
+    let first = first.place();
     let mut total = 0.0;
     for (at, &here) in walk.iter().enumerate() {
-        total += here.place().perp_dot(walk[(at + 1) % walk.len()].place());
+        let next = walk[(at + 1) % walk.len()].place() - first;
+        total += (here.place() - first).perp_dot(next);
     }
     total
 }
@@ -53,9 +68,10 @@ pub(crate) fn swept(walk: &[impl Place]) -> f64 {
 /// a ray cast to the right of it crosses.
 ///
 /// Odd is within, which is the Jordan curve theorem and nothing more. Through
-/// [`intersect::rightward`], so that the one place a ray is held against a
+/// [`intersect::blocks`], so that the one place a ray is held against a
 /// straight run is the one the drawing's own containment already goes through
-/// — see [`Arrangement`](crate::Arrangement).
+/// — see [`Arrangement`](crate::Arrangement) — and so that the parity turns on
+/// a determinant rather than on a quotient.
 ///
 /// Says nothing useful about a place *on* the run. A caller that cares whether
 /// it is on one asks [`off`] first.
@@ -68,7 +84,7 @@ pub(crate) fn holds(walk: &[impl Place], at: DVec2) -> bool {
                 from: from.place(),
                 to: walk[(step + 1) % walk.len()].place(),
             };
-            intersect::rightward(span, at).is_some_and(|x| x > at.x)
+            intersect::blocks(span, at)
         })
         .count();
     crossings % 2 == 1
@@ -99,4 +115,51 @@ pub(crate) fn off(walk: &[impl Place], at: DVec2) -> f64 {
         nearest = nearest.min(nearby.distance(at));
     }
     if nearest.is_finite() { nearest } else { 0.0 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// **A unit square a hundred million out shuts in what it shuts in.**
+    ///
+    /// Twice the area of a unit square is 2 wherever it is drawn, and that is
+    /// the whole of the hand computation. Taken about the origin the shoelace's
+    /// terms are `10¹⁶`, whose places in the last are worth two apiece — so
+    /// every term rounds to a multiple of two, the difference of one they were
+    /// meant to show is lost, and the sum comes back as nought. An arrangement
+    /// holds that against `ENCLOSED` and throws the face away for a sliver.
+    ///
+    /// **And the sign is the face-or-hole decision**, so the same square walked
+    /// the other way has to come back at minus two rather than at nought
+    /// either.
+    #[test]
+    fn a_square_far_from_the_origin_shuts_in_what_it_shuts_in() {
+        const K: f64 = 1e8;
+        let square = |at: DVec2| [at, at + DVec2::X, at + DVec2::ONE, at + DVec2::Y];
+        let far = square(DVec2::splat(K));
+
+        // Taken about the origin, which is what this used to be.
+        let naive: f64 = far
+            .iter()
+            .enumerate()
+            .map(|(at, here)| here.perp_dot(far[(at + 1) % far.len()]))
+            .sum();
+        assert_eq!(
+            naive, 0.0,
+            "the terms no longer round, so nothing is tested"
+        );
+
+        assert_eq!(swept(&far), 2.0, "a square out at {K} shut in nothing");
+        assert_eq!(swept(&square(DVec2::ZERO)), 2.0);
+
+        let mut backwards = far;
+        backwards.reverse();
+        assert_eq!(swept(&backwards), -2.0, "the hole did not read as one");
+
+        // Nothing at all encloses nothing, which is the empty walk this used to
+        // reach by not looping.
+        let nowhere: [DVec2; 0] = [];
+        assert_eq!(swept(&nowhere), 0.0);
+    }
 }

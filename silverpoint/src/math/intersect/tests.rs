@@ -624,3 +624,46 @@ fn a_flat_lens_meets_on_the_whole_numbers_it_was_drawn_at() {
         );
     }
 }
+
+/// **A ray finds the edge standing in its way, where the crossing the machine
+/// works out cannot say whether it is in the way at all.**
+///
+/// A short edge out at `1.23·10⁸`, from `(K, K)` to `(K+3, K+7)`, and
+/// sixty-four places walked up its own height. Floats stand `1.5·10⁻⁸` apart
+/// out there, and the crossing's x is a step of three added to a coordinate of
+/// a hundred million — so it rounds onto the very grid the places sit on and
+/// says nothing about which side of the edge any of them falls.
+///
+/// The drawing calls those places distinct: they stand fifteen times [`PLACED`]
+/// apart. So the question has an answer, and it is held here against the very
+/// quotient it replaces, worked out in the exact tier.
+#[test]
+fn a_ray_finds_the_edge_in_its_way_however_the_crossing_reads() {
+    const K: f64 = 123456789.0;
+    let run = span((K, K), (K + 3.0, K + 7.0));
+
+    // The routine's own old formula with nothing rounded: the same crossing
+    // held against the same `at.x`, which is the answer both are owed.
+    let truly = |at: DVec2| {
+        let of = Rational::of;
+        let across = of(run.from.x)
+            + (of(at.y) - of(run.from.y)) / (of(run.to.y) - of(run.from.y))
+                * (of(run.to.x) - of(run.from.x));
+        across > of(at.x)
+    };
+
+    let mut fooled = 0;
+    for step in 0..64u32 {
+        let up = f64::from(step) / 16.0;
+        let at = DVec2::new(K + 3.0 * up / 7.0, K + up);
+        let want = truly(at);
+        assert_eq!(blocks(run, at), want, "the ray answered wrongly at {at:?}");
+        if rightward(run, at).is_some_and(|x| x > at.x) != want {
+            fooled += 1;
+        }
+    }
+    assert!(
+        fooled > 8,
+        "the quotient got only {fooled} of sixty-four wrong, which is no failure to fix",
+    );
+}
