@@ -92,10 +92,10 @@ pub(crate) enum Asking {
     /// viewport stays live under an open form, so a position would name a
     /// different region by the time it committed.
     ///
-    /// **No field at all**, which is what a whole turn asks for: there is no
-    /// number to type. What is left for the form is the one choice a revolve
-    /// still has — what it does with the solid standing before it — and its own
-    /// two buttons, there being no Enter on an empty form to commit with.
+    /// **Two fields where an extrude has one**, which is what a sector asks
+    /// for: where round the line the turn starts, and how far it goes. Both in
+    /// degrees — see [`Prompt::sector`], which is the one place they become the
+    /// radians the kernel takes.
     Revolve {
         profile: Profile,
         axis: SegmentId,
@@ -388,9 +388,15 @@ impl Prompt {
                 },
                 [("Depth", Seed::Offered(0.0))],
             ),
-            // No field at all, a whole turn asking for no number — so the ring
-            // is on screen whole from the moment the form opens, and what is
-            // still being decided is what it does to the model.
+            // A whole turn from the drawing's own place, which is where the
+            // ask starts: the ring is on screen whole from the moment the form
+            // opens, and what somebody types cuts it down. A turn of nothing
+            // would be nothing to see, where a solid at no depth is the
+            // extrude's honest answer to the same question.
+            //
+            // Off the kernel's own whole turn rather than the number, so the
+            // two cannot come to mean different amounts — [`Prompt::sector`] is
+            // where the form's degrees meet its radians.
             Opening::Revolve { profile, axis } => Self::on(
                 form,
                 Asking::Revolve {
@@ -398,7 +404,10 @@ impl Prompt {
                     axis,
                     operation: Operation::Join,
                 },
-                [],
+                [
+                    ("Start", Seed::Offered(0.0)),
+                    ("Turn", Seed::Offered(Sector::WHOLE.sweep.to_degrees())),
+                ],
             ),
         })
     }
@@ -412,10 +421,9 @@ impl Prompt {
     /// arms of different *lengths* would not agree on a type.
     ///
     /// **A form with no field has to carry its own way out**, which is the one
-    /// thing asserted here. Nothing to type into is fine — a whole turn asks
-    /// for no number — but a form dismissed by *clicking away* and holding no
-    /// button would be one nothing could answer. That is [`Prompt::blurs`], so
-    /// the two are asked together.
+    /// thing asserted here. Nothing to type into is fine, and a form dismissed
+    /// by *clicking away* and holding no button would be one nothing could
+    /// answer. That is [`Prompt::blurs`], so the two are asked together.
     ///
     /// And such a form stands *beside* what it is about, never over it:
     /// [`Prompt::over`] and [`Prompt::run`] index the first field rather than
@@ -512,7 +520,7 @@ impl Prompt {
             Asking::Extrude { .. } => Sweep::Carried(self.shows(0)?),
             Asking::Revolve { axis, .. } => Sweep::Spun {
                 axle: Axle::of(models.at(profile.sketch())?.drawing().sketch(), *axis),
-                sector: Sector::WHOLE,
+                sector: self.sector(Self::shows)?,
             },
             Asking::Dimension { .. } | Asking::Circle { .. } => return None,
         };
@@ -521,6 +529,25 @@ impl Prompt {
             profile,
             sweep,
             operation: self.doing()?,
+        })
+    }
+
+    /// How much of a turn the form's two fields describe, in the radians the
+    /// kernel takes.
+    ///
+    /// **Degrees on the form and radians below it**, and this is the one place
+    /// the two meet. Every other number a form asks for is a length in the
+    /// sketch's own units, so an angle is the first with a unit of its own —
+    /// stated once here rather than at each reader, which is what keeps a form
+    /// showing one number and a step built from another.
+    ///
+    /// `read` is which reading the caller wants, the two being different
+    /// questions: what the drawing *shows* while somebody is still typing, and
+    /// what a commit *says*. See [`Prompt::shows`] and [`Prompt::says`].
+    fn sector(&self, read: fn(&Self, usize) -> Option<f64>) -> Option<Sector> {
+        Some(Sector {
+            from: read(self, 0)?.to_radians(),
+            sweep: read(self, 1)?.to_radians(),
         })
     }
 
@@ -755,18 +782,20 @@ impl Prompt {
                     operation: *operation,
                 });
             }
-            // The same, and simpler for having nothing to read off a field: a
-            // whole turn asks for no number, so what is settled here is the
-            // one choice the form was open for.
+            // The same, off two fields rather than one — see
+            // [`Prompt::sector`], which is where degrees become radians.
             Asking::Revolve {
                 profile,
                 axis,
                 operation,
             } => {
+                let Some(sector) = self.sector(Self::says) else {
+                    return;
+                };
                 intents.push(Change::Revolve {
                     profile: profile.clone(),
                     axis: *axis,
-                    sector: Sector::WHOLE,
+                    sector,
                     operation: *operation,
                 });
             }
@@ -992,7 +1021,7 @@ impl Prompt {
                 // which is the same question [`Prompt::blurs`] answers.
                 // Nothing to focus on a form with no field, and asking every
                 // frame for a widget that is not there would take focus off the
-                // buttons that *are* — which for a revolve are the only way out.
+                // buttons that *are*.
                 if (opening || !blurs) && !fields.is_empty() {
                     ui.request_focus(Some(Self::field_id(0)));
                 }
@@ -1162,9 +1191,9 @@ pub(crate) mod internals {
 
         /// What the button answering with `marked` is recorded under.
         ///
-        /// A form with a field is answered with Enter, which a harness types.
-        /// One with none — a whole turn asks for no number — can only be
-        /// answered by pressing what it draws.
+        /// Every form here is answered with Enter as well, which a harness
+        /// types. What this is for is a harness that means to press the button
+        /// — the other way out, and the only one a form with no field has.
         pub(crate) fn answering_id(marked: Marked) -> WidgetId {
             Self::answer_id(marked)
         }

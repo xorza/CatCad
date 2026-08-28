@@ -1637,12 +1637,17 @@ own handle the way a region is named by its bounds: so it survives the geometry
 moving and being cut into pieces, one drawing holds both, and a drag through the
 sketch carries the axis along with the profile.
 
-**Two picks and no number.** Every other form takes picks and then a *number*,
-and a whole turn asks for none — so the ring is on screen whole from the moment
-the form opens, and the one thing left to choose is what it does to the model.
-It opens on a join, which is what a second solid means unless somebody says
-otherwise, and it is answered by its own button rather than by an Enter it has
-no field to take.
+**Two picks and two numbers.** The form asks where round the line the turn
+starts and how far it goes, seeded at nought and a whole turn — so the ring is
+on screen whole from the moment the form opens and what somebody types cuts it
+down. It opens on a join, which is what a second solid means unless somebody
+says otherwise.
+
+**Degrees on the form and radians below it**, which is the one place the two
+units meet: every other number a form asks for is a length in the sketch's own
+units, so an angle is the first with a unit of its own. `Prompt::sector` states
+the turn once for both readings — what the drawing shows while somebody is
+typing, and what a commit settles.
 
 *Which cost the form one rule and bought it a better one.* A form asking for
 nothing used to be a compile error, because one would stand on the drawing with

@@ -222,12 +222,12 @@ pub(crate) enum Opening {
     /// profile of several regions is a list an intent cannot carry by position
     /// and stay `Copy` — see [`Intent`].
     Extrude { profile: Profile },
-    /// Spin a solid a whole turn off the regions a profile names, about a line
-    /// of that drawing.
+    /// Spin a solid off the regions a profile names, about a line of that
+    /// drawing.
     ///
     /// The extrude's twin above, and it names its regions the same way and for
-    /// the same reason. It seeds no number, a whole turn asking for none — so
-    /// the form is open for the one choice a revolve still has.
+    /// the same reason. It seeds a whole turn from the drawing's own place, so
+    /// the ring is on screen whole from the moment the form opens.
     Revolve { profile: Profile, axis: SegmentId },
 }
 

@@ -749,18 +749,21 @@ fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
 /// does** — which is what `.notes/KERNEL.md` §10's first rule owes M6: a step of
 /// a document a user can make.
 ///
-/// **Two picks and no number.** A whole turn asks for none, so the ring is on
-/// screen whole from the moment the form opens and the one thing left to choose
-/// is what it does to the model. It opens on a join, as the extrude's form
-/// does, and the cut here is what says the choice reaches the timeline.
+/// **Two picks and a whole turn to start from**, so the ring is on screen whole
+/// from the moment the form opens and what somebody types cuts it down. It
+/// opens on a join, as the extrude's form does, and the cut here is what says
+/// the choice reaches the timeline.
 ///
-/// **And it is answered by its own button**, there being no field to press
-/// Enter in. What the two picks make of each other is the kernel's to answer,
-/// and it does — see
-/// `a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces`.
+/// **And the turn is typed in degrees and lands in radians**, which is the one
+/// place the two units meet — see [`Prompt::sector`](crate::prompt::Prompt).
+/// What the two picks make of each other is the kernel's to answer, and it does
+/// — see `a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces`.
 ///
 /// The step is one a Ctrl+Z takes back, which a creation nothing recorded would
 /// not be.
+/// How much of a turn the test below types, in the degrees the form asks for.
+const TURN_TYPED: f64 = 90.0;
+
 #[test]
 fn picking_a_region_and_a_line_offers_a_revolve_and_the_form_settles_what_it_does() {
     let mut raised = Raised::new();
@@ -821,9 +824,16 @@ fn picking_a_region_and_a_line_offers_a_revolve_and_the_form_settles_what_it_doe
         "pressing Revolve reached the document before the form was answered"
     );
 
-    // The word changed, and then answered by the form's own button — there
-    // being no field to press Enter in.
+    // The word changed, a quarter of a turn typed into the second field, and
+    // then answered by the form's own button. Through the inbox rather than the
+    // keyboard because that is what the field's own handle will send, and
+    // because the form opens focused on the *first* field.
     raised.press(Prompt::operation_id(marked::CUTS));
+    raised.frame();
+    raised.choose(Choice::Set {
+        nth: 1,
+        to: TURN_TYPED,
+    });
     raised.frame();
     raised.press(Prompt::answering_id(marked::CONFIRM));
     raised.frame();
@@ -834,17 +844,30 @@ fn picking_a_region_and_a_line_offers_a_revolve_and_the_form_settles_what_it_doe
         .filter(|(_, feature)| matches!(feature, Feature::Revolve { .. }))
         .last()
         .expect("pressing Revolve grew no step");
-    assert!(
-        matches!(
-            feature,
-            Feature::Revolve {
-                axis: about,
-                operation: Operation::Cut,
-                ..
-            } if *about == axis
-        ),
-        "the pick and the form's own word did not both reach the timeline: {feature:?}",
+    let Feature::Revolve {
+        axis: about,
+        sector,
+        operation,
+        ..
+    } = feature
+    else {
+        unreachable!("the step just filtered for");
+    };
+    assert_eq!(*about, axis, "the picked line did not reach the timeline");
+    assert_eq!(
+        *operation,
+        Operation::Cut,
+        "the form's own word did not reach the timeline",
     );
+    // **Typed in degrees and held in radians**, which is the whole of what the
+    // conversion has to get right: a quarter of a turn is `π/2`, and a form
+    // that handed its number over unturned would read as fifty-seven turns.
+    assert!(
+        (sector.sweep - TURN_TYPED.to_radians()).abs() < 1e-12,
+        "the turn reached the timeline as {}, not {TURN_TYPED} degrees",
+        sector.sweep,
+    );
+    assert_eq!(sector.from, 0.0, "the form seeded a start of its own");
     assert_eq!(
         raised.models().chosen().count(),
         steps + 1,

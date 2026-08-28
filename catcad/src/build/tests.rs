@@ -712,4 +712,19 @@ fn a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring() {
     let models = quarter.models();
     let (_, body) = models.solids().next().expect("the revolve raised no solid");
     assert_eq!(body.names().count(), 3, "a quarter turn raised no caps");
+
+    // **A turn of nothing comes to nothing, and is not lost.** The two are
+    // different answers about a step: a name that stopped fitting is a step
+    // with nothing to stand on, where this one stands on a region it still
+    // finds and sweeps no space — which is what an extrude of no depth is.
+    let none = Spun::new(Sector {
+        from: 0.0,
+        sweep: 0.0,
+    });
+    let models = none.models();
+    assert_eq!(models.lost(), 0, "a turn of nothing lost its footing");
+    assert!(
+        models.solids().next().is_none(),
+        "a turn of nothing swept a solid",
+    );
 }

@@ -1,7 +1,7 @@
 # The revolve form
 
-One fault is left, found by use. It has a cause in the structure, not in a
-detail. This note gives the cause and the steps.
+One thing is left, and it is convenience rather than a fault: a revolve's
+angles are typed where an extrude's depth is dragged.
 
 Read with `.notes/KERNEL.md` §8 (the document) and §9.2 (the revolve record).
 
@@ -22,32 +22,11 @@ later.
 
 ---
 
-## A revolve takes no start angle and no total angle
+**A revolve took no start angle and no total angle.** The kernel built one
+shape, and everything above it repeated the claim. Three layers closed it, and
+each one is written out below.
 
-### What happens
-
-The form has no field. A revolve is always a whole turn.
-
-### The cause
-
-The kernel builds one shape. `silverpoint/src/solid/build/revolving.rs` says so
-in its own words: *"A whole turn and no other, which is what makes it one shape
-rather than two. Spun part way a region has two ends, and those are caps."*
-`Revolving::raise` raises walls, edges, loops and shells. It raises **no caps**.
-
-Everything above the kernel then repeats the claim. `Feature::Revolve` holds a
-profile, an axis and an operation. `Sweep::Spun(Option<Axle>)` holds a line and
-nothing else. `Asking::Revolve` holds no field, and `Prompt::on` carries a
-`debug_assert!` that permits the empty form.
-
-So this is not a form fault. It is a kernel capability the document and the form
-both follow.
-
-### The fix
-
-Four layers, in order. Each one compiles and is testable on its own.
-
-#### 2a. The kernel takes a turn — **done**
+### The kernel takes a turn
 
 `Revolution` takes a `Sector { from, sweep }`, both in radians and the sweep
 signed. `Sector::WHOLE` is what every caller passes today.
@@ -75,7 +54,7 @@ either side of a third of a turn, the same solid spun backwards, a cone wedge
 that keeps both poles, and a partial turn of a profile with a hole reporting no
 cavity.
 
-#### 2b. The document carries the turn — **done**
+### The document carries the turn
 
 A step carries the kernel's own `Sector` rather than two loose numbers: one
 type, one meaning, and it is exactly what `Revolution::new` takes.
@@ -100,40 +79,34 @@ two caps a whole turn does not, the written file spells the sector out, a
 document with one comes back the way it went in, and a sweep that is not a
 number is refused.
 
-#### 2c. The form asks for the two angles
+### The form asks for the two angles
 
-**Step 2c.1 — two fields.**
-- `Opening::Revolve` and `Asking::Revolve` gain `from` and `sweep`.
-- `Prompt::opening` seeds them:
-  `[("Start", Seed::Offered(0.0)), ("Turn", Seed::Offered(360.0))]`.
-- `Seed::Offered` is right. The value is one nobody has decided, the draft opens
-  empty, and the first keystroke lands clean.
+Two fields, **Start** and **Turn**, seeded at nought and a whole turn — so the
+ring is on screen whole from the moment the form opens and what somebody types
+cuts it down.
 
-**Step 2c.2 — degrees at the edge.**
-- Every other number in a form is a length in sketch units. An angle is the
-  first number with a different unit.
-- The form shows **degrees**. The kernel takes **radians**. Convert in
-  `Prompt::growing` and `Prompt::commit`, which is where the form already turns
-  a draft into a request.
-- Do not convert in the kernel and do not store degrees in the timeline. One
-  unit per layer, decided once.
+- **Degrees on the form and radians below it.** `Prompt::sector` is the one
+  place the two meet. It takes which reading the caller wants, `shows` or
+  `says`, because what the drawing shows while somebody types and what a commit
+  settles are different questions.
+- No new field on `Asking::Revolve` or `Opening::Revolve`: the angles are drafts,
+  exactly as an extrude's distance is.
+- Enter answers the form now, and its two buttons still do.
+- A turn of nothing comes to nothing and is **not** lost — the same answer an
+  extrude of no depth gives, about a step that still stands on a region it
+  finds.
 
-**Step 2c.3 — Enter works again.**
-- The form gains fields, so it is answered by Enter as well as by its buttons.
-- `Prompt::blurs` stays `false` for a revolve. The buttons stay. Both are ways
-  out, which `Prompt::on`'s assertion already permits.
+Tests: the editing test types a quarter turn into the second field and the step
+holds `π/2`, which is what says the conversion happens once and the right way
+round. A turn of nothing raises no solid and loses no footing.
 
-**Step 2c.4 — a turn of nought is empty, not broken.**
-- A sweep of zero raises no solid. `Bodied::rebuild` reports `Built::Empty`,
-  which is the same answer an extrude of no depth gives.
-- This is correct and needs no new arm. It does make the open legibility item
-  below reachable from a revolve as well as from an extrude.
+---
 
-#### 2d. A handle for the angle (do this last)
+## A revolve's angle has no handle
 
 An extrude's depth has an arrow the pointer drags — `Prompt::carrying` and
-`gizmos::Carried`. A revolve's angle has nothing, so the placeholder never
-moves.
+`gizmos::Carried`. A revolve's two angles have nothing, so they are typed and
+the placeholder never moves.
 
 - Add a ring handle about the axis, dragged to set the sweep, on the model
   `Carried` gives.
@@ -143,27 +116,6 @@ moves.
   is convenience, which the posture ranks below correctness and precision.
 
 ---
-
-## What these make false
-
-Prose to rewrite, found while reading. Each is a claim the code will no longer
-support.
-
-- `Asking::Revolve` — *"No field at all, which is what a whole turn asks for."*
-- `Prompt::opening` — *"No field at all, a whole turn asking for no number."*
-- `Prompt::on` — *"Nothing to type into is fine — a whole turn asks for no
-  number."*
-- `Prompt::beside` — the focus comment on a form with no field.
-- `Prompt::internals::answering_id` — *"One with none … can only be answered by
-  pressing what it draws."*
-- `.notes/KERNEL.md` §9.2 — *"Two picks and no number"*, and *"What is left of
-  the revolve is a partial turn"*, which this closes.
-
----
-
-## Order
-
-2c, then 2d, which is convenience and comes last.
 
 ## Related, still open
 
