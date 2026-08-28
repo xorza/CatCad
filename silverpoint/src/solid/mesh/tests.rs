@@ -27,9 +27,27 @@ const STEP: Step = Step(0);
 
 /// A two-by-two block three deep, standing with one corner on the origin.
 fn block() -> Body {
+    prism(&[&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]], 0.0)
+}
+
+/// The polygons in `outlines` carried three deep off the ground, with every
+/// corner moved `out` along both axes first.
+///
+/// A second outline inside the first is a bore: the face raised is the ring
+/// between them, so the solid comes out with a hole through it.
+///
+/// `out` is what tells a solid drawn at the origin from the same one drawn a
+/// long way from it, which several answers below turn out to depend on.
+fn prism(outlines: &[&[(f64, f64)]], out: f64) -> Body {
     let mut sketch = Sketch::default();
-    sketch.outline(&[(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)]);
+    let mut moved = Vec::new();
+    for outline in outlines {
+        moved.clear();
+        moved.extend(outline.iter().map(|&(x, y)| (x + out, y + out)));
+        sketch.outline(&moved);
+    }
     let found = Arrangement::of(&sketch);
+    assert!(!found.faces().is_empty(), "the outlines enclosed nothing");
     Extrusion::new(&found, 0, Plane::GROUND, 3.0, STEP).body()
 }
 
@@ -393,4 +411,65 @@ fn a_curved_face_wider_than_it_is_tall_still_follows_its_surface() {
         last = off;
     }
     assert!(last < 1e-3, "the wall never converged: {last} short");
+}
+
+/// **A flat body measures exactly what it was drawn to measure, wherever it is
+/// drawn.**
+///
+/// The test `.notes/KERNEL.md` M0 owes: hand-computed values, held with `==`
+/// rather than to a tolerance. Nothing here is chorded — every face is a
+/// polygon — so the sagitta buys nothing and the answer is arithmetic alone.
+///
+/// **The block.** Two by two, three deep: twelve of space, and a skin of two
+/// caps at four apiece and four walls at six, which is thirty-two.
+///
+/// **And a block turned off the axes**, so that no coordinate is a whole
+/// number by accident of the drawing: a five-by-five square whose sides step
+/// three across and four up. Twenty-five of area three deep is seventy-five,
+/// and its skin is two caps of twenty-five and four walls of fifteen, which is
+/// a hundred and ten.
+///
+/// **And the block bored through.** A one-by-one hole down the middle leaves
+/// nine of space — and forty-two of skin, which is a cap of three twice over,
+/// twenty-four of outer wall and twelve of bore wall. That is what a skin
+/// catches and a volume cannot: the walls of the hole cost the space shut in
+/// nothing and are better than a quarter of the surface.
+///
+/// **Then all three a hundred and twenty-three million units out.** The volume
+/// is the divergence sum, whose every term is a product of *three* coordinates
+/// — so taken about the world origin the turned block out there read
+/// seventy-three and a half and the square one read six, which is half the
+/// solid. Taken about a corner of the shell the terms are the size of the block
+/// and the answer is the answer. See [`Mesher::shut_in`].
+#[test]
+fn a_flat_body_measures_exactly_what_it_was_drawn_to_measure() {
+    const K: f64 = 123456789.0;
+    let square = [(0.0, 0.0), (2.0, 0.0), (2.0, 2.0), (0.0, 2.0)];
+    let bore = [(0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)];
+    let turned = [(0.0, 0.0), (4.0, 3.0), (1.0, 7.0), (-3.0, 4.0)];
+    let mut mesher = Mesher::default();
+    for out in [0.0, K] {
+        for (outlines, volume, area) in [
+            (&[&square[..]][..], 12.0, 32.0),
+            (&[&turned[..]][..], 75.0, 110.0),
+            (&[&square[..], &bore[..]][..], 9.0, 42.0),
+        ] {
+            let body = prism(outlines, out);
+            // Coarse and fine alike, because a body of polygons has nothing to
+            // chord: a sagitta that changed either answer would mean a flat
+            // face was being cut into something that is not flat.
+            for sagitta in [1.0, 1e-6] {
+                assert_eq!(
+                    mesher.volume(&body, sagitta),
+                    volume,
+                    "{out} out at {sagitta}: the space shut in",
+                );
+                assert_eq!(
+                    mesher.area(&body, sagitta),
+                    area,
+                    "{out} out at {sagitta}: the skin",
+                );
+            }
+        }
+    }
 }

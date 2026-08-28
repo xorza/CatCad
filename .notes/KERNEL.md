@@ -186,9 +186,11 @@ All four are exact as well as recorded, and so is every branch the three
 crossing routines take: a span grazes a circle when `r²·|d|² − (f ⟂ d)²` is
 nought, a root lands on the span when `Δ` holds against a value squared, and two
 rings touch when `4d²r₁² − (d² + r₁² − r₂²)²` is nought. Polynomial throughout,
-and settled by the tier. What still rounds is *where* a round crossing falls as a place, the root
-having a square root in it. That is 9.1's remaining work, and why `number/` is
-shared *downward*: the drawing and the body read one tolerance from one file.
+and settled by the tier. *Where* a round crossing falls has a square root in it and leaves ℚ, so the
+place is the machine's and cannot be the tier's — but it comes off coefficients
+the tier worked out, which is as good as a place can be held, and the routine
+records whatever it could not reach. Which is why `number/` is shared
+*downward*: the drawing and the body read one tolerance from one file.
 
 Where exactness stops, the discipline takes over:
 
@@ -507,8 +509,9 @@ nothing else. Everything under `topology/` and `geometry/` is `pub(crate)`.
 Three notes on the shapes. `Body` keeps no `lumps` list, the arena already
 enumerating them. `Face`'s loops and `Shell`'s faces are ranges into flat
 buffers (§4.5). `Vertex` holds a position rather than the surfaces it stands at,
-because the surfaces are only worth holding once the arithmetic can re-derive
-the point from them exactly, which is 9.1.
+because the surfaces are only worth holding once a vertex can be re-derived from
+them exactly — which is a construction carried as its own history
+(`number::exact::lazy`), and nothing yet needs one.
 
 ## 7. The algorithms
 
@@ -740,7 +743,7 @@ hang it on.
   through the mesher and read for its sign alone — the one break a shell turned
   through itself does not otherwise show.
 
-One gap, and it is 9.3: **loops non-self-intersecting in parameter space**,
+One gap, and it is 9.2: **loops non-self-intersecting in parameter space**,
 which wants the intersection routines it is meant to check.
 
 Run after every operation under `cfg!(debug_assertions)`, and directly in every
@@ -804,9 +807,8 @@ mesh, which is what makes a cylinder read as one curved wall at any sagitta.
 
 ## 9. What is left, in order
 
-M0's geometry, topology and validity, M1, M2, M3a, M4, and M5 less its quartic
-are in the tree. Five pieces of work are not. Verification per house rule, one
-`-p` per crate touched:
+M0, M1, M2, M3a, M4, and M5 less its quartic are in the tree. Four pieces of
+work are not. Verification per house rule, one `-p` per crate touched:
 
 ```
 cargo fmt -p <crate> && cargo clippy -p <crate> --all-targets --all-features -- -D warnings && cargo test -p <crate> --lib --tests --all-features
@@ -823,6 +825,16 @@ at a constant — `paint::Chorded`, stepped in powers of two so an orbit remakes
 nothing and a zoom remakes the solids a handful of times, which is what §1's
 view-adaptive tessellation asks for and the last thing M2 owed.
 
+**M0 is done, and four things it settled are worth a line each.** Every branch
+the drawing's crossing routines take is a polynomial in the places and the
+radii, decided by the filter and settled by the tier behind it. A round
+crossing's *place* comes off coefficients worked out exactly and read back, so
+it is as good as the machine can hold one. The ray cast that decides containment
+is a determinant and not a quotient. And three sums that were taken about the
+world origin are taken about the loop's or the shell's own first corner — two
+shoelaces and the divergence theorem, without which a two-by-two block drawn at
+a hundred and twenty million shut in six.
+
 **One thing left over is a ghost**, and it wants work in `aperture3d` rather
 than in `paint/`: an `Object` carries a `Vec3` colour and the only translucent
 mesh pass is the flat sheets a drawing's regions are filled with, so there is
@@ -830,153 +842,23 @@ nothing for a solid to be drawn faintly *in*. Worth having for two cases — a
 tool too detailed to combine, and a cut whose result is hidden behind the part
 from the current camera — and neither is worth a pass on its own yet.
 
-### 9.1 M0 — exact numbers
-
-The largest single piece, and it shows nothing on screen. Two parts, and they
-are in this order because the second cannot be done first:
-
-- **The drawing goes exact.** The *recording* is done, which is §4.1's own rule:
-  every one of the four decisions a drawing takes within tolerance hands back
-  how far it reached, the reaches combine at the corner, and a vertex raised
-  there carries that rather than a blanket `PLACED`. A drawing whose curves meet
-  where they were drawn raises a body exact in its vertices.
-
-  **Segment against segment is exact.** Every question a pair of straight spans
-  asks is a 2×2 determinant of the four places — whether they run parallel, and
-  whether the crossing falls between the ends of either — so `math::intersect`
-  asks the filter and falls to an expansion where it declines. It decides twice
-  over: a crossing that lands on both spans is *found*, which the machine alone
-  turns away when the coordinates are large enough that a determinant loses more
-  than the slack is wide; and it stands for nothing, where before it stood for
-  whatever the parameter rounded to.
-
-  **And a span against a circle knows which of the three it does.** Whether it
-  misses, grazes or goes through is `Δ/4 = r²·|d|² − (f ⟂ d)²` by Lagrange's
-  identity — polynomial in the places and the radius, so the filter answers it
-  and the rational tier settles what the filter declines. Read off coefficients
-  that have already rounded, a tangent scaled up until the products need more
-  than a float holds comes back as two crossings a bus length apart. That is
-  §7.3's tangency, decided.
-
-  **And a root's place on the span is exact too**, without a square root
-  anywhere in the ladder: `t ≥ 0` asks whether `±√Δ` reaches a value, and
-  holding a root against a value is holding `Δ` against that value squared once
-  the value's own sign is known. Polynomial again, so the filter settles what is
-  not close and the rational tier the rest.
-
-  **Which order the ladder asks in decides whether a frame reaches the heap.**
-  The exact tier is bignums and a coincidence always reaches it (§4.2), so a
-  question put to the filter in the wrong order costs an allocation on a frame
-  a drag runs. Asking the *sign of a value near nothing* first is asking the one
-  thing a filter can never answer; asking the squares first answers both cases
-  and leaves the sign for where it is already clear. CatCad's dragging gate is
-  what says so — it went from a strict zero to five blocks and back.
-
-  **Two rings are decided the same way.** Their chord's discriminant is
-  `4d²r₁² − (d² + r₁² − r₂²)²`, with `d²` the square of how far the centres
-  stand apart — the distance has a square root in it and the decision does not.
-  So every crossing routine the drawing has now takes its branch off the places
-  and the radii: `spans`, `span_ring` and `rings` alike.
-
-  **So a drawing raises an exact body wherever its curves were drawn to meet**,
-  and now wherever they merely *cross* as well: a run straight through a square
-  and a chord across a circle both raise vertices standing for nothing, their
-  corners having been worked out rather than read off the drawing. That is
-  §4.1's claim, held by a test rather than argued.
-
-  **And a round crossing is placed as well as it is decided**, which a decided
-  sign alone does not buy. A root leaves ℚ — `(−leaning ± √apart)/along` has a
-  square root in it — so the place is the machine's and cannot be the tier's.
-  What the tier can do is hand the machine numbers with nothing cancelled in
-  them: the quadratic's four coefficients are worked out exactly and read back,
-  and the root comes off those. Whether that is needed is asked rather than
-  assumed. `Filtered` carries a bound through the root and the division too, so
-  a routine holds the place it worked out against what any check of that place
-  could tell, and reaches the exact tier only where the two do not agree.
-
-  A discriminant keeps its sign long after it has stopped keeping its digits,
-  and a chord across the outer part of a large circle is where the two part:
-  read off `b² − 4ac` it lands sixty thousand times `PLACED` from where the
-  drawing put it, and off the exact tier it lands on the whole numbers the drawing has.
-  Two rings are the same story through their chord. And the *guard* is what
-  keeps a drawing off the heap: a pair that meets nowhere is answered before
-  any place is worked out, because the clamped root of a discriminant under
-  nothing is wide enough to send every miss to the bignums for an answer nobody
-  reads. There is a gate on it.
-
-  What is left is a corner *held* exactly rather than worked out exactly — the
-  construction DAG in `number::exact::lazy`, which still has no caller. Nothing
-  the drawing does needs one: a place good to the machine's own floor is a place
-  nothing downstream can tell from the truth. What would need one is comparing
-  two round corners from *different* pairs, and that is a compositum of two
-  quadratic extensions rather than the two storeys §4.2 caps the tower at. The
-  fold compares them within `PLACED` and records the gap, which is §4.1's rule
-  rather than a shortcut past it. So the half nobody costed is not in the way of
-  anything, and M3b is what will find out whether it ever is.
-
-  **And the tolerance model allows for where a body is drawn.**
-  `predicate::slack` gave a check an absolute nanometre where a float's error is
-  a proportion, so a body a hundred million units from the origin failed its own
-  validity check. It now carries both: `ROUNDING` as the floor, and `DRIFTING`
-  as what a value of that size is written down to. The size is the *arithmetic's*
-  rather than the answer's — a line reaching back from far away lands next to
-  the origin off terms a hundred million wide — so a curve says how large it
-  works and the check asks it.
-- **The predicates over the drawing point through the exact tier.** The one that
-  had to is the ray cast. A containment is a *parity*, so one edge decided
-  wrongly puts a place inside a face that does not hold it, and there is no
-  tolerance for it to be nearly right by. `intersect::blocks` takes it off one
-  determinant of three places rather than off a crossing worked out with a
-  division, and `winding::holds` and `Arrangement::encloses` both go through it.
-  Out at a hundred million the quotient rounds onto the very grid the places sit
-  on: it got twenty-seven of sixty-four wrong, over places the drawing itself
-  calls fifteen `PLACED` apart.
-
-  **The shoelace is conditioned rather than pointed anywhere**, and that is the
-  answer rather than a shortcut. It is held against `ENCLOSED` and not against
-  nought, so what it wants is digits and not a sign — and taken about the loop's
-  own first corner instead of about the origin it has them, its terms being the
-  size of the loop rather than products of whole coordinates. Taken about the
-  origin a two-by-two square at a hundred million shut in *nothing*: the
-  arrangement threw the face away for a sliver and the drawing lost it. There
-  were two spellings of that sum, `math::winding` and `Arrangement::area`, and
-  the second is why one fix was not one fix. Both are moved.
-
-**Why that way round.** The predicates had to wait for the drawing. A sign taken
-on a corner the arrangement rounded first is exact about the wrong number, so
-the crossings went exact and then the questions over them started meaning
-something.
-
-**The arithmetic is built.** The tower `ℚ(√δ)(√Δ)` and the interval filter were
-there; the expansions and the lazy construction DAG (§4.2) are there now — a
-number carried as a reading and as the history that would make it again, in one
-buffer rather than a block per operation, collapsing at a feature boundary so a
-timeline cannot grow an unbounded expression graph.
-
-Deliberately before M3b: the exactness tier is a claim the arithmetic either
-supports or does not, and finding out at M4 would be finding out too late.
-
-**Tests owed.** Volume and surface area matching hand-computed values
-**exactly** rather than to a tolerance, which needs the exact arithmetic to be
-true at all.
-
-### 9.2 M3b — the algebraic parameterization
+### 9.1 M3b — the algebraic parameterization
 
 What is left of §7.3: a smooth quartic parameterized exactly as
 `X₁(u,v) ± X₂(u,v)·√Δ(u,v)`, all components separated, all degeneracies handled,
 near-optimal in square roots. A pencil, a repeated-root test by polynomial gcd,
 exact 4×4 congruence diagonalization, a ruled member found by choosing an
 integer point, a split into hyperbolic planes, and the quadratic tower. `Curve`
-gains its `Quartic` arm (§4.6). Needs 9.1.
+gains its `Quartic` arm (§4.6).
 
 **Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
 the published classification, and every result is asserted to be in the exact
 tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
 not a warning.
 
-### 9.3 M5's remaining tests, and §7.5's gap
+### 9.2 M5's remaining tests, and §7.5's gap
 
-Both fall out of 9.2.
+Both fall out of 9.1.
 
 **Tests.** Two equal perpendicular cylinders give the Steinmetz solid, whose
 intersection volume is exactly `16r³/3` — an analytic cross-check that catches
@@ -987,7 +869,7 @@ steps still build.
 **The checker.** Loops non-self-intersecting in parameter space, which wants the
 intersection routines it is meant to check.
 
-### 9.4 M6 — the fitted tier: torus, and marching
+### 9.3 M6 — the fitted tier: torus, and marching
 
 Torus surfaces, marched intersection, loop detection, fit bounds recorded, and
 the body's exactness report going false for the first time. `Surface` gains its
@@ -1003,7 +885,7 @@ and the same cut over the exact tier still reports exact. And the case the
 literature says will be missed: a shallow near-tangential intersection that
 produces a small closed loop.
 
-### 9.5 M7 — fillet, chamfer, STEP
+### 9.4 M7 — fillet, chamfer, STEP
 
 What edges as first-class entities are for, and the reason for all of the above.
 A plane/plane fillet is a cylinder and stays exact; a plane/cylinder-
@@ -1033,19 +915,23 @@ Either true of a commit or not.
    a hole, sink a pocket, mill a flat and stand a boss, all of it exact.
 6. **Do not extrapolate.** M1–M2 were the comfortable part, and M3a came in
    behind them cheaply because the degenerate cases are geometry rather than
-   algebra. M3b is where the truth is, and it cannot start before M0's
-   arithmetic.
+   algebra. M3b is where the truth is, and M0's arithmetic is under it now.
 
 ---
 
 ## 11. Scale, and what it costs
 
-**M0 is the biggest single piece**, and none of it shows on screen. The
-arithmetic is built and the fold is recorded. What is left is under the drawing
-rather than in it: the 2D crossing routines work in `f64`, and a circle's
-crossing is not a float at all once it is exact — so the arrangement would have
-to stop holding a corner as a `DVec2`. That is the half nobody costed, and it is
-the last thing between the tree and §4.1's claim in full.
+**M0 was the biggest single piece and none of it showed on screen**, which is
+the shape to expect of the rest. What it cost was not the arithmetic, which the
+spike had already sized: it was that a decision and a *place* are two questions,
+and a sum that keeps its sign has long since stopped keeping its digits. Half of
+the work was finding the second question under the first, three times over.
+
+What it did not need was the one thing it was expected to. A corner still holds
+as a `DVec2`, because a place as good as the machine can hold one is a place
+nothing downstream can tell from the truth. Carrying a construction instead
+would only pay where two round corners from *different* pairs are compared, and
+nothing asks that.
 
 **M3b is the real work.** M3a came in behind M2 for a fraction of its estimate —
 the reducible cases are a page of vector algebra each — and M4 and M5's

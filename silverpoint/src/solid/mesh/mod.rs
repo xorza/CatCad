@@ -113,6 +113,15 @@ impl Mesher {
     /// The same bargain the sounder and the splitter strike, one more time —
     /// classify with a polyline, build with the curve.
     ///
+    /// **About a corner of the shell rather than about the world origin.** The
+    /// sum is the same wherever it is taken from — that is the divergence
+    /// theorem and not a nicety — but every term of it is a *product of three*
+    /// whole coordinates, so a small solid a long way out is the difference
+    /// between numbers cubed. A two-by-two block three deep, drawn at a hundred
+    /// and twenty million, shuts in six. Half the solid, and a shell whose sign
+    /// decides whether it is a cavity has no digits left to decide it with.
+    /// About one of its own corners the terms are the size of the block.
+    ///
     /// `into` is the room it cuts in, emptied a face at a time and left holding
     /// the last of them — the caller's, like [`Mesher::cut`]'s, because a
     /// boolean measures every shell it sews, the validity check measures them
@@ -126,11 +135,16 @@ impl Mesher {
         sagitta: f64,
         into: &mut Patch,
     ) -> f64 {
+        let mut about: Option<DVec3> = None;
         let mut total = 0.0;
         for &at in held {
             into.clear();
             self.patch(of.topology(), of.topology().face(at), sagitta, into);
-            let corner = |at: u32| into.corners[at as usize];
+            let Some(&first) = into.corners.first() else {
+                continue;
+            };
+            let from = *about.get_or_insert(first);
+            let corner = |at: u32| into.corners[at as usize] - from;
             for &[a, b, c] in &into.triangles {
                 total += corner(a).dot(corner(b).cross(corner(c)));
             }
@@ -236,10 +250,39 @@ mod internals {
         /// comes out negative rather than merely wrong by a bit.
         ///
         /// Independent of where the origin sits, which is what lets a solid on
-        /// a plane away from it be checked against the same arithmetic.
+        /// a plane away from it be checked against the same arithmetic — and
+        /// which [`Mesher::shut_in`] earns rather than assumes.
         pub fn volume(&mut self, of: &Body, sagitta: f64) -> f64 {
             let held: Vec<FaceId> = of.topology().faces().map(|(at, _)| at).collect();
             self.shut_in(of, &held, sagitta, &mut Patch::default())
+        }
+
+        /// How much skin `of` has, read off its triangles alone.
+        ///
+        /// **The other half of what a closed shell can be asked**, and it
+        /// catches what a volume cannot. A face laid twice over the same place
+        /// adds nothing to the space shut in and doubles the skin. A wall
+        /// dropped where a hole was never punched leaves the volume alone and
+        /// takes its own area off. Two numbers that fail differently are worth
+        /// more than one asked twice.
+        ///
+        /// Unsigned, so it says nothing about which way anything faces. That is
+        /// [`Mesher::volume`]'s question, and one number asked both is a number
+        /// that answers neither.
+        pub fn area(&mut self, of: &Body, sagitta: f64) -> f64 {
+            let mut patch = Patch::default();
+            let mut total = 0.0;
+            for (_, face) in of.topology().faces() {
+                patch.clear();
+                self.patch(of.topology(), face, sagitta, &mut patch);
+                let corner = |at: u32| patch.corners[at as usize];
+                for &[a, b, c] in &patch.triangles {
+                    total += (corner(b) - corner(a))
+                        .cross(corner(c) - corner(a))
+                        .length();
+                }
+            }
+            total / 2.0
         }
     }
 }
