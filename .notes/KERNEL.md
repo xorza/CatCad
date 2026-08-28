@@ -961,12 +961,33 @@ three, one and four. The extension is named there from `det R` and here from the
 tangent plane's discriminant, and the two agree: `700 · 400/7 = 200²`, so they
 generate one field.
 
-Then **`Curve::Quartic`**, and every closed match on `Curve` that follows.
+**And the curve.** `geometry::quartic::Quartic` is the whole algebraic route in
+one call: two quadrics in, and a place of the curve out for any parameter and
+either branch. It holds what *made* the curve rather than coefficients — a ruled
+member written bilinearly and the quadric it is cut against — which is §4.2's
+own rule for a construction. Two unequal cylinders on crossing axes give a
+smooth quartic every read place of which is on both, to a rounding of the model's
+own size, the arithmetic under it being exact all the way to the reading.
 
-**Tests.** Two unequal cylinders give a quartic whose `Δ` and branch count match
-the published classification, and every result is asserted to be in the exact
-tier — a fitted curve appearing anywhere in M3 is a failure of the milestone,
-not a warning.
+**What is left is `Curve::Quartic`, and it has no consumer yet.** The variant
+would be a curve the boolean still refuses: `Cut` has three shapes — a line, an
+oval and a ripple — and a quartic in a cylinder's own parameters is none of
+them. So the arm and a cut it can be made into are one piece of work rather than
+two, and §10's first rule says the pair lands together or not at all. That pair
+is M4 and M5's business rather than M3b's, and §7.4's own bargain is what it
+rests on: classify with a polyline, build with the curve.
+
+The other question the pair settles is what a `Curve` *is*. Today it is `Copy`
+and holds its own numbers; a quartic holds about ninety heap blocks, so it is a
+handle into an arena the body keeps (§4.5's own shape) or `Curve` stops being
+`Copy`. Neither is decided, and neither should be until something reads one.
+
+**Tests, and they are paid.** Two unequal cylinders give a quartic whose `Δ`
+matches the published classification — quartic in the parameter, held by a fifth
+difference coming to nought where the fourth does not — and whose two branches
+are walked and shown to differ. Every result is in the exact tier: no
+comparison anywhere in the route is against a tolerance, and the one rounding is
+the last, where a place is read out as three floats.
 
 ### 9.2 M5's remaining tests, and §7.5's gap
 

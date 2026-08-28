@@ -13,6 +13,7 @@ use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
+use crate::solid::geometry::quartic::Quartic;
 use crate::solid::geometry::ruled::Ruled;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
@@ -1513,4 +1514,86 @@ fn a_ruled_quadric_is_bilinear_in_two_parameters() {
             );
         }
     }
+}
+
+/// **Two unequal cylinders on crossing axes meet in a smooth quartic, and every
+/// place of it is on both of them.**
+///
+/// The end of `.notes/KERNEL.md` §7.3's algebraic route, and M3b's own owed
+/// case — see [`Quartic`]. Radius two about the upright and three about the
+/// sideways: `x² + y² = 4` and `y² + z² = 9`, which is the cross drilling the
+/// milestone is for and which no entry of the reducible table answers.
+///
+/// **What is asserted is that the curve is the curve.** A place read off the
+/// parameterization has to satisfy both equations, and it does to within what a
+/// float holds — the arithmetic under it is exact all the way to the reading,
+/// so what is left is one rounding of a number the size of the model rather
+/// than a fit.
+///
+/// **And both branches are walked**, because a quartic has two over each
+/// parameter and a route that quietly answered one twice would pass every other
+/// check here. They differ, and each is on both cylinders.
+///
+/// **A pencil with a repeated root is refused**, which is the other half of
+/// what [`Quartic::of`] is for: two concentric spheres have a triple root in
+/// their characteristic form and meet in nothing, and the answer is `None`
+/// rather than a curve nobody can stand on.
+#[test]
+fn two_unequal_cylinders_meet_in_a_quartic_every_place_of_which_is_on_both() {
+    let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
+        Quadric::of(&Surface::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, direction, reference),
+            radius,
+        }))
+    };
+    let curve = Quartic::of(pipe(DVec3::Z, DVec3::X, 2.0), pipe(DVec3::X, DVec3::Y, 3.0))
+        .expect("two unequal cylinders cross in a smooth quartic");
+
+    // **The homogeneous components' rounding rather than the place's**, and the
+    // difference is two decades: a place of the curve is bounded by three, but
+    // it is read out of four numbers that are not, and dividing by the fourth
+    // is where the digits go. Measured at `7·10⁻¹⁴`, which is nowhere near the
+    // units the two equations are written in.
+    const READ: f64 = 1e-12;
+    let (mut walked, mut apart) = (0, 0);
+    for one in -3..=3 {
+        for two in -3..=3 {
+            if one == 0 && two == 0 {
+                continue;
+            }
+            let u = [Rational::whole(one), Rational::whole(two)];
+            let (near, far) = (curve.at(&u, false), curve.at(&u, true));
+            if near.is_some() && far.is_some() && near != far {
+                apart += 1;
+            }
+            for at in [near, far].into_iter().flatten() {
+                assert!(
+                    (at.x * at.x + at.y * at.y - 4.0).abs() < READ,
+                    "{at:?} is off the upright cylinder",
+                );
+                assert!(
+                    (at.y * at.y + at.z * at.z - 9.0).abs() < READ,
+                    "{at:?} is off the sideways cylinder",
+                );
+                walked += 1;
+            }
+        }
+    }
+    // Every one of the forty-eight parameters gives two finite places, and the
+    // two are different at every one of them.
+    assert_eq!(walked, 96, "some parameter came back short");
+    assert_eq!(apart, 48, "a branch was answered twice somewhere");
+
+    // A pencil whose characteristic form has a repeated root is no smooth
+    // quartic, and two concentric spheres meet nowhere at all.
+    let ball = |radius: f64| {
+        Quadric::of(&Surface::Sphere(Sphere {
+            axis: upright(),
+            radius,
+        }))
+    };
+    assert!(
+        Quartic::of(ball(1.0), ball(2.0)).is_none(),
+        "concentric spheres came back with a curve",
+    );
 }
