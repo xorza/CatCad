@@ -8,6 +8,7 @@
 //! nothing under `sketch` reaches in.
 
 pub(crate) mod arc;
+pub(crate) mod bisect;
 pub(crate) mod bounds;
 pub(crate) mod chorded;
 pub(crate) mod dense;

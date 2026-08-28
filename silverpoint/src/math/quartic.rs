@@ -10,9 +10,11 @@
 //!
 //! The derivative is a cubic, and that one *is* solved in closed form — a cubic
 //! has no interval to isolate over, and its roots here are only ever used as
-//! fences.
+//! fences. What walks each bracket down is [`bisect::crossed`], which is where
+//! the graze policy lives.
 
 use crate::inline::Inline;
+use crate::math::bisect;
 use std::f64::consts::TAU;
 
 /// Where a quartic is nought, in order.
@@ -46,48 +48,11 @@ pub(crate) fn roots(a: f64, b: f64, c: f64, d: f64, e: f64) -> Inline<f64, 4> {
     fence.push(reach);
     fence.all_mut().sort_by(f64::total_cmp);
     for pair in fence.all().windows(2) {
-        if let Some(root) = between(&at, pair[0], pair[1]) {
+        if let Some(root) = bisect::crossed(pair[0], pair[1], at) {
             found.push(root);
         }
     }
     found
-}
-
-/// The one place `at` crosses nought between `low` and `high`, or `None` where
-/// it does not.
-///
-/// Bisection and nothing cleverer. Newton converges faster and can leave the
-/// bracket; what this is for is an answer that is right rather than one that is
-/// quick, and the interval it is handed already holds at most one root.
-fn between(at: &impl Fn(f64) -> f64, low: f64, high: f64) -> Option<f64> {
-    let (mut low, mut high) = (low, high);
-    let (under, over) = (at(low), at(high));
-    // **An end that comes to nought is a graze and not a crossing.** Every end
-    // but the two outermost is a root of the derivative, so the quartic turns
-    // there — and a quartic that turns *on* nought touches it rather than
-    // passing through. The outermost two are Cauchy's bound, which no root
-    // reaches. So a nought here is the tangency §7.3 says counts for none.
-    if under == 0.0 || over == 0.0 {
-        return None;
-    }
-    if under.is_sign_negative() == over.is_sign_negative() {
-        return None;
-    }
-    let negative = under.is_sign_negative();
-    // Eighty halvings take any bracket a float can hold down to its last bit,
-    // and the middle running into an end stops it long before that.
-    for _ in 0..80 {
-        let middle = 0.5 * (low + high);
-        if middle <= low || middle >= high {
-            break;
-        }
-        if at(middle).is_sign_negative() == negative {
-            low = middle;
-        } else {
-            high = middle;
-        }
-    }
-    Some(0.5 * (low + high))
 }
 
 /// Where a cubic is nought, in no order.

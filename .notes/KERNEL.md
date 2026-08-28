@@ -969,18 +969,39 @@ own rule for a construction. Two unequal cylinders on crossing axes give a
 smooth quartic every read place of which is on both, to a rounding of the model's
 own size, the arithmetic under it being exact all the way to the reading.
 
-**What is left is `Curve::Quartic`, and it has no consumer yet.** The variant
-would be a curve the boolean still refuses: `Cut` has three shapes — a line, an
-oval and a ripple — and a quartic in a cylinder's own parameters is none of
-them. So the arm and a cut it can be made into are one piece of work rather than
-two, and §10's first rule says the pair lands together or not at all. That pair
-is M4 and M5's business rather than M3b's, and §7.4's own bargain is what it
-rests on: classify with a polyline, build with the curve.
+**What is left is `Curve::Quartic` and a cut it can be made into**, which are
+one piece of work rather than two: the arm alone is a curve the boolean still
+refuses, and §10's first rule says the pair lands together or not at all.
 
-The other question the pair settles is what a `Curve` *is*. Today it is `Copy`
-and holds its own numbers; a quartic holds about ninety heap blocks, so it is a
-handle into an arena the body keeps (§4.5's own shape) or `Curve` stops being
-`Copy`. Neither is decided, and neither should be until something reads one.
+**And the cut wants one more closed form rather than a traced polyline.** Two
+cylinders on crossing axes with *unequal* radii meet in a quartic in space — but
+on either cylinder's own parameters that quartic is
+`v = ±√(across² − (reach·sin(θ − phase) − off)²)`, which is a graph over the
+angle with a root in it where `Ripple` has a cosine. Derived rather than fitted:
+being on the other cylinder is `|(p − o) × e|² = across²`, and for axes that
+cross *square* — which every drilling does — the linear term of the resulting
+quadratic in `v` vanishes outright. Offset axes come free, `off` being the only
+thing they move; a tangent pair is where the root closes.
+
+`splitting::bow::Bow` carries it. **Both regimes fall out of one drilling**: on
+the bar the imprint is a closed loop, the drill being narrower, and on the drill
+it is cut right round. Its crossing solve is fenced *twice*, which is what makes
+it rigorous where a root has no closed form to solve against: the squared
+difference is a run against a sinusoid of twice the angle, whose second
+derivative is a quadratic in `sin ψ` and so has closed-form roots — fenced there
+the first derivative bisects, and fenced at *its* roots the difference does.
+
+**What is left of the pair.** `Bow` answering the nine questions a `Cut` does,
+in its two regimes; a matching `Curve` arm for the quartic in space, which is
+the same six numbers and so stays `Copy`; and `combining::imprinted` gaining the
+unequal-cylinder row. The general traced cut and `Curve::Quartic` proper wait
+until a pair needs them — cylinder against cone is the first that will, and
+neither is built by anything today.
+
+That larger route is an arena and a `Copy` handle apiece, §4.5's own shape:
+`Cut` and `Curve` are both `Copy` value types and a general quartic holds some
+ninety heap blocks, so it cannot go in either by value. Nine `Cut` methods and
+several `Curve` ones would take a context. Bounded, and not yet earned.
 
 **Tests, and they are paid.** Two unequal cylinders give a quartic whose `Δ`
 matches the published classification — quartic in the parameter, held by a fifth

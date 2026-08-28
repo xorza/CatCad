@@ -32,6 +32,7 @@ use crate::solid::boolean::splitting::corner::Corner;
 use crate::solid::boolean::splitting::cut::Cut;
 use glam::DVec2;
 
+pub(super) mod bow;
 pub(super) mod cells;
 pub(super) mod corner;
 pub(super) mod cut;
