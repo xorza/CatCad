@@ -24,6 +24,7 @@ pub(crate) mod roots;
 pub(crate) mod ruled;
 pub(crate) mod sphere;
 pub(crate) mod surface;
+pub(crate) mod torus;
 
 #[cfg(test)]
 mod tests;

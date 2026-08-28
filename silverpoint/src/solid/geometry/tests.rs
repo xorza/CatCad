@@ -17,6 +17,7 @@ use crate::solid::geometry::quartic::Quartic;
 use crate::solid::geometry::ruled::Ruled;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::{Crossings, Surface};
+use crate::solid::geometry::torus::Torus;
 use glam::{DVec2, DVec3};
 use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, SQRT_2, TAU};
 
@@ -1596,4 +1597,96 @@ fn two_unequal_cylinders_meet_in_a_quartic_every_place_of_which_is_on_both() {
         Quartic::of(ball(1.0), ball(2.0)).is_none(),
         "concentric spheres came back with a curve",
     );
+}
+
+/// **A torus evaluates, inverts and measures by hand** — the first surface of
+/// the fitted tier, and the first that is not a quadric.
+///
+/// Major three and minor one about [`upright`], so the tube's centre circle
+/// lies in the world's `xz` plane at radius three and the surface reaches from
+/// two out to four. Every value below is read off that picture:
+///
+/// - `(0, 0)` is the outer equator at the reference direction: `(4, 0, 0)`.
+/// - `(0, ±π/2)` are the top and bottom of the tube there: `(3, ±1, 0)`.
+/// - `(0, π)` is the inner equator: `(2, 0, 0)`.
+/// - `(π/2, 0)` is a quarter turn round the axis, which
+///   [`upright`] puts at negative `z`: `(0, 0, −4)`.
+///
+/// **Both parameters wrap**, which is what makes a torus want §4.4's rule
+/// twice over where a cylinder wants it once — so the inversion is held to
+/// `(−π, π]` on each, and asked of the places above rather than of the
+/// parameters that made them.
+///
+/// **And `off` is the distance to the tube's centre circle less the tube.**
+/// The nearest place of that circle to anything is the one at the same angle
+/// round the axis, so the measurement is two-dimensional however the place
+/// lies: the world origin is three from the circle and so two off the surface,
+/// and ten up the axis is `√109` from it.
+#[test]
+fn a_torus_evaluates_inverts_and_measures_by_hand() {
+    let ring = Torus {
+        axis: upright(),
+        major: 3.0,
+        minor: 1.0,
+    };
+
+    for (uv, want, what) in [
+        ((0.0, 0.0), DVec3::new(4.0, 0.0, 0.0), "the outer equator"),
+        (
+            (0.0, FRAC_PI_2),
+            DVec3::new(3.0, 1.0, 0.0),
+            "the top of the tube",
+        ),
+        (
+            (0.0, -FRAC_PI_2),
+            DVec3::new(3.0, -1.0, 0.0),
+            "the bottom of the tube",
+        ),
+        ((0.0, PI), DVec3::new(2.0, 0.0, 0.0), "the inner equator"),
+        (
+            (FRAC_PI_2, 0.0),
+            DVec3::new(0.0, 0.0, -4.0),
+            "a quarter round",
+        ),
+        ((PI, 0.0), DVec3::new(-4.0, 0.0, 0.0), "half way round"),
+    ] {
+        let uv = DVec2::new(uv.0, uv.1);
+        near(ring.at(uv), want, what);
+        // On the surface, which is the equation the parameterization is of.
+        assert!(ring.off(want) < NEAR, "{what} is not on it");
+        // And read back off the place rather than off the parameters.
+        let read = ring.uv(want);
+        assert!(
+            (read.x - uv.x).abs() < NEAR && (read.y - uv.y).abs() < NEAR,
+            "{what} reads back as {read:?} rather than {uv:?}",
+        );
+    }
+
+    // Facing out of the tube: away from the axis at the outer equator, along it
+    // at the top, and back towards the axis at the inner one.
+    for (uv, want) in [
+        (DVec2::ZERO, DVec3::X),
+        (DVec2::new(0.0, FRAC_PI_2), DVec3::Y),
+        (DVec2::new(0.0, PI), DVec3::NEG_X),
+        (DVec2::new(FRAC_PI_2, 0.0), DVec3::NEG_Z),
+    ] {
+        near(ring.normal(uv), want, "the normal");
+    }
+
+    for (at, want, what) in [
+        (DVec3::new(5.0, 0.0, 0.0), 1.0, "a unit outside the equator"),
+        (DVec3::ZERO, 2.0, "the middle of the ring"),
+        (
+            DVec3::new(0.0, 10.0, 0.0),
+            109.0f64.sqrt() - 1.0,
+            "up the axis",
+        ),
+        (DVec3::new(3.0, 0.0, 0.0), 1.0, "the tube's own centre"),
+    ] {
+        let off = ring.off(at);
+        assert!(
+            (off - want).abs() < NEAR,
+            "{what}: {off} rather than {want}"
+        );
+    }
 }

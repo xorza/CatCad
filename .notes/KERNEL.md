@@ -1020,19 +1020,41 @@ the algebraic route's, and none of them can be cut until the splitter has a
 
 ### 9.3 M6 — the fitted tier: torus, and marching
 
-Torus surfaces, marched intersection, loop detection, fit bounds recorded, and
-the body's exactness report going false for the first time. `Surface` gains its
-`Natural` / `Fitted` layer here (§4.6). §10's rule 2 wants a throwaway spike
-outside the workspace before a line of the marching is written in `solid/`.
+Marched intersection, loop detection, fit bounds recorded, and the body's
+exactness report going false for the first time. §10's rule 2 wants a throwaway
+spike outside the workspace before a line of the marching is written in
+`solid/`.
 
 The only unbounded milestone, and roadmap item 2 lands without it.
 
-**Tests.** A torus built by hand validates and reports its volume `2π²Rr²`
-exactly. A plane cutting a torus at the Villarceau angle gives two circles. A
-marched intersection's fit bound is recorded, the body reports itself fitted,
-and the same cut over the exact tier still reports exact. And the case the
-literature says will be missed: a shallow near-tangential intersection that
-produces a small closed loop.
+**The surface is in.** `geometry::torus::Torus` evaluates, inverts and measures,
+all of it hand-checked. A ring torus and no other — at equal radii the tube
+closes on the axis and past that the surface passes through itself, and neither
+is a boundary a solid can be made of. Both parameters wrap, so §4.4's rule about
+wrapping applies twice over where a cylinder wants it once.
+
+**What the `Surface` arm wants, and it is more than an arm.** `Surface::met_by`
+answers at most two crossings, because every surface in that enum so far is a
+quadric — a ray meets a torus in **four**. So the arm needs a quartic root solve
+and `Crossings` widened, and both belong with the `Natural` / `Fitted` split
+(§4.6) rather than ahead of it. Until then the torus is geometry without a
+surface, which is what keeps every `match` on `Surface` answerable.
+
+**In this order:**
+
+1. **A quartic root solve**, and `Crossings` widened to four. `math::quadratic`
+   is what a quadric needed and no more.
+2. **The `Natural` / `Fitted` split**, the torus arm, and the body's exactness
+   report — which is §4.1's tier made structural and the first thing that can
+   answer it with a *no*.
+3. **The spike, then the marching.**
+
+**Tests.** A torus built by hand validates and reports its volume `2π²Rr²`,
+which waits on the arm. A plane cutting a torus at the Villarceau angle gives
+two circles. A marched intersection's fit bound is recorded, the body reports
+itself fitted, and the same cut over the exact tier still reports exact. And the
+case the literature says will be missed: a shallow near-tangential intersection
+that produces a small closed loop.
 
 ### 9.4 M7 — fillet, chamfer, STEP
 
