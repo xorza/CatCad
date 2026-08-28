@@ -2,6 +2,7 @@
 //! dragging past the edge of the view.
 
 use crate::hud::internals;
+use crate::prompt::marked;
 use crate::prompt::{Asking, Prompt};
 use crate::tests::harness::Raised;
 use glam::{DVec2, Vec2, Vec3};
@@ -707,7 +708,7 @@ fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
     let grown = raised.models().grown();
     let cut = raised
         .harness
-        .layout_rect(Prompt::operation_id(crate::prompt::glyphs::CUTS))
+        .layout_rect(Prompt::operation_id(marked::CUTS))
         .expect("the form drew no control for what the extrude does");
     raised
         .harness
@@ -822,9 +823,9 @@ fn picking_a_region_and_a_line_offers_a_revolve_and_the_form_settles_what_it_doe
 
     // The word changed, and then answered by the form's own button — there
     // being no field to press Enter in.
-    raised.press(Prompt::operation_id(crate::prompt::glyphs::CUTS));
+    raised.press(Prompt::operation_id(marked::CUTS));
     raised.frame();
-    raised.press(Prompt::answering_id(crate::prompt::glyphs::CONFIRM));
+    raised.press(Prompt::answering_id(marked::CONFIRM));
     raised.frame();
 
     let (_, feature) = raised

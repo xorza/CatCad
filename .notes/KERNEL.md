@@ -772,7 +772,13 @@ A cut and a boss differ in one word and share a profile, a distance, a drag
 handle, a form, a file record and every match arm in the crate. The field
 generalises to revolve for free. **The form offers the choice** as three square
 buttons under the depth — `+`, `−`, `∩`, one hue told apart by how bright, so
-the row reads as one control with a setting rather than three presses.
+the row reads as one control with a setting rather than three presses. **And
+the setting is named in a word beside them**, because brightness says which of
+three is set and nothing at all about what any of the three does: a plus and a
+minus under a field are a stepper to anybody who has not been told otherwise.
+Each square carries its word on hover as well, which is the shape the relations
+bar already has — one table pairs the mark with the word, so neither can be
+added without the other.
 
 **Each step builds on the model the step before it left**, and `Models::solids`
 is what the last of them made rather than one body per extrude. `Build` holds a

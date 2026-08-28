@@ -1,78 +1,14 @@
 # The revolve form
 
-Three faults, found by use. Each one has a cause in the structure, not in a
+Two faults, found by use. Each one has a cause in the structure, not in a
 detail. This note gives the cause and the steps.
 
+A third is closed: the form's three squares said nothing. Each one now carries
+its word on hover, and the row names the setting that is on. One table in
+`catcad/src/prompt/marked.rs` pairs a mark with a word, so neither can be
+added without the other.
+
 Read with `.notes/KERNEL.md` §8 (the document) and §9.2 (the revolve record).
-
----
-
-## 1. The three squares say nothing
-
-### What happens
-
-The form for a revolve shows `+`, `−` and `∩`. A user reads `+` and `−` beside a
-form as a stepper, because that is what a plus and a minus beside a value are
-everywhere else. `∩` is read as an arc. The three are in fact **join**, **cut**
-and **intersect** — what the new solid does to the solid that stands.
-
-### The cause
-
-`catcad/src/prompt/glyphs.rs` states the rule: *"A glyph and never a word,
-because these sit on the drawing beside the thing they are about."* The rule is
-correct about permanent text. It leaves the form with **no channel to name
-anything at all**, and the form is the only control in the application without
-one:
-
-| Control | Where | Names itself with |
-| --- | --- | --- |
-| Relations chip | `hud/chip.rs:112` | `Tooltip::on(&snapshot).text(self.tip)` |
-| Recipe row | `hud/recipe.rs:96` | a word beside the glyph |
-| Form button | `prompt/mod.rs`, `Prompt::button` | nothing |
-
-`Prompt::button` calls `.show(ui).left.clicked()` and drops the response. The
-snapshot a tooltip attaches to is thrown away one expression before it is
-needed. The mechanism exists, palantir has a tooltip layer, and the HUD one
-layer away already uses it.
-
-A second cause makes the misreading worse. The operation row sits directly under
-the field row, and the answer row (`✓` `✗`) sits directly under the operation
-row. All three rows use `Prompt::button` with the same side and shape. Three
-rows of equal squares read as one list of presses.
-
-### The fix
-
-Give the form the naming channel the rest of the application has. Three steps,
-smallest first. Step 1 alone answers the report.
-
-**Step 1.1 — a tooltip on every form button.**
-- In `prompt/mod.rs`, give `Prompt::button` a `tip: &str` parameter.
-- Take `let snapshot = shown.snapshot();` and `let clicked = shown.left.clicked();`
-  before the tooltip records, as `Chip::show` does.
-- Attach `Tooltip::on(&snapshot).text(tip).show(ui)`.
-- Pass the word at each call site: `"Join"`, `"Cut"`, `"Intersect"`,
-  `"Confirm"`, `"Cancel"`.
-- Carry the word beside the glyph in `prompt/glyphs.rs`, so the glyph and its
-  word cannot drift apart. A pair per operation, not two lists.
-
-**Step 1.2 — the chosen operation is named without a hover.**
-- Show one `Text` beside the operation row with the word of the operation that
-  is set. One word, not three.
-- This does not break the glyph rule. The rule refuses a *sentence* in the
-  middle of a model. One word that says what the form will do is what the
-  recipe row already puts on screen for the same step.
-
-**Step 1.3 — the operation row stops looking like the answer row.**
-- Put the three in one bordered group, or set them apart with
-  `pill::divider`-style separation, so the row reads as one setting.
-- `.notes/KERNEL.md` §8 already claims the row reads *"as one control with a
-  setting rather than three presses"*. The report says it does not. Make the
-  claim true or delete it.
-
-**Step 1.4 — a test.**
-- `catcad/src/prompt/tests.rs` already reaches the buttons by
-  `Prompt::operation_id(glyph)`. Add a test that every form button has a word,
-  beside the existing `every_button_on_the_form_has_a_glyph_to_draw_it`.
 
 ---
 
@@ -334,9 +270,8 @@ or not the rest is done.
 
 ## Order
 
-1. **Fault 1**, steps 1.1 to 1.4. Hours. It answers the report on its own.
-2. **Fault 3**, steps 3.1 to 3.5. Hours. No kernel change.
-3. **Fault 2**, 2a first. The kernel is the work. 2b, 2c and 2d follow it and
+1. **Fault 3**, steps 3.1 to 3.5. Hours. No kernel change.
+2. **Fault 2**, 2a first. The kernel is the work. 2b, 2c and 2d follow it and
    are each small.
 
 ## Related, still open

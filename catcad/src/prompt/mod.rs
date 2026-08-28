@@ -18,7 +18,7 @@
 use glam::Vec2;
 use palantir::{
     Align, Button, ButtonTheme, ClickOutside, Configure, HAlign, Panel, Popup, Rect, Size, Sizing,
-    Text, TextEdit, TextRun, TextWrap, Ui, VAlign, WidgetId,
+    Text, TextEdit, TextRun, TextWrap, Tooltip, Ui, VAlign, WidgetId,
 };
 use silverpoint::{Entity, Operation, SegmentId};
 use std::fmt::Write;
@@ -32,10 +32,11 @@ use crate::paint::growing::Growing;
 use crate::paint::{DECIMALS, MARK_FONT};
 use crate::part::Part;
 use crate::profile::Profile;
+use crate::prompt::marked::Marked;
 use crate::timeline::{Axle, FeatureId, Sweep};
 use crate::tool::Tool;
 
-pub(crate) mod glyphs;
+pub(crate) mod marked;
 
 /// What a form is about, and so what committing it asks for.
 ///
@@ -793,36 +794,74 @@ impl Prompt {
     /// Show one of the form's square buttons, and say whether it was pressed.
     ///
     /// Both rows are the same button in a different colour, and were the same
-    /// five chained calls written twice: what tells them apart is which glyph,
+    /// five chained calls written twice: what tells them apart is which mark,
     /// which theme, which id and how big, so those are what this takes. A
     /// second spelling of the chain would be a second chance for one row's size
     /// or hover to drift from the other's — which is the argument the theme's
     /// own `answer` already makes about the four buttons, one level up.
-    fn button(ui: &mut Ui, id: WidgetId, glyph: &str, style: &ButtonTheme, side: f32) -> bool {
-        Button::new()
+    ///
+    /// **Every square carries its word**, which is what a control drawn as a
+    /// glyph owes whoever is reading it — see [`marked`]. Here rather than at
+    /// the two rows, so a button added to either cannot be added without one.
+    fn button(ui: &mut Ui, id: WidgetId, marked: Marked, style: &ButtonTheme, side: f32) -> bool {
+        let shown = Button::new()
             .id(id)
-            .label(glyph)
+            .label(marked.glyph)
             .style(style)
             .size((Sizing::fixed(side), Sizing::fixed(side)))
-            .show(ui)
-            .left
-            .clicked()
+            .show(ui);
+        // The snapshot and the click are both taken first, so the button's
+        // borrow of the frame has ended by the time the bubble records into it.
+        let snapshot = shown.snapshot();
+        let clicked = shown.left.clicked();
+        Tooltip::on(&snapshot).text(marked.word).show(ui);
+        clicked
     }
 
-    /// What the button setting the form to `glyph`'s operation is recorded
+    /// What the button setting the form to `marked`'s operation is recorded
     /// under.
     ///
     /// Named rather than salted, for the reason a field's id is: a caller
     /// outside cannot work out an `auto_id`, and a test pressing the control
     /// has to find where it was laid out. By its glyph because that is what
-    /// tells the three apart and is already what the button carries.
-    fn doing_id(glyph: &str) -> WidgetId {
-        WidgetId::from_hash(("catcad.prompt.doing", glyph))
+    /// tells the three apart and is already what the button carries — which is
+    /// also why no two rows of [`marked`] may share one.
+    fn doing_id(marked: Marked) -> WidgetId {
+        WidgetId::from_hash(("catcad.prompt.doing", marked.glyph))
     }
 
-    /// What the button answering with `glyph` is recorded under.
-    fn answer_id(glyph: &str) -> WidgetId {
-        WidgetId::from_hash(("catcad.prompt.answer", glyph))
+    /// What the button answering with `marked` is recorded under.
+    fn answer_id(marked: Marked) -> WidgetId {
+        WidgetId::from_hash(("catcad.prompt.answer", marked.glyph))
+    }
+
+    /// How wide the operation row's word has to be for the row to keep its
+    /// width.
+    ///
+    /// **The widest of the three, and not the one that is set.** The answers
+    /// sit under the row and are right-aligned against it, so a word that grew
+    /// as somebody pressed a square would carry the confirm out from under the
+    /// pointer about to press it. A revolve is where this bites: it has no
+    /// field row to set the form's width, so the word sets it alone.
+    ///
+    /// Measured in the face the label is drawn in, which is the ambient one —
+    /// the same call [`Prompt::over`] measures a dimension's own run with.
+    fn naming(ui: &mut Ui) -> f32 {
+        let font = ui.theme().text.font();
+        [Operation::Join, Operation::Cut, Operation::Intersect]
+            .map(|operation| {
+                ui.probe_text(TextRun {
+                    text: marked::doing(operation).word,
+                    font,
+                    wrap: TextWrap::SingleLine,
+                    align: Align::default(),
+                    max_width_px: None,
+                })
+                .size()
+                .w
+            })
+            .into_iter()
+            .fold(0.0, f32::max)
     }
 
     /// The first field's number, as that field will shape it.
@@ -937,6 +976,9 @@ impl Prompt {
             }
             Asking::Dimension { .. } | Asking::Circle { .. } => None,
         };
+        // Before the popup rather than inside it, and only where the row it
+        // sizes is drawn.
+        let naming = doing.is_some().then(|| Self::naming(ui));
         let mut said = Said::default();
         let mut answered = None;
         Popup::below(anchor)
@@ -996,11 +1038,9 @@ impl Prompt {
                     // circle is drawn, and neither does anything to a solid.
                     if let Some(doing) = doing {
                         Panel::hstack().id_salt("doing").gap(GAP).show(ui, |ui| {
-                            for (glyph, operation) in [
-                                (glyphs::JOINS, Operation::Join),
-                                (glyphs::CUTS, Operation::Cut),
-                                (glyphs::SHARES, Operation::Intersect),
-                            ] {
+                            for operation in [Operation::Join, Operation::Cut, Operation::Intersect]
+                            {
+                                let marked = marked::doing(operation);
                                 // Which one is set is said by the other two
                                 // being dimmer — see
                                 // [`Dressed::chosen`](crate::look::dressed::Dressed).
@@ -1009,10 +1049,29 @@ impl Prompt {
                                 } else {
                                     &dressed.offered
                                 };
-                                if Self::button(ui, Self::doing_id(glyph), glyph, style, side) {
+                                if Self::button(ui, Self::doing_id(marked), marked, style, side) {
                                     *doing = operation;
                                 }
                             }
+                            // **The setting in a word, and not only on hover.**
+                            // Three squares under a number read as a stepper,
+                            // and a tooltip is read by somebody who already
+                            // suspects there is something to read. It is also
+                            // what tells this row from the two answers below
+                            // it, which are the same square in another colour.
+                            //
+                            // Against the middle of the squares, as a field's
+                            // label is against its box.
+                            Text::new(marked::doing(*doing).word)
+                                .id_salt("chosen")
+                                .size((
+                                    Sizing::fixed(
+                                        naming.expect("the row that draws a word measured it"),
+                                    ),
+                                    Sizing::HUG,
+                                ))
+                                .align(Align::v(VAlign::Center))
+                                .show(ui);
                         });
                     }
                     // Only where this is how the form is dismissed. A form that
@@ -1027,17 +1086,22 @@ impl Prompt {
                             .gap(GAP)
                             .align(Align::h(HAlign::Right))
                             .show(ui, |ui| {
-                                for (glyph, style, answer) in [
-                                    (glyphs::CONFIRM, &dressed.goes, Done::Commit),
-                                    (glyphs::CANCEL, &dressed.stops, Done::Cancel),
+                                for (marked, style, answer) in [
+                                    (marked::CONFIRM, &dressed.goes, Done::Commit),
+                                    (marked::CANCEL, &dressed.stops, Done::Cancel),
                                 ] {
                                     // Named like every other id on this form,
                                     // where it was salted: a caller outside
                                     // cannot work out an `auto_id`, and these
                                     // are as pressable by a test as the row
                                     // above them.
-                                    if Self::button(ui, Self::answer_id(glyph), glyph, style, side)
-                                    {
+                                    if Self::button(
+                                        ui,
+                                        Self::answer_id(marked),
+                                        marked,
+                                        style,
+                                        side,
+                                    ) {
                                         answered = Some(answer);
                                     }
                                 }
@@ -1068,6 +1132,7 @@ pub(crate) mod internals {
     use palantir::WidgetId;
 
     use crate::prompt::Prompt;
+    use crate::prompt::marked::Marked;
 
     impl Prompt {
         /// What the `nth` field is recorded under.
@@ -1075,20 +1140,19 @@ pub(crate) mod internals {
             Self::field_id(nth)
         }
 
-        /// What the button setting the operation `glyph` draws is recorded
-        /// under — see [`look`](crate::prompt::look), which is where the three
-        /// glyphs are.
-        pub(crate) fn operation_id(glyph: &str) -> WidgetId {
-            Self::doing_id(glyph)
+        /// What the button `marked` draws for an operation is recorded under —
+        /// see [`marked`](crate::prompt::marked), which is where the rows are.
+        pub(crate) fn operation_id(marked: Marked) -> WidgetId {
+            Self::doing_id(marked)
         }
 
-        /// What the button answering with `glyph` is recorded under.
+        /// What the button answering with `marked` is recorded under.
         ///
         /// A form with a field is answered with Enter, which a harness types.
         /// One with none — a whole turn asks for no number — can only be
         /// answered by pressing what it draws.
-        pub(crate) fn answering_id(glyph: &str) -> WidgetId {
-            Self::answer_id(glyph)
+        pub(crate) fn answering_id(marked: Marked) -> WidgetId {
+            Self::answer_id(marked)
         }
     }
 }

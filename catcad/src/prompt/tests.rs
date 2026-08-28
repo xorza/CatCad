@@ -1,4 +1,5 @@
 use super::*;
+use crate::prompt::marked::internals::EVERY;
 use glam::DVec2;
 use silverpoint::{Along, Constraint, Dimension, Operation, Sketch};
 
@@ -221,30 +222,48 @@ fn a_form_with_answers_is_not_dismissed_by_losing_focus() {
 /// is not a thing, but reading it off the wrong style would still be asking a
 /// question nobody has.
 #[test]
-fn every_button_on_the_form_has_a_glyph_to_draw_it() {
+fn every_button_on_the_form_is_drawn_and_named() {
     let shaper = palantir::TextShaper::new();
-    let mut glyphs = shaper.glyphs();
+    let mut shaped = shaper.glyphs();
     let mut placed = Vec::new();
 
-    for answer in [
-        glyphs::CONFIRM,
-        glyphs::CANCEL,
-        glyphs::JOINS,
-        glyphs::CUTS,
-        glyphs::SHARES,
-    ] {
-        glyphs.line(answer, crate::paint::MARK_FONT, 1.0, &mut placed);
+    for button in EVERY {
+        shaped.line(button.glyph, crate::paint::MARK_FONT, 1.0, &mut placed);
         let [glyph] = placed[..] else {
-            panic!("{answer:?} shaped to {} glyphs", placed.len());
+            panic!("{:?} shaped to {} glyphs", button.glyph, placed.len());
         };
-        let image = glyphs
+        let image = shaped
             .rasterize(glyph.raster_key)
-            .unwrap_or_else(|| panic!("{answer:?} has no glyph"));
+            .unwrap_or_else(|| panic!("{:?} has no glyph", button.glyph));
         assert!(
             image.placement.width > 0 && image.placement.height > 0,
-            "{answer:?} rasterized to nothing, so the button draws blank",
+            "{:?} rasterized to nothing, so the button draws blank",
+            button.glyph,
+        );
+        assert!(
+            !button.word.trim().is_empty(),
+            "{:?} carries no word, so nothing on the form says what it does",
+            button.glyph,
         );
     }
+
+    // Two rows under one mark would be two controls under one id, the form
+    // recording a button by its glyph; two under one word would be a tooltip
+    // saying the same thing twice.
+    for (at, one) in EVERY.iter().enumerate() {
+        for two in &EVERY[at + 1..] {
+            assert_ne!(one.glyph, two.glyph, "{one:?} and {two:?} share a mark");
+            assert_ne!(one.word, two.word, "{one:?} and {two:?} share a word");
+        }
+    }
+
+    // And the three the row is laid out from are three, which is what says the
+    // pairing carries the operation rather than dropping it.
+    let [joins, cuts, shares] =
+        [Operation::Join, Operation::Cut, Operation::Intersect].map(marked::doing);
+    assert_ne!(joins, cuts, "a join and a cut draw as one button");
+    assert_ne!(cuts, shares, "a cut and an intersect draw as one button");
+    assert_ne!(joins, shares, "a join and an intersect draw as one button");
 }
 
 /// **What a form is about is what it stands over, asked once for both.**
