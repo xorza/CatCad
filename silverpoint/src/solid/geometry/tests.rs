@@ -1690,3 +1690,76 @@ fn a_torus_evaluates_inverts_and_measures_by_hand() {
         );
     }
 }
+
+/// **A ray meets a torus in four places, and a graze in none.**
+///
+/// The first surface here a ray can cross more than twice, which is what makes
+/// it the first of the fitted tier — see [`Torus::met_by`]. Major three and
+/// minor one about [`upright`], so the surface reaches from two out to four in
+/// the world's `xz` plane.
+///
+/// **Straight out from the middle** the answers are whole numbers off the
+/// picture: `t⁴ − 20t² + 64` is `(t² − 4)(t² − 16)`, so the ray crosses the
+/// inner equator at two and the outer at four, and again at minus two and minus
+/// four behind it. Four crossings from one ray is the case no quadric has.
+///
+/// **Up the axis it misses**, which is the hole: the quartic comes to
+/// `(t² + 8)²` and has no real root at all. A route that squared the equation
+/// carelessly would find the doubled complex pair as if it were real.
+///
+/// **And along the outer equator's own tangent it grazes.** From `(4, 0, −10)`
+/// running `+z` the ray touches the surface at `(4, 0, 0)` and crosses nowhere:
+/// the quartic is `(t − 10)²(t² − 20t + 112)`, whose second factor has no real
+/// root. `.notes/KERNEL.md` §7.3 argues that counts for nothing, a tangency
+/// being a miss.
+#[test]
+fn a_ray_meets_a_torus_four_times_and_a_graze_none() {
+    let ring = Torus {
+        axis: upright(),
+        major: 3.0,
+        minor: 1.0,
+    };
+
+    let across = ring.met_by(DVec3::ZERO, DVec3::X);
+    assert_eq!(across.all().len(), 4, "{across:?}");
+    for (got, want) in across.all().iter().zip([-4.0, -2.0, 2.0, 4.0]) {
+        assert!((got - want).abs() < NEAR, "{got} rather than {want}");
+    }
+
+    // The same ray started outside and pointed in reads the same four places,
+    // shifted by how far it was moved back.
+    let outside = ring.met_by(DVec3::new(-10.0, 0.0, 0.0), DVec3::X);
+    for (got, want) in outside.all().iter().zip([6.0, 8.0, 12.0, 14.0]) {
+        assert!((got - want).abs() < NEAR, "{got} rather than {want}");
+    }
+
+    assert!(
+        ring.met_by(DVec3::ZERO, DVec3::Y).all().is_empty(),
+        "the hole"
+    );
+    assert!(
+        ring.met_by(DVec3::new(4.0, 0.0, -10.0), DVec3::Z)
+            .all()
+            .is_empty(),
+        "a tangent counted as a crossing",
+    );
+    assert!(
+        ring.met_by(DVec3::new(0.0, 5.0, 0.0), DVec3::X)
+            .all()
+            .is_empty(),
+        "a ray clear over the top met something",
+    );
+
+    // Every crossing is on the surface, whichever ray found it — and each of
+    // these rays finds some, or the loop would assert nothing.
+    for (from, way, want) in [
+        (DVec3::new(-10.0, 0.0, 0.0), DVec3::X, 4),
+        (DVec3::new(-7.0, 0.5, 1.0), DVec3::new(2.0, -0.3, 0.4), 2),
+    ] {
+        let found = ring.met_by(from, way);
+        assert_eq!(found.all().len(), want, "{from:?} running {way:?}");
+        for t in found {
+            assert!(ring.off(from + way * t) < NEAR, "{t} is off the surface");
+        }
+    }
+}

@@ -7,11 +7,14 @@
 //!
 //! **Not a [`Surface`](super::surface::Surface) arm yet**, and the reason is
 //! worth stating: that enum's `met_by` answers at most two crossings, because
-//! every surface in it so far is a quadric. A ray meets a torus in *four*. So
-//! the arm wants a quartic root solve and a wider answer, and both belong with
-//! the `Natural`/`Fitted` split (§4.6) rather than ahead of it.
+//! every surface in it so far is a quadric. A ray meets a torus in *four*. The
+//! solve for those four is here; what the arm still wants is
+//! [`Crossings`](super::surface::Crossings) widened to hold them, and that
+//! belongs with the `Natural`/`Fitted` split (§4.6) rather than ahead of it.
 #![allow(dead_code)]
 
+use crate::inline::Inline;
+use crate::math::quartic;
 use crate::solid::geometry::axis::Axis;
 use glam::{DVec2, DVec3};
 
@@ -78,6 +81,41 @@ impl Torus {
     /// off the distance from a *circle*.
     pub(crate) fn off(&self, at: DVec3) -> f64 {
         (self.tube(at).length() - self.minor).abs()
+    }
+
+    /// How far along a ray from `from` running `way` it meets this, in order.
+    ///
+    /// **Four, where every quadric answers two**, and that is the whole of what
+    /// makes a torus the first of the fitted tier: a ray through the hole of
+    /// one crosses the tube twice on the way in and twice on the way out.
+    ///
+    /// **Squared once to reach the surface's own equation.** How far a place
+    /// stands from the axis has a square root in it, and the torus is written
+    /// about that distance — so `|x|² + R² − r² = 2R·s` is the equation with
+    /// the root still in it, and squaring both sides leaves
+    /// `(|x|² + R² − r²)² = 4R²(|x|² − (x·d)²)`, which is a quartic in the ray's
+    /// own parameter and has no root anywhere.
+    ///
+    /// A graze counts for none, as it does for every other surface here — see
+    /// [`quartic::roots`], which is where that is argued.
+    pub(crate) fn met_by(&self, from: DVec3, way: DVec3) -> Inline<f64, 4> {
+        let start = from - self.axis.origin;
+        let (leaning, aimed) = (start.dot(self.axis.direction), way.dot(self.axis.direction));
+        // `|x(t)|²` gathered into `sweep·t² + across·t + out`.
+        let (sweep, across, out) = (
+            way.length_squared(),
+            2.0 * start.dot(way),
+            start.length_squared(),
+        );
+        let held = out + self.major * self.major - self.minor * self.minor;
+        let turning = 4.0 * self.major * self.major;
+        quartic::roots(
+            sweep * sweep,
+            2.0 * sweep * across,
+            across * across + 2.0 * sweep * held + turning * (aimed * aimed - sweep),
+            2.0 * across * held + turning * (2.0 * aimed * leaning - across),
+            held * held + turning * (leaning * leaning - out),
+        )
     }
 
     /// Where `at` stands in the plane of the tube's own circle: out from that

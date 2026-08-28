@@ -1033,21 +1033,38 @@ closes on the axis and past that the surface passes through itself, and neither
 is a boundary a solid can be made of. Both parameters wrap, so §4.4's rule about
 wrapping applies twice over where a cylinder wants it once.
 
-**What the `Surface` arm wants, and it is more than an arm.** `Surface::met_by`
-answers at most two crossings, because every surface in that enum so far is a
-quadric — a ray meets a torus in **four**. So the arm needs a quartic root solve
-and `Crossings` widened, and both belong with the `Natural` / `Fitted` split
-(§4.6) rather than ahead of it. Until then the torus is geometry without a
-surface, which is what keeps every `match` on `Surface` answerable.
+**And a ray meets it.** `math::quartic::roots` isolates and then brackets rather
+than solving in closed form: Ferrari reaches a quartic's roots through a
+resolvent cubic and two square roots, and every step of that loses digits where
+the roots are close — which is exactly where a ray grazes a surface. Between the
+roots of its own derivative a quartic is monotone, so each interval holds at
+most one root and a sign change is a bracket that cannot be argued with. The
+derivative is a cubic and *that* is solved in closed form, its roots being only
+ever fences.
+
+A graze counts for none, as it does for every quadric here. An interval end that
+comes to nought is a root of the derivative, so the quartic turns there — and a
+quartic that turns *on* nought touches it rather than passing through.
+
+`Torus::met_by` squares once to reach the surface's own equation:
+`|x|² + R² − r² = 2R·s` has the axis distance's square root still in it, and
+squaring both sides leaves `(|x|² + R² − r²)² = 4R²(|x|² − (x·d)²)`, a quartic in
+the ray's parameter with no root anywhere. Straight out from the middle of a
+three-by-one ring that is `t⁴ − 20t² + 64`, whose roots are ±2 and ±4 — four
+crossings from one ray, which is the case no quadric has.
+
+**What the `Surface` arm still wants.** `Crossings` is two wide, because every
+surface in that enum so far is a quadric. Widening it to four is one line and a
+handful of arms, and it belongs with the `Natural` / `Fitted` split (§4.6)
+rather than ahead of it — until then the torus is geometry without a surface,
+which is what keeps every `match` on `Surface` answerable.
 
 **In this order:**
 
-1. **A quartic root solve**, and `Crossings` widened to four. `math::quadratic`
-   is what a quadric needed and no more.
-2. **The `Natural` / `Fitted` split**, the torus arm, and the body's exactness
-   report — which is §4.1's tier made structural and the first thing that can
-   answer it with a *no*.
-3. **The spike, then the marching.**
+1. **The `Natural` / `Fitted` split**, `Crossings` widened, the torus arm, and
+   the body's exactness report — which is §4.1's tier made structural and the
+   first thing that can answer it with a *no*.
+2. **The spike, then the marching.**
 
 **Tests.** A torus built by hand validates and reports its volume `2π²Rr²`,
 which waits on the arm. A plane cutting a torus at the Villarceau angle gives
