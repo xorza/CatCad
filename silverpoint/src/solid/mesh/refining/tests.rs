@@ -4,6 +4,7 @@ use crate::math::plane::Plane;
 use crate::math::triangulate::Cutter;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::cylinder::Cylinder;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 
 /// The frame every surface below is built on.
@@ -174,10 +175,10 @@ fn reach(refining: &Refining) -> f64 {
 #[test]
 fn however_badly_a_wall_is_tiled_it_is_cut_back_to_the_sagitta() {
     let sagitta = 1e-3;
-    let surface = Surface::Cylinder(Cylinder {
+    let surface = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: upright(),
         radius: 1.0,
-    });
+    }));
     let given = Patched::of(&surface, &wall(sagitta), sagitta).fanned();
     let params = given.params();
     let coarse = worst(&surface, &params, &given.fill.triangles);
@@ -245,10 +246,10 @@ fn however_badly_a_wall_is_tiled_it_is_cut_back_to_the_sagitta() {
 #[test]
 fn a_face_wide_in_both_directions_is_given_corners_in_the_middle() {
     let sagitta = 1e-3;
-    let surface = Surface::Sphere(Sphere {
+    let surface = Surface::Natural(Natural::Sphere(Sphere {
         axis: upright(),
         radius: 1.0,
-    });
+    }));
     let around = dome(20);
     let given = Patched::of(&surface, &around, sagitta);
     let params = given.params();
@@ -303,10 +304,10 @@ fn a_face_wide_in_both_directions_is_given_corners_in_the_middle() {
 #[test]
 fn a_face_chorded_coarser_than_its_cells_still_settles() {
     let sagitta = 1e-3;
-    let surface = Surface::Sphere(Sphere {
+    let surface = Surface::Natural(Natural::Sphere(Sphere {
         axis: upright(),
         radius: 1.0,
-    });
+    }));
     // Divided evenly into chords no wider than the sagitta allows, which is
     // what a walk hands over. Each comes out a hair under the widest, and
     // the cell is that widest over the square root of two.
@@ -364,10 +365,10 @@ fn a_face_chorded_coarser_than_its_cells_still_settles() {
 /// climbed without bound.
 #[test]
 fn a_face_comes_back_the_size_its_own_cells_are() {
-    let surface = Surface::Sphere(Sphere {
+    let surface = Surface::Natural(Natural::Sphere(Sphere {
         axis: upright(),
         radius: 1.0,
-    });
+    }));
     let around = dome(20);
     let mut coarsest = 0.0;
     let mut last = 0.0;
@@ -395,7 +396,7 @@ fn a_face_comes_back_the_size_its_own_cells_are() {
 /// every flat face in a drawing costing the mesher nothing.
 #[test]
 fn a_flat_face_is_handed_back_as_it_came() {
-    let surface = Surface::Plane(Plane::GROUND);
+    let surface = Surface::Natural(Natural::Plane(Plane::GROUND));
     let around = [
         DVec2::new(-3.0, -3.0),
         DVec2::new(3.0, -3.0),

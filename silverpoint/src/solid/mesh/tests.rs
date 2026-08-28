@@ -10,6 +10,7 @@ use crate::solid::boolean::operation::Operation;
 use crate::solid::build::builder::Extrusion;
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::cylinder::Cylinder;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::lattice::Lattice;
@@ -228,10 +229,10 @@ fn a_name_the_body_does_not_hold_cuts_to_nothing() {
 #[test]
 fn a_face_is_ruled_into_the_cells_its_surface_allows() {
     let sagitta = 1e-3;
-    let wall = Surface::Cylinder(Cylinder {
+    let wall = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         radius: 1.0,
-    });
+    }));
     let cell = arc::widest(1.0, sagitta);
     let around = [
         DVec2::new(0.0, 0.0),
@@ -297,7 +298,7 @@ fn a_face_is_ruled_into_the_cells_its_surface_allows() {
     let thin = Lattice::of(&wall, &sliver, sagitta);
     assert_eq!(thin.celled(DVec2::new(0.01, 3.0)), DVec2::ONE);
 
-    let flat = Surface::Plane(Plane::GROUND);
+    let flat = Surface::Natural(Natural::Plane(Plane::GROUND));
     let sheet = [
         DVec2::new(-2.0, -5.0),
         DVec2::new(6.0, -5.0),
@@ -355,7 +356,7 @@ fn a_curved_face_wider_than_it_is_tall_still_follows_its_surface() {
     for sagitta in [1e-2, 1e-3, 1e-4] {
         let mut covered = Vec::new();
         for (at, face) in into.topology().faces() {
-            let Surface::Cylinder(_) = face.surface else {
+            let Surface::Natural(Natural::Cylinder(_)) = face.surface else {
                 continue;
             };
             mesher.shut_in(&into, &[at], sagitta, &mut patch);

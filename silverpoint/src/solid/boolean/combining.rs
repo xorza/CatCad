@@ -19,6 +19,7 @@ use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::buckets::Buckets;
 use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
 use crate::solid::named::Named;
@@ -258,10 +259,12 @@ impl Combining {
                     // *stands* — or grazing at a point, which is a place rather
                     // than a line and divides no face.
                     Meeting::Apart | Meeting::Same | Meeting::Touching(_) => continue,
-                    // They meet, in a quartic nothing here parameterizes. Not
-                    // nothing, and saying so is the whole of what that arm is
-                    // for — see [`Meeting::Algebraic`].
-                    Meeting::Algebraic => return false,
+                    // They meet, along a curve nothing here can cut with: a
+                    // quartic no `Cut` has a shape for, or one that is marched
+                    // rather than written down at all. Not nothing, and saying
+                    // so is the whole of what those two arms are for — see
+                    // [`Meeting::Algebraic`].
+                    Meeting::Algebraic | Meeting::Marched => return false,
                     Meeting::Along(along) => along,
                 };
                 // Each curve of the meeting in turn: a plane cutting a chord
@@ -474,7 +477,7 @@ impl Combining {
 fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<Cut> {
     match (on, along) {
         // A line on a plane is a line in its parameters.
-        (Surface::Plane(plane), Curve::Line(line)) => {
+        (Surface::Natural(Natural::Plane(plane)), Curve::Line(line)) => {
             let at = plane.flatten(line.origin);
             Some(Cut::Straight {
                 at,
@@ -487,13 +490,15 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
         // **Inward**, so what is kept first is the disc — the splitter cuts both
         // ways round and each side is read by where it stands, so which is
         // asked first says nothing about the answer.
-        (Surface::Plane(plane), Curve::Circle(circle)) => Some(Cut::Round(Oval {
-            middle: plane.flatten(circle.axis.origin),
-            along: DVec2::X,
-            half: DVec2::splat(circle.radius),
-            inward: true,
-            run: run.expect("a circle is numbered"),
-        })),
+        (Surface::Natural(Natural::Plane(plane)), Curve::Circle(circle)) => {
+            Some(Cut::Round(Oval {
+                middle: plane.flatten(circle.axis.origin),
+                along: DVec2::X,
+                half: DVec2::splat(circle.radius),
+                inward: true,
+                run: run.expect("a circle is numbered"),
+            }))
+        }
         // A circle on a cylinder square to its axis is a *straight* cut in the
         // cylinder's own parameters: every place on it stands the same distance
         // along the axis, so it is the line `v = that`. Which is what the end of
@@ -503,7 +508,7 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
         // Square to the axis or not at all: a circle on a cylinder that is not
         // is no circle at all, and one whose plane is tilted meets it in an
         // ellipse, which arrives here as [`Curve::Ellipse`] and falls through.
-        (Surface::Cylinder(tube), Curve::Circle(circle))
+        (Surface::Natural(Natural::Cylinder(tube)), Curve::Circle(circle))
             if predicate::parallel(circle.axis.direction, tube.axis.direction) =>
         {
             Some(Cut::Straight {
@@ -524,7 +529,7 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
         // What a plane parallel to an axis does to a shaft, which is a flat, a
         // keyway or a D — and the edges it leaves are straight in the world, a
         // ruling of a cylinder being a straight line, so it carries no imprint.
-        (Surface::Cylinder(tube), Curve::Line(line))
+        (Surface::Natural(Natural::Cylinder(tube)), Curve::Line(line))
             if predicate::parallel(line.direction, tube.axis.direction) =>
         {
             let angle = tube.axis.angle_of(line.origin);
@@ -541,7 +546,7 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
         // turn is the one thing to settle — a plane's own uv may hand the
         // ellipse over mirrored, and [`Cut::Round`] reads its shorter half as a
         // quarter turn *ahead* of its longer one.
-        (Surface::Plane(plane), Curve::Ellipse(oval)) => {
+        (Surface::Natural(Natural::Plane(plane)), Curve::Ellipse(oval)) => {
             let middle = plane.flatten(oval.axis.origin);
             let major = plane.flatten(oval.at(0.0)) - middle;
             let minor = plane.flatten(oval.at(FRAC_PI_2)) - middle;
@@ -564,7 +569,7 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
         // `p = O + r·radial(θ) + d·v` gives `v` as a cosine of `θ`, whose
         // amplitude is how far the plane leans and whose phase is which way it
         // leans.
-        (Surface::Cylinder(tube), Curve::Ellipse(oval)) => {
+        (Surface::Natural(Natural::Cylinder(tube)), Curve::Ellipse(oval)) => {
             let axis = tube.axis;
             let normal = oval.axis.direction;
             let leaning = normal.dot(axis.direction);

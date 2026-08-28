@@ -67,6 +67,22 @@ impl Body {
         self.names.is_empty()
     }
 
+    /// Whether every surface it stands on is of the exact tier.
+    ///
+    /// **`.notes/KERNEL.md` §4.1's claim, asked of a body rather than argued
+    /// about.** A body made only of extrudes, revolves and booleans over
+    /// planes, cylinders, cones and spheres is exact, and it can say so; one
+    /// with a torus or a NURBS anywhere in it carries the bound whatever fitted
+    /// it was made to, and it says that instead.
+    ///
+    /// A walk and not a stored flag, so nothing can set it and be wrong: the
+    /// surfaces are the evidence, and this reads them. Edges are not asked —
+    /// an edge is the meeting of two surfaces and cannot be exact where they
+    /// are not.
+    pub fn exact(&self) -> bool {
+        self.topology.faces().all(|(_, face)| face.surface.exact())
+    }
+
     /// The pieces of surface `named` covers — several where one face of the
     /// body comes in disjoint patches.
     pub(crate) fn patches(&self, named: Named) -> impl Iterator<Item = (FaceId, &Face)> {

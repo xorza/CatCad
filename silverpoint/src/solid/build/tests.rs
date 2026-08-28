@@ -5,6 +5,7 @@ use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
 use crate::solid::build::builder::Extrusion;
 use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
@@ -201,7 +202,7 @@ fn a_circle_raises_two_walls_with_one_name_on_one_exact_cylinder() {
     // Each half lies on the same exact cylinder: the drawing's own centre
     // carried onto the plane, radius two, running along the plane's normal.
     for (id, face) in body.patches(wall) {
-        let Surface::Cylinder(cylinder) = face.surface else {
+        let Surface::Natural(Natural::Cylinder(cylinder)) = face.surface else {
             panic!("face {id:?} swept a circle into something else");
         };
         assert_eq!(cylinder.radius, 2.0);

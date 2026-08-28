@@ -35,6 +35,7 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::chord::Chord;
@@ -66,6 +67,16 @@ pub(crate) enum Meeting {
     /// §7.3. Until it lands, an operation that reaches this cannot be built,
     /// and saying so is better than saying the surfaces are apart.
     Algebraic,
+    /// Along a curve no exact route can parameterize at all.
+    ///
+    /// [`Meeting::Algebraic`]'s twin one tier up. A pair with a
+    /// [`Fitted`](crate::solid::geometry::fitted::Fitted) half in it meets in
+    /// something that is *marched* rather than written down, and what comes out
+    /// carries the bound its fit was made to (§4.1). Until the marching lands,
+    /// an operation that reaches this cannot be built — and as with the
+    /// algebraic arm, saying so beats saying the surfaces are apart.
+    #[allow(dead_code)]
+    Marched,
 }
 
 /// One curve or two.
@@ -92,27 +103,58 @@ impl Meeting {
             return Self::Same;
         }
         match (one, two) {
-            (Surface::Plane(one), Surface::Plane(two)) => Self::plane_plane(one, two),
-            (Surface::Plane(plane), Surface::Cylinder(cylinder))
-            | (Surface::Cylinder(cylinder), Surface::Plane(plane)) => {
-                Self::plane_cylinder(plane, cylinder)
+            // **A pair with a fitted half in it is marched**, and one arm
+            // answers every such pair rather than an entry apiece. That is what
+            // the two-level split buys here: the exact route below dispatches
+            // over naturals alone, and nothing in it has to remember that a
+            // torus exists.
+            (Surface::Fitted(_), _) | (_, Surface::Fitted(_)) => Self::Marched,
+            (Surface::Natural(Natural::Plane(one)), Surface::Natural(Natural::Plane(two))) => {
+                Self::plane_plane(one, two)
             }
-            (Surface::Plane(plane), Surface::Sphere(sphere))
-            | (Surface::Sphere(sphere), Surface::Plane(plane)) => Self::plane_sphere(plane, sphere),
-            (Surface::Plane(plane), Surface::Cone(cone))
-            | (Surface::Cone(cone), Surface::Plane(plane)) => Self::plane_cone(plane, cone),
-            (Surface::Cylinder(one), Surface::Cylinder(two)) => Self::cylinder_cylinder(one, two),
-            (Surface::Cylinder(cylinder), Surface::Sphere(sphere))
-            | (Surface::Sphere(sphere), Surface::Cylinder(cylinder)) => {
-                Self::cylinder_sphere(cylinder, sphere)
+            (
+                Surface::Natural(Natural::Plane(plane)),
+                Surface::Natural(Natural::Cylinder(cylinder)),
+            )
+            | (
+                Surface::Natural(Natural::Cylinder(cylinder)),
+                Surface::Natural(Natural::Plane(plane)),
+            ) => Self::plane_cylinder(plane, cylinder),
+            (
+                Surface::Natural(Natural::Plane(plane)),
+                Surface::Natural(Natural::Sphere(sphere)),
+            )
+            | (
+                Surface::Natural(Natural::Sphere(sphere)),
+                Surface::Natural(Natural::Plane(plane)),
+            ) => Self::plane_sphere(plane, sphere),
+            (Surface::Natural(Natural::Plane(plane)), Surface::Natural(Natural::Cone(cone)))
+            | (Surface::Natural(Natural::Cone(cone)), Surface::Natural(Natural::Plane(plane))) => {
+                Self::plane_cone(plane, cone)
             }
-            (Surface::Sphere(one), Surface::Sphere(two)) => Self::sphere_sphere(one, two),
+            (
+                Surface::Natural(Natural::Cylinder(one)),
+                Surface::Natural(Natural::Cylinder(two)),
+            ) => Self::cylinder_cylinder(one, two),
+            (
+                Surface::Natural(Natural::Cylinder(cylinder)),
+                Surface::Natural(Natural::Sphere(sphere)),
+            )
+            | (
+                Surface::Natural(Natural::Sphere(sphere)),
+                Surface::Natural(Natural::Cylinder(cylinder)),
+            ) => Self::cylinder_sphere(cylinder, sphere),
+            (Surface::Natural(Natural::Sphere(one)), Surface::Natural(Natural::Sphere(two))) => {
+                Self::sphere_sphere(one, two)
+            }
             // A cone against anything curved, the same cone twice over having
             // been answered above. Coaxial pairs of these reduce to circles as
             // readily as the rest, and are left until something can *make* a
             // cone — a revolve, roadmap item 6 — because a case with no
             // producer is a case with no way of knowing it is right.
-            (Surface::Cone(_), _) | (_, Surface::Cone(_)) => Self::Algebraic,
+            (Surface::Natural(Natural::Cone(_)), _) | (_, Surface::Natural(Natural::Cone(_))) => {
+                Self::Algebraic
+            }
         }
     }
 

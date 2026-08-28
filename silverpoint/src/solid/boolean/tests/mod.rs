@@ -12,6 +12,7 @@ use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::ellipse::Ellipse;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
@@ -171,7 +172,7 @@ fn a_cut_turns_the_tools_faces_over_and_leaves_the_cubes_alone() {
         .kept()
         .iter()
         .find(|kept| {
-            let Surface::Plane(plane) = kept.surface else {
+            let Surface::Natural(Natural::Plane(plane)) = kept.surface else {
                 return false;
             };
             (plane.origin - (Plane::GROUND.origin + Plane::GROUND.normal() * 3.0)).length() < 1e-9
@@ -368,7 +369,7 @@ fn a_block_bored_through_comes_out_a_solid_with_a_hole_through_it() {
     let walls: Vec<&Face> = topology
         .faces()
         .map(|(_, face)| face)
-        .filter(|face| matches!(face.surface, Surface::Cylinder(_)))
+        .filter(|face| matches!(face.surface, Surface::Natural(Natural::Cylinder(_))))
         .collect();
     assert_eq!(
         walls.len(),
@@ -377,7 +378,7 @@ fn a_block_bored_through_comes_out_a_solid_with_a_hole_through_it() {
         walls.len()
     );
     for wall in &walls {
-        let Surface::Cylinder(tube) = wall.surface else {
+        let Surface::Natural(Natural::Cylinder(tube)) = wall.surface else {
             unreachable!("filtered above")
         };
         assert_eq!(tube.radius, 1.0);

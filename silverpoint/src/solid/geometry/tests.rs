@@ -11,6 +11,7 @@ use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::pencil::Pencil;
 use crate::solid::geometry::quadric::Quadric;
 use crate::solid::geometry::quartic::Quartic;
@@ -188,17 +189,20 @@ fn every_surface_faces_the_way_its_parameters_wind() {
     let surfaces = [
         (
             "cylinder",
-            Surface::Cylinder(Cylinder { axis, radius: 2.0 }),
+            Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 2.0 })),
         ),
         (
             "cone",
-            Surface::Cone(Cone {
+            Surface::Natural(Natural::Cone(Cone {
                 axis,
                 half_angle: FRAC_PI_4,
-            }),
+            })),
         ),
-        ("sphere", Surface::Sphere(Sphere { axis, radius: 5.0 })),
-        ("plane", Surface::Plane(Plane::GROUND)),
+        (
+            "sphere",
+            Surface::Natural(Natural::Sphere(Sphere { axis, radius: 5.0 })),
+        ),
+        ("plane", Surface::Natural(Natural::Plane(Plane::GROUND))),
     ];
     // Off every symmetry, so a normal that happened to be right on an axis is
     // not what is being read.
@@ -232,16 +236,19 @@ fn inverting_a_surface_gives_back_the_parameters_it_was_evaluated_at() {
     let surfaces = [
         (
             "cylinder",
-            Surface::Cylinder(Cylinder { axis, radius: 2.0 }),
+            Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 2.0 })),
         ),
         (
             "cone",
-            Surface::Cone(Cone {
+            Surface::Natural(Natural::Cone(Cone {
                 axis,
                 half_angle: FRAC_PI_4,
-            }),
+            })),
         ),
-        ("sphere", Surface::Sphere(Sphere { axis, radius: 5.0 })),
+        (
+            "sphere",
+            Surface::Natural(Natural::Sphere(Sphere { axis, radius: 5.0 })),
+        ),
     ];
     for (named, surface) in surfaces {
         for turn in 0..8 {
@@ -352,10 +359,10 @@ fn a_ray_meets_each_quadric_where_the_arithmetic_says() {
 
     // A sphere of radius two: straight through the middle from four out is two
     // and six, and the same ray four to the side of the centre grazes it.
-    let ball = Surface::Sphere(Sphere {
+    let ball = Surface::Natural(Natural::Sphere(Sphere {
         axis: upright(),
         radius: 2.0,
-    });
+    }));
     near(
         hits(ball.met_by(DVec3::new(-4.0, 0.0, 0.0), DVec3::X)),
         &[2.0, 6.0],
@@ -375,10 +382,10 @@ fn a_ray_meets_each_quadric_where_the_arithmetic_says() {
     // A cylinder of radius two about +Y: the same ray answers the same, because
     // a cylinder is a circle and the height is nothing to it. Along the axis it
     // meets nothing at all, however far inside it starts.
-    let tube = Surface::Cylinder(Cylinder {
+    let tube = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: upright(),
         radius: 2.0,
-    });
+    }));
     near(
         hits(tube.met_by(DVec3::new(-4.0, 7.0, 0.0), DVec3::X)),
         &[2.0, 6.0],
@@ -398,10 +405,10 @@ fn a_ray_meets_each_quadric_where_the_arithmetic_says() {
     // A cone at forty-five degrees about +Y, apex at the origin: its radius at
     // height `h` is `h`, so a ray straight up at one out from the axis meets it
     // at height one — and again at minus one, on the far nappe.
-    let horn = Surface::Cone(Cone {
+    let horn = Surface::Natural(Natural::Cone(Cone {
         axis: upright(),
         half_angle: FRAC_PI_4,
-    });
+    }));
     near(
         hits(horn.met_by(DVec3::new(1.0, -3.0, 0.0), DVec3::Y)),
         &[2.0, 4.0],
@@ -416,7 +423,7 @@ fn a_ray_meets_each_quadric_where_the_arithmetic_says() {
     );
 
     // A plane answers once, and never where the ray lies in it.
-    let flat = Surface::Plane(Plane::GROUND);
+    let flat = Surface::Natural(Natural::Plane(Plane::GROUND));
     near(
         hits(flat.met_by(DVec3::new(0.0, 3.0, 0.0), -DVec3::Y)),
         &[3.0],
@@ -450,14 +457,14 @@ fn a_boundary_bounds_its_face_on_everything_but_a_sphere() {
         low: DVec3::new(-2.0, 1.0, -2.0),
         high: DVec3::new(2.0, 1.0, 2.0),
     };
-    let tube = Surface::Cylinder(Cylinder {
+    let tube = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: upright(),
         radius: 2.0,
-    });
-    let ball = Surface::Sphere(Sphere {
+    }));
+    let ball = Surface::Natural(Natural::Sphere(Sphere {
         axis: upright(),
         radius: 2.0,
-    });
+    }));
 
     assert_eq!(
         tube.fills(rim),
@@ -554,7 +561,7 @@ fn an_ellipse_reads_its_parameter_back_and_not_its_bearing() {
 #[test]
 fn a_flat_triangle_strays_from_each_surface_by_the_arithmetic() {
     let axis = upright();
-    let flat = Surface::Plane(Plane::GROUND);
+    let flat = Surface::Natural(Natural::Plane(Plane::GROUND));
     let far = [
         DVec2::new(-9.0, -9.0),
         DVec2::new(9.0, -4.0),
@@ -567,17 +574,17 @@ fn a_flat_triangle_strays_from_each_surface_by_the_arithmetic() {
         DVec2::new(PI / 6.0, 3.0),
         DVec2::new(PI / 3.0, 2.0),
     ];
-    let barrel = Surface::Cylinder(Cylinder { axis, radius: 2.0 });
+    let barrel = Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 2.0 }));
     assert!((barrel.straying(third) - 0.267949192431123).abs() < 1e-12);
     // Only the turn it covers, and not how far it runs along — a cylinder does
     // not bend that way, so a triangle twice as tall strays exactly as far.
     let taller = third.map(|uv| DVec2::new(uv.x, uv.y * 2.0));
     assert_eq!(barrel.straying(taller), barrel.straying(third));
 
-    let horn = Surface::Cone(Cone {
+    let horn = Surface::Natural(Natural::Cone(Cone {
         axis,
         half_angle: FRAC_PI_4,
-    });
+    }));
     let reaching = [
         DVec2::new(0.0, 1.0),
         DVec2::new(PI / 6.0, 3.0),
@@ -585,7 +592,7 @@ fn a_flat_triangle_strays_from_each_surface_by_the_arithmetic() {
     ];
     assert!((horn.straying(reaching) - 0.284203036472259).abs() < 1e-12);
 
-    let ball = Surface::Sphere(Sphere { axis, radius: 1.0 });
+    let ball = Surface::Natural(Natural::Sphere(Sphere { axis, radius: 1.0 }));
     let quarter = DVec2::new(FRAC_PI_2, 0.0);
     let chord = [DVec2::ZERO, quarter, quarter];
     assert!((ball.straying(chord) - 0.292893218813452).abs() < 1e-12);
@@ -626,10 +633,10 @@ fn each_surface_allows_the_step_its_own_arcs_are_chorded_at() {
         "the step is not one chord's worth",
     );
 
-    let flat = Surface::Plane(Plane::GROUND);
+    let flat = Surface::Natural(Natural::Plane(Plane::GROUND));
     assert_eq!(flat.strides(5.0, sagitta), DVec2::INFINITY);
 
-    let barrel = Surface::Cylinder(Cylinder { axis, radius: 1.0 });
+    let barrel = Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 1.0 }));
     let allowed = barrel.strides(5.0, sagitta);
     assert!((allowed.x - step).abs() < 1e-15);
     assert_eq!(allowed.y, f64::INFINITY);
@@ -638,7 +645,7 @@ fn each_surface_allows_the_step_its_own_arcs_are_chorded_at() {
     // angle of it reaches twice as far and stands twice as far off. And a whole
     // step of whatever it allows strays exactly the sagitta asked for, which is
     // the one thing tying the two answers together.
-    let fatter = Surface::Cylinder(Cylinder { axis, radius: 2.0 });
+    let fatter = Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 2.0 }));
     let wider = fatter.strides(5.0, sagitta);
     assert!(wider.x < allowed.x, "{} against {}", wider.x, allowed.x);
     let across = [
@@ -654,10 +661,10 @@ fn each_surface_allows_the_step_its_own_arcs_are_chorded_at() {
 
     // A cone reads the ring at the far end of the face, so reaching further
     // asks for a finer step.
-    let horn = Surface::Cone(Cone {
+    let horn = Surface::Natural(Natural::Cone(Cone {
         axis,
         half_angle: FRAC_PI_4,
-    });
+    }));
     assert!(horn.strides(9.0, sagitta).x < horn.strides(3.0, sagitta).x);
     assert_eq!(horn.strides(3.0, sagitta).y, f64::INFINITY);
 
@@ -667,7 +674,7 @@ fn each_surface_allows_the_step_its_own_arcs_are_chorded_at() {
     // may be no wider than one chord. Asserted through what it is for: a
     // triangle spanning a whole cell corner to corner strays exactly the
     // sagitta, where one held to `step` each way would stray twice that.
-    let ball = Surface::Sphere(Sphere { axis, radius: 1.0 });
+    let ball = Surface::Natural(Natural::Sphere(Sphere { axis, radius: 1.0 }));
     let cell = ball.strides(5.0, sagitta);
     assert_eq!(cell.x, cell.y);
     assert!((cell.x - step / SQRT_2).abs() < 1e-15);
@@ -701,35 +708,35 @@ fn a_key_moves_with_every_number_a_surface_or_a_curve_is_made_of() {
     // One value, one key. Worked out twice rather than copied, because that is
     // what two faces of one surface do.
     assert_eq!(
-        Surface::Cylinder(Cylinder { axis, radius: 2.0 }).key(),
-        Surface::Cylinder(Cylinder { axis, radius: 2.0 }).key(),
+        Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 2.0 })).key(),
+        Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 2.0 })).key(),
     );
 
     let surfaces = [
-        Surface::Plane(Plane::GROUND),
-        Surface::Plane(Plane::FRONT),
-        Surface::Cylinder(Cylinder { axis, radius: 2.0 }),
-        Surface::Cylinder(Cylinder { axis, radius: 3.0 }),
-        Surface::Cylinder(Cylinder {
+        Surface::Natural(Natural::Plane(Plane::GROUND)),
+        Surface::Natural(Natural::Plane(Plane::FRONT)),
+        Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 2.0 })),
+        Surface::Natural(Natural::Cylinder(Cylinder { axis, radius: 3.0 })),
+        Surface::Natural(Natural::Cylinder(Cylinder {
             axis: along,
             radius: 2.0,
-        }),
-        Surface::Cylinder(Cylinder {
+        })),
+        Surface::Natural(Natural::Cylinder(Cylinder {
             axis: turned,
             radius: 2.0,
-        }),
-        Surface::Cone(Cone {
+        })),
+        Surface::Natural(Natural::Cone(Cone {
             axis,
             half_angle: FRAC_PI_4,
-        }),
-        Surface::Cone(Cone {
+        })),
+        Surface::Natural(Natural::Cone(Cone {
             axis,
             half_angle: FRAC_PI_4 / 2.0,
-        }),
+        })),
         // Which surface it is, and nothing else, tells this from the cylinder
         // above.
-        Surface::Sphere(Sphere { axis, radius: 2.0 }),
-        Surface::Sphere(Sphere { axis, radius: 3.0 }),
+        Surface::Natural(Natural::Sphere(Sphere { axis, radius: 2.0 })),
+        Surface::Natural(Natural::Sphere(Sphere { axis, radius: 3.0 })),
     ];
     for (at, one) in surfaces.iter().enumerate() {
         for two in &surfaces[at + 1..] {
@@ -811,15 +818,15 @@ fn a_key_moves_with_every_number_a_surface_or_a_curve_is_made_of() {
 /// than growing.
 #[test]
 fn every_natural_surface_is_the_exact_zero_set_of_its_own_matrix() {
-    let flat = Surface::Plane(Plane {
+    let flat = Natural::Plane(Plane {
         origin: DVec3::new(1.0, 2.0, 3.0),
         ..Plane::GROUND
     });
-    let ball = Surface::Sphere(Sphere {
+    let ball = Natural::Sphere(Sphere {
         axis: upright(),
         radius: 5.0,
     });
-    let pipe = Surface::Cylinder(Cylinder {
+    let pipe = Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::new(1.0, 2.0, 3.0), DVec3::Z, DVec3::X),
         radius: 5.0,
     });
@@ -854,7 +861,7 @@ fn every_natural_surface_is_the_exact_zero_set_of_its_own_matrix() {
     );
 
     // The cone of a quarter turn about the upright line, apex at the origin.
-    let point = Surface::Cone(Cone {
+    let point = Natural::Cone(Cone {
         axis: upright(),
         half_angle: FRAC_PI_4,
     });
@@ -918,13 +925,13 @@ fn every_natural_surface_is_the_exact_zero_set_of_its_own_matrix() {
 #[test]
 fn a_pencil_reads_the_characteristic_form_the_algebra_says() {
     let ball = |radius: f64| {
-        Quadric::of(&Surface::Sphere(Sphere {
+        Quadric::of(&Natural::Sphere(Sphere {
             axis: upright(),
             radius,
         }))
     };
     let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
-        Quadric::of(&Surface::Cylinder(Cylinder {
+        Quadric::of(&Natural::Cylinder(Cylinder {
             axis: Axis::new(DVec3::ZERO, direction, reference),
             radius,
         }))
@@ -1029,21 +1036,21 @@ fn quadric(of: &[[Rational; 4]; 4]) -> Quadric {
 /// its steps in rather than a property of the surface.
 #[test]
 fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
-    let ball = Quadric::of(&Surface::Sphere(Sphere {
+    let ball = Quadric::of(&Natural::Sphere(Sphere {
         axis: upright(),
         radius: 5.0,
     }));
     let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
-        Quadric::of(&Surface::Cylinder(Cylinder {
+        Quadric::of(&Natural::Cylinder(Cylinder {
             axis: Axis::new(DVec3::ZERO, direction, reference),
             radius,
         }))
     };
-    let point = Quadric::of(&Surface::Cone(Cone {
+    let point = Quadric::of(&Natural::Cone(Cone {
         axis: upright(),
         half_angle: FRAC_PI_4,
     }));
-    let flat = Quadric::of(&Surface::Plane(Plane {
+    let flat = Quadric::of(&Natural::Plane(Plane {
         origin: DVec3::new(1.0, 2.0, 3.0),
         ..Plane::GROUND
     }));
@@ -1164,7 +1171,7 @@ fn a_quadric_diagonalizes_by_congruence_and_says_how_it_leans() {
 /// built in, and this is its first caller.
 #[test]
 fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
-    let ball = Quadric::of(&Surface::Sphere(Sphere {
+    let ball = Quadric::of(&Natural::Sphere(Sphere {
         axis: upright(),
         radius: 5.0,
     }));
@@ -1178,7 +1185,7 @@ fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
     }
 
     let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
-        Quadric::of(&Surface::Cylinder(Cylinder {
+        Quadric::of(&Natural::Cylinder(Cylinder {
             axis: Axis::new(DVec3::ZERO, direction, reference),
             radius,
         }))
@@ -1297,7 +1304,7 @@ fn a_ruled_quadric_holds_two_whole_lines_through_each_of_its_places() {
 #[test]
 fn a_ruling_meets_the_other_quadric_in_two_exact_places() {
     let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
-        Quadric::of(&Surface::Cylinder(Cylinder {
+        Quadric::of(&Natural::Cylinder(Cylinder {
             axis: Axis::new(DVec3::ZERO, direction, reference),
             radius,
         }))
@@ -1395,7 +1402,7 @@ fn a_ruling_meets_the_other_quadric_in_two_exact_places() {
 #[test]
 fn a_ruled_quadric_is_bilinear_in_two_parameters() {
     let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
-        Quadric::of(&Surface::Cylinder(Cylinder {
+        Quadric::of(&Natural::Cylinder(Cylinder {
             axis: Axis::new(DVec3::ZERO, direction, reference),
             radius,
         }))
@@ -1542,7 +1549,7 @@ fn a_ruled_quadric_is_bilinear_in_two_parameters() {
 #[test]
 fn two_unequal_cylinders_meet_in_a_quartic_every_place_of_which_is_on_both() {
     let pipe = |direction: DVec3, reference: DVec3, radius: f64| {
-        Quadric::of(&Surface::Cylinder(Cylinder {
+        Quadric::of(&Natural::Cylinder(Cylinder {
             axis: Axis::new(DVec3::ZERO, direction, reference),
             radius,
         }))
@@ -1588,7 +1595,7 @@ fn two_unequal_cylinders_meet_in_a_quartic_every_place_of_which_is_on_both() {
     // A pencil whose characteristic form has a repeated root is no smooth
     // quartic, and two concentric spheres meet nowhere at all.
     let ball = |radius: f64| {
-        Quadric::of(&Surface::Sphere(Sphere {
+        Quadric::of(&Natural::Sphere(Sphere {
             axis: upright(),
             radius,
         }))

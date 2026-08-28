@@ -11,8 +11,8 @@
 
 use crate::number::exact::field::Field;
 use crate::number::exact::rational::Rational;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::roots::{Along, Roots};
-use crate::solid::geometry::surface::Surface;
 use glam::DVec3;
 
 /// A surface as the symmetric 4×4 matrix `Q` with `xᵀQx` nought exactly on it,
@@ -62,6 +62,10 @@ pub(crate) struct Quadric {
 impl Quadric {
     /// The matrix `surface` is the zero set of.
     ///
+    /// **Only the exact tier has one**, which is what the type says: a torus is
+    /// a quartic surface and no 4×4 describes it, so the algebraic route takes
+    /// a [`Natural`] and a fitted pair never reaches here at all.
+    ///
     /// **A plane comes back as the double plane it is**, rank one rather than
     /// rank three, and that is the surface rather than a degeneracy to guard
     /// against: `(n·(x−o))² = 0` holds on exactly the plane's own places. The
@@ -76,9 +80,9 @@ impl Quadric {
     /// last two is what a division by `|w|` would otherwise have to be, and
     /// dropping it is where a route that trusts its axis to be unit differs
     /// from this one.
-    pub(crate) fn of(surface: &Surface) -> Self {
+    pub(crate) fn of(surface: &Natural) -> Self {
         match surface {
-            Surface::Plane(plane) => {
+            Natural::Plane(plane) => {
                 let [x, y, z] = crossed(plane.x, plane.y);
                 Self::about(
                     [
@@ -93,7 +97,7 @@ impl Quadric {
                     Rational::ZERO,
                 )
             }
-            Surface::Cylinder(cylinder) => {
+            Natural::Cylinder(cylinder) => {
                 let [x, y, z] = placed(cylinder.axis.direction);
                 let along = length_squared([x.clone(), y.clone(), z.clone()]);
                 let radius = Rational::of(cylinder.radius);
@@ -110,7 +114,7 @@ impl Quadric {
                     -(radius.clone() * radius * along),
                 )
             }
-            Surface::Cone(cone) => {
+            Natural::Cone(cone) => {
                 let [x, y, z] = placed(cone.axis.direction);
                 // The *product* the machine works out rather than the square of
                 // the cosine it read, so that this and `Cone::met_by` are the
@@ -131,7 +135,7 @@ impl Quadric {
                     Rational::ZERO,
                 )
             }
-            Surface::Sphere(sphere) => {
+            Natural::Sphere(sphere) => {
                 let radius = Rational::of(sphere.radius);
                 Self::about(
                     [

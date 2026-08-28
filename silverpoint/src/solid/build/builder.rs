@@ -9,6 +9,7 @@ use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::grown::Grown;
 use crate::solid::meeting::Meeting;
@@ -188,7 +189,7 @@ impl Builder {
     fn cap(into: &mut Body, plane: Plane, name: Named, outward: bool) -> FaceId {
         into.named(name);
         into.topology_mut().add_face(Face {
-            surface: Surface::Plane(plane),
+            surface: Surface::Natural(Natural::Plane(plane)),
             outward,
             // Filled by the loop pass, which is the only one that can know: a
             // face's loops are a stretch of the body's own buffer, and where
@@ -232,19 +233,19 @@ impl Builder {
             // puts `∂u × ∂v` on the region's outward side — so the wall of a
             // straight strip always faces out of its own parameters.
             return Walled {
-                surface: Surface::Plane(Plane {
+                surface: Surface::Natural(Natural::Plane(Plane {
                     origin,
                     x: running,
                     y: raising.normal,
-                }),
+                })),
                 outward: true,
             };
         };
         Walled {
-            surface: Surface::Cylinder(Cylinder {
+            surface: Surface::Natural(Natural::Cylinder(Cylinder {
                 axis: Self::turning(raising, turn.center),
                 radius: turn.radius,
-            }),
+            })),
             // A cylinder faces away from its axis, which is the material side
             // exactly when the region keeps the arc on its left — that is, when
             // the walk runs counterclockwise.

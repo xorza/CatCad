@@ -2,6 +2,7 @@ use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
@@ -15,15 +16,17 @@ const NEAR: f64 = 1e-12;
 /// A cylinder of `radius` about the world's +Y through the origin, angles from
 /// +X.
 fn upright(radius: f64) -> Surface {
-    Surface::Cylinder(Cylinder {
+    Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         radius,
-    })
+    }))
 }
 
 /// The plane through `origin` facing `normal`, framed however.
 fn facing(origin: DVec3, normal: DVec3) -> Surface {
-    Surface::Plane(Axis::about(origin, normal.normalize()).plane())
+    Surface::Natural(Natural::Plane(
+        Axis::about(origin, normal.normalize()).plane(),
+    ))
 }
 
 /// **Every curve handed back lies on both the surfaces it came from.**
@@ -218,10 +221,10 @@ fn a_plane_alongside_a_cylinder_cuts_two_lines_then_one_then_none() {
 #[test]
 fn two_equal_cylinders_crossing_square_meet_in_two_ellipses() {
     let along = upright(2.0);
-    let across = Surface::Cylinder(Cylinder {
+    let across = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::ZERO, DVec3::Z, DVec3::X),
         radius: 2.0,
-    });
+    }));
 
     let meeting = Meeting::of(&along, &across);
     let Meeting::Along(curves) = meeting else {
@@ -250,19 +253,19 @@ fn two_equal_cylinders_crossing_square_meet_in_two_ellipses() {
 #[test]
 fn cylinders_that_do_not_reduce_are_named_as_such() {
     let along = upright(2.0);
-    let unequal = Surface::Cylinder(Cylinder {
+    let unequal = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::ZERO, DVec3::Z, DVec3::X),
         radius: 1.0,
-    });
+    }));
     assert_eq!(Meeting::of(&along, &unequal), Meeting::Algebraic);
 
     // Equal, and close enough to overlap, but the axes pass without meeting —
     // which is the whole of what the second condition is for. Two along +X
     // apart, the +Z one never reaches the +Y one however far either is walked.
-    let skew = Surface::Cylinder(Cylinder {
+    let skew = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::X * 2.0, DVec3::Z, DVec3::X),
         radius: 2.0,
-    });
+    }));
     assert_eq!(Meeting::of(&along, &skew), Meeting::Algebraic);
 }
 
@@ -277,10 +280,10 @@ fn cylinders_on_one_axis_are_the_same_surface_or_nothing() {
     // Side by side, overlapping: two lines, both along the shared direction and
     // both `2` from each axis. Three apart with radii two and two, the lines
     // stand at `x = 1.5` and `z = ±√(4 − 2.25)`.
-    let beside = Surface::Cylinder(Cylinder {
+    let beside = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::new(3.0, 0.0, 0.0), DVec3::Y, DVec3::X),
         radius: 2.0,
-    });
+    }));
     let meeting = Meeting::of(&two, &beside);
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
@@ -300,10 +303,10 @@ fn cylinders_on_one_axis_are_the_same_surface_or_nothing() {
     // Exactly touching, and a picometre off it: one line either way, for the
     // reason the two spheres below give.
     for apart in [4.0, 4.0 - 1e-12] {
-        let against = Surface::Cylinder(Cylinder {
+        let against = Surface::Natural(Natural::Cylinder(Cylinder {
             axis: Axis::new(DVec3::X * apart, DVec3::Y, DVec3::X),
             radius: 2.0,
-        });
+        }));
         let meeting = Meeting::of(&two, &against);
         let Meeting::Along(along) = meeting else {
             panic!("at {apart}: {meeting:?} is not a curve");
@@ -312,15 +315,15 @@ fn cylinders_on_one_axis_are_the_same_surface_or_nothing() {
     }
 
     // Far enough apart to miss, and nested deeply enough to miss the other way.
-    let away = Surface::Cylinder(Cylinder {
+    let away = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::new(9.0, 0.0, 0.0), DVec3::Y, DVec3::X),
         radius: 2.0,
-    });
+    }));
     assert_eq!(Meeting::of(&two, &away), Meeting::Apart);
-    let inside = Surface::Cylinder(Cylinder {
+    let inside = Surface::Natural(Natural::Cylinder(Cylinder {
         axis: Axis::new(DVec3::new(0.1, 0.0, 0.0), DVec3::Y, DVec3::X),
         radius: 0.5,
-    });
+    }));
     assert_eq!(Meeting::of(&two, &inside), Meeting::Apart);
 }
 
@@ -328,10 +331,10 @@ fn cylinders_on_one_axis_are_the_same_surface_or_nothing() {
 #[test]
 fn a_plane_cuts_a_sphere_in_a_circle_until_it_only_grazes_it() {
     let centre = DVec3::new(1.0, 2.0, 3.0);
-    let sphere = Surface::Sphere(Sphere {
+    let sphere = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(centre, DVec3::Y, DVec3::X),
         radius: 5.0,
-    });
+    }));
 
     // Three below the centre: a 3-4-5 triangle, so the circle has radius four.
     let across = facing(centre - DVec3::Y * 3.0, DVec3::Y);
@@ -359,16 +362,16 @@ fn a_plane_cuts_a_sphere_in_a_circle_until_it_only_grazes_it() {
 /// **Two spheres meet in a circle**, and the classic 3-4-5 says where.
 #[test]
 fn two_spheres_meet_in_the_circle_the_triangle_of_their_radii_sets() {
-    let here = Surface::Sphere(Sphere {
+    let here = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         radius: 5.0,
-    });
+    }));
     // Eight along +X with radius five: the circle sits at `x = 4` — half way,
     // because the radii are equal — with radius three.
-    let there = Surface::Sphere(Sphere {
+    let there = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::X * 8.0, DVec3::Y, DVec3::X),
         radius: 5.0,
-    });
+    }));
     let meeting = Meeting::of(&here, &there);
     let Meeting::Along(along) = meeting else {
         panic!("{meeting:?} is not a curve");
@@ -385,10 +388,10 @@ fn two_spheres_meet_in_the_circle_the_triangle_of_their_radii_sets() {
     lies_on(meeting, &here, &there, "two spheres");
 
     // Touching outside, touching inside, apart, and one swallowed by the other.
-    let outside = Surface::Sphere(Sphere {
+    let outside = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::X * 8.0, DVec3::Y, DVec3::X),
         radius: 3.0,
-    });
+    }));
     assert_eq!(
         Meeting::of(&here, &outside),
         Meeting::Touching(DVec3::X * 5.0)
@@ -399,24 +402,24 @@ fn two_spheres_meet_in_the_circle_the_triangle_of_their_radii_sets() {
     // asked for here is enough to open one a thousand times *over* it — and
     // this pair would come back as a circle two microns across if the question
     // were asked of that instead.
-    let nearly = Surface::Sphere(Sphere {
+    let nearly = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::X * (8.0 - 1e-12), DVec3::Y, DVec3::X),
         radius: 3.0,
-    });
+    }));
     assert!(
         matches!(Meeting::of(&here, &nearly), Meeting::Touching(_)),
         "{:?} is a sliver where a touch was wanted",
         Meeting::of(&here, &nearly),
     );
-    let away = Surface::Sphere(Sphere {
+    let away = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::X * 20.0, DVec3::Y, DVec3::X),
         radius: 3.0,
-    });
+    }));
     assert_eq!(Meeting::of(&here, &away), Meeting::Apart);
-    let swallowed = Surface::Sphere(Sphere {
+    let swallowed = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         radius: 1.0,
-    });
+    }));
     assert_eq!(Meeting::of(&here, &swallowed), Meeting::Apart);
     assert_eq!(Meeting::of(&here, &here), Meeting::Same);
 }
@@ -426,10 +429,10 @@ fn two_spheres_meet_in_the_circle_the_triangle_of_their_radii_sets() {
 #[test]
 fn a_sphere_on_a_cylinders_axis_meets_it_in_a_circle_at_each_end() {
     let cylinder = upright(3.0);
-    let sphere = Surface::Sphere(Sphere {
+    let sphere = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         radius: 5.0,
-    });
+    }));
 
     let meeting = Meeting::of(&cylinder, &sphere);
     let Meeting::Along(along) = meeting else {
@@ -457,10 +460,10 @@ fn a_sphere_on_a_cylinders_axis_meets_it_in_a_circle_at_each_end() {
     // picometre wider still, which is the near miss the radii are compared for
     // — see the sphere pair next door.
     for radius in [3.0, 3.0 + 1e-12] {
-        let snug = Surface::Sphere(Sphere {
+        let snug = Surface::Natural(Natural::Sphere(Sphere {
             axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
             radius,
-        });
+        }));
         let meeting = Meeting::of(&cylinder, &snug);
         let Meeting::Along(along) = meeting else {
             panic!("{meeting:?} is not a curve");
@@ -470,15 +473,15 @@ fn a_sphere_on_a_cylinders_axis_meets_it_in_a_circle_at_each_end() {
     }
 
     // Narrower than the cylinder, and off the axis.
-    let small = Surface::Sphere(Sphere {
+    let small = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         radius: 1.0,
-    });
+    }));
     assert_eq!(Meeting::of(&cylinder, &small), Meeting::Apart);
-    let aside = Surface::Sphere(Sphere {
+    let aside = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::X, DVec3::Y, DVec3::X),
         radius: 5.0,
-    });
+    }));
     assert_eq!(Meeting::of(&cylinder, &aside), Meeting::Algebraic);
 }
 
@@ -486,10 +489,10 @@ fn a_sphere_on_a_cylinders_axis_meets_it_in_a_circle_at_each_end() {
 /// sets, and catches the apex alone where it passes through it.
 #[test]
 fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
-    let cone = Surface::Cone(Cone {
+    let cone = Surface::Natural(Natural::Cone(Cone {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         half_angle: FRAC_PI_4,
-    });
+    }));
 
     // At 45° the radius equals the height, so three up is a circle of three.
     let across = facing(DVec3::Y * 3.0, DVec3::Y);
@@ -530,14 +533,14 @@ fn a_plane_square_across_a_cone_cuts_the_circle_its_half_angle_sets() {
 /// smooth.
 #[test]
 fn every_surface_meets_itself() {
-    let ball = Surface::Sphere(Sphere {
+    let ball = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::Y * 2.0, DVec3::Y, DVec3::X),
         radius: 3.0,
-    });
-    let horn = Surface::Cone(Cone {
+    }));
+    let horn = Surface::Natural(Natural::Cone(Cone {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         half_angle: FRAC_PI_4,
-    });
+    }));
     for surface in [facing(DVec3::Y, DVec3::Y), upright(3.0), horn, ball] {
         assert_eq!(
             Meeting::of(&surface, &surface),

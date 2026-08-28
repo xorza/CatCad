@@ -1053,18 +1053,30 @@ the ray's parameter with no root anywhere. Straight out from the middle of a
 three-by-one ring that is `t⁴ − 20t² + 64`, whose roots are ±2 and ±4 — four
 crossings from one ray, which is the case no quadric has.
 
-**What the `Surface` arm still wants.** `Crossings` is two wide, because every
-surface in that enum so far is a quadric. Widening it to four is one line and a
-handful of arms, and it belongs with the `Natural` / `Fitted` split (§4.6)
-rather than ahead of it — until then the torus is geometry without a surface,
-which is what keeps every `match` on `Surface` answerable.
+**And the split is in.** `Surface` is `Natural(Natural)` or `Fitted(Fitted)`,
+which is §4.1's tier made structural. `Natural` holds the four quadrics and all
+the arithmetic that was `Surface`'s; `Fitted` holds the torus. Every dispatch on
+`Surface` is now one line per tier and no arithmetic at all.
 
-**In this order:**
+**Two places the type did the arguing.** `Quadric::of` takes a `Natural` — a
+torus is a quartic surface and no 4×4 describes it, so a fitted surface cannot
+reach the algebraic route by mistake. And `Meeting::of` answers every pair with
+a fitted half in *one* arm, `Meeting::Marched`, where a flat enum would have
+wanted an entry apiece. That is what the two levels buy, and the compiler asked
+for both rather than a reader noticing.
 
-1. **The `Natural` / `Fitted` split**, `Crossings` widened, the torus arm, and
-   the body's exactness report — which is §4.1's tier made structural and the
-   first thing that can answer it with a *no*.
-2. **The spike, then the marching.**
+`Marched` is `Algebraic`'s twin one tier up: the two surfaces do meet, along a
+curve no exact route can write down, and saying so beats saying they are apart.
+The boolean refuses both, which is what it already did for the one.
+
+**And a body says whether it is exact.** `Body::exact` walks its faces and asks
+each surface which arm it is. A walk and not a flag, so nothing can set it and
+be wrong — held by a test that puts one torus on one face of a block and watches
+the answer turn over.
+
+**What is left is the spike, then the marching.** §10's rule 2 wants a throwaway
+one outside the workspace first. Nothing builds a torus yet either — a revolve
+makes one, and so does a plane-cylinder fillet.
 
 **Tests.** A torus built by hand validates and reports its volume `2π²Rr²`,
 which waits on the arm. A plane cutting a torus at the Villarceau angle gives

@@ -7,9 +7,12 @@ use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::geometry::torus::Torus;
 use crate::solid::grown::Grown;
 use crate::solid::mesh::Mesher;
 use crate::solid::named::Step;
@@ -247,10 +250,10 @@ fn a_cone_built_by_hand_is_a_valid_body() {
 /// The party hat above: apex at the origin, `+y`, forty-five degrees, two tall.
 fn cone() -> Body {
     let upright = Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X);
-    let surface = Surface::Cone(Cone {
+    let surface = Surface::Natural(Natural::Cone(Cone {
         axis: upright,
         half_angle: FRAC_PI_4,
-    });
+    }));
     let rim = Circle {
         axis: Axis::new(DVec3::new(0.0, TALL, 0.0), DVec3::Y, DVec3::X),
         radius: TALL,
@@ -293,7 +296,7 @@ fn cone() -> Body {
     // Material inside, so every one of them faces away from the axis — and the
     // lid faces up, off the top of the solid below it.
     let (here, there) = (face(surface, true), face(surface, true));
-    let base = face(Surface::Plane(lid), true);
+    let base = face(Surface::Natural(Natural::Plane(lid)), true);
 
     let mut edge = |curve, bounds: [f64; 2], from, to, between, artificial| {
         body.topology_mut().add_edge(Edge {
@@ -429,10 +432,10 @@ fn a_sphere_built_by_hand_is_a_valid_body() {
 /// A ball of radius [`ROUND`] about the origin, split down the great circle in
 /// the plane `z = 0`.
 fn ball() -> Body {
-    let surface = Surface::Sphere(Sphere {
+    let surface = Surface::Natural(Natural::Sphere(Sphere {
         axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
         radius: ROUND,
-    });
+    }));
     // The seam, in the plane `z = 0`: its own frame runs `+z` so that the
     // parameter climbs from the south pole through `+x` to the north.
     let seam = Circle {
@@ -550,4 +553,36 @@ fn a_sphere_meshes_to_the_volume_its_arithmetic_says() {
         last < want / 200.0,
         "the sphere never converged: {last} short"
     );
+}
+
+/// **A body says whether it is exact, and the answer is a walk over its own
+/// surfaces.**
+///
+/// `.notes/KERNEL.md` §4.1's claim, asked rather than argued: a body made only
+/// of planes, cylinders, cones and spheres is exact and can say so, and one
+/// with a fitted surface anywhere in it carries whatever bound its fit was made
+/// to.
+///
+/// **A walk and not a flag**, which is what makes it unforgeable. The block off
+/// the builder is exact; put one torus on one of its six faces and it is not,
+/// and nothing had to be told. The `Natural` / `Fitted` split is what makes
+/// that a `match` on the type rather than a guess about the numbers — a fitted
+/// surface is fitted because of what it *is*.
+#[test]
+fn a_body_says_whether_every_surface_it_stands_on_is_exact() {
+    let mut body = block();
+    assert!(body.exact(), "a block off the builder is not exact");
+
+    let face = body
+        .topology()
+        .faces()
+        .map(|(at, _)| at)
+        .next()
+        .expect("a block has faces");
+    body.topology_mut().face_mut(face).surface = Surface::Fitted(Fitted::Torus(Torus {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        major: 3.0,
+        minor: 1.0,
+    }));
+    assert!(!body.exact(), "one fitted face left the body exact");
 }

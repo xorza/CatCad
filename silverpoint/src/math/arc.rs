@@ -54,3 +54,17 @@ pub(crate) fn widest(radius: f64, sagitta: f64) -> f64 {
 pub(crate) fn bulge(spread: f64) -> f64 {
     1.0 - (spread.abs() * 0.5).min(FRAC_PI_2).cos()
 }
+
+/// How much of one parameter a triple of them covers.
+///
+/// Beside [`bulge`], which is the only thing that reads it: what a triangle of
+/// parameters leaves off a turning surface goes as the bulge of the turn it
+/// spans, and this is that turn.
+///
+/// The parameters arrive *unwrapped* — see
+/// [`Face::flatten`](crate::solid::topology::face::Face) — so this is a plain
+/// difference rather than anything modular.
+pub(crate) fn spread(of: [f64; 3]) -> f64 {
+    of.iter().fold(f64::NEG_INFINITY, |far, &at| far.max(at))
+        - of.iter().fold(f64::INFINITY, |near, &at| near.min(at))
+}
