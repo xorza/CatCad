@@ -4,6 +4,7 @@ use crate::sketch::arrangement::Arrangement;
 use crate::sketch::arrangement::bound::Bound;
 use crate::sketch::entity::Entity;
 use crate::solid::build::builder::Extrusion;
+use crate::solid::build::revolving::Revolution;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
@@ -12,7 +13,7 @@ use crate::solid::mesh::Mesher;
 use crate::solid::named::{Named, Step};
 use crate::solid::topology::body::Body;
 use glam::{DVec2, DVec3};
-use std::f64::consts::PI;
+use std::f64::consts::{PI, TAU};
 
 /// The step every body below is grown by.
 ///
@@ -499,4 +500,173 @@ fn a_drawing_that_folded_nothing_raises_a_body_that_stands_for_nothing() {
             );
         }
     }
+}
+
+/// **A circle spun about a line beside it is the ring it traces**, which is the
+/// first body anywhere here to stand on a surface of the fitted tier without
+/// being written down by hand.
+///
+/// A circle of one about a centre three out, spun about the world's `+Y`. Every
+/// figure is the ring's own: `2π²·major·minor²` by Pappus, genus one, and a
+/// count of faces, edges and vertices that is forced rather than chosen — the
+/// circle wraps, so the drawing hands over two arcs; each is spun a whole turn
+/// and so is cut in two again; and `4 − 8 + 4` is nought, which is `2(1 − 1)`.
+///
+/// **And it is not exact**, a torus being the fitted tier's own surface. That
+/// is the whole point of the feature: nothing else in the tree builds one.
+#[test]
+fn a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces() {
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::new(major, 0.0));
+    let drawn = sketch.add_circle(middle, minor);
+    let found = Arrangement::of(&sketch);
+    let body = Revolution::new(&found, 0, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+
+    let reckoning = body.reckoning();
+    assert_eq!(reckoning.genus, 1, "a ring is a ring: {reckoning:?}");
+    assert_eq!(
+        body.topology().faces().count(),
+        4,
+        "the wall was not quartered"
+    );
+    assert!(!body.exact(), "a body standing on a torus is not exact");
+
+    // One name over the four, a wall being named by the curve it came off
+    // rather than by how the kernel had to cut it.
+    let wall = STEP.grew(Grown::Side(Bound {
+        of: Entity::Circle(drawn),
+        along: true,
+    }));
+    let named: Vec<Named> = body.names().collect();
+    assert_eq!(named, [wall], "{named:?}");
+
+    // **Coarser than [`FINE`]**, which is what a doubly-round surface costs: a
+    // torus is cut in both of its angles at once, so the cells go as the
+    // *square* of what a cylinder's do and a sagitta fine enough for a flat
+    // answer is a million of them. A thousandth is three parts in ten thousand
+    // of the answer here, which is tighter than the figure needs.
+    let want = 2.0 * PI * PI * major * minor * minor;
+    let off = (Mesher::default().volume(&body, 1e-3) - want).abs();
+    // The whole surface is chorded: `4π²·major·minor` of it. What a chord cuts
+    // off goes as two thirds of the sagitta times the area it spans.
+    let slack = (2.0 / 3.0) * 1e-3 * 4.0 * PI * PI * major * minor;
+    assert!(off < slack, "{off} off {want}");
+}
+
+/// **A trapezoid spun sweeps all four of the exact tier's own surfaces**, and
+/// the body it makes says it is exact.
+///
+/// A side parallel to the line sweeps a cylinder, one square across it an
+/// annulus of a plane, and one that leans a cone. `(1,0) → (3,0) → (2,2) →
+/// (1,2)` has one of each and closes.
+///
+/// **Held by Pappus, which is the whole check a revolve wants.** A plane figure
+/// spun a whole turn shuts in `2π` times its first moment about the line — its
+/// area times how far out its own middle stands. The trapezoid's shoelace is
+/// six, so its area is three, and its middle stands `32/18` out, which makes
+/// the answer `32π/3`. Read the other way for the same figure: at height `y`
+/// the solid is the annulus from one out to `3 − y/2`, and `π∫₀²((3−y/2)² − 1)`
+/// is `32π/3` again.
+#[test]
+fn a_trapezoid_spun_sweeps_a_cylinder_a_cone_and_two_annuli() {
+    let mut sketch = Sketch::default();
+    sketch.outline(&[(1.0, 0.0), (3.0, 0.0), (2.0, 2.0), (1.0, 2.0)]);
+    let found = Arrangement::of(&sketch);
+    let body = Revolution::new(&found, 0, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+
+    let reckoning = body.reckoning();
+    assert_eq!(reckoning.genus, 1, "a spun ring is a ring: {reckoning:?}");
+    assert_eq!(body.topology().faces().count(), 8, "four walls, halved");
+    assert!(body.exact(), "a cylinder, a cone and two planes are exact");
+    assert_eq!(body.strays(), 0.0, "an exact body strays nowhere");
+
+    // Four surfaces and one of each kind, asked of the body rather than of the
+    // arithmetic that made them.
+    let (mut cylinders, mut cones, mut planes) = (0, 0, 0);
+    for (_, face) in body.topology().faces() {
+        match face.surface {
+            Surface::Natural(Natural::Cylinder(_)) => cylinders += 1,
+            Surface::Natural(Natural::Cone(_)) => cones += 1,
+            Surface::Natural(Natural::Plane(_)) => planes += 1,
+            other => panic!("a trapezoid swept {other:?}"),
+        }
+    }
+    assert_eq!([cylinders, cones, planes], [2, 2, 4], "the wrong surfaces");
+
+    let want = 32.0 * PI / 3.0;
+    let off = (volume(&body) - want).abs();
+    // Only the cylinder and the cone are chorded, the annuli being flat: the
+    // cylinder is `2π·1` round by two tall and the cone `2π·2.5` round by its
+    // own slant. What a chord cuts off goes as two thirds of the sagitta times
+    // the area it spans.
+    let slack = (2.0 / 3.0) * FINE * TAU * (2.0 + 2.5 * 5.0_f64.sqrt());
+    assert!(off < slack, "{off} off {want}");
+}
+
+/// **An arc about a centre on the line sweeps a sphere**, which is the fifth
+/// surface and the one a straight run cannot give.
+///
+/// A circle of three about the origin, cut by the chord at `x = 0.4`. The piece
+/// beyond that chord is a circular segment whose arc is centred on the line and
+/// stands clear of it — so spun it is a zone of a sphere, closed by the
+/// cylinder the chord sweeps.
+///
+/// **Pappus again.** A segment cut from a disc of `radius` at `off` from its
+/// middle has `(2/3)(radius² − off²)^{3/2}` of first moment about that middle —
+/// the figure the ring tests are measured by — and here that middle is on the
+/// line, so the moment is the whole of it.
+#[test]
+fn an_arc_about_a_centre_on_the_line_sweeps_a_sphere() {
+    let (radius, chord) = (3.0_f64, 0.4_f64);
+    let mut sketch = Sketch::default();
+    let middle = sketch.add_point(DVec2::ZERO);
+    sketch.add_circle(middle, radius);
+    let low = sketch.add_point(DVec2::new(chord, -radius - 0.5));
+    let high = sketch.add_point(DVec2::new(chord, radius + 0.5));
+    sketch.add_segment(low, high);
+    let found = Arrangement::of(&sketch);
+
+    let mut spun = None;
+    for at in 0..found.faces().len() {
+        let body = Revolution::new(&found, at, Plane::FRONT, DVec2::ZERO, DVec2::Y, STEP).body();
+        // Every other face of the drawing straddles the line, and a revolve of
+        // one is refused — see [`Revolving::raise`].
+        if !body.is_empty() {
+            assert!(spun.is_none(), "two faces of the drawing were spun");
+            spun = Some(body);
+        }
+    }
+    let body = spun.expect("the segment beyond the chord is spun");
+    let reckoning = body.reckoning();
+    assert_eq!(
+        reckoning.genus, 1,
+        "a spun segment is a ring: {reckoning:?}"
+    );
+    assert_eq!(body.topology().faces().count(), 4, "two walls, halved");
+    assert!(body.exact(), "a sphere and a cylinder are exact");
+    let mut spheres = 0;
+    for (_, face) in body.topology().faces() {
+        if let Surface::Natural(Natural::Sphere(ball)) = face.surface {
+            assert!((ball.radius - radius).abs() < 1e-12, "{ball:?}");
+            assert!(
+                ball.axis.origin.length() < 1e-12,
+                "{ball:?} is off the line"
+            );
+            spheres += 1;
+        }
+    }
+    assert_eq!(spheres, 2, "the arc swept no sphere");
+
+    // Coarser than [`FINE`] for the reason the ring is: a sphere is cut in
+    // both of its angles at once, so the cells go as the square of what a
+    // cylinder's do.
+    let want = TAU * (2.0 / 3.0) * (radius * radius - chord * chord).powf(1.5);
+    let off = (Mesher::default().volume(&body, 1e-4) - want).abs();
+    // The sphere's zone is `2π·radius` by its own height and the cylinder
+    // `2π·chord` by the same. What a chord cuts off goes as two thirds of the
+    // sagitta times the area it spans.
+    let tall = 2.0 * (radius * radius - chord * chord).sqrt();
+    let slack = (2.0 / 3.0) * 1e-4 * TAU * (radius + chord) * tall;
+    assert!(off < slack, "{off} off {want}");
 }

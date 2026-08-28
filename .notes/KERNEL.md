@@ -1555,8 +1555,60 @@ the marching. **A boolean of this size is a frame of its own** and that is worth
 saying out loud: what §11's preview measures is faces before it combines, and a
 ring is where that guard starts to earn its keep.
 
-No *feature* builds a torus yet either — a revolve makes one, and so does a
-plane-cylinder fillet, and neither is written.
+**And a feature builds a torus.** `build::revolving::Revolution` spins a region
+of a drawing a whole turn about a line in its own plane, which is what M6 owed
+§10's first rule: until it, only a test raised a ring.
+
+**Five surfaces off two shapes**, which is the whole of what a revolve makes. A
+straight run parallel to the line sweeps a cylinder, one square across it an
+annulus of a plane, and one that leans a cone; an arc about a centre on the line
+sweeps a sphere, and one about a centre off it a torus. So the feature reaches
+every surface the kernel has, and it is the only thing that reaches two of them.
+
+**A whole turn and no other**, which is what makes it one shape rather than two.
+Spun part way a region has two ends, and those are caps of the kind an extrusion
+already raises; spun the whole way it has none and every wall closes on itself.
+The second is what a ring, a washer and a ball are.
+
+**So every wall is halved**, §4.4's rule read at the feature: a wall spun the
+whole way covers its own surface and no face may. Cut at the drawing's own seam
+and half a turn from it, so one of the two holds the profile exactly as it was
+drawn. The counts follow rather than being chosen — a closed profile of `n`
+strips gives `2n` faces, `4n` edges and `2n` vertices, and `2n − 4n + 2n` is
+nought, which is `2(1 − 1)`. A ring is `n = 2`, the drawing's own circle
+arriving as two arcs, and that is `Body::ring` exactly.
+
+**Which side of the line the region stands on is read rather than given**, and
+reading it is the same walk that refuses a region straddling the line. It is
+also the one thing a face's winding turns on: the spin and the profile are a
+face's own two parameters, and which order winds them counterclockwise about the
+material-free side turns only on whether `(along, out)` reads the drawing the
+way it was drawn. One flag for the whole revolve — per wall it would differ, and
+two walls disagreeing would walk the circle between them the same way twice.
+
+**And which way a wall faces is asked of the surface rather than derived.** The
+material is on the left of the walk, a region's outline being counterclockwise;
+carried to the world that is one direction, and a wall faces the other way. Five
+surfaces, five parameterizations, one dot product.
+
+**Three things have no solid, and each comes back as a body with no faces** —
+the answer an extrusion of no distance gives. A line with no direction. A region
+that touches or crosses the line, a corner on it sweeping a point rather than a
+circle. And an arc that reaches it: an arc bulges away from its own chord, so
+one drawn between two places beside the line can cross it in between, and what
+it sweeps there is a surface folded through itself. That last one is asked of
+the arc rather than of its ends, and the build found it — a circle centred on
+the line came back as a sphere the checker caught folding.
+
+**Held by Pappus, which is the whole check a revolve wants.** A plane figure
+spun a whole turn shuts in `2π` times its first moment about the line. A circle
+of one, three out, gives the ring's own `2π²Rr²`; a trapezoid with one side of
+each kind gives `32π/3`, which a slice-by-slice integral gives again; and a
+circular segment beyond a chord gives `2π` times the segment's own moment, the
+figure the ring tests are already measured by.
+
+What is left of it is a *partial* turn, which is the same profile with two caps
+and no halving, and the plane-cylinder fillet that also makes a torus.
 
 **Tests, and they are paid.** The reducible table is held against the closed
 form and sampled onto both surfaces, Villarceau's included; the walking is held

@@ -3,7 +3,9 @@
 use crate::math::plane::Plane;
 use crate::number::tolerance::EXACT;
 use crate::sketch::arrangement::Arrangement;
+use crate::solid::build::revolving::{Revolution, Revolving};
 use crate::solid::build::strip::{Strip, Strips};
+use crate::solid::build::{Running, Walled, gathered};
 use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::circle::Circle;
 use crate::solid::geometry::curve::Curve;
@@ -18,8 +20,6 @@ use crate::solid::topology::body::Body;
 use crate::solid::topology::coedge::Coedge;
 use crate::solid::topology::edge::{Edge, EdgeId};
 use crate::solid::topology::face::{Face, FaceId};
-use crate::solid::topology::lump::Lump;
-use crate::solid::topology::shell::Shell;
 use crate::solid::topology::validity::Checking;
 use crate::solid::topology::vertex::{Vertex, VertexId};
 use glam::{DVec2, DVec3};
@@ -89,6 +89,9 @@ pub struct Builder {
     /// The base edge and the far edge each strip sweeps, in step with the walls
     /// and indexed by whether the far end is wanted.
     spans: Vec<[EdgeId; 2]>,
+    /// The room a revolve works in — see [`Revolving`], which keeps its own
+    /// buffers and borrows the strips beside it.
+    revolving: Revolving,
     /// The room the validity check works in, held for the reason everything
     /// else here is: it runs after every build, which on the path a drag takes
     /// is every frame.
@@ -111,20 +114,6 @@ struct Raising {
     along: bool,
     base: FaceId,
     far: FaceId,
-}
-
-/// A surface a strip sweeps, and which side of it the material is on.
-#[derive(Debug, Clone, Copy)]
-struct Walled {
-    surface: Surface,
-    outward: bool,
-}
-
-/// A curve an edge runs along, and the stretch of it that edge covers.
-#[derive(Debug, Clone, Copy)]
-struct Running {
-    curve: Curve,
-    bounds: [f64; 2],
 }
 
 impl Builder {
@@ -182,6 +171,29 @@ impl Builder {
         self.gather(raising, into);
         if cfg!(debug_assertions) {
             self.checking.run(into);
+        }
+    }
+
+    /// Spin `of` into `into`, emptying whatever was there.
+    ///
+    /// Exact throughout, as [`Builder::extrude`] is, wherever the surfaces
+    /// swept are: a ring is not, a torus being of the fitted tier.
+    ///
+    /// **A body with no faces where there is no solid to make**, which is the
+    /// answer a distance of nothing gives above and means the same thing.
+    /// Three things have no solid: a line with no direction, a region that
+    /// touches or crosses the line, and an arc that reaches it — the last of
+    /// which would sweep a surface folded through itself.
+    pub fn revolve(&mut self, of: &Revolution<'_>, into: &mut Body) {
+        let Self {
+            strips,
+            revolving,
+            checking,
+            ..
+        } = self;
+        revolving.raise(of, strips, into);
+        if cfg!(debug_assertions) && !into.is_empty() {
+            checking.run(into);
         }
     }
 
@@ -499,20 +511,12 @@ impl Builder {
 
     /// Gather every face into the one shell around the one lump.
     fn gather(&mut self, raising: Raising, into: &mut Body) {
-        let topology = into.topology_mut();
-        let from = topology.faces_shelled();
-        for face in [raising.base, raising.far] {
-            topology.add_shelled(face);
-        }
-        for &wall in &self.walls {
-            topology.add_shelled(wall);
-        }
-        let to = topology.faces_shelled();
-        let shell = topology.add_shell(Shell { faces: from..to });
-        topology.add_lump(Lump {
-            outer: shell,
-            voids: 0..0,
-        });
+        gathered(
+            into,
+            [raising.base, raising.far]
+                .into_iter()
+                .chain(self.walls.iter().copied()),
+        );
     }
 }
 

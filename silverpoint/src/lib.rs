@@ -62,6 +62,7 @@ pub use sketch::{Circle, CircleId, Point, PointId, Removed, Segment, SegmentId, 
 pub use solid::boolean::Boolean;
 pub use solid::boolean::operation::Operation;
 pub use solid::build::builder::{Builder, Extrusion};
+pub use solid::build::revolving::Revolution;
 pub use solid::grown::Grown;
 pub use solid::mesh::{Mesher, Patch};
 pub use solid::named::{Named, Step};
