@@ -158,6 +158,18 @@ impl Topology {
         &self.marched
     }
 
+    /// Take the runs `with` holds, and hand back the room these took.
+    ///
+    /// **A trade rather than a copy**, which is what keeps a body rebuilt on
+    /// every frame off the allocator: the operation that laid the runs down
+    /// walks away with the buffer this body had last time, refills it next
+    /// time, and neither of the two ever asks for more room than the larger of
+    /// them has needed. See
+    /// `Sewing::sew`, which is where the two change hands.
+    pub(crate) fn trade_marched(&mut self, with: &mut Marchings) {
+        std::mem::swap(&mut self.marched, with);
+    }
+
     /// Empty it, keeping every buffer it holds.
     ///
     /// Every position is freed and every generation bumped, so a handle minted

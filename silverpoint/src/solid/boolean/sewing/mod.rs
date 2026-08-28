@@ -19,7 +19,7 @@ use crate::loops::Loops;
 use crate::number::predicate::ApproxEq;
 use crate::number::tolerance::CHORDED;
 use crate::number::tolerance::{EXACT, PLACED};
-use crate::solid::boolean::combining::Kept;
+use crate::solid::boolean::combining::{Kept, Sewn};
 use crate::solid::boolean::imprints::Imprints;
 use crate::solid::boolean::splitting::corner::{self, Came, Corner};
 use crate::solid::buckets::{Buckets, Key};
@@ -271,14 +271,13 @@ impl Sewing {
     /// shells sharing a corner, which is two meeting at nothing but a point —
     /// see [`Sewing::claim_corners`]; and a cavity with more than one lump to
     /// hang it on.
-    pub(super) fn sew(
-        &mut self,
-        kept: &[Kept],
-        loops: &Loops<Corner>,
-        imprints: &Imprints,
-        marched: &Marchings,
-        into: &mut Body,
-    ) -> bool {
+    pub(super) fn sew(&mut self, sewn: Sewn, into: &mut Body) -> bool {
+        let Sewn {
+            kept,
+            loops,
+            imprints,
+            marched,
+        } = sewn;
         into.clear();
         self.reset();
         self.pin(kept, loops, imprints, marched);
@@ -295,6 +294,11 @@ impl Sewing {
             into.clear();
             return false;
         }
+        // **The runs change hands here**, which is after everything above has
+        // read them and before anything below does: the checker walks the
+        // body's own edges, and an edge on a marched curve has nothing to walk
+        // until the body holds what it is made of.
+        into.topology_mut().trade_marched(marched);
         if cfg!(debug_assertions) {
             self.scratch.checking.run(into);
         }

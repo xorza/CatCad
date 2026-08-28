@@ -57,13 +57,7 @@ impl Boolean {
             into.clear();
             return false;
         }
-        self.sewing.sew(
-            self.combining.kept(),
-            self.combining.loops(),
-            self.combining.imprints(),
-            self.combining.marched(),
-            into,
-        )
+        self.sewing.sew(self.combining.sewn(), into)
     }
 }
 

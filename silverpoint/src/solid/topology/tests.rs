@@ -9,6 +9,7 @@ use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::line::Line;
+use crate::solid::geometry::marchings::Marchings;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
@@ -623,4 +624,25 @@ fn a_body_says_whether_every_surface_it_stands_on_is_exact() {
         minor: 1.0,
     }));
     assert!(!body.exact(), "one fitted face left the body exact");
+}
+
+/// **A body takes an operation's marched runs and hands back its own room**,
+/// which is what keeps a rebuild off the allocator.
+///
+/// The runs are laid down while the boolean cuts and the body is emptied where
+/// the sewing begins, so they cannot be filed straight into it — they change
+/// hands once, at the end. What each side walks away with is the other's
+/// buffer, so the two never ask for more room than the larger of them has
+/// needed.
+#[test]
+fn a_body_trades_its_marched_room_for_the_runs_laid_down() {
+    let walked = [DVec3::X, DVec3::Y, DVec3::NEG_X, DVec3::X];
+    let mut laid = Marchings::default();
+    let run = laid.add(&walked, 1e-3);
+
+    let mut body = Body::default();
+    body.topology_mut().trade_marched(&mut laid);
+    assert_eq!(body.topology().marched().strayed(run).most, 1e-3);
+    // And what the operation walked away with is the body's own, empty.
+    assert_eq!(laid.add(&walked, 1e-2), 0, "the numbering ran on");
 }

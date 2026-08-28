@@ -33,6 +33,16 @@ use glam::{DVec2, DVec3};
 use std::f64::consts::FRAC_PI_2;
 use std::ops::Range;
 
+/// What the sewing reads of an operation that has finished cutting — see
+/// [`Combining::sewn`], which is the only thing that makes one.
+#[derive(Debug)]
+pub(super) struct Sewn<'a> {
+    pub(super) kept: &'a [Kept],
+    pub(super) loops: &'a Loops<Corner>,
+    pub(super) imprints: &'a Imprints,
+    pub(super) marched: &'a mut Marchings,
+}
+
 /// One region of one face that a boolean kept, and what it inherited.
 ///
 /// In the surface's own parameters rather than in the world, because that is
@@ -172,31 +182,19 @@ impl Combining {
         }
     }
 
-    /// What the last combine kept.
-    pub(super) fn kept(&self) -> &[Kept] {
-        &self.kept
-    }
-
-    /// The loops of the regions kept, laid end to end.
-    pub(super) fn loops(&self) -> &Loops<Corner> {
-        &self.loops
-    }
-
-    /// The curves those loops' arcs run along, and which run is which.
-    pub(super) fn imprints(&self) -> &Imprints {
-        &self.imprints
-    }
-
-    /// The places every marched curve of this operation is made of.
+    /// Everything the sewing reads of an operation that has finished cutting.
     ///
-    /// **Kept here rather than on the body being written**, because the body is
-    /// emptied where the sewing begins and these are laid down before it — see
-    /// [`Sewing::sew`](super::sewing::Sewing::sew), which reads them. What
-    /// carries them on to the body they belong to is a swap that lands with the
-    /// producer, so that the two trade room rather than either reaching for
-    /// more.
-    pub(super) fn marched(&self) -> &Marchings {
-        &self.marched
+    /// **One borrow rather than four**, which is the compiler asking rather
+    /// than a preference: the runs change hands where the sewing ends, so that
+    /// one is a `&mut` and the other three cannot be taken beside it a call at
+    /// a time.
+    pub(super) fn sewn(&mut self) -> Sewn<'_> {
+        Sewn {
+            kept: &self.kept,
+            loops: &self.loops,
+            imprints: &self.imprints,
+            marched: &mut self.marched,
+        }
     }
 
     /// Cut every face of `mine` against `theirs` and keep what survives.
@@ -693,5 +691,25 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: DVec2) -> Optio
         }
         // Everything else.
         _ => None,
+    }
+}
+
+/// What the cutting left, read a piece at a time.
+///
+/// Nothing production reads it that way: [`Combining::sewn`] hands the whole of
+/// it over in one borrow, which is what the runs changing hands asks for. Taking
+/// one piece is a test holding the cutting to what it should have produced.
+#[cfg(test)]
+pub(crate) mod internals {
+    use super::*;
+
+    impl Combining {
+        pub(crate) fn kept(&self) -> &[Kept] {
+            &self.kept
+        }
+
+        pub(crate) fn loops(&self) -> &Loops<Corner> {
+            &self.loops
+        }
     }
 }

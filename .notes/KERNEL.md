@@ -1340,12 +1340,30 @@ places at once. Nothing builds one yet — that is `Combining`, and it is next.
 **The build found the one thing the design had not looked at.** `Sewing::sew`
 begins by *emptying* the body it writes, and the runs are laid down before it —
 so a store on the body would be wiped between being filled and being read. It
-lives on `Combining` instead, beside the `Imprints` it belongs with, and the
-sewing takes it. What settles the last of it is a swap: the body's own buffer
-goes back to `Combining` where the sew ends, so the two trade room each
-operation and neither reaches the allocator — the same trade `Combining`
-already makes between its two sets of regions. That swap lands with the
-producer.
+lives on `Combining` instead, beside the `Imprints` it belongs with.
+
+**And the two trade room rather than copying.** `Topology::trade_marched` swaps
+the operation's runs into the body where the sewing ends — after everything that
+reads them and before the checker, which walks the body's own edges and has
+nothing to walk until the body holds what they are made of. Each side walks away
+with the other's buffer, so neither ever asks for more room than the larger of
+them has needed. The sewing takes one borrow rather than four for it, the runs
+being the one it changes: `Combining::sewn`.
+
+**What is left of the arena is the `Cut` side, and its shape is not what the
+first reading of it suggested.** A cut of a marched curve looks like a polyline
+in a face's own parameters — a second store, threaded through nine more methods,
+and every question answered by a walk of it. It is not. Five of the nine
+questions are about a *place*, and the answer to those is the one `Bow` and
+`Ripple` already give: how far the place stands from the *other surface*. A cut
+that carries the two surfaces answers `side` in closed form and finds a crossing
+by bisecting it, and only the three that lay corners down — `down`, `between`
+and `walk` — want the run at all.
+
+*Cost:* a `Cut` carrying two surfaces is some two hundred bytes where the widest
+today is sixty, so `Side::of` takes it by reference rather than by value. That
+is the trade the other way round from the one `Curve` made, and it is the right
+way round here: a cut's questions are pointwise and a curve's are not.
 2. **`Meeting::of` stays pure and goes on answering `Marched`.** What produces a
    run is `Combining`, which seeds, walks and files it when it meets such a
    pair — so the routine every test calls keeps its signature, and the store is
