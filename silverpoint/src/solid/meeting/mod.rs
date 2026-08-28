@@ -34,11 +34,13 @@ use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
 use crate::solid::geometry::ellipse::Ellipse;
+use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::line::Line;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::saddle::Saddle;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::geometry::torus::Torus;
 use crate::solid::meeting::chord::Chord;
 use glam::DVec3;
 
@@ -71,13 +73,29 @@ pub(crate) enum Meeting {
     /// Along a curve no exact route can parameterize at all.
     ///
     /// [`Meeting::Algebraic`]'s twin one tier up. A pair with a
-    /// [`Fitted`](crate::solid::geometry::fitted::Fitted) half in it meets in
+    /// [`Fitted`] half in it meets in
     /// something that is *marched* rather than written down, and what comes out
     /// carries the bound its fit was made to (§4.1). Until the marching lands,
     /// an operation that reaches this cannot be built — and as with the
     /// algebraic arm, saying so beats saying the surfaces are apart.
     #[allow(dead_code)]
     Marched,
+}
+
+/// How far the tube of `torus` reaches either way from its own middle at `off`
+/// across it, or `None` where it does not reach that far.
+///
+/// **The one question both of the coaxial rows ask**, and the one place the
+/// tangency rule is written down: a cut that merely touches the tube comes back
+/// as nought rather than as nothing, because a tangency along a whole circle is
+/// a curve like any other and divides a face. It is
+/// [`Meeting::Touching`] that would be the wrong answer there — that carries a
+/// single place.
+fn reaching(torus: &Torus, off: f64) -> Option<f64> {
+    if off.abs().approx_eq(torus.minor, PLACED) {
+        return Some(0.0);
+    }
+    (off.abs() < torus.minor).then(|| (torus.minor * torus.minor - off * off).sqrt())
 }
 
 /// One curve or two.
@@ -104,12 +122,13 @@ impl Meeting {
             return Self::Same;
         }
         match (one, two) {
-            // **A pair with a fitted half in it is marched**, and one arm
-            // answers every such pair rather than an entry apiece. That is what
-            // the two-level split buys here: the exact route below dispatches
-            // over naturals alone, and nothing in it has to remember that a
-            // torus exists.
-            (Surface::Fitted(_), _) | (_, Surface::Fitted(_)) => Self::Marched,
+            // **A pair with a fitted half in it is answered in one arm**, and
+            // that is what the two-level split buys here: the exact route below
+            // dispatches over naturals alone, and nothing in it has to remember
+            // that a torus exists.
+            (Surface::Fitted(fitted), other) | (other, Surface::Fitted(fitted)) => {
+                Self::fitted(fitted, other)
+            }
             (Surface::Natural(Natural::Plane(one)), Surface::Natural(Natural::Plane(two))) => {
                 Self::plane_plane(one, two)
             }
@@ -157,6 +176,136 @@ impl Meeting {
                 Self::Algebraic
             }
         }
+    }
+
+    /// A pair with a fitted half in it: the few that reduce, and
+    /// [`Meeting::Marched`] for the rest.
+    ///
+    /// **M3a's argument one tier up.** The general route for these is a march,
+    /// and a march is worst at exactly the cases below: a plane lying tangent
+    /// along a whole circle of a torus is invisible to a sign change, and the
+    /// bitangent plane's two circles cross each other, which a march has no
+    /// direction at. Neither is a curve subdivision can seed and neither is one
+    /// a march can walk, and both are a few lines of geometry here — see
+    /// `.notes/KERNEL.md` §9.2, where the spike found each of them.
+    fn fitted(fitted: &Fitted, other: &Surface) -> Self {
+        match (fitted, other) {
+            (Fitted::Torus(torus), Surface::Natural(Natural::Plane(plane))) => {
+                Self::plane_torus(plane, torus)
+            }
+            (Fitted::Torus(torus), Surface::Natural(Natural::Cylinder(tube))) => {
+                Self::cylinder_torus(tube, torus)
+            }
+            _ => Self::Marched,
+        }
+    }
+
+    /// A plane cuts a torus in circles three ways, and in a spiric quartic
+    /// anywhere else.
+    ///
+    /// Square across the axis and through it are the two any table would have.
+    /// The third is the one worth the table: a plane through the middle leaning
+    /// at the angle that makes it tangent twice cuts a torus in *two* circles
+    /// of the major radius, crossing at both tangencies — Villarceau's, and the
+    /// case the spike found defeats subdivision and marching outright.
+    fn plane_torus(plane: &Plane, torus: &Torus) -> Self {
+        let normal = plane.normal();
+        let axis = torus.axis;
+        if predicate::parallel(normal, axis.direction) {
+            return Self::squarely(plane, torus);
+        }
+        // Through the middle, which both of the cases left need.
+        if !predicate::touching((axis.origin - plane.origin).dot(normal).abs(), PLACED) {
+            return Self::Marched;
+        }
+        // Along the axis: the plane holds the tube's own circle at each of the
+        // two angles it reaches, and those two are the whole meeting. Framed so
+        // each circle's parameter is the torus's second one, which is measured
+        // from the outward radial toward the axis — so an angle read off a
+        // curve and one read off the surface are the same number.
+        if predicate::square(normal, axis.direction) {
+            let out = normal.cross(axis.direction).normalize();
+            let tube = |way: DVec3, direction: DVec3| {
+                Curve::Circle(Circle {
+                    axis: Axis::new(axis.origin + way * torus.major, direction, way),
+                    radius: torus.minor,
+                })
+            };
+            return Self::Along(Curves::two(tube(out, -normal), tube(-out, normal)));
+        }
+        // Bitangent: the plane touches the tube at two places, and the lean
+        // that makes it do so is `cos α = √(R² − r²)/R`. Both circles are the
+        // major radius across, and their middles stand a minor radius either
+        // way along the line the plane crosses the equator in.
+        let lean = (torus.major * torus.major - torus.minor * torus.minor).sqrt() / torus.major;
+        if !normal.dot(axis.direction).abs().approx_eq(lean, ALIGNED) {
+            return Self::Marched;
+        }
+        let along = normal.cross(axis.direction).normalize();
+        let round = |way: f64| {
+            Curve::Circle(Circle {
+                axis: Axis::about(axis.origin + along * (way * torus.minor), normal),
+                radius: torus.major,
+            })
+        };
+        Self::Along(Curves::two(round(1.0), round(-1.0)))
+    }
+
+    /// A plane square to a torus's axis cuts it in two circles about that axis,
+    /// touches it along one, or misses.
+    fn squarely(plane: &Plane, torus: &Torus) -> Self {
+        let axis = torus.axis;
+        let up = axis.direction.dot(plane.origin - axis.origin);
+        // In the torus's own frame, so an angle read off a curve and one read
+        // off the surface are the same number.
+        let centre = axis.origin + axis.direction * up;
+        let round = |radius| {
+            Curve::Circle(Circle {
+                axis: Axis::new(centre, axis.direction, axis.reference),
+                radius,
+            })
+        };
+        let Some(out) = reaching(torus, up) else {
+            return Self::Apart;
+        };
+        if out == 0.0 {
+            return Self::Along(Curves::one(round(torus.major)));
+        }
+        Self::Along(Curves::two(
+            round(torus.major - out),
+            round(torus.major + out),
+        ))
+    }
+
+    /// A cylinder sharing a torus's axis cuts it in two circles of its own
+    /// radius, touches it along one, or misses.
+    ///
+    /// Coaxial and nothing else. A cylinder merely parallel to the axis meets a
+    /// torus in a quartic, and so does one that leans.
+    fn cylinder_torus(tube: &Cylinder, torus: &Torus) -> Self {
+        let axis = torus.axis;
+        if !predicate::parallel(tube.axis.direction, axis.direction)
+            || !predicate::touching(axis.off(tube.axis.origin), PLACED)
+        {
+            return Self::Marched;
+        }
+        let round = |up: f64| {
+            Curve::Circle(Circle {
+                axis: Axis::new(
+                    axis.origin + axis.direction * up,
+                    axis.direction,
+                    axis.reference,
+                ),
+                radius: tube.radius,
+            })
+        };
+        let Some(up) = reaching(torus, tube.radius - torus.major) else {
+            return Self::Apart;
+        };
+        if up == 0.0 {
+            return Self::Along(Curves::one(round(0.0)));
+        }
+        Self::Along(Curves::two(round(-up), round(up)))
     }
 
     /// Two planes meet in a line, unless they are the same plane or never meet

@@ -21,6 +21,7 @@ use crate::solid::boolean::splitting::oval::Oval;
 use crate::solid::boolean::splitting::ripple::Ripple;
 use crate::solid::buckets::Buckets;
 use crate::solid::geometry::curve::Curve;
+use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::surface::Surface;
 use crate::solid::meeting::Meeting;
@@ -93,14 +94,15 @@ struct Scratch {
     marks: Vec<Came>,
     walk: Vec<DVec2>,
     laid: Vec<Corner>,
-    /// Which turn of a wrapping parameter the face being cut was laid out in —
-    /// see [`imprinted`], the one thing that needs it.
+    /// Which turn of each wrapping parameter the face being cut was laid out in
+    /// — see [`imprinted`], the one thing that needs it.
     ///
     /// The middle of the range its loops cover. A face may not wrap, so that
     /// range is less than a whole turn wide and at most one turn of a wrapping
-    /// cut falls inside it: the one nearest this. Meaningless for a plane,
-    /// whose parameters do not wrap, and read by nothing for one.
-    about: f64,
+    /// cut falls inside it: the one nearest this. Both parameters, a torus
+    /// running round twice over. Meaningless for a plane, whose parameters do
+    /// not wrap, and read by nothing for one.
+    about: DVec2,
     /// The distinct surfaces of the body being cut against that reach it at all
     /// — see [`Combining::against`], which says why they are surfaces rather
     /// than faces, and why "reach it" is asked of the whole body.
@@ -330,7 +332,7 @@ impl Combining {
     /// `outward`, which is where it belongs.
     fn lay(&mut self, body: &Body, face: &Face) {
         let topology = body.topology();
-        let mut across = [f64::INFINITY, f64::NEG_INFINITY];
+        let (mut low, mut high) = (DVec2::INFINITY, DVec2::NEG_INFINITY);
         let Self {
             scratch, imprints, ..
         } = self;
@@ -371,7 +373,7 @@ impl Combining {
                 walk.clear();
                 face.flatten(traced, walk);
                 for at in walk.iter() {
-                    across = [across[0].min(at.x), across[1].max(at.x)];
+                    (low, high) = (low.min(*at), high.max(*at));
                 }
                 laid.clear();
                 laid.extend(
@@ -388,7 +390,7 @@ impl Combining {
                 loops.push(laid);
             }
         });
-        self.scratch.about = (across[0] + across[1]) / 2.0;
+        self.scratch.about = (low + high) / 2.0;
     }
 
     /// Ask every region where it stands and keep the ones `doing` wants.
@@ -473,10 +475,10 @@ impl Combining {
 /// `run` is the run the curve was given, and `None` where it was given none
 /// because it is a straight line — see [`Imprints`]. The round arms want one
 /// and the straight arms do not, which is exactly the two states of that
-/// argument. `about` is the turn of a wrapping parameter the face was laid out in,
-/// which is the whole of what a ruling line needs and what nothing else here
-/// reads.
-fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<Cut> {
+/// argument. `about` is the turn of each wrapping parameter the face was laid
+/// out in, which is what a cut at a constant angle needs and what nothing else
+/// here reads.
+fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: DVec2) -> Option<Cut> {
     match (on, along) {
         // A line on a plane is a line in its parameters.
         (Surface::Natural(Natural::Plane(plane)), Curve::Line(line)) => {
@@ -536,7 +538,7 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
         {
             let angle = tube.axis.angle_of(line.origin);
             Some(Cut::Straight {
-                at: DVec2::new(branch::nearest(angle, about), 0.0),
+                at: DVec2::new(branch::nearest(angle, about.x), 0.0),
                 along: DVec2::Y,
                 run: None,
             })
@@ -617,7 +619,7 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
                 return Some(Cut::Bow(Bow {
                     across: saddle.across,
                     reach: saddle.reach,
-                    phase: branch::nearest(phase, about),
+                    phase: branch::nearest(phase, about.x),
                     off: saddle.off,
                     level,
                     // The loop is both branches, so there is no branch to pick.
@@ -641,6 +643,36 @@ fn imprinted(on: Surface, along: Curve, run: Option<u32>, about: f64) -> Option<
                 inward: true,
                 run,
             }))
+        }
+        // **A circle on a torus is a straight cut in its own parameters**, and
+        // which of the two it holds constant is which of them the circle turns
+        // about. One sharing the axis stands at a single angle round the tube,
+        // so it is that angle; one round the tube itself stands at a single
+        // angle about the axis, so it is that one. Both parameters wrap, so
+        // both take the turn nearest the middle the face was laid out about —
+        // the question a ruling line answers above, asked twice over.
+        //
+        // Neither, and the circle crosses both parameters at once: Villarceau's
+        // do, and no cut is written for them, so a boolean that met one is
+        // refused rather than answered wrongly.
+        (Surface::Fitted(Fitted::Torus(torus)), Curve::Circle(circle)) => {
+            let axis = torus.axis;
+            let uv = torus.uv(circle.at(0.0));
+            if predicate::parallel(circle.axis.direction, axis.direction) {
+                Some(Cut::Straight {
+                    at: DVec2::new(0.0, branch::nearest(uv.y, about.y)),
+                    along: DVec2::X,
+                    run,
+                })
+            } else if predicate::square(circle.axis.direction, axis.direction) {
+                Some(Cut::Straight {
+                    at: DVec2::new(branch::nearest(uv.x, about.x), 0.0),
+                    along: DVec2::Y,
+                    run,
+                })
+            } else {
+                None
+            }
         }
         // Everything else.
         _ => None,

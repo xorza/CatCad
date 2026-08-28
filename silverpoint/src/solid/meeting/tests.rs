@@ -2,12 +2,14 @@ use crate::solid::geometry::axis::Axis;
 use crate::solid::geometry::cone::Cone;
 use crate::solid::geometry::curve::Curve;
 use crate::solid::geometry::cylinder::Cylinder;
+use crate::solid::geometry::fitted::Fitted;
 use crate::solid::geometry::natural::Natural;
 use crate::solid::geometry::sphere::Sphere;
 use crate::solid::geometry::surface::Surface;
+use crate::solid::geometry::torus::Torus;
 use crate::solid::meeting::Meeting;
 use glam::DVec3;
-use std::f64::consts::{FRAC_PI_4, PI, SQRT_2, TAU};
+use std::f64::consts::{FRAC_PI_2, FRAC_PI_4, PI, SQRT_2, TAU};
 
 /// How near a hand-computed value has to be. Loose enough for a normalization
 /// and a square root, tight enough that a swapped axis is nowhere near it.
@@ -640,4 +642,207 @@ fn every_surface_meets_itself() {
             "{surface:?} did not know itself",
         );
     }
+}
+
+/// The ring every torus test below cuts: three out to the tube's own centre,
+/// one thick, about the world's `+Y` through the origin.
+fn ring() -> Surface {
+    Surface::Fitted(Fitted::Torus(Torus {
+        axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+        major: 3.0,
+        minor: 1.0,
+    }))
+}
+
+/// The radii of the circles a meeting came to, smallest first.
+fn radii(meeting: Meeting) -> Vec<f64> {
+    let Meeting::Along(along) = meeting else {
+        panic!("{meeting:?} holds no curves to measure");
+    };
+    let mut found: Vec<f64> = along
+        .all()
+        .iter()
+        .map(|curve| match curve {
+            Curve::Circle(circle) => circle.radius,
+            other => panic!("{other:?} is not a circle"),
+        })
+        .collect();
+    found.sort_by(f64::total_cmp);
+    found
+}
+
+/// **A plane square to a torus's axis cuts it in two circles about that axis**,
+/// touches it along one, or misses it.
+///
+/// Every figure by hand: the tube's own centre stands `major` out and the
+/// surface `minor` from that, so a plane `up` along the axis crosses the tube
+/// where `(ρ − major)² + up² = minor²` — which is `ρ = major ± √(minor² − up²)`,
+/// two circles about the axis and nothing else.
+///
+/// **The tangency is a curve.** At `up = minor` the plane lies on the top of
+/// the tube and touches it along the whole circle of the major radius. That
+/// circle divides a face, so it comes back as a meeting rather than as nothing
+/// — and it is the case `.notes/KERNEL.md` §9.2's spike found a sign-change
+/// search cannot see at any resolution.
+#[test]
+fn a_plane_square_to_a_torus_cuts_it_in_circles_about_its_axis() {
+    let torus = ring();
+    let square = |up: f64| Meeting::of(&torus, &facing(DVec3::Y * up, DVec3::Y));
+
+    // Through the middle: the outer and inner equators.
+    assert_eq!(radii(square(0.0)), vec![2.0, 4.0]);
+    lies_on(
+        square(0.0),
+        &torus,
+        &facing(DVec3::ZERO, DVec3::Y),
+        "equator",
+    );
+
+    // Six tenths up, where `√(1 − 0.36)` is eight tenths.
+    let found = radii(square(0.6));
+    for (got, want) in found.iter().zip([2.2, 3.8]) {
+        assert!(
+            (got - want).abs() < NEAR,
+            "{found:?} rather than 2.2 and 3.8"
+        );
+    }
+    lies_on(
+        square(0.6),
+        &torus,
+        &facing(DVec3::Y * 0.6, DVec3::Y),
+        "raised",
+    );
+
+    // On the top of the tube, and clear over it.
+    assert_eq!(radii(square(1.0)), vec![3.0], "the tangent circle");
+    assert_eq!(radii(square(-1.0)), vec![3.0], "and underneath");
+    assert_eq!(square(1.5), Meeting::Apart, "clear over the ring");
+}
+
+/// **A plane holding a torus's axis cuts it in the two tube circles it reaches**,
+/// each of the minor radius about a place a major radius out.
+///
+/// Framed so each circle's parameter is the torus's own second one: the surface
+/// measures that angle from the outward radial toward the axis, and a curve
+/// that read it the other way round would put a vertex where no vertex is.
+#[test]
+fn a_plane_holding_a_torus_axis_cuts_it_in_two_tube_circles() {
+    let torus = ring();
+    let plane = facing(DVec3::ZERO, DVec3::Z);
+    let meeting = Meeting::of(&torus, &plane);
+    assert_eq!(radii(meeting), vec![1.0, 1.0]);
+
+    let Meeting::Along(along) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Circle(here), Curve::Circle(there)] = along.all() else {
+        panic!("{:?} is not two circles", along.all());
+    };
+    // A major radius out either way, along the line the plane crosses the
+    // equator in.
+    for circle in [here, there] {
+        let out = circle.axis.origin;
+        assert!((out.length() - 3.0).abs() < NEAR, "{out:?} is not 3 out");
+        assert!(out.y.abs() < NEAR, "{out:?} is off the equator");
+    }
+    assert!(
+        (here.axis.origin + there.axis.origin).length() < NEAR,
+        "one side"
+    );
+    // Nought of the parameter is the outward radial and a quarter turn is up
+    // the axis, which is what the torus's own second parameter reads.
+    for circle in [here, there] {
+        let out = circle.axis.origin.normalize();
+        assert!((circle.at(0.0) - (circle.axis.origin + out)).length() < NEAR);
+        assert!((circle.at(FRAC_PI_2) - (circle.axis.origin + DVec3::Y)).length() < NEAR);
+    }
+    lies_on(meeting, &torus, &plane, "through the axis");
+}
+
+/// **A plane bitangent to a torus cuts it in Villarceau's two circles**, and
+/// that is the case the general route has no answer for at all.
+///
+/// A plane through the middle leaning so that `cos α = √(major² − minor²)/major`
+/// touches the tube at two places, and what it cuts is two circles of the
+/// *major* radius crossing at both of them. §9.2's spike walked `574.6` of
+/// curve where the truth is two circles of `2π·3`, and no tangency threshold
+/// saved it: subdivision gives one seed for two curves, and a march has no
+/// direction where they cross.
+///
+/// For a ring of three by one the lean is `√8/3`, so the plane's normal is
+/// `(1, −√8, 0)/3`. The two middles stand a minor radius either way along the
+/// line the plane crosses the equator in, which is `+z` here.
+#[test]
+fn a_plane_bitangent_to_a_torus_cuts_it_in_two_villarceau_circles() {
+    let torus = ring();
+    let plane = facing(DVec3::ZERO, DVec3::new(1.0, -(8.0f64.sqrt()), 0.0));
+    let meeting = Meeting::of(&torus, &plane);
+    assert_eq!(radii(meeting), vec![3.0, 3.0], "both the major radius");
+
+    let Meeting::Along(along) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Circle(here), Curve::Circle(there)] = along.all() else {
+        panic!("{:?} is not two circles", along.all());
+    };
+    assert!((here.axis.origin - DVec3::Z).length() < NEAR, "{here:?}");
+    assert!((there.axis.origin + DVec3::Z).length() < NEAR, "{there:?}");
+    lies_on(meeting, &torus, &plane, "villarceau");
+
+    // Leaning by anything else, the meeting is a spiric quartic this route
+    // does not write down.
+    let off = facing(DVec3::ZERO, DVec3::new(1.0, -1.0, 0.0));
+    assert_eq!(Meeting::of(&torus, &off), Meeting::Marched);
+    // And the same lean, moved off the middle.
+    let past = facing(DVec3::Y, DVec3::new(1.0, -(8.0f64.sqrt()), 0.0));
+    assert_eq!(Meeting::of(&torus, &past), Meeting::Marched);
+}
+
+/// **A cylinder sharing a torus's axis cuts it in two circles of its own
+/// radius**, touches it along one, or misses.
+///
+/// The same arithmetic as the plane square across, read the other way round:
+/// the cylinder fixes `ρ` and the two answers are heights rather than radii, so
+/// `up = ±√(minor² − (radius − major)²)`.
+#[test]
+fn a_coaxial_cylinder_cuts_a_torus_in_two_circles_of_its_own_radius() {
+    let torus = ring();
+    let coaxial = |radius| {
+        Surface::Natural(Natural::Cylinder(Cylinder {
+            axis: Axis::new(DVec3::ZERO, DVec3::Y, DVec3::X),
+            radius,
+        }))
+    };
+
+    // Straight through the tube's own centre: two circles a minor radius apart.
+    let meeting = Meeting::of(&torus, &coaxial(3.0));
+    assert_eq!(radii(meeting), vec![3.0, 3.0]);
+    let Meeting::Along(along) = meeting else {
+        panic!("{meeting:?} is not a curve");
+    };
+    let [Curve::Circle(under), Curve::Circle(over)] = along.all() else {
+        panic!("{:?} is not two circles", along.all());
+    };
+    assert!((under.axis.origin + DVec3::Y).length() < NEAR, "{under:?}");
+    assert!((over.axis.origin - DVec3::Y).length() < NEAR, "{over:?}");
+    lies_on(meeting, &torus, &coaxial(3.0), "coaxial");
+
+    // Three quarters of the way out, where `√(1 − 0.5625)` is `0.6614`.
+    let raised = Meeting::of(&torus, &coaxial(3.75));
+    assert_eq!(radii(raised), vec![3.75, 3.75]);
+    lies_on(raised, &torus, &coaxial(3.75), "coaxial and raised");
+
+    // On the outer equator and on the inner one, where it touches along a
+    // single circle, and clear either side of the ring.
+    assert_eq!(radii(Meeting::of(&torus, &coaxial(4.0))), vec![4.0]);
+    assert_eq!(radii(Meeting::of(&torus, &coaxial(2.0))), vec![2.0]);
+    assert_eq!(Meeting::of(&torus, &coaxial(5.0)), Meeting::Apart);
+    assert_eq!(Meeting::of(&torus, &coaxial(1.0)), Meeting::Apart);
+
+    // Off the axis, the meeting is a quartic this route does not write down.
+    let past = Surface::Natural(Natural::Cylinder(Cylinder {
+        axis: Axis::new(DVec3::X, DVec3::Y, DVec3::X),
+        radius: 3.0,
+    }));
+    assert_eq!(Meeting::of(&torus, &past), Meeting::Marched);
 }

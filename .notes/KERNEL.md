@@ -1143,6 +1143,38 @@ places can miss one of them entirely. Whether a place is in the tube is
 `(√(x² + z²) − R)² + y² < r²`, and the sounder is held to that at six hundred of
 them.
 
+**And the reducible half of the fitted tier is in**, which is M3a's argument
+one tier up: the general route for these pairs is a march, and a march is worst
+at exactly the cases a table answers in two lines. `Meeting::fitted` carries
+them, behind the same single arm the split bought — a plane square to a torus's
+axis cuts it in two circles about that axis, a plane holding the axis cuts it in
+the two tube circles it reaches, a plane through the middle at the bitangent
+lean cuts it in Villarceau's two, and a cylinder sharing the axis cuts it in two
+of its own radius. Everything else is still `Marched`.
+
+**Two of those are cases the marching cannot do at all**, which is the whole
+reason the table comes first. The plane on the top of the tube touches it along
+a whole circle and no sign ever changes — the spike found nought seeds at
+1024×1024 — and that circle divides a face. The bitangent plane's two circles
+*cross*, so subdivision gives one seed for two curves and a march has no
+direction where they meet; the spike walked `574.6` against a truth of `37.70`
+and no tangency threshold saved it. A tangency here comes back `Along` rather
+than `Touching`, a curve of them being a curve.
+
+**And a ring can be cut.** `imprinted` gains the torus's own row: a circle on a
+torus is a *straight* cut in its parameters, and which of the two it holds
+constant is which of them it turns about. Both wrap, so both take the turn
+nearest the middle the face was laid out about — `Combining`'s `about` is a pair
+now, and broken back to one the boolean refuses the first ring it is handed.
+Villarceau's circles cross both parameters at once and no cut is written for
+them, so a boolean that met one is refused rather than answered wrongly.
+
+**The first boolean over a fitted surface** is a ring turned down on a coaxial
+rod, and its volume is Pappus over the tube's own disc cut at half a minor
+radius: `2π` times the first moment of what is left about the axis, the segment
+`acos d − d√(1−d²)` gone from the area and `−(2/3)(1−d²)^{3/2}` from the moment.
+Genus one, and the body reports itself not exact.
+
 **The spike is done**, per §10's rule 2 — a throwaway outside the workspace,
 marching a torus against a plane and a cylinder. Six findings, and the last of
 them changes what M6 is.
@@ -1187,10 +1219,11 @@ is the other three warnings, exactly where the literature says it is.
 No *feature* builds a torus yet either — a revolve makes one, and so does a
 plane-cylinder fillet, and neither is written.
 
-**Tests.** A plane cutting a torus at the Villarceau angle gives two circles. A
-marched intersection's fit bound is recorded, the body reports itself fitted,
-and the same cut over the exact tier still reports exact. And the case the
-literature says will be missed: a shallow near-tangential intersection that
+**Tests.** The reducible table is paid — every circle it hands back is held
+against the closed form and sampled onto both surfaces, Villarceau's included.
+What is left waits on the marching: a marched intersection's fit bound
+recorded, the same cut over the exact tier still reporting exact, and the case
+the literature says will be missed — a shallow near-tangential meeting that
 produces a small closed loop.
 
 ### 9.3 M7 — fillet, chamfer, STEP

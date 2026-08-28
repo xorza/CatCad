@@ -927,6 +927,70 @@ fn a_bar_cross_drilled_by_a_narrower_hole_is_the_volume_the_arithmetic_says() {
     }
 }
 
+/// **A ring turned down on a lathe**, which is the first boolean anywhere here
+/// over a surface of the fitted tier.
+///
+/// A ring of three by one about the world's `y`, kept only where it stands
+/// within three and a half of that axis — which is what a coaxial rod
+/// intersected with it comes to. Every surface pair in it reduces: the rod's
+/// wall shares the ring's axis and cuts it in two circles of the rod's own
+/// radius, and the rod's two caps stand clear of the ring altogether.
+///
+/// **Every figure by hand, through Pappus.** What is left is the tube's own
+/// disc cut at `d` from its middle, where `d` is how far the rod's radius
+/// stands past the major one — so the volume is `2π` times the first moment of
+/// that piece about the axis. A disc of `minor` cut at `d` loses the segment
+/// `minor²(acos s − s√(1 − s²))` of its area for `s = d/minor`, and what is
+/// left has a first moment of `−(2/3)(minor² − d²)^{3/2}` about its own middle;
+/// the axis stands `major` further off. Nothing about how a boolean works
+/// produces that by accident.
+///
+/// **Genus one**, a turned ring being a ring still.
+#[test]
+fn a_ring_turned_down_on_a_coaxial_rod_is_the_volume_pappus_says() {
+    let (major, minor) = (3.0_f64, 1.0_f64);
+    let radius = 3.5;
+    let ring = Body::ring(major, minor);
+    let rod = rod(raised(-5.0), DVec2::ZERO, radius, 10.0, TOOL);
+
+    let mut boolean = Boolean::default();
+    let mut into = Body::default();
+    assert!(
+        boolean.combine(&ring, &rod.body, Operation::Intersect, &mut into),
+        "a ring turned down on a rod was turned away",
+    );
+
+    let reckoning = into.reckoning();
+    assert_eq!(reckoning.genus, 1, "{reckoning:?}");
+    assert!(into.holds(rod.wall), "the rod lost the band it kept");
+    assert!(
+        into.holds(Step::default().grew(Grown::Base)),
+        "the ring's own"
+    );
+    assert!(!into.exact(), "a body standing on a torus is not exact");
+
+    let cut = radius - major;
+    let share = cut / minor;
+    let gone = minor * minor * (share.acos() - share * (1.0 - share * share).sqrt());
+    let area = PI * minor * minor - gone;
+    let moment = -(2.0 / 3.0) * (minor * minor - cut * cut).powf(1.5);
+    let want = TAU * (major * area + moment);
+    let mut mesher = Mesher::default();
+    let mut last = f64::INFINITY;
+    for sagitta in [1e-3, 1e-4] {
+        // Both walls are chorded: the ring's own has `4π²·major·minor` of area
+        // and the rod's band `2π·radius` round by the height it covers. What a
+        // chord cuts off goes as two thirds of the sagitta times the area it
+        // spans.
+        let walls = 4.0 * PI * PI * major * minor + TAU * radius * 2.0 * minor;
+        let slack = (2.0 / 3.0) * sagitta * walls;
+        let off = (mesher.volume(&into, sagitta) - want).abs();
+        assert!(off < slack, "{off} off {want} at a sagitta of {sagitta}");
+        assert!(off < last, "{sagitta} read no nearer than the last: {off}");
+        last = off;
+    }
+}
+
 // Already inside a `cfg(test)` module, so it needs no gate of its own.
 mod matrix;
 
