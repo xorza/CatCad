@@ -1,7 +1,7 @@
 //! What can be asked of what is picked out, along the bottom.
 
 use palantir::{Align, DragValue, Ui, WidgetId};
-use silverpoint::{Constraint, ConstraintId, Entity};
+use silverpoint::{Constraint, ConstraintId, Entity, Operation, SegmentId};
 
 use crate::hud::chip::Chip;
 use crate::hud::pill::{self, Pill};
@@ -66,7 +66,13 @@ pub(super) fn show(
     }
     let dimension = open.and_then(|model| dimension_picked(model, selection));
     let region = open.and_then(|_| region_picked(selection));
-    if offers.is_empty() && dimension.is_none() && region.is_none() && startable.is_none() {
+    let spinning = open.and_then(|_| axis_picked(selection));
+    if offers.is_empty()
+        && dimension.is_none()
+        && region.is_none()
+        && spinning.is_none()
+        && startable.is_none()
+    {
         return;
     }
     // Seeded from the drawing every frame rather than remembered, which is what
@@ -129,8 +135,33 @@ pub(super) fn show(
                     region: growable.region,
                 })));
             }
+            // **Builds rather than asks**, unlike the extrude above — see
+            // [`Change::Revolve`], on why a whole turn opens no form. And it
+            // joins, which is what a second solid means unless somebody says
+            // otherwise: what a revolve does with what stands before it is the
+            // one thing a form would still be for.
+            //
+            // The extrude's own glyph until a revolve has one drawn for it, as
+            // the recipe's row does — the word is what tells the two apart.
+            if let Some(spinnable) = spinning
+                && Chip::icon(relation_id("Revolve"), "Revolve", Glyph::Extrude).show(
+                    ui,
+                    shown.icons,
+                    theme,
+                )
+            {
+                intents.push(Change::Revolve {
+                    sketch: spinnable.sketch,
+                    region: spinnable.region,
+                    axis: spinnable.axis,
+                    operation: Operation::Join,
+                });
+            }
             if !offers.is_empty()
-                && (startable.is_some() || dimension.is_some() || region.is_some())
+                && (startable.is_some()
+                    || dimension.is_some()
+                    || region.is_some()
+                    || spinning.is_some())
             {
                 pill::divider(ui, theme, "offers");
             }
@@ -220,6 +251,50 @@ fn region_picked(selection: &Selection) -> Option<Growable> {
         [Part::Region { sketch, at }] => Some(Growable { sketch, region: at }),
         _ => None,
     }
+}
+
+/// A region and a line to spin it about, if what is picked is exactly those
+/// two of one drawing.
+///
+/// **Either way round**, because which of the two was clicked first says
+/// nothing about what was meant. And of one drawing, because a revolve spins a
+/// region about a line drawn beside it — see
+/// [`Feature::Revolve`](crate::timeline::feature::Feature), on why the axis is
+/// named among the profile's own geometry.
+fn axis_picked(selection: &Selection) -> Option<Spinnable> {
+    let (sketch, region, drawn) = match *selection.picked() {
+        [
+            Part::Region { sketch, at },
+            Part::Entity {
+                sketch: beside,
+                entity,
+            },
+        ]
+        | [
+            Part::Entity {
+                sketch: beside,
+                entity,
+            },
+            Part::Region { sketch, at },
+        ] if sketch == beside => (sketch, at, entity),
+        _ => return None,
+    };
+    let Entity::Segment(axis) = drawn else {
+        return None;
+    };
+    Some(Spinnable {
+        sketch,
+        region,
+        axis,
+    })
+}
+
+/// A region the bar can spin a solid off, and the line to spin it about.
+#[derive(Debug, Clone, Copy)]
+struct Spinnable {
+    sketch: FeatureId,
+    region: usize,
+    axis: SegmentId,
 }
 
 /// The one plane picked out, if what is picked is exactly that.

@@ -743,3 +743,80 @@ fn the_form_says_what_an_extrude_does_and_the_document_does_it() {
         "the cut grew no solid of its own to take away with"
     );
 }
+
+/// **Picking a region and a line offers a revolve, and pressing it grows one**
+/// — which is what `.notes/KERNEL.md` §10's first rule owes M6: a step of a
+/// document a user can make.
+///
+/// **Two picks and no form**, unlike the extrude above. A whole turn asks for
+/// no number, so what is picked says everything and the press is the whole of
+/// the gesture. What the two make of each other is the kernel's to answer, and
+/// it does — see `a_circle_spun_about_a_line_beside_it_is_the_ring_it_traces`.
+///
+/// And the step is one a Ctrl+Z takes back, which a creation nothing recorded
+/// would not be.
+#[test]
+fn picking_a_region_and_a_line_offers_a_revolve_and_pressing_it_grows_one() {
+    let mut raised = Raised::new();
+    let steps = raised.models().chosen().count();
+
+    let open = raised
+        .models()
+        .open()
+        .expect("a fixture opens the sketch it names");
+    let sketch = open.of();
+    let region = open.region(0);
+    let (axis, _) = raised
+        .app
+        .document
+        .drawn(sketch)
+        .sketch()
+        .segments()
+        .next()
+        .expect("the demo draws a line to spin about");
+
+    // Nothing on the bar while only the region is picked — the chip is what
+    // says the *pair* means something.
+    raised.choose(Choice::Select(Some(region)));
+    raised.frame();
+    assert!(
+        raised
+            .harness
+            .layout_rect(internals::relation("Revolve"))
+            .is_none(),
+        "a region alone offered a revolve",
+    );
+
+    // And the line beside it, which is what a shift-click adds.
+    raised.choose(Choice::Include(Part::Entity {
+        sketch,
+        entity: axis.into(),
+    }));
+    raised.frame();
+    raised.press(internals::relation("Revolve"));
+    raised.frame();
+
+    let (_, feature) = raised
+        .models()
+        .chosen()
+        .filter(|(_, feature)| matches!(feature, Feature::Revolve { .. }))
+        .last()
+        .expect("pressing Revolve grew no step");
+    assert!(
+        matches!(feature, Feature::Revolve { axis: about, .. } if *about == axis),
+        "the line that was picked did not reach the timeline: {feature:?}",
+    );
+    assert_eq!(
+        raised.models().chosen().count(),
+        steps + 1,
+        "the revolve is one step",
+    );
+
+    raised.ctrl(Key::Char('Z'));
+    raised.frame();
+    assert_eq!(
+        raised.models().chosen().count(),
+        steps,
+        "the revolve was not one step to take back",
+    );
+}

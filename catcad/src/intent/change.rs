@@ -144,13 +144,10 @@ pub(crate) enum Change {
     /// rather than a position, a segment being the drawing's own and durable
     /// where a face of an arrangement is not.
     ///
-    /// **No gesture raises one yet**, and that is what the allow below says: a
-    /// revolve takes two picks — a region and a line — where every form here
-    /// takes picks and then a *number*, and a whole turn asks for no number at
-    /// all. Everything behind this is built and held end to end by
-    /// `a_circle_spun_about_a_line_of_its_own_drawing_reaches_the_model_as_a_ring`;
-    /// the tool is the one piece left.
-    #[allow(dead_code)]
+    /// **Two picks and no form**, unlike [`Change::Extrude`]: a revolve is told
+    /// everything by what is picked, where a depth is a number somebody has to
+    /// type. The relations bar is the one thing that raises this, and it
+    /// builds rather than asking.
     Revolve {
         sketch: FeatureId,
         region: usize,

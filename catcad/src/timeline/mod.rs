@@ -775,7 +775,7 @@ pub(crate) struct Movable {
 /// timeline is. Undoing a delete that put its steps back on the end would put
 /// them back in a different recipe.
 ///
-/// Owned rather than borrowed, unlike [`Movable`] and [`Extruded`] above: those
+/// Owned rather than borrowed, unlike [`Movable`] and [`Swept`] above: those
 /// are ways of looking at a step the timeline still holds, and this is what is
 /// left once it does not.
 #[derive(Debug, Clone)]

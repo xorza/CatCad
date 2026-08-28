@@ -1607,8 +1607,30 @@ each kind gives `32π/3`, which a slice-by-slice integral gives again; and a
 circular segment beyond a chord gives `2π` times the segment's own moment, the
 figure the ring tests are already measured by.
 
-What is left of it is a *partial* turn, which is the same profile with two caps
-and no halving, and the plane-cylinder fillet that also makes a torus.
+**And it lands in CatCad**, which is §10's first rule and what M6 owed. A step
+of the timeline holds one — `Feature::Revolve` — the file writes and reads it,
+the recipe lists it, and the bar offers it.
+
+**The axis is a segment of the profile's own sketch**, named by the drawing's
+own handle the way a region is named by its bounds: so it survives the geometry
+moving and being cut into pieces, one drawing holds both, and a drag through the
+sketch carries the axis along with the profile.
+
+**Two picks and no form.** Every other thing the bar builds takes picks and then
+a *number*, and a whole turn asks for none — so what is picked says everything
+and the press is the whole of the gesture. It joins, that being what a second
+solid means unless somebody says otherwise; what a revolve does with the solid
+standing before it is the one thing a form is still for.
+
+**And one word covers both sweeps.** What a step does to a region is
+`timeline::Sweep` — carried a distance, or spun about a line — resolved where
+the sketch is and carried into the build as a value. Everything else about a
+step that grows a solid is written once: the profile, the operation, the body,
+the place in the model, and `Feature::grows` for every reader that does not care
+which.
+
+What is left of the revolve is a *partial* turn, which is the same profile with
+two caps and no halving, and the plane-cylinder fillet that also makes a torus.
 
 **Tests, and they are paid.** The reducible table is held against the closed
 form and sampled onto both surfaces, Villarceau's included; the walking is held
