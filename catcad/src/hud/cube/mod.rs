@@ -6,20 +6,36 @@ use std::f32::consts::PI;
 use aperture::Camera;
 use glam::{Vec2, Vec3};
 use palantir::{
-    Align, AnimSlot, Animatable, Color, Configure, Drag, Mesh, Panel, Sense, Shape, Sizing, Text,
-    TextStyle, Ui, Vec2 as UiVec2, WidgetId,
+    Align, AnimSlot, Animatable, Color, Configure, Drag, LineCap, LineJoin, Mesh, Panel,
+    PolylineColors, Sense, Shape, Sizing, Ui, Vec2 as UiVec2, WidgetId,
 };
 
+use crate::hud::cube::facet::Facet;
 use crate::intent::Intents;
 use crate::intent::change::Change;
 use crate::look::Theme;
 use crate::scene_view::ORBIT_RATE;
 
-/// Where a click inside a face stops being about the face and starts being
-/// about a corner, as a share of the half-face.
+mod facet;
+mod letters;
+
+/// How much of a face a name is set across, as a share of the face's own width.
 ///
-/// Half, so the middle of a face is a face and the outer quarters are corners.
-const CORNER_BAND: f32 = 0.5;
+/// **Sized against the widest of the six, so all six are set at one height.** A
+/// cube whose lettering grew as it turned would read as six cubes rather than
+/// as one being looked at from six sides. Short of the whole face, because a
+/// word pressed against the bevel would read as one that had not fitted.
+const NAMING: f32 = 0.80;
+
+/// How far a face has to be turned toward the eye before its name is written on
+/// it, as the cosine of the angle between them.
+///
+/// **A word is not worth the room until it can be read.** A face near enough to
+/// edge-on projects its letters into a smear a stroke or two wide, which is
+/// noise across the piece next to it. At this much the three faces of a corner
+/// view all carry their names — a corner shows each at `0.577` — and a face
+/// swinging away loses its name well before it loses its outline.
+const READS: f32 = 0.3;
 
 /// Where the cube's light comes from, in the world.
 ///
@@ -28,8 +44,8 @@ const CORNER_BAND: f32 = 0.5;
 /// swapping shades: the face that was bright stays the bright one as it comes
 /// round.
 ///
-/// Authored at unit length, so shading a face is one dot product rather than a
-/// normalize per face per frame.
+/// Authored at unit length, so shading a piece is one normalize and one dot
+/// rather than two normalizes.
 const LIGHT: Vec3 = Vec3::new(0.3235, 0.8896, 0.3538);
 
 /// The row the camera's bearing is eased in.
@@ -90,81 +106,6 @@ impl From<Vec3> for Bearing {
     }
 }
 
-/// One face of the cube, and the two axes that span it.
-///
-/// The axes travel with the normal rather than being worked out from it,
-/// because they are what a click is read in: a point inside a face resolves to
-/// a share along each, and which corner that names follows from their signs.
-#[derive(Debug, Clone, Copy)]
-struct Side {
-    normal: Vec3,
-    u: Vec3,
-    v: Vec3,
-    name: &'static str,
-}
-
-/// Every face, named the way a drawing is read.
-///
-/// `TOP`, `FRONT` and `RIGHT` are what every CAD program writes on a cube, and
-/// they stay that vocabulary here even though the recipe two corners away calls
-/// the world's three planes `Ground`, `Front` and `Side`. The two are different
-/// things: one is a direction you look from, the other is a sheet you draw on.
-const SIDES: [Side; 6] = [
-    Side {
-        normal: Vec3::Y,
-        u: Vec3::X,
-        v: Vec3::NEG_Z,
-        name: "TOP",
-    },
-    Side {
-        normal: Vec3::NEG_Y,
-        u: Vec3::X,
-        v: Vec3::Z,
-        name: "BOTTOM",
-    },
-    Side {
-        normal: Vec3::Z,
-        u: Vec3::X,
-        v: Vec3::Y,
-        name: "FRONT",
-    },
-    Side {
-        normal: Vec3::NEG_Z,
-        u: Vec3::NEG_X,
-        v: Vec3::Y,
-        name: "BACK",
-    },
-    Side {
-        normal: Vec3::X,
-        u: Vec3::NEG_Z,
-        v: Vec3::Y,
-        name: "RIGHT",
-    },
-    Side {
-        normal: Vec3::NEG_X,
-        u: Vec3::Z,
-        v: Vec3::Y,
-        name: "LEFT",
-    },
-];
-
-/// What a press on the cube would take you to.
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Zone {
-    /// Straight on to one face.
-    Face(Vec3),
-    /// The three-quarter view from one corner.
-    Corner(Vec3),
-}
-
-impl Zone {
-    fn direction(self) -> Vec3 {
-        match self {
-            Self::Face(d) | Self::Corner(d) => d,
-        }
-    }
-}
-
 /// The gizmo, and the view it is on its way to.
 ///
 /// **The target is the whole of its state.** Where the camera *is* belongs to
@@ -182,6 +123,15 @@ pub(super) struct Cube {
     /// rebuilt, so the buffers it needs are asked for once and the record pass
     /// stays at zero allocations.
     mesh: Mesh,
+    /// One piece's outline, in the world and then laid into the box.
+    ///
+    /// Kept for their room rather than their contents, like everything else the
+    /// overlay parks: twenty-six outlines are built every frame, and a pair of
+    /// lists asked for at each of them is twenty-six trips to the heap a frame.
+    ring: Vec<Vec3>,
+    flat: Vec<Vec2>,
+    /// One stroke of one letter, laid into the box, for the same reason.
+    stroke: Vec<UiVec2>,
     turning_to: Option<Bearing>,
     /// How far the drag under way has travelled, so the next frame can ask for
     /// the *step* rather than the whole of it again. Palantir reports a drag as
@@ -205,17 +155,27 @@ impl Cube {
     ) {
         let state = ui.response_for(id);
         let seen = Seen::of(theme, camera);
-        // Read before the shapes, so the zone under the pointer is lit on the
+        // Borrowed apiece, because the lettering runs inside the panel below
+        // and the outlines are laid before it: they are different fields, and
+        // nothing here reads one while writing another.
+        let Self {
+            mesh,
+            ring,
+            flat,
+            stroke,
+            ..
+        } = self;
+        // Read before the shapes, so the piece under the pointer is lit on the
         // frame it is under it rather than the frame after.
         let under = state
             .pointer_local
             .filter(|_| state.hovered)
-            .and_then(|p| seen.zone(seen.local(p)));
-        faces(&mut self.mesh, &seen, under);
-        let mesh = &self.mesh;
-        // A canvas rather than a stack, because the face names are *placed*: a
-        // stack puts every child at its own top-left, so three labels would
-        // land on top of one another in the corner.
+            .and_then(|p| seen.facet_at(seen.local(p), ring, flat));
+        solid(mesh, &seen, ring, flat, under);
+        let mesh = &*mesh;
+        // A canvas rather than a stack, because the lettering is *placed*: a
+        // stack puts every child at its own top-left, so three names would land
+        // on top of one another in the corner.
         Panel::canvas()
             .id(id)
             .size((
@@ -231,10 +191,10 @@ impl Cube {
                 if under.is_none() {
                     arrows(ui, theme);
                 }
-                names(ui, &seen);
+                names(ui, &seen, stroke, under);
             });
-        if let Some(zone) = under.filter(|_| state.left.clicked()) {
-            self.turning_to = Some(Bearing::from(zone.direction()).near(camera.yaw));
+        if let Some(facet) = under.filter(|_| state.left.clicked()) {
+            self.turning_to = Some(Bearing::from(facet.out()).near(camera.yaw));
         }
         self.drag(state.left.drag, intents);
         self.turn(ui, id, theme, camera, intents);
@@ -331,9 +291,9 @@ impl<'a> Seen<'a> {
         }
     }
 
-    /// Whether a face is turned toward the eye at all.
-    fn shows(&self, side: Side) -> bool {
-        side.normal.dot(self.eye) > 0.0
+    /// Whether a piece of the solid is turned toward the eye at all.
+    fn shows(&self, facet: Facet) -> bool {
+        facet.out().dot(self.eye) > 0.0
     }
 
     /// Where a world direction lands in the box, measured from its middle.
@@ -347,7 +307,11 @@ impl<'a> Seen<'a> {
     /// The same, in the box's own coordinates — what a shape is placed in and
     /// where the pointer arrives.
     fn at(&self, direction: Vec3) -> UiVec2 {
-        let flat = self.flat(direction);
+        self.boxed(self.flat(direction))
+    }
+
+    /// A point already laid flat, moved into the box's own corner.
+    fn boxed(&self, flat: Vec2) -> UiVec2 {
         let middle = self.theme.chrome.cube * 0.5;
         UiVec2::new(flat.x + middle, flat.y + middle)
     }
@@ -358,161 +322,159 @@ impl<'a> Seen<'a> {
         Vec2::new(pointer.x - middle, pointer.y - middle)
     }
 
+    /// The outline of `facet`, laid flat into `flat`.
+    fn outline(&self, facet: Facet, ring: &mut Vec<Vec3>, flat: &mut Vec<Vec2>) {
+        facet.ring(self.theme.chrome.cube_chamfer, ring);
+        flat.clear();
+        flat.extend(ring.iter().map(|&at| self.flat(at)));
+    }
+
     /// What the point `at` in the box is over, if anything.
     ///
-    /// Read against the same three faces that were drawn, in the same
-    /// projection: a point inside one resolves to a share along each of its
-    /// axes, and how far out those shares are is what tells a face from a
-    /// corner.
+    /// **Asked of the outlines that were drawn, and of nothing else.** The
+    /// pieces turned toward the eye tile what you can see of a convex solid
+    /// exactly — they cannot overlap and they leave no gap — so the first one
+    /// that contains the point is the only one that does, and a point in none
+    /// of them is a point beside the gizmo.
     ///
-    /// **An edge counts as its face.** The twelve half-way views are the least
-    /// reached for and the fiddliest to hit, and adding them is one more band in
-    /// this test rather than a second test — the case where exactly one of the
-    /// two shares is out past [`CORNER_BAND`].
-    fn zone(&self, at: Vec2) -> Option<Zone> {
-        for side in SIDES {
-            if !self.shows(side) {
-                continue;
+    /// That is the whole of what cutting the edges and corners off bought. A
+    /// plain cube has six outlines and fourteen views, so the other eight had
+    /// to be read off bands inside a face that nothing on screen drew; here
+    /// every view you can ask for is a piece you can see.
+    fn facet_at(&self, at: Vec2, ring: &mut Vec<Vec3>, flat: &mut Vec<Vec2>) -> Option<Facet> {
+        facet::EVERY.into_iter().find(|&facet| {
+            self.shows(facet) && {
+                self.outline(facet, ring, flat);
+                inside(flat, at)
             }
-            let middle = self.flat(side.normal);
-            let (u, v) = (self.flat(side.u), self.flat(side.v));
-            let det = u.x * v.y - u.y * v.x;
-            // Edge-on, so it has no inside to be within.
-            if det.abs() < f32::EPSILON {
-                continue;
-            }
-            let from = at - middle;
-            let s = (from.x * v.y - from.y * v.x) / det;
-            let t = (u.x * from.y - u.y * from.x) / det;
-            if s.abs() > 1.0 || t.abs() > 1.0 {
-                continue;
-            }
-            return Some(if s.abs() >= CORNER_BAND && t.abs() >= CORNER_BAND {
-                Zone::Corner(side.normal + side.u * s.signum() + side.v * t.signum())
-            } else {
-                Zone::Face(side.normal)
-            });
-        }
-        None
+        })
     }
 }
 
-/// Every face turned toward the eye, filled and lit, into `mesh`.
+/// Whether `at` is inside the convex outline `ring`.
 ///
-/// Three of them, always: a cube shows three faces from a corner and two from
-/// an edge, and the third is then a sliver of no width. Nothing is sorted,
-/// because faces pointing at the eye cannot overlap each other.
-fn faces(mesh: &mut Mesh, seen: &Seen<'_>, under: Option<Zone>) {
+/// By whether every edge turns the same way about it, which is the test a
+/// *convex* outline admits and a general one does not — and every piece of this
+/// solid is convex by construction. An edge the point sits exactly on counts
+/// for either, so a press on the join between two pieces lands on one of them
+/// rather than on neither.
+fn inside(ring: &[Vec2], at: Vec2) -> bool {
+    let mut side = 0.0;
+    for from in 0..ring.len() {
+        let edge = ring[(from + 1) % ring.len()] - ring[from];
+        let reach = at - ring[from];
+        let turn = edge.x * reach.y - edge.y * reach.x;
+        if turn * side < 0.0 {
+            return false;
+        }
+        if turn != 0.0 {
+            side = turn;
+        }
+    }
+    true
+}
+
+/// Every piece of the solid turned toward the eye, filled and lit, into `mesh`.
+///
+/// Nothing is sorted, because pieces pointing at the eye cannot overlap each
+/// other — the same fact the picking above rests on.
+fn solid(
+    mesh: &mut Mesh,
+    seen: &Seen<'_>,
+    ring: &mut Vec<Vec3>,
+    flat: &mut Vec<Vec2>,
+    under: Option<Facet>,
+) {
     mesh.clear();
-    for side in SIDES {
-        if !seen.shows(side) {
+    for facet in facet::EVERY {
+        if !seen.shows(facet) {
             continue;
         }
-        let shade = lit(
-            seen.theme,
-            side.normal,
-            under == Some(Zone::Face(side.normal)),
-        );
-        let at = |s: f32, t: f32| seen.at(side.normal + side.u * s + side.v * t);
-        quad(
+        seen.outline(facet, ring, flat);
+        fan(
             mesh,
-            [at(-1.0, -1.0), at(1.0, -1.0), at(1.0, 1.0), at(-1.0, 1.0)],
-            shade,
+            seen,
+            flat,
+            lit(seen.theme, facet, under == Some(facet)),
         );
-        if let Some(Zone::Corner(corner)) = under {
-            highlight(mesh, seen.theme, side, corner, at);
-        }
     }
 }
 
-/// One quad, as the two triangles a mesh is made of — sharing their vertices,
-/// so the cut between them is not a boundary anything antialiases against.
-fn quad(mesh: &mut Mesh, [a, b, c, d]: [UiVec2; 4], color: Color) {
-    let [a, b, c, d] = [a, b, c, d].map(|at| mesh.vertex(at, color));
-    mesh.triangle(a, b, c);
-    mesh.triangle(a, c, d);
+/// One outline, as the fan of triangles it is — sharing their vertices, so no
+/// cut inside it is a boundary anything antialiases against.
+fn fan(mesh: &mut Mesh, seen: &Seen<'_>, ring: &[Vec2], color: Color) {
+    let [first, second] = [0, 1].map(|at| mesh.vertex(seen.boxed(ring[at]), color));
+    let mut last = second;
+    for &at in &ring[2..] {
+        let next = mesh.vertex(seen.boxed(at), color);
+        mesh.triangle(first, last, next);
+        last = next;
+    }
 }
 
-/// What a face turned this way is filled with.
+/// What a piece turned this way is filled with.
 ///
-/// Lit in the world rather than picked off a table of three, so a face keeps
-/// its shade as the cube turns — see [`LIGHT`].
-fn lit(theme: &Theme, normal: Vec3, under: bool) -> Color {
+/// Lit in the world rather than picked off a table, so a piece keeps its shade
+/// as the cube turns — see [`LIGHT`]. It is also the whole of what makes the
+/// chamfers read: a bevel faces halfway between its two neighbours, so the
+/// light gives it a shade of its own and the edge between them becomes a facet
+/// rather than a line.
+fn lit(theme: &Theme, facet: Facet, under: bool) -> Color {
     let chrome = &theme.chrome;
     if under {
         return chrome.chip_held;
     }
-    let light = normal.dot(LIGHT).max(0.0);
+    let light = facet.normal().dot(LIGHT).max(0.0);
     chrome.cube_low.lerp(chrome.cube_high, light)
 }
 
-/// The wedge of one face that belongs to `corner`, where the pointer is on one.
+/// The name of every face turned far enough toward the eye to read, written in
+/// the plane of the face itself.
 ///
-/// Drawn per face rather than as one shape, because a corner is where three
-/// faces meet and what the viewer can see of it is however many of them are
-/// turned this way.
-fn highlight(
-    mesh: &mut Mesh,
-    theme: &Theme,
-    side: Side,
-    corner: Vec3,
-    at: impl Fn(f32, f32) -> UiVec2,
-) {
-    let (s, t) = (corner.dot(side.u), corner.dot(side.v));
-    // A corner off this face has no wedge on it: two of its three axes agree
-    // with the face's, and the third is the face's own normal.
-    if corner.dot(side.normal) <= 0.0 || s == 0.0 || t == 0.0 {
-        return;
-    }
-    let [a, b, c] =
-        [at(s, t), at(s, 0.0), at(0.0, t)].map(|p| mesh.vertex(p, theme.chrome.chip_held));
-    mesh.triangle(a, b, c);
-}
-
-/// The name of every face with room on screen to carry one.
-///
-/// **Measured against the face's projection, not against how square-on it is.**
-/// A name is set horizontally, so what decides whether it fits is how wide and
-/// tall the face comes out — and those are different questions. The top of a
-/// cube tipped a little toward the viewer is a shallow band: barely any of it
-/// by area, and still wider than the word `TOP`.
-fn names(ui: &mut Ui, seen: &Seen<'_>) {
-    // The box the longest name needs, and no more: it is the bound a face is
-    // measured against, so a box wider than the word it holds drops names off
-    // faces that had room for them.
-    const RUN: f32 = 30.0;
-    const RISE: f32 = 11.0;
-    // Light, because a face is dark however the light falls on it: the two
-    // shades it lerps between are both under half.
-    let style = TextStyle {
-        color: seen.theme.chrome.ink_lit,
-        font_size_px: 8.0,
-        ..TextStyle::default()
-    };
-    for side in SIDES {
-        if !seen.shows(side) {
+/// **In the face and not on the screen**, which is the one thing about the
+/// lettering worth saying. A run of shaped text is a rectangle of pixels the
+/// compositor sets square to the screen, and a word set square on a face that
+/// is not reads as a sticker on a photograph. These are strokes — see
+/// [`letters`] — so every point of every letter goes through the same
+/// projection the outline under it did, and the word leans with the face.
+fn names(ui: &mut Ui, seen: &Seen<'_>, stroke: &mut Vec<UiVec2>, under: Option<Facet>) {
+    let chrome = &seen.theme.chrome;
+    // One height for all six — see [`NAMING`].
+    let widest = facet::SIDES
+        .into_iter()
+        .map(|side| letters::width(side.name))
+        .fold(0.0, f32::max);
+    // The face is what is left of the cube's own after the cut, and the word
+    // takes a share of that.
+    let em = (1.0 - chrome.cube_chamfer) * 2.0 * NAMING / widest;
+    for side in facet::SIDES {
+        let facet = side.facet();
+        if facet.normal().dot(seen.eye) < READS {
             continue;
         }
-        let (u, v) = (seen.flat(side.u), seen.flat(side.v));
-        // The projected face is a parallelogram spanned by these two, so its
-        // reach along each screen axis is the sum of what they contribute to it.
-        let across = (u.x.abs() + v.x.abs()) * 2.0;
-        let down = (u.y.abs() + v.y.abs()) * 2.0;
-        if across < RUN || down < RISE {
-            continue;
+        // The pill's own dark where the face under it has gone light, so the
+        // word survives being pointed at rather than disappearing into it.
+        let ink = match under == Some(facet) {
+            true => chrome.on_held,
+            false => chrome.ink_lit,
+        };
+        let mut pen = em * letters::width(side.name) * -0.5;
+        for letter in side.name.bytes() {
+            for run in letters::strokes(letter) {
+                stroke.clear();
+                stroke.extend(run.iter().map(|point| {
+                    let across = pen + point.x * letters::NARROW * em;
+                    let up = (point.y - 0.5) * em;
+                    seen.at(facet.out() + side.u * across + side.v * up)
+                }));
+                ui.add_shape(
+                    Shape::polyline(stroke, PolylineColors::Single(ink), chrome.cube_letter)
+                        .cap(LineCap::Round)
+                        .join(LineJoin::Round),
+                );
+            }
+            pen += (letters::NARROW + letters::TRACKING) * em;
         }
-        let middle = seen.at(side.normal);
-        Panel::zstack()
-            .id_salt(side.name)
-            .position(UiVec2::new(middle.x - RUN * 0.5, middle.y - RISE * 0.5))
-            .size((Sizing::fixed(RUN), Sizing::fixed(RISE)))
-            .show(ui, |ui| {
-                Text::new(side.name)
-                    .id_salt(side.name)
-                    .style(&style)
-                    .align(Align::CENTER)
-                    .show(ui);
-            });
     }
 }
 
@@ -553,24 +515,24 @@ mod tests {
     use glam::Vec2;
 
     /// Where a press at `at` in the cube's box would point the camera, or
-    /// `None` where that point is off the cube.
+    /// `None` where that point is off the solid.
     ///
     /// The whole of what these tests need: the drawing is judged by eye and the
-    /// arithmetic is judged here, so a face that stopped resolving to its own
+    /// arithmetic is judged here, so a piece that stopped resolving to its own
     /// view fails without a frame being rendered.
     fn aimed(camera: Camera, at: Vec2) -> Option<Bearing> {
-        Some(Bearing::from(
-            Seen::of(&Theme::default(), camera).zone(at)?.direction(),
-        ))
+        let (mut ring, mut flat) = (Vec::new(), Vec::new());
+        let facet = Seen::of(&Theme::default(), camera).facet_at(at, &mut ring, &mut flat)?;
+        Some(Bearing::from(facet.out()))
     }
 
     /// The bearing that looks square on at the face called `name`.
     fn facing(name: &str) -> Bearing {
-        let side = SIDES
+        let side = facet::SIDES
             .iter()
             .find(|side| side.name == name)
             .expect("the cube has a face by that name");
-        Bearing::from(side.normal)
+        Bearing::from(side.facet().out())
     }
 
     /// A camera looking from `direction`, and nothing else about it that
@@ -582,6 +544,14 @@ mod tests {
             pitch,
             ..Camera::default()
         }
+    }
+
+    /// The piece looking out along `out`.
+    fn piece(out: Vec3) -> Facet {
+        facet::EVERY
+            .into_iter()
+            .find(|facet| facet.out() == out)
+            .expect("the solid has a piece looking that way")
     }
 
     /// Each named view is the direction its name says, worked out by hand: the
@@ -635,25 +605,69 @@ mod tests {
         );
     }
 
-    /// A corner of a face is the three-quarter view, and not the face's own.
+    /// **Every piece the eye can see answers for its own outline, and for no
+    /// other.**
     ///
-    /// Aimed at the far corner of the front face as it projects from a corner
-    /// view, which is inside the corner band on both axes by construction.
+    /// The one claim the whole gizmo rests on, and three things have to hold
+    /// together for it: the outline a piece is built with has to be the piece,
+    /// the pieces turned toward the eye have to tile what you can see of the
+    /// solid without overlapping, and the test for a point inside one has to
+    /// agree with both. A press at the middle of a piece landing on a
+    /// *neighbour* is what any of the three getting it wrong looks like.
+    ///
+    /// From a bearing square to nothing, so no piece is edge-on and every one
+    /// that shows has an outline with room in it.
     #[test]
-    fn a_corner_of_a_face_aims_at_the_corner_rather_than_the_face() {
-        let camera = looking(Vec3::new(1.0, 1.0, 1.0));
-        let at = Seen::of(&Theme::default(), camera).flat(Vec3::new(0.85, 0.85, 1.0));
-        let aim = aimed(camera, at).expect("a corner of the front face is on the cube");
-        let square_on = facing("FRONT");
-        assert!(
-            (aim.pitch - square_on.pitch).abs() > 0.1,
-            "the corner resolved to the face's own view: {aim:?}"
-        );
-        // Up and to one side, which is what a three-quarter view is.
-        assert!(aim.pitch > 0.4 && aim.pitch < 0.8, "{aim:?}");
+    fn every_piece_in_view_answers_for_its_own_outline() {
+        let theme = Theme::default();
+        let camera = looking(Vec3::new(0.9, 0.55, 1.3));
+        let seen = Seen::of(&theme, camera);
+        let (mut ring, mut flat) = (Vec::new(), Vec::new());
+        let (mut probing, mut probed) = (Vec::new(), Vec::new());
+        let mut seen_count = 0;
+        for facet in facet::EVERY {
+            if !seen.shows(facet) {
+                continue;
+            }
+            seen_count += 1;
+            seen.outline(facet, &mut probing, &mut probed);
+            let middle = probed.iter().sum::<Vec2>() / probed.len() as f32;
+            let hit = seen.facet_at(middle, &mut ring, &mut flat);
+            assert_eq!(hit, Some(facet), "the middle of {facet:?} landed elsewhere");
+        }
+        // Three faces, six bevels and one corner is what a corner-ish view of a
+        // chamfered cube shows: every piece whose direction has a positive
+        // component in common with the eye and none against it.
+        assert_eq!(seen_count, 13, "a general view shows {seen_count} pieces");
     }
 
-    /// Off the cube is nothing at all, rather than the nearest face.
+    /// A press on the bevel between two faces aims half-way between them.
+    ///
+    /// **The view the old shape could not offer.** A plain cube draws six
+    /// outlines, so the twelve half-way views had to be read off a band inside
+    /// a face — invisible, and the fiddliest thing on the gizmo to hit. Cut,
+    /// the bevel is a piece you can see, and its middle is its own view.
+    #[test]
+    fn a_press_on_a_bevel_aims_half_way_between_the_two_faces_it_joins() {
+        let theme = Theme::default();
+        let camera = looking(Vec3::new(0.9, 0.55, 1.3));
+        let seen = Seen::of(&theme, camera);
+        let (mut ring, mut flat) = (Vec::new(), Vec::new());
+        // The bevel joining FRONT and RIGHT, at the middle of its own outline.
+        let bevel = piece(Vec3::new(1.0, 0.0, 1.0));
+        seen.outline(bevel, &mut ring, &mut flat);
+        let middle = flat.iter().sum::<Vec2>() / flat.len() as f32;
+        let aim = aimed(camera, middle).expect("the bevel is in view");
+        // Half-way between a yaw of zero and a quarter turn, and level: the
+        // eye offset runs `(sin yaw, ·, cos yaw)`, so `(1, 0, 1)` is an eighth
+        // of a turn round and no pitch at all.
+        assert!(
+            (aim.yaw - FRAC_PI_2 * 0.5).abs() < 1e-5 && aim.pitch.abs() < 1e-5,
+            "the bevel between FRONT and RIGHT aims at {aim:?}",
+        );
+    }
+
+    /// Off the cube is nothing at all, rather than the nearest piece.
     #[test]
     fn a_press_beside_the_cube_names_no_view() {
         let camera = looking(Vec3::Z);

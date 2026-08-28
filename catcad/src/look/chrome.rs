@@ -164,6 +164,26 @@ pub(crate) struct Chrome {
     /// How much of that box the artwork keeps clear at the edges, so the two
     /// turn arrows have somewhere to sit.
     pub(crate) cube_margin: f32,
+    /// How far each of the cube's edges is cut away, as a share of the
+    /// half-cube.
+    ///
+    /// **What turns six pressable faces into twenty-six.** A plain cube shows
+    /// six outlines and answers to fourteen views, so the other eight have to
+    /// be read off bands inside a face that nothing draws. Cut, every one of
+    /// the twenty-six is a piece of the solid with an outline of its own, so
+    /// what you can press is what you can see.
+    ///
+    /// A quarter, which is what leaves each bevel wide enough to aim at
+    /// without taking so much of a face that its name has nowhere to sit.
+    pub(crate) cube_chamfer: f32,
+    /// How wide the strokes the cube letters its faces with are drawn.
+    ///
+    /// A stroke rather than a shaped glyph, because a name on this cube lies
+    /// *in* the face it names, and there is no asking a run of shaped text to
+    /// lean. Set against the cap height the naming works out to, not chosen:
+    /// much thinner and a face turned away loses its word, much fatter and the
+    /// counters of `B` and `O` fill in.
+    pub(crate) cube_letter: f32,
 }
 
 impl Chrome {
@@ -179,13 +199,19 @@ impl Chrome {
 
     /// How far one unit of the orientation cube reaches in its box.
     ///
-    /// **Sized against the widest the cube can ever project to**, not against
-    /// how it looks from one angle. A unit cube seen along any axis pair spans
-    /// at most `√2` in each screen direction — the two horizontal axes at 45° —
-    /// so a cube built on this fits its box from every angle rather than growing
-    /// out of it as it turns.
+    /// **Sized against the widest the solid can ever project to**, not against
+    /// how it looks from one angle — so it fits its box from every angle rather
+    /// than growing out of it as it turns.
+    ///
+    /// The widest is the point where a face meets a bevel, seen from the
+    /// direction bisecting the two axes it spans: one coordinate at the whole
+    /// half-cube and the next at what the cut left of it, which comes to
+    /// `(2 - chamfer)/√2`. A plain cube is that with no cut at all, and its
+    /// corner is the `√2` this used to be written as — so a cube whose edges are
+    /// cut fits a tenth more of its box, and the lettering on it grows with it.
     pub(crate) fn cube_scale(&self) -> f32 {
-        (self.cube * 0.5 - self.cube_margin) / std::f32::consts::SQRT_2
+        let widest = (2.0 - self.cube_chamfer) / std::f32::consts::SQRT_2;
+        (self.cube * 0.5 - self.cube_margin) / widest
     }
 
     /// The chrome this palette dresses, at the sizes the overlay is built on.
@@ -228,8 +254,10 @@ impl Chrome {
             caption_text: 9.5,
             verdict_run: 46.0,
             verdict_weight: 4.0,
-            cube: 76.0,
-            cube_margin: 5.0,
+            cube: 112.0,
+            cube_margin: 8.0,
+            cube_chamfer: 0.2,
+            cube_letter: 1.3,
         }
     }
 }
