@@ -1044,8 +1044,9 @@ that will, and neither is built by anything today.
 
 That larger route is an arena and a `Copy` handle apiece, §4.5's own shape:
 `Cut` and `Curve` are both `Copy` value types and a general quartic holds some
-ninety heap blocks, so it cannot go in either by value. Nine `Cut` methods and
-several `Curve` ones would take a context. Bounded, and not yet earned.
+ninety heap blocks, so it cannot go in either by value. **The same arena M6's
+marched curves want**, and its design is written down there rather than twice —
+see 9.2.
 
 **Tests, and they are paid.** Two unequal cylinders give a quartic whose `Δ`
 matches the published classification — quartic in the parameter, held by a fifth
@@ -1301,9 +1302,66 @@ spike measured, asserted rather than assumed.
 
 **What the walking has no home for is what it lays down.** A run of places is
 not a `Copy` value, so `Curve` has nowhere to put one — the same arena §9.1 owes
-`Curve::Quartic`, and the two will land together. That arena is now what stands
-between a marched curve and a body: the seeding finds the pieces and the walking
-lays them down, and neither can reach the boolean until a curve can carry one.
+`Curve::Quartic`. That arena is now the whole of what stands between a marched
+curve and a body: the seeding finds the pieces and the walking lays them down,
+and neither reaches the boolean until a curve can carry one.
+
+**And its shape is settled before a line of it is written**, which two wrong
+sketches earned it. Six decisions, the last of them a cost rather than a design,
+and two measurements the first build owes.
+
+1. **The store lives on `Topology`, beside `walks`.** One flat `Loops` for every
+   marched curve a body stands on, a place and how far round it stands per
+   sample — see the first measurement below — cleared rather than freed, which
+   is §4.5's rule that nothing in an arena owns a heap block. A body rebuilt on
+   every frame of a drag reaches the allocator not at all, which is what the
+   gates measure.
+2. **`Meeting::of` stays pure and goes on answering `Marched`.** What produces a
+   run is `Combining`, which seeds, walks and files it when it meets such a
+   pair — so the routine every test calls keeps its signature, and the store is
+   asked for by the one caller that owns the body it is going into.
+3. **The arm is `Curve::Marched { run: u32, key: u64, reach: f64 }`**, three
+   words and `Copy`. The key is over the two surfaces and which piece, so a
+   crossing met from either side keys alike and `Imprints` deduplicates it
+   exactly as it does a circle. Keying over the samples would work and is the
+   wrong answer: it makes the identity of a curve depend on how finely it
+   happened to be walked.
+4. **`at`, `along` and `steps` take the store; `key` and `reach` do not**, both
+   of those being on the arm — so `Imprints`, which asks only for a key, goes on
+   holding a bare `Curve`. That is nine call sites, in `Edge`, `Walked`,
+   `Checking` and `Sewing`, and every one of them already has a `Topology` or a
+   `Body`.
+5. **The parameter is arc length round the run, scaled to a whole turn.** A
+   closed marched curve then splits at its own nought and half turn exactly as a
+   circle does — `Sewing::encircle` needs no arm of its own, which is the whole
+   reason to spend a division on it.
+6. **A marched curve answers `steps` with the chords it has**, not with the
+   chords a caller asked for. Re-walking wants both surfaces and a `&mut`, and
+   the readers hold neither — so a curve's fit is fixed where it is walked, that
+   number is the edge's own tolerance, and `Body::exact` goes false because of
+   it. *Cost:* a marched edge drawn finer than it was walked shows its chords.
+   That is §4.1's bargain read out loud, and the alternative is a `Curve` that
+   carries two whole surfaces to re-derive itself from.
+
+**And two things the first sketch of it had wrong**, which is what a pass like
+this is for.
+
+**A run stores how far along each of its places stands, not only the place.**
+`Curve::at` is asked once per step of every walk of the edge, so reading it by
+adding chords from the beginning is a walk inside a walk — the square of the
+sample count, per edge, per frame. With the length carried it is a search
+through a run that is already in order, and the extra number is eight bytes
+against a place's twenty-four.
+
+**`Curve::along` has no such answer, and that is what caps how finely a marched
+curve may be walked.** Reading a parameter off a *place* has nothing ordered to
+search: it is the nearest chord, which is the whole run. The sewing asks it once
+per corner of a face, so the cost is the sample count squared again — and the
+sample count is set by the sagitta the curve was walked at. Two ways out, and
+the first build has to measure before choosing: carry a hint into `along`, the
+callers all walking in order anyway, or index the run's places by a coarse grid.
+Until one of them lands, the walk's sagitta is the classification one and a
+marched edge is drawn at it.
 
 No *feature* builds a torus yet either — a revolve makes one, and so does a
 plane-cylinder fillet, and neither is written.
